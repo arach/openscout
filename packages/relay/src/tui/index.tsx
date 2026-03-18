@@ -658,8 +658,8 @@ function App() {
     // If idle or error, try to start
     if (voiceState !== "idle" && voiceState !== "error") return;
 
-    // Ensure Vox is connected
-    if (!voxAvailable) {
+    // Ensure Vox is connected (reconnect if dropped)
+    if (!voxAvailable || !voxClient?.connected) {
       setVoiceState("connecting");
       const ok = await initVox();
       if (!ok) {
