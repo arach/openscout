@@ -23,7 +23,7 @@ jobs:
         with:
           bun-version: "1.2.19"
 
-      - run: bun install --frozen-lockfile
+      - run: bun install
 
       - run: bun run build
 
