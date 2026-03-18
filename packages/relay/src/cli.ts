@@ -360,6 +360,7 @@ interface RelayConfig {
   projectRoot?: string;  // e.g. "~/dev" — where bare project names are resolved
   speakFor?: string;     // agent name to speak @mentions for (e.g. "arach")
   speakVoice?: string;   // OpenAI TTS voice (default: "nova")
+  roster?: string[];     // project names to auto-start as twins (e.g. ["dev", "lattices", "arc"])
 }
 
 async function loadRelayConfig(): Promise<RelayConfig> {
@@ -624,9 +625,102 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     return lines.join(" | ");
   }
 
+  if (cmd === "roster") {
+    const sub = parts[1];
+    const config = await loadRelayConfig();
+
+    if (sub === "add" && parts[2]) {
+      const name = parts[2];
+      config.roster = config.roster || [];
+      if (!config.roster.includes(name)) {
+        config.roster.push(name);
+        await saveRelayConfig(config);
+      }
+      return `added ${name} to roster (${config.roster.length} total)`;
+    }
+
+    if (sub === "remove" && parts[2]) {
+      const name = parts[2];
+      config.roster = (config.roster || []).filter((n) => n !== name);
+      await saveRelayConfig(config);
+      return `removed ${name} from roster`;
+    }
+
+    // Show roster
+    const roster = config.roster || [];
+    if (roster.length === 0) return "roster is empty — add with: @system roster add <name>";
+    const twins = await loadTwins();
+    const status = roster.map((name) => {
+      const twin = twins[name];
+      const alive = twin && isTmuxSessionAlive(twin.tmuxSession);
+      return `${alive ? "●" : "○"} ${name}`;
+    });
+    return status.join("  ");
+  }
+
   if (cmd === "up") {
     const target = parts[1];
-    if (!target) return "usage: @system up <path-or-project-name>";
+
+    // No args = bring up the whole roster
+    if (!target) {
+      const config = await loadRelayConfig();
+      const roster = config.roster || [];
+      if (roster.length === 0) return "no roster configured — add with: @system roster add <name>";
+
+      const results: string[] = [];
+      for (const name of roster) {
+        const tmuxSession = `relay-${name}`;
+        if (isTmuxSessionAlive(tmuxSession)) {
+          results.push(`${name} (already up)`);
+          continue;
+        }
+        // Spawn using same logic as single up
+        let projectPath: string;
+        try {
+          projectPath = await resolveProjectPath(name);
+          const stat = await fs.stat(projectPath);
+          if (!stat.isDirectory()) { results.push(`${name} (not found)`); continue; }
+        } catch { results.push(`${name} (not found)`); continue; }
+
+        const projectName = path.basename(projectPath);
+        const twinName = name;
+        const hubShort = hub.replace(os.homedir(), "~");
+        const systemPrompt = [
+          `You are "${twinName}", a relay twin for the ${projectName} project.`,
+          `You have full access to the codebase at ${projectPath}.`,
+          `Relay channel at ${hubShort}/channel.log shared by all agents.`,
+          `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
+          `Always reply via: openscout relay send --as ${twinName} "your message"`,
+          `Be specific with file paths. Keep messages under 200 chars.`,
+        ].join("\n");
+
+        const twinDir = path.join(hub, "twins");
+        await fs.mkdir(twinDir, { recursive: true });
+        const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+        await fs.writeFile(promptFile, systemPrompt);
+        const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+        const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+        await fs.writeFile(initialFile, initialMsg);
+        const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+        await fs.writeFile(launchScript, [
+          `#!/bin/bash`,
+          `cd ${JSON.stringify(projectPath)}`,
+          `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
+          `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+        ].join("\n") + "\n");
+        await fs.chmod(launchScript, 0o755);
+        execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
+
+        const currentTwins = await loadTwins();
+        currentTwins[twinName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
+        await saveTwins(currentTwins);
+
+        const ts = Math.floor(Date.now() / 1000);
+        await fs.appendFile(logPath, `${ts} ${twinName} SYS twin spawned for ${projectName}\n`);
+        results.push(`${name} (up)`);
+      }
+      return results.join(", ");
+    }
 
     // Resolve: bare name → <projectRoot>/<name>, or use as path
     let projectPath = await resolveProjectPath(target);
