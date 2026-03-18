@@ -559,17 +559,62 @@ function StatsPanel({ messages, agents, dbEntries }: { messages: RelayMessage[];
   );
 }
 
+function WaveBar({ active }: { active: boolean }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const iv = setInterval(() => setFrame((f) => f + 1), 150);
+    return () => clearInterval(iv);
+  }, [active]);
+
+  if (!active) return null;
+
+  // Animated wave pattern — 4 bars cycling through heights
+  const bars = "▁▂▃▄▅▆▇█";
+  const phases = [0, 2, 4, 6, 4, 2]; // offsets for each bar
+  const wave = phases.map((phase, i) => {
+    const idx = (frame + phase + i * 2) % bars.length;
+    return bars[idx];
+  }).join(" ");
+
+  return <text fg={C.red}>{wave}</text>;
+}
+
+function SpeakingWave({ active }: { active: boolean }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const iv = setInterval(() => setFrame((f) => f + 1), 120);
+    return () => clearInterval(iv);
+  }, [active]);
+
+  if (!active) return null;
+
+  const bars = "▁▂▃▄▅▆▇█";
+  const phases = [0, 3, 1, 5, 2, 4, 1, 3];
+  const wave = phases.map((phase, i) => {
+    const idx = (frame + phase + i) % bars.length;
+    return bars[idx];
+  }).join(" ");
+
+  return <text fg={C.cyan}>{wave}</text>;
+}
+
 function VoicePanel({
   voiceState,
   partialText,
   recentTranscriptions,
+  isSpeaking,
 }: {
   voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
   partialText: string;
   recentTranscriptions: Array<{ text: string; timestamp: number }>;
+  isSpeaking: boolean;
 }) {
   const stateDisplay: Record<typeof voiceState, { icon: string; label: string; color: string }> = {
-    idle: { icon: "○", label: "Ready — press v to record", color: C.dim },
+    idle: { icon: "○", label: isSpeaking ? "Listening to response..." : "Ready — press v to record", color: isSpeaking ? C.cyan : C.dim },
     connecting: { icon: "◌", label: "Connecting to Vox...", color: C.yellow },
     recording: { icon: "●", label: "Recording — press v to stop", color: C.red },
     processing: { icon: "◐", label: "Transcribing...", color: C.yellow },
@@ -581,14 +626,16 @@ function VoicePanel({
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
       {/* Status */}
-      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : C.border} padding={1} flexDirection="column" title="Voice Input">
+      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : isSpeaking ? C.cyan : C.border} padding={1} flexDirection="column" title="Voice Input">
         <box flexDirection="row" gap={2}>
           <text fg={s.color}>{s.icon}</text>
           <text fg={s.color}>{s.label}</text>
         </box>
         {voiceState === "recording" && (
           <box flexDirection="column" marginTop={1}>
-            <text fg={C.dim}>Listening...</text>
+            <box flexDirection="row" gap={2}>
+              <WaveBar active={true} />
+            </box>
             {partialText ? (
               <text fg={C.text}><strong>{partialText}</strong></text>
             ) : (
@@ -599,6 +646,12 @@ function VoicePanel({
         {voiceState === "processing" && partialText && (
           <box flexDirection="column" marginTop={1}>
             <text fg={C.yellow}>{partialText}</text>
+          </box>
+        )}
+        {isSpeaking && voiceState === "idle" && (
+          <box flexDirection="column" marginTop={1}>
+            <SpeakingWave active={true} />
+            <text fg={C.cyan}>Playing response...</text>
           </box>
         )}
       </box>
@@ -969,7 +1022,7 @@ function App() {
           )}
           {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
-          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} />}
+          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} isSpeaking={isSpeaking} />}
         </box>
       </box>
 
