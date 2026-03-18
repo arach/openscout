@@ -829,12 +829,17 @@ function App() {
           if (twin && isTwinAlive(twin.tmuxSession)) {
             const inTmux = !!process.env.TMUX;
             if (inTmux) {
-              // Split pane horizontally — twin on the right, TUI stays on left
+              // Floating popup — overlays on TUI, no resize, press q/Ctrl-c to dismiss
               try {
-                execSync(`tmux split-window -h -p 50 "tmux attach -t ${twin.tmuxSession}"`);
-              } catch { /* noop */ }
+                execSync(`tmux display-popup -w 80% -h 80% -E "tmux attach -t ${twin.tmuxSession}"`);
+              } catch {
+                // display-popup not available (tmux < 3.2), fall back to new window
+                try {
+                  execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${twin.tmuxSession}"`);
+                } catch { /* noop */ }
+              }
             } else {
-              // Not in tmux — try iTerm tab, then fall back to tmux new-window
+              // Not in tmux — open in new iTerm tab
               try {
                 execSync(
                   `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${twin.tmuxSession}"' 2>/dev/null`
