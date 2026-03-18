@@ -5,67 +5,8 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { existsSync, readFileSync, appendFileSync, writeFileSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
-import { execSync, spawn } from "child_process";
+import { execSync } from "child_process";
 
-// ── Talk-Back (TTS) ─────────────────────────────────────────────────────────
-
-let talkBackEnabled = false;
-let ttsVoice = "nova";
-let ttsApiKey: string | null = null;
-
-function initTalkBack(): boolean {
-  // Try to find OpenAI API key
-  ttsApiKey = process.env.OPENAI_API_KEY || null;
-  if (!ttsApiKey) {
-    try {
-      const settingsPath = join(process.env.HOME || "~", ".config", "speakeasy", "settings.json");
-      const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-      ttsApiKey = settings.providers?.openai?.apiKey || null;
-    } catch { /* noop */ }
-  }
-  talkBackEnabled = !!ttsApiKey;
-  return talkBackEnabled;
-}
-
-async function streamSpeak(text: string): Promise<void> {
-  if (!ttsApiKey || !text) return;
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${ttsApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "tts-1",
-        voice: ttsVoice,
-        input: text,
-        response_format: "pcm",
-        speed: 1.1,
-      }),
-    });
-
-    if (!res.ok || !res.body) return;
-
-    const player = spawn("ffplay", [
-      "-nodisp", "-autoexit", "-loglevel", "quiet",
-      "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
-    ], { stdio: ["pipe", "ignore", "ignore"] });
-
-    const reader = res.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      player.stdin.write(value);
-    }
-    player.stdin.end();
-
-    await new Promise<void>((resolve) => player.on("close", resolve));
-  } catch {
-    // TTS failed — silent fallback, no crash
-  }
-}
 
 // ── Flights (tracked requests with callbacks) ────────────────────────────────
 
@@ -388,7 +329,7 @@ const C = {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFlight }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean; flightsInFlight?: number }) {
+function Header({ tab, agentCount, msgCount, voiceState, flightsInFlight }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; flightsInFlight?: number }) {
   const [clock, setClock] = useState(ts());
 
   useEffect(() => {
@@ -422,7 +363,6 @@ function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFl
         {(flightsInFlight ?? 0) > 0 && <text fg={C.muted}>{flightsInFlight} pending</text>}
         {voiceState === "recording" && <text fg={C.red}>recording</text>}
         {voiceState === "processing" && <text fg={C.yellow}>transcribing</text>}
-        {isSpeaking && <text fg={C.cyan}>speaking</text>}
         <text fg={C.dim}>{clock}</text>
       </box>
     </box>
@@ -724,40 +664,17 @@ function WaveBar({ active }: { active: boolean }) {
   return <text fg={C.red}>{wave}</text>;
 }
 
-function SpeakingWave({ active }: { active: boolean }) {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    if (!active) return;
-    const iv = setInterval(() => setFrame((f) => f + 1), 120);
-    return () => clearInterval(iv);
-  }, [active]);
-
-  if (!active) return null;
-
-  const bars = "▁▂▃▄▅▆▇█";
-  const phases = [0, 3, 1, 5, 2, 4, 1, 3];
-  const wave = phases.map((phase, i) => {
-    const idx = (frame + phase + i) % bars.length;
-    return bars[idx];
-  }).join(" ");
-
-  return <text fg={C.cyan}>{wave}</text>;
-}
-
 function VoicePanel({
   voiceState,
   partialText,
   recentTranscriptions,
-  isSpeaking,
 }: {
   voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
   partialText: string;
   recentTranscriptions: Array<{ text: string; timestamp: number }>;
-  isSpeaking: boolean;
 }) {
   const stateDisplay: Record<typeof voiceState, { icon: string; label: string; color: string }> = {
-    idle: { icon: "○", label: isSpeaking ? "Listening to response..." : "Ready — press v to record", color: isSpeaking ? C.cyan : C.dim },
+    idle: { icon: "○", label: "Ready — press v to record", color: C.dim },
     connecting: { icon: "◌", label: "Connecting to Vox...", color: C.yellow },
     recording: { icon: "●", label: "Recording — press v to stop", color: C.red },
     processing: { icon: "◐", label: "Transcribing...", color: C.yellow },
@@ -769,7 +686,7 @@ function VoicePanel({
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
       {/* Status */}
-      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : isSpeaking ? C.cyan : C.border} padding={1} flexDirection="column" title="Voice Input">
+      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : C.border} padding={1} flexDirection="column" title="Voice Input">
         <box flexDirection="row" gap={2}>
           <text fg={s.color}>{s.icon}</text>
           <text fg={s.color}>{s.label}</text>
@@ -789,12 +706,6 @@ function VoicePanel({
         {voiceState === "processing" && partialText && (
           <box flexDirection="column" marginTop={1}>
             <text fg={C.yellow}>{partialText}</text>
-          </box>
-        )}
-        {isSpeaking && voiceState === "idle" && (
-          <box flexDirection="column" marginTop={1}>
-            <SpeakingWave active={true} />
-            <text fg={C.cyan}>Playing response...</text>
           </box>
         )}
       </box>
@@ -863,15 +774,12 @@ function App() {
   const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
   const [selectedAgent, setSelectedAgent] = useState(0);
   const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
   const [lastActivity, setLastActivity] = useState("");
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
   const voxSessionRef = useRef<any>(null);
   const tuiNameRef = useRef<string>("");
-  const lastMsgCountRef = useRef(0);
-  const pendingVoiceRef = useRef(false); // true when we just sent a voice message
 
   const maxVisible = Math.max(height - 10, 5);
 
@@ -910,41 +818,12 @@ function App() {
       setScrollOffset(0);
     }
 
-    // Resolve flights and talk-back on completion
+    // Resolve flights
     const tuiName = tuiNameRef.current;
     if (tuiName) {
       const flights = resolveFlights(allMessages, tuiName);
       setActiveFlights(flights.filter((f) => f.status === "pending"));
-
-      // Talk-back: speak newly completed flights
-      if (talkBackEnabled && allMessages.length > lastMsgCountRef.current) {
-        for (const flight of flights) {
-          if (flight.status === "completed" && flight.respondedAt && flight.respondedAt > (lastMsgCountRef.current > 0 ? allMessages[lastMsgCountRef.current - 1]?.timestamp || 0 : 0)) {
-            if (flight.response && !isSpeaking) {
-              setIsSpeaking(true);
-              const cleanText = flight.response.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
-              streamSpeak(cleanText).finally(() => setIsSpeaking(false));
-              break;
-            }
-          }
-        }
-
-        // Fallback: speak any new @mention even without a flight
-        const newMsgs = allMessages.slice(lastMsgCountRef.current);
-        const hasCompletedFlight = flights.some((f) => f.status === "completed" && f.respondedAt && f.respondedAt > (allMessages[lastMsgCountRef.current - 1]?.timestamp || 0));
-        if (!hasCompletedFlight) {
-          for (const msg of newMsgs) {
-            if (msg.type === "MSG" && msg.from !== tuiName && msg.from !== "system" && msg.body.includes(`@${tuiName}`)) {
-              setIsSpeaking(true);
-              const cleanText = msg.body.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
-              streamSpeak(cleanText).finally(() => setIsSpeaking(false));
-              break;
-            }
-          }
-        }
-      }
     }
-    lastMsgCountRef.current = allMessages.length;
   }, []);
 
   // Initial setup
@@ -970,9 +849,6 @@ function App() {
     initVox().then((ok) => {
       if (!ok) setVoiceState("error");
     });
-
-    // Init talk-back TTS
-    initTalkBack();
 
     // Heartbeat — keep TUI showing as online
     const heartbeatIv = setInterval(() => {
@@ -1201,7 +1077,7 @@ function App() {
 
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
-      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
+      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} flightsInFlight={activeFlights.length} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
@@ -1215,7 +1091,7 @@ function App() {
           )}
           {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
-          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} isSpeaking={isSpeaking} />}
+          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} />}
         </box>
       </box>
 
