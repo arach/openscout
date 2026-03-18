@@ -1536,10 +1536,36 @@ async function relay() {
       const { execSync } = await import("node:child_process");
       const path = await import("node:path");
       const tuiPath = path.join(import.meta.dirname, "..", "src", "tui", "index.tsx");
+      const tmuxSession = "relay-tui";
+
+      // If already inside the relay-tui tmux session, just run the TUI
+      if (process.env.TMUX && process.env.TMUX.includes(tmuxSession)) {
+        try {
+          execSync(`bun run ${tuiPath}`, { stdio: "inherit", cwd: process.cwd() });
+        } catch { /* TUI exited — normal */ }
+        break;
+      }
+
+      // If --no-tmux flag, run directly
+      if (args.includes("--no-tmux")) {
+        try {
+          execSync(`bun run ${tuiPath}`, { stdio: "inherit", cwd: process.cwd() });
+        } catch { /* TUI exited — normal */ }
+        break;
+      }
+
+      // Otherwise, wrap in a tmux session for tiling support
       try {
-        execSync(`bun run ${tuiPath}`, { stdio: "inherit", cwd: process.cwd() });
+        // Kill stale session if it exists
+        try { execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null`); } catch { /* noop */ }
+
+        // Create tmux session and attach (runs TUI inside it)
+        const cmd = `bun run ${tuiPath}`;
+        execSync(`tmux new-session -s ${tmuxSession} -c ${JSON.stringify(process.cwd())} ${JSON.stringify(cmd)}`, {
+          stdio: "inherit",
+        });
       } catch {
-        // TUI exited — normal
+        // tmux not available or user quit — that's fine
       }
       break;
     }

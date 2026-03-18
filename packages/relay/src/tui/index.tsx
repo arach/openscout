@@ -816,21 +816,29 @@ function App() {
       if (key.name === "down") {
         setSelectedAgent((prev) => Math.min(alive.length - 1, prev + 1));
       }
-      // Enter → peek at twin's tmux session (opens new iTerm tab)
+      // Enter → peek at twin's tmux session
       if (key.name === "return") {
         const agent = alive[selectedAgent];
         if (agent) {
           const twin = twins[agent.name];
           if (twin && isTwinAlive(twin.tmuxSession)) {
-            try {
-              // Try iTerm2 native split first, fall back to tmux new-window
-              execSync(
-                `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${twin.tmuxSession}"' 2>/dev/null`
-              );
-            } catch {
+            const inTmux = !!process.env.TMUX;
+            if (inTmux) {
+              // Split pane horizontally — twin on the right, TUI stays on left
               try {
-                execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${twin.tmuxSession}"`);
+                execSync(`tmux split-window -h -p 50 "tmux attach -t ${twin.tmuxSession}"`);
               } catch { /* noop */ }
+            } else {
+              // Not in tmux — try iTerm tab, then fall back to tmux new-window
+              try {
+                execSync(
+                  `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${twin.tmuxSession}"' 2>/dev/null`
+                );
+              } catch {
+                try {
+                  execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${twin.tmuxSession}"`);
+                } catch { /* noop */ }
+              }
             }
           }
         }
