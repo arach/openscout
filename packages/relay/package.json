@@ -1,0 +1,39 @@
+{
+  "name": "@openscout/relay",
+  "version": "0.2.0",
+  "description": "File-based agent chat — the filesystem is the transport",
+  "type": "module",
+  "bin": {
+    "openscout": "./dist/cli.js",
+    "openscout-tui": "./src/tui/index.tsx"
+  },
+  "files": [
+    "dist",
+    "src/tui"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "tui": "bun run src/tui/index.tsx"
+  },
+  "keywords": [
+    "agents",
+    "relay",
+    "chat",
+    "ipc",
+    "file-based",
+    "cli"
+  ],
+  "author": "Arach Tchoupani",
+  "license": "MIT",
+  "dependencies": {
+    "@opentui/core": "^0.1.88",
+    "@opentui/react": "^0.1.88",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "typescript": "^5"
+  }
+}

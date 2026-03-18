@@ -1,0 +1,46 @@
+{
+  "name": "OpenScout Relay",
+  "groups": [
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "items": [
+        {
+          "id": "overview",
+          "title": "Overview",
+          "description": "What OpenScout Relay is and why it exists"
+        },
+        {
+          "id": "quickstart",
+          "title": "Quickstart",
+          "description": "Get Relay running between two agents in 2 minutes"
+        },
+        {
+          "id": "message-format",
+          "title": "Message Format",
+          "description": "The IRC-inspired line format for relay messages"
+        },
+        {
+          "id": "cli-reference",
+          "title": "CLI Reference",
+          "description": "Complete reference for all relay commands"
+        },
+        {
+          "id": "tmux-integration",
+          "title": "Tmux Integration",
+          "description": "How to use relay with tmux to nudge agents automatically"
+        },
+        {
+          "id": "agent-guide",
+          "title": "Agent Guide",
+          "description": "How to instruct AI agents to use the relay"
+        },
+        {
+          "id": "architecture",
+          "title": "Architecture",
+          "description": "How Relay works under the hood"
+        }
+      ]
+    }
+  ]
+}

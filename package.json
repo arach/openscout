@@ -2,11 +2,29 @@
   "name": "openscout",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.3.5",
+  "bin": {
+    "scout-dev": "./scripts/scout-dev"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cli:build": "bun run --cwd packages/cli build",
+    "cli:dev": "bun run --cwd packages/cli dev",
+    "relay:build": "bun run --cwd packages/relay build",
+    "relay:dev": "bun run --cwd packages/relay dev",
+    "relay:tui": "bun run --cwd packages/relay tui",
+    "site": "next dev",
+    "site:docs": "bun run --cwd packages/relay/relay-docs dev",
+    "native:dev": "./scripts/scout-dev",
+    "native:build": "./scripts/scout-dev build",
+    "native:app": "./scripts/scout-dev launch",
+    "native:agent": "./scripts/scout-dev agent"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",

@@ -19,6 +19,20 @@
 
 # production
 /build
+/native/engine/.build
+/native/engine/.derivedData
+/native/dist
+/native/engine/.swiftpm
+
+# relay data (local state, not source)
+.openscout/relay/
+.openscout/relay.json
+
+# package build artifacts
+packages/*/dist/
+packages/*/node_modules/
+packages/relay/relay-docs/node_modules/
+packages/relay/relay-docs/.astro/
 
 # misc
 .DS_Store

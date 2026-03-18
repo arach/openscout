@@ -1,0 +1,89 @@
+---
+import BaseLayout from './BaseLayout.astro'
+import SidebarNav from '../components/SidebarNav.astro'
+import Toc from '../components/Toc.astro'
+
+const {
+  title = 'Docs',
+  headings = [],
+  description,
+  badge,
+  rawMarkdown = '',
+  agentMarkdown = '',
+} = Astro.props
+---
+
+<BaseLayout title={title}>
+  <div class="grid gap-8 lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)_var(--toc-width)]">
+    <aside class="hidden lg:block" data-pagefind-ignore>
+      <div class="sticky top-24">
+        <SidebarNav />
+      </div>
+    </aside>
+
+    <article class="min-w-0">
+      <div class="mb-10 flex flex-wrap items-start justify-between gap-4">
+        <div class="flex-1 min-w-0">
+          {badge && (
+            <span class="inline-block mb-3 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest rounded-full border border-[var(--color-border)] text-[var(--color-accent)]">
+              {badge}
+            </span>
+          )}
+          <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">{title}</h1>
+          {description && (
+            <p class="mt-3 text-lg text-[var(--color-text-muted)]">{description}</p>
+          )}
+        </div>
+        {rawMarkdown && (
+          <div class="flex items-center gap-2 flex-shrink-0 pt-1">
+            <button
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-muted)] bg-[var(--color-surface)] transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              data-copy-agent-button
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+              Copy for agent
+            </button>
+            <button
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-muted)] bg-[var(--color-surface)] transition hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              data-copy-markdown-button
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy markdown
+            </button>
+          </div>
+        )}
+      </div>
+      <div class="doc-content" data-pagefind-body>
+        <slot />
+      </div>
+    </article>
+
+    <aside class="hidden lg:block" data-pagefind-ignore>
+      <div class="sticky top-24">
+        <Toc headings={headings} />
+      </div>
+    </aside>
+  </div>
+
+  <script is:inline define:vars={{ rawMarkdown, agentMarkdown }}>
+    const safeCopy = async (content, btn) => {
+      if (!content) return
+      try {
+        await navigator.clipboard.writeText(content)
+        if (btn) {
+          const orig = btn.textContent
+          btn.textContent = ' Copied!'
+          setTimeout(() => { btn.textContent = orig }, 2000)
+        }
+      } catch {}
+    }
+
+    document.querySelector('[data-copy-agent-button]')?.addEventListener('click', function() {
+      safeCopy(agentMarkdown || rawMarkdown, this)
+    })
+
+    document.querySelector('[data-copy-markdown-button]')?.addEventListener('click', function() {
+      safeCopy(rawMarkdown, this)
+    })
+  </script>
+</BaseLayout>
