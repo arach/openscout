@@ -484,46 +484,19 @@ async function speakIfEnabled(name: string, from: string, message: string): Prom
   const speakFor = config.speakFor;
   if (!speakFor || speakFor !== name) return;
 
-  // Find API key
-  let apiKey = process.env.OPENAI_API_KEY || null;
-  if (!apiKey) {
-    try {
-      const path = await import("node:path");
-      const os = await import("node:os");
-      const raw = (await import("node:fs")).readFileSync(
-        path.join(os.homedir(), ".config", "speakeasy", "settings.json"), "utf-8"
-      );
-      apiKey = JSON.parse(raw).providers?.openai?.apiKey || null;
-    } catch { /* noop */ }
-  }
-  if (!apiKey) return;
-
   const clean = message.replace(new RegExp(`@${name}\\s*`, "g"), "").trim();
   if (!clean) return;
 
   try {
     const { spawn } = await import("node:child_process");
-    const res = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "tts-1", voice: config.speakVoice || "nova", input: clean, response_format: "pcm", speed: 1.1 }),
+    // Use speakeasy CLI as the single audio path
+    const voice = config.speakVoice || "nova";
+    const child = spawn("speakeasy", [clean, "-p", "openai", "-v", voice], {
+      stdio: "ignore",
+      detached: true,
     });
-    if (!res.ok || !res.body) return;
-
-    const player = spawn("ffplay", [
-      "-nodisp", "-autoexit", "-loglevel", "quiet",
-      "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
-    ], { stdio: ["pipe", "ignore", "ignore"] });
-
-    const reader = res.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      player.stdin.write(value);
-    }
-    player.stdin.end();
-    // Don't await — let it play in background, don't block delivery
-  } catch { /* noop */ }
+    child.unref(); // don't block delivery
+  } catch { /* speakeasy not available — skip */ }
 }
 
 async function deliverToAgent(name: string, from: string, message: string): Promise<"delivered" | "nudged" | "queued"> {
