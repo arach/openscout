@@ -352,6 +352,52 @@ async function requireRelay(): Promise<RelayPaths> {
   return paths;
 }
 
+// ── Relay Config ──────────────────────────────────────
+
+interface RelayConfig {
+  agents: string[];
+  created: number;
+  projectRoot?: string;  // e.g. "~/dev" — where bare project names are resolved
+}
+
+async function loadRelayConfig(): Promise<RelayConfig> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const configPath = path.join(hub, "config.json");
+  try {
+    const raw = await fs.readFile(configPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return { agents: [], created: Date.now() };
+  }
+}
+
+async function saveRelayConfig(config: RelayConfig): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const configPath = path.join(hub, "config.json");
+  await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
+}
+
+async function resolveProjectPath(target: string): Promise<string> {
+  const path = await import("node:path");
+  const os = await import("node:os");
+
+  // Absolute or home-relative paths pass through
+  if (target.startsWith("/")) return target;
+  if (target.startsWith("~")) return target.replace("~", os.homedir());
+
+  // Bare name → look up projectRoot from config, fallback to ~/dev
+  const config = await loadRelayConfig();
+  const root = config.projectRoot
+    ? config.projectRoot.replace(/^~/, os.homedir())
+    : path.join(os.homedir(), "dev");
+
+  return path.join(root, target);
+}
+
 async function relayInit() {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
@@ -486,6 +532,185 @@ async function deliverToAgent(name: string, from: string, message: string): Prom
   return "delivered";
 }
 
+// ── @system agent ─────────────────────────────────────
+
+async function handleSystemCommand(from: string, message: string): Promise<string | null> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const { execSync } = await import("node:child_process");
+
+  // Strip the @system prefix and parse the command
+  const stripped = message.replace(/@system\s*/i, "").trim();
+  const parts = stripped.split(/\s+/);
+  const cmd = parts[0]?.toLowerCase();
+
+  if (!cmd) {
+    return "usage: @system up <name> | down <name> | down --all | ps | config root <path>";
+  }
+
+  const hub = await getGlobalRelayDir();
+  const logPath = path.join(hub, "channel.log");
+
+  if (cmd === "ps") {
+    const twins = await loadTwins();
+    const names = Object.keys(twins);
+    if (names.length === 0) return "no twins running";
+
+    const now = Math.floor(Date.now() / 1000);
+    const lines: string[] = [];
+    for (const name of names) {
+      const twin = twins[name];
+      const alive = isTmuxSessionAlive(twin.tmuxSession);
+      const uptime = now - twin.startedAt;
+      const uptimeStr = uptime < 60 ? `${uptime}s`
+        : uptime < 3600 ? `${Math.floor(uptime / 60)}m`
+        : `${Math.floor(uptime / 3600)}h`;
+      const icon = alive ? "●" : "✗";
+      lines.push(`${icon} ${name} (${twin.project}, ${uptimeStr})`);
+    }
+    return lines.join(" | ");
+  }
+
+  if (cmd === "up") {
+    const target = parts[1];
+    if (!target) return "usage: @system up <path-or-project-name>";
+
+    // Resolve: bare name → <projectRoot>/<name>, or use as path
+    let projectPath = await resolveProjectPath(target);
+
+    // Verify it exists
+    try {
+      const stat = await fs.stat(projectPath);
+      if (!stat.isDirectory()) return `not a directory: ${target}`;
+    } catch {
+      return `not found: ${projectPath}`;
+    }
+
+    const projectName = path.basename(projectPath);
+    const twinName = parts[2] || projectName; // optional alias as 3rd arg
+    const tmuxSession = `relay-${twinName}`;
+
+    // Check if already running
+    if (isTmuxSessionAlive(tmuxSession)) {
+      return `${twinName} is already running`;
+    }
+
+    // Build system prompt
+    const hubShort = hub.replace(os.homedir(), "~");
+    const systemPrompt = [
+      `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
+      `You have full access to the codebase at ${projectPath}.`,
+      `There is a global relay channel at ${hubShort}/channel.log shared by all agents.`,
+      `Your job: respond to @${twinName} mentions, answer questions about this project's code, coordinate with other agents.`,
+      `Relay commands:`,
+      `  openscout relay send --as ${twinName} "your message"`,
+      `  openscout relay read`,
+      `  openscout relay who`,
+      `Rules: always reply via relay send, be specific with file paths, keep messages under 200 chars.`,
+    ].join("\n");
+
+    // Write files
+    const twinDir = path.join(hub, "twins");
+    await fs.mkdir(twinDir, { recursive: true });
+    const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+    await fs.writeFile(promptFile, systemPrompt);
+
+    const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+    const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+    await fs.writeFile(initialFile, initialMsg);
+
+    const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+    await fs.writeFile(launchScript, [
+      `#!/bin/bash`,
+      `cd ${JSON.stringify(projectPath)}`,
+      `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
+      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+    ].join("\n") + "\n");
+    await fs.chmod(launchScript, 0o755);
+
+    // Spawn
+    execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
+
+    // Save registry
+    const twins = await loadTwins();
+    twins[twinName] = {
+      project: projectName,
+      tmuxSession,
+      cwd: projectPath,
+      startedAt: Math.floor(Date.now() / 1000),
+    };
+    await saveTwins(twins);
+
+    const ts = Math.floor(Date.now() / 1000);
+    await fs.appendFile(logPath, `${ts} ${twinName} SYS twin spawned for ${projectName}\n`);
+
+    return `✓ spawned ${twinName} (tmux: ${tmuxSession})`;
+  }
+
+  if (cmd === "down") {
+    const target = parts[1];
+    if (!target) return "usage: @system down <name> | @system down --all";
+
+    const twins = await loadTwins();
+
+    if (target === "--all") {
+      const names = Object.keys(twins);
+      if (names.length === 0) return "no twins to stop";
+      const results: string[] = [];
+      for (const name of names) {
+        try {
+          execSync(`tmux kill-session -t ${twins[name].tmuxSession} 2>/dev/null`);
+          results.push(`✓ ${name}`);
+        } catch {
+          results.push(`○ ${name} (already stopped)`);
+        }
+      }
+      await saveTwins({});
+      const ts = Math.floor(Date.now() / 1000);
+      await fs.appendFile(logPath, `${ts} system SYS all twins stopped\n`);
+      return results.join(", ");
+    }
+
+    const twin = twins[target];
+    if (!twin) {
+      const names = Object.keys(twins);
+      return names.length > 0
+        ? `no twin named ${target}. running: ${names.join(", ")}`
+        : `no twin named ${target}`;
+    }
+
+    try {
+      execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
+    } catch { /* already gone */ }
+    delete twins[target];
+    await saveTwins(twins);
+
+    const ts = Math.floor(Date.now() / 1000);
+    await fs.appendFile(logPath, `${ts} ${target} SYS twin stopped\n`);
+    return `✓ stopped ${target}`;
+  }
+
+  if (cmd === "config") {
+    const key = parts[1];
+    const value = parts[2];
+
+    if (key === "root" && value) {
+      const config = await loadRelayConfig();
+      config.projectRoot = value;
+      await saveRelayConfig(config);
+      return `✓ project root set to ${value}`;
+    }
+
+    // Show current config
+    const config = await loadRelayConfig();
+    const root = config.projectRoot || "~/dev (default)";
+    return `project root: ${root}`;
+  }
+
+  return `unknown command: ${cmd}. try: up, down, ps, config`;
+}
+
 async function relaySend() {
   const fs = await import("node:fs/promises");
   const { logPath } = await requireRelay();
@@ -515,8 +740,19 @@ async function relaySend() {
 
   print(formatLine(`${ts} ${agent} MSG ${message}`));
 
+  // Check for @system command
+  if (message.match(/@system\b/i)) {
+    const result = await handleSystemCommand(agent, message);
+    if (result) {
+      const replyTs = Math.floor(Date.now() / 1000);
+      await fs.appendFile(logPath, `${replyTs} system MSG @${agent} ${result}\n`);
+      print(formatLine(`${replyTs} system MSG @${agent} ${result}`));
+    }
+    return;
+  }
+
   // Auto-deliver to @mentioned agents
-  const mentions = message.match(/@([\w-]+)/g);
+  const mentions = message.match(/@([\w.-]+)/g);
   if (mentions) {
     for (const mention of mentions) {
       const target = mention.slice(1); // remove @
@@ -921,11 +1157,8 @@ async function relayUp() {
     process.exit(1);
   }
 
-  // Resolve project path
-  let projectPath = targetArg;
-  if (projectPath === ".") projectPath = process.cwd();
-  else if (projectPath.startsWith("~")) projectPath = projectPath.replace("~", os.homedir());
-  else if (!path.isAbsolute(projectPath)) projectPath = path.resolve(projectPath);
+  // Resolve project path (bare names use projectRoot from config)
+  let projectPath = targetArg === "." ? process.cwd() : await resolveProjectPath(targetArg);
 
   // Verify directory exists
   try {
