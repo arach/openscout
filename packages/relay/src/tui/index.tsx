@@ -5,7 +5,67 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { existsSync, readFileSync, appendFileSync, writeFileSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
+
+// ── Talk-Back (TTS) ─────────────────────────────────────────────────────────
+
+let talkBackEnabled = false;
+let ttsVoice = "nova";
+let ttsApiKey: string | null = null;
+
+function initTalkBack(): boolean {
+  // Try to find OpenAI API key
+  ttsApiKey = process.env.OPENAI_API_KEY || null;
+  if (!ttsApiKey) {
+    try {
+      const settingsPath = join(process.env.HOME || "~", ".config", "speakeasy", "settings.json");
+      const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+      ttsApiKey = settings.providers?.openai?.apiKey || null;
+    } catch { /* noop */ }
+  }
+  talkBackEnabled = !!ttsApiKey;
+  return talkBackEnabled;
+}
+
+async function streamSpeak(text: string): Promise<void> {
+  if (!ttsApiKey || !text) return;
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${ttsApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "tts-1",
+        voice: ttsVoice,
+        input: text,
+        response_format: "pcm",
+        speed: 1.1,
+      }),
+    });
+
+    if (!res.ok || !res.body) return;
+
+    const player = spawn("ffplay", [
+      "-nodisp", "-autoexit", "-loglevel", "quiet",
+      "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
+    ], { stdio: ["pipe", "ignore", "ignore"] });
+
+    const reader = res.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      player.stdin.write(value);
+    }
+    player.stdin.end();
+
+    await new Promise<void>((resolve) => player.on("close", resolve));
+  } catch {
+    // TTS failed — silent fallback, no crash
+  }
+}
 
 // ── Vox Voice Integration ────────────────────────────────────────────────────
 
@@ -242,7 +302,7 @@ const C = {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function Header({ tab, agentCount, msgCount, voiceState }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string }) {
+function Header({ tab, agentCount, msgCount, voiceState, isSpeaking }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean }) {
   const [clock, setClock] = useState(ts());
 
   useEffect(() => {
@@ -275,6 +335,7 @@ function Header({ tab, agentCount, msgCount, voiceState }: { tab: ActiveTab; age
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
         {voiceState === "recording" && <text fg={C.red}>● REC</text>}
         {voiceState === "processing" && <text fg={C.yellow}>◐ ...</text>}
+        {isSpeaking && <text fg={C.cyan}>◉ SPEAKING</text>}
         <text fg={C.dim}>{clock}</text>
       </box>
     </box>
@@ -599,10 +660,13 @@ function App() {
   const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
   const [selectedAgent, setSelectedAgent] = useState(0);
   const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
   const voxSessionRef = useRef<any>(null);
   const tuiNameRef = useRef<string>("");
+  const lastMsgCountRef = useRef(0);
+  const pendingVoiceRef = useRef(false); // true when we just sent a voice message
 
   const maxVisible = Math.max(height - 10, 5);
 
@@ -627,6 +691,24 @@ function App() {
       setSelectedId(allMessages[allMessages.length - 1].id);
       setScrollOffset(0);
     }
+
+    // Talk-back: speak new messages that mention us (replies to our voice)
+    if (talkBackEnabled && pendingVoiceRef.current && allMessages.length > lastMsgCountRef.current) {
+      const tuiName = tuiNameRef.current;
+      const newMsgs = allMessages.slice(lastMsgCountRef.current);
+      for (const msg of newMsgs) {
+        // Speak messages from others that mention us
+        if (msg.type === "MSG" && msg.from !== tuiName && msg.from !== "system" && msg.body.includes(`@${tuiName}`)) {
+          pendingVoiceRef.current = false;
+          setIsSpeaking(true);
+          // Strip the @mention prefix for cleaner speech
+          const cleanText = msg.body.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
+          streamSpeak(cleanText).finally(() => setIsSpeaking(false));
+          break; // only speak the first reply
+        }
+      }
+    }
+    lastMsgCountRef.current = allMessages.length;
   }, []);
 
   // Initial setup
@@ -652,6 +734,9 @@ function App() {
     initVox().then((ok) => {
       if (!ok) setVoiceState("error");
     });
+
+    // Init talk-back TTS
+    initTalkBack();
 
     // Heartbeat — keep TUI showing as online
     const heartbeatIv = setInterval(() => {
@@ -745,6 +830,7 @@ function App() {
         }
 
         setRecentTranscriptions((prev) => [...prev, { text, timestamp: now }]);
+        pendingVoiceRef.current = true; // enable talk-back for the reply
         refresh();
       }
       setVoiceState("idle");
@@ -869,7 +955,7 @@ function App() {
 
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
-      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} />
+      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
