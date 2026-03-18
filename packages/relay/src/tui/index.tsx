@@ -250,7 +250,7 @@ function Header({ tab, agentCount, msgCount, voiceState }: { tab: ActiveTab; age
     return () => clearInterval(iv);
   }, []);
 
-  const tabs: ActiveTab[] = ["chat", "agents", "stats"];
+  const tabs: ActiveTab[] = ["chat", "agents", "stats", "voice"];
 
   return (
     <box flexDirection="row" justifyContent="space-between" padding={1} height={3}>
@@ -259,11 +259,16 @@ function Header({ tab, agentCount, msgCount, voiceState }: { tab: ActiveTab; age
         <text fg={C.text}><strong> RELAY </strong></text>
         <text fg={C.dim}>monitor</text>
         <text fg={C.dim}>│</text>
-        {tabs.map((t) => (
-          <text key={t} fg={t === tab ? C.text : C.dim}>
-            {t === tab ? <strong>{` ${t} `}</strong> : ` ${t} `}
-          </text>
-        ))}
+        {tabs.map((t) => {
+          const label = t === "voice" && voiceState === "recording" ? `● ${t}` : ` ${t} `;
+          const color = t === "voice" && voiceState === "recording" ? C.red
+            : t === tab ? C.text : C.dim;
+          return (
+            <text key={t} fg={color}>
+              {t === tab ? <strong>{label}</strong> : label}
+            </text>
+          );
+        })}
       </box>
       <box flexDirection="row" gap={2}>
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
