@@ -424,6 +424,40 @@ function isTwinAlive(tmuxSession: string): boolean {
   }
 }
 
+function captureTwinActivity(tmuxSession: string): string {
+  try {
+    // Grab last few visible lines from the twin's pane
+    const raw = execSync(`tmux capture-pane -t ${tmuxSession} -p 2>/dev/null`, { encoding: "utf8", timeout: 500 });
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    if (lines.length === 0) return "starting...";
+
+    // Walk from bottom, find the most informative line
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
+      const line = lines[i].trim();
+      // Skip empty, prompts, status bars
+      if (!line || line === "❯" || line.startsWith("--") || line.startsWith("Opus") || line.startsWith("Sonnet")) continue;
+      // Claude activity indicators
+      if (line.includes("⏺") || line.includes("✻") || line.includes("✶") || line.includes("✽")) {
+        // Extract the action — strip ANSI codes
+        const clean = line.replace(/\x1b\[[0-9;]*m/g, "").trim();
+        const truncated = clean.length > 60 ? clean.slice(0, 60) + "…" : clean;
+        return truncated;
+      }
+      // Idle at prompt
+      if (line.startsWith("❯")) {
+        const afterPrompt = line.slice(1).trim();
+        return afterPrompt ? afterPrompt.slice(0, 50) : "idle";
+      }
+    }
+
+    // Fallback: last non-empty line
+    const last = lines[lines.length - 1].replace(/\x1b\[[0-9;]*m/g, "").trim();
+    return last.length > 60 ? last.slice(0, 60) + "…" : last || "active";
+  } catch {
+    return "unreachable";
+  }
+}
+
 function AgentsPanel({ agents, selectedAgent, twins }: {
   agents: AgentStatus[];
   selectedAgent: number;
@@ -460,14 +494,24 @@ function AgentsPanel({ agents, selectedAgent, twins }: {
               const isSelected = i === selectedAgent;
               const twin = twins[agent.name];
               const hasTwin = twin && isTwinAlive(twin.tmuxSession);
+              const activity = hasTwin ? captureTwinActivity(twin.tmuxSession) : "";
+              const isWorking = activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...";
               return (
-                <box key={agent.name} flexDirection="row" gap={2}>
-                  <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
-                  <text fg={statusColor(agent.status)}>{statusIcon(agent.status)}</text>
-                  <text fg={isSelected ? C.text : C.muted}><strong>{pad(agent.name, 18)}</strong></text>
-                  <text fg={C.cyan}>{pad(String(agent.messages), 10)}</text>
-                  <text fg={C.muted}>{pad(fmtRelative(agent.lastSeen), 14)}</text>
-                  <text fg={hasTwin ? C.blue : statusColor(agent.status)}>{statusLabel(agent)}</text>
+                <box key={agent.name} flexDirection="column">
+                  <box flexDirection="row" gap={2}>
+                    <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
+                    <text fg={statusColor(agent.status)}>{statusIcon(agent.status)}</text>
+                    <text fg={isSelected ? C.text : C.muted}><strong>{pad(agent.name, 18)}</strong></text>
+                    <text fg={C.cyan}>{pad(String(agent.messages), 10)}</text>
+                    <text fg={C.muted}>{pad(fmtRelative(agent.lastSeen), 14)}</text>
+                    <text fg={hasTwin ? C.blue : statusColor(agent.status)}>{statusLabel(agent)}</text>
+                  </box>
+                  {hasTwin && activity && (
+                    <box flexDirection="row" gap={2}>
+                      <text fg={C.dim}>   </text>
+                      <text fg={isWorking ? C.yellow : C.dim}>{isWorking ? "⏺" : "○"} {activity}</text>
+                    </box>
+                  )}
                 </box>
               );
             })}
