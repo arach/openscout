@@ -339,7 +339,30 @@ function ChatPanel({
   );
 }
 
-function AgentsPanel({ agents }: { agents: AgentStatus[] }) {
+function loadTwinsSync(): Record<string, { tmuxSession: string; project: string }> {
+  const os = require("os");
+  const twinsPath = join(os.homedir(), ".openscout", "relay", "twins.json");
+  try {
+    return JSON.parse(readFileSync(twinsPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function isTwinAlive(tmuxSession: string): boolean {
+  try {
+    execSync(`tmux has-session -t ${tmuxSession} 2>/dev/null`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function AgentsPanel({ agents, selectedAgent, twins }: {
+  agents: AgentStatus[];
+  selectedAgent: number;
+  twins: Record<string, { tmuxSession: string; project: string }>;
+}) {
   const alive = agents.filter((a) => a.status !== "forgotten");
   const forgotten = agents.filter((a) => a.status === "forgotten");
 
@@ -347,8 +370,11 @@ function AgentsPanel({ agents }: { agents: AgentStatus[] }) {
     s === "online" ? "●" : s === "idle" ? "○" : "✗";
   const statusColor = (s: AgentStatus["status"]) =>
     s === "online" ? C.accent : s === "idle" ? C.muted : C.dim;
-  const statusLabel = (s: AgentStatus["status"]) =>
-    s === "online" ? "online" : s === "idle" ? "idle" : "removed";
+  const statusLabel = (a: AgentStatus) => {
+    const twin = twins[a.name];
+    if (twin && isTwinAlive(twin.tmuxSession)) return "twin ⏵";
+    return a.status === "online" ? "online" : a.status === "idle" ? "idle" : "removed";
+  };
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
@@ -358,21 +384,27 @@ function AgentsPanel({ agents }: { agents: AgentStatus[] }) {
         ) : (
           <>
             <box flexDirection="row" gap={2}>
-              <text fg={C.dim}>{pad("", 2)}</text>
+              <text fg={C.dim}>{pad("", 3)}</text>
               <text fg={C.dim}>{pad("agent", 18)}</text>
               <text fg={C.dim}>{pad("messages", 10)}</text>
               <text fg={C.dim}>{pad("last seen", 14)}</text>
               <text fg={C.dim}>status</text>
             </box>
-            {alive.map((agent) => (
-              <box key={agent.name} flexDirection="row" gap={2}>
-                <text fg={statusColor(agent.status)}>{statusIcon(agent.status)}</text>
-                <text fg={C.text}><strong>{pad(agent.name, 18)}</strong></text>
-                <text fg={C.cyan}>{pad(String(agent.messages), 10)}</text>
-                <text fg={C.muted}>{pad(fmtRelative(agent.lastSeen), 14)}</text>
-                <text fg={statusColor(agent.status)}>{statusLabel(agent.status)}</text>
-              </box>
-            ))}
+            {alive.map((agent, i) => {
+              const isSelected = i === selectedAgent;
+              const twin = twins[agent.name];
+              const hasTwin = twin && isTwinAlive(twin.tmuxSession);
+              return (
+                <box key={agent.name} flexDirection="row" gap={2}>
+                  <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
+                  <text fg={statusColor(agent.status)}>{statusIcon(agent.status)}</text>
+                  <text fg={isSelected ? C.text : C.muted}><strong>{pad(agent.name, 18)}</strong></text>
+                  <text fg={C.cyan}>{pad(String(agent.messages), 10)}</text>
+                  <text fg={C.muted}>{pad(fmtRelative(agent.lastSeen), 14)}</text>
+                  <text fg={hasTwin ? C.blue : statusColor(agent.status)}>{statusLabel(agent)}</text>
+                </box>
+              );
+            })}
           </>
         )}
       </box>
@@ -534,7 +566,7 @@ function VoicePanel({
 function StatusBar({ tab }: { tab: ActiveTab }) {
   const hints: Record<ActiveTab, string> = {
     chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
-    agents: "v voice  tab switch  r refresh  q quit",
+    agents: "↑↓ select  ⏎ peek  v voice  tab switch  r refresh  q quit",
     stats: "v voice  tab switch  r refresh  x clear  q quit",
     voice: "v record/stop  tab switch  q quit",
   };
@@ -560,6 +592,8 @@ function App() {
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "recording" | "processing" | "error">("idle");
   const [partialText, setPartialText] = useState("");
   const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
+  const [selectedAgent, setSelectedAgent] = useState(0);
+  const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
   const voxSessionRef = useRef<any>(null);
@@ -579,6 +613,9 @@ function App() {
     // Sync to JSONL database
     syncToDb(relayDir, allMessages);
     setDbEntries(allMessages.length);
+
+    // Load twins registry
+    setTwins(loadTwinsSync());
 
     // Auto-select newest message and reset scroll to bottom
     if (allMessages.length > 0) {
@@ -770,6 +807,36 @@ function App() {
       }
     }
 
+    // Agents navigation
+    if (tab === "agents") {
+      const alive = agents.filter((a) => a.status !== "forgotten");
+      if (key.name === "up") {
+        setSelectedAgent((prev) => Math.max(0, prev - 1));
+      }
+      if (key.name === "down") {
+        setSelectedAgent((prev) => Math.min(alive.length - 1, prev + 1));
+      }
+      // Enter → peek at twin's tmux session (opens new iTerm tab)
+      if (key.name === "return") {
+        const agent = alive[selectedAgent];
+        if (agent) {
+          const twin = twins[agent.name];
+          if (twin && isTwinAlive(twin.tmuxSession)) {
+            try {
+              // Try iTerm2 native split first, fall back to tmux new-window
+              execSync(
+                `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${twin.tmuxSession}"' 2>/dev/null`
+              );
+            } catch {
+              try {
+                execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${twin.tmuxSession}"`);
+              } catch { /* noop */ }
+            }
+          }
+        }
+      }
+    }
+
     if (tab === "stats" && key.name === "x") {
       const relayDir = relayDirRef.current;
       if (relayDir) {
@@ -796,7 +863,7 @@ function App() {
               maxVisible={maxVisible}
             />
           )}
-          {tab === "agents" && <AgentsPanel agents={agents} />}
+          {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
           {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} />}
         </box>
