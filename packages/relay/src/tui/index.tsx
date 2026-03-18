@@ -442,13 +442,11 @@ function ChatPanel({
   selectedId,
   scrollOffset,
   maxVisible,
-  width,
 }: {
   messages: RelayMessage[];
   selectedId: number;
   scrollOffset: number;
   maxVisible: number;
-  width: number;
 }) {
   // Filter noise
   const filtered = messages.filter((m) => !isNoisySys(m));
@@ -457,10 +455,6 @@ function ChatPanel({
     Math.max(0, filtered.length - maxVisible - scrollOffset),
     filtered.length - scrollOffset
   );
-
-  // Layout: "  HH:MM:SS  name          body..."
-  // Prefix width: 2 (selector) + 8 (time) + 2 (gap) + 14 (name) + 2 (gap) = 28
-  const bodyWidth = Math.max(width - 32, 20);
 
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" borderColor={C.border} padding={1}>
@@ -473,50 +467,30 @@ function ChatPanel({
 
           if (msg.type === "SYS") {
             return (
-              <box key={msg.id} flexDirection="row" gap={1} marginBottom={0}>
-                <text fg={C.dim}>{pad("", 2)}{time}  {pad("", 14)}  {msg.body}</text>
+              <box key={msg.id} flexDirection="row" gap={2}>
+                <text fg={C.dim}>{time}</text>
+                <text fg={C.dim} flexShrink={1}>{msg.body}</text>
               </box>
             );
           }
 
           if (msg.type === "ACK") {
             return (
-              <box key={msg.id} flexDirection="row" gap={1}>
-                <text fg={C.dim}>{pad("", 2)}{time}  {msg.from} ack {msg.body}</text>
+              <box key={msg.id} flexDirection="row" gap={2}>
+                <text fg={C.dim}>{time}</text>
+                <text fg={C.dim} flexShrink={1}>{msg.from} ack {msg.body}</text>
               </box>
             );
           }
 
-          // Wrap long messages
-          const body = msg.body;
-          const lines: string[] = [];
-          let remaining = body;
-          while (remaining.length > bodyWidth) {
-            // Find last space within bodyWidth
-            let breakAt = remaining.lastIndexOf(" ", bodyWidth);
-            if (breakAt <= 0) breakAt = bodyWidth;
-            lines.push(remaining.slice(0, breakAt));
-            remaining = remaining.slice(breakAt).trimStart();
-          }
-          if (remaining) lines.push(remaining);
-
-          const selector = isSelected ? "▸ " : "  ";
           const nameColor = msg.from === "system" ? C.muted : C.accent;
 
           return (
-            <box key={msg.id} flexDirection="column" marginBottom={1}>
-              <box flexDirection="row">
-                <text fg={isSelected ? C.accent : C.dim}>{selector}</text>
-                <text fg={C.dim}>{time}  </text>
-                <text fg={nameColor}><strong>{pad(msg.from, 14)}</strong></text>
-                <text fg={C.text}>  {lines[0] || ""}</text>
-              </box>
-              {lines.slice(1).map((line, i) => (
-                <box key={i} flexDirection="row">
-                  <text fg={C.dim}>{pad("", 26)}</text>
-                  <text fg={C.text}>  {line}</text>
-                </box>
-              ))}
+            <box key={msg.id} flexDirection="row" gap={2} marginBottom={1}>
+              <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
+              <text fg={C.dim}>{time}</text>
+              <text fg={nameColor}><strong>{pad(msg.from, 12)}</strong></text>
+              <text fg={C.text} flexShrink={1} wordWrap="break-word">{msg.body}</text>
             </box>
           );
         })
@@ -1237,7 +1211,6 @@ function App() {
               selectedId={selectedId}
               scrollOffset={scrollOffset}
               maxVisible={maxVisible}
-              width={width}
             />
           )}
           {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
