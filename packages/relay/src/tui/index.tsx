@@ -469,7 +469,7 @@ function ChatPanel({
             return (
               <box key={msg.id} flexDirection="row" gap={2}>
                 <text fg={C.dim}>{time}</text>
-                <text fg={C.dim} flexShrink={1}>{msg.body}</text>
+                <text fg={C.dim}>{msg.body}</text>
               </box>
             );
           }
@@ -490,7 +490,7 @@ function ChatPanel({
               <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
               <text fg={C.dim}>{time}</text>
               <text fg={nameColor}><strong>{pad(msg.from, 12)}</strong></text>
-              <text fg={C.text} flexShrink={1} wordWrap="break-word">{msg.body}</text>
+              <text fg={C.text}>{msg.body}</text>
             </box>
           );
         })
