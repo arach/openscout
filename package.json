@@ -2,7 +2,7 @@
   "name": "openscout",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "bun@1.3.5",
+  "packageManager": "bun@1.2.19",
   "bin": {
     "scout-dev": "./scripts/scout-dev"
   },
