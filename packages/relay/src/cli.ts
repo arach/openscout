@@ -1559,11 +1559,16 @@ async function relay() {
         // Kill stale session if it exists
         try { execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null`); } catch { /* noop */ }
 
-        // Create tmux session and attach (runs TUI inside it)
-        const cmd = `bun run ${tuiPath}`;
-        execSync(`tmux new-session -s ${tmuxSession} -c ${JSON.stringify(process.cwd())} ${JSON.stringify(cmd)}`, {
-          stdio: "inherit",
-        });
+        // Create tmux session with settings optimized for TUI rendering
+        execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(process.cwd())} -x $(tput cols) -y $(tput lines)`);
+        // Reduce flicker: disable status bar in this session, set escape-time to 0
+        try {
+          execSync(`tmux set-option -t ${tmuxSession} status off 2>/dev/null`);
+          execSync(`tmux set-option -t ${tmuxSession} escape-time 0 2>/dev/null`);
+        } catch { /* noop */ }
+        // Send the TUI command and attach
+        execSync(`tmux send-keys -t ${tmuxSession} ${JSON.stringify(`bun run ${tuiPath}`)} Enter`);
+        execSync(`tmux attach -t ${tmuxSession}`, { stdio: "inherit" });
       } catch {
         // tmux not available or user quit — that's fine
       }
