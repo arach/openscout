@@ -138,6 +138,17 @@ function resolveFlights(messages: RelayMessage[], tuiName: string): Flight[] {
     }
   }
 
+  // Auto-expire flights older than 5 minutes
+  const now = Math.floor(Date.now() / 1000);
+  for (const flight of flights) {
+    if (flight.status === "pending" && (now - flight.sentAt) > 300) {
+      flight.status = "completed";
+      flight.response = "(expired)";
+      flight.respondedAt = now;
+      changed = true;
+    }
+  }
+
   if (changed) saveFlights(flights);
   return flights;
 }
@@ -1179,25 +1190,6 @@ function App() {
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
       <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
-
-      {/* Flight status bar — shows active requests */}
-      {activeFlights.length > 0 && (
-        <box flexDirection="column" paddingLeft={1} paddingRight={1}>
-          {activeFlights.slice(-3).map((flight) => {
-            const elapsed = Math.floor(Date.now() / 1000) - flight.sentAt;
-            const elapsedStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-            const preview = flight.message.length > 50 ? flight.message.slice(0, 50) + "…" : flight.message;
-            return (
-              <box key={flight.id} flexDirection="row" gap={1}>
-                <text fg={C.yellow}>waiting</text>
-                <text fg={C.yellow}>→ {flight.to}</text>
-                <text fg={C.dim}>{preview}</text>
-                <text fg={C.muted}>({elapsedStr})</text>
-              </box>
-            );
-          })}
-        </box>
-      )}
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
