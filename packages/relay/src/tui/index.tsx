@@ -12,10 +12,16 @@ import { execSync } from "child_process";
 let voxClient: any = null;
 let voxAvailable = false;
 
+let VoxClientClass: any = null;
+
 async function initVox(): Promise<boolean> {
   try {
-    const { VoxClient } = await import(join(process.env.HOME || "~", "dev", "vox", "packages", "client", "src", "index.ts"));
-    voxClient = new VoxClient({ clientId: "relay-tui" });
+    if (!VoxClientClass) {
+      const mod = await import(join(process.env.HOME || "~", "dev", "vox", "packages", "client", "src", "index.ts"));
+      VoxClientClass = mod.VoxClient;
+    }
+    // Always create a fresh client to avoid stale socket state
+    voxClient = new VoxClientClass({ clientId: "relay-tui" });
     await voxClient.connect();
     voxAvailable = true;
     return true;
@@ -679,8 +685,14 @@ function App() {
     });
 
     session.on("final", (event: any) => {
-      const text = (event.text || "").trim();
+      let text = (event.text || "").trim();
       if (text) {
+        // If no @mention, route to default agent (dev twin)
+        const hasMention = /@[\w.-]+/.test(text);
+        if (!hasMention) {
+          text = `@dev ${text}`;
+        }
+
         const now = Math.floor(Date.now() / 1000);
         // Send via CLI — handles log write, @system, and @mention delivery
         try {
