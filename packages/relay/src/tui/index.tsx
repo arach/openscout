@@ -408,7 +408,7 @@ function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFl
       <box flexDirection="row" gap={2}>
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
-        {(flightsInFlight ?? 0) > 0 && <text fg={C.yellow}>⏳ {flightsInFlight} in flight</text>}
+        {(flightsInFlight ?? 0) > 0 && <text fg={C.yellow}>{flightsInFlight} in flight</text>}
         {voiceState === "recording" && <text fg={C.red}>● REC</text>}
         {voiceState === "processing" && <text fg={C.yellow}>◐ ...</text>}
         {isSpeaking && <text fg={C.cyan}>◉ SPEAKING</text>}
@@ -802,7 +802,7 @@ function VoicePanel({
   );
 }
 
-function StatusBar({ tab }: { tab: ActiveTab }) {
+function StatusBar({ tab, lastActivity }: { tab: ActiveTab; lastActivity?: string }) {
   const hints: Record<ActiveTab, string> = {
     chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
     agents: "↑↓ select  ⏎ peek  v voice  tab switch  r refresh  q quit",
@@ -811,9 +811,16 @@ function StatusBar({ tab }: { tab: ActiveTab }) {
   };
 
   return (
-    <box flexDirection="row" padding={1} height={3} justifyContent="space-between">
-      <text fg={C.dim}>{hints[tab]}</text>
-      <text fg={C.dim}>1 chat  2 agents  3 stats  4 voice</text>
+    <box flexDirection="column" paddingLeft={1} paddingRight={1} height={3}>
+      {lastActivity && (
+        <box flexDirection="row">
+          <text fg={C.yellow}>{lastActivity}</text>
+        </box>
+      )}
+      <box flexDirection="row" justifyContent="space-between">
+        <text fg={C.dim}>{hints[tab]}</text>
+        <text fg={C.dim}>1 chat  2 agents  3 stats  4 voice</text>
+      </box>
     </box>
   );
 }
@@ -835,6 +842,7 @@ function App() {
   const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
+  const [lastActivity, setLastActivity] = useState("");
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
   const voxSessionRef = useRef<any>(null);
@@ -857,8 +865,21 @@ function App() {
     syncToDb(relayDir, allMessages);
     setDbEntries(allMessages.length);
 
-    // Load twins registry
-    setTwins(loadTwinsSync());
+    // Load twins registry and compute live activity
+    const currentTwins = loadTwinsSync();
+    setTwins(currentTwins);
+
+    // Build activity summary from active twins
+    const activities: string[] = [];
+    for (const [name, twin] of Object.entries(currentTwins)) {
+      if (isTwinAlive(twin.tmuxSession)) {
+        const activity = captureTwinActivity(twin.tmuxSession);
+        if (activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...") {
+          activities.push(`${name}: ${activity}`);
+        }
+      }
+    }
+    setLastActivity(activities.length > 0 ? activities[0] : "");
 
     // Auto-select newest message and reset scroll to bottom
     if (allMessages.length > 0) {
@@ -1159,6 +1180,25 @@ function App() {
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
       <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
 
+      {/* Flight status bar — shows active requests */}
+      {activeFlights.length > 0 && (
+        <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+          {activeFlights.slice(-3).map((flight) => {
+            const elapsed = Math.floor(Date.now() / 1000) - flight.sentAt;
+            const elapsedStr = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+            const preview = flight.message.length > 50 ? flight.message.slice(0, 50) + "…" : flight.message;
+            return (
+              <box key={flight.id} flexDirection="row" gap={1}>
+                <text fg={C.yellow}>waiting</text>
+                <text fg={C.yellow}>→ {flight.to}</text>
+                <text fg={C.dim}>{preview}</text>
+                <text fg={C.muted}>({elapsedStr})</text>
+              </box>
+            );
+          })}
+        </box>
+      )}
+
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
           {tab === "chat" && (
@@ -1175,7 +1215,7 @@ function App() {
         </box>
       </box>
 
-      <StatusBar tab={tab} />
+      <StatusBar tab={tab} lastActivity={lastActivity} />
     </box>
   );
 }
