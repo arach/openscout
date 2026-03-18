@@ -1044,136 +1044,6 @@ async function relayWatch() {
   });
 }
 
-async function relaySpeak() {
-  const fs = await import("node:fs");
-  const { spawn } = await import("node:child_process");
-  const { logPath } = await requireRelay();
-
-  const agent = getAgentName();
-
-  // Resolve who we're speaking for (default: system username)
-  const forIdx = args.indexOf("--for");
-  const speakFor = forIdx !== -1 && args[forIdx + 1]
-    ? args[forIdx + 1]
-    : process.env.USER || "arach";
-
-  // Resolve OpenAI API key
-  let apiKey = process.env.OPENAI_API_KEY || null;
-  if (!apiKey) {
-    try {
-      const path = await import("node:path");
-      const os = await import("node:os");
-      const settingsPath = path.join(os.homedir(), ".config", "speakeasy", "settings.json");
-      const raw = fs.readFileSync(settingsPath, "utf-8");
-      const settings = JSON.parse(raw);
-      apiKey = settings.providers?.openai?.apiKey || null;
-    } catch { /* noop */ }
-  }
-
-  if (!apiKey) {
-    print("\n  \x1b[31m✗\x1b[0m No OpenAI API key found.");
-    print("  Set OPENAI_API_KEY or add it to ~/.config/speakeasy/settings.json\n");
-    process.exit(1);
-  }
-
-  // Voice config
-  const voiceIdx = args.indexOf("--voice");
-  const voice = voiceIdx !== -1 && args[voiceIdx + 1] ? args[voiceIdx + 1] : "nova";
-
-  // Start reading from end of file (only speak new messages)
-  const stat = fs.statSync(logPath);
-  let position = stat.size;
-  let speaking = false;
-
-  printBrand();
-  print(`  Speaker active — listening for @${speakFor} mentions`);
-  print(`  \x1b[2mvoice: ${voice} · Ctrl+C to stop\x1b[0m\n`);
-
-  const speakText = async (text: string) => {
-    if (speaking) return; // don't overlap
-    speaking = true;
-    try {
-      const res = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "tts-1",
-          voice,
-          input: text,
-          response_format: "pcm",
-          speed: 1.1,
-        }),
-      });
-
-      if (!res.ok || !res.body) {
-        speaking = false;
-        return;
-      }
-
-      const player = spawn("ffplay", [
-        "-nodisp", "-autoexit", "-loglevel", "quiet",
-        "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
-      ], { stdio: ["pipe", "ignore", "ignore"] });
-
-      const reader = res.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        player.stdin.write(value);
-      }
-      player.stdin.end();
-
-      await new Promise<void>((resolve) => player.on("close", resolve));
-    } catch {
-      // TTS failed — skip silently
-    }
-    speaking = false;
-  };
-
-  const readNew = () => {
-    const current = fs.statSync(logPath);
-    if (current.size <= position) return;
-
-    const fd = fs.openSync(logPath, "r");
-    const buf = Buffer.alloc(current.size - position);
-    fs.readSync(fd, buf, 0, buf.length, position);
-    fs.closeSync(fd);
-    position = current.size;
-
-    const newContent = buf.toString("utf-8");
-    const lines = newContent.trim().split("\n").filter(Boolean);
-
-    for (const line of lines) {
-      const parts = line.split(" ");
-      const [, from, type, ...rest] = parts;
-      const body = rest.join(" ");
-
-      // Only speak MSG from others that mention us
-      if (type !== "MSG") continue;
-      if (from === speakFor || from === "system") continue;
-      if (!body.includes(`@${speakFor}`)) continue;
-
-      // Clean the text for speech
-      const clean = body.replace(new RegExp(`@${speakFor}\\s*`, "g"), "").trim();
-      if (!clean) continue;
-
-      const preview = clean.length > 60 ? clean.slice(0, 60) + "…" : clean;
-      print(`  \x1b[2m${formatTimestamp(Number(parts[0]))}\x1b[0m \x1b[1m${from}\x1b[0m → \x1b[2mspeaking\x1b[0m  ${preview}`);
-      speakText(clean);
-    }
-  };
-
-  fs.watch(logPath, () => readNew());
-
-  process.on("SIGINT", () => {
-    print(`\n  \x1b[2mSpeaker stopped\x1b[0m\n`);
-    process.exit(0);
-  });
-}
-
 async function relayWho() {
   const fs = await import("node:fs/promises");
   const { logPath } = await requireRelay();
@@ -1767,10 +1637,6 @@ function relayHelp() {
   print("    tui                            Open the relay monitor dashboard");
   print("    enroll --as <name>             Generate enrollment prompt for an agent");
   print("    broadcast <message>            Send + nudge all tmux panes (alias: bc)\n");
-  print("  \x1b[1mAudio:\x1b[0m");
-  print("    speak                             Speak @mentions aloud via TTS (background)");
-  print("    speak --for <name>                Listen for a specific agent's mentions");
-  print("    speak --voice <voice>             OpenAI voice (default: nova)\n");
   print("  \x1b[1mTwins:\x1b[0m \x1b[2m(headless agents in detached tmux sessions)\x1b[0m");
   print("    up <path> [--name n] [--task t]  Spawn a twin for a project");
   print("    down <name>                      Stop a twin");
@@ -1832,9 +1698,6 @@ async function relay() {
       break;
     case "ps":
       await relayPs();
-      break;
-    case "speak":
-      await relaySpeak();
       break;
     case "tui": {
       const { execSync } = await import("node:child_process");
