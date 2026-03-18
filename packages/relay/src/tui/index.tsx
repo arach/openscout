@@ -67,6 +67,81 @@ async function streamSpeak(text: string): Promise<void> {
   }
 }
 
+// ── Flights (tracked requests with callbacks) ────────────────────────────────
+
+interface Flight {
+  id: string;
+  from: string;
+  to: string;
+  message: string;
+  sentAt: number;
+  status: "pending" | "completed";
+  response?: string;
+  respondedAt?: number;
+}
+
+function getFlightsPath(): string {
+  const os = require("os");
+  return join(os.homedir(), ".openscout", "relay", "flights.json");
+}
+
+function loadFlights(): Flight[] {
+  try {
+    return JSON.parse(readFileSync(getFlightsPath(), "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function saveFlights(flights: Flight[]): void {
+  writeFileSync(getFlightsPath(), JSON.stringify(flights, null, 2) + "\n");
+}
+
+function createFlight(from: string, to: string, message: string): Flight {
+  const flights = loadFlights();
+  const flight: Flight = {
+    id: `f-${Date.now().toString(36)}`,
+    from,
+    to,
+    message,
+    sentAt: Math.floor(Date.now() / 1000),
+    status: "pending",
+  };
+  flights.push(flight);
+  // Keep only last 50 flights
+  if (flights.length > 50) flights.splice(0, flights.length - 50);
+  saveFlights(flights);
+  return flight;
+}
+
+function resolveFlights(messages: RelayMessage[], tuiName: string): Flight[] {
+  const flights = loadFlights();
+  let changed = false;
+
+  for (const flight of flights) {
+    if (flight.status !== "pending") continue;
+
+    // Look for a reply from the target agent that mentions the requester
+    for (const msg of messages) {
+      if (
+        msg.type === "MSG" &&
+        msg.from === flight.to &&
+        msg.timestamp > flight.sentAt &&
+        (msg.body.includes(`@${flight.from}`) || msg.from === flight.to)
+      ) {
+        flight.status = "completed";
+        flight.response = msg.body;
+        flight.respondedAt = msg.timestamp;
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  if (changed) saveFlights(flights);
+  return flights;
+}
+
 // ── Vox Voice Integration ────────────────────────────────────────────────────
 
 let voxClient: any = null;
@@ -302,7 +377,7 @@ const C = {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function Header({ tab, agentCount, msgCount, voiceState, isSpeaking }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean }) {
+function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFlight }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean; flightsInFlight?: number }) {
   const [clock, setClock] = useState(ts());
 
   useEffect(() => {
@@ -333,6 +408,7 @@ function Header({ tab, agentCount, msgCount, voiceState, isSpeaking }: { tab: Ac
       <box flexDirection="row" gap={2}>
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
+        {(flightsInFlight ?? 0) > 0 && <text fg={C.yellow}>⏳ {flightsInFlight} in flight</text>}
         {voiceState === "recording" && <text fg={C.red}>● REC</text>}
         {voiceState === "processing" && <text fg={C.yellow}>◐ ...</text>}
         {isSpeaking && <text fg={C.cyan}>◉ SPEAKING</text>}
@@ -758,6 +834,7 @@ function App() {
   const [selectedAgent, setSelectedAgent] = useState(0);
   const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
   const voxSessionRef = useRef<any>(null);
@@ -789,17 +866,37 @@ function App() {
       setScrollOffset(0);
     }
 
-    // Talk-back: speak new messages that mention us
-    if (talkBackEnabled && allMessages.length > lastMsgCountRef.current) {
-      const tuiName = tuiNameRef.current;
-      const newMsgs = allMessages.slice(lastMsgCountRef.current);
-      for (const msg of newMsgs) {
-        // Speak messages from others that mention us (skip system, skip our own)
-        if (msg.type === "MSG" && msg.from !== tuiName && msg.from !== "system" && msg.body.includes(`@${tuiName}`)) {
-          setIsSpeaking(true);
-          const cleanText = msg.body.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
-          streamSpeak(cleanText).finally(() => setIsSpeaking(false));
-          break; // only speak the first new reply
+    // Resolve flights and talk-back on completion
+    const tuiName = tuiNameRef.current;
+    if (tuiName) {
+      const flights = resolveFlights(allMessages, tuiName);
+      setActiveFlights(flights.filter((f) => f.status === "pending"));
+
+      // Talk-back: speak newly completed flights
+      if (talkBackEnabled && allMessages.length > lastMsgCountRef.current) {
+        for (const flight of flights) {
+          if (flight.status === "completed" && flight.respondedAt && flight.respondedAt > (lastMsgCountRef.current > 0 ? allMessages[lastMsgCountRef.current - 1]?.timestamp || 0 : 0)) {
+            if (flight.response && !isSpeaking) {
+              setIsSpeaking(true);
+              const cleanText = flight.response.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
+              streamSpeak(cleanText).finally(() => setIsSpeaking(false));
+              break;
+            }
+          }
+        }
+
+        // Fallback: speak any new @mention even without a flight
+        const newMsgs = allMessages.slice(lastMsgCountRef.current);
+        const hasCompletedFlight = flights.some((f) => f.status === "completed" && f.respondedAt && f.respondedAt > (allMessages[lastMsgCountRef.current - 1]?.timestamp || 0));
+        if (!hasCompletedFlight) {
+          for (const msg of newMsgs) {
+            if (msg.type === "MSG" && msg.from !== tuiName && msg.from !== "system" && msg.body.includes(`@${tuiName}`)) {
+              setIsSpeaking(true);
+              const cleanText = msg.body.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
+              streamSpeak(cleanText).finally(() => setIsSpeaking(false));
+              break;
+            }
+          }
         }
       }
     }
@@ -924,8 +1021,18 @@ function App() {
           appendFileSync(logPath, `${now} ${tuiName} MSG ${text}\n`);
         }
 
+        // Create a flight for each @mentioned target
+        const mentions = text.match(/@([\w.-]+)/g);
+        if (mentions) {
+          for (const m of mentions) {
+            const target = m.slice(1);
+            if (target !== tuiName && target !== "system") {
+              createFlight(tuiName, target, text);
+            }
+          }
+        }
+
         setRecentTranscriptions((prev) => [...prev, { text, timestamp: now }]);
-        pendingVoiceRef.current = true; // enable talk-back for the reply
         refresh();
       }
       setVoiceState("idle");
@@ -1050,7 +1157,7 @@ function App() {
 
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
-      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} />
+      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
