@@ -745,19 +745,17 @@ function App() {
       setScrollOffset(0);
     }
 
-    // Talk-back: speak new messages that mention us (replies to our voice)
-    if (talkBackEnabled && pendingVoiceRef.current && allMessages.length > lastMsgCountRef.current) {
+    // Talk-back: speak new messages that mention us
+    if (talkBackEnabled && allMessages.length > lastMsgCountRef.current) {
       const tuiName = tuiNameRef.current;
       const newMsgs = allMessages.slice(lastMsgCountRef.current);
       for (const msg of newMsgs) {
-        // Speak messages from others that mention us
+        // Speak messages from others that mention us (skip system, skip our own)
         if (msg.type === "MSG" && msg.from !== tuiName && msg.from !== "system" && msg.body.includes(`@${tuiName}`)) {
-          pendingVoiceRef.current = false;
           setIsSpeaking(true);
-          // Strip the @mention prefix for cleaner speech
           const cleanText = msg.body.replace(new RegExp(`@${tuiName}\\s*`, "g"), "").trim();
           streamSpeak(cleanText).finally(() => setIsSpeaking(false));
-          break; // only speak the first reply
+          break; // only speak the first new reply
         }
       }
     }
