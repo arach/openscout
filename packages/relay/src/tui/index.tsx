@@ -7,6 +7,24 @@ import { existsSync, readFileSync, appendFileSync, writeFileSync, watchFile, unw
 import { join } from "path";
 import { execSync } from "child_process";
 
+// ── Vox Voice Integration ────────────────────────────────────────────────────
+
+let voxClient: any = null;
+let voxAvailable = false;
+
+async function initVox(): Promise<boolean> {
+  try {
+    const { VoxClient } = await import(join(process.env.HOME || "~", "dev", "vox", "packages", "client", "src", "index.ts"));
+    voxClient = new VoxClient({ clientId: "relay-tui" });
+    await voxClient.connect();
+    voxAvailable = true;
+    return true;
+  } catch {
+    voxAvailable = false;
+    return false;
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface RelayMessage {
@@ -32,7 +50,7 @@ interface DbEntry {
   indexedAt: string;
 }
 
-type ActiveTab = "chat" | "agents" | "stats";
+type ActiveTab = "chat" | "agents" | "stats" | "voice";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -218,7 +236,7 @@ const C = {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function Header({ tab, agentCount, msgCount }: { tab: ActiveTab; agentCount: number; msgCount: number }) {
+function Header({ tab, agentCount, msgCount, voiceState }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string }) {
   const [clock, setClock] = useState(ts());
 
   useEffect(() => {
@@ -244,6 +262,8 @@ function Header({ tab, agentCount, msgCount }: { tab: ActiveTab; agentCount: num
       <box flexDirection="row" gap={2}>
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
+        {voiceState === "recording" && <text fg={C.red}>● REC</text>}
+        {voiceState === "processing" && <text fg={C.yellow}>◐ ...</text>}
         <text fg={C.dim}>{clock}</text>
       </box>
     </box>
@@ -435,17 +455,88 @@ function StatsPanel({ messages, agents, dbEntries }: { messages: RelayMessage[];
   );
 }
 
+function VoicePanel({
+  voiceState,
+  partialText,
+  recentTranscriptions,
+}: {
+  voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
+  partialText: string;
+  recentTranscriptions: Array<{ text: string; timestamp: number }>;
+}) {
+  const stateDisplay: Record<typeof voiceState, { icon: string; label: string; color: string }> = {
+    idle: { icon: "○", label: "Ready — press v to record", color: C.dim },
+    connecting: { icon: "◌", label: "Connecting to Vox...", color: C.yellow },
+    recording: { icon: "●", label: "Recording — press v to stop", color: C.red },
+    processing: { icon: "◐", label: "Transcribing...", color: C.yellow },
+    error: { icon: "✗", label: "Vox not available — is voxd running?", color: C.red },
+  };
+
+  const s = stateDisplay[voiceState];
+
+  return (
+    <box flexDirection="column" flexGrow={1} gap={1}>
+      {/* Status */}
+      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : C.border} padding={1} flexDirection="column" title="Voice Input">
+        <box flexDirection="row" gap={2}>
+          <text fg={s.color}>{s.icon}</text>
+          <text fg={s.color}>{s.label}</text>
+        </box>
+        {voiceState === "recording" && (
+          <box flexDirection="column" marginTop={1}>
+            <text fg={C.dim}>Listening...</text>
+            {partialText ? (
+              <text fg={C.text}><strong>{partialText}</strong></text>
+            ) : (
+              <text fg={C.dim}>Speak now</text>
+            )}
+          </box>
+        )}
+        {voiceState === "processing" && partialText && (
+          <box flexDirection="column" marginTop={1}>
+            <text fg={C.yellow}>{partialText}</text>
+          </box>
+        )}
+      </box>
+
+      {/* Recent transcriptions */}
+      <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" flexGrow={1} title="Recent">
+        {recentTranscriptions.length === 0 ? (
+          <text fg={C.dim}>No voice messages yet. Press v to start.</text>
+        ) : (
+          recentTranscriptions.slice(-10).map((t, i) => (
+            <box key={i} flexDirection="row" gap={1}>
+              <text fg={C.dim}>{fmtTime(t.timestamp)}</text>
+              <text fg={C.accent}>you</text>
+              <text fg={C.text}>{t.text}</text>
+            </box>
+          ))
+        )}
+      </box>
+
+      {/* Help */}
+      <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" title="Tips">
+        <text fg={C.dim}>v  toggle recording from any tab</text>
+        <text fg={C.dim}>Transcribed text is sent as a relay message from you</text>
+        <text fg={C.dim}>Use @mentions naturally: "hey @lattices what's the status"</text>
+        <text fg={C.dim}>Say "@system up dewey" to spawn twins by voice</text>
+      </box>
+    </box>
+  );
+}
+
 function StatusBar({ tab }: { tab: ActiveTab }) {
   const hints: Record<ActiveTab, string> = {
-    chat: "↑↓ scroll  c copy  tab switch  r refresh  q quit",
-    agents: "tab switch  r refresh  q quit",
-    stats: "tab switch  r refresh  x clear  q quit",
+    chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
+    agents: "v voice  tab switch  r refresh  q quit",
+    stats: "v voice  tab switch  r refresh  x clear  q quit",
+    voice: "v record/stop  tab switch  q quit",
   };
 
   return (
     <box flexDirection="row" padding={1} height={3} justifyContent="space-between">
       <text fg={C.dim}>{hints[tab]}</text>
-      <text fg={C.dim}>1 chat  2 agents  3 stats</text>
+      <text fg={C.dim}>1 chat  2 agents  3 stats  4 voice</text>
     </box>
   );
 }
@@ -460,8 +551,13 @@ function App() {
   const [dbEntries, setDbEntries] = useState(0);
   const [selectedId, setSelectedId] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "recording" | "processing" | "error">("idle");
+  const [partialText, setPartialText] = useState("");
+  const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
+  const voxSessionRef = useRef<any>(null);
+  const tuiNameRef = useRef<string>("");
 
   const maxVisible = Math.max(height - 10, 5);
 
@@ -500,8 +596,14 @@ function App() {
     const tuiName = asIdx !== -1 && process.argv[asIdx + 1]
       ? process.argv[asIdx + 1]
       : process.env.OPENSCOUT_AGENT || require("os").userInfo().username;
+    tuiNameRef.current = tuiName;
     const now = Math.floor(Date.now() / 1000);
     appendFileSync(logPath, `${now} ${tuiName} SYS ${tuiName} monitoring the relay\n`);
+
+    // Try to connect to Vox for voice input
+    initVox().then((ok) => {
+      if (!ok) setVoiceState("error");
+    });
 
     // Heartbeat — keep TUI showing as online
     const heartbeatIv = setInterval(() => {
@@ -535,15 +637,93 @@ function App() {
     };
   }, [refresh]);
 
+  // Voice toggle
+  const toggleVoice = useCallback(async () => {
+    const relayDir = relayDirRef.current;
+    if (!relayDir) return;
+    const logPath = join(relayDir, "channel.log");
+    const tuiName = tuiNameRef.current;
+
+    // If recording, stop
+    if (voiceState === "recording" && voxSessionRef.current) {
+      setVoiceState("processing");
+      try {
+        await voxSessionRef.current.stop();
+      } catch {
+        setVoiceState("idle");
+      }
+      return;
+    }
+
+    // If idle or error, try to start
+    if (voiceState !== "idle" && voiceState !== "error") return;
+
+    // Ensure Vox is connected
+    if (!voxAvailable) {
+      setVoiceState("connecting");
+      const ok = await initVox();
+      if (!ok) {
+        setVoiceState("error");
+        return;
+      }
+    }
+
+    setVoiceState("recording");
+    setPartialText("");
+
+    const session = voxClient.createLiveSession();
+    voxSessionRef.current = session;
+
+    session.on("partial", (event: any) => {
+      setPartialText(event.text || "");
+    });
+
+    session.on("final", (event: any) => {
+      const text = (event.text || "").trim();
+      if (text) {
+        const now = Math.floor(Date.now() / 1000);
+        // Send via CLI — handles log write, @system, and @mention delivery
+        try {
+          execSync(`openscout relay send --as ${tuiName} ${JSON.stringify(text)}`, { stdio: "ignore" });
+        } catch {
+          // Fallback: write directly to log
+          appendFileSync(logPath, `${now} ${tuiName} MSG ${text}\n`);
+        }
+
+        setRecentTranscriptions((prev) => [...prev, { text, timestamp: now }]);
+        refresh();
+      }
+      setVoiceState("idle");
+      setPartialText("");
+      voxSessionRef.current = null;
+    });
+
+    session.on("error", () => {
+      setVoiceState("error");
+      setPartialText("");
+      voxSessionRef.current = null;
+    });
+
+    try {
+      await session.start();
+    } catch {
+      setVoiceState("error");
+      voxSessionRef.current = null;
+    }
+  }, [voiceState, refresh]);
+
   // Keyboard
   useKeyboard((key) => {
     if (key.name === "escape" || (key.name === "c" && key.ctrl) || key.name === "q") {
+      if (voxClient) {
+        try { voxClient.disconnect(); } catch { /* noop */ }
+      }
       quit();
     }
 
     if (key.name === "tab") {
       setTab((prev) => {
-        const tabs: ActiveTab[] = ["chat", "agents", "stats"];
+        const tabs: ActiveTab[] = ["chat", "agents", "stats", "voice"];
         const dir = key.shift ? -1 : 1;
         return tabs[(tabs.indexOf(prev) + dir + tabs.length) % tabs.length];
       });
@@ -552,7 +732,13 @@ function App() {
     if (key.name === "1") setTab("chat");
     if (key.name === "2") setTab("agents");
     if (key.name === "3") setTab("stats");
+    if (key.name === "4") setTab("voice");
     if (key.name === "r") refresh();
+
+    // Voice toggle — works from any tab
+    if (key.name === "v") {
+      toggleVoice();
+    }
 
     // Chat navigation
     if (tab === "chat") {
@@ -586,7 +772,7 @@ function App() {
 
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
-      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} />
+      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
@@ -600,6 +786,7 @@ function App() {
           )}
           {tab === "agents" && <AgentsPanel agents={agents} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
+          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} />}
         </box>
       </box>
 
