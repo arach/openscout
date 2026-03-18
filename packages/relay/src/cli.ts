@@ -409,6 +409,83 @@ async function relayInit() {
   print("    openscout relay watch --as agent-a\n");
 }
 
+interface AgentRegistryEntry {
+  pane: string;
+  cwd: string;
+  project: string;
+  session_id?: string;
+  registered_at?: number;
+}
+
+async function loadRegistry(): Promise<Record<string, AgentRegistryEntry>> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const registryPath = path.join(hub, "agents.json");
+  try {
+    const raw = await fs.readFile(registryPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function deliverToAgent(name: string, from: string, message: string): Promise<"delivered" | "nudged" | "queued"> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { execSync } = await import("node:child_process");
+  const registry = await loadRegistry();
+  const entry = registry[name];
+  const hub = await getGlobalRelayDir();
+
+  // Strategy 0: Check if target is a twin — deliver directly via tmux input
+  const twins = await loadTwins();
+  const twin = twins[name];
+  if (twin && isTmuxSessionAlive(twin.tmuxSession)) {
+    // Type the message directly into the twin's Claude prompt
+    const prompt = `[Relay from ${from}]: ${message}`;
+    try {
+      execSync(`tmux send-keys -t ${twin.tmuxSession} ${JSON.stringify(prompt)} Enter`);
+      return "delivered";
+    } catch {
+      // tmux session exists but can't send — fall through to inbox
+    }
+  }
+
+  // Strategy 1: Write to inbox file — the agent's Stop hook picks it up
+  // This is the most reliable cross-session delivery mechanism
+  const inboxDir = path.join(hub, "inbox");
+  await fs.mkdir(inboxDir, { recursive: true });
+  const inboxFile = path.join(inboxDir, `${name}.md`);
+
+  const relayMsg = [
+    `[RELAY MESSAGE]`,
+    `From: ${from}`,
+    `To: @${name}`,
+    ``,
+    message,
+    ``,
+    `---`,
+    `Reply with: openscout relay send --as ${name} "@${from} <your response>"`,
+  ].join("\n") + "\n\n";
+
+  // Append to inbox (multiple messages can queue up)
+  await fs.appendFile(inboxFile, relayMsg);
+
+  // Strategy 2: Also try tmux nudge for immediate visibility
+  if (entry?.pane) {
+    const preview = message.length > 60 ? message.slice(0, 60) + "…" : message;
+    try {
+      execSync(`tmux send-keys -t ${entry.pane} ${JSON.stringify(`[relay] ${from}: ${preview}`)} Enter`);
+      return "nudged";
+    } catch {
+      // Pane doesn't exist — inbox delivery still happened
+    }
+  }
+
+  return "delivered";
+}
+
 async function relaySend() {
   const fs = await import("node:fs/promises");
   const { logPath } = await requireRelay();
@@ -437,6 +514,23 @@ async function relaySend() {
   await fs.appendFile(logPath, `${ts} ${agent} MSG ${message}\n`);
 
   print(formatLine(`${ts} ${agent} MSG ${message}`));
+
+  // Auto-deliver to @mentioned agents
+  const mentions = message.match(/@([\w-]+)/g);
+  if (mentions) {
+    for (const mention of mentions) {
+      const target = mention.slice(1); // remove @
+      if (target === agent) continue; // don't deliver to yourself
+      const result = await deliverToAgent(target, agent, message);
+      if (result === "delivered") {
+        print(`  \x1b[32m✓\x1b[0m Delivered to ${target}'s session (resumed)`);
+      } else if (result === "nudged") {
+        print(`  \x1b[33m○\x1b[0m Nudged ${target} via tmux (session not found)`);
+      } else {
+        print(`  \x1b[2m○\x1b[0m ${target} not registered — message queued in channel\x1b[0m`);
+      }
+    }
+  }
 }
 
 async function relayRead() {
@@ -677,6 +771,58 @@ async function relayEnroll() {
   print(`  \x1b[32m✓\x1b[0m Wrote enrollment event to channel.log\n`);
 }
 
+async function relayBroadcast() {
+  const fs = await import("node:fs/promises");
+  const { execSync } = await import("node:child_process");
+  const { logPath } = await requireRelay();
+
+  // Collect message
+  const bcIdx = args.indexOf("broadcast");
+  const msgParts: string[] = [];
+  let i = bcIdx + 1;
+  while (i < args.length) {
+    if (args[i] === "--as") { i += 2; continue; }
+    msgParts.push(args[i]);
+    i++;
+  }
+
+  const message = msgParts.join(" ").trim();
+  if (!message) {
+    print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay broadcast \"your message\"\n");
+    process.exit(1);
+  }
+
+  const agent = getAgentName();
+  const ts = Math.floor(Date.now() / 1000);
+  await fs.appendFile(logPath, `${ts} ${agent} MSG 📢 ${message}\n`);
+
+  print(formatLine(`${ts} ${agent} MSG 📢 ${message}`));
+
+  // Nudge all tmux panes
+  let nudged = 0;
+  try {
+    const panes = execSync("tmux list-panes -a -F '#{pane_id}'", { encoding: "utf-8" })
+      .trim().split("\n").filter(Boolean);
+
+    const preview = message.length > 60 ? message.slice(0, 60) + "…" : message;
+    for (const pane of panes) {
+      try {
+        execSync(`tmux send-keys -t ${pane} ${JSON.stringify(`[broadcast] ${agent}: ${preview}`)} Enter`);
+        nudged++;
+      } catch {
+        // pane may not accept input — skip
+      }
+    }
+  } catch {
+    // tmux not running — that's fine
+  }
+
+  if (nudged > 0) {
+    print(`  \x1b[32m✓\x1b[0m Nudged ${nudged} tmux pane${nudged === 1 ? "" : "s"}`);
+  }
+  print("");
+}
+
 async function relayLink() {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
@@ -712,6 +858,321 @@ async function relayLink() {
   print(`  \x1b[32m✓\x1b[0m Linked \x1b[1m${projectName}\x1b[0m → \x1b[1m${hubShort}/\x1b[0m\n`);
   print("  Agents in this directory now share the global relay channel.");
   print("  Run \x1b[1mopenscout relay read\x1b[0m to see messages from all projects.\n");
+}
+
+// ── Twins ─────────────────────────────────────────────
+
+interface TwinEntry {
+  project: string;
+  tmuxSession: string;
+  cwd: string;
+  startedAt: number;
+  systemPrompt?: string;
+}
+
+async function loadTwins(): Promise<Record<string, TwinEntry>> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const twinsPath = path.join(hub, "twins.json");
+  try {
+    const raw = await fs.readFile(twinsPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function saveTwins(twins: Record<string, TwinEntry>): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const twinsPath = path.join(hub, "twins.json");
+  await fs.writeFile(twinsPath, JSON.stringify(twins, null, 2) + "\n");
+}
+
+function isTmuxSessionAlive(sessionName: string): boolean {
+  try {
+    const { execSync } = require("node:child_process");
+    execSync(`tmux has-session -t ${sessionName} 2>/dev/null`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function relayUp() {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const { execSync } = await import("node:child_process");
+  await requireRelay();
+
+  // Parse: relay up <path-or-name> [--name <alias>] [--task <task>]
+  const upIdx = args.indexOf("up");
+  const targetArg = args[upIdx + 1];
+
+  if (!targetArg || targetArg.startsWith("--")) {
+    print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay up <project-path> [--name <alias>] [--task <description>]\n");
+    print("  \x1b[1mExamples:\x1b[0m");
+    print("    openscout relay up ~/dev/lattices");
+    print("    openscout relay up ~/dev/arc --name arc-twin");
+    print("    openscout relay up . --task \"monitor tests\"\n");
+    process.exit(1);
+  }
+
+  // Resolve project path
+  let projectPath = targetArg;
+  if (projectPath === ".") projectPath = process.cwd();
+  else if (projectPath.startsWith("~")) projectPath = projectPath.replace("~", os.homedir());
+  else if (!path.isAbsolute(projectPath)) projectPath = path.resolve(projectPath);
+
+  // Verify directory exists
+  try {
+    const stat = await fs.stat(projectPath);
+    if (!stat.isDirectory()) throw new Error("not a directory");
+  } catch {
+    print(`\n  \x1b[31m✗\x1b[0m Not a directory: ${targetArg}\n`);
+    process.exit(1);
+  }
+
+  const projectName = path.basename(projectPath);
+
+  // Parse optional name
+  const nameIdx = args.indexOf("--name");
+  const twinName = nameIdx !== -1 ? args[nameIdx + 1] : projectName;
+
+  // Parse optional task
+  const taskIdx = args.indexOf("--task");
+  const task = taskIdx !== -1 ? args.slice(taskIdx + 1).filter((a) => !a.startsWith("--")).join(" ") : "";
+
+  const tmuxSession = `relay-${twinName}`;
+
+  // Check if already running
+  if (isTmuxSessionAlive(tmuxSession)) {
+    print(`\n  \x1b[33m!\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is already running (tmux: ${tmuxSession})`);
+    print(`  \x1b[2mUse: openscout relay down ${twinName}\x1b[0m\n`);
+    process.exit(1);
+  }
+
+  // Build the enrollment system prompt
+  const hub = await getGlobalRelayDir();
+  const hubShort = hub.replace(os.homedir(), "~");
+  const logPath = path.join(hub, "channel.log");
+
+  const systemPrompt = [
+    `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
+    ``,
+    `You have full access to the codebase at ${projectPath}.`,
+    `There is a global relay channel at ${hubShort}/channel.log shared by all agents.`,
+    ``,
+    `Your job:`,
+    `  - Respond to @${twinName} mentions from other agents`,
+    `  - Answer questions about this project's code, architecture, and status`,
+    `  - Coordinate with other agents when they need info from this project`,
+    `  - Run commands, check code, and provide accurate answers`,
+    ``,
+    `Relay commands:`,
+    `  openscout relay send --as ${twinName} "your message"   — send a message`,
+    `  openscout relay read                                   — check recent messages`,
+    `  openscout relay who                                    — see who's active`,
+    ``,
+    `Rules:`,
+    `  - Always reply via relay send so other agents see your response`,
+    `  - Be specific: include file paths, line numbers, what you found`,
+    `  - Keep messages under 200 chars unless detailed info was requested`,
+    `  - Check relay read for context before responding`,
+    task ? `\nYour primary task: ${task}` : "",
+  ].filter(Boolean).join("\n");
+
+  // Create the tmux session with claude
+  printBrand();
+  print(`  Spawning twin \x1b[1m${twinName}\x1b[0m...\n`);
+
+  // Write system prompt + launcher to files (avoids shell quoting hell)
+  const twinDir = path.join(hub, "twins");
+  await fs.mkdir(twinDir, { recursive: true });
+  const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+  await fs.writeFile(promptFile, systemPrompt);
+
+  const initialMsg = task
+    ? `You are now online as a relay twin. Your task: ${task}. Announce yourself on the relay and start working.`
+    : `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+
+  const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+  await fs.writeFile(initialFile, initialMsg);
+
+  // Launcher: starts Claude interactively, then sends initial message after startup
+  const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+  await fs.writeFile(launchScript, [
+    `#!/bin/bash`,
+    `cd ${JSON.stringify(projectPath)}`,
+    `# Send initial message after Claude starts (background)`,
+    `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
+    `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+  ].join("\n") + "\n");
+  await fs.chmod(launchScript, 0o755);
+
+  // Create detached tmux session running the launcher
+  execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
+
+  // Save to twins registry
+  const twins = await loadTwins();
+  twins[twinName] = {
+    project: projectName,
+    tmuxSession,
+    cwd: projectPath,
+    startedAt: Math.floor(Date.now() / 1000),
+    systemPrompt: task || undefined,
+  };
+  await saveTwins(twins);
+
+  // Log to channel
+  const ts = Math.floor(Date.now() / 1000);
+  await fs.appendFile(logPath, `${ts} ${twinName} SYS twin spawned for ${projectName}\n`);
+
+  print(`  \x1b[32m✓\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is alive`);
+  print(`  \x1b[2m  tmux: ${tmuxSession}\x1b[0m`);
+  print(`  \x1b[2m  cwd:  ${projectPath}\x1b[0m`);
+  if (task) print(`  \x1b[2m  task: ${task}\x1b[0m`);
+  print("");
+  print("  \x1b[1mUseful commands:\x1b[0m");
+  print(`    tmux attach -t ${tmuxSession}        \x1b[2m# peek at the twin\x1b[0m`);
+  print(`    openscout relay send "@${twinName} hey"  \x1b[2m# talk to it\x1b[0m`);
+  print(`    openscout relay ps                    \x1b[2m# check all twins\x1b[0m`);
+  print(`    openscout relay down ${twinName}          \x1b[2m# stop it\x1b[0m\n`);
+}
+
+async function relayDown() {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { execSync } = await import("node:child_process");
+  await requireRelay();
+
+  const downIdx = args.indexOf("down");
+  const targetName = downIdx !== -1 ? args[downIdx + 1] : undefined;
+
+  if (!targetName) {
+    print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay down <twin-name>\n");
+    process.exit(1);
+  }
+
+  // Check --all flag
+  if (targetName === "--all") {
+    const twins = await loadTwins();
+    const names = Object.keys(twins);
+    if (names.length === 0) {
+      print("\n  \x1b[2mNo twins to stop.\x1b[0m\n");
+      return;
+    }
+
+    printBrand();
+    for (const name of names) {
+      const twin = twins[name];
+      try {
+        execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
+        print(`  \x1b[32m✓\x1b[0m Stopped \x1b[1m${name}\x1b[0m`);
+      } catch {
+        print(`  \x1b[2m○\x1b[0m ${name} was already stopped`);
+      }
+    }
+
+    // Clear registry
+    await saveTwins({});
+
+    const hub = await getGlobalRelayDir();
+    const logPath = path.join(hub, "channel.log");
+    const ts = Math.floor(Date.now() / 1000);
+    await fs.appendFile(logPath, `${ts} system SYS all twins stopped\n`);
+
+    print("");
+    return;
+  }
+
+  const twins = await loadTwins();
+  const twin = twins[targetName];
+
+  if (!twin) {
+    print(`\n  \x1b[31m✗\x1b[0m No twin named \x1b[1m${targetName}\x1b[0m.`);
+    const names = Object.keys(twins);
+    if (names.length > 0) {
+      print(`  \x1b[2mRunning twins: ${names.join(", ")}\x1b[0m`);
+    }
+    print("");
+    process.exit(1);
+  }
+
+  // Kill tmux session
+  try {
+    execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
+    print(`\n  \x1b[32m✓\x1b[0m Stopped twin \x1b[1m${targetName}\x1b[0m (tmux: ${twin.tmuxSession})`);
+  } catch {
+    print(`\n  \x1b[2m○\x1b[0m Twin \x1b[1m${targetName}\x1b[0m tmux session was already gone.`);
+  }
+
+  // Remove from registry
+  delete twins[targetName];
+  await saveTwins(twins);
+
+  // Log to channel
+  const hub = await getGlobalRelayDir();
+  const logPath = path.join(hub, "channel.log");
+  const ts = Math.floor(Date.now() / 1000);
+  await fs.appendFile(logPath, `${ts} ${targetName} SYS twin stopped\n`);
+
+  print("");
+}
+
+async function relayPs() {
+  const { execSync } = await import("node:child_process");
+  await requireRelay();
+
+  const twins = await loadTwins();
+  const names = Object.keys(twins);
+
+  printBrand();
+  print("  \x1b[1mTwins\x1b[0m\n");
+
+  if (names.length === 0) {
+    print("  \x1b[2m(no twins running)\x1b[0m");
+    print("  \x1b[2mSpawn one: openscout relay up ~/dev/my-project\x1b[0m\n");
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const name of names) {
+    const twin = twins[name];
+    const alive = isTmuxSessionAlive(twin.tmuxSession);
+    const status = alive ? "\x1b[32m●\x1b[0m" : "\x1b[31m✗\x1b[0m";
+    const uptime = now - twin.startedAt;
+    const uptimeStr = uptime < 60
+      ? `${uptime}s`
+      : uptime < 3600
+        ? `${Math.floor(uptime / 60)}m`
+        : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
+
+    print(`  ${status} \x1b[1m${name}\x1b[0m  \x1b[2m${twin.project} · up ${uptimeStr} · tmux:${twin.tmuxSession}\x1b[0m`);
+
+    if (twin.systemPrompt) {
+      const taskPreview = twin.systemPrompt.length > 60 ? twin.systemPrompt.slice(0, 60) + "…" : twin.systemPrompt;
+      print(`    \x1b[2mtask: ${taskPreview}\x1b[0m`);
+    }
+  }
+  print("");
+
+  // Clean up dead twins
+  let cleaned = false;
+  for (const name of names) {
+    if (!isTmuxSessionAlive(twins[name].tmuxSession)) {
+      delete twins[name];
+      cleaned = true;
+    }
+  }
+  if (cleaned) {
+    await saveTwins(twins);
+    print("  \x1b[2m(cleaned up dead twins from registry)\x1b[0m\n");
+  }
 }
 
 async function relayStatus() {
@@ -774,14 +1235,23 @@ function relayHelp() {
   print("    who                            List agents and their last activity");
   print("    forget <name>                  Remove a stale agent from the list");
   print("    tui                            Open the relay monitor dashboard");
-  print("    enroll --as <name>             Generate enrollment prompt for an agent\n");
+  print("    enroll --as <name>             Generate enrollment prompt for an agent");
+  print("    broadcast <message>            Send + nudge all tmux panes (alias: bc)\n");
+  print("  \x1b[1mTwins:\x1b[0m \x1b[2m(headless agents in detached tmux sessions)\x1b[0m");
+  print("    up <path> [--name n] [--task t]  Spawn a twin for a project");
+  print("    down <name>                      Stop a twin");
+  print("    down --all                       Stop all twins");
+  print("    ps                               List running twins\n");
   print("  \x1b[1mIdentity:\x1b[0m");
   print("    --as <name>                    Set agent name for this command");
   print("    OPENSCOUT_AGENT=<name>         Set agent name via env var\n");
   print("  \x1b[1mExamples:\x1b[0m");
   print("    openscout relay init                              # first time");
-  print("    cd ~/dev/other-project && openscout relay link    # link another project");
-  print("    openscout relay send --as agent-a \"Updated types\"");
+  print("    openscout relay up ~/dev/lattices                 # spawn a twin");
+  print("    openscout relay up ~/dev/arc --task \"run tests\"   # twin with a task");
+  print("    openscout relay ps                                # check twins");
+  print("    openscout relay send --as dev \"@lattices hey\"     # talk to a twin");
+  print("    openscout relay down lattices                     # stop a twin");
   print("    openscout relay tui\n");
 }
 
@@ -810,11 +1280,24 @@ async function relay() {
     case "forget":
       await relayForget();
       break;
+    case "broadcast":
+    case "bc":
+      await relayBroadcast();
+      break;
     case "link":
       await relayLink();
       break;
     case "status":
       await relayStatus();
+      break;
+    case "up":
+      await relayUp();
+      break;
+    case "down":
+      await relayDown();
+      break;
+    case "ps":
+      await relayPs();
       break;
     case "tui": {
       const { execSync } = await import("node:child_process");
