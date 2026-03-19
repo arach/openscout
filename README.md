@@ -1,36 +1,128 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OpenScout
 
-## Getting Started
+OpenScout is the integration shell for your local agent stack.
 
-First, run the development server:
+This repo now has two active layers:
+
+- A Next.js site at the repo root for product framing and launch messaging
+- A native macOS scaffold at `native/engine` for the first real Scout shell
+
+The native scaffold is intentionally aligned with the shape discussed for Scout:
+
+- `ScoutApp` is the main desktop shell with sidebar chrome, a footer status bar, and an embedded WebKit surface
+- `ScoutAgent` is the always-on helper process Scout can supervise locally
+- `ScoutCore` holds the shared contracts for routes, module descriptors, support paths, and helper status
+- `packages/*` is where TypeScript-side runtime, protocol, and workflow logic should accumulate
+
+## Current Direction
+
+Scout is being structured as the thin waist across your apps:
+
+- `Talkie` contributes the process model and voice-adjacent context ideas
+- `Action` contributes the native app/agent split and local runtime discipline
+- `Hudson` contributes the shell principle: modules do not own chrome, the shell does
+
+That means the first scaffold focuses on:
+
+- one main native shell
+- one helper process
+- one embedded console surface
+- one place to aggregate modules such as Talkie, Lattices, Operate, Action, and Hudson-style experiences
+
+## Run The Website
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Run The Native Scaffold
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Build the native targets:
 
-## Learn More
+```bash
+bun run native:build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Use the repo-local dev wrapper for the common native loop:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+./scripts/scout-dev build
+./scripts/scout-dev rebuild
+./scripts/scout-dev launch
+./scripts/scout-dev relaunch
+./scripts/scout-dev status
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+To install the CLI globally through Bun from this repo:
 
-## Deploy on Vercel
+```bash
+bun link
+bun run cli:build
+(cd packages/cli && bun link)
+scout --help
+scout-dev status
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+For shell ergonomics:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+alias scoutd="scout-dev"
+```
+
+Launch the shell:
+
+```bash
+scout-dev launch
+```
+
+Launch the helper directly:
+
+```bash
+scout-dev agent
+```
+
+When `ScoutApp` starts, it creates a support directory at:
+
+```text
+~/Library/Application Support/OpenScout
+```
+
+The helper writes a status file there, and the shell monitors it to keep the footer and worker views up to date.
+
+The `scout-dev` wrapper also writes app and helper logs there when it launches binaries directly.
+
+The native dev loop now builds with `xcodebuild` into:
+
+```text
+native/engine/.derivedData
+```
+
+## Repo Layout
+
+```text
+.
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── native-runtime.md
+├── native/
+│   └── engine/
+│       ├── Package.swift
+│       ├── CoreSources/
+│       └── Sources/
+├── packages/
+│   ├── protocol/
+│   ├── runtime/
+│   └── workflows/
+├── src/
+│   └── app/
+└── public/
+```
+
+## Read Next
+
+- `docs/ARCHITECTURE.md`
+- `docs/native-runtime.md`
+- `native/engine/Package.swift`

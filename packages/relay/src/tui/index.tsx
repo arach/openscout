@@ -5,7 +5,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { existsSync, readFileSync, appendFileSync, writeFileSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 
 
 // ── Flights (tracked requests with callbacks) ────────────────────────────────
@@ -116,6 +116,75 @@ async function initVox(): Promise<boolean> {
     voxAvailable = false;
     return false;
   }
+}
+
+// ── TTS (audio output for the voice channel) ────────────────────────────────
+
+interface RelayChannelConfig {
+  audio: boolean;
+  voice?: string;
+}
+
+interface RelayConfig {
+  channels?: Record<string, RelayChannelConfig>;
+  defaultVoice?: string;
+}
+
+function loadRelayConfig(relayDir: string): RelayConfig {
+  try {
+    return JSON.parse(readFileSync(join(relayDir, "config.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+let speakingNow = false;
+
+function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?: () => void): void {
+  const config = loadRelayConfig(relayDir);
+  const voiceCh = config.channels?.voice;
+  if (!voiceCh?.audio) return;
+
+  let apiKey = process.env.OPENAI_API_KEY || null;
+  if (!apiKey) {
+    try {
+      const os = require("os");
+      const raw = readFileSync(join(os.homedir(), ".config", "speakeasy", "settings.json"), "utf8");
+      apiKey = JSON.parse(raw).providers?.openai?.apiKey || null;
+    } catch { /* noop */ }
+  }
+  if (!apiKey) return;
+
+  const clean = text.replace(/@[\w.-]+\s*/g, "").trim();
+  if (!clean) return;
+
+  const voice = voiceCh.voice || config.defaultVoice || "nova";
+
+  speakingNow = true;
+  onStart?.();
+
+  fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "tts-1", voice, input: clean, response_format: "pcm", speed: 1.1 }),
+  }).then(async (res) => {
+    if (!res.ok || !res.body) { speakingNow = false; onEnd?.(); return; }
+
+    const player = spawn("ffplay", [
+      "-nodisp", "-autoexit", "-loglevel", "quiet",
+      "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
+    ], { stdio: ["pipe", "ignore", "ignore"] });
+
+    player.on("close", () => { speakingNow = false; onEnd?.(); });
+
+    const reader = res.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      player.stdin.write(value);
+    }
+    player.stdin.end();
+  }).catch(() => { speakingNow = false; onEnd?.(); });
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -329,7 +398,7 @@ const C = {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function Header({ tab, agentCount, msgCount, voiceState, flightsInFlight }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; flightsInFlight?: number }) {
+function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFlight }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean; flightsInFlight?: number }) {
   const [clock, setClock] = useState(ts());
 
   useEffect(() => {
@@ -347,8 +416,11 @@ function Header({ tab, agentCount, msgCount, voiceState, flightsInFlight }: { ta
         <text fg={C.dim}>monitor</text>
         <text fg={C.dim}>│</text>
         {tabs.map((t) => {
-          const label = t === "voice" && voiceState === "recording" ? `● ${t}` : ` ${t} `;
+          const label = t === "voice" && voiceState === "recording" ? `● ${t}`
+            : t === "voice" && isSpeaking ? `◉ ${t}`
+            : ` ${t} `;
           const color = t === "voice" && voiceState === "recording" ? C.red
+            : t === "voice" && isSpeaking ? C.cyan
             : t === tab ? C.text : C.dim;
           return (
             <text key={t} fg={color}>
@@ -357,12 +429,9 @@ function Header({ tab, agentCount, msgCount, voiceState, flightsInFlight }: { ta
           );
         })}
       </box>
-      <box flexDirection="row" gap={2}>
+      <box flexDirection="row" gap={2} width={28}>
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
-        {(flightsInFlight ?? 0) > 0 && <text fg={C.muted}>{flightsInFlight} pending</text>}
-        {voiceState === "recording" && <text fg={C.red}>recording</text>}
-        {voiceState === "processing" && <text fg={C.yellow}>transcribing</text>}
         <text fg={C.dim}>{clock}</text>
       </box>
     </box>
@@ -382,13 +451,14 @@ function ChatPanel({
   selectedId,
   scrollOffset,
   maxVisible,
+  width,
 }: {
   messages: RelayMessage[];
   selectedId: number;
   scrollOffset: number;
   maxVisible: number;
+  width: number;
 }) {
-  // Filter noise
   const filtered = messages.filter((m) => !isNoisySys(m));
 
   const visible = filtered.slice(
@@ -396,49 +466,47 @@ function ChatPanel({
     filtered.length - scrollOffset
   );
 
+  // Available width for message body: total - border(2) - padding(2) - cursor(2) - time(9) - name(14) - gaps(6)
+  const bodyWidth = Math.max(20, width - 35);
+
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" borderColor={C.border} padding={1}>
       {visible.length === 0 ? (
         <text fg={C.dim}>No messages yet. Waiting for relay activity...</text>
       ) : (
         visible.map((msg) => {
-          const isSelected = msg.id === selectedId;
           const time = fmtTime(msg.timestamp);
 
           if (msg.type === "SYS") {
             return (
-              <box key={msg.id} flexDirection="row" gap={2}>
-                <text fg={C.dim}>{time}</text>
-                <text fg={C.dim}>{msg.body}</text>
-              </box>
+              <text key={msg.id} fg={C.dim}>  {time}  {msg.body.slice(0, bodyWidth)}</text>
             );
           }
 
           if (msg.type === "ACK") {
             return (
-              <box key={msg.id} flexDirection="row" gap={2}>
-                <text fg={C.dim}>{time}</text>
-                <text fg={C.dim} flexShrink={1}>{msg.from} ack {msg.body}</text>
-              </box>
+              <text key={msg.id} fg={C.dim}>  {time}  {msg.from} ack {msg.body.slice(0, bodyWidth)}</text>
             );
           }
 
-          const nameColor = msg.from === "system" ? C.muted : C.accent;
+          const isSelected = msg.id === selectedId;
+          const cursor = isSelected ? "▸" : " ";
+          const name = pad(msg.from, 12);
+          const body = msg.body.length > bodyWidth ? msg.body.slice(0, bodyWidth - 1) + "…" : msg.body;
 
+          // Render as pre-formatted line to avoid layout fragmentation
           return (
             <box key={msg.id} flexDirection="row" gap={2} marginBottom={1}>
-              <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
+              <text fg={isSelected ? C.accent : C.dim}>{cursor}</text>
               <text fg={C.dim}>{time}</text>
-              <text fg={nameColor}><strong>{pad(msg.from, 12)}</strong></text>
-              <text fg={C.text}>{msg.body}</text>
+              <text fg={msg.from === "system" ? C.muted : C.accent}><strong>{name}</strong></text>
+              <text fg={C.text}>{body}</text>
             </box>
           );
         })
       )}
       {scrollOffset > 0 && (
-        <box flexDirection="row" justifyContent="space-between">
-          <text fg={C.yellow}>↑ {scrollOffset} more below</text>
-        </box>
+        <text fg={C.yellow}>  ↑ {scrollOffset} more below</text>
       )}
     </box>
   );
@@ -642,7 +710,7 @@ function StatsPanel({ messages, agents, dbEntries }: { messages: RelayMessage[];
   );
 }
 
-function WaveBar({ active }: { active: boolean }) {
+function WaveBar({ active, color }: { active: boolean; color?: string }) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -653,49 +721,59 @@ function WaveBar({ active }: { active: boolean }) {
 
   if (!active) return null;
 
-  // Animated wave pattern — 4 bars cycling through heights
-  const bars = "▁▂▃▄▅▆▇█";
-  const phases = [0, 2, 4, 6, 4, 2]; // offsets for each bar
-  const wave = phases.map((phase, i) => {
-    const idx = (frame + phase + i * 2) % bars.length;
-    return bars[idx];
-  }).join(" ");
+  const BRAILLE = [" ", "⠁", "⠃", "⠇", "⡇", "⣇", "⣧", "⣷", "⣿"];
+  const wave = Array.from({ length: 6 }, (_, i) => {
+    const v = Math.sin(frame * 0.4 + i * 0.9) * 0.4 + Math.sin(frame * 0.7 + i * 1.6) * 0.3 + 0.5;
+    const n = Math.max(0, Math.min(1, v));
+    return BRAILLE[Math.floor(n * (BRAILLE.length - 1))];
+  }).join("");
 
-  return <text fg={C.red}>{wave}</text>;
+  return <text fg={color || C.red}>{wave}</text>;
+}
+
+interface VoiceThread {
+  role: "you" | "agent";
+  from: string;
+  text: string;
+  timestamp: number;
 }
 
 function VoicePanel({
   voiceState,
   partialText,
-  recentTranscriptions,
+  thread,
+  isSpeaking,
 }: {
   voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
   partialText: string;
-  recentTranscriptions: Array<{ text: string; timestamp: number }>;
+  thread: VoiceThread[];
+  isSpeaking: boolean;
 }) {
-  const stateDisplay: Record<typeof voiceState, { icon: string; label: string; color: string }> = {
-    idle: { icon: "○", label: "Ready — press v to record", color: C.dim },
-    connecting: { icon: "◌", label: "Connecting to Vox...", color: C.yellow },
-    recording: { icon: "●", label: "Recording — press v to stop", color: C.red },
-    processing: { icon: "◐", label: "Transcribing...", color: C.yellow },
-    error: { icon: "✗", label: "Vox not available — is voxd running?", color: C.red },
+  const stateLabel = (): { icon: string; label: string; color: string } => {
+    if (isSpeaking) return { icon: "◉", label: "Speaking...", color: C.cyan };
+    switch (voiceState) {
+      case "idle": return { icon: "○", label: "Ready — press v to record", color: C.dim };
+      case "connecting": return { icon: "◌", label: "Connecting to Vox...", color: C.yellow };
+      case "recording": return { icon: "●", label: "Recording — press v to stop", color: C.red };
+      case "processing": return { icon: "◐", label: "Transcribing...", color: C.yellow };
+      case "error": return { icon: "✗", label: "Vox not available — is voxd running?", color: C.red };
+    }
   };
 
-  const s = stateDisplay[voiceState];
+  const s = stateLabel();
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
       {/* Status */}
-      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : C.border} padding={1} flexDirection="column" title="Voice Input">
+      <box border borderStyle="rounded" borderColor={voiceState === "recording" ? C.red : isSpeaking ? C.cyan : C.border} padding={1} flexDirection="column" title="Audio Channel">
         <box flexDirection="row" gap={2}>
           <text fg={s.color}>{s.icon}</text>
           <text fg={s.color}>{s.label}</text>
+          {isSpeaking && <WaveBar active={true} color={C.cyan} />}
         </box>
         {voiceState === "recording" && (
           <box flexDirection="column" marginTop={1}>
-            <box flexDirection="row" gap={2}>
-              <WaveBar active={true} />
-            </box>
+            {!isSpeaking && <WaveBar active={true} color={C.red} />}
             {partialText ? (
               <text fg={C.text}><strong>{partialText}</strong></text>
             ) : (
@@ -710,33 +788,160 @@ function VoicePanel({
         )}
       </box>
 
-      {/* Recent transcriptions */}
-      <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" flexGrow={1} title="Recent">
-        {recentTranscriptions.length === 0 ? (
+      {/* Conversation thread */}
+      <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" flexGrow={1} title="Conversation">
+        {thread.length === 0 ? (
           <text fg={C.dim}>No voice messages yet. Press v to start.</text>
         ) : (
-          recentTranscriptions.slice(-10).map((t, i) => (
-            <box key={i} flexDirection="row" gap={1}>
-              <text fg={C.dim}>{fmtTime(t.timestamp)}</text>
-              <text fg={C.accent}>you</text>
-              <text fg={C.text}>{t.text}</text>
-            </box>
-          ))
+          thread.slice(-15).map((t, i) => {
+            const isYou = t.role === "you";
+            return (
+              <box key={i} flexDirection="row" gap={1} marginBottom={isYou ? 0 : 1}>
+                <text fg={C.dim}>{fmtTime(t.timestamp)}</text>
+                <text fg={isYou ? C.accent : C.cyan}>{isYou ? "you" : t.from}</text>
+                <text fg={isYou ? C.muted : C.text}>{t.text}</text>
+              </box>
+            );
+          })
         )}
       </box>
 
       {/* Help */}
       <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" title="Tips">
         <text fg={C.dim}>v  toggle recording from any tab</text>
-        <text fg={C.dim}>Transcribed text is sent as a relay message from you</text>
-        <text fg={C.dim}>Use @mentions naturally: "hey @lattices what's the status"</text>
+        <text fg={C.dim}>Responses from @mentioned agents appear here and are spoken</text>
         <text fg={C.dim}>Say "@system up dewey" to spawn twins by voice</text>
       </box>
     </box>
   );
 }
 
-function StatusBar({ tab, lastActivity }: { tab: ActiveTab; lastActivity?: string }) {
+// ── Agent Cockpit (persistent across all views) ──────────────────────────────
+
+function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pendingCount }: {
+  twins: Record<string, { tmuxSession: string; project: string }>;
+  agents: AgentStatus[];
+  voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
+  isSpeaking: boolean;
+  partialText: string;
+  pendingCount: number;
+}) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    if (!isSpeaking && voiceState !== "recording") return;
+    const iv = setInterval(() => setFrame((f) => f + 1), 150);
+    return () => clearInterval(iv);
+  }, [isSpeaking, voiceState]);
+
+  // Braille wave animation (from Vox TUI)
+  const BRAILLE = [" ", "⠁", "⠃", "⠇", "⡇", "⣇", "⣧", "⣷", "⣿"];
+  const wave = Array.from({ length: 6 }, (_, i) => {
+    const v = Math.sin(frame * 0.4 + i * 0.9) * 0.4 + Math.sin(frame * 0.7 + i * 1.6) * 0.3 + 0.5;
+    const n = Math.max(0, Math.min(1, v));
+    return BRAILLE[Math.floor(n * (BRAILLE.length - 1))];
+  }).join("");
+
+  // Build agent entries
+  const entries: Array<{ name: string; activity: string; status: "working" | "idle" | "offline" }> = [];
+
+  for (const [name, twin] of Object.entries(twins)) {
+    const alive = isTwinAlive(twin.tmuxSession);
+    if (!alive) {
+      entries.push({ name, activity: "offline", status: "offline" });
+      continue;
+    }
+    const activity = captureTwinActivity(twin.tmuxSession);
+    const isWorking = activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...";
+    entries.push({ name, activity: activity || "idle", status: isWorking ? "working" : "idle" });
+  }
+
+  // Show non-twin online agents, but skip the TUI operator (that's you)
+  const tuiName = require("os").userInfo().username;
+  for (const agent of agents) {
+    if (twins[agent.name]) continue;
+    if (agent.name === tuiName) continue;
+    if (agent.name === "system") continue;
+    if (agent.status === "online") {
+      entries.push({ name: agent.name, activity: "online", status: "idle" });
+    }
+  }
+
+  // Dev is always pinned at top; rest sorted by status
+  const devEntry = entries.find((e) => e.name === "dev") || { name: "dev", activity: "offline", status: "offline" as const };
+  const rest = entries.filter((e) => e.name !== "dev").sort((a, b) => {
+    const order = { working: 0, idle: 1, offline: 2 };
+    return order[a.status] - order[b.status];
+  });
+
+  const maxRows = 4;
+  const otherSlots = maxRows - 1; // 1 slot reserved for dev
+  const shownOthers = rest.slice(0, otherSlots);
+  const hidden = rest.length - shownOthers.length;
+
+  const iconChar = (s: "working" | "idle" | "offline") =>
+    s === "working" ? "●" : s === "idle" ? "○" : "✗";
+  const iconClr = (s: "working" | "idle" | "offline") =>
+    s === "working" ? C.yellow : s === "idle" ? C.dim : C.red;
+
+  return (
+    <box flexDirection="row" border borderStyle="rounded" borderColor={isSpeaking ? C.cyan : voiceState === "recording" ? C.red : C.border} marginLeft={1} marginRight={1} height={maxRows + 2} paddingLeft={1} paddingRight={1}>
+      {/* Left: agents — use explicit widths to prevent collapsing */}
+      <box flexDirection="column" flexGrow={1}>
+        {/* Dev — always first */}
+        <box flexDirection="row">
+          <text fg={iconClr(devEntry.status)} width={2}>{iconChar(devEntry.status)}</text>
+          <text fg={C.text} width={14}><strong>{devEntry.name}</strong></text>
+          <text fg={devEntry.status === "working" ? C.yellow : C.dim}>
+            {devEntry.activity.length > 45 ? devEntry.activity.slice(0, 45) + "…" : devEntry.activity}
+          </text>
+        </box>
+        {/* Others */}
+        {shownOthers.map((e) => {
+          const actTrunc = e.activity.length > 45 ? e.activity.slice(0, 45) + "…" : e.activity;
+          return (
+            <box key={e.name} flexDirection="row">
+              <text fg={iconClr(e.status)} width={2}>{iconChar(e.status)}</text>
+              <text fg={e.status === "working" ? C.text : C.muted} width={14}><strong>{e.name}</strong></text>
+              <text fg={e.status === "working" ? C.yellow : C.dim}>{actTrunc}</text>
+            </box>
+          );
+        })}
+        {hidden > 0 && <text fg={C.dim}>  +{hidden} more</text>}
+      </box>
+
+      {/* Vertical divider */}
+      <box flexDirection="column" width={1} marginLeft={1} marginRight={1}>
+        <text fg={C.border}>│</text>
+        <text fg={C.border}>│</text>
+        <text fg={C.border}>│</text>
+        <text fg={C.border}>│</text>
+      </box>
+
+      {/* Right: audio section */}
+      <box flexDirection="column" width={24}>
+        <box flexDirection="row">
+          <text fg={C.dim} width={5}>{"MIC  "}</text>
+          <text fg={voiceState === "recording" ? C.red : C.dim}>
+            {voiceState === "recording" ? `● rec  ${wave}` : voiceState === "connecting" ? "◌ connecting" : voiceState === "error" ? "✗ unavailable" : "○ ready"}
+          </text>
+        </box>
+        <box flexDirection="row">
+          <text fg={C.dim} width={5}>{"SPK  "}</text>
+          <text fg={isSpeaking ? C.cyan : C.dim}>
+            {isSpeaking ? `◉ playing  ${wave}` : "○ quiet"}
+          </text>
+        </box>
+        {pendingCount > 0 && <text fg={C.yellow}>{pendingCount} awaiting</text>}
+        {voiceState === "recording" && partialText && (
+          <text fg={C.muted}>{partialText.length > 22 ? "…" + partialText.slice(-21) : partialText}</text>
+        )}
+      </box>
+    </box>
+  );
+}
+
+function StatusBar({ tab }: { tab: ActiveTab }) {
   const hints: Record<ActiveTab, string> = {
     chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
     agents: "↑↓ select  ⏎ peek  v voice  tab switch  r refresh  q quit",
@@ -745,16 +950,9 @@ function StatusBar({ tab, lastActivity }: { tab: ActiveTab; lastActivity?: strin
   };
 
   return (
-    <box flexDirection="column" paddingLeft={1} paddingRight={1} height={3}>
-      {lastActivity && (
-        <box flexDirection="row">
-          <text fg={C.yellow}>{lastActivity}</text>
-        </box>
-      )}
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg={C.dim}>{hints[tab]}</text>
-        <text fg={C.dim}>1 chat  2 agents  3 stats  4 voice</text>
-      </box>
+    <box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1} height={2}>
+      <text fg={C.dim}>{hints[tab]}</text>
+      <text fg={C.dim}>1 chat  2 agents  3 stats  4 voice</text>
     </box>
   );
 }
@@ -772,16 +970,20 @@ function App() {
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "recording" | "processing" | "error">("idle");
   const [partialText, setPartialText] = useState("");
   const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
+  const [voiceThread, setVoiceThread] = useState<VoiceThread[]>([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(0);
   const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
   const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
-  const [lastActivity, setLastActivity] = useState("");
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
   const voxSessionRef = useRef<any>(null);
   const tuiNameRef = useRef<string>("");
+  // Watermark: last message id we've spoken — anything above this is new
+  const lastSpokenMsgRef = useRef<number>(0);
 
-  const maxVisible = Math.max(height - 10, 5);
+  // header(3) + cockpit(6) + status(2) + borders/padding(3) = 14
+  const maxVisible = Math.max(height - 14, 5);
 
   const refresh = useCallback(() => {
     const relayDir = relayDirRef.current;
@@ -800,18 +1002,6 @@ function App() {
     const currentTwins = loadTwinsSync();
     setTwins(currentTwins);
 
-    // Build activity summary from active twins
-    const activities: string[] = [];
-    for (const [name, twin] of Object.entries(currentTwins)) {
-      if (isTwinAlive(twin.tmuxSession)) {
-        const activity = captureTwinActivity(twin.tmuxSession);
-        if (activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...") {
-          activities.push(`${name}: ${activity}`);
-        }
-      }
-    }
-    setLastActivity(activities.length > 0 ? activities[0] : "");
-
     // Auto-select newest message and reset scroll to bottom
     if (allMessages.length > 0) {
       setSelectedId(allMessages[allMessages.length - 1].id);
@@ -823,6 +1013,30 @@ function App() {
     if (tuiName) {
       const flights = resolveFlights(allMessages, tuiName);
       setActiveFlights(flights.filter((f) => f.status === "pending"));
+    }
+
+    // Voice channel: speak any new messages tagged with [speak]
+    // The agent decides what's worth saying aloud — we just honor the tag.
+    const newSpoken: VoiceThread[] = [];
+    for (const msg of allMessages) {
+      if (msg.id <= lastSpokenMsgRef.current) continue;
+      if (msg.type !== "MSG") continue;
+      if (msg.from === tuiName) continue; // don't speak your own messages
+      if (!msg.body.startsWith("[speak] ")) continue;
+
+      newSpoken.push({
+        role: "agent",
+        from: msg.from,
+        text: msg.body.replace("[speak] ", ""),
+        timestamp: msg.timestamp,
+      });
+      lastSpokenMsgRef.current = msg.id;
+    }
+    if (newSpoken.length > 0) {
+      setVoiceThread((prev) => [...prev, ...newSpoken]);
+      for (const r of newSpoken) {
+        speakText(r.text, relayDir, () => setIsSpeaking(true), () => setIsSpeaking(false));
+      }
     }
   }, []);
 
@@ -855,6 +1069,10 @@ function App() {
       const t = Math.floor(Date.now() / 1000);
       appendFileSync(logPath, `${t} ${tuiName} SYS heartbeat\n`);
     }, ONLINE_THRESHOLD * 500); // halfway through threshold (5 min for 10 min threshold)
+
+    // Set the spoken watermark to current message count so we don't speak old messages
+    const initialMessages = readAllMessages(join(relayDir, "channel.log"));
+    lastSpokenMsgRef.current = initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].id : 0;
 
     // Initial load
     refresh();
@@ -934,14 +1152,16 @@ function App() {
 
         const now = Math.floor(Date.now() / 1000);
         // Send via CLI — handles log write, @system, and @mention delivery
+        // Tag as voice channel so responses get spoken
         try {
-          execSync(`openscout relay send --as ${tuiName} ${JSON.stringify(text)}`, { stdio: "ignore" });
+          execSync(`openscout relay send --as ${tuiName} --channel voice ${JSON.stringify(text)}`, { stdio: "ignore" });
         } catch {
           // Fallback: write directly to log
           appendFileSync(logPath, `${now} ${tuiName} MSG ${text}\n`);
         }
 
-        // Create a flight for each @mentioned target
+        // Track @mentioned agents — we expect voice responses from them
+        // Create flights for @mentioned targets
         const mentions = text.match(/@([\w.-]+)/g);
         if (mentions) {
           for (const m of mentions) {
@@ -952,6 +1172,8 @@ function App() {
           }
         }
 
+        // Add to voice thread
+        setVoiceThread((prev) => [...prev, { role: "you", from: tuiName, text, timestamp: now }]);
         setRecentTranscriptions((prev) => [...prev, { text, timestamp: now }]);
         refresh();
       }
@@ -1077,7 +1299,9 @@ function App() {
 
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
-      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} flightsInFlight={activeFlights.length} />
+      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
+
+      <AgentCockpit twins={twins} agents={agents} voiceState={voiceState} isSpeaking={isSpeaking} partialText={partialText} pendingCount={activeFlights.length} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
@@ -1087,15 +1311,17 @@ function App() {
               selectedId={selectedId}
               scrollOffset={scrollOffset}
               maxVisible={maxVisible}
+              width={width}
             />
           )}
           {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
-          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} recentTranscriptions={recentTranscriptions} />}
+          {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} thread={voiceThread} isSpeaking={isSpeaking} />}
         </box>
+
       </box>
 
-      <StatusBar tab={tab} lastActivity={lastActivity} />
+      <StatusBar tab={tab} />
     </box>
   );
 }

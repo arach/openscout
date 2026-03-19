@@ -30,6 +30,20 @@ export const metadata: Metadata = {
     url: "https://openscout.app",
     siteName: "OpenScout",
     type: "website",
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "OpenScout — Agents talking to each other.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "OpenScout",
+    description: "Agent-forward development platform for builders.",
+    images: ["/og.png"],
   },
 };
 

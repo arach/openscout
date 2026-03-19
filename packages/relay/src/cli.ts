@@ -354,12 +354,17 @@ async function requireRelay(): Promise<RelayPaths> {
 
 // ── Relay Config ──────────────────────────────────────
 
+interface ChannelConfig {
+  audio: boolean;        // whether responses on this channel get spoken
+  voice?: string;        // TTS voice override (default: "nova")
+}
+
 interface RelayConfig {
   agents: string[];
   created: number;
   projectRoot?: string;  // e.g. "~/dev" — where bare project names are resolved
-  speakFor?: string;     // agent name to speak @mentions for (e.g. "arach")
-  speakVoice?: string;   // OpenAI TTS voice (default: "nova")
+  channels?: Record<string, ChannelConfig>;  // channel-level settings (e.g. "voice": { audio: true })
+  defaultVoice?: string; // default TTS voice (default: "nova")
   roster?: string[];     // project names to auto-start as twins (e.g. ["dev", "lattices", "arc"])
 }
 
@@ -419,7 +424,11 @@ async function relayInit() {
   } catch {
     await fs.writeFile(
       configPath,
-      JSON.stringify({ agents: [], created: Date.now() }, null, 2) + "\n"
+      JSON.stringify({
+        agents: [],
+        created: Date.now(),
+        channels: { voice: { audio: true } },
+      }, null, 2) + "\n"
     );
   }
 
@@ -479,11 +488,22 @@ async function loadRegistry(): Promise<Record<string, AgentRegistryEntry>> {
   }
 }
 
-async function speakIfEnabled(name: string, from: string, message: string): Promise<void> {
-  const config = await loadRelayConfig();
-  const speakFor = config.speakFor;
-  if (!speakFor || speakFor !== name) return;
+// ── Channel-based audio ───────────────────────────────
+// Audio is a property of the channel, not the user or the message.
+// The voice channel has audio: true. Responses to messages from that channel get spoken.
 
+function isAudioChannel(config: RelayConfig, channel?: string): boolean {
+  if (!channel) return false;
+  const ch = config.channels?.[channel];
+  return ch?.audio === true;
+}
+
+function getVoiceForChannel(config: RelayConfig, channel?: string): string {
+  const ch = channel ? config.channels?.[channel] : undefined;
+  return ch?.voice || config.defaultVoice || "nova";
+}
+
+async function speak(text: string, voice: string): Promise<void> {
   // Find API key
   let apiKey = process.env.OPENAI_API_KEY || null;
   if (!apiKey) {
@@ -498,12 +518,11 @@ async function speakIfEnabled(name: string, from: string, message: string): Prom
   }
   if (!apiKey) return;
 
-  const clean = message.replace(new RegExp(`@${name}\\s*`, "g"), "").trim();
+  const clean = text.trim();
   if (!clean) return;
 
   try {
     const { spawn } = await import("node:child_process");
-    const voice = config.speakVoice || "nova";
     const res = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -523,20 +542,16 @@ async function speakIfEnabled(name: string, from: string, message: string): Prom
       player.stdin.write(value);
     }
     player.stdin.end();
-    // Don't await — plays in background
   } catch { /* noop */ }
 }
 
-async function deliverToAgent(name: string, from: string, message: string): Promise<"delivered" | "nudged" | "queued"> {
+async function deliverToAgent(name: string, from: string, message: string, channel?: string): Promise<"delivered" | "nudged" | "queued"> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const { execSync } = await import("node:child_process");
   const registry = await loadRegistry();
   const entry = registry[name];
   const hub = await getGlobalRelayDir();
-
-  // Speak the message if TTS is enabled for this target
-  speakIfEnabled(name, from, message);
 
   // Strategy 0: Check if target is a twin — deliver directly via tmux input
   const twins = await loadTwins();
@@ -692,6 +707,8 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
           `Relay channel at ${hubShort}/channel.log shared by all agents.`,
           `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
           `Always reply via: openscout relay send --as ${twinName} "your message"`,
+          `For substantive answers to humans: openscout relay send --as ${twinName} --speak "your answer"`,
+          `Only use --speak for final meaningful responses to humans, not acks or status updates.`,
           `Be specific with file paths. Keep messages under 200 chars.`,
         ].join("\n");
 
@@ -752,8 +769,12 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
       `Your job: respond to @${twinName} mentions, answer questions about this project's code, coordinate with other agents.`,
       `Relay commands:`,
       `  openscout relay send --as ${twinName} "your message"`,
+      `  openscout relay send --as ${twinName} --speak "your message"  (spoken aloud to the human)`,
       `  openscout relay read`,
       `  openscout relay who`,
+      `Audio: the human may be in a voice conversation. Use --speak when you have a substantive answer`,
+      `or result for the human. Do NOT use --speak for acks, status updates, or intermediate chatter`,
+      `between agents. Only --speak for the final, meaningful response directed at a human.`,
       `Rules: always reply via relay send, be specific with file paths, keep messages under 200 chars.`,
     ].join("\n");
 
@@ -849,31 +870,44 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
       return `set project root to ${value}`;
     }
 
-    if (key === "speak" && value) {
+    // Channel audio config: @system config audio <channel> on/off
+    if (key === "audio" && value) {
       const config = await loadRelayConfig();
-      if (value === "off" || value === "none") {
-        delete config.speakFor;
+      config.channels = config.channels || {};
+      const onOff = parts[3];
+      if (onOff === "off") {
+        if (config.channels[value]) config.channels[value].audio = false;
         await saveRelayConfig(config);
-        return "speak disabled";
+        return `audio disabled on channel "${value}"`;
       }
-      config.speakFor = value;
+      config.channels[value] = { ...config.channels[value], audio: true };
       await saveRelayConfig(config);
-      return `speak enabled for @${value} mentions`;
+      return `audio enabled on channel "${value}"`;
     }
 
     if (key === "voice" && value) {
       const config = await loadRelayConfig();
-      config.speakVoice = value;
+      const channel = parts[3]; // optional: @system config voice nova voice-tab
+      if (channel) {
+        config.channels = config.channels || {};
+        config.channels[channel] = { ...config.channels[channel], audio: config.channels[channel]?.audio ?? true, voice: value };
+        await saveRelayConfig(config);
+        return `voice "${value}" set on channel "${channel}"`;
+      }
+      config.defaultVoice = value;
       await saveRelayConfig(config);
-      return `voice set to ${value}`;
+      return `default voice set to ${value}`;
     }
 
     // Show current config
     const config = await loadRelayConfig();
     const root = config.projectRoot || "~/dev (default)";
-    const speak = config.speakFor ? `@${config.speakFor}` : "off";
-    const voice = config.speakVoice || "nova (default)";
-    return `root: ${root} | speak: ${speak} | voice: ${voice}`;
+    const voice = config.defaultVoice || "nova (default)";
+    const channels = config.channels || {};
+    const chList = Object.entries(channels)
+      .map(([name, ch]) => `${name}: audio=${ch.audio ? "on" : "off"}${ch.voice ? ` voice=${ch.voice}` : ""}`)
+      .join(", ") || "none configured";
+    return `root: ${root} | voice: ${voice} | channels: ${chList}`;
   }
 
   return `unknown command: ${cmd}. try: up, down, ps, config`;
@@ -883,13 +917,25 @@ async function relaySend() {
   const fs = await import("node:fs/promises");
   const { logPath } = await requireRelay();
 
-  // Collect message: everything after "send" that isn't --as <name>
+  // Collect message: everything after "send" that isn't a flag
   const sendIdx = args.indexOf("send");
   const msgParts: string[] = [];
+  let channel: string | undefined;
+  let shouldSpeak = false;
   let i = sendIdx + 1;
   while (i < args.length) {
     if (args[i] === "--as") {
       i += 2; // skip --as and its value
+      continue;
+    }
+    if (args[i] === "--channel") {
+      channel = args[i + 1];
+      i += 2; // skip --channel and its value
+      continue;
+    }
+    if (args[i] === "--speak") {
+      shouldSpeak = true;
+      i++;
       continue;
     }
     msgParts.push(args[i]);
@@ -904,9 +950,14 @@ async function relaySend() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${agent} MSG ${message}\n`);
+  const speakTag = shouldSpeak ? "[speak] " : "";
+  await fs.appendFile(logPath, `${ts} ${agent} MSG ${speakTag}${message}\n`);
 
-  print(formatLine(`${ts} ${agent} MSG ${message}`));
+  print(formatLine(`${ts} ${agent} MSG ${speakTag}${message}`));
+
+  // Track the origin channel for audio responses
+  const config = await loadRelayConfig();
+  const audioEnabled = isAudioChannel(config, channel);
 
   // Check for @system command
   if (message.match(/@system\b/i)) {
@@ -915,6 +966,12 @@ async function relaySend() {
       const replyTs = Math.floor(Date.now() / 1000);
       await fs.appendFile(logPath, `${replyTs} system MSG @${agent} ${result}\n`);
       print(formatLine(`${replyTs} system MSG @${agent} ${result}`));
+
+      // Audio channel → speak the system response
+      if (audioEnabled) {
+        const voice = getVoiceForChannel(config, channel);
+        speak(result, voice);
+      }
     }
     return;
   }
@@ -926,7 +983,7 @@ async function relaySend() {
     for (const mention of mentions) {
       const target = mention.slice(1); // remove @
       if (target === agent) continue; // don't deliver to yourself
-      const result = await deliverToAgent(target, agent, message);
+      const result = await deliverToAgent(target, agent, message, channel);
       if (result === "delivered") {
         print(`  \x1b[32m✓\x1b[0m Delivered to ${target}'s session (resumed)`);
       } else if (result === "nudged") {
