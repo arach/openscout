@@ -128,6 +128,7 @@ interface RelayChannelConfig {
 interface RelayConfig {
   channels?: Record<string, RelayChannelConfig>;
   defaultVoice?: string;
+  pronunciations?: Record<string, string>;
 }
 
 function loadRelayConfig(relayDir: string): RelayConfig {
@@ -145,18 +146,18 @@ function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?:
   const voiceCh = config.channels?.voice;
   if (!voiceCh?.audio) return;
 
-  let apiKey = process.env.OPENAI_API_KEY || null;
-  if (!apiKey) {
-    try {
-      const os = require("os");
-      const raw = readFileSync(join(os.homedir(), ".config", "speakeasy", "settings.json"), "utf8");
-      apiKey = JSON.parse(raw).providers?.openai?.apiKey || null;
-    } catch { /* noop */ }
-  }
+  const apiKey = process.env.OPENAI_API_KEY || (config as any).openaiApiKey || null;
   if (!apiKey) return;
 
-  const clean = text.replace(/@[\w.-]+\s*/g, "").trim();
+  let clean = text.replace(/@[\w.-]+\s*/g, "").trim();
   if (!clean) return;
+
+  // Apply pronunciation overrides
+  if (config.pronunciations) {
+    for (const [word, phonetic] of Object.entries(config.pronunciations)) {
+      clean = clean.replace(new RegExp(`\\b${word}\\b`, "gi"), phonetic);
+    }
+  }
 
   const voice = voiceCh.voice || config.defaultVoice || "nova";
 
@@ -961,7 +962,7 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
 function StatusBar({ tab }: { tab: ActiveTab }) {
   const hints: Record<ActiveTab, string> = {
     chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
-    agents: "↑↓ select  ⏎ peek  v voice  tab switch  r refresh  q quit",
+    agents: "↑↓ select  ⏎ peek  u up  d down  n nudge  tab switch  q quit",
     stats: "v voice  tab switch  r refresh  x clear  q quit",
     voice: "v record/stop  tab switch  q quit",
   };
@@ -1320,6 +1321,60 @@ function App() {
                 } catch { /* noop */ }
               }
             }
+          }
+        }
+      }
+
+      // u → bring up a twin (start it if it has a registered cwd)
+      if (key.name === "u") {
+        const agent = alive[selectedAgent];
+        if (agent) {
+          const twin = twins[agent.name];
+          if (twin && !isTwinAlive(twin.tmuxSession)) {
+            // Twin is registered but offline — restart it
+            try {
+              execSync(`openscout relay up ${JSON.stringify(twin.cwd)} --name ${agent.name}`, { stdio: "ignore", timeout: 10000 });
+              refresh();
+            } catch { /* noop */ }
+          } else if (!twin) {
+            // No twin registered — check if there's a known project path
+            // For now, just nudge via relay if the agent is online
+            try {
+              const t = Math.floor(Date.now() / 1000);
+              appendFileSync(join(relayDirRef.current || "", "channel.log"), `${t} ${agent.name} SYS nudge\n`);
+              refresh();
+            } catch { /* noop */ }
+          }
+        }
+      }
+
+      // d → bring down a twin
+      if (key.name === "d") {
+        const agent = alive[selectedAgent];
+        if (agent) {
+          const twin = twins[agent.name];
+          if (twin && isTwinAlive(twin.tmuxSession)) {
+            try {
+              execSync(`openscout relay down ${agent.name}`, { stdio: "ignore", timeout: 5000 });
+              refresh();
+            } catch { /* noop */ }
+          }
+        }
+      }
+
+      // n → nudge a twin (send empty Enter to wake it up)
+      if (key.name === "n") {
+        const agent = alive[selectedAgent];
+        if (agent) {
+          const twin = twins[agent.name];
+          if (twin && isTwinAlive(twin.tmuxSession)) {
+            try {
+              execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
+              // Also write a heartbeat
+              const t = Math.floor(Date.now() / 1000);
+              appendFileSync(join(relayDirRef.current || "", "channel.log"), `${t} ${agent.name} SYS heartbeat\n`);
+              refresh();
+            } catch { /* noop */ }
           }
         }
       }

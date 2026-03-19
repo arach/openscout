@@ -300,9 +300,71 @@ function formatLine(line: string): string {
 //   3. Fail with init instructions
 
 interface RelayPaths {
-  hub: string;       // the global relay directory
-  logPath: string;   // hub + channel.log
-  configPath: string; // hub + config.json
+  hub: string;        // the global relay directory
+  logPath: string;    // hub + channel.log (human-readable mirror)
+  channelPath: string; // hub + channel.jsonl (source of truth)
+  configPath: string;  // hub + config.json
+}
+
+interface ChannelMessage {
+  id: string;
+  ts: number;
+  from: string;
+  type: "MSG" | "SYS";
+  body: string;
+  tags?: string[];     // e.g. ["speak"], ["ask:f-abc123"]
+  to?: string[];       // @mentioned agents
+  channel?: string;    // e.g. "voice"
+}
+
+function generateMessageId(): string {
+  return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+async function writeChannel(hub: string, msg: Omit<ChannelMessage, "id">): Promise<ChannelMessage> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  const entry: ChannelMessage = { id: generateMessageId(), ...msg };
+
+  // Source of truth: JSONL
+  await fs.appendFile(path.join(hub, "channel.jsonl"), JSON.stringify(entry) + "\n");
+
+  // Human-readable mirror
+  const tagStr = entry.tags?.length ? entry.tags.map(t => `[${t}]`).join(" ") + " " : "";
+  await fs.appendFile(path.join(hub, "channel.log"), `${entry.ts} ${entry.from} ${entry.type} ${tagStr}${entry.body}\n`);
+
+  return entry;
+}
+
+
+async function readChannel(hub: string, opts?: { since?: number; last?: number; id?: string }): Promise<ChannelMessage[]> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  let content: string;
+  try {
+    content = await fs.readFile(path.join(hub, "channel.jsonl"), "utf-8");
+  } catch {
+    return [];
+  }
+
+  const lines = content.trim().split("\n").filter(Boolean);
+  let messages: ChannelMessage[] = lines.map(line => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
+
+  if (opts?.id) {
+    const idx = messages.findIndex(m => m.id === opts.id);
+    return idx >= 0 ? [messages[idx]] : [];
+  }
+  if (opts?.since) {
+    messages = messages.filter(m => m.ts > opts.since!);
+  }
+  if (opts?.last) {
+    messages = messages.slice(-opts.last);
+  }
+  return messages;
 }
 
 async function getGlobalRelayDir(): Promise<string> {
@@ -325,6 +387,7 @@ async function resolveRelayPaths(): Promise<RelayPaths | null> {
       return {
         hub,
         logPath: path.join(hub, "channel.log"),
+        channelPath: path.join(hub, "channel.jsonl"),
         configPath: path.join(hub, "config.json"),
       };
     }
@@ -335,9 +398,11 @@ async function resolveRelayPaths(): Promise<RelayPaths | null> {
   // 2. Check global relay
   const hub = await getGlobalRelayDir();
   const logPath = path.join(hub, "channel.log");
+  const channelPath = path.join(hub, "channel.jsonl");
   try {
-    await fs.access(logPath);
-    return { hub, logPath, configPath: path.join(hub, "config.json") };
+    // Check for either log format — JSONL is source of truth, log is legacy
+    try { await fs.access(channelPath); } catch { await fs.access(logPath); }
+    return { hub, logPath, channelPath, configPath: path.join(hub, "config.json") };
   } catch {
     return null;
   }
@@ -366,6 +431,8 @@ interface RelayConfig {
   channels?: Record<string, ChannelConfig>;  // channel-level settings (e.g. "voice": { audio: true })
   defaultVoice?: string; // default TTS voice (default: "nova")
   roster?: string[];     // project names to auto-start as twins (e.g. ["dev", "lattices", "arc"])
+  pronunciations?: Record<string, string>;  // e.g. { "arach": "ah-rahsh", "openscout": "open scout" }
+  openaiApiKey?: string;  // fallback if OPENAI_API_KEY env var not set
 }
 
 async function loadRelayConfig(): Promise<RelayConfig> {
@@ -450,10 +517,9 @@ async function relayInit() {
   );
 
   // Write a SYS init line
-  const ts = Math.floor(Date.now() / 1000);
   const cwd = process.cwd();
   const projectName = cwd.split("/").pop() || "unknown";
-  await fs.appendFile(logPath, `${ts} ${projectName} SYS ${projectName} linked to the relay\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: projectName, type: "SYS", body: `${projectName} linked to the relay` });
 
   printBrand();
   print(`  \x1b[32m✓\x1b[0m Global relay hub: \x1b[1m${hubShort}/\x1b[0m`);
@@ -503,22 +569,22 @@ function getVoiceForChannel(config: RelayConfig, channel?: string): string {
   return ch?.voice || config.defaultVoice || "nova";
 }
 
-async function speak(text: string, voice: string): Promise<void> {
-  // Find API key
-  let apiKey = process.env.OPENAI_API_KEY || null;
-  if (!apiKey) {
-    try {
-      const path = await import("node:path");
-      const os = await import("node:os");
-      const raw = (await import("node:fs")).readFileSync(
-        path.join(os.homedir(), ".config", "speakeasy", "settings.json"), "utf-8"
-      );
-      apiKey = JSON.parse(raw).providers?.openai?.apiKey || null;
-    } catch { /* noop */ }
+function applyPronunciations(text: string, pronunciations?: Record<string, string>): string {
+  if (!pronunciations) return text;
+  let result = text;
+  for (const [word, phonetic] of Object.entries(pronunciations)) {
+    result = result.replace(new RegExp(`\\b${word}\\b`, "gi"), phonetic);
   }
-  if (!apiKey) return;
+  return result;
+}
 
-  const clean = text.trim();
+async function speak(text: string, voice: string): Promise<void> {
+  const config = await loadRelayConfig();
+
+  // Find API key: env var → relay config
+  const apiKey = process.env.OPENAI_API_KEY || config.openaiApiKey || null;
+  if (!apiKey) return;
+  const clean = applyPronunciations(text.trim(), config.pronunciations);
   if (!clean) return;
 
   try {
@@ -545,46 +611,82 @@ async function speak(text: string, voice: string): Promise<void> {
   } catch { /* noop */ }
 }
 
-async function deliverToAgent(name: string, from: string, message: string, channel?: string): Promise<"delivered" | "nudged" | "queued"> {
+async function deliverToAgent(name: string, from: string, message: string, channel?: string, messageId?: string): Promise<"delivered" | "nudged" | "queued"> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const { execSync } = await import("node:child_process");
-  const registry = await loadRegistry();
-  const entry = registry[name];
   const hub = await getGlobalRelayDir();
 
-  // Always write to inbox first — this is the reliable path
-  // The Stop hook picks it up when the agent finishes its current response
-  const inboxDir = path.join(hub, "inbox");
-  await fs.mkdir(inboxDir, { recursive: true });
-  const inboxFile = path.join(inboxDir, `${name}.md`);
+  // Notification only — channel.jsonl is the source of truth (already written by relaySend)
+  const agentsPath = path.join(hub, "agents.json");
+  try {
+    const agentsRaw = await fs.readFile(agentsPath, "utf-8");
+    const agents = JSON.parse(agentsRaw);
+    const agent = agents[name];
+    if (agent?.session_id) {
+      const replyCmd = channel === "voice" ? "speak" : "send";
+      const idRef = messageId ? ` (message: ${messageId})` : "";
+      const nudge = `You have a new relay message from ${from}${idRef}. Check the channel and respond.\n\nRead recent: openscout relay read -n 5 --as ${name}\nReply via: openscout relay ${replyCmd} --as ${name} "@${from} <your response>"`;
+      const { spawn } = await import("node:child_process");
+      const child = spawn("claude", ["--resume", agent.session_id, "--print", nudge], {
+        cwd: agent.cwd || process.cwd(),
+        stdio: "ignore",
+        detached: true,
+      });
+      child.unref();
+      return "delivered";
+    }
+  } catch { /* no session — fall through */ }
 
-  const relayMsg = [
-    `[RELAY MESSAGE]`,
-    `From: ${from}`,
-    `To: @${name}`,
-    ``,
-    message,
-    ``,
-    `---`,
-    `Reply with: openscout relay send --as ${name} "@${from} <your response>"`,
-  ].join("\n") + "\n\n";
+  return "queued";
+}
 
-  await fs.appendFile(inboxFile, relayMsg);
+// ── Flights (tracked requests with callbacks) ─────────
 
-  // Best-effort: also nudge the twin's tmux session for faster delivery
-  // tmux send-keys may or may not work depending on Claude's state —
-  // that's fine, the inbox is the source of truth
-  const twins = await loadTwins();
-  const twin = twins[name];
-  if (twin && isTmuxSessionAlive(twin.tmuxSession)) {
-    try {
-      // Send a short nudge, not the full message — the Stop hook has the real content
-      execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
-    } catch { /* noop — inbox delivery already happened */ }
+interface Flight {
+  id: string;
+  from: string;
+  to: string;
+  message: string;
+  sentAt: number;
+  status: "pending" | "completed";
+  response?: string;
+  respondedAt?: number;
+}
+
+async function getFlightsPath(): Promise<string> {
+  const os = await import("node:os");
+  const path = await import("node:path");
+  return path.join(os.homedir(), ".openscout", "relay", "flights.json");
+}
+
+async function loadFlights(): Promise<Flight[]> {
+  try {
+    const fs = await import("node:fs/promises");
+    return JSON.parse(await fs.readFile(await getFlightsPath(), "utf8"));
+  } catch {
+    return [];
   }
+}
 
-  return "delivered";
+async function saveFlights(flights: Flight[]): Promise<void> {
+  const fs = await import("node:fs/promises");
+  await fs.writeFile(await getFlightsPath(), JSON.stringify(flights, null, 2) + "\n");
+}
+
+async function createFlight(from: string, to: string, message: string): Promise<Flight> {
+  const flights = await loadFlights();
+  const flight: Flight = {
+    id: `f-${Date.now().toString(36)}`,
+    from,
+    to,
+    message,
+    sentAt: Math.floor(Date.now() / 1000),
+    status: "pending",
+  };
+  flights.push(flight);
+  if (flights.length > 50) flights.splice(0, flights.length - 50);
+  await saveFlights(flights);
+  return flight;
 }
 
 // ── @system agent ─────────────────────────────────────
@@ -605,7 +707,6 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
   }
 
   const hub = await getGlobalRelayDir();
-  const logPath = path.join(hub, "channel.log");
 
   if (cmd === "ps") {
     const twins = await loadTwins();
@@ -616,7 +717,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     const lines: string[] = [];
     for (const name of names) {
       const twin = twins[name];
-      const alive = isTmuxSessionAlive(twin.tmuxSession);
+      const alive = await isTmuxSessionAlive(twin.tmuxSession);
       const uptime = now - twin.startedAt;
       const uptimeStr = uptime < 60 ? `${uptime}s`
         : uptime < 3600 ? `${Math.floor(uptime / 60)}m`
@@ -652,11 +753,11 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     const roster = config.roster || [];
     if (roster.length === 0) return "roster is empty — add with: @system roster add <name>";
     const twins = await loadTwins();
-    const status = roster.map((name) => {
+    const status = await Promise.all(roster.map(async (name) => {
       const twin = twins[name];
-      const alive = twin && isTmuxSessionAlive(twin.tmuxSession);
+      const alive = twin && await isTmuxSessionAlive(twin.tmuxSession);
       return `${alive ? "●" : "○"} ${name}`;
-    });
+    }));
     return status.join("  ");
   }
 
@@ -672,7 +773,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
       const results: string[] = [];
       for (const name of roster) {
         const tmuxSession = `relay-${name}`;
-        if (isTmuxSessionAlive(tmuxSession)) {
+        if (await isTmuxSessionAlive(tmuxSession)) {
           results.push(`${name} (already up)`);
           continue;
         }
@@ -719,8 +820,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
         currentTwins[twinName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
         await saveTwins(currentTwins);
 
-        const ts = Math.floor(Date.now() / 1000);
-        await fs.appendFile(logPath, `${ts} ${twinName} SYS twin spawned for ${projectName}\n`);
+        await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
         results.push(`${name} (up)`);
       }
       return results.join(", ");
@@ -742,7 +842,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     const tmuxSession = `relay-${twinName}`;
 
     // Check if already running
-    if (isTmuxSessionAlive(tmuxSession)) {
+    if (await isTmuxSessionAlive(tmuxSession)) {
       return `${twinName} is already running`;
     }
 
@@ -796,8 +896,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     };
     await saveTwins(twins);
 
-    const ts = Math.floor(Date.now() / 1000);
-    await fs.appendFile(logPath, `${ts} ${twinName} SYS twin spawned for ${projectName}\n`);
+    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
 
     return `✓ spawned ${twinName} (tmux: ${tmuxSession})`;
   }
@@ -821,8 +920,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
         }
       }
       await saveTwins({});
-      const ts = Math.floor(Date.now() / 1000);
-      await fs.appendFile(logPath, `${ts} system SYS all twins stopped\n`);
+      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all twins stopped" });
       return results.join(", ");
     }
 
@@ -840,8 +938,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     delete twins[target];
     await saveTwins(twins);
 
-    const ts = Math.floor(Date.now() / 1000);
-    await fs.appendFile(logPath, `${ts} ${target} SYS twin stopped\n`);
+    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: target, type: "SYS", body: "twin stopped" });
     return `✓ stopped ${target}`;
   }
 
@@ -901,7 +998,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 
 async function relaySend() {
   const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
+  const { hub, logPath } = await requireRelay();
 
   // Collect message: everything after "send" that isn't a flag
   const sendIdx = args.indexOf("send");
@@ -936,10 +1033,17 @@ async function relaySend() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
-  const speakTag = shouldSpeak ? "[speak] " : "";
-  await fs.appendFile(logPath, `${ts} ${agent} MSG ${speakTag}${message}\n`);
+  const tags = shouldSpeak ? ["speak"] : [];
+  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
 
-  print(formatLine(`${ts} ${agent} MSG ${speakTag}${message}`));
+  const entry = await writeChannel(hub, {
+    ts, from: agent, type: "MSG", body: message,
+    tags: tags.length ? tags : undefined,
+    to: mentions.length ? mentions : undefined,
+    channel,
+  });
+
+  print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${message}`));
 
   // Track the origin channel for audio responses
   const config = await loadRelayConfig();
@@ -950,7 +1054,7 @@ async function relaySend() {
     const result = await handleSystemCommand(agent, message);
     if (result) {
       const replyTs = Math.floor(Date.now() / 1000);
-      await fs.appendFile(logPath, `${replyTs} system MSG @${agent} ${result}\n`);
+      await writeChannel(hub, { ts: replyTs, from: "system", type: "MSG", body: `@${agent} ${result}`, to: [agent] });
       print(formatLine(`${replyTs} system MSG @${agent} ${result}`));
 
       // Audio channel → speak the system response
@@ -962,14 +1066,11 @@ async function relaySend() {
     return;
   }
 
-  // Auto-deliver to @mentioned agents (deduplicated)
-  const rawMentions = message.match(/@([\w.-]+)/g);
-  const mentions = rawMentions ? [...new Set(rawMentions)] : null;
-  if (mentions) {
-    for (const mention of mentions) {
-      const target = mention.slice(1); // remove @
+  // Notify @mentioned agents
+  if (mentions.length) {
+    for (const target of mentions) {
       if (target === agent) continue; // don't deliver to yourself
-      const result = await deliverToAgent(target, agent, message, channel);
+      const result = await deliverToAgent(target, agent, message, channel, entry.id);
       if (result === "delivered") {
         print(`  \x1b[32m✓\x1b[0m Delivered to ${target}'s session (resumed)`);
       } else if (result === "nudged") {
@@ -983,7 +1084,7 @@ async function relaySend() {
 
 async function relaySpeak() {
   const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
+  const { hub, logPath } = await requireRelay();
 
   // Collect message — same flag parsing as send
   const speakIdx = args.indexOf("speak");
@@ -1006,9 +1107,13 @@ async function relaySpeak() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
+  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
 
-  // Write to log with [speak] tag so TUI can show speaking state
-  await fs.appendFile(logPath, `${ts} ${agent} MSG [speak] ${message}\n`);
+  const entry = await writeChannel(hub, {
+    ts, from: agent, type: "MSG", body: message,
+    tags: ["speak"],
+    to: mentions.length ? mentions : undefined,
+  });
   print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
 
   // Set state → speaking, play TTS, set state → idle
@@ -1023,16 +1128,144 @@ async function relaySpeak() {
 
   await setAgentState(agent, "idle");
 
-  // Also deliver to @mentioned agents (without audio — that already played)
-  const rawMentions = message.match(/@([\w.-]+)/g);
-  const mentions = rawMentions ? [...new Set(rawMentions)] : null;
-  if (mentions) {
-    for (const mention of mentions) {
-      const target = mention.slice(1);
+  // Also notify @mentioned agents
+  if (mentions.length) {
+    for (const target of mentions) {
       if (target === agent) continue;
-      await deliverToAgent(target, agent, `[speak] ${message}`);
+      await deliverToAgent(target, agent, message, undefined, entry.id);
     }
   }
+}
+
+// ── relay ask ─────────────────────────────────────────
+
+async function relayAsk() {
+  const fs = await import("node:fs");
+  const fsP = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { hub, logPath } = await requireRelay();
+
+  // Parse --twin
+  const twinIdx = args.indexOf("--twin");
+  const twinName = twinIdx !== -1 ? args[twinIdx + 1] : null;
+  if (!twinName) {
+    process.stderr.write("error: --twin <name> is required\n");
+    process.exit(1);
+  }
+
+  // Parse --timeout (default 300s)
+  const timeoutIdx = args.indexOf("--timeout");
+  const timeout = timeoutIdx !== -1 ? parseInt(args[timeoutIdx + 1], 10) : 300;
+
+  // Collect question — everything after "ask" that isn't a flag
+  const skipFlags = new Set(["--twin", "--as", "--timeout"]);
+  const msgParts: string[] = [];
+  for (let i = 2; i < args.length; i++) {
+    if (skipFlags.has(args[i])) { i++; continue; }
+    msgParts.push(args[i]);
+  }
+  const question = msgParts.join(" ").trim();
+  if (!question) {
+    process.stderr.write("error: no question provided\n");
+    process.exit(1);
+  }
+
+  const asker = getAgentName();
+
+  // Verify twin is alive
+  const twins = await loadTwins();
+  const twin = twins[twinName];
+  if (!twin || !await isTmuxSessionAlive(twin.tmuxSession)) {
+    process.stderr.write(`error: twin "${twinName}" is not running\n`);
+    process.exit(1);
+  }
+
+  // Create flight
+  const flight = await createFlight(asker, twinName, question);
+  process.stderr.write(`asking ${twinName}... (flight ${flight.id})\n`);
+
+  // Write tagged message to channel
+  const taggedMessage = `[ask:${flight.id}] @${twinName} ${question}`;
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: asker, type: "MSG", body: taggedMessage });
+
+  // Deliver to twin inbox
+  await deliverToAgent(twinName, asker, taggedMessage);
+
+  // Watch channel.log for twin's response
+  const stat = fs.statSync(logPath);
+  let position = stat.size;
+
+  const deadline = Date.now() + timeout * 1000;
+
+  const checkNew = (): string | null => {
+    const current = fs.statSync(logPath);
+    if (current.size <= position) return null;
+
+    const fd = fs.openSync(logPath, "r");
+    const buf = Buffer.alloc(current.size - position);
+    fs.readSync(fd, buf, 0, buf.length, position);
+    fs.closeSync(fd);
+    position = current.size;
+
+    const lines = buf.toString("utf-8").trim().split("\n").filter(Boolean);
+    for (const line of lines) {
+      const parts = line.split(" ");
+      const from = parts[1];
+      const type = parts[2];
+      const body = parts.slice(3).join(" ");
+
+      // Match: MSG from the twin that @mentions the asker
+      if (type === "MSG" && from === twinName && body.includes(`@${asker}`)) {
+        // Clean the response: strip @mentions and ask tags
+        const clean = body
+          .replace(/@[\w.-]+/g, "")
+          .replace(/\[ask:[^\]]+\]/g, "")
+          .trim();
+        return clean;
+      }
+    }
+    return null;
+  };
+
+  return new Promise<void>(async (resolve) => {
+    let done = false;
+
+    const complete = async (response: string) => {
+      if (done) return;
+      done = true;
+      watcher.close();
+      clearTimeout(timer);
+
+      const flights = await loadFlights();
+      const f = flights.find((fl) => fl.id === flight.id);
+      if (f) {
+        f.status = "completed";
+        f.response = response;
+        f.respondedAt = Math.floor(Date.now() / 1000);
+        await saveFlights(flights);
+      }
+
+      process.stderr.write(`flight ${flight.id} completed\n`);
+      process.stdout.write(response + "\n");
+      resolve();
+    };
+
+    const watcher = fs.watch(logPath, () => {
+      const response = checkNew();
+      if (response !== null) complete(response);
+    });
+
+    const timer = setTimeout(() => {
+      if (done) return;
+      watcher.close();
+      process.stderr.write(`error: timed out after ${timeout}s waiting for ${twinName}\n`);
+      process.exit(1);
+    }, timeout * 1000);
+
+    // Initial check in case the response arrived before the watcher started
+    const immediate = checkNew();
+    if (immediate !== null) complete(immediate);
+  });
 }
 
 // ── Agent state ───────────────────────────────────────
@@ -1103,11 +1336,7 @@ async function relayState() {
 }
 
 async function relayRead() {
-  const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
-
-  const content = await fs.readFile(logPath, "utf-8");
-  const lines = content.trim().split("\n").filter(Boolean);
+  const { hub } = await requireRelay();
 
   // --since <timestamp> filter
   const sinceIdx = args.indexOf("--since");
@@ -1117,31 +1346,24 @@ async function relayRead() {
   const nIdx = args.indexOf("-n");
   const count = nIdx !== -1 ? Number(args[nIdx + 1]) : 20;
 
-  let filtered = lines;
-  if (since > 0) {
-    filtered = lines.filter((l) => {
-      const ts = Number(l.split(" ")[0]);
-      return ts > since;
-    });
-  } else {
-    filtered = lines.slice(-count);
-  }
+  const messages = await readChannel(hub, since > 0 ? { since } : { last: count });
 
-  if (filtered.length === 0) {
+  if (messages.length === 0) {
     print("\n  \x1b[2mNo messages.\x1b[0m\n");
     return;
   }
 
   print("");
-  for (const line of filtered) {
-    print(formatLine(line));
+  for (const msg of messages) {
+    const tagStr = msg.tags?.length ? msg.tags.map(t => `[${t}]`).join(" ") + " " : "";
+    print(formatLine(`${msg.ts} ${msg.from} ${msg.type} ${tagStr}${msg.body}`));
   }
   print("");
 }
 
 async function relayWatch() {
   const fs = await import("node:fs");
-  const { logPath } = await requireRelay();
+  const { hub, logPath } = await requireRelay();
   const { execSync } = await import("node:child_process");
 
   const agent = getAgentName();
@@ -1149,8 +1371,7 @@ async function relayWatch() {
   const tmuxPane = tmuxIdx !== -1 ? args[tmuxIdx + 1] : null;
 
   // Write join message
-  const joinTs = Math.floor(Date.now() / 1000);
-  fs.appendFileSync(logPath, `${joinTs} ${agent} SYS ${agent} joined the relay\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} joined the relay` });
 
   // Start reading from end of file
   const stat = fs.statSync(logPath);
@@ -1203,10 +1424,10 @@ async function relayWatch() {
 
   // Keep process alive
   process.on("SIGINT", () => {
-    const leaveTs = Math.floor(Date.now() / 1000);
-    fs.appendFileSync(logPath, `${leaveTs} ${agent} SYS ${agent} left the relay\n`);
-    print(`\n  \x1b[2m${agent} left the relay\x1b[0m\n`);
-    process.exit(0);
+    writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} left the relay` }).finally(() => {
+      print(`\n  \x1b[2m${agent} left the relay\x1b[0m\n`);
+      process.exit(0);
+    });
   });
 }
 
@@ -1262,7 +1483,7 @@ async function relayWho() {
 
 async function relayForget() {
   const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
+  const { hub } = await requireRelay();
 
   // Get agent name to forget from args after "forget"
   const forgetIdx = args.indexOf("forget");
@@ -1274,15 +1495,14 @@ async function relayForget() {
   }
 
   const agent = getAgentName();
-  const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${targetName} SYS ${targetName} forgotten by ${agent}\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: targetName, type: "SYS", body: `${targetName} forgotten by ${agent}` });
 
   print(`\n  \x1b[32m✓\x1b[0m Removed \x1b[1m${targetName}\x1b[0m from the relay.\n`);
 }
 
 async function relayEnroll() {
   const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
+  const { hub, logPath } = await requireRelay();
 
   const agent = getAgentName();
 
@@ -1334,8 +1554,7 @@ async function relayEnroll() {
   }
 
   // Write a SYS event
-  const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${agent} SYS ${agent} enrolled via relay enroll\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} enrolled via relay enroll` });
 
   print(`  \x1b[32m✓\x1b[0m Wrote enrollment event to channel.log\n`);
 }
@@ -1343,7 +1562,7 @@ async function relayEnroll() {
 async function relayBroadcast() {
   const fs = await import("node:fs/promises");
   const { execSync } = await import("node:child_process");
-  const { logPath } = await requireRelay();
+  const { hub } = await requireRelay();
 
   // Collect message
   const bcIdx = args.indexOf("broadcast");
@@ -1363,7 +1582,7 @@ async function relayBroadcast() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${agent} MSG 📢 ${message}\n`);
+  await writeChannel(hub, { ts, from: agent, type: "MSG", body: `📢 ${message}` });
 
   print(formatLine(`${ts} ${agent} MSG 📢 ${message}`));
 
@@ -1420,8 +1639,7 @@ async function relayLink() {
 
   const cwd = process.cwd();
   const projectName = cwd.split("/").pop() || "unknown";
-  const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${projectName} SYS ${projectName} linked to the relay\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: projectName, type: "SYS", body: `${projectName} linked to the relay` });
 
   printBrand();
   print(`  \x1b[32m✓\x1b[0m Linked \x1b[1m${projectName}\x1b[0m → \x1b[1m${hubShort}/\x1b[0m\n`);
@@ -1460,10 +1678,10 @@ async function saveTwins(twins: Record<string, TwinEntry>): Promise<void> {
   await fs.writeFile(twinsPath, JSON.stringify(twins, null, 2) + "\n");
 }
 
-function isTmuxSessionAlive(sessionName: string): boolean {
+async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
   try {
-    const { execSync } = require("node:child_process");
-    execSync(`tmux has-session -t ${sessionName} 2>/dev/null`);
+    const { execSync } = await import("node:child_process");
+    execSync(`tmux has-session -t ${sessionName}`, { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -1515,7 +1733,7 @@ async function relayUp() {
   const tmuxSession = `relay-${twinName}`;
 
   // Check if already running
-  if (isTmuxSessionAlive(tmuxSession)) {
+  if (await isTmuxSessionAlive(tmuxSession)) {
     print(`\n  \x1b[33m!\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is already running (tmux: ${tmuxSession})`);
     print(`  \x1b[2mUse: openscout relay down ${twinName}\x1b[0m\n`);
     process.exit(1);
@@ -1594,8 +1812,7 @@ async function relayUp() {
   await saveTwins(twins);
 
   // Log to channel
-  const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${twinName} SYS twin spawned for ${projectName}\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
 
   print(`  \x1b[32m✓\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is alive`);
   print(`  \x1b[2m  tmux: ${tmuxSession}\x1b[0m`);
@@ -1647,9 +1864,7 @@ async function relayDown() {
     await saveTwins({});
 
     const hub = await getGlobalRelayDir();
-    const logPath = path.join(hub, "channel.log");
-    const ts = Math.floor(Date.now() / 1000);
-    await fs.appendFile(logPath, `${ts} system SYS all twins stopped\n`);
+    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all twins stopped" });
 
     print("");
     return;
@@ -1682,9 +1897,7 @@ async function relayDown() {
 
   // Log to channel
   const hub = await getGlobalRelayDir();
-  const logPath = path.join(hub, "channel.log");
-  const ts = Math.floor(Date.now() / 1000);
-  await fs.appendFile(logPath, `${ts} ${targetName} SYS twin stopped\n`);
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: targetName, type: "SYS", body: "twin stopped" });
 
   print("");
 }
@@ -1709,7 +1922,7 @@ async function relayPs() {
 
   for (const name of names) {
     const twin = twins[name];
-    const alive = isTmuxSessionAlive(twin.tmuxSession);
+    const alive = await isTmuxSessionAlive(twin.tmuxSession);
     const status = alive ? "\x1b[32m●\x1b[0m" : "\x1b[31m✗\x1b[0m";
     const uptime = now - twin.startedAt;
     const uptimeStr = uptime < 60
@@ -1730,7 +1943,7 @@ async function relayPs() {
   // Clean up dead twins
   let cleaned = false;
   for (const name of names) {
-    if (!isTmuxSessionAlive(twins[name].tmuxSession)) {
+    if (!await isTmuxSessionAlive(twins[name].tmuxSession)) {
       delete twins[name];
       cleaned = true;
     }
@@ -1809,7 +2022,8 @@ function relayHelp() {
   print("    up <path> [--name n] [--task t]  Spawn a twin for a project");
   print("    down <name>                      Stop a twin");
   print("    down --all                       Stop all twins");
-  print("    ps                               List running twins\n");
+  print("    ps                               List running twins");
+  print("    ask --twin <name> \"<question>\"   Ask a twin and wait for the answer\n");
   print("  \x1b[1mIdentity:\x1b[0m");
   print("    --as <name>                    Set agent name for this command");
   print("    OPENSCOUT_AGENT=<name>         Set agent name via env var\n");
@@ -1872,6 +2086,9 @@ async function relay() {
       break;
     case "ps":
       await relayPs();
+      break;
+    case "ask":
+      await relayAsk();
       break;
     case "tui": {
       const { execSync } = await import("node:child_process");
