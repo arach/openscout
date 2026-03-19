@@ -429,7 +429,7 @@ function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFl
           );
         })}
       </box>
-      <box flexDirection="row" gap={2} width={28}>
+      <box flexDirection="row" gap={2}>
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
         <text fg={C.dim}>{clock}</text>
@@ -478,30 +478,19 @@ function ChatPanel({
           const time = fmtTime(msg.timestamp);
 
           if (msg.type === "SYS") {
-            return (
-              <text key={msg.id} fg={C.dim}>  {time}  {msg.body.slice(0, bodyWidth)}</text>
-            );
+            return <text key={msg.id} fg={C.dim}>{`${time}  ${pad("--", 12)}  ${msg.body.slice(0, bodyWidth)}`}</text>;
           }
 
           if (msg.type === "ACK") {
-            return (
-              <text key={msg.id} fg={C.dim}>  {time}  {msg.from} ack {msg.body.slice(0, bodyWidth)}</text>
-            );
+            return <text key={msg.id} fg={C.dim}>{`${time}  ${pad(msg.from, 12)}  ack ${msg.body.slice(0, bodyWidth)}`}</text>;
           }
 
-          const isSelected = msg.id === selectedId;
-          const cursor = isSelected ? "▸" : " ";
           const name = pad(msg.from, 12);
-          const body = msg.body.length > bodyWidth ? msg.body.slice(0, bodyWidth - 1) + "…" : msg.body;
+          const body = msg.body.length > bodyWidth ? msg.body.slice(0, bodyWidth - 1) + "..." : msg.body;
 
-          // Render as pre-formatted line to avoid layout fragmentation
+          // Color: timestamp white, name green, @mentions cyan, [speak] yellow
           return (
-            <box key={msg.id} flexDirection="row" gap={2} marginBottom={1}>
-              <text fg={isSelected ? C.accent : C.dim}>{cursor}</text>
-              <text fg={C.dim}>{time}</text>
-              <text fg={msg.from === "system" ? C.muted : C.accent}><strong>{name}</strong></text>
-              <text fg={C.text}>{body}</text>
-            </box>
+            <text key={msg.id} fg={C.text}>{time}{"  "}<span fg={C.accent}><strong>{name}</strong></span>{"  "}<span fg={C.text}>{body}</span></text>
           );
         })
       )}
@@ -531,23 +520,25 @@ function isTwinAlive(tmuxSession: string): boolean {
   }
 }
 
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[^[\]]/g, "").trim();
+}
+
 function captureTwinActivity(tmuxSession: string): string {
   try {
     // Grab last few visible lines from the twin's pane
     const raw = execSync(`tmux capture-pane -t ${tmuxSession} -p 2>/dev/null`, { encoding: "utf8", timeout: 500 });
-    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    const lines = raw.split("\n").map(stripAnsi).filter((l) => l.length > 0);
     if (lines.length === 0) return "starting...";
 
     // Walk from bottom, find the most informative line
     for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
-      const line = lines[i].trim();
+      const line = lines[i];
       // Skip empty, prompts, status bars
       if (!line || line === "❯" || line.startsWith("--") || line.startsWith("Opus") || line.startsWith("Sonnet")) continue;
       // Claude activity indicators
       if (line.includes("⏺") || line.includes("✻") || line.includes("✶") || line.includes("✽")) {
-        // Extract the action — strip ANSI codes
-        const clean = line.replace(/\x1b\[[0-9;]*m/g, "").trim();
-        const truncated = clean.length > 60 ? clean.slice(0, 60) + "…" : clean;
+        const truncated = line.length > 60 ? line.slice(0, 60) + "…" : line;
         return truncated;
       }
       // Idle at prompt
@@ -558,7 +549,7 @@ function captureTwinActivity(tmuxSession: string): string {
     }
 
     // Fallback: last non-empty line
-    const last = lines[lines.length - 1].replace(/\x1b\[[0-9;]*m/g, "").trim();
+    const last = lines[lines.length - 1];
     return last.length > 60 ? last.slice(0, 60) + "…" : last || "active";
   } catch {
     return "unreachable";
@@ -818,13 +809,24 @@ function VoicePanel({
 
 // ── Agent Cockpit (persistent across all views) ──────────────────────────────
 
-function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pendingCount }: {
+function loadAgentStatesSync(relayDir: string): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(join(relayDir, "state.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pendingCount, relayDir, width, recordingStart }: {
   twins: Record<string, { tmuxSession: string; project: string }>;
   agents: AgentStatus[];
   voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
   isSpeaking: boolean;
   partialText: string;
+  relayDir: string;
   pendingCount: number;
+  width: number;
+  recordingStart: number | null;
 }) {
   const [frame, setFrame] = useState(0);
 
@@ -834,6 +836,21 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
     return () => clearInterval(iv);
   }, [isSpeaking, voiceState]);
 
+  // Recording elapsed timer
+  const [elapsed, setElapsed] = useState("");
+  useEffect(() => {
+    if (!recordingStart || voiceState === "idle") {
+      setElapsed("");
+      return;
+    }
+    const iv = setInterval(() => {
+      const s = Math.floor((Date.now() - recordingStart) / 1000);
+      const m = Math.floor(s / 60);
+      setElapsed(m > 0 ? `${m}:${String(s % 60).padStart(2, "0")}` : `0:${String(s).padStart(2, "0")}`);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [recordingStart, voiceState]);
+
   // Braille wave animation (from Vox TUI)
   const BRAILLE = [" ", "⠁", "⠃", "⠇", "⡇", "⣇", "⣧", "⣷", "⣿"];
   const wave = Array.from({ length: 6 }, (_, i) => {
@@ -842,6 +859,9 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
     return BRAILLE[Math.floor(n * (BRAILLE.length - 1))];
   }).join("");
 
+  // Read agent states — these take priority over tmux activity
+  const agentStates = loadAgentStatesSync(relayDir);
+
   // Build agent entries
   const entries: Array<{ name: string; activity: string; status: "working" | "idle" | "offline" }> = [];
 
@@ -849,6 +869,12 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
     const alive = isTwinAlive(twin.tmuxSession);
     if (!alive) {
       entries.push({ name, activity: "offline", status: "offline" });
+      continue;
+    }
+    // Agent-set state takes priority (speaking, thinking, etc.)
+    const agentState = agentStates[name];
+    if (agentState && agentState !== "idle") {
+      entries.push({ name, activity: agentState, status: "working" });
       continue;
     }
     const activity = captureTwinActivity(twin.tmuxSession);
@@ -867,76 +893,61 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
     }
   }
 
-  // Dev is always pinned at top; rest sorted by status
+  // Dev is always pinned at top; rest sorted by recency (most recent first)
   const devEntry = entries.find((e) => e.name === "dev") || { name: "dev", activity: "offline", status: "offline" as const };
   const rest = entries.filter((e) => e.name !== "dev").sort((a, b) => {
+    // Working agents first, then by name as tiebreaker
     const order = { working: 0, idle: 1, offline: 2 };
     return order[a.status] - order[b.status];
   });
 
-  const maxRows = 4;
+  const maxRows = 5;
   const otherSlots = maxRows - 1; // 1 slot reserved for dev
   const shownOthers = rest.slice(0, otherSlots);
   const hidden = rest.length - shownOthers.length;
 
-  const iconChar = (s: "working" | "idle" | "offline") =>
-    s === "working" ? "●" : s === "idle" ? "○" : "✗";
-  const iconClr = (s: "working" | "idle" | "offline") =>
-    s === "working" ? C.yellow : s === "idle" ? C.dim : C.red;
+  // Strip ANSI and non-ASCII from activity strings
+  const clean = (s: string) => s.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[^[\]]/g, "").replace(/[^\x20-\x7e]/g, "");
+
+  // Align with chat columns: time(8) + gap(2) + name(12) + gap(2) + body
+  const fmtAgent = (icon: string, name: string, activity: string) => {
+    const act = clean(activity).trim();
+    const truncAct = act.length > 40 ? act.slice(0, 40) + "..." : act;
+    const stars = icon === "*" ? " * * * *" : icon === "o" ? " o o o o" : " . . . .";
+    return `${stars}  ${pad(name, 12)}  ${truncAct}`;
+  };
+
+  const devIcon = devEntry.status === "working" ? "*" : devEntry.status === "idle" ? "o" : "x";
+
+  // Inner width = total - border(2) - padding(2)
+  const innerW = width - 4;
+
+  // Build agent rows
+  const agentRows: string[] = [];
+  agentRows.push(fmtAgent(devIcon, devEntry.name, devEntry.activity));
+  for (const e of shownOthers) {
+    const icon = e.status === "working" ? "*" : e.status === "idle" ? "o" : "x";
+    agentRows.push(fmtAgent(icon, e.name, e.activity));
+  }
+  if (hidden > 0) {
+    agentRows.push("   +" + hidden + " more");
+  }
+  // Pad to maxRows so the box doesn't collapse
+  while (agentRows.length < maxRows) agentRows.push("");
+
+  // Recording / speaking indicator with wave animation
+  const isRecording = voiceState === "recording";
+  const isProcessing = voiceState === "processing" || voiceState === "connecting";
+  const audioActive = isRecording || isProcessing || isSpeaking;
+  const audioStr = isRecording ? `● REC ${elapsed || "0:00"}  ${wave}`
+    : isProcessing ? "◌ processing..."
+    : isSpeaking ? `◉ speaking  ${wave}`
+    : "";
 
   return (
-    <box flexDirection="row" border borderStyle="rounded" borderColor={isSpeaking ? C.cyan : voiceState === "recording" ? C.red : C.border} marginLeft={1} marginRight={1} height={maxRows + 2} paddingLeft={1} paddingRight={1}>
-      {/* Left: agents — use explicit widths to prevent collapsing */}
-      <box flexDirection="column" flexGrow={1}>
-        {/* Dev — always first */}
-        <box flexDirection="row">
-          <text fg={iconClr(devEntry.status)} width={2}>{iconChar(devEntry.status)}</text>
-          <text fg={C.text} width={14}><strong>{devEntry.name}</strong></text>
-          <text fg={devEntry.status === "working" ? C.yellow : C.dim}>
-            {devEntry.activity.length > 45 ? devEntry.activity.slice(0, 45) + "…" : devEntry.activity}
-          </text>
-        </box>
-        {/* Others */}
-        {shownOthers.map((e) => {
-          const actTrunc = e.activity.length > 45 ? e.activity.slice(0, 45) + "…" : e.activity;
-          return (
-            <box key={e.name} flexDirection="row">
-              <text fg={iconClr(e.status)} width={2}>{iconChar(e.status)}</text>
-              <text fg={e.status === "working" ? C.text : C.muted} width={14}><strong>{e.name}</strong></text>
-              <text fg={e.status === "working" ? C.yellow : C.dim}>{actTrunc}</text>
-            </box>
-          );
-        })}
-        {hidden > 0 && <text fg={C.dim}>  +{hidden} more</text>}
-      </box>
-
-      {/* Vertical divider */}
-      <box flexDirection="column" width={1} marginLeft={1} marginRight={1}>
-        <text fg={C.border}>│</text>
-        <text fg={C.border}>│</text>
-        <text fg={C.border}>│</text>
-        <text fg={C.border}>│</text>
-      </box>
-
-      {/* Right: audio section */}
-      <box flexDirection="column" width={24}>
-        <box flexDirection="row">
-          <text fg={C.dim} width={5}>{"MIC  "}</text>
-          <text fg={voiceState === "recording" ? C.red : C.dim}>
-            {voiceState === "recording" ? `● rec  ${wave}` : voiceState === "connecting" ? "◌ connecting" : voiceState === "error" ? "✗ unavailable" : "○ ready"}
-          </text>
-        </box>
-        <box flexDirection="row">
-          <text fg={C.dim} width={5}>{"SPK  "}</text>
-          <text fg={isSpeaking ? C.cyan : C.dim}>
-            {isSpeaking ? `◉ playing  ${wave}` : "○ quiet"}
-          </text>
-        </box>
-        {pendingCount > 0 && <text fg={C.yellow}>{pendingCount} awaiting</text>}
-        {voiceState === "recording" && partialText && (
-          <text fg={C.muted}>{partialText.length > 22 ? "…" + partialText.slice(-21) : partialText}</text>
-        )}
-      </box>
+    <box flexDirection="column" border borderStyle="rounded" borderColor={isSpeaking ? C.cyan : isRecording ? C.red : C.border} padding={1} height={maxRows + (audioActive ? 3 : 2)}>
+      <text fg={C.yellow}>{agentRows.join("\n")}</text>
+      {audioActive && <text fg={isRecording ? C.red : isSpeaking ? C.cyan : C.yellow}>{audioStr}</text>}
     </box>
   );
 }
@@ -968,6 +979,7 @@ function App() {
   const [selectedId, setSelectedId] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "recording" | "processing" | "error">("idle");
+  const [recordingStart, setRecordingStart] = useState<number | null>(null);
   const [partialText, setPartialText] = useState("");
   const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
   const [voiceThread, setVoiceThread] = useState<VoiceThread[]>([]);
@@ -982,8 +994,8 @@ function App() {
   // Watermark: last message id we've spoken — anything above this is new
   const lastSpokenMsgRef = useRef<number>(0);
 
-  // header(3) + cockpit(6) + status(2) + borders/padding(3) = 14
-  const maxVisible = Math.max(height - 14, 5);
+  // header(3) + cockpit(6) + status(2) + chat border/padding(4) = 15
+  const maxVisible = Math.max(height - 15, 5);
 
   const refresh = useCallback(() => {
     const relayDir = relayDirRef.current;
@@ -1034,9 +1046,20 @@ function App() {
     }
     if (newSpoken.length > 0) {
       setVoiceThread((prev) => [...prev, ...newSpoken]);
-      for (const r of newSpoken) {
-        speakText(r.text, relayDir, () => setIsSpeaking(true), () => setIsSpeaking(false));
+    }
+
+    // Read agent states from state.json — this is the source of truth
+    try {
+      const statePath = join(relayDir, "state.json");
+      if (existsSync(statePath)) {
+        const states: Record<string, string> = JSON.parse(readFileSync(statePath, "utf8"));
+        const anySpeaking = Object.values(states).some((s) => s === "speaking");
+        setIsSpeaking(anySpeaking);
+      } else {
+        setIsSpeaking(false);
       }
+    } catch {
+      setIsSpeaking(false);
     }
   }, []);
 
@@ -1110,6 +1133,7 @@ function App() {
     // If recording, stop
     if (voiceState === "recording" && voxSessionRef.current) {
       setVoiceState("processing");
+      setRecordingStart(null);
       try {
         await voxSessionRef.current.stop();
       } catch {
@@ -1132,6 +1156,7 @@ function App() {
     }
 
     setVoiceState("recording");
+    setRecordingStart(Date.now());
     setPartialText("");
 
     const session = voxClient.createLiveSession();
@@ -1301,7 +1326,7 @@ function App() {
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
       <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
 
-      <AgentCockpit twins={twins} agents={agents} voiceState={voiceState} isSpeaking={isSpeaking} partialText={partialText} pendingCount={activeFlights.length} />
+      <AgentCockpit twins={twins} agents={agents} voiceState={voiceState} isSpeaking={isSpeaking} partialText={partialText} pendingCount={activeFlights.length} relayDir={relayDirRef.current || ""} width={width} recordingStart={recordingStart} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
