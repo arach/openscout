@@ -581,37 +581,22 @@ function AgentsPanel({ agents, selectedAgent, twins }: {
           <text fg={C.dim}>No agents have used the relay yet</text>
         ) : (
           <>
-            <box flexDirection="row" gap={2}>
-              <text fg={C.dim}>{pad("", 3)}</text>
-              <text fg={C.dim}>{pad("agent", 18)}</text>
-              <text fg={C.dim}>{pad("messages", 10)}</text>
-              <text fg={C.dim}>{pad("last seen", 14)}</text>
-              <text fg={C.dim}>status</text>
-            </box>
+            <text fg={C.dim}>{`   ${pad("agent", 14)}  ${pad("msgs", 6)}  ${pad("last seen", 12)}  ${pad("status", 10)}  activity`}</text>
             {alive.map((agent, i) => {
               const isSelected = i === selectedAgent;
               const twin = twins[agent.name];
               const hasTwin = twin && isTwinAlive(twin.tmuxSession);
               const activity = hasTwin ? captureTwinActivity(twin.tmuxSession) : "";
               const isWorking = activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...";
-              return (
-                <box key={agent.name} flexDirection="column">
-                  <box flexDirection="row" gap={2}>
-                    <text fg={isSelected ? C.accent : C.dim}>{isSelected ? "▸" : " "}</text>
-                    <text fg={statusColor(agent.status)}>{statusIcon(agent.status)}</text>
-                    <text fg={isSelected ? C.text : C.muted}><strong>{pad(agent.name, 18)}</strong></text>
-                    <text fg={C.cyan}>{pad(String(agent.messages), 10)}</text>
-                    <text fg={C.muted}>{pad(fmtRelative(agent.lastSeen), 14)}</text>
-                    <text fg={hasTwin ? C.blue : statusColor(agent.status)}>{statusLabel(agent)}</text>
-                  </box>
-                  {hasTwin && activity && (
-                    <box flexDirection="row" gap={2}>
-                      <text fg={C.dim}>   </text>
-                      <text fg={isWorking ? C.yellow : C.dim}>{isWorking ? "⏺" : "○"} {activity}</text>
-                    </box>
-                  )}
-                </box>
-              );
+              const cleanAct = activity ? stripAnsi(activity).replace(/[^\x20-\x7e]/g, "").trim() : "";
+              const truncAct = cleanAct.length > 36 ? cleanAct.slice(0, 35) + "…" : cleanAct;
+
+              const cursor = isSelected ? "▸" : " ";
+              const icon = statusIcon(agent.status);
+              const label = statusLabel(agent);
+              const line = `${cursor} ${icon} ${pad(agent.name, 14)}  ${pad(String(agent.messages), 6)}  ${pad(fmtRelative(agent.lastSeen), 12)}  ${pad(label, 10)}  ${truncAct}`;
+
+              return <text key={agent.name} fg={isSelected ? C.text : isWorking ? C.yellow : C.muted}>{line}</text>;
             })}
           </>
         )}
@@ -894,7 +879,19 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   }
 
   // Dev is always pinned at top; rest sorted by recency (most recent first)
-  const devEntry = entries.find((e) => e.name === "dev") || { name: "dev", activity: "offline", status: "offline" as const };
+  // If dev is marked offline from twin check, but is online in the agents list, upgrade it
+  let devEntry = entries.find((e) => e.name === "dev");
+  if (!devEntry) {
+    const devAgent = agents.find((a) => a.name === "dev" && a.status === "online");
+    devEntry = devAgent
+      ? { name: "dev", activity: "online", status: "idle" as const }
+      : { name: "dev", activity: "offline", status: "offline" as const };
+  } else if (devEntry.status === "offline") {
+    const devAgent = agents.find((a) => a.name === "dev" && a.status === "online");
+    if (devAgent) {
+      devEntry = { name: "dev", activity: "online", status: "idle" as const };
+    }
+  }
   const rest = entries.filter((e) => e.name !== "dev").sort((a, b) => {
     // Working agents first, then by name as tiebreaker
     const order = { working: 0, idle: 1, offline: 2 };
@@ -922,12 +919,31 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   // Inner width = total - border(2) - padding(2)
   const innerW = width - 4;
 
+  // Audio state
+  const isRecording = voiceState === "recording";
+  const isProcessing = voiceState === "processing" || voiceState === "connecting";
+
+  // Right-aligned audio indicators (only when active)
+  const micStr = isRecording ? `● REC ${elapsed || "0:00"} ${wave}`
+    : isProcessing ? "◌ processing..."
+    : "";
+  const spkStr = isSpeaking ? `◉ playing ${wave}` : "";
+
+  // Build a row with optional right-aligned audio
+  const buildRow = (agentStr: string, audioStr?: string) => {
+    if (!audioStr) return agentStr;
+    const gap = Math.max(1, innerW - agentStr.length - audioStr.length);
+    return agentStr + " ".repeat(gap) + audioStr;
+  };
+
   // Build agent rows
   const agentRows: string[] = [];
-  agentRows.push(fmtAgent(devIcon, devEntry.name, devEntry.activity));
-  for (const e of shownOthers) {
+  agentRows.push(buildRow(fmtAgent(devIcon, devEntry.name, devEntry.activity), micStr || undefined));
+  for (let i = 0; i < shownOthers.length; i++) {
+    const e = shownOthers[i];
     const icon = e.status === "working" ? "*" : e.status === "idle" ? "o" : "x";
-    agentRows.push(fmtAgent(icon, e.name, e.activity));
+    const audio = i === 0 && spkStr ? spkStr : undefined;
+    agentRows.push(buildRow(fmtAgent(icon, e.name, e.activity), audio));
   }
   if (hidden > 0) {
     agentRows.push("   +" + hidden + " more");
@@ -935,19 +951,9 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   // Pad to maxRows so the box doesn't collapse
   while (agentRows.length < maxRows) agentRows.push("");
 
-  // Recording / speaking indicator with wave animation
-  const isRecording = voiceState === "recording";
-  const isProcessing = voiceState === "processing" || voiceState === "connecting";
-  const audioActive = isRecording || isProcessing || isSpeaking;
-  const audioStr = isRecording ? `● REC ${elapsed || "0:00"}  ${wave}`
-    : isProcessing ? "◌ processing..."
-    : isSpeaking ? `◉ speaking  ${wave}`
-    : "";
-
   return (
-    <box flexDirection="column" border borderStyle="rounded" borderColor={isSpeaking ? C.cyan : isRecording ? C.red : C.border} padding={1} height={maxRows + (audioActive ? 3 : 2)}>
+    <box flexDirection="column" border borderStyle="rounded" borderColor={isSpeaking ? C.cyan : isRecording ? C.red : C.border} padding={1} height={maxRows + 2}>
       <text fg={C.yellow}>{agentRows.join("\n")}</text>
-      {audioActive && <text fg={isRecording ? C.red : isSpeaking ? C.cyan : C.yellow}>{audioStr}</text>}
     </box>
   );
 }
@@ -1087,10 +1093,19 @@ function App() {
       if (!ok) setVoiceState("error");
     });
 
-    // Heartbeat — keep TUI showing as online
+    // Heartbeat — keep TUI and dev twin showing as online
     const heartbeatIv = setInterval(() => {
       const t = Math.floor(Date.now() / 1000);
       appendFileSync(logPath, `${t} ${tuiName} SYS heartbeat\n`);
+      // Also heartbeat for dev if it has an active twin
+      if (tuiName !== "dev") {
+        try {
+          const tw = JSON.parse(readFileSync(join(relayDir, "twins.json"), "utf8"));
+          if (tw.dev && isTwinAlive(tw.dev.tmuxSession)) {
+            appendFileSync(logPath, `${t} dev SYS heartbeat\n`);
+          }
+        } catch { /* noop */ }
+      }
     }, ONLINE_THRESHOLD * 500); // halfway through threshold (5 min for 10 min threshold)
 
     // Set the spoken watermark to current message count so we don't speak old messages

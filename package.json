@@ -11,7 +11,9 @@
   ],
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && bun run build:docs",
+    "build:site": "next build",
+    "build:docs": "cd packages/relay/relay-docs && bun install && bun run build && mkdir -p ../../../out/docs/relay && cp -r dist/* ../../../out/docs/relay/",
     "start": "next start",
     "lint": "eslint",
     "cli:build": "bun run --cwd packages/cli build",

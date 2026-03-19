@@ -1,0 +1,19 @@
+{
+  "name": "scout",
+  "version": "0.1.0",
+  "description": "User-facing CLI for OpenScout",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "scout": "./bin/scout.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "mkdir -p dist && bun build ./src/main.ts --target=node --outfile ./dist/main.mjs",
+    "dev": "bun run ./src/main.ts"
+  }
+}

@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE_PATH" ]]; do
+  SOURCE_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+  SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+  [[ "$SOURCE_PATH" != /* ]] && SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENGINE_DIR="$ROOT_DIR/native/engine"
+DERIVED_DATA_DIR="$ENGINE_DIR/.derivedData"
+SUPPORT_DIR="$HOME/Library/Application Support/OpenScout"
+STATUS_FILE="$SUPPORT_DIR/agent-status.json"
+APP_LOG_FILE="$SUPPORT_DIR/scout-app.log"
+AGENT_LOG_FILE="$SUPPORT_DIR/scout-agent.log"
+
+mkdir -p "$SUPPORT_DIR"
+
+usage() {
+  cat <<'EOF'
+scout-dev: local developer CLI for OpenScout
+
+Usage:
+  scout-dev build
+  scout-dev rebuild
+  scout-dev launch
+  scout-dev relaunch
+  scout-dev status
+  scout-dev help
+  scout-dev doctor
+  scout-dev quit
+  scout-dev agent
+  scout-dev open-support
+  scout-dev clean
+
+Commands:
+  build         Build ScoutApp and ScoutAgent
+  rebuild       Clean native artifacts, then build again
+  launch        Launch ScoutApp if it is not already running
+  relaunch      Stop running Scout processes, then launch ScoutApp
+  status        Show current process and heartbeat status
+
+Secondary:
+  help          Show this help text
+  doctor        Build if needed, then show status and key paths
+  quit          Stop running ScoutApp and ScoutAgent processes
+  agent         Launch ScoutAgent directly
+  open-support  Open ~/Library/Application Support/OpenScout
+  clean         Stop processes and remove native build artifacts
+EOF
+}
+
+info() {
+  printf '%s\n' "$*"
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+find_binary() {
+  local name="$1"
+  find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/$name" -type f 2>/dev/null | head -n 1
+}
+
+build_target() {
+  local scheme="$1"
+
+  xcodebuild \
+    -scheme "$scheme" \
+    -configuration Debug \
+    -derivedDataPath "$DERIVED_DATA_DIR" \
+    -destination "platform=macOS" \
+    build
+}
+
+ensure_build() {
+  if [[ -z "$(find_binary ScoutApp)" || -z "$(find_binary ScoutAgent)" ]]; then
+    build
+  fi
+}
+
+build() {
+  info "Building Scout native targets..."
+  (
+    cd "$ENGINE_DIR"
+    build_target ScoutApp
+    build_target ScoutAgent
+  )
+}
+
+app_pids() {
+  pgrep -f "/ScoutApp( |$)" || true
+}
+
+agent_pids() {
+  pgrep -f "/ScoutAgent( |$)" || true
+}
+
+swift_wrapper_pids() {
+  pgrep -f "swift run --package-path native/engine ScoutApp" || true
+}
+
+quit_processes() {
+  if [[ -z "$(app_pids)" && -z "$(agent_pids)" && -z "$(swift_wrapper_pids)" ]]; then
+    info "No running Scout processes."
+    return
+  fi
+
+  info "Stopping Scout processes..."
+  for _ in $(seq 1 20); do
+    pkill -x ScoutApp 2>/dev/null || true
+    pkill -f "/ScoutApp( |$)" 2>/dev/null || true
+    pkill -f "/ScoutAgent( |$)" 2>/dev/null || true
+    pkill -f "swift run --package-path native/engine ScoutApp" 2>/dev/null || true
+
+    if [[ -z "$(app_pids)" && -z "$(agent_pids)" && -z "$(swift_wrapper_pids)" ]]; then
+      return
+    fi
+
+    sleep 0.1
+  done
+
+  pkill -9 -f "/ScoutApp( |$)" 2>/dev/null || true
+  pkill -9 -f "/ScoutAgent( |$)" 2>/dev/null || true
+  pkill -9 -f "swift run --package-path native/engine ScoutApp" 2>/dev/null || true
+}
+
+launch_app() {
+  ensure_build
+
+  if [[ -n "$(app_pids)" ]]; then
+    info "ScoutApp is already running."
+    return
+  fi
+
+  local app_bin
+  app_bin="$(find_binary ScoutApp)"
+  [[ -n "$app_bin" ]] || fail "ScoutApp binary not found after build."
+
+  info "Launching ScoutApp..."
+  nohup "$app_bin" </dev/null >"$APP_LOG_FILE" 2>&1 &
+  info "ScoutApp log: $APP_LOG_FILE"
+}
+
+launch_agent() {
+  ensure_build
+
+  if [[ -n "$(agent_pids)" ]]; then
+    info "ScoutAgent is already running."
+    return
+  fi
+
+  local agent_bin
+  agent_bin="$(find_binary ScoutAgent)"
+  [[ -n "$agent_bin" ]] || fail "ScoutAgent binary not found after build."
+
+  info "Launching ScoutAgent..."
+  nohup "$agent_bin" --status-file "$STATUS_FILE" </dev/null >"$AGENT_LOG_FILE" 2>&1 &
+  info "ScoutAgent log: $AGENT_LOG_FILE"
+}
+
+print_status() {
+  local app_list agent_list
+  app_list="$(app_pids)"
+  agent_list="$(agent_pids)"
+
+  info "Support directory: $SUPPORT_DIR"
+  info "Status file: $STATUS_FILE"
+  info "App log: $APP_LOG_FILE"
+  info "Agent log: $AGENT_LOG_FILE"
+  info ""
+
+  if [[ -n "$app_list" ]]; then
+    info "ScoutApp PIDs:"
+    printf '%s\n' "$app_list"
+  else
+    info "ScoutApp: not running"
+  fi
+
+  if [[ -n "$agent_list" ]]; then
+    info "ScoutAgent PIDs:"
+    printf '%s\n' "$agent_list"
+  else
+    info "ScoutAgent: not running"
+  fi
+
+  info ""
+
+  if [[ -f "$STATUS_FILE" ]]; then
+    info "Heartbeat:"
+    cat "$STATUS_FILE"
+    info ""
+    heartbeat_health
+  else
+    info "Heartbeat: missing"
+  fi
+}
+
+heartbeat_health() {
+  python3 - <<'PY' "$STATUS_FILE"
+import json
+import os
+import sys
+import time
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+pid = data.get("pid")
+heartbeat = data.get("heartbeat")
+detail = data.get("detail", "")
+state = data.get("state", "unknown")
+
+alive = bool(pid) and os.path.exists(f"/proc/{pid}") if sys.platform.startswith("linux") else True
+if sys.platform == "darwin" and pid:
+    alive = os.system(f"kill -0 {pid} >/dev/null 2>&1") == 0
+
+age = None
+if isinstance(heartbeat, (int, float)):
+    age = max(0.0, time.time() - (heartbeat + 978307200))
+
+print(f"Heartbeat state: {state}")
+if pid:
+    print(f"Heartbeat pid: {pid} ({'alive' if alive else 'stale'})")
+if age is not None:
+    freshness = "fresh" if age < 5 else "stale"
+    print(f"Heartbeat age: {age:.1f}s ({freshness})")
+if detail:
+    print(f"Heartbeat detail: {detail}")
+PY
+}
+
+doctor() {
+  ensure_build
+  print_status
+}
+
+open_support() {
+  mkdir -p "$SUPPORT_DIR"
+  open "$SUPPORT_DIR"
+}
+
+clean() {
+  quit_processes
+  info "Removing native build artifacts..."
+  rm -rf "$ENGINE_DIR/.build" "$DERIVED_DATA_DIR"
+}
+
+rebuild() {
+  clean
+  build
+}
+
+command="${1:-help}"
+
+case "$command" in
+  help|-h|--help)
+    usage
+    ;;
+  build)
+    build
+    ;;
+  rebuild)
+    rebuild
+    ;;
+  launch)
+    launch_app
+    ;;
+  relaunch)
+    quit_processes
+    launch_app
+    ;;
+  quit)
+    quit_processes
+    ;;
+  status)
+    print_status
+    ;;
+  doctor)
+    doctor
+    ;;
+  agent)
+    launch_agent
+    ;;
+  open-support)
+    open_support
+    ;;
+  clean)
+    clean
+    ;;
+  *)
+    fail "unknown command: $command"
+    ;;
+esac

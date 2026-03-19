@@ -553,22 +553,8 @@ async function deliverToAgent(name: string, from: string, message: string, chann
   const entry = registry[name];
   const hub = await getGlobalRelayDir();
 
-  // Strategy 0: Check if target is a twin — deliver directly via tmux input
-  const twins = await loadTwins();
-  const twin = twins[name];
-  if (twin && isTmuxSessionAlive(twin.tmuxSession)) {
-    // Type the message directly into the twin's Claude prompt
-    const prompt = `[Relay from ${from}]: ${message}`;
-    try {
-      execSync(`tmux send-keys -t ${twin.tmuxSession} ${JSON.stringify(prompt)} Enter`);
-      return "delivered";
-    } catch {
-      // tmux session exists but can't send — fall through to inbox
-    }
-  }
-
-  // Strategy 1: Write to inbox file — the agent's Stop hook picks it up
-  // This is the most reliable cross-session delivery mechanism
+  // Always write to inbox first — this is the reliable path
+  // The Stop hook picks it up when the agent finishes its current response
   const inboxDir = path.join(hub, "inbox");
   await fs.mkdir(inboxDir, { recursive: true });
   const inboxFile = path.join(inboxDir, `${name}.md`);
@@ -584,18 +570,18 @@ async function deliverToAgent(name: string, from: string, message: string, chann
     `Reply with: openscout relay send --as ${name} "@${from} <your response>"`,
   ].join("\n") + "\n\n";
 
-  // Append to inbox (multiple messages can queue up)
   await fs.appendFile(inboxFile, relayMsg);
 
-  // Strategy 2: Also try tmux nudge for immediate visibility
-  if (entry?.pane) {
-    const preview = message.length > 60 ? message.slice(0, 60) + "…" : message;
+  // Best-effort: also nudge the twin's tmux session for faster delivery
+  // tmux send-keys may or may not work depending on Claude's state —
+  // that's fine, the inbox is the source of truth
+  const twins = await loadTwins();
+  const twin = twins[name];
+  if (twin && isTmuxSessionAlive(twin.tmuxSession)) {
     try {
-      execSync(`tmux send-keys -t ${entry.pane} ${JSON.stringify(`[relay] ${from}: ${preview}`)} Enter`);
-      return "nudged";
-    } catch {
-      // Pane doesn't exist — inbox delivery still happened
-    }
+      // Send a short nudge, not the full message — the Stop hook has the real content
+      execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
+    } catch { /* noop — inbox delivery already happened */ }
   }
 
   return "delivered";
@@ -707,8 +693,8 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
           `Relay channel at ${hubShort}/channel.log shared by all agents.`,
           `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
           `Always reply via: openscout relay send --as ${twinName} "your message"`,
-          `For substantive answers to humans: openscout relay send --as ${twinName} --speak "your answer"`,
-          `Only use --speak for final meaningful responses to humans, not acks or status updates.`,
+          `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
+          `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
           `Be specific with file paths. Keep messages under 200 chars.`,
         ].join("\n");
 
@@ -769,12 +755,12 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
       `Your job: respond to @${twinName} mentions, answer questions about this project's code, coordinate with other agents.`,
       `Relay commands:`,
       `  openscout relay send --as ${twinName} "your message"`,
-      `  openscout relay send --as ${twinName} --speak "your message"  (spoken aloud to the human)`,
+      `  openscout relay speak --as ${twinName} "your message"  (speaks aloud to the human via TTS)`,
       `  openscout relay read`,
       `  openscout relay who`,
-      `Audio: the human may be in a voice conversation. Use --speak when you have a substantive answer`,
-      `or result for the human. Do NOT use --speak for acks, status updates, or intermediate chatter`,
-      `between agents. Only --speak for the final, meaningful response directed at a human.`,
+      `Audio: the human may be in a voice conversation. Use 'relay speak' when you have a substantive`,
+      `answer or result for the human. Do NOT speak acks, status updates, or agent-to-agent chatter.`,
+      `Only speak the final, meaningful response directed at a human.`,
       `Rules: always reply via relay send, be specific with file paths, keep messages under 200 chars.`,
     ].join("\n");
 
@@ -992,6 +978,127 @@ async function relaySend() {
         print(`  \x1b[2m○\x1b[0m ${target} not registered — message queued in channel\x1b[0m`);
       }
     }
+  }
+}
+
+async function relaySpeak() {
+  const fs = await import("node:fs/promises");
+  const { logPath } = await requireRelay();
+
+  // Collect message — same flag parsing as send
+  const speakIdx = args.indexOf("speak");
+  const msgParts: string[] = [];
+  let i = speakIdx + 1;
+  while (i < args.length) {
+    if (args[i] === "--as") {
+      i += 2;
+      continue;
+    }
+    msgParts.push(args[i]);
+    i++;
+  }
+
+  const message = msgParts.join(" ").trim();
+  if (!message) {
+    print("\n  \x1b[31m✗\x1b[0m No message provided. Usage: openscout relay speak --as dev \"your message\"\n");
+    process.exit(1);
+  }
+
+  const agent = getAgentName();
+  const ts = Math.floor(Date.now() / 1000);
+
+  // Write to log with [speak] tag so TUI can show speaking state
+  await fs.appendFile(logPath, `${ts} ${agent} MSG [speak] ${message}\n`);
+  print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
+
+  // Set state → speaking, play TTS, set state → idle
+  await setAgentState(agent, "speaking");
+
+  const config = await loadRelayConfig();
+  const voice = getVoiceForChannel(config, "voice");
+  const clean = message.replace(/@[\w.-]+\s*/g, "").trim();
+  if (clean) {
+    await speak(clean, voice);
+  }
+
+  await setAgentState(agent, "idle");
+
+  // Also deliver to @mentioned agents (without audio — that already played)
+  const rawMentions = message.match(/@([\w.-]+)/g);
+  const mentions = rawMentions ? [...new Set(rawMentions)] : null;
+  if (mentions) {
+    for (const mention of mentions) {
+      const target = mention.slice(1);
+      if (target === agent) continue;
+      await deliverToAgent(target, agent, `[speak] ${message}`);
+    }
+  }
+}
+
+// ── Agent state ───────────────────────────────────────
+// Agents set their own state: speaking, thinking, idle, etc.
+// State is stored in state.json — the TUI reads it for visual feedback.
+
+async function loadAgentStates(): Promise<Record<string, string>> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  try {
+    const raw = await fs.readFile(path.join(hub, "state.json"), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+async function saveAgentStates(states: Record<string, string>): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  await fs.writeFile(path.join(hub, "state.json"), JSON.stringify(states, null, 2) + "\n");
+}
+
+async function setAgentState(agent: string, state: string): Promise<void> {
+  const states = await loadAgentStates();
+  if (state === "idle" || state === "clear") {
+    delete states[agent];
+  } else {
+    states[agent] = state;
+  }
+  await saveAgentStates(states);
+}
+
+async function relayState() {
+  // Collect the state value — skip --as <name> flags
+  const stateIdx = args.indexOf("state");
+  let state: string | undefined;
+  let i = stateIdx + 1;
+  while (i < args.length) {
+    if (args[i] === "--as") { i += 2; continue; }
+    state = args[i];
+    break;
+  }
+
+  if (!state) {
+    // Show all states
+    const states = await loadAgentStates();
+    const entries = Object.entries(states);
+    if (entries.length === 0) {
+      print("  \x1b[2mAll agents idle\x1b[0m");
+    } else {
+      for (const [agent, s] of entries) {
+        print(`  \x1b[1m${agent}\x1b[0m  ${s}`);
+      }
+    }
+    return;
+  }
+
+  const agent = getAgentName();
+  await setAgentState(agent, state);
+  if (state === "idle" || state === "clear") {
+    print(`  \x1b[2m${agent} → idle\x1b[0m`);
+  } else {
+    print(`  \x1b[1m${agent}\x1b[0m → ${state}`);
   }
 }
 
@@ -1686,6 +1793,8 @@ function relayHelp() {
   print("    link                           Link this project to the global hub");
   print("    status                         Show hub and link status");
   print("    send <message>                 Append a message to the channel");
+  print("    speak <message>                Send + speak aloud via TTS");
+  print("    state [state]                  Set agent state (speaking, thinking, idle)");
   print("    read                           Print recent messages (last 20)");
   print("    read --since <timestamp>       Messages after a unix timestamp");
   print("    read -n <count>                Show last N messages");
@@ -1723,6 +1832,12 @@ async function relay() {
       break;
     case "send":
       await relaySend();
+      break;
+    case "speak":
+      await relaySpeak();
+      break;
+    case "state":
+      await relayState();
       break;
     case "read":
       await relayRead();
