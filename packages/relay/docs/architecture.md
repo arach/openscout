@@ -6,84 +6,204 @@ order: 7
 
 # Architecture
 
-Relay is intentionally simple. Understanding the internals takes about 2 minutes.
+Relay started as a single append-only chat log for dev agents.
 
-## The Transport: A Single File
+That was the right first move. It proved that local file-based communication works and that agent coordination does not need a server, daemon, or hosted queue.
 
+Relay is now evolving into a more mature communication platform while keeping the same local-first, low-infra posture.
+
+The short version:
+
+- Relay stays local-first
+- Relay stays file-backed
+- Relay uses an append-only event stream as the source of truth
+- Relay supports both agent-to-agent and user-to-agent communication
+- External channels such as Telegram and Discord sit at the edge through Chat SDK bridges
+
+## Working Model
+
+Relay now has three layers:
+
+1. **Core**
+2. **Adapters**
+3. **Surfaces**
+
+### Core
+
+The core owns the canonical event stream and the product model:
+
+- conversations
+- participants
+- messages
+- presence
+- deliveries
+- bindings to external channels
+
+The core should not know about tmux, Claude, Vox, Telegram, or Discord details.
+
+### Adapters
+
+Adapters connect Relay to specific runtimes and transports:
+
+- filesystem append/read/tail
+- tmux
+- Claude session nudging
+- TTS and voice input
+- Chat SDK bridges for Telegram and Discord
+
+Adapters are edge concerns. They are not the system of record.
+
+### Surfaces
+
+Surfaces are the user-facing entry points:
+
+- CLI
+- TUI
+- future web or native shells
+
+All surfaces should read from the same Relay core rather than reimplementing parsing and storage logic.
+
+## Canonical Storage
+
+Relay is moving from a plain-text channel log to a canonical append-only event stream.
+
+Today, the near-term storage model is:
+
+```text
+~/.openscout/relay/
+  channel.jsonl        ← canonical structured event stream
+  channel.log          ← human-readable compatibility mirror
+  config.json          ← local configuration
 ```
-.openscout/relay/channel.log
-```
 
-That's it. One append-only text file. Every agent reads from it and writes to it.
+The important rule is:
 
-There is no server, no socket, no message queue. The filesystem handles concurrency — short line appends to a file are atomic on all major operating systems.
+- `channel.jsonl` is the source of truth
+- `channel.log` is a projection for humans and compatibility
 
-## Detection: fs.watch
+This keeps Relay simple and inspectable while giving it enough structure to support richer routing and delivery behavior.
 
-When `relay watch` runs, it uses Node's `fs.watch()` to monitor `channel.log` for changes. On each change event:
+## Event Model
 
-1. Check if file size grew (ignore truncations)
-2. Read only the new bytes (seek to last known position)
-3. Parse new lines
-4. Filter out messages from self (no echo)
-5. Print to stdout
-6. Optionally run `tmux send-keys` to nudge a pane
+Relay should treat all major actions as typed append-only events.
 
-## Nudge: tmux send-keys
+Examples:
 
-The tmux integration is a single `execSync` call:
+- `message.posted`
+- `agent.state_set`
+- `agent.heartbeat`
+- `flight.opened`
+- `flight.completed`
+- `delivery.requested`
+- `delivery.succeeded`
+- `delivery.failed`
+- `binding.upserted`
 
-```bash
-tmux send-keys -t <pane> "[relay] agent-b: <message preview>" Enter
-```
+The point is not to make Relay complicated. The point is to avoid shared mutable sidecar files as the coordination mechanism.
 
-This types text into a tmux pane as if a user typed it. For Claude Code sessions, this means the agent sees it as a new user message.
+## A2A and U2A
 
-Messages longer than 80 characters are truncated with an ellipsis to keep nudges readable.
+Relay is now aiming at two communication modes:
+
+- **A2A**: agent-to-agent coordination inside Relay
+- **U2A**: user-to-agent communication through external channels
+
+Local A2A remains native Relay behavior.
+
+U2A comes in through channel bridges. A Telegram or Discord message should be normalized into a Relay conversation event, routed through the same core model, and replied to through the same delivery flow.
+
+## Chat SDK Bridges
+
+Relay should use Chat SDK as the bridge layer for external communication channels.
+
+That means:
+
+- Chat SDK handles Telegram and Discord platform details
+- Relay keeps the canonical conversation history and delivery intent
+- external threads and channels are bound into Relay conversations
+
+Chat SDK is not the source of truth for Relay history. It is the edge adapter that converts external traffic into Relay events and converts Relay outbound deliveries back into platform messages.
+
+## Conversation Bindings
+
+To support external channels cleanly, Relay needs a stable binding model between a Relay conversation and an external thread or channel.
+
+A binding should answer:
+
+- which Relay conversation this belongs to
+- which platform it maps to
+- which external thread or channel it represents
+- whether the binding is active, paused, or archived
+
+This lets Relay keep one internal model even when the source is local chat, Telegram, or Discord.
+
+## Why Files Still Work
+
+Relay still wants the advantages of the original design:
+
+- zero hosted infra
+- local inspectability
+- append-only history
+- low operational overhead
+
+Structured files are enough for a long stretch of that journey.
+
+If Relay eventually outgrows JSONL and moves to SQLite or another local database, that should be a storage implementation change, not a product-model rewrite.
+
+## Projections
+
+Relay should compute read models from the event stream rather than storing critical shared state in mutable JSON blobs.
+
+Examples of projections:
+
+- current conversation view
+- current presence view
+- current flight status
+- current twin registry
+- outbound delivery queue
+
+These projections can be rebuilt from the canonical event stream.
+
+## Runtime Pattern
+
+The long-term runtime loop looks like this:
+
+1. Append typed events to the canonical JSONL stream
+2. Rebuild or incrementally update projections
+3. Let adapters react to projection changes or explicit delivery requests
+4. Render CLI and TUI surfaces from those projections
+
+That keeps the system local and cheap while making the architecture more stable.
 
 ## Identity Resolution
 
-Agent name is resolved in order:
+Agent identity is still resolved in the same practical order:
 
-```
+```text
 --as flag  →  OPENSCOUT_AGENT env  →  agent-<pid>
 ```
 
-The PID fallback ensures every process has a unique identity even without explicit naming.
+That remains fine for local-first agent workflows.
 
-## File Structure
+## What Relay Is Not Trying To Be
 
-```
-.openscout/
-  relay/
-    config.json          ← metadata (creation time, agent list)
-    channel.log          ← the single shared channel
-```
+Relay is still intentionally opinionated:
 
-Config is minimal and mostly for future use. The log file is the only thing that matters.
+- not a hosted chat service
+- not a heavyweight workflow engine
+- not a database-first product
+- not a replacement for Discord or Telegram
 
-## Concurrency Model
+It is the local communication substrate that lets agents and users talk through one normalized system.
 
-Relay uses a **last-writer-wins, append-only** model:
+## Near-Term Refactor Direction
 
-- Writers append single lines (atomic on POSIX for lines under PIPE_BUF, typically 4096 bytes)
-- Readers track byte position and only read new content
-- No locking, no coordination
-- Messages are naturally ordered by write time
+The next credible code moves are:
 
-This works because:
-- Messages are independent (no transactions)
-- Lines are short (well under 4096 bytes)
-- The channel is low-throughput (agents, not users)
-- Append-only means no data loss
+1. Introduce a package-local Relay core with protocol, store, and projections.
+2. Move CLI and TUI onto that shared core.
+3. Treat `channel.log` as a derived compatibility mirror.
+4. Replace mutable sidecar coordination with event-driven projections.
+5. Add Chat SDK bridges for Telegram first, then Discord.
 
-## What's NOT in Relay
-
-Intentionally omitted to keep things simple:
-
-- **No encryption** — it's local files on your machine
-- **No authentication** — any process can write to the log
-- **No message deletion** — append-only, forever
-- **No multiple channels** — one channel per relay (for now)
-- **No persistence layer** — the file IS the persistence
-- **No network** — filesystem only
+That path preserves the original spirit of Relay while making it a better foundation for both A2A and U2A communication.
