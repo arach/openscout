@@ -27,6 +27,7 @@
   "author": "Arach Tchoupani",
   "license": "MIT",
   "dependencies": {
+    "@arach/ora": "file:../../../ora",
     "@opentui/core": "^0.1.88",
     "@opentui/react": "^0.1.88",
     "react": "^19.0.0"

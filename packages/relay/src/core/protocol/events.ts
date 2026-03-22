@@ -1,0 +1,318 @@
+import type { ProjectTwinRecord } from "./twins.js";
+
+export type RelayMessageType = "MSG" | "SYS";
+
+export interface RelayEventBase<K extends string, P> {
+  id: string;
+  kind: K;
+  v: 1;
+  ts: number;
+  actor: string;
+  payload: P;
+}
+
+export interface RelayStoredMessage {
+  id: string;
+  ts: number;
+  from: string;
+  type: RelayMessageType;
+  body: string;
+  tags?: string[];
+  to?: string[];
+  channel?: string;
+}
+
+export interface RelayMessagePostedEvent extends RelayEventBase<"message.posted", {
+  type: RelayMessageType;
+  body: string;
+  tags?: string[];
+  to?: string[];
+  channel?: string;
+}> {}
+
+export interface RelayAgentStateSetEvent extends RelayEventBase<"agent.state_set", {
+  state?: string | null;
+}> {}
+
+export interface RelayProjectTwinStartedEvent extends RelayEventBase<"project_twin.started", {
+  record: ProjectTwinRecord;
+}> {}
+
+export interface RelayProjectTwinStoppedEvent extends RelayEventBase<"project_twin.stopped", {
+  twinId: string;
+}> {}
+
+export interface RelayFlightOpenedEvent extends RelayEventBase<"flight.opened", {
+  flightId: string;
+  to: string;
+  message: string;
+}> {}
+
+export interface RelayChannelBindingUpsertedEvent extends RelayEventBase<"channel.binding.upserted", {
+  bindingId: string;
+  platform: string;
+  externalChannelId: string;
+  externalThreadId?: string;
+  conversationId: string;
+  mode: "inbound" | "outbound" | "bidirectional";
+  metadata?: Record<string, unknown>;
+}> {}
+
+export interface RelayExternalDeliveryRequestedEvent extends RelayEventBase<"external.delivery.requested", {
+  deliveryId: string;
+  bindingId: string;
+  conversationId: string;
+  text: string;
+  replyToEventId?: string;
+}> {}
+
+export interface RelayExternalDeliveryCompletedEvent extends RelayEventBase<"external.delivery.completed", {
+  deliveryId: string;
+  bindingId: string;
+  externalMessageId?: string;
+}> {}
+
+export type RelayEvent =
+  | RelayMessagePostedEvent
+  | RelayAgentStateSetEvent
+  | RelayProjectTwinStartedEvent
+  | RelayProjectTwinStoppedEvent
+  | RelayFlightOpenedEvent
+  | RelayChannelBindingUpsertedEvent
+  | RelayExternalDeliveryRequestedEvent
+  | RelayExternalDeliveryCompletedEvent;
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isProjectTwinRecord(value: unknown): value is ProjectTwinRecord {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ProjectTwinRecord>;
+
+  return (
+    typeof candidate.twinId === "string" &&
+    candidate.kind === "project" &&
+    typeof candidate.runtime === "string" &&
+    candidate.protocol === "relay" &&
+    typeof candidate.harness === "string" &&
+    typeof candidate.sessionAdapter === "string" &&
+    typeof candidate.agentEngine === "string" &&
+    typeof candidate.project === "string" &&
+    typeof candidate.projectRoot === "string" &&
+    typeof candidate.tmuxSession === "string" &&
+    typeof candidate.cwd === "string" &&
+    typeof candidate.startedAt === "number"
+  );
+}
+
+export function isRelayMessagePostedEvent(value: unknown): value is RelayMessagePostedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayMessagePostedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "message.posted" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    (candidate.payload.type === "MSG" || candidate.payload.type === "SYS") &&
+    typeof candidate.payload.body === "string" &&
+    (candidate.payload.tags === undefined || isStringArray(candidate.payload.tags)) &&
+    (candidate.payload.to === undefined || isStringArray(candidate.payload.to)) &&
+    (candidate.payload.channel === undefined || typeof candidate.payload.channel === "string")
+  );
+}
+
+export function isRelayAgentStateSetEvent(value: unknown): value is RelayAgentStateSetEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayAgentStateSetEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "agent.state_set" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    (
+      candidate.payload.state === undefined ||
+      candidate.payload.state === null ||
+      typeof candidate.payload.state === "string"
+    )
+  );
+}
+
+export function isRelayProjectTwinStartedEvent(value: unknown): value is RelayProjectTwinStartedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayProjectTwinStartedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "project_twin.started" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    isProjectTwinRecord(candidate.payload.record)
+  );
+}
+
+export function isRelayProjectTwinStoppedEvent(value: unknown): value is RelayProjectTwinStoppedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayProjectTwinStoppedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "project_twin.stopped" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    typeof candidate.payload.twinId === "string"
+  );
+}
+
+export function isRelayFlightOpenedEvent(value: unknown): value is RelayFlightOpenedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayFlightOpenedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "flight.opened" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    typeof candidate.payload.flightId === "string" &&
+    typeof candidate.payload.to === "string" &&
+    typeof candidate.payload.message === "string"
+  );
+}
+
+export function isRelayChannelBindingUpsertedEvent(value: unknown): value is RelayChannelBindingUpsertedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayChannelBindingUpsertedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "channel.binding.upserted" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    typeof candidate.payload.bindingId === "string" &&
+    typeof candidate.payload.platform === "string" &&
+    typeof candidate.payload.externalChannelId === "string" &&
+    typeof candidate.payload.conversationId === "string" &&
+    (
+      candidate.payload.mode === "inbound" ||
+      candidate.payload.mode === "outbound" ||
+      candidate.payload.mode === "bidirectional"
+    )
+  );
+}
+
+export function isRelayExternalDeliveryRequestedEvent(value: unknown): value is RelayExternalDeliveryRequestedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayExternalDeliveryRequestedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "external.delivery.requested" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    typeof candidate.payload.deliveryId === "string" &&
+    typeof candidate.payload.bindingId === "string" &&
+    typeof candidate.payload.conversationId === "string" &&
+    typeof candidate.payload.text === "string"
+  );
+}
+
+export function isRelayExternalDeliveryCompletedEvent(value: unknown): value is RelayExternalDeliveryCompletedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayExternalDeliveryCompletedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "external.delivery.completed" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    typeof candidate.payload.deliveryId === "string" &&
+    typeof candidate.payload.bindingId === "string"
+  );
+}
+
+export function isRelayEvent(value: unknown): value is RelayEvent {
+  return (
+    isRelayMessagePostedEvent(value) ||
+    isRelayAgentStateSetEvent(value) ||
+    isRelayProjectTwinStartedEvent(value) ||
+    isRelayProjectTwinStoppedEvent(value) ||
+    isRelayFlightOpenedEvent(value) ||
+    isRelayChannelBindingUpsertedEvent(value) ||
+    isRelayExternalDeliveryRequestedEvent(value) ||
+    isRelayExternalDeliveryCompletedEvent(value)
+  );
+}
+
+export function isRelayStoredMessage(value: unknown): value is RelayStoredMessage {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<RelayStoredMessage>;
+
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.from === "string" &&
+    (candidate.type === "MSG" || candidate.type === "SYS") &&
+    typeof candidate.body === "string"
+  );
+}
+
+export function relayEventToStoredMessage(event: RelayEvent): RelayStoredMessage | null {
+  if (event.kind !== "message.posted") {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    ts: event.ts,
+    from: event.actor,
+    type: event.payload.type,
+    body: event.payload.body,
+    tags: event.payload.tags,
+    to: event.payload.to,
+    channel: event.payload.channel,
+  };
+}
+
+export function relayStoredMessageToEvent(message: RelayStoredMessage): RelayMessagePostedEvent {
+  return {
+    id: message.id,
+    kind: "message.posted",
+    v: 1,
+    ts: message.ts,
+    actor: message.from,
+    payload: {
+      type: message.type,
+      body: message.body,
+      tags: message.tags,
+      to: message.to,
+      channel: message.channel,
+    },
+  };
+}
