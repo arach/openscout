@@ -22,33 +22,33 @@ export interface RelayStoredMessage {
   channel?: string;
 }
 
-export interface RelayMessagePostedEvent extends RelayEventBase<"message.posted", {
+export type RelayMessagePostedEvent = RelayEventBase<"message.posted", {
   type: RelayMessageType;
   body: string;
   tags?: string[];
   to?: string[];
   channel?: string;
-}> {}
+}>;
 
-export interface RelayAgentStateSetEvent extends RelayEventBase<"agent.state_set", {
+export type RelayAgentStateSetEvent = RelayEventBase<"agent.state_set", {
   state?: string | null;
-}> {}
+}>;
 
-export interface RelayProjectTwinStartedEvent extends RelayEventBase<"project_twin.started", {
+export type RelayProjectTwinStartedEvent = RelayEventBase<"project_twin.started", {
   record: ProjectTwinRecord;
-}> {}
+}>;
 
-export interface RelayProjectTwinStoppedEvent extends RelayEventBase<"project_twin.stopped", {
+export type RelayProjectTwinStoppedEvent = RelayEventBase<"project_twin.stopped", {
   twinId: string;
-}> {}
+}>;
 
-export interface RelayFlightOpenedEvent extends RelayEventBase<"flight.opened", {
+export type RelayFlightOpenedEvent = RelayEventBase<"flight.opened", {
   flightId: string;
   to: string;
   message: string;
-}> {}
+}>;
 
-export interface RelayChannelBindingUpsertedEvent extends RelayEventBase<"channel.binding.upserted", {
+export type RelayChannelBindingUpsertedEvent = RelayEventBase<"channel.binding.upserted", {
   bindingId: string;
   platform: string;
   externalChannelId: string;
@@ -56,21 +56,21 @@ export interface RelayChannelBindingUpsertedEvent extends RelayEventBase<"channe
   conversationId: string;
   mode: "inbound" | "outbound" | "bidirectional";
   metadata?: Record<string, unknown>;
-}> {}
+}>;
 
-export interface RelayExternalDeliveryRequestedEvent extends RelayEventBase<"external.delivery.requested", {
+export type RelayExternalDeliveryRequestedEvent = RelayEventBase<"external.delivery.requested", {
   deliveryId: string;
   bindingId: string;
   conversationId: string;
   text: string;
   replyToEventId?: string;
-}> {}
+}>;
 
-export interface RelayExternalDeliveryCompletedEvent extends RelayEventBase<"external.delivery.completed", {
+export type RelayExternalDeliveryCompletedEvent = RelayEventBase<"external.delivery.completed", {
   deliveryId: string;
   bindingId: string;
   externalMessageId?: string;
-}> {}
+}>;
 
 export type RelayEvent =
   | RelayMessagePostedEvent

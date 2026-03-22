@@ -1,4 +1,5 @@
 import { ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 
 const sections = [
   {
@@ -14,12 +15,12 @@ export default function DocsIndex() {
     <div className="min-h-screen bg-background font-sans">
       <div className="mx-auto max-w-3xl px-6 py-20">
         <div className="flex items-center justify-between pb-4">
-          <a
+          <Link
             href="/"
             className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted hover:text-foreground transition-colors"
           >
             OpenScout
-          </a>
+          </Link>
         </div>
         <div className="border-t border-border" />
 
@@ -34,7 +35,7 @@ export default function DocsIndex() {
 
         <div className="grid gap-4">
           {sections.map((s) => (
-            <a
+            <Link
               key={s.title}
               href={s.href}
               className="group flex items-start justify-between rounded-xl border border-border bg-surface p-6 transition-colors hover:border-accent/40 hover:bg-surface-elevated"
@@ -53,7 +54,7 @@ export default function DocsIndex() {
                 </p>
               </div>
               <ArrowUpRight className="mt-1 h-4 w-4 text-muted transition-colors group-hover:text-accent" />
-            </a>
+            </Link>
           ))}
         </div>
       </div>

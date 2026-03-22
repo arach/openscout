@@ -794,7 +794,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     }
 
     // Resolve: bare name → <projectRoot>/<name>, or use as path
-    let projectPath = await resolveProjectPath(target);
+    const projectPath = await resolveProjectPath(target);
 
     // Verify it exists
     try {
@@ -1791,7 +1791,7 @@ async function relayUp() {
   }
 
   // Resolve project path (bare names use projectRoot from config)
-  let projectPath = targetArg === "." ? process.cwd() : await resolveProjectPath(targetArg);
+  const projectPath = targetArg === "." ? process.cwd() : await resolveProjectPath(targetArg);
 
   // Verify directory exists
   try {
