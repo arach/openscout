@@ -8,8 +8,8 @@ struct ScoutDashboardView: View {
         ScoutPage {
             ScoutPageHeader(
                 eyebrow: "Overview",
-                title: "Local shell baseline",
-                subtitle: "A quieter starting point for Scout. Shell and helper are live; deeper capability routing comes next."
+                title: "Agent Interaction Shell",
+                subtitle: "OpenScout now centers notes, compose, prompt workflows, and relay handoff so the shell can actually help an end user work with agents."
             )
 
             HStack(alignment: .top, spacing: 28) {
@@ -22,22 +22,47 @@ struct ScoutDashboardView: View {
     private var mainColumn: some View {
         VStack(alignment: .leading, spacing: 28) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Scout brings voice, workspace, and execution tools into one shell.")
+                Text("Scout turns loose context into reusable notes, structured briefs, and agent-ready workflow packets.")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(ScoutTheme.ink)
                     .frame(maxWidth: 620, alignment: .leading)
 
                 HStack(spacing: 10) {
-                    Button("Open Workspace") {
+                    Button("Compose Brief") {
                         viewModel.selectedRoute = .console
                     }
                     .buttonStyle(ScoutButtonStyle(tone: .primary))
 
-                    Button("Workers") {
+                    Button("Open Notes") {
+                        viewModel.selectedRoute = .sessions
+                    }
+                    .buttonStyle(ScoutButtonStyle())
+
+                    Button("Agent Desk") {
                         viewModel.selectedRoute = .workers
                     }
                     .buttonStyle(ScoutButtonStyle())
                 }
+            }
+
+            HStack(alignment: .top, spacing: 18) {
+                summaryCard(
+                    title: "Notes",
+                    value: "\(viewModel.notes.count)",
+                    detail: "Persistent context objects ready for prompt reuse."
+                )
+
+                summaryCard(
+                    title: "Drafts",
+                    value: "\(viewModel.drafts.count)",
+                    detail: "Compose packets currently being shaped for agents."
+                )
+
+                summaryCard(
+                    title: "Runs",
+                    value: "\(viewModel.workflowRuns.count)",
+                    detail: "Generated workflow packets with inspectable history."
+                )
             }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -56,8 +81,8 @@ struct ScoutDashboardView: View {
             ScoutSubsectionHeader("Runtime")
 
             RuntimeBlock(label: "Helper", value: viewModel.supervisor.state.title)
-            RuntimeBlock(label: "Support", value: "Local")
-            RuntimeBlock(label: "Modules", value: "\(viewModel.modules.count)")
+            RuntimeBlock(label: "Relay", value: viewModel.relayMessages.isEmpty ? "Quiet" : "Active")
+            RuntimeBlock(label: "Agents", value: "\(viewModel.agentProfiles.count)")
 
             if let lastHeartbeat = viewModel.supervisor.lastHeartbeat {
                 RuntimeMeta(
@@ -65,8 +90,35 @@ struct ScoutDashboardView: View {
                     value: lastHeartbeat.formatted(date: .omitted, time: .shortened)
                 )
             }
+
+            if let latestMessage = viewModel.relayMessages.last {
+                RuntimeMeta(
+                    label: "Latest relay",
+                    value: "\(latestMessage.from) · \(Date(timeIntervalSince1970: TimeInterval(latestMessage.timestamp)).formatted(date: .omitted, time: .shortened))"
+                )
+            }
         }
         .frame(width: 220, alignment: .leading)
+    }
+
+    private func summaryCard(title: String, value: String, detail: String) -> some View {
+        ScoutSurface {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(ScoutTheme.inkFaint)
+
+                Text(value)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(ScoutTheme.ink)
+
+                Text(detail)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ScoutTheme.inkSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

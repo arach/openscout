@@ -69,23 +69,22 @@ struct ScoutSidebarView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "scope")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(ScoutTheme.inkSecondary)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(ScoutTheme.accent)
                     .frame(width: ScoutSidebarLayout.logoSize, height: ScoutSidebarLayout.logoSize)
                     .background(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .fill(ScoutTheme.surface)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .strokeBorder(ScoutTheme.border, lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(ScoutTheme.border.opacity(0.55), lineWidth: 0.75)
                             )
                     )
                     .frame(width: ScoutSidebarLayout.logoBlockWidth, alignment: .center)
 
                 if viewModel.sidebarExpanded {
-                    Text("OPENSCOUT")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .tracking(1.0)
+                    Text("OpenScout")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(ScoutTheme.ink)
                         .transition(.opacity)
                 }
@@ -106,8 +105,8 @@ struct ScoutSidebarView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let title, viewModel.sidebarExpanded {
                 Text(title.uppercased())
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .tracking(1.0)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .tracking(0.6)
                     .foregroundStyle(ScoutTheme.inkFaint)
                     .padding(.leading, 12)
                     .padding(.bottom, 2)
@@ -168,7 +167,7 @@ private struct ScoutSidebarRouteButton: View {
                     .foregroundStyle(isSelected ? ScoutTheme.accent : (isHovered ? ScoutTheme.inkSecondary : ScoutTheme.inkMuted))
                     .frame(width: ScoutSidebarLayout.compactRowSize.width, height: ScoutSidebarLayout.compactRowSize.height)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(isSelected ? ScoutTheme.selection : (isHovered ? ScoutTheme.hover : Color.clear))
                     )
             } else {
@@ -179,7 +178,7 @@ private struct ScoutSidebarRouteButton: View {
                         .frame(width: 16, alignment: .center)
 
                     Text(route.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12))
                         .foregroundStyle(isSelected ? ScoutTheme.ink : ScoutTheme.inkSecondary)
                         .lineLimit(1)
 
@@ -188,7 +187,7 @@ private struct ScoutSidebarRouteButton: View {
                 .padding(.horizontal, 12)
                 .frame(height: ScoutSidebarLayout.expandedRowHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(isSelected ? ScoutTheme.selection : (isHovered ? ScoutTheme.hover : Color.clear))
                 )
             }
@@ -243,7 +242,7 @@ private struct ScoutSidebarUtilityButton: View {
                     .foregroundStyle(isHovered ? ScoutTheme.inkSecondary : ScoutTheme.inkMuted)
                     .frame(width: ScoutSidebarLayout.compactRowSize.width, height: ScoutSidebarLayout.compactRowSize.height)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(isHovered ? ScoutTheme.hover : Color.clear)
                     )
             } else {
@@ -254,7 +253,7 @@ private struct ScoutSidebarUtilityButton: View {
                         .frame(width: 16, alignment: .center)
 
                     Text(label)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12))
                         .foregroundStyle(isHovered ? ScoutTheme.inkSecondary : ScoutTheme.inkMuted)
 
                     Spacer(minLength: 0)
@@ -262,7 +261,7 @@ private struct ScoutSidebarUtilityButton: View {
                 .padding(.horizontal, 12)
                 .frame(height: ScoutSidebarLayout.expandedRowHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(isHovered ? ScoutTheme.hover : Color.clear)
                 )
             }

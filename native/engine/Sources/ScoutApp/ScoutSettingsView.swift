@@ -3,12 +3,11 @@ import SwiftUI
 struct ScoutSettingsView: View {
     let viewModel: ScoutShellViewModel
     @State private var selectedTab: SettingsTab = .general
-    @State private var notes = ""
 
     private enum SettingsTab: String, Hashable {
         case general
         case runtime
-        case surfaces
+        case shell
     }
 
     var body: some View {
@@ -29,7 +28,7 @@ struct ScoutSettingsView: View {
                 items: [
                     ScoutTabItem(id: SettingsTab.general, title: "General"),
                     ScoutTabItem(id: SettingsTab.runtime, title: "Runtime"),
-                    ScoutTabItem(id: SettingsTab.surfaces, title: "Surfaces"),
+                    ScoutTabItem(id: SettingsTab.shell, title: "Shell"),
                 ],
                 selection: $selectedTab
             )
@@ -39,8 +38,8 @@ struct ScoutSettingsView: View {
                 generalTab
             case .runtime:
                 runtimeTab
-            case .surfaces:
-                surfacesTab
+            case .shell:
+                shellTab
             }
         }
     }
@@ -48,22 +47,23 @@ struct ScoutSettingsView: View {
     private var generalTab: some View {
         HStack(alignment: .top, spacing: 18) {
             ScoutSection(
-                title: "Identity",
-                subtitle: "Core application metadata and location awareness."
+                title: "Workspace",
+                subtitle: "The end-user layer now lives in the local workspace snapshot and relay hub."
             ) {
                 ScoutValueRow(label: "Support Directory", value: viewModel.supportPaths.applicationSupportDirectory.path(percentEncoded: false))
-                ScoutValueRow(label: "Console Source", value: viewModel.consoleURL.absoluteString)
+                ScoutValueRow(label: "Workspace State", value: viewModel.supportPaths.workspaceStateFileURL.path(percentEncoded: false))
+                ScoutValueRow(label: "Relay Hub", value: viewModel.supportPaths.relayHubDirectory.path(percentEncoded: false))
+                ScoutValueRow(label: "Relay Events", value: viewModel.supportPaths.relayEventStreamURL.path(percentEncoded: false))
             }
 
             ScoutSection(
-                title: "Notes",
-                subtitle: "A primitive settings text area for future rules, prompts, and local annotations."
+                title: "Current Totals",
+                subtitle: "Quick visibility into what the native shell is storing and surfacing."
             ) {
-                ScoutTextArea(
-                    title: "Operator Notes",
-                    prompt: "Capture product notes, shell ideas, or environment context here.",
-                    text: $notes
-                )
+                ScoutValueRow(label: "Notes", value: "\(viewModel.notes.count)")
+                ScoutValueRow(label: "Drafts", value: "\(viewModel.drafts.count)")
+                ScoutValueRow(label: "Workflow Runs", value: "\(viewModel.workflowRuns.count)")
+                ScoutValueRow(label: "Relay Messages", value: "\(viewModel.relayMessages.count)")
             }
         }
     }
@@ -84,6 +84,13 @@ struct ScoutSettingsView: View {
                 }
             }
 
+            ScoutSubsection(title: "Relay") {
+                ScoutValueRow(label: "Event Stream", value: viewModel.supportPaths.relayEventStreamURL.path(percentEncoded: false))
+                ScoutValueRow(label: "Channel Log", value: viewModel.supportPaths.relayChannelLogURL.path(percentEncoded: false))
+                ScoutValueRow(label: "Inbox Directory", value: viewModel.supportPaths.relayInboxDirectory.path(percentEncoded: false))
+                ScoutValueRow(label: "Active Messages", value: "\(viewModel.relayMessages.count)")
+            }
+
             HStack(spacing: 10) {
                 Button("Restart Helper") {
                     viewModel.supervisor.restart()
@@ -98,19 +105,19 @@ struct ScoutSettingsView: View {
         }
     }
 
-    private var surfacesTab: some View {
+    private var shellTab: some View {
         ScoutSection(
-            title: "Surface System",
-            subtitle: "The main section and subsection wrappers should be reusable across settings, dashboards, and future inspectors."
+            title: "Shell Direction",
+            subtitle: "OpenScout should own chrome, local persistence, and agent handoff while keeping deeper orchestration portable."
         ) {
             ScoutSubsection(
                 title: "Current Direction",
-                subtitle: "These components are the first pass of Scout-native layout primitives."
+                subtitle: "The new end-user value is notes + compose + prompt workflows + relay delivery."
             ) {
-                ScoutValueRow(label: "Buttons", value: "Shared button style with primary, secondary, and quiet tones")
-                ScoutValueRow(label: "Tabs", value: "Reusable tab bar for settings or inspectors")
-                ScoutValueRow(label: "Sections", value: "Page, section, subsection, and surface wrappers")
-                ScoutValueRow(label: "Inputs", value: "Text area and key-value rows")
+                ScoutValueRow(label: "Editors", value: "AppKit-backed text surfaces for serious note and brief writing")
+                ScoutValueRow(label: "Compose", value: "Prompt packets generated from workflow templates and linked notes")
+                ScoutValueRow(label: "Workflows", value: "Data-driven prompt structures inspired by Talkie’s non-voice workflows")
+                ScoutValueRow(label: "Relay", value: "Event-backed relay with a channel-log mirror, compatible with the existing OpenScout CLI")
             }
         }
     }
