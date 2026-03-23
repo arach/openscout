@@ -21,6 +21,8 @@ import {
   speakRelayText,
   type ProjectTwinRecord,
   type RelayConfig,
+  type RelayMessageClass,
+  type RelaySpeechInstruction,
   type RelayStoredMessage,
 } from "./core/index.js";
 import {
@@ -88,6 +90,34 @@ function normalizeTwinName(value: string): string {
     .replace(/^-+|-+$/g, "");
 
   return normalized || DEFAULT_USER_TWIN;
+}
+
+function extractRelaySpeechInstruction(
+  input: string,
+): { body: string; speech?: RelaySpeechInstruction } {
+  const spokenFragments: string[] = [];
+
+  const body = input
+    .replace(/<speak>([\s\S]*?)<\/speak>/gi, (_match, fragment: string) => {
+      const cleanFragment = fragment.trim();
+      if (cleanFragment) {
+        spokenFragments.push(cleanFragment);
+      }
+
+      return fragment;
+    })
+    .replace(/<\/?speak>/gi, "")
+    .trim();
+
+  const speechText = spokenFragments.join(" ").trim();
+  return {
+    body,
+    speech: speechText ? { text: speechText } : undefined,
+  };
+}
+
+function defaultRelayMessageClass(type: RelayStoredMessage["type"]): RelayMessageClass {
+  return type === "SYS" ? "system" : "agent";
 }
 
 function help() {
@@ -954,11 +984,20 @@ async function relaySend() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
+  const composed = extractRelaySpeechInstruction(message);
   const tags = shouldSpeak ? ["speak"] : [];
-  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const mentions = composed.body.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const speech = shouldSpeak
+    ? { text: composed.speech?.text ?? composed.body.replace(/@[\w.-]+\s*/g, "").trim() }
+    : composed.speech;
 
   const entry = await writeChannel(hub, {
-    ts, from: agent, type: "MSG", body: message,
+    ts,
+    from: agent,
+    type: "MSG",
+    body: composed.body,
+    class: defaultRelayMessageClass("MSG"),
+    speech: speech?.text ? speech : undefined,
     tags: tags.length ? tags : undefined,
     to: mentions.length ? mentions : undefined,
     channel,
@@ -968,11 +1007,11 @@ async function relaySend() {
     hub,
     agent,
     channel,
-    message,
+    composed.body,
     entry.id,
   );
 
-  print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${message}`));
+  print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${composed.body}`));
   if (queuedExternalDelivery) {
     print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
   }
@@ -982,11 +1021,18 @@ async function relaySend() {
   const audioEnabled = isAudioChannel(config, channel);
 
   // Check for @system command
-  if (message.match(/@system\b/i)) {
-    const result = await handleSystemCommand(agent, message);
+  if (composed.body.match(/@system\b/i)) {
+    const result = await handleSystemCommand(agent, composed.body);
     if (result) {
       const replyTs = Math.floor(Date.now() / 1000);
-      await writeChannel(hub, { ts: replyTs, from: "system", type: "MSG", body: `@${agent} ${result}`, to: [agent] });
+      await writeChannel(hub, {
+        ts: replyTs,
+        from: "system",
+        type: "MSG",
+        body: `@${agent} ${result}`,
+        class: "status",
+        to: [agent],
+      });
       print(formatLine(`${replyTs} system MSG @${agent} ${result}`));
 
       // Audio channel → speak the system response
@@ -1002,7 +1048,7 @@ async function relaySend() {
   if (mentions.length) {
     for (const target of mentions) {
       if (target === agent) continue; // don't deliver to yourself
-      const result = await deliverToAgent(target, agent, message, channel, entry.id);
+      const result = await deliverToAgent(target, agent, composed.body, channel, entry.id);
       if (result === "delivered") {
         print(`  \x1b[32m✓\x1b[0m Delivered to ${target}'s session (resumed)`);
       } else if (result === "nudged") {
@@ -1044,21 +1090,28 @@ async function relaySpeak() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
-  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const composed = extractRelaySpeechInstruction(message);
+  const mentions = composed.body.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const cleanSpeech = composed.speech?.text ?? composed.body.replace(/@[\w.-]+\s*/g, "").trim();
 
   const entry = await writeChannel(hub, {
-    ts, from: agent, type: "MSG", body: message,
+    ts,
+    from: agent,
+    type: "MSG",
+    body: composed.body,
+    class: "status",
+    speech: cleanSpeech ? { text: cleanSpeech } : undefined,
     tags: ["speak"],
     to: mentions.length ? mentions : undefined,
     channel,
   });
-  print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
+  print(formatLine(`${ts} ${agent} MSG [speak] ${composed.body}`));
 
   const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
     hub,
     agent,
     channel,
-    message,
+    composed.body,
     entry.id,
   );
   if (queuedExternalDelivery) {
@@ -1070,9 +1123,8 @@ async function relaySpeak() {
 
   const config = await loadRelayConfig();
   const voice = getVoiceForChannel(config, "voice");
-  const clean = message.replace(/@[\w.-]+\s*/g, "").trim();
-  if (clean) {
-    await speak(clean, voice, hub);
+  if (cleanSpeech) {
+    await speak(cleanSpeech, voice, hub);
   }
 
   await setAgentState(agent, "idle");
@@ -1081,7 +1133,7 @@ async function relaySpeak() {
   if (mentions.length) {
     for (const target of mentions) {
       if (target === agent) continue;
-      await deliverToAgent(target, agent, message, undefined, entry.id);
+      await deliverToAgent(target, agent, composed.body, undefined, entry.id);
     }
   }
 }

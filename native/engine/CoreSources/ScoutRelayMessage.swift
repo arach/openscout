@@ -5,6 +5,8 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
     public var from: String
     public var type: ScoutRelayMessageType
     public var body: String
+    public var messageClass: ScoutRelayMessageClass?
+    public var speechText: String?
     public var eventID: String?
     public var tags: [String]
     public var recipients: [String]
@@ -19,6 +21,8 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
         from: String,
         type: ScoutRelayMessageType,
         body: String,
+        messageClass: ScoutRelayMessageClass? = nil,
+        speechText: String? = nil,
         eventID: String? = nil,
         tags: [String] = [],
         recipients: [String] = [],
@@ -28,6 +32,8 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
         self.from = from
         self.type = type
         self.body = body
+        self.messageClass = messageClass
+        self.speechText = speechText
         self.eventID = eventID
         self.tags = tags
         self.recipients = recipients
@@ -52,16 +58,30 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
         return Array(Set(recipients + inlineMentions)).sorted()
     }
 
-    public var speaksAloud: Bool {
-        tags.contains("speak") || body.hasPrefix("[speak] ")
-    }
-
     public var renderedBody: String {
-        guard speaksAloud else {
-            return body
+        if body.hasPrefix("[speak] ") {
+            return String(body.dropFirst(8)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        return String(body.dropFirst(8)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return body
+    }
+
+    public var spokenText: String? {
+        let explicitSpeech = speechText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicitSpeech, !explicitSpeech.isEmpty {
+            return explicitSpeech
+        }
+
+        if tags.contains("speak") || body.hasPrefix("[speak] ") {
+            let legacySpeech = renderedBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            return legacySpeech.isEmpty ? nil : legacySpeech
+        }
+
+        return nil
+    }
+
+    public var speaksAloud: Bool {
+        spokenText != nil
     }
 
     public var isDirectMessage: Bool {
@@ -82,6 +102,6 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
     }
 
     public var isSystemChannelMessage: Bool {
-        type == .sys || normalizedChannel == "system"
+        type == .sys || normalizedChannel == "system" || messageClass == .system
     }
 }

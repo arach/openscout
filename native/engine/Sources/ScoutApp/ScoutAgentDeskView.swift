@@ -49,7 +49,7 @@ private enum RelayChannel: String, CaseIterable, Hashable {
         case .mentions:
             return "Messages with explicit agent targets."
         case .voice:
-            return "Relay messages tagged for spoken output."
+            return "Voice-related chat, transcripts, and explicit speech cues."
         case .system:
             return "State and infrastructure events."
         }

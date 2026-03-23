@@ -103,13 +103,18 @@ actor ScoutWorkspaceStore {
         body: String,
         speaksAloud: Bool,
         type: ScoutRelayMessageType = .msg,
-        channel: String? = nil
+        channel: String? = nil,
+        messageClass: ScoutRelayMessageClass? = nil
     ) throws -> ScoutRelayMessage {
         try ensureRelayHub()
 
         let sanitizedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let composed = extractSpeechAnnotatedContent(
+            from: sanitizedBody,
+            fallbackSpeaksAloud: speaksAloud
+        )
         let mentionedTargets = targets.map { "@\($0)" }.joined(separator: " ")
-        let lineBody = mentionedTargets.isEmpty ? sanitizedBody : "\(mentionedTargets)\n\n\(sanitizedBody)"
+        let lineBody = mentionedTargets.isEmpty ? composed.displayBody : "\(mentionedTargets)\n\n\(composed.displayBody)"
         let timestamp = Int(Date.now.timeIntervalSince1970)
         let normalizedChannel = channel?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -117,6 +122,11 @@ actor ScoutWorkspaceStore {
             .nilIfEmpty
         let tags = speaksAloud ? ["speak"] : []
         let eventID = createRelayEventID(prefix: "m")
+        let resolvedMessageClass = messageClass ?? defaultRelayMessageClass(
+            type: type,
+            channel: normalizedChannel
+        )
+        let speechInstruction = composed.speechText.map { RelaySpeechInstructionRecord(text: $0) }
 
         let record = RelayStoredMessageRecord(
             id: eventID,
@@ -124,6 +134,8 @@ actor ScoutWorkspaceStore {
             from: sender,
             type: type,
             body: lineBody,
+            messageClass: resolvedMessageClass,
+            speech: speechInstruction,
             tags: tags.isEmpty ? nil : tags,
             to: targets.isEmpty ? nil : targets,
             channel: normalizedChannel
@@ -143,7 +155,7 @@ actor ScoutWorkspaceStore {
         try appendInboxEntries(
             from: sender,
             to: targets,
-            packet: speaksAloud ? "[speak] \(lineBody)" : lineBody
+            packet: lineBody
         )
 
         return ScoutRelayMessage(
@@ -151,6 +163,8 @@ actor ScoutWorkspaceStore {
             from: sender,
             type: type,
             body: lineBody,
+            messageClass: resolvedMessageClass,
+            speechText: composed.speechText,
             eventID: eventID,
             tags: tags,
             recipients: targets,
@@ -355,6 +369,8 @@ actor ScoutWorkspaceStore {
                 from: event.actor,
                 type: event.payload.type,
                 body: event.payload.body,
+                messageClass: event.payload.messageClass,
+                speechText: event.payload.speech?.text,
                 eventID: event.id,
                 tags: event.payload.tags ?? [],
                 recipients: event.payload.to ?? [],
@@ -368,6 +384,8 @@ actor ScoutWorkspaceStore {
                 from: legacyMessage.from,
                 type: legacyMessage.type,
                 body: legacyMessage.body,
+                messageClass: legacyMessage.messageClass,
+                speechText: legacyMessage.speech?.text,
                 eventID: legacyMessage.id,
                 tags: legacyMessage.tags ?? [],
                 recipients: legacyMessage.to ?? [],
@@ -460,6 +478,61 @@ actor ScoutWorkspaceStore {
     private func createRelayEventID(prefix: String = "e") -> String {
         "\(prefix)-\(UUID().uuidString.lowercased())"
     }
+
+    private func defaultRelayMessageClass(
+        type: ScoutRelayMessageType,
+        channel: String?
+    ) -> ScoutRelayMessageClass {
+        if type == .sys || channel == "system" {
+            return .system
+        }
+
+        return .agent
+    }
+
+    private func extractSpeechAnnotatedContent(
+        from rawBody: String,
+        fallbackSpeaksAloud: Bool
+    ) -> (displayBody: String, speechText: String?) {
+        let pattern = #"<speak>([\s\S]*?)</speak>"#
+        let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        let nsRange = NSRange(rawBody.startIndex..<rawBody.endIndex, in: rawBody)
+        let matches = regex?.matches(in: rawBody, options: [], range: nsRange) ?? []
+
+        var spokenFragments: [String] = []
+        for match in matches.reversed() {
+            guard match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: rawBody) else {
+                continue
+            }
+
+            let fragment = rawBody[range].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fragment.isEmpty {
+                spokenFragments.insert(fragment, at: 0)
+            }
+        }
+
+        var displayBody = regex?.stringByReplacingMatches(
+            in: rawBody,
+            options: [],
+            range: nsRange,
+            withTemplate: "$1"
+        ) ?? rawBody
+        displayBody = displayBody
+            .replacingOccurrences(of: "<speak>", with: "", options: [.caseInsensitive])
+            .replacingOccurrences(of: "</speak>", with: "", options: [.caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var speechText = spokenFragments.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if speechText.isEmpty && fallbackSpeaksAloud {
+            speechText = displayBody
+        }
+
+        return (
+            displayBody: displayBody,
+            speechText: speechText.isEmpty ? nil : speechText
+        )
+    }
 }
 
 private extension String {
@@ -496,9 +569,21 @@ private struct RelayMessageEventRecord: Codable {
 private struct RelayMessageEventPayload: Codable {
     let type: ScoutRelayMessageType
     let body: String
+    let messageClass: ScoutRelayMessageClass?
+    let speech: RelaySpeechInstructionRecord?
     let tags: [String]?
     let to: [String]?
     let channel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case body
+        case messageClass = "class"
+        case speech
+        case tags
+        case to
+        case channel
+    }
 }
 
 private struct RelayStateEventRecord: Codable {
@@ -536,7 +621,26 @@ private struct RelayStoredMessageRecord: Codable {
     let from: String
     let type: ScoutRelayMessageType
     let body: String
+    let messageClass: ScoutRelayMessageClass?
+    let speech: RelaySpeechInstructionRecord?
     let tags: [String]?
     let to: [String]?
     let channel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ts
+        case from
+        case type
+        case body
+        case messageClass = "class"
+        case speech
+        case tags
+        case to
+        case channel
+    }
+}
+
+private struct RelaySpeechInstructionRecord: Codable {
+    let text: String
 }

@@ -741,7 +741,7 @@ function VoicePanel({
       {/* Help */}
       <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" title="Tips">
         <text fg={C.dim}>v  toggle recording from any tab</text>
-        <text fg={C.dim}>Responses from @mentioned agents appear here and are spoken</text>
+        <text fg={C.dim}>Only explicit speech instructions are spoken here</text>
         <text fg={C.dim}>{'Say "@system up <project>" to spawn twins by voice'}</text>
       </box>
     </box>
@@ -1011,19 +1011,19 @@ function App() {
       setActiveFlights(flights.filter((f) => f.status === "pending"));
     }
 
-    // Voice channel: speak any new messages tagged with [speak]
-    // The agent decides what's worth saying aloud — we just honor the tag.
+    // Speech is explicit metadata on the message. Legacy [speak] tags still work.
     const newSpoken: VoiceThread[] = [];
     for (const msg of allMessages) {
       if (msg.id <= lastSpokenMsgRef.current) continue;
       if (msg.type !== "MSG") continue;
       if (msg.from === tuiName) continue; // don't speak your own messages
-      if (!msg.tags.includes("speak")) continue;
+      const spokenText = msg.speechText?.trim() || (msg.tags.includes("speak") ? msg.rawBody : "");
+      if (!spokenText) continue;
 
       newSpoken.push({
         role: "agent",
         from: msg.from,
-        text: msg.rawBody,
+        text: spokenText,
         timestamp: msg.timestamp,
       });
       lastSpokenMsgRef.current = msg.id;
@@ -1165,7 +1165,7 @@ function App() {
 
         const now = Math.floor(Date.now() / 1000);
         // Send via CLI — handles log write, @system, and @mention delivery
-        // Tag as voice channel so responses get spoken
+        // The voice channel is just routing context; explicit speech metadata drives playback.
         try {
           execSync(`openscout relay send --as ${tuiName} --channel voice ${JSON.stringify(text)}`, { stdio: "ignore" });
         } catch {

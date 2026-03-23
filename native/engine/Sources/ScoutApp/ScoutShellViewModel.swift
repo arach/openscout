@@ -480,7 +480,7 @@ final class ScoutShellViewModel {
         let resolvedType = type ?? (normalizedChannel == "system" ? .sys : .msg)
 
         do {
-            _ = try await workspaceStore.sendRelayMessage(
+            let sentMessage = try await workspaceStore.sendRelayMessage(
                 from: relayIdentity,
                 to: targets,
                 body: trimmed,
@@ -489,8 +489,8 @@ final class ScoutShellViewModel {
                 channel: normalizedChannel
             )
             await refreshRelayData()
-            if speaksAloud {
-                voiceBridge.speak(text: trimmed, voice: relayDefaultVoice)
+            if let spokenText = sentMessage.spokenText {
+                voiceBridge.speak(text: spokenText, voice: relayDefaultVoice)
             }
         } catch {
             return
@@ -700,7 +700,7 @@ final class ScoutShellViewModel {
         }
 
         voiceBridge.speak(
-            text: newestMessage.renderedBody,
+            text: newestMessage.spokenText ?? newestMessage.renderedBody,
             voice: newestMessage.isVoiceChannelMessage ? relayConfig.voiceChannel?.voice : relayDefaultVoice
         )
     }
@@ -718,6 +718,6 @@ final class ScoutShellViewModel {
             return false
         }
 
-        return message.speaksAloud || message.isVoiceChannelMessage
+        return message.spokenText != nil
     }
 }
