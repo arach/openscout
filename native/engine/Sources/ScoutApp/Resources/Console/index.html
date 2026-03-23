@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenScout Console</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1015;
+        --panel: #131b22;
+        --panel-2: #1a2530;
+        --text: #e9f3ff;
+        --muted: #9db3c8;
+        --accent: #4db4ff;
+        --line: rgba(255, 255, 255, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(77, 180, 255, 0.18), transparent 24rem),
+          linear-gradient(180deg, #0f1720, var(--bg));
+        color: var(--text);
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        padding: 24px;
+        border-right: 1px solid var(--line);
+        background: rgba(9, 14, 20, 0.7);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        margin: 0 0 20px;
+        font-size: 13px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .nav {
+        display: grid;
+        gap: 10px;
+      }
+
+      .nav-item {
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      .main {
+        padding: 28px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 16px;
+        margin-bottom: 22px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: 42px;
+        line-height: 1.05;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 52rem;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+      }
+
+      .card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(26, 37, 48, 0.95), rgba(19, 27, 34, 0.95));
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <p class="brand">OpenScout Console</p>
+        <div class="nav">
+          <div class="nav-item">Overview</div>
+          <div class="nav-item">Sessions</div>
+          <div class="nav-item">Workers</div>
+          <div class="nav-item">Providers</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <h1>Scout is the shell.</h1>
+          <p>
+            This bundled page is a placeholder for the future HUD, console, or
+            local operator interface that the native shell can embed through WebKit.
+          </p>
+        </section>
+
+        <section class="grid">
+          <article class="card">
+            <h2>One shell</h2>
+            <p>The shell owns navigation, status, and runtime visibility.</p>
+          </article>
+          <article class="card">
+            <h2>One helper</h2>
+            <p>The helper process provides continuity for background work and future bridges.</p>
+          </article>
+          <article class="card">
+            <h2>Many modules</h2>
+            <p>Talkie, Lattices, Action, Operate, and Hudson-style surfaces can plug in progressively.</p>
+          </article>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
