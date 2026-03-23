@@ -1,5 +1,42 @@
 #!/usr/bin/env node
 
+import {
+  appendRelayEvent,
+  appendRelayMessage,
+  createTmuxClaudeProjectTwinRuntime,
+  DEFAULT_USER_TWIN,
+  ensureRelayFiles,
+  readProjectedRelayChannelBindings,
+  getVoiceForChannel,
+  createRelayEventId,
+  getUserTwinName as resolveUserTwinName,
+  getRelayEventsPath,
+  getRelayLogPath,
+  isAudioChannel,
+  loadRelayConfig as loadRelayConfigForHub,
+  readProjectedRelayAgentStates,
+  readProjectedRelayMessages,
+  readRelayMessages,
+  saveRelayConfig as saveRelayConfigForHub,
+  speakRelayText,
+  type ProjectTwinRecord,
+  type RelayConfig,
+  type RelayStoredMessage,
+} from "./core/index.js";
+import {
+  createTelegramRelayBridge,
+  queueRelayExternalDeliveryForChannel,
+} from "./bridge/chat/index.js";
+import { invokeClaudeExploreTwinAction } from "./hosts/claude/explore-twin-subagent.js";
+import { invokeCodexExecTwinAction } from "./hosts/codex/exec-twin-subagent.js";
+import { deliverRelayMessageToTarget } from "./hosts/delivery.js";
+import { createProjectTwinActionRunner } from "./twin-actions/project-twin-runner.js";
+import type {
+  TwinActionKind,
+  TwinActionMode,
+  TwinActionRequest,
+} from "./twin-actions/protocol.js";
+
 const VERSION = "0.2.0";
 const BRAND = "\x1b[32m◆\x1b[0m";
 
@@ -10,8 +47,47 @@ function print(msg: string) {
   console.log(msg);
 }
 
+function hasFlag(flag: string): boolean {
+  return args.includes(flag);
+}
+
+function getFlagValue(flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return undefined;
+  return value;
+}
+
+function getFlagText(flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+
+  const values: string[] = [];
+  for (let i = idx + 1; i < args.length; i += 1) {
+    const value = args[i];
+    if (value.startsWith("--")) break;
+    values.push(value);
+  }
+
+  return values.length > 0 ? values.join(" ") : undefined;
+}
+
 function printBrand() {
   print(`\n  ${BRAND} \x1b[1mOpenScout\x1b[0m v${VERSION}\n`);
+}
+
+function normalizeTwinName(value: string): string {
+  const trimmed = value.trim();
+  const pkgSegment = trimmed.split("/").filter(Boolean).pop() ?? trimmed;
+  const normalized = pkgSegment
+    .replace(/^@/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || DEFAULT_USER_TWIN;
 }
 
 function help() {
@@ -276,6 +352,12 @@ function formatTimestamp(ts: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
+function formatTwinUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
 function formatLine(line: string): string {
   const parts = line.split(" ");
   if (parts.length < 3) return line;
@@ -306,65 +388,31 @@ interface RelayPaths {
   configPath: string;  // hub + config.json
 }
 
-interface ChannelMessage {
-  id: string;
-  ts: number;
-  from: string;
-  type: "MSG" | "SYS";
-  body: string;
-  tags?: string[];     // e.g. ["speak"], ["ask:f-abc123"]
-  to?: string[];       // @mentioned agents
-  channel?: string;    // e.g. "voice"
+interface ResolvedTwinContext {
+  projectPath: string;
+  projectName: string;
+  twinName: string;
+  task?: string;
+  nameSource: "flag" | ".openscout/config.json" | "package.json" | "directory";
 }
 
-function generateMessageId(): string {
-  return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+type ChannelMessage = RelayStoredMessage;
+
+function getProjectTwinRuntime(hub: string) {
+  return createTmuxClaudeProjectTwinRuntime(hub);
+}
+
+function getTwinActionRunner(hub: string) {
+  return createProjectTwinActionRunner(getProjectTwinRuntime(hub));
 }
 
 async function writeChannel(hub: string, msg: Omit<ChannelMessage, "id">): Promise<ChannelMessage> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-
-  const entry: ChannelMessage = { id: generateMessageId(), ...msg };
-
-  // Source of truth: JSONL
-  await fs.appendFile(path.join(hub, "channel.jsonl"), JSON.stringify(entry) + "\n");
-
-  // Human-readable mirror
-  const tagStr = entry.tags?.length ? entry.tags.map(t => `[${t}]`).join(" ") + " " : "";
-  await fs.appendFile(path.join(hub, "channel.log"), `${entry.ts} ${entry.from} ${entry.type} ${tagStr}${entry.body}\n`);
-
-  return entry;
+  return appendRelayMessage(hub, msg);
 }
 
 
 async function readChannel(hub: string, opts?: { since?: number; last?: number; id?: string }): Promise<ChannelMessage[]> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-
-  let content: string;
-  try {
-    content = await fs.readFile(path.join(hub, "channel.jsonl"), "utf-8");
-  } catch {
-    return [];
-  }
-
-  const lines = content.trim().split("\n").filter(Boolean);
-  let messages: ChannelMessage[] = lines.map(line => {
-    try { return JSON.parse(line); } catch { return null; }
-  }).filter(Boolean);
-
-  if (opts?.id) {
-    const idx = messages.findIndex(m => m.id === opts.id);
-    return idx >= 0 ? [messages[idx]] : [];
-  }
-  if (opts?.since) {
-    messages = messages.filter(m => m.ts > opts.since!);
-  }
-  if (opts?.last) {
-    messages = messages.slice(-opts.last);
-  }
-  return messages;
+  return readRelayMessages(hub, opts);
 }
 
 async function getGlobalRelayDir(): Promise<string> {
@@ -384,12 +432,19 @@ async function resolveRelayPaths(): Promise<RelayPaths | null> {
     const config = JSON.parse(raw);
     if (config.hub) {
       const hub = config.hub.replace(/^~/, (await import("node:os")).homedir());
-      return {
-        hub,
-        logPath: path.join(hub, "channel.log"),
-        channelPath: path.join(hub, "channel.jsonl"),
-        configPath: path.join(hub, "config.json"),
-      };
+      const logPath = path.join(hub, "channel.log");
+      const channelPath = path.join(hub, "channel.jsonl");
+      try {
+        try { await fs.access(channelPath); } catch { await fs.access(logPath); }
+        return {
+          hub,
+          logPath,
+          channelPath,
+          configPath: path.join(hub, "config.json"),
+        };
+      } catch {
+        // stale local link — fall through to global resolution
+      }
     }
   } catch {
     // No local link — fall through
@@ -397,8 +452,8 @@ async function resolveRelayPaths(): Promise<RelayPaths | null> {
 
   // 2. Check global relay
   const hub = await getGlobalRelayDir();
-  const logPath = path.join(hub, "channel.log");
-  const channelPath = path.join(hub, "channel.jsonl");
+  const logPath = getRelayLogPath(hub);
+  const channelPath = getRelayEventsPath(hub);
   try {
     // Check for either log format — JSONL is source of truth, log is legacy
     try { await fs.access(channelPath); } catch { await fs.access(logPath); }
@@ -419,41 +474,121 @@ async function requireRelay(): Promise<RelayPaths> {
 
 // ── Relay Config ──────────────────────────────────────
 
-interface ChannelConfig {
-  audio: boolean;        // whether responses on this channel get spoken
-  voice?: string;        // TTS voice override (default: "nova")
-}
-
-interface RelayConfig {
-  agents: string[];
-  created: number;
-  projectRoot?: string;  // e.g. "~/dev" — where bare project names are resolved
-  channels?: Record<string, ChannelConfig>;  // channel-level settings (e.g. "voice": { audio: true })
-  defaultVoice?: string; // default TTS voice (default: "nova")
-  roster?: string[];     // project names to auto-start as twins (e.g. ["dev", "lattices", "arc"])
-  pronunciations?: Record<string, string>;  // e.g. { "arach": "ah-rahsh", "openscout": "open scout" }
-  openaiApiKey?: string;  // fallback if OPENAI_API_KEY env var not set
-}
-
 async function loadRelayConfig(): Promise<RelayConfig> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
   const hub = await getGlobalRelayDir();
-  const configPath = path.join(hub, "config.json");
-  try {
-    const raw = await fs.readFile(configPath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return { agents: [], created: Date.now() };
-  }
+  return loadRelayConfigForHub(hub);
 }
 
 async function saveRelayConfig(config: RelayConfig): Promise<void> {
+  const hub = await getGlobalRelayDir();
+  await saveRelayConfigForHub(hub, config);
+}
+
+function createDefaultRelayConfig(): RelayConfig {
+  return {
+    agents: [],
+    created: Date.now(),
+    userTwin: DEFAULT_USER_TWIN,
+    channels: { voice: { audio: true } },
+  };
+}
+
+async function writeRelayLink(projectPath: string, hub: string): Promise<void> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const hub = await getGlobalRelayDir();
-  const configPath = path.join(hub, "config.json");
-  await fs.writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
+  const os = await import("node:os");
+
+  const localDir = path.join(projectPath, ".openscout");
+  await fs.mkdir(localDir, { recursive: true });
+  const linkPath = path.join(localDir, "relay.json");
+  const hubShort = hub.replace(os.homedir(), "~");
+  await fs.writeFile(
+    linkPath,
+    JSON.stringify({ hub: hubShort, linkedAt: new Date().toISOString() }, null, 2) + "\n",
+  );
+}
+
+async function ensureRelayBootstrap(hub: string, projectPathToLink?: string): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  await ensureRelayFiles(hub);
+
+  try {
+    await fs.access(path.join(hub, "config.json"));
+  } catch {
+    await saveRelayConfigForHub(hub, createDefaultRelayConfig());
+  }
+
+  if (projectPathToLink) {
+    await writeRelayLink(projectPathToLink, hub);
+  }
+}
+
+async function readJsonObject(filePath: string): Promise<Record<string, unknown> | null> {
+  const fs = await import("node:fs/promises");
+
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTwinContext(targetArg?: string): Promise<ResolvedTwinContext> {
+  const path = await import("node:path");
+
+  const explicitName = getFlagValue("--name");
+  const explicitTask = getFlagText("--task");
+  const projectPath = !targetArg || targetArg === "."
+    ? process.cwd()
+    : await resolveProjectPath(targetArg);
+  const projectName = path.basename(projectPath);
+
+  if (explicitName) {
+    return {
+      projectPath,
+      projectName,
+      twinName: normalizeTwinName(explicitName),
+      task: explicitTask,
+      nameSource: "flag",
+    };
+  }
+
+  const scoutConfig = await readJsonObject(path.join(projectPath, ".openscout", "config.json"));
+  if (typeof scoutConfig?.name === "string" && scoutConfig.name.trim()) {
+    return {
+      projectPath,
+      projectName,
+      twinName: normalizeTwinName(scoutConfig.name),
+      task: explicitTask,
+      nameSource: ".openscout/config.json",
+    };
+  }
+
+  const packageJson = await readJsonObject(path.join(projectPath, "package.json"));
+  if (typeof packageJson?.name === "string" && packageJson.name.trim()) {
+    return {
+      projectPath,
+      projectName,
+      twinName: normalizeTwinName(packageJson.name),
+      task: explicitTask,
+      nameSource: "package.json",
+    };
+  }
+
+  return {
+    projectPath,
+    projectName,
+    twinName: normalizeTwinName(projectName),
+    task: explicitTask,
+    nameSource: "directory",
+  };
 }
 
 async function resolveProjectPath(target: string): Promise<string> {
@@ -480,41 +615,9 @@ async function relayInit() {
 
   // Create global relay hub
   const hub = await getGlobalRelayDir();
-  await fs.mkdir(hub, { recursive: true });
+  await ensureRelayBootstrap(hub, process.cwd());
 
-  const configPath = path.join(hub, "config.json");
-  const logPath = path.join(hub, "channel.log");
-
-  // Write config if it doesn't exist
-  try {
-    await fs.access(configPath);
-  } catch {
-    await fs.writeFile(
-      configPath,
-      JSON.stringify({
-        agents: [],
-        created: Date.now(),
-        channels: { voice: { audio: true } },
-      }, null, 2) + "\n"
-    );
-  }
-
-  // Create log if it doesn't exist
-  try {
-    await fs.access(logPath);
-  } catch {
-    await fs.writeFile(logPath, "");
-  }
-
-  // Create local link in current project (so agents in this dir find the hub)
-  const localDir = path.join(process.cwd(), ".openscout");
-  await fs.mkdir(localDir, { recursive: true });
-  const linkPath = path.join(localDir, "relay.json");
   const hubShort = hub.replace(os.homedir(), "~");
-  await fs.writeFile(
-    linkPath,
-    JSON.stringify({ hub: hubShort, linkedAt: new Date().toISOString() }, null, 2) + "\n"
-  );
 
   // Write a SYS init line
   const cwd = process.cwd();
@@ -523,6 +626,7 @@ async function relayInit() {
 
   printBrand();
   print(`  \x1b[32m✓\x1b[0m Global relay hub: \x1b[1m${hubShort}/\x1b[0m`);
+  print(`  \x1b[32m✓\x1b[0m Event stream: \x1b[1m${hubShort}/channel.jsonl\x1b[0m`);
   print(`  \x1b[32m✓\x1b[0m Local link: \x1b[1m.openscout/relay.json\x1b[0m → hub`);
   print(`  \x1b[32m✓\x1b[0m Channel log: \x1b[1m${hubShort}/channel.log\x1b[0m\n`);
   print("  \x1b[2mAll projects linked to the same hub share one channel.\x1b[0m");
@@ -533,160 +637,75 @@ async function relayInit() {
   print("    openscout relay watch --as agent-a\n");
 }
 
-interface AgentRegistryEntry {
-  pane: string;
-  cwd: string;
-  project: string;
-  session_id?: string;
-  registered_at?: number;
-}
-
-async function loadRegistry(): Promise<Record<string, AgentRegistryEntry>> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const hub = await getGlobalRelayDir();
-  const registryPath = path.join(hub, "agents.json");
-  try {
-    const raw = await fs.readFile(registryPath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
 // ── Channel-based audio ───────────────────────────────
 // Audio is a property of the channel, not the user or the message.
 // The voice channel has audio: true. Responses to messages from that channel get spoken.
 
-function isAudioChannel(config: RelayConfig, channel?: string): boolean {
-  if (!channel) return false;
-  const ch = config.channels?.[channel];
-  return ch?.audio === true;
-}
-
-function getVoiceForChannel(config: RelayConfig, channel?: string): string {
-  const ch = channel ? config.channels?.[channel] : undefined;
-  return ch?.voice || config.defaultVoice || "nova";
-}
-
-function applyPronunciations(text: string, pronunciations?: Record<string, string>): string {
-  if (!pronunciations) return text;
-  let result = text;
-  for (const [word, phonetic] of Object.entries(pronunciations)) {
-    result = result.replace(new RegExp(`\\b${word}\\b`, "gi"), phonetic);
-  }
-  return result;
-}
-
-async function speak(text: string, voice: string): Promise<void> {
-  const config = await loadRelayConfig();
-
-  // Find API key: env var → relay config
-  const apiKey = process.env.OPENAI_API_KEY || config.openaiApiKey || null;
-  if (!apiKey) return;
-  const clean = applyPronunciations(text.trim(), config.pronunciations);
-  if (!clean) return;
-
+async function speak(text: string, voice: string, relayDir: string): Promise<void> {
   try {
-    const { spawn } = await import("node:child_process");
-    const res = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "tts-1", voice, input: clean, response_format: "pcm", speed: 1.1 }),
+    await speakRelayText({
+      relayDir,
+      text,
+      voice,
     });
-    if (!res.ok || !res.body) return;
-
-    const player = spawn("ffplay", [
-      "-nodisp", "-autoexit", "-loglevel", "quiet",
-      "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
-    ], { stdio: ["pipe", "ignore", "ignore"] });
-
-    const reader = res.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      player.stdin.write(value);
-    }
-    player.stdin.end();
   } catch { /* noop */ }
 }
 
 async function deliverToAgent(name: string, from: string, message: string, channel?: string, messageId?: string): Promise<"delivered" | "nudged" | "queued"> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
   const hub = await getGlobalRelayDir();
-
-  // Notification only — channel.jsonl is the source of truth (already written by relaySend)
-  const agentsPath = path.join(hub, "agents.json");
-  try {
-    const agentsRaw = await fs.readFile(agentsPath, "utf-8");
-    const agents = JSON.parse(agentsRaw);
-    const agent = agents[name];
-    if (agent?.session_id) {
-      const replyCmd = channel === "voice" ? "speak" : "send";
-      const idRef = messageId ? ` (message: ${messageId})` : "";
-      const nudge = `You have a new relay message from ${from}${idRef}. Check the channel and respond.\n\nRead recent: openscout relay read -n 5 --as ${name}\nReply via: openscout relay ${replyCmd} --as ${name} "@${from} <your response>"`;
-      const { spawn } = await import("node:child_process");
-      const child = spawn("claude", ["--resume", agent.session_id, "--print", nudge], {
-        cwd: agent.cwd || process.cwd(),
-        stdio: "ignore",
-        detached: true,
-      });
-      child.unref();
-      return "delivered";
-    }
-  } catch { /* no session — fall through */ }
-
-  return "queued";
-}
-
-// ── Flights (tracked requests with callbacks) ─────────
-
-interface Flight {
-  id: string;
-  from: string;
-  to: string;
-  message: string;
-  sentAt: number;
-  status: "pending" | "completed";
-  response?: string;
-  respondedAt?: number;
-}
-
-async function getFlightsPath(): Promise<string> {
-  const os = await import("node:os");
-  const path = await import("node:path");
-  return path.join(os.homedir(), ".openscout", "relay", "flights.json");
-}
-
-async function loadFlights(): Promise<Flight[]> {
-  try {
-    const fs = await import("node:fs/promises");
-    return JSON.parse(await fs.readFile(await getFlightsPath(), "utf8"));
-  } catch {
-    return [];
-  }
-}
-
-async function saveFlights(flights: Flight[]): Promise<void> {
-  const fs = await import("node:fs/promises");
-  await fs.writeFile(await getFlightsPath(), JSON.stringify(flights, null, 2) + "\n");
-}
-
-async function createFlight(from: string, to: string, message: string): Promise<Flight> {
-  const flights = await loadFlights();
-  const flight: Flight = {
-    id: `f-${Date.now().toString(36)}`,
+  return deliverRelayMessageToTarget(
+    hub,
+    name,
     from,
-    to,
     message,
-    sentAt: Math.floor(Date.now() / 1000),
-    status: "pending",
-  };
-  flights.push(flight);
-  if (flights.length > 50) flights.splice(0, flights.length - 50);
-  await saveFlights(flights);
-  return flight;
+    channel,
+    messageId,
+  );
+}
+
+async function relayRegister() {
+  const { hub } = await requireRelay();
+  const path = await import("node:path");
+
+  const agent = getAgentName();
+  const pane = getFlagValue("--pane") || process.env.TMUX_PANE;
+  const sessionId = getFlagValue("--session-id");
+  const cwd = getFlagValue("--cwd") || process.cwd();
+  const project = getFlagValue("--project") || path.basename(cwd);
+
+  if (args.includes("--clear")) {
+    await appendRelayEvent(hub, {
+      id: createRelayEventId("agent"),
+      kind: "agent.session_cleared",
+      v: 1,
+      ts: Math.floor(Date.now() / 1000),
+      actor: agent,
+      payload: {},
+    });
+    print(`  \x1b[32m✓\x1b[0m Cleared relay session registration for \x1b[1m${agent}\x1b[0m`);
+    return;
+  }
+
+  await appendRelayEvent(hub, {
+    id: createRelayEventId("agent"),
+    kind: "agent.session_registered",
+    v: 1,
+    ts: Math.floor(Date.now() / 1000),
+    actor: agent,
+    payload: {
+      pane,
+      cwd,
+      project,
+      sessionId,
+      registeredAt: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  print(`  \x1b[32m✓\x1b[0m Registered \x1b[1m${agent}\x1b[0m for relay delivery`);
+  print(`  \x1b[2mproject: ${project}\x1b[0m`);
+  print(`  \x1b[2mcwd:     ${cwd}\x1b[0m`);
+  if (pane) print(`  \x1b[2mpane:    ${pane}\x1b[0m`);
+  if (sessionId) print(`  \x1b[2msession: ${sessionId}\x1b[0m`);
 }
 
 // ── @system agent ─────────────────────────────────────
@@ -694,8 +713,6 @@ async function createFlight(from: string, to: string, message: string): Promise<
 async function handleSystemCommand(from: string, message: string): Promise<string | null> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const os = await import("node:os");
-  const { execSync } = await import("node:child_process");
 
   // Strip the @system prefix and parse the command
   const stripped = message.replace(/@system\s*/i, "").trim();
@@ -707,25 +724,15 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
   }
 
   const hub = await getGlobalRelayDir();
+  const twinRuntime = getProjectTwinRuntime(hub);
 
   if (cmd === "ps") {
-    const twins = await loadTwins();
-    const names = Object.keys(twins);
-    if (names.length === 0) return "no twins running";
+    const twins = await twinRuntime.listProjectTwins();
+    if (twins.length === 0) return "no twins running";
 
-    const now = Math.floor(Date.now() / 1000);
-    const lines: string[] = [];
-    for (const name of names) {
-      const twin = twins[name];
-      const alive = await isTmuxSessionAlive(twin.tmuxSession);
-      const uptime = now - twin.startedAt;
-      const uptimeStr = uptime < 60 ? `${uptime}s`
-        : uptime < 3600 ? `${Math.floor(uptime / 60)}m`
-        : `${Math.floor(uptime / 3600)}h`;
-      const icon = alive ? "●" : "✗";
-      lines.push(`${icon} ${name} (${twin.project}, ${uptimeStr})`);
-    }
-    return lines.join(" | ");
+    return twins
+      .map((twin) => `${twin.alive ? "●" : "✗"} ${twin.twinId} (${twin.project}, ${formatTwinUptime(twin.uptimeSeconds)})`)
+      .join(" | ");
   }
 
   if (cmd === "roster") {
@@ -752,10 +759,10 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     // Show roster
     const roster = config.roster || [];
     if (roster.length === 0) return "roster is empty — add with: @system roster add <name>";
-    const twins = await loadTwins();
+    const twins = await twinRuntime.loadTwins();
     const status = await Promise.all(roster.map(async (name) => {
       const twin = twins[name];
-      const alive = twin && await isTmuxSessionAlive(twin.tmuxSession);
+      const alive = twin ? await twinRuntime.isTwinAlive(name) : false;
       return `${alive ? "●" : "○"} ${name}`;
     }));
     return status.join("  ");
@@ -772,12 +779,6 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 
       const results: string[] = [];
       for (const name of roster) {
-        const tmuxSession = `relay-${name}`;
-        if (await isTmuxSessionAlive(tmuxSession)) {
-          results.push(`${name} (already up)`);
-          continue;
-        }
-        // Spawn using same logic as single up
         let projectPath: string;
         try {
           projectPath = await resolveProjectPath(name);
@@ -785,49 +786,18 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
           if (!stat.isDirectory()) { results.push(`${name} (not found)`); continue; }
         } catch { results.push(`${name} (not found)`); continue; }
 
-        const projectName = path.basename(projectPath);
-        const twinName = name;
-        const hubShort = hub.replace(os.homedir(), "~");
-        const systemPrompt = [
-          `You are "${twinName}", a relay twin for the ${projectName} project.`,
-          `You have full access to the codebase at ${projectPath}.`,
-          `Relay channel at ${hubShort}/channel.log shared by all agents.`,
-          `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
-          `Always reply via: openscout relay send --as ${twinName} "your message"`,
-          `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
-          `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
-          `Be specific with file paths. Keep messages under 200 chars.`,
-        ].join("\n");
-
-        const twinDir = path.join(hub, "twins");
-        await fs.mkdir(twinDir, { recursive: true });
-        const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
-        await fs.writeFile(promptFile, systemPrompt);
-        const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
-        const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
-        await fs.writeFile(initialFile, initialMsg);
-        const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
-        await fs.writeFile(launchScript, [
-          `#!/bin/bash`,
-          `cd ${JSON.stringify(projectPath)}`,
-          `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-          `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
-        ].join("\n") + "\n");
-        await fs.chmod(launchScript, 0o755);
-        execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
-
-        const currentTwins = await loadTwins();
-        currentTwins[twinName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
-        await saveTwins(currentTwins);
-
-        await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
-        results.push(`${name} (up)`);
+        const result = await twinRuntime.startProjectTwin({
+          hub,
+          projectPath,
+          twinName: name,
+        });
+        results.push(result.status === "already_running" ? `${name} (already up)` : `${name} (up)`);
       }
       return results.join(", ");
     }
 
     // Resolve: bare name → <projectRoot>/<name>, or use as path
-    let projectPath = await resolveProjectPath(target);
+    const projectPath = await resolveProjectPath(target);
 
     // Verify it exists
     try {
@@ -839,107 +809,38 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 
     const projectName = path.basename(projectPath);
     const twinName = parts[2] || projectName; // optional alias as 3rd arg
-    const tmuxSession = `relay-${twinName}`;
-
-    // Check if already running
-    if (await isTmuxSessionAlive(tmuxSession)) {
+    const result = await twinRuntime.startProjectTwin({
+      hub,
+      projectPath,
+      twinName,
+    });
+    if (result.status === "already_running") {
       return `${twinName} is already running`;
     }
 
-    // Build system prompt
-    const hubShort = hub.replace(os.homedir(), "~");
-    const systemPrompt = [
-      `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
-      `You have full access to the codebase at ${projectPath}.`,
-      `There is a global relay channel at ${hubShort}/channel.log shared by all agents.`,
-      `Your job: respond to @${twinName} mentions, answer questions about this project's code, coordinate with other agents.`,
-      `Relay commands:`,
-      `  openscout relay send --as ${twinName} "your message"`,
-      `  openscout relay speak --as ${twinName} "your message"  (speaks aloud to the human via TTS)`,
-      `  openscout relay read`,
-      `  openscout relay who`,
-      `Audio: the human may be in a voice conversation. Use 'relay speak' when you have a substantive`,
-      `answer or result for the human. Do NOT speak acks, status updates, or agent-to-agent chatter.`,
-      `Only speak the final, meaningful response directed at a human.`,
-      `Rules: always reply via relay send, be specific with file paths, keep messages under 200 chars.`,
-    ].join("\n");
-
-    // Write files
-    const twinDir = path.join(hub, "twins");
-    await fs.mkdir(twinDir, { recursive: true });
-    const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
-    await fs.writeFile(promptFile, systemPrompt);
-
-    const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
-    const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
-    await fs.writeFile(initialFile, initialMsg);
-
-    const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
-    await fs.writeFile(launchScript, [
-      `#!/bin/bash`,
-      `cd ${JSON.stringify(projectPath)}`,
-      `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
-    ].join("\n") + "\n");
-    await fs.chmod(launchScript, 0o755);
-
-    // Spawn
-    execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
-
-    // Save registry
-    const twins = await loadTwins();
-    twins[twinName] = {
-      project: projectName,
-      tmuxSession,
-      cwd: projectPath,
-      startedAt: Math.floor(Date.now() / 1000),
-    };
-    await saveTwins(twins);
-
-    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
-
-    return `✓ spawned ${twinName} (tmux: ${tmuxSession})`;
+    return `✓ started ${twinName} (${result.record.runtime})`;
   }
 
   if (cmd === "down") {
     const target = parts[1];
     if (!target) return "usage: @system down <name> | @system down --all";
 
-    const twins = await loadTwins();
-
     if (target === "--all") {
-      const names = Object.keys(twins);
-      if (names.length === 0) return "no twins to stop";
-      const results: string[] = [];
-      for (const name of names) {
-        try {
-          execSync(`tmux kill-session -t ${twins[name].tmuxSession} 2>/dev/null`);
-          results.push(`✓ ${name}`);
-        } catch {
-          results.push(`○ ${name} (already stopped)`);
-        }
-      }
-      await saveTwins({});
-      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all twins stopped" });
-      return results.join(", ");
+      const results = await twinRuntime.stopAllProjectTwins();
+      if (results.length === 0) return "no twins to stop";
+      return results.map((result) => result.status === "stopped" ? `✓ ${result.twinName}` : `○ ${result.twinName} (already stopped)`).join(", ");
     }
 
-    const twin = twins[target];
-    if (!twin) {
+    const result = await twinRuntime.stopProjectTwin(target);
+    if (result.status === "not_found") {
+      const twins = await twinRuntime.loadTwins();
       const names = Object.keys(twins);
       return names.length > 0
         ? `no twin named ${target}. running: ${names.join(", ")}`
         : `no twin named ${target}`;
     }
 
-    try {
-      execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
-    } catch { /* already gone */ }
-    delete twins[target];
-    await saveTwins(twins);
-
-    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: target, type: "SYS", body: "twin stopped" });
-    return `✓ stopped ${target}`;
+    return result.status === "stopped" ? `✓ stopped ${target}` : `○ ${target} (already stopped)`;
   }
 
   if (cmd === "config") {
@@ -951,6 +852,13 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
       config.projectRoot = value;
       await saveRelayConfig(config);
       return `set project root to ${value}`;
+    }
+
+    if (key === "companion" && value) {
+      const config = await loadRelayConfig();
+      config.userTwin = value;
+      await saveRelayConfig(config);
+      return `user twin set to ${value}`;
     }
 
     // Channel audio config: @system config audio <channel> on/off
@@ -985,20 +893,33 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     // Show current config
     const config = await loadRelayConfig();
     const root = config.projectRoot || "~/dev (default)";
+    const userTwin = resolveUserTwinName(config);
     const voice = config.defaultVoice || "nova (default)";
     const channels = config.channels || {};
     const chList = Object.entries(channels)
       .map(([name, ch]) => `${name}: audio=${ch.audio ? "on" : "off"}${ch.voice ? ` voice=${ch.voice}` : ""}`)
       .join(", ") || "none configured";
-    return `root: ${root} | voice: ${voice} | channels: ${chList}`;
+    return `root: ${root} | user twin: ${userTwin} | voice: ${voice} | channels: ${chList}`;
   }
 
-  return `unknown command: ${cmd}. try: up, down, ps, config`;
+  if (cmd === "companion") {
+    const value = parts[1];
+    const config = await loadRelayConfig();
+
+    if (!value) {
+      return `user twin: ${resolveUserTwinName(config)}`;
+    }
+
+    config.userTwin = value;
+    await saveRelayConfig(config);
+    return `user twin set to ${value}`;
+  }
+
+  return `unknown command: ${cmd}. try: up, down, ps, companion, config`;
 }
 
 async function relaySend() {
-  const fs = await import("node:fs/promises");
-  const { hub, logPath } = await requireRelay();
+  const { hub } = await requireRelay();
 
   // Collect message: everything after "send" that isn't a flag
   const sendIdx = args.indexOf("send");
@@ -1043,7 +964,18 @@ async function relaySend() {
     channel,
   });
 
+  const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
+    hub,
+    agent,
+    channel,
+    message,
+    entry.id,
+  );
+
   print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${message}`));
+  if (queuedExternalDelivery) {
+    print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
+  }
 
   // Track the origin channel for audio responses
   const config = await loadRelayConfig();
@@ -1060,7 +992,7 @@ async function relaySend() {
       // Audio channel → speak the system response
       if (audioEnabled) {
         const voice = getVoiceForChannel(config, channel);
-        speak(result, voice);
+        void speak(result, voice, hub);
       }
     }
     return;
@@ -1083,15 +1015,20 @@ async function relaySend() {
 }
 
 async function relaySpeak() {
-  const fs = await import("node:fs/promises");
-  const { hub, logPath } = await requireRelay();
+  const { hub } = await requireRelay();
 
   // Collect message — same flag parsing as send
   const speakIdx = args.indexOf("speak");
   const msgParts: string[] = [];
+  let channel: string | undefined;
   let i = speakIdx + 1;
   while (i < args.length) {
     if (args[i] === "--as") {
+      i += 2;
+      continue;
+    }
+    if (args[i] === "--channel") {
+      channel = args[i + 1];
       i += 2;
       continue;
     }
@@ -1113,8 +1050,20 @@ async function relaySpeak() {
     ts, from: agent, type: "MSG", body: message,
     tags: ["speak"],
     to: mentions.length ? mentions : undefined,
+    channel,
   });
   print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
+
+  const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
+    hub,
+    agent,
+    channel,
+    message,
+    entry.id,
+  );
+  if (queuedExternalDelivery) {
+    print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
+  }
 
   // Set state → speaking, play TTS, set state → idle
   await setAgentState(agent, "speaking");
@@ -1123,7 +1072,7 @@ async function relaySpeak() {
   const voice = getVoiceForChannel(config, "voice");
   const clean = message.replace(/@[\w.-]+\s*/g, "").trim();
   if (clean) {
-    await speak(clean, voice);
+    await speak(clean, voice, hub);
   }
 
   await setAgentState(agent, "idle");
@@ -1140,10 +1089,8 @@ async function relaySpeak() {
 // ── relay ask ─────────────────────────────────────────
 
 async function relayAsk() {
-  const fs = await import("node:fs");
-  const fsP = await import("node:fs/promises");
-  const path = await import("node:path");
-  const { hub, logPath } = await requireRelay();
+  const { hub } = await requireRelay();
+  const twinActionRunner = getTwinActionRunner(hub);
 
   // Parse --twin
   const twinIdx = args.indexOf("--twin");
@@ -1156,9 +1103,15 @@ async function relayAsk() {
   // Parse --timeout (default 300s)
   const timeoutIdx = args.indexOf("--timeout");
   const timeout = timeoutIdx !== -1 ? parseInt(args[timeoutIdx + 1], 10) : 300;
+  const viaIdx = args.indexOf("--via");
+  const via = viaIdx !== -1 ? args[viaIdx + 1] : null;
+  if (via && via !== "claude" && via !== "codex") {
+    process.stderr.write(`error: unsupported --via "${via}"\n`);
+    process.exit(1);
+  }
 
   // Collect question — everything after "ask" that isn't a flag
-  const skipFlags = new Set(["--twin", "--as", "--timeout"]);
+  const skipFlags = new Set(["--twin", "--as", "--timeout", "--via"]);
   const msgParts: string[] = [];
   for (let i = 2; i < args.length; i++) {
     if (skipFlags.has(args[i])) { i++; continue; }
@@ -1171,134 +1124,142 @@ async function relayAsk() {
   }
 
   const asker = getAgentName();
+  process.stderr.write(`asking ${twinName}...\n`);
+  const request: TwinActionRequest = {
+    twinId: twinName,
+    action: "consult",
+    mode: "persistent",
+    actor: asker,
+    input: question,
+    timeoutSeconds: timeout,
+  };
 
-  // Verify twin is alive
-  const twins = await loadTwins();
-  const twin = twins[twinName];
-  if (!twin || !await isTmuxSessionAlive(twin.tmuxSession)) {
-    process.stderr.write(`error: twin "${twinName}" is not running\n`);
+  try {
+    const result = via === "claude"
+      ? await invokeClaudeExploreTwinAction({
+        request,
+        cwd: process.cwd(),
+      })
+      : via === "codex"
+        ? await invokeCodexExecTwinAction({
+          request,
+          cwd: process.cwd(),
+        })
+      : await twinActionRunner.invokeTwinAction(request);
+
+    if (result.flightId) {
+      process.stderr.write(`flight ${result.flightId} completed\n`);
+    }
+    if (!result.ok) {
+      process.stderr.write(`error: ${result.output}\n`);
+      process.exit(1);
+    }
+    process.stdout.write(result.output + "\n");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`error: ${message}\n`);
+    process.exit(1);
+  }
+}
+
+async function relayTwinAction() {
+  const { hub } = await requireRelay();
+  const twinActionRunner = getTwinActionRunner(hub);
+
+  const twinIdx = args.indexOf("--twin");
+  const twinId = twinIdx !== -1 ? args[twinIdx + 1] : null;
+  if (!twinId) {
+    process.stderr.write("error: --twin <name> is required\n");
     process.exit(1);
   }
 
-  // Create flight
-  const flight = await createFlight(asker, twinName, question);
-  process.stderr.write(`asking ${twinName}... (flight ${flight.id})\n`);
+  const actionIdx = args.indexOf("--action");
+  const action = (actionIdx !== -1 ? args[actionIdx + 1] : "consult") as TwinActionKind;
+  const validActions: TwinActionKind[] = ["consult", "execute", "status", "summarize", "tick"];
+  if (!validActions.includes(action)) {
+    process.stderr.write(`error: invalid --action "${action}"\n`);
+    process.exit(1);
+  }
 
-  // Write tagged message to channel
-  const taggedMessage = `[ask:${flight.id}] @${twinName} ${question}`;
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: asker, type: "MSG", body: taggedMessage });
+  const modeIdx = args.indexOf("--mode");
+  const mode = (modeIdx !== -1 ? args[modeIdx + 1] : "persistent") as TwinActionMode;
+  if (mode !== "persistent" && mode !== "ephemeral") {
+    process.stderr.write(`error: invalid --mode "${mode}"\n`);
+    process.exit(1);
+  }
 
-  // Deliver to twin inbox
-  await deliverToAgent(twinName, asker, taggedMessage);
+  const timeoutIdx = args.indexOf("--timeout");
+  const timeoutSeconds = timeoutIdx !== -1 ? parseInt(args[timeoutIdx + 1], 10) : undefined;
+  const fromIdx = args.indexOf("--from");
+  const actor = fromIdx !== -1 ? args[fromIdx + 1] : getAgentName();
+  const jsonOutput = args.includes("--json");
 
-  // Watch channel.log for twin's response
-  const stat = fs.statSync(logPath);
-  let position = stat.size;
-
-  const deadline = Date.now() + timeout * 1000;
-
-  const checkNew = (): string | null => {
-    const current = fs.statSync(logPath);
-    if (current.size <= position) return null;
-
-    const fd = fs.openSync(logPath, "r");
-    const buf = Buffer.alloc(current.size - position);
-    fs.readSync(fd, buf, 0, buf.length, position);
-    fs.closeSync(fd);
-    position = current.size;
-
-    const lines = buf.toString("utf-8").trim().split("\n").filter(Boolean);
-    for (const line of lines) {
-      const parts = line.split(" ");
-      const from = parts[1];
-      const type = parts[2];
-      const body = parts.slice(3).join(" ");
-
-      // Match: MSG from the twin that @mentions the asker
-      if (type === "MSG" && from === twinName && body.includes(`@${asker}`)) {
-        // Clean the response: strip @mentions and ask tags
-        const clean = body
-          .replace(/@[\w.-]+/g, "")
-          .replace(/\[ask:[^\]]+\]/g, "")
-          .trim();
-        return clean;
-      }
+  let input = "";
+  const inputBase64Idx = args.indexOf("--input-base64");
+  if (inputBase64Idx !== -1) {
+    input = Buffer.from(args[inputBase64Idx + 1], "base64").toString("utf8");
+  } else {
+    const inputIdx = args.indexOf("--input");
+    if (inputIdx !== -1) {
+      input = args[inputIdx + 1];
     }
-    return null;
-  };
+  }
 
-  return new Promise<void>(async (resolve) => {
-    let done = false;
+  let context: Record<string, unknown> | undefined;
+  const contextBase64Idx = args.indexOf("--context-base64");
+  if (contextBase64Idx !== -1) {
+    const raw = Buffer.from(args[contextBase64Idx + 1], "base64").toString("utf8");
+    context = JSON.parse(raw) as Record<string, unknown>;
+  }
 
-    const complete = async (response: string) => {
-      if (done) return;
-      done = true;
-      watcher.close();
-      clearTimeout(timer);
-
-      const flights = await loadFlights();
-      const f = flights.find((fl) => fl.id === flight.id);
-      if (f) {
-        f.status = "completed";
-        f.response = response;
-        f.respondedAt = Math.floor(Date.now() / 1000);
-        await saveFlights(flights);
-      }
-
-      process.stderr.write(`flight ${flight.id} completed\n`);
-      process.stdout.write(response + "\n");
-      resolve();
-    };
-
-    const watcher = fs.watch(logPath, () => {
-      const response = checkNew();
-      if (response !== null) complete(response);
-    });
-
-    const timer = setTimeout(() => {
-      if (done) return;
-      watcher.close();
-      process.stderr.write(`error: timed out after ${timeout}s waiting for ${twinName}\n`);
-      process.exit(1);
-    }, timeout * 1000);
-
-    // Initial check in case the response arrived before the watcher started
-    const immediate = checkNew();
-    if (immediate !== null) complete(immediate);
+  const result = await twinActionRunner.invokeTwinAction({
+    twinId,
+    action,
+    mode,
+    input,
+    context,
+    actor,
+    timeoutSeconds,
   });
+
+  if (jsonOutput) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return;
+  }
+
+  if (result.flightId) {
+    process.stderr.write(`flight ${result.flightId} completed\n`);
+  }
+  process.stdout.write(result.output + "\n");
+  if (!result.ok) {
+    process.exit(1);
+  }
 }
 
 // ── Agent state ───────────────────────────────────────
 // Agents set their own state: speaking, thinking, idle, etc.
-// State is stored in state.json — the TUI reads it for visual feedback.
+// State is projected from Relay events — the TUI reads the projection for visual feedback.
 
 async function loadAgentStates(): Promise<Record<string, string>> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
   const hub = await getGlobalRelayDir();
-  try {
-    const raw = await fs.readFile(path.join(hub, "state.json"), "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-async function saveAgentStates(states: Record<string, string>): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const hub = await getGlobalRelayDir();
-  await fs.writeFile(path.join(hub, "state.json"), JSON.stringify(states, null, 2) + "\n");
+  const states = await readProjectedRelayAgentStates(hub);
+  return Object.fromEntries(
+    Object.entries(states).map(([agent, state]) => [agent, state.state]),
+  );
 }
 
 async function setAgentState(agent: string, state: string): Promise<void> {
-  const states = await loadAgentStates();
-  if (state === "idle" || state === "clear") {
-    delete states[agent];
-  } else {
-    states[agent] = state;
-  }
-  await saveAgentStates(states);
+  const hub = await getGlobalRelayDir();
+  await appendRelayEvent(hub, {
+    id: createRelayEventId("state"),
+    kind: "agent.state_set",
+    v: 1,
+    ts: Math.floor(Date.now() / 1000),
+    actor: agent,
+    payload: {
+      state,
+    },
+  });
 }
 
 async function relayState() {
@@ -1363,7 +1324,7 @@ async function relayRead() {
 
 async function relayWatch() {
   const fs = await import("node:fs");
-  const { hub, logPath } = await requireRelay();
+  const { hub, channelPath } = await requireRelay();
   const { execSync } = await import("node:child_process");
 
   const agent = getAgentName();
@@ -1373,44 +1334,33 @@ async function relayWatch() {
   // Write join message
   await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} joined the relay` });
 
-  // Start reading from end of file
-  const stat = fs.statSync(logPath);
-  let position = stat.size;
+  await ensureRelayFiles(hub);
+  let seenCount = (await readProjectedRelayMessages(hub)).length;
 
   printBrand();
   print(`  Watching as \x1b[1m${agent}\x1b[0m ${tmuxPane ? `(nudging tmux pane ${tmuxPane})` : ""}`);
   print("  \x1b[2mPress Ctrl+C to stop\x1b[0m\n");
 
-  const readNew = () => {
-    const current = fs.statSync(logPath);
-    if (current.size <= position) return;
+  const readNew = async () => {
+    const messages = await readProjectedRelayMessages(hub);
+    if (messages.length < seenCount) {
+      seenCount = 0;
+    }
 
-    const fd = fs.openSync(logPath, "r");
-    const buf = Buffer.alloc(current.size - position);
-    fs.readSync(fd, buf, 0, buf.length, position);
-    fs.closeSync(fd);
-    position = current.size;
+    const fresh = messages.slice(seenCount);
+    if (fresh.length === 0) return;
+    seenCount = messages.length;
 
-    const newContent = buf.toString("utf-8");
-    const lines = newContent.trim().split("\n").filter(Boolean);
+    for (const msg of fresh) {
+      if (msg.from === agent) continue;
 
-    for (const line of lines) {
-      const parts = line.split(" ");
-      const from = parts[1];
+      print(formatLine(`${msg.timestamp} ${msg.from} ${msg.type} ${msg.body}`));
 
-      // Don't echo our own messages back
-      if (from === agent) continue;
-
-      print(formatLine(line));
-
-      // Tmux nudge
       if (tmuxPane) {
-        const type = parts[2];
-        const body = parts.slice(3).join(" ");
-        const preview = body.length > 80 ? body.slice(0, 80) + "…" : body;
-        const nudge = type === "SYS"
-          ? `[relay] ${body}`
-          : `[relay] ${from}: ${preview}`;
+        const preview = msg.body.length > 80 ? msg.body.slice(0, 80) + "…" : msg.body;
+        const nudge = msg.type === "SYS"
+          ? `[relay] ${msg.body}`
+          : `[relay] ${msg.from}: ${preview}`;
         try {
           execSync(`tmux send-keys -t ${tmuxPane} ${JSON.stringify(nudge)} Enter`);
         } catch {
@@ -1420,7 +1370,9 @@ async function relayWatch() {
     }
   };
 
-  fs.watch(logPath, () => readNew());
+  fs.watch(channelPath, () => {
+    void readNew();
+  });
 
   // Keep process alive
   process.on("SIGINT", () => {
@@ -1432,11 +1384,8 @@ async function relayWatch() {
 }
 
 async function relayWho() {
-  const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
-
-  const content = await fs.readFile(logPath, "utf-8");
-  const lines = content.trim().split("\n").filter(Boolean);
+  const { hub } = await requireRelay();
+  const messages = await readProjectedRelayMessages(hub);
 
   const now = Math.floor(Date.now() / 1000);
   const ONLINE_THRESHOLD = 600; // 10 minutes
@@ -1444,20 +1393,15 @@ async function relayWho() {
   // Build agent map
   const agents = new Map<string, { lastSeen: number; messages: number; forgotten: boolean }>();
 
-  for (const line of lines) {
-    const parts = line.split(" ");
-    const [ts, from, type, ...rest] = parts;
-    const timestamp = Number(ts);
-    const body = rest.join(" ");
-
-    if (!agents.has(from)) {
-      agents.set(from, { lastSeen: timestamp, messages: 0, forgotten: false });
+  for (const message of messages) {
+    if (!agents.has(message.from)) {
+      agents.set(message.from, { lastSeen: message.timestamp, messages: 0, forgotten: false });
     }
-    const agent = agents.get(from)!;
-    agent.lastSeen = Math.max(agent.lastSeen, timestamp);
+    const agent = agents.get(message.from)!;
+    agent.lastSeen = Math.max(agent.lastSeen, message.timestamp);
 
-    if (type === "MSG") agent.messages++;
-    if (type === "SYS" && body.includes("forgotten")) agent.forgotten = true;
+    if (message.type === "MSG") agent.messages++;
+    if (message.type === "SYS" && message.rawBody.includes("forgotten")) agent.forgotten = true;
   }
 
   // Filter out forgotten agents
@@ -1502,7 +1446,7 @@ async function relayForget() {
 
 async function relayEnroll() {
   const fs = await import("node:fs/promises");
-  const { hub, logPath } = await requireRelay();
+  const { hub, channelPath } = await requireRelay();
 
   const agent = getAgentName();
 
@@ -1513,12 +1457,13 @@ async function relayEnroll() {
   const prompt = [
     `You are ${agent}.`,
     "",
-    `There is a global relay channel at ${logPath} that other agents are watching.`,
+    `There is a global relay event stream at ${channelPath} that other agents are using.`,
     "Use it to coordinate with other agents working on related packages.",
     "",
     "Relay commands:",
     `  openscout relay send --as ${agent} "your message"   — send a message`,
     `  openscout relay read                                — check recent messages`,
+    `  openscout relay register --as ${agent}              — register this session for delivery`,
     `  openscout relay who                                 — see who's active`,
     "",
     "Rules:",
@@ -1556,7 +1501,7 @@ async function relayEnroll() {
   // Write a SYS event
   await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} enrolled via relay enroll` });
 
-  print(`  \x1b[32m✓\x1b[0m Wrote enrollment event to channel.log\n`);
+  print(`  \x1b[32m✓\x1b[0m Wrote enrollment event to relay stream\n`);
 }
 
 async function relayBroadcast() {
@@ -1613,87 +1558,257 @@ async function relayBroadcast() {
 
 async function relayLink() {
   const fs = await import("node:fs/promises");
-  const path = await import("node:path");
   const os = await import("node:os");
 
   const hub = await getGlobalRelayDir();
-  const logPath = path.join(hub, "channel.log");
+  const channelPath = getRelayEventsPath(hub);
+  const logPath = getRelayLogPath(hub);
 
   // Verify global hub exists
   try {
-    await fs.access(logPath);
+    try {
+      await fs.access(channelPath);
+    } catch {
+      await fs.access(logPath);
+    }
   } catch {
     print("\n  \x1b[31m✗\x1b[0m Global relay not initialized. Run \x1b[1mopenscout relay init\x1b[0m first.\n");
     process.exit(1);
   }
 
   // Create local link
-  const localDir = path.join(process.cwd(), ".openscout");
-  await fs.mkdir(localDir, { recursive: true });
-  const linkPath = path.join(localDir, "relay.json");
-  const hubShort = hub.replace(os.homedir(), "~");
-  await fs.writeFile(
-    linkPath,
-    JSON.stringify({ hub: hubShort, linkedAt: new Date().toISOString() }, null, 2) + "\n"
-  );
+  await writeRelayLink(process.cwd(), hub);
 
   const cwd = process.cwd();
   const projectName = cwd.split("/").pop() || "unknown";
   await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: projectName, type: "SYS", body: `${projectName} linked to the relay` });
 
   printBrand();
-  print(`  \x1b[32m✓\x1b[0m Linked \x1b[1m${projectName}\x1b[0m → \x1b[1m${hubShort}/\x1b[0m\n`);
+  print(`  \x1b[32m✓\x1b[0m Linked \x1b[1m${projectName}\x1b[0m → \x1b[1m${hub.replace(os.homedir(), "~")}/\x1b[0m\n`);
   print("  Agents in this directory now share the global relay channel.");
   print("  Run \x1b[1mopenscout relay read\x1b[0m to see messages from all projects.\n");
 }
 
 // ── Twins ─────────────────────────────────────────────
 
-interface TwinEntry {
-  project: string;
-  tmuxSession: string;
-  cwd: string;
-  startedAt: number;
-  systemPrompt?: string;
-}
-
-async function loadTwins(): Promise<Record<string, TwinEntry>> {
-  const fs = await import("node:fs/promises");
+async function openTwinFocusedTui(twinName: string, cwd: string): Promise<void> {
+  const { execSync, spawnSync } = await import("node:child_process");
   const path = await import("node:path");
-  const hub = await getGlobalRelayDir();
-  const twinsPath = path.join(hub, "twins.json");
+
+  const tuiPath = path.join(import.meta.dirname, "..", "src", "tui", "index.tsx");
+  const tuiArgs = ["run", tuiPath, "--", "--focus-twin", twinName];
+
+  if (hasFlag("--no-tmux") || process.env.TMUX) {
+    try {
+      spawnSync("bun", tuiArgs, { stdio: "inherit", cwd });
+    } catch {
+      // TUI exit or local Bun issue — surface nothing extra here.
+    }
+    return;
+  }
+
+  const tmuxSession = `relay-view-${normalizeTwinName(twinName)}`;
+  const tuiCommand = `bun run ${JSON.stringify(tuiPath)} -- --focus-twin ${JSON.stringify(twinName)}`;
+
   try {
-    const raw = await fs.readFile(twinsPath, "utf-8");
-    return JSON.parse(raw);
+    try { execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null`); } catch { /* noop */ }
+    execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(cwd)} -x $(tput cols) -y $(tput lines)`);
+    try {
+      execSync(`tmux set-option -t ${tmuxSession} status off 2>/dev/null`);
+      execSync(`tmux set-option -t ${tmuxSession} escape-time 0 2>/dev/null`);
+    } catch { /* noop */ }
+    execSync(`tmux send-keys -t ${tmuxSession} ${JSON.stringify(tuiCommand)} Enter`);
+    execSync(`tmux attach -t ${tmuxSession}`, { stdio: "inherit" });
   } catch {
-    return {};
+    try {
+      spawnSync("bun", tuiArgs, { stdio: "inherit", cwd });
+    } catch {
+      // TUI exit — normal.
+    }
   }
 }
 
-async function saveTwins(twins: Record<string, TwinEntry>): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const hub = await getGlobalRelayDir();
-  const twinsPath = path.join(hub, "twins.json");
-  await fs.writeFile(twinsPath, JSON.stringify(twins, null, 2) + "\n");
+function relayTwinHelp() {
+  printBrand();
+  print("  \x1b[1mRelay Twin\x1b[0m — project-native runtime workflow\n");
+  print("  \x1b[1mUsage:\x1b[0m");
+  print("    openscout relay twin <command> [options]\n");
+  print("  \x1b[1mCommands:\x1b[0m");
+  print("    up [path] [--name n] [--task t]  Start or adopt the project twin, then open its monitor");
+  print("    view [name|path]                 Open the relay monitor focused on a twin");
+  print("    ps                               List running twins");
+  print("    down <name>                      Stop a twin");
+  print("    ask --twin <name> \"<question>\"   Ask a twin via Relay");
+  print("    tick <name> [--reason text]      Nudge a twin proactively\n");
+  print("  \x1b[1mDefaults:\x1b[0m");
+  print("    `twin up` infers the twin name from `.openscout/config.json`, then `package.json`, then the directory name.");
+  print("    It also bootstraps the relay hub and links the current project if needed.\n");
+  print("  \x1b[1mExamples:\x1b[0m");
+  print("    openscout relay twin up");
+  print("    openscout relay twin up . --task \"watch failing tests\"");
+  print("    openscout relay twin view");
+  print("    openscout relay twin view lattices");
+  print("    openscout relay twin tick dev --reason \"new local edits\"\n");
 }
 
-async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
+async function relayTwinUp() {
+  const fs = await import("node:fs/promises");
+
+  if (hasFlag("--help") || hasFlag("-h")) {
+    print("\n  openscout relay twin up [path] [--name <name>] [--task <description>] [--no-view] [--no-tmux]\n");
+    print("  Starts or adopts the twin for the current project context, then opens a focused relay monitor.\n");
+    return;
+  }
+
+  const upIdx = args.indexOf("up");
+  const targetArg = upIdx !== -1 && args[upIdx + 1] && !args[upIdx + 1].startsWith("--")
+    ? args[upIdx + 1]
+    : undefined;
+  const context = await resolveTwinContext(targetArg);
+
   try {
-    const { execSync } = await import("node:child_process");
-    execSync(`tmux has-session -t ${sessionName}`, { stdio: "pipe" });
-    return true;
+    const stat = await fs.stat(context.projectPath);
+    if (!stat.isDirectory()) throw new Error("not a directory");
   } catch {
-    return false;
+    print(`\n  \x1b[31m✗\x1b[0m Not a directory: ${targetArg ?? context.projectPath}\n`);
+    process.exit(1);
+  }
+
+  const existing = await resolveRelayPaths();
+  const hub = existing?.hub ?? await getGlobalRelayDir();
+  await ensureRelayBootstrap(hub, context.projectPath);
+
+  const twinRuntime = getProjectTwinRuntime(hub);
+  const result = await twinRuntime.startProjectTwin({
+    hub,
+    projectPath: context.projectPath,
+    twinName: context.twinName,
+    task: context.task,
+  });
+
+  printBrand();
+  print(`  \x1b[32m✓\x1b[0m Twin \x1b[1m${context.twinName}\x1b[0m ${result.status === "started" ? "ready" : "already running"}`);
+  print(`  \x1b[2m  project: ${context.projectName}\x1b[0m`);
+  print(`  \x1b[2m  cwd:     ${context.projectPath}\x1b[0m`);
+  print(`  \x1b[2m  tmux:    ${result.record.tmuxSession}\x1b[0m`);
+  if (context.nameSource !== "flag") {
+    print(`  \x1b[2m  name:    inferred from ${context.nameSource}\x1b[0m`);
+  }
+  if (context.task) {
+    print(`  \x1b[2m  task:    ${context.task}\x1b[0m`);
+  }
+  print("");
+
+  if (hasFlag("--no-view")) {
+    print("  \x1b[1mUseful commands:\x1b[0m");
+    print(`    tmux attach -t ${result.record.tmuxSession}        \x1b[2m# peek at the twin\x1b[0m`);
+    print(`    openscout relay twin view ${context.twinName}      \x1b[2m# focused relay monitor\x1b[0m`);
+    print(`    openscout relay ask --via codex --twin ${context.twinName} \"status?\"\n`);
+    return;
+  }
+
+  print(`  \x1b[2mOpening relay monitor focused on @${context.twinName}...\x1b[0m\n`);
+  await openTwinFocusedTui(context.twinName, context.projectPath);
+}
+
+async function relayTwinView() {
+  if (hasFlag("--help") || hasFlag("-h")) {
+    print("\n  openscout relay twin view [name|path] [--no-tmux]\n");
+    print("  Opens the relay monitor focused on the inferred twin for this project, or on the named twin.\n");
+    return;
+  }
+
+  const viewIdx = args.indexOf("view");
+  const targetArg = viewIdx !== -1 && args[viewIdx + 1] && !args[viewIdx + 1].startsWith("--")
+    ? args[viewIdx + 1]
+    : undefined;
+  const looksLikePath = !!targetArg && (
+    targetArg === "." ||
+    targetArg.startsWith("/") ||
+    targetArg.startsWith("~")
+  );
+
+  const existing = await resolveRelayPaths();
+  const hub = existing?.hub ?? await getGlobalRelayDir();
+  await ensureRelayBootstrap(hub, process.cwd());
+
+  if (!targetArg || looksLikePath) {
+    const context = await resolveTwinContext(targetArg);
+    await openTwinFocusedTui(context.twinName, context.projectPath);
+    return;
+  }
+
+  await openTwinFocusedTui(normalizeTwinName(targetArg), process.cwd());
+}
+
+async function relayTwinTick() {
+  if (hasFlag("--help") || hasFlag("-h")) {
+    print("\n  openscout relay twin tick <name> [--reason <text>]\n");
+    print("  Sends a proactive tick to a registered twin without waiting for an inbound ask.\n");
+    return;
+  }
+
+  const { hub } = await requireRelay();
+  const tickIdx = args.indexOf("tick");
+  const twinName = tickIdx !== -1 ? args[tickIdx + 1] : undefined;
+
+  if (!twinName || twinName.startsWith("--")) {
+    print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay twin tick <name> [--reason <text>]\n");
+    process.exit(1);
+  }
+
+  const reason = getFlagText("--reason") ?? "manual twin tick";
+  const ok = await getProjectTwinRuntime(hub).tickProjectTwin(twinName, reason);
+
+  printBrand();
+  if (!ok) {
+    print(`  \x1b[31m✗\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is not available for ticking\n`);
+    process.exit(1);
+  }
+
+  print(`  \x1b[32m✓\x1b[0m Ticked \x1b[1m${twinName}\x1b[0m`);
+  print(`  \x1b[2m  reason: ${reason}\x1b[0m\n`);
+}
+
+async function relayTwin() {
+  const sub = args[2];
+
+  switch (sub) {
+    case "up":
+      await relayTwinUp();
+      break;
+    case "view":
+      await relayTwinView();
+      break;
+    case "ps":
+      await relayPs();
+      break;
+    case "down":
+      await relayDown();
+      break;
+    case "ask":
+      await relayAsk();
+      break;
+    case "tick":
+      await relayTwinTick();
+      break;
+    case "--help":
+    case "-h":
+    case undefined:
+      relayTwinHelp();
+      break;
+    default:
+      print(`\n  \x1b[31m✗\x1b[0m Unknown relay twin command: ${sub}\n`);
+      relayTwinHelp();
+      process.exit(1);
   }
 }
 
 async function relayUp() {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const os = await import("node:os");
-  const { execSync } = await import("node:child_process");
-  await requireRelay();
+  const { hub } = await requireRelay();
+  const twinRuntime = getProjectTwinRuntime(hub);
 
   // Parse: relay up <path-or-name> [--name <alias>] [--task <task>]
   const upIdx = args.indexOf("up");
@@ -1709,7 +1824,7 @@ async function relayUp() {
   }
 
   // Resolve project path (bare names use projectRoot from config)
-  let projectPath = targetArg === "." ? process.cwd() : await resolveProjectPath(targetArg);
+  const projectPath = targetArg === "." ? process.cwd() : await resolveProjectPath(targetArg);
 
   // Verify directory exists
   try {
@@ -1729,108 +1844,92 @@ async function relayUp() {
   // Parse optional task
   const taskIdx = args.indexOf("--task");
   const task = taskIdx !== -1 ? args.slice(taskIdx + 1).filter((a) => !a.startsWith("--")).join(" ") : "";
+  const result = await twinRuntime.startProjectTwin({
+    hub,
+    projectPath,
+    twinName,
+    task,
+  });
 
-  const tmuxSession = `relay-${twinName}`;
-
-  // Check if already running
-  if (await isTmuxSessionAlive(tmuxSession)) {
-    print(`\n  \x1b[33m!\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is already running (tmux: ${tmuxSession})`);
+  if (result.status === "already_running") {
+    print(`\n  \x1b[33m!\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is already running (tmux: ${result.record.tmuxSession})`);
     print(`  \x1b[2mUse: openscout relay down ${twinName}\x1b[0m\n`);
     process.exit(1);
   }
 
-  // Build the enrollment system prompt
-  const hub = await getGlobalRelayDir();
-  const hubShort = hub.replace(os.homedir(), "~");
-  const logPath = path.join(hub, "channel.log");
-
-  const systemPrompt = [
-    `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
-    ``,
-    `You have full access to the codebase at ${projectPath}.`,
-    `There is a global relay channel at ${hubShort}/channel.log shared by all agents.`,
-    ``,
-    `Your job:`,
-    `  - Respond to @${twinName} mentions from other agents`,
-    `  - Answer questions about this project's code, architecture, and status`,
-    `  - Coordinate with other agents when they need info from this project`,
-    `  - Run commands, check code, and provide accurate answers`,
-    ``,
-    `Relay commands:`,
-    `  openscout relay send --as ${twinName} "your message"   — send a message`,
-    `  openscout relay read                                   — check recent messages`,
-    `  openscout relay who                                    — see who's active`,
-    ``,
-    `Rules:`,
-    `  - Always reply via relay send so other agents see your response`,
-    `  - Be specific: include file paths, line numbers, what you found`,
-    `  - Keep messages under 200 chars unless detailed info was requested`,
-    `  - Check relay read for context before responding`,
-    task ? `\nYour primary task: ${task}` : "",
-  ].filter(Boolean).join("\n");
-
-  // Create the tmux session with claude
-  printBrand();
-  print(`  Spawning twin \x1b[1m${twinName}\x1b[0m...\n`);
-
-  // Write system prompt + launcher to files (avoids shell quoting hell)
-  const twinDir = path.join(hub, "twins");
-  await fs.mkdir(twinDir, { recursive: true });
-  const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
-  await fs.writeFile(promptFile, systemPrompt);
-
-  const initialMsg = task
-    ? `You are now online as a relay twin. Your task: ${task}. Announce yourself on the relay and start working.`
-    : `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
-
-  const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
-  await fs.writeFile(initialFile, initialMsg);
-
-  // Launcher: starts Claude interactively, then sends initial message after startup
-  const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
-  await fs.writeFile(launchScript, [
-    `#!/bin/bash`,
-    `cd ${JSON.stringify(projectPath)}`,
-    `# Send initial message after Claude starts (background)`,
-    `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-    `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
-  ].join("\n") + "\n");
-  await fs.chmod(launchScript, 0o755);
-
-  // Create detached tmux session running the launcher
-  execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
-
-  // Save to twins registry
-  const twins = await loadTwins();
-  twins[twinName] = {
-    project: projectName,
-    tmuxSession,
-    cwd: projectPath,
-    startedAt: Math.floor(Date.now() / 1000),
-    systemPrompt: task || undefined,
-  };
-  await saveTwins(twins);
-
-  // Log to channel
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
-
   print(`  \x1b[32m✓\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is alive`);
-  print(`  \x1b[2m  tmux: ${tmuxSession}\x1b[0m`);
-  print(`  \x1b[2m  cwd:  ${projectPath}\x1b[0m`);
+  print(`  \x1b[2m  runtime: ${result.record.runtime}\x1b[0m`);
+  print(`  \x1b[2m  tmux: ${result.record.tmuxSession}\x1b[0m`);
+  print(`  \x1b[2m  cwd:  ${result.record.projectRoot}\x1b[0m`);
   if (task) print(`  \x1b[2m  task: ${task}\x1b[0m`);
   print("");
   print("  \x1b[1mUseful commands:\x1b[0m");
-  print(`    tmux attach -t ${tmuxSession}        \x1b[2m# peek at the twin\x1b[0m`);
+  print(`    tmux attach -t ${result.record.tmuxSession}        \x1b[2m# peek at the twin\x1b[0m`);
   print(`    openscout relay send "@${twinName} hey"  \x1b[2m# talk to it\x1b[0m`);
   print(`    openscout relay ps                    \x1b[2m# check all twins\x1b[0m`);
   print(`    openscout relay down ${twinName}          \x1b[2m# stop it\x1b[0m\n`);
 }
 
-async function relayDown() {
+async function relayCompanion() {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const { execSync } = await import("node:child_process");
-  await requireRelay();
+  const existing = await resolveRelayPaths();
+  const hub = existing?.hub ?? await getGlobalRelayDir();
+  await ensureRelayBootstrap(hub, process.cwd());
+  const twinRuntime = getProjectTwinRuntime(hub);
+  const config = await loadRelayConfigForHub(hub);
+
+  const companionIdx = args.indexOf("companion");
+  const targetArg = companionIdx !== -1 && args[companionIdx + 1] && !args[companionIdx + 1].startsWith("--")
+    ? args[companionIdx + 1]
+    : ".";
+
+  const projectPath = targetArg === "." ? process.cwd() : await resolveProjectPath(targetArg);
+  try {
+    const stat = await fs.stat(projectPath);
+    if (!stat.isDirectory()) throw new Error("not a directory");
+  } catch {
+    print(`\n  \x1b[31m✗\x1b[0m Not a directory: ${targetArg}\n`);
+    process.exit(1);
+  }
+
+  const projectName = path.basename(projectPath);
+  const nameIdx = args.indexOf("--name");
+  const twinName = nameIdx !== -1 ? args[nameIdx + 1] : resolveUserTwinName(config);
+  const taskIdx = args.indexOf("--task");
+  const task = taskIdx !== -1 ? args.slice(taskIdx + 1).filter((a) => !a.startsWith("--")).join(" ") : "";
+
+  config.userTwin = twinName;
+  await saveRelayConfigForHub(hub, config);
+
+  const result = await twinRuntime.startProjectTwin({
+    hub,
+    projectPath,
+    twinName,
+    task,
+  });
+
+  printBrand();
+  print(`  \x1b[32m✓\x1b[0m User twin: \x1b[1m${twinName}\x1b[0m`);
+  print(`  \x1b[2m  project: ${projectName}\x1b[0m`);
+  print(`  \x1b[2m  cwd:     ${projectPath}\x1b[0m`);
+  print(`  \x1b[2m  runtime: ${result.record.runtime}\x1b[0m`);
+  if (task) print(`  \x1b[2m  task:    ${task}\x1b[0m`);
+
+  if (result.status === "already_running") {
+    print(`  \x1b[33m!\x1b[0m Twin is already running (tmux: ${result.record.tmuxSession})`);
+  } else {
+    print(`  \x1b[32m✓\x1b[0m Twin started (tmux: ${result.record.tmuxSession})`);
+  }
+
+  print("");
+  print(`  \x1b[2mUnaddressed TUI voice messages will route to @${twinName}.\x1b[0m`);
+  print(`  \x1b[2mUse: openscout relay ask --via codex --twin ${twinName} \"status?\"\x1b[0m\n`);
+}
+
+async function relayDown() {
+  const { hub } = await requireRelay();
+  const twinRuntime = getProjectTwinRuntime(hub);
 
   const downIdx = args.indexOf("down");
   const targetName = downIdx !== -1 ? args[downIdx + 1] : undefined;
@@ -1842,38 +1941,28 @@ async function relayDown() {
 
   // Check --all flag
   if (targetName === "--all") {
-    const twins = await loadTwins();
-    const names = Object.keys(twins);
-    if (names.length === 0) {
+    const results = await twinRuntime.stopAllProjectTwins();
+    if (results.length === 0) {
       print("\n  \x1b[2mNo twins to stop.\x1b[0m\n");
       return;
     }
 
     printBrand();
-    for (const name of names) {
-      const twin = twins[name];
-      try {
-        execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
-        print(`  \x1b[32m✓\x1b[0m Stopped \x1b[1m${name}\x1b[0m`);
-      } catch {
-        print(`  \x1b[2m○\x1b[0m ${name} was already stopped`);
+    for (const result of results) {
+      if (result.status === "stopped") {
+        print(`  \x1b[32m✓\x1b[0m Stopped \x1b[1m${result.twinName}\x1b[0m`);
+      } else {
+        print(`  \x1b[2m○\x1b[0m ${result.twinName} was already stopped`);
       }
     }
-
-    // Clear registry
-    await saveTwins({});
-
-    const hub = await getGlobalRelayDir();
-    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all twins stopped" });
 
     print("");
     return;
   }
 
-  const twins = await loadTwins();
-  const twin = twins[targetName];
-
-  if (!twin) {
+  const result = await twinRuntime.stopProjectTwin(targetName);
+  if (result.status === "not_found") {
+    const twins = await twinRuntime.loadTwins();
     print(`\n  \x1b[31m✗\x1b[0m No twin named \x1b[1m${targetName}\x1b[0m.`);
     const names = Object.keys(twins);
     if (names.length > 0) {
@@ -1883,55 +1972,32 @@ async function relayDown() {
     process.exit(1);
   }
 
-  // Kill tmux session
-  try {
-    execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
-    print(`\n  \x1b[32m✓\x1b[0m Stopped twin \x1b[1m${targetName}\x1b[0m (tmux: ${twin.tmuxSession})`);
-  } catch {
+  if (result.status === "stopped") {
+    print(`\n  \x1b[32m✓\x1b[0m Stopped twin \x1b[1m${targetName}\x1b[0m (tmux: ${result.record?.tmuxSession ?? "unknown"})`);
+  } else {
     print(`\n  \x1b[2m○\x1b[0m Twin \x1b[1m${targetName}\x1b[0m tmux session was already gone.`);
   }
-
-  // Remove from registry
-  delete twins[targetName];
-  await saveTwins(twins);
-
-  // Log to channel
-  const hub = await getGlobalRelayDir();
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: targetName, type: "SYS", body: "twin stopped" });
 
   print("");
 }
 
 async function relayPs() {
-  const { execSync } = await import("node:child_process");
-  await requireRelay();
-
-  const twins = await loadTwins();
-  const names = Object.keys(twins);
+  const { hub } = await requireRelay();
+  const twinRuntime = getProjectTwinRuntime(hub);
+  const twins = await twinRuntime.listProjectTwins();
 
   printBrand();
   print("  \x1b[1mTwins\x1b[0m\n");
 
-  if (names.length === 0) {
+  if (twins.length === 0) {
     print("  \x1b[2m(no twins running)\x1b[0m");
     print("  \x1b[2mSpawn one: openscout relay up ~/dev/my-project\x1b[0m\n");
     return;
   }
 
-  const now = Math.floor(Date.now() / 1000);
-
-  for (const name of names) {
-    const twin = twins[name];
-    const alive = await isTmuxSessionAlive(twin.tmuxSession);
-    const status = alive ? "\x1b[32m●\x1b[0m" : "\x1b[31m✗\x1b[0m";
-    const uptime = now - twin.startedAt;
-    const uptimeStr = uptime < 60
-      ? `${uptime}s`
-      : uptime < 3600
-        ? `${Math.floor(uptime / 60)}m`
-        : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
-
-    print(`  ${status} \x1b[1m${name}\x1b[0m  \x1b[2m${twin.project} · up ${uptimeStr} · tmux:${twin.tmuxSession}\x1b[0m`);
+  for (const twin of twins) {
+    const status = twin.alive ? "\x1b[32m●\x1b[0m" : "\x1b[31m✗\x1b[0m";
+    print(`  ${status} \x1b[1m${twin.twinId}\x1b[0m  \x1b[2m${twin.project} · up ${formatTwinUptime(twin.uptimeSeconds)} · tmux:${twin.tmuxSession}\x1b[0m`);
 
     if (twin.systemPrompt) {
       const taskPreview = twin.systemPrompt.length > 60 ? twin.systemPrompt.slice(0, 60) + "…" : twin.systemPrompt;
@@ -1940,16 +2006,8 @@ async function relayPs() {
   }
   print("");
 
-  // Clean up dead twins
-  let cleaned = false;
-  for (const name of names) {
-    if (!await isTmuxSessionAlive(twins[name].tmuxSession)) {
-      delete twins[name];
-      cleaned = true;
-    }
-  }
-  if (cleaned) {
-    await saveTwins(twins);
+  const removed = await twinRuntime.cleanupDeadTwins();
+  if (removed.length > 0) {
     print("  \x1b[2m(cleaned up dead twins from registry)\x1b[0m\n");
   }
 }
@@ -1961,17 +2019,16 @@ async function relayStatus() {
 
   const hub = await getGlobalRelayDir();
   const hubShort = hub.replace(os.homedir(), "~");
-  const logPath = path.join(hub, "channel.log");
+  const channelPath = getRelayEventsPath(hub);
 
   printBrand();
 
   // Check global hub
   try {
-    await fs.access(logPath);
-    const content = await fs.readFile(logPath, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    const msgCount = lines.filter((l) => l.split(" ")[2] === "MSG").length;
-    print(`  \x1b[32m✓\x1b[0m Hub: \x1b[1m${hubShort}/\x1b[0m  \x1b[2m(${lines.length} lines, ${msgCount} messages)\x1b[0m`);
+    await fs.access(channelPath);
+    const messages = await readRelayMessages(hub);
+    const msgCount = messages.filter((message) => message.type === "MSG").length;
+    print(`  \x1b[32m✓\x1b[0m Hub: \x1b[1m${hubShort}/\x1b[0m  \x1b[2m(${messages.length} events, ${msgCount} messages)\x1b[0m`);
   } catch {
     print(`  \x1b[31m✗\x1b[0m Hub: \x1b[2mnot initialized\x1b[0m`);
     print("\n  Run \x1b[1mopenscout relay init\x1b[0m to create the global hub.\n");
@@ -1995,9 +2052,101 @@ async function relayStatus() {
   print("");
 }
 
+async function relayBridgeBindings() {
+  const { hub } = await requireRelay();
+  const bindings = await readProjectedRelayChannelBindings(hub);
+  const entries = Object.values(bindings)
+    .sort((a, b) => a.updatedAt - b.updatedAt);
+
+  if (entries.length === 0) {
+    print("\n  \x1b[2mNo external channel bindings.\x1b[0m\n");
+    return;
+  }
+
+  print("");
+  for (const binding of entries) {
+    print(
+      `  ${binding.platform}:${binding.bindingId} -> @${binding.conversationId}  ` +
+      `thread=${binding.externalThreadId ?? "?"} channel=${binding.platform}:${binding.bindingId}`,
+    );
+  }
+  print("");
+}
+
+async function relayBridgeTelegram() {
+  const { hub } = await requireRelay();
+  const config = await loadRelayConfig();
+  const defaultTarget = getFlagValue("--to") || resolveUserTwinName(config);
+  const modeValue = getFlagValue("--mode");
+  const mode = modeValue === "polling" || modeValue === "webhook" || modeValue === "auto"
+    ? modeValue
+    : "auto";
+  const actor = getFlagValue("--as") || "bridge.telegram";
+  const once = hasFlag("--once");
+  let bridge: ReturnType<typeof createTelegramRelayBridge>;
+
+  try {
+    bridge = createTelegramRelayBridge({
+      hub,
+      actor,
+      defaultTarget,
+      mode,
+    });
+    await bridge.start();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    print(`\n  \x1b[31m✗\x1b[0m Telegram bridge failed to start: ${detail}\n`);
+    process.exit(1);
+  }
+
+  if (once) {
+    const delivered = await bridge.pumpPendingDeliveries();
+    print(`  \x1b[32m✓\x1b[0m Telegram bridge initialized (${bridge.runtimeMode})`);
+    print(`  \x1b[2mdefault target: ${defaultTarget}\x1b[0m`);
+    print(`  \x1b[2mdeliveries flushed: ${delivered}\x1b[0m`);
+    await bridge.stop();
+    return;
+  }
+
+  printBrand();
+  print(`  Telegram bridge online (${bridge.runtimeMode})`);
+  print(`  \x1b[2mdefault target: ${defaultTarget}\x1b[0m`);
+  print("  \x1b[2mMention the bot or DM it to create a bound Relay thread.\x1b[0m");
+  print("  \x1b[2mReply from Relay with --channel telegram:<bindingId>.\x1b[0m\n");
+
+  await new Promise<void>((resolve) => {
+    const shutdown = () => {
+      void bridge.stop().finally(resolve);
+    };
+
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+  });
+}
+
+async function relayBridge() {
+  const sub = args[2];
+
+  switch (sub) {
+    case "telegram":
+      await relayBridgeTelegram();
+      break;
+    case "bindings":
+      await relayBridgeBindings();
+      break;
+    default:
+      print("");
+      print("  openscout relay bridge telegram [--to <agent>] [--mode auto|polling|webhook]");
+      print("  openscout relay bridge telegram --once");
+      print("  openscout relay bridge bindings");
+      print("");
+      break;
+  }
+}
+
 function relayHelp() {
   printBrand();
-  print("  \x1b[1mRelay\x1b[0m — file-based agent chat\n");
+  print("  \x1b[1mRelay\x1b[0m — local-first agent communication\n");
   print("  \x1b[2mGlobal hub at ~/.openscout/relay/ — all projects share one channel.\x1b[0m\n");
   print("  \x1b[1mUsage:\x1b[0m");
   print("    openscout relay <command> [options]\n");
@@ -2015,24 +2164,38 @@ function relayHelp() {
   print("    watch --tmux <pane>            Stream + nudge a tmux pane on new messages");
   print("    who                            List agents and their last activity");
   print("    forget <name>                  Remove a stale agent from the list");
+  print("    bridge telegram                Run the Telegram Chat SDK bridge");
+  print("    bridge bindings                List external channel bindings");
   print("    tui                            Open the relay monitor dashboard");
+  print("    twin <command>                 Twin-native workflow (up/view/ps/down/tick)");
   print("    enroll --as <name>             Generate enrollment prompt for an agent");
+  print("    register --as <name>           Register this session for relay delivery");
   print("    broadcast <message>            Send + nudge all tmux panes (alias: bc)\n");
-  print("  \x1b[1mTwins:\x1b[0m \x1b[2m(headless agents in detached tmux sessions)\x1b[0m");
-  print("    up <path> [--name n] [--task t]  Spawn a twin for a project");
+  print("  \x1b[1mTwins:\x1b[0m \x1b[2m(persistent project-native runtimes)\x1b[0m");
+  print("    up <path> [--name n] [--task t]  Start a twin for a project");
+  print("    companion [path] [--name n]      Start or configure your user twin");
   print("    down <name>                      Stop a twin");
   print("    down --all                       Stop all twins");
   print("    ps                               List running twins");
-  print("    ask --twin <name> \"<question>\"   Ask a twin and wait for the answer\n");
+  print("    ask --twin <name> \"<question>\"   Invoke a twin and wait for the answer");
+  print("    ask --via claude ...              Route the ask via Claude Explore (Haiku)");
+  print("    ask --via codex ...               Route the ask via Codex exec\n");
   print("  \x1b[1mIdentity:\x1b[0m");
   print("    --as <name>                    Set agent name for this command");
   print("    OPENSCOUT_AGENT=<name>         Set agent name via env var\n");
   print("  \x1b[1mExamples:\x1b[0m");
   print("    openscout relay init                              # first time");
+  print("    openscout relay companion . --name dev            # set your user twin");
+  print("    openscout relay twin up                           # infer + launch this repo twin");
+  print("    openscout relay twin view                         # open the focused twin monitor");
   print("    openscout relay up ~/dev/lattices                 # spawn a twin");
   print("    openscout relay up ~/dev/arc --task \"run tests\"   # twin with a task");
   print("    openscout relay ps                                # check twins");
   print("    openscout relay send --as dev \"@lattices hey\"     # talk to a twin");
+  print("    openscout relay bridge telegram --to dev          # bridge Telegram -> Relay");
+  print("    openscout relay send --as dev --channel telegram:<bindingId> \"hello\"");
+  print("    openscout relay ask --via claude --twin lattices \"what changed?\"");
+  print("    openscout relay ask --via codex --twin lattices \"what changed?\"");
   print("    openscout relay down lattices                     # stop a twin");
   print("    openscout relay tui\n");
 }
@@ -2065,6 +2228,9 @@ async function relay() {
     case "enroll":
       await relayEnroll();
       break;
+    case "register":
+      await relayRegister();
+      break;
     case "forget":
       await relayForget();
       break;
@@ -2078,8 +2244,17 @@ async function relay() {
     case "status":
       await relayStatus();
       break;
+    case "bridge":
+      await relayBridge();
+      break;
+    case "twin":
+      await relayTwin();
+      break;
     case "up":
       await relayUp();
+      break;
+    case "companion":
+      await relayCompanion();
       break;
     case "down":
       await relayDown();
@@ -2089,6 +2264,9 @@ async function relay() {
       break;
     case "ask":
       await relayAsk();
+      break;
+    case "twin-action":
+      await relayTwinAction();
       break;
     case "tui": {
       const { execSync } = await import("node:child_process");

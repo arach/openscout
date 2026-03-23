@@ -3,108 +3,91 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { existsSync, readFileSync, appendFileSync, writeFileSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
+import { existsSync, readFileSync, appendFileSync, writeFileSync, statSync } from "fs";
+import { homedir, userInfo } from "os";
 import { join } from "path";
-import { execSync, spawn } from "child_process";
+import { execSync } from "child_process";
+import {
+  appendRelayEvent,
+  appendRelayMessage,
+  createRelayEventId,
+  DEFAULT_USER_TWIN,
+  getUserTwinName as resolveUserTwinName,
+  getRelayEventsPath,
+  readProjectedRelayAgentStatesSync,
+  readProjectedRelayFlightsSync,
+  readProjectedRelayMessagesSync,
+  readProjectedRelayTwinsSync,
+  type ProjectTwinRecord,
+  type ProjectedRelayMessage,
+} from "../core/index.js";
 
 
 // ── Flights (tracked requests with callbacks) ────────────────────────────────
 
-interface Flight {
-  id: string;
-  from: string;
-  to: string;
-  message: string;
-  sentAt: number;
-  status: "pending" | "completed";
-  response?: string;
-  respondedAt?: number;
-}
+type Flight = Awaited<ReturnType<typeof readProjectedRelayFlightsSync>>[number];
 
-function getFlightsPath(): string {
-  const os = require("os");
-  return join(os.homedir(), ".openscout", "relay", "flights.json");
-}
+async function createFlight(relayDir: string, from: string, to: string, message: string): Promise<Flight> {
+  const flightId = `f-${Date.now().toString(36)}`;
+  const ts = Math.floor(Date.now() / 1000);
 
-function loadFlights(): Flight[] {
-  try {
-    return JSON.parse(readFileSync(getFlightsPath(), "utf8"));
-  } catch {
-    return [];
-  }
-}
+  await appendRelayEvent(relayDir, {
+    id: createRelayEventId("flight"),
+    kind: "flight.opened",
+    v: 1,
+    ts,
+    actor: from,
+    payload: {
+      flightId,
+      to,
+      message,
+    },
+  });
 
-function saveFlights(flights: Flight[]): void {
-  writeFileSync(getFlightsPath(), JSON.stringify(flights, null, 2) + "\n");
-}
-
-function createFlight(from: string, to: string, message: string): Flight {
-  const flights = loadFlights();
-  const flight: Flight = {
-    id: `f-${Date.now().toString(36)}`,
+  return {
+    id: flightId,
     from,
     to,
     message,
-    sentAt: Math.floor(Date.now() / 1000),
+    sentAt: ts,
     status: "pending",
   };
-  flights.push(flight);
-  // Keep only last 50 flights
-  if (flights.length > 50) flights.splice(0, flights.length - 50);
-  saveFlights(flights);
-  return flight;
-}
-
-function resolveFlights(messages: RelayMessage[], tuiName: string): Flight[] {
-  const flights = loadFlights();
-  let changed = false;
-
-  for (const flight of flights) {
-    if (flight.status !== "pending") continue;
-
-    // Look for a reply from the target agent that mentions the requester
-    for (const msg of messages) {
-      if (
-        msg.type === "MSG" &&
-        msg.from === flight.to &&
-        msg.timestamp > flight.sentAt &&
-        (msg.body.includes(`@${flight.from}`) || msg.from === flight.to)
-      ) {
-        flight.status = "completed";
-        flight.response = msg.body;
-        flight.respondedAt = msg.timestamp;
-        changed = true;
-        break;
-      }
-    }
-  }
-
-  // Auto-expire flights older than 5 minutes
-  const now = Math.floor(Date.now() / 1000);
-  for (const flight of flights) {
-    if (flight.status === "pending" && (now - flight.sentAt) > 300) {
-      flight.status = "completed";
-      flight.response = "(expired)";
-      flight.respondedAt = now;
-      changed = true;
-    }
-  }
-
-  if (changed) saveFlights(flights);
-  return flights;
 }
 
 // ── Vox Voice Integration ────────────────────────────────────────────────────
 
-let voxClient: any = null;
+interface VoxSessionEvent {
+  text?: string;
+}
+
+interface VoxLiveSessionLike {
+  start(params?: Record<string, unknown>): Promise<unknown>;
+  stop(): Promise<void>;
+  on(event: "partial", handler: (event: VoxSessionEvent) => void): void;
+  on(event: "final", handler: (event: VoxSessionEvent) => void): void;
+  on(event: "error", handler: () => void): void;
+}
+
+interface VoxClientLike {
+  connected: boolean;
+  connect(): Promise<void>;
+  disconnect(): void;
+  createLiveSession(): VoxLiveSessionLike;
+}
+
+type VoxClientConstructor = new (options: { clientId: string }) => VoxClientLike;
+
+let voxClient: VoxClientLike | null = null;
 let voxAvailable = false;
 
-let VoxClientClass: any = null;
+let VoxClientClass: VoxClientConstructor | null = null;
 
 async function initVox(): Promise<boolean> {
   try {
     if (!VoxClientClass) {
-      const mod = await import(join(process.env.HOME || "~", "dev", "vox", "packages", "client", "src", "index.ts"));
+      const mod = await import(join(process.env.HOME || "~", "dev", "vox", "packages", "client", "src", "index.ts")) as {
+        VoxClient: VoxClientConstructor;
+      };
       VoxClientClass = mod.VoxClient;
     }
     // Always create a fresh client to avoid stale socket state
@@ -118,85 +101,9 @@ async function initVox(): Promise<boolean> {
   }
 }
 
-// ── TTS (audio output for the voice channel) ────────────────────────────────
-
-interface RelayChannelConfig {
-  audio: boolean;
-  voice?: string;
-}
-
-interface RelayConfig {
-  channels?: Record<string, RelayChannelConfig>;
-  defaultVoice?: string;
-  pronunciations?: Record<string, string>;
-}
-
-function loadRelayConfig(relayDir: string): RelayConfig {
-  try {
-    return JSON.parse(readFileSync(join(relayDir, "config.json"), "utf8"));
-  } catch {
-    return {};
-  }
-}
-
-let speakingNow = false;
-
-function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?: () => void): void {
-  const config = loadRelayConfig(relayDir);
-  const voiceCh = config.channels?.voice;
-  if (!voiceCh?.audio) return;
-
-  const apiKey = process.env.OPENAI_API_KEY || (config as any).openaiApiKey || null;
-  if (!apiKey) return;
-
-  let clean = text.replace(/@[\w.-]+\s*/g, "").trim();
-  if (!clean) return;
-
-  // Apply pronunciation overrides
-  if (config.pronunciations) {
-    for (const [word, phonetic] of Object.entries(config.pronunciations)) {
-      clean = clean.replace(new RegExp(`\\b${word}\\b`, "gi"), phonetic);
-    }
-  }
-
-  const voice = voiceCh.voice || config.defaultVoice || "nova";
-
-  speakingNow = true;
-  onStart?.();
-
-  fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "tts-1", voice, input: clean, response_format: "pcm", speed: 1.1 }),
-  }).then(async (res) => {
-    if (!res.ok || !res.body) { speakingNow = false; onEnd?.(); return; }
-
-    const player = spawn("ffplay", [
-      "-nodisp", "-autoexit", "-loglevel", "quiet",
-      "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
-    ], { stdio: ["pipe", "ignore", "ignore"] });
-
-    player.on("close", () => { speakingNow = false; onEnd?.(); });
-
-    const reader = res.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      player.stdin.write(value);
-    }
-    player.stdin.end();
-  }).catch(() => { speakingNow = false; onEnd?.(); });
-}
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface RelayMessage {
-  id: number;
-  timestamp: number;
-  from: string;
-  type: "MSG" | "ACK" | "SYS";
-  body: string;
-}
+type RelayMessage = ProjectedRelayMessage;
 
 interface AgentInfo {
   name: string;
@@ -213,7 +120,15 @@ interface DbEntry {
   indexedAt: string;
 }
 
-type ActiveTab = "chat" | "agents" | "stats" | "voice";
+type ActiveTab = "chat" | "agents" | "twin" | "stats" | "voice";
+
+function getCliFlagValue(flag: string): string | null {
+  const idx = process.argv.indexOf(flag);
+  if (idx === -1) return null;
+  const value = process.argv[idx + 1];
+  if (!value || value.startsWith("--")) return null;
+  return value;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -246,11 +161,16 @@ function pad(s: string, width: number): string {
   return s + " ".repeat(Math.max(width - s.length, 0));
 }
 
+function messageInvolvesTwin(message: RelayMessage, twinName: string): boolean {
+  if (message.from === twinName) return true;
+  if (message.to?.includes(twinName)) return true;
+  return message.rawBody.includes(`@${twinName}`);
+}
+
 // ── Relay Data ────────────────────────────────────────────────────────────────
 
 function findRelayDir(): string | null {
-  const os = require("os");
-  const homedir = os.homedir();
+  const home = homedir();
 
   // 1. Check local relay.json link
   const localLink = join(process.cwd(), ".openscout", "relay.json");
@@ -258,49 +178,38 @@ function findRelayDir(): string | null {
     try {
       const config = JSON.parse(readFileSync(localLink, "utf8"));
       if (config.hub) {
-        const hub = config.hub.replace(/^~/, homedir);
-        if (existsSync(join(hub, "channel.log"))) return hub;
+        const hub = config.hub.replace(/^~/, home);
+        if (existsSync(getRelayEventsPath(hub)) || existsSync(join(hub, "channel.log"))) return hub;
       }
     } catch { /* fall through */ }
   }
 
   // 2. Check global hub
-  const globalHub = join(homedir, ".openscout", "relay");
-  if (existsSync(join(globalHub, "channel.log"))) return globalHub;
+  const globalHub = join(home, ".openscout", "relay");
+  if (existsSync(getRelayEventsPath(globalHub)) || existsSync(join(globalHub, "channel.log"))) return globalHub;
 
   // 3. Legacy: check local .openscout/relay/
   const localRelay = join(process.cwd(), ".openscout", "relay");
-  if (existsSync(join(localRelay, "channel.log"))) return localRelay;
+  if (existsSync(getRelayEventsPath(localRelay)) || existsSync(join(localRelay, "channel.log"))) return localRelay;
 
   return null;
 }
 
-function parseLogLine(line: string, id: number): RelayMessage | null {
-  const parts = line.split(" ");
-  if (parts.length < 3) return null;
-  const [tsStr, from, type, ...rest] = parts;
-  const timestamp = Number(tsStr);
-  if (!Number.isFinite(timestamp)) return null;
-  return {
-    id,
-    timestamp,
-    from,
-    type: type as RelayMessage["type"],
-    body: rest.join(" "),
-  };
+function readAllMessages(relayDir: string): RelayMessage[] {
+  return readProjectedRelayMessagesSync(relayDir);
 }
 
-function readAllMessages(logPath: string): RelayMessage[] {
-  if (!existsSync(logPath)) return [];
-  try {
-    return readFileSync(logPath, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line, i) => parseLogLine(line, i + 1))
-      .filter((m): m is RelayMessage => m !== null);
-  } catch {
-    return [];
-  }
+function getConfiguredUserTwinName(relayDir: string): string {
+  return resolveUserTwinName(loadRelayConfigSyncForHub(relayDir));
+}
+
+function postRelaySystemMessage(relayDir: string, from: string, body: string): void {
+  void appendRelayMessage(relayDir, {
+    ts: Math.floor(Date.now() / 1000),
+    from,
+    type: "SYS",
+    body,
+  });
 }
 
 const ONLINE_THRESHOLD = 600; // 10 minutes
@@ -368,19 +277,6 @@ function syncToDb(relayDir: string, messages: RelayMessage[]): void {
   appendFileSync(dbPath, lines);
 }
 
-function readDb(relayDir: string): DbEntry[] {
-  const dbPath = getDbPath(relayDir);
-  if (!existsSync(dbPath)) return [];
-  try {
-    return readFileSync(dbPath, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as DbEntry);
-  } catch {
-    return [];
-  }
-}
-
 // ── Colors ────────────────────────────────────────────────────────────────────
 
 const C = {
@@ -399,7 +295,7 @@ const C = {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFlight }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean; flightsInFlight?: number }) {
+function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, focusTwinName }: { tab: ActiveTab; agentCount: number; msgCount: number; voiceState?: string; isSpeaking?: boolean; focusTwinName?: string }) {
   const [clock, setClock] = useState(ts());
 
   useEffect(() => {
@@ -407,14 +303,14 @@ function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFl
     return () => clearInterval(iv);
   }, []);
 
-  const tabs: ActiveTab[] = ["chat", "agents", "stats", "voice"];
+  const tabs: ActiveTab[] = ["chat", "agents", "twin", "stats", "voice"];
 
   return (
     <box flexDirection="row" justifyContent="space-between" padding={1} height={3}>
       <box flexDirection="row" gap={1}>
         <text fg={C.accent}><strong>◆</strong></text>
         <text fg={C.text}><strong> RELAY </strong></text>
-        <text fg={C.dim}>monitor</text>
+        <text fg={C.dim}>{focusTwinName ? `focus @${focusTwinName}` : "monitor"}</text>
         <text fg={C.dim}>│</text>
         {tabs.map((t) => {
           const label = t === "voice" && voiceState === "recording" ? `● ${t}`
@@ -449,16 +345,18 @@ function isNoisySys(msg: RelayMessage): boolean {
 
 function ChatPanel({
   messages,
-  selectedId,
   scrollOffset,
   maxVisible,
   width,
+  title = "Relay",
+  emptyText = "No messages yet. Waiting for relay activity...",
 }: {
   messages: RelayMessage[];
-  selectedId: number;
   scrollOffset: number;
   maxVisible: number;
   width: number;
+  title?: string;
+  emptyText?: string;
 }) {
   const filtered = messages.filter((m) => !isNoisySys(m));
 
@@ -471,9 +369,9 @@ function ChatPanel({
   const bodyWidth = Math.max(20, width - 35);
 
   return (
-    <box flexDirection="column" flexGrow={1} border borderStyle="rounded" borderColor={C.border} padding={1}>
+    <box flexDirection="column" flexGrow={1} border borderStyle="rounded" borderColor={C.border} padding={1} title={title}>
       {visible.length === 0 ? (
-        <text fg={C.dim}>No messages yet. Waiting for relay activity...</text>
+        <text fg={C.dim}>{emptyText}</text>
       ) : (
         visible.map((msg) => {
           const time = fmtTime(msg.timestamp);
@@ -502,14 +400,8 @@ function ChatPanel({
   );
 }
 
-function loadTwinsSync(): Record<string, { tmuxSession: string; project: string }> {
-  const os = require("os");
-  const twinsPath = join(os.homedir(), ".openscout", "relay", "twins.json");
-  try {
-    return JSON.parse(readFileSync(twinsPath, "utf8"));
-  } catch {
-    return {};
-  }
+function loadTwinsSync(relayDir: string): Record<string, ProjectTwinRecord> {
+  return readProjectedRelayTwinsSync(relayDir);
 }
 
 function isTwinAlive(tmuxSession: string): boolean {
@@ -560,15 +452,13 @@ function captureTwinActivity(tmuxSession: string): string {
 function AgentsPanel({ agents, selectedAgent, twins }: {
   agents: AgentStatus[];
   selectedAgent: number;
-  twins: Record<string, { tmuxSession: string; project: string }>;
+  twins: Record<string, ProjectTwinRecord>;
 }) {
   const alive = agents.filter((a) => a.status !== "forgotten");
   const forgotten = agents.filter((a) => a.status === "forgotten");
 
   const statusIcon = (s: AgentStatus["status"]) =>
     s === "online" ? "●" : s === "idle" ? "○" : "✗";
-  const statusColor = (s: AgentStatus["status"]) =>
-    s === "online" ? C.accent : s === "idle" ? C.muted : C.dim;
   const statusLabel = (a: AgentStatus) => {
     const twin = twins[a.name];
     if (twin && isTwinAlive(twin.tmuxSession)) return "twin ⏵";
@@ -618,7 +508,7 @@ function AgentsPanel({ agents, selectedAgent, twins }: {
   );
 }
 
-function StatsPanel({ messages, agents, dbEntries }: { messages: RelayMessage[]; agents: AgentInfo[]; dbEntries: number }) {
+function StatsPanel({ messages, agents, dbEntries, nowTs }: { messages: RelayMessage[]; agents: AgentInfo[]; dbEntries: number; nowTs: number }) {
   const msgOnly = messages.filter((m) => m.type === "MSG");
   const sysOnly = messages.filter((m) => m.type === "SYS");
   const onlineCount = agents.filter((a) => a.online).length;
@@ -629,9 +519,8 @@ function StatsPanel({ messages, agents, dbEntries }: { messages: RelayMessage[];
     .sort((a, b) => b.messages - a.messages);
 
   // Activity timeline — last 60 minutes in 6 buckets of 10m each
-  const now = Math.floor(Date.now() / 1000);
   const buckets = Array.from({ length: 6 }, (_, i) => {
-    const start = now - (6 - i) * 600;
+    const start = nowTs - (6 - i) * 600;
     const end = start + 600;
     return msgOnly.filter((m) => m.timestamp >= start && m.timestamp < end).length;
   });
@@ -683,6 +572,72 @@ function StatsPanel({ messages, agents, dbEntries }: { messages: RelayMessage[];
           })
         )}
       </box>
+    </box>
+  );
+}
+
+function TwinPanel({
+  twinName,
+  twin,
+  messages,
+  agents,
+  activeFlights,
+  scrollOffset,
+  maxVisible,
+  width,
+}: {
+  twinName: string;
+  twin?: ProjectTwinRecord;
+  messages: RelayMessage[];
+  agents: AgentStatus[];
+  activeFlights: Flight[];
+  scrollOffset: number;
+  maxVisible: number;
+  width: number;
+}) {
+  const relatedMessages = messages.filter((message) => messageInvolvesTwin(message, twinName));
+  const alive = twin ? isTwinAlive(twin.tmuxSession) : false;
+  const activity = twin && alive
+    ? captureTwinActivity(twin.tmuxSession)
+    : twin
+      ? "offline"
+      : "not registered";
+  const agent = agents.find((entry) => entry.name === twinName);
+  const pendingFlights = activeFlights.filter((flight) => flight.to === twinName).length;
+  const statusColor = alive ? C.accent : agent?.status === "online" ? C.yellow : C.dim;
+  const statusText = alive ? "twin online" : agent?.status === "online" ? "relay online" : "offline";
+
+  return (
+    <box flexDirection="column" flexGrow={1} gap={1}>
+      <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" title={`Twin @${twinName}`}>
+        <box flexDirection="row" gap={3}>
+          <text fg={C.dim}>status <span fg={statusColor}>{statusText}</span></text>
+          <text fg={C.dim}>msgs <span fg={C.text}>{relatedMessages.length}</span></text>
+          <text fg={C.dim}>pending <span fg={pendingFlights > 0 ? C.yellow : C.text}>{pendingFlights}</span></text>
+        </box>
+        {twin ? (
+          <>
+            <text fg={C.dim}>project <span fg={C.text}>{twin.project}</span></text>
+            <text fg={C.dim}>tmux <span fg={C.text}>{twin.tmuxSession}</span></text>
+            <text fg={C.dim}>cwd <span fg={C.text}>{twin.projectRoot}</span></text>
+          </>
+        ) : (
+          <>
+            <text fg={C.dim}>{`No twin record for @${twinName}.`}</text>
+            <text fg={C.dim}>Run `relay twin up` here.</text>
+          </>
+        )}
+        <text fg={C.dim}>activity <span fg={alive ? C.yellow : C.dim}>{activity}</span></text>
+      </box>
+
+      <ChatPanel
+        messages={relatedMessages}
+        scrollOffset={scrollOffset}
+        maxVisible={maxVisible}
+        width={width}
+        title={`Conversation @${twinName}`}
+        emptyText={`No relay traffic for @${twinName} yet.`}
+      />
     </box>
   );
 }
@@ -787,7 +742,7 @@ function VoicePanel({
       <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" title="Tips">
         <text fg={C.dim}>v  toggle recording from any tab</text>
         <text fg={C.dim}>Responses from @mentioned agents appear here and are spoken</text>
-        <text fg={C.dim}>Say "@system up dewey" to spawn twins by voice</text>
+        <text fg={C.dim}>{'Say "@system up <project>" to spawn twins by voice'}</text>
       </box>
     </box>
   );
@@ -796,25 +751,24 @@ function VoicePanel({
 // ── Agent Cockpit (persistent across all views) ──────────────────────────────
 
 function loadAgentStatesSync(relayDir: string): Record<string, string> {
-  try {
-    return JSON.parse(readFileSync(join(relayDir, "state.json"), "utf8"));
-  } catch {
-    return {};
-  }
+  const states = readProjectedRelayAgentStatesSync(relayDir);
+  return Object.fromEntries(
+    Object.entries(states).map(([agent, state]) => [agent, state.state]),
+  );
 }
 
-function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pendingCount, relayDir, width, recordingStart }: {
-  twins: Record<string, { tmuxSession: string; project: string }>;
+function AgentCockpit({ twins, agents, userTwinName, voiceState, isSpeaking, relayDir, width, recordingStart }: {
+  twins: Record<string, ProjectTwinRecord>;
   agents: AgentStatus[];
+  userTwinName: string;
   voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
   isSpeaking: boolean;
-  partialText: string;
   relayDir: string;
-  pendingCount: number;
   width: number;
   recordingStart: number | null;
 }) {
   const [frame, setFrame] = useState(0);
+  const [recordingNow, setRecordingNow] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isSpeaking && voiceState !== "recording") return;
@@ -823,19 +777,21 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   }, [isSpeaking, voiceState]);
 
   // Recording elapsed timer
-  const [elapsed, setElapsed] = useState("");
   useEffect(() => {
-    if (!recordingStart || voiceState === "idle") {
-      setElapsed("");
-      return;
-    }
-    const iv = setInterval(() => {
-      const s = Math.floor((Date.now() - recordingStart) / 1000);
-      const m = Math.floor(s / 60);
-      setElapsed(m > 0 ? `${m}:${String(s % 60).padStart(2, "0")}` : `0:${String(s).padStart(2, "0")}`);
-    }, 1000);
+    if (!recordingStart || voiceState === "idle") return;
+    const iv = setInterval(() => setRecordingNow(Date.now()), 1000);
     return () => clearInterval(iv);
   }, [recordingStart, voiceState]);
+
+  const elapsed = !recordingStart || voiceState === "idle"
+    ? ""
+    : (() => {
+        const seconds = Math.floor((Math.max(recordingNow ?? recordingStart, recordingStart) - recordingStart) / 1000);
+        const minutes = Math.floor(seconds / 60);
+        return minutes > 0
+          ? `${minutes}:${String(seconds % 60).padStart(2, "0")}`
+          : `0:${String(seconds).padStart(2, "0")}`;
+      })();
 
   // Braille wave animation (from Vox TUI)
   const BRAILLE = [" ", "⠁", "⠃", "⠇", "⡇", "⣇", "⣧", "⣷", "⣿"];
@@ -869,7 +825,7 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   }
 
   // Show non-twin online agents, but skip the TUI operator (that's you)
-  const tuiName = require("os").userInfo().username;
+  const tuiName = userInfo().username;
   for (const agent of agents) {
     if (twins[agent.name]) continue;
     if (agent.name === tuiName) continue;
@@ -879,28 +835,28 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
     }
   }
 
-  // Dev is always pinned at top; rest sorted by recency (most recent first)
-  // If dev is marked offline from twin check, but is online in the agents list, upgrade it
-  let devEntry = entries.find((e) => e.name === "dev");
-  if (!devEntry) {
-    const devAgent = agents.find((a) => a.name === "dev" && a.status === "online");
-    devEntry = devAgent
-      ? { name: "dev", activity: "online", status: "idle" as const }
-      : { name: "dev", activity: "offline", status: "offline" as const };
-  } else if (devEntry.status === "offline") {
-    const devAgent = agents.find((a) => a.name === "dev" && a.status === "online");
-    if (devAgent) {
-      devEntry = { name: "dev", activity: "online", status: "idle" as const };
+  // The configured user twin is always pinned at top.
+  // If the twin looks offline from tmux but still shows online in the agent list, prefer online.
+  let userTwinEntry = entries.find((e) => e.name === userTwinName);
+  if (!userTwinEntry) {
+    const userTwinAgent = agents.find((a) => a.name === userTwinName && a.status === "online");
+    userTwinEntry = userTwinAgent
+      ? { name: userTwinName, activity: "online", status: "idle" as const }
+      : { name: userTwinName, activity: "offline", status: "offline" as const };
+  } else if (userTwinEntry.status === "offline") {
+    const userTwinAgent = agents.find((a) => a.name === userTwinName && a.status === "online");
+    if (userTwinAgent) {
+      userTwinEntry = { name: userTwinName, activity: "online", status: "idle" as const };
     }
   }
-  const rest = entries.filter((e) => e.name !== "dev").sort((a, b) => {
+  const rest = entries.filter((e) => e.name !== userTwinName).sort((a, b) => {
     // Working agents first, then by name as tiebreaker
     const order = { working: 0, idle: 1, offline: 2 };
     return order[a.status] - order[b.status];
   });
 
   const maxRows = 5;
-  const otherSlots = maxRows - 1; // 1 slot reserved for dev
+  const otherSlots = maxRows - 1; // 1 slot reserved for the user twin
   const shownOthers = rest.slice(0, otherSlots);
   const hidden = rest.length - shownOthers.length;
 
@@ -915,7 +871,7 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
     return `${stars}  ${pad(name, 12)}  ${truncAct}`;
   };
 
-  const devIcon = devEntry.status === "working" ? "*" : devEntry.status === "idle" ? "o" : "x";
+  const userTwinIcon = userTwinEntry.status === "working" ? "*" : userTwinEntry.status === "idle" ? "o" : "x";
 
   // Inner width = total - border(2) - padding(2)
   const innerW = width - 4;
@@ -939,7 +895,7 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
 
   // Build agent rows
   const agentRows: string[] = [];
-  agentRows.push(buildRow(fmtAgent(devIcon, devEntry.name, devEntry.activity), micStr || undefined));
+  agentRows.push(buildRow(fmtAgent(userTwinIcon, userTwinEntry.name, userTwinEntry.activity), micStr || undefined));
   for (let i = 0; i < shownOthers.length; i++) {
     const e = shownOthers[i];
     const icon = e.status === "working" ? "*" : e.status === "idle" ? "o" : "x";
@@ -961,16 +917,17 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
 
 function StatusBar({ tab }: { tab: ActiveTab }) {
   const hints: Record<ActiveTab, string> = {
-    chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
-    agents: "↑↓ select  ⏎ peek  u up  d down  n nudge  tab switch  q quit",
-    stats: "v voice  tab switch  r refresh  x clear  q quit",
-    voice: "v record/stop  tab switch  q quit",
+    chat: "↑↓ scroll  c copy  v voice  tab  r  q",
+    agents: "↑↓ select  ⏎ peek  u/d  n nudge  tab  q",
+    twin: "⏎ peek  u/d  n nudge  tab  r  q",
+    stats: "v voice  tab  r  x clear  q",
+    voice: "v record  tab  q",
   };
 
   return (
     <box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1} height={2}>
       <text fg={C.dim}>{hints[tab]}</text>
-      <text fg={C.dim}>1 chat  2 agents  3 stats  4 voice</text>
+      <text fg={C.dim}>1 chat  2 ag  3 twin  4 stats  5 voice</text>
     </box>
   );
 }
@@ -978,26 +935,32 @@ function StatusBar({ tab }: { tab: ActiveTab }) {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
+  const requestedFocusTwin = getCliFlagValue("--focus-twin");
   const { width, height } = useTerminalDimensions();
-  const [tab, setTab] = useState<ActiveTab>("chat");
+  const [relayDir] = useState(() => findRelayDir() || "");
+  const [tab, setTab] = useState<ActiveTab>(requestedFocusTwin ? "twin" : "chat");
   const [messages, setMessages] = useState<RelayMessage[]>([]);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [dbEntries, setDbEntries] = useState(0);
+  const [statsNow, setStatsNow] = useState(() => Math.floor(Date.now() / 1000));
   const [selectedId, setSelectedId] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "recording" | "processing" | "error">("idle");
   const [recordingStart, setRecordingStart] = useState<number | null>(null);
   const [partialText, setPartialText] = useState("");
-  const [recentTranscriptions, setRecentTranscriptions] = useState<Array<{ text: string; timestamp: number }>>([]);
   const [voiceThread, setVoiceThread] = useState<VoiceThread[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(0);
-  const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
+  const [twins, setTwins] = useState<Record<string, ProjectTwinRecord>>({});
+  const [userTwinName, setUserTwinName] = useState(DEFAULT_USER_TWIN);
+  const [focusedTwinName, setFocusedTwinName] = useState(requestedFocusTwin || DEFAULT_USER_TWIN);
   const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
-  const voxSessionRef = useRef<any>(null);
+  const voxSessionRef = useRef<VoxLiveSessionLike | null>(null);
   const tuiNameRef = useRef<string>("");
+  const userTwinNameRef = useRef<string>(DEFAULT_USER_TWIN);
+  const focusedTwinNameRef = useRef<string>(requestedFocusTwin || DEFAULT_USER_TWIN);
   // Watermark: last message id we've spoken — anything above this is new
   const lastSpokenMsgRef = useRef<number>(0);
 
@@ -1007,18 +970,26 @@ function App() {
   const refresh = useCallback(() => {
     const relayDir = relayDirRef.current;
     if (!relayDir) return;
+    setStatsNow(Math.floor(Date.now() / 1000));
 
-    const logPath = join(relayDir, "channel.log");
-    const allMessages = readAllMessages(logPath);
+    const configuredUserTwin = getConfiguredUserTwinName(relayDir);
+    userTwinNameRef.current = configuredUserTwin;
+    setUserTwinName(configuredUserTwin);
+    const currentFocusTwin = requestedFocusTwin || configuredUserTwin;
+    focusedTwinNameRef.current = currentFocusTwin;
+    setFocusedTwinName(currentFocusTwin);
+
+    const allMessages = readAllMessages(relayDir);
     setMessages(allMessages);
-    setAgents(buildAgentMap(allMessages));
+    const agentMap = buildAgentMap(allMessages);
+    setAgents(agentMap);
 
     // Sync to JSONL database
     syncToDb(relayDir, allMessages);
     setDbEntries(allMessages.length);
 
     // Load twins registry and compute live activity
-    const currentTwins = loadTwinsSync();
+    const currentTwins = loadTwinsSync(relayDir);
     setTwins(currentTwins);
 
     // Auto-select newest message and reset scroll to bottom
@@ -1027,10 +998,16 @@ function App() {
       setScrollOffset(0);
     }
 
+    const visibleAgents = agentMap.filter((entry) => entry.status !== "forgotten");
+    const focusedAgentIndex = visibleAgents.findIndex((entry) => entry.name === currentFocusTwin);
+    if (focusedAgentIndex !== -1) {
+      setSelectedAgent(focusedAgentIndex);
+    }
+
     // Resolve flights
     const tuiName = tuiNameRef.current;
     if (tuiName) {
-      const flights = resolveFlights(allMessages, tuiName);
+      const flights = readProjectedRelayFlightsSync(relayDir);
       setActiveFlights(flights.filter((f) => f.status === "pending"));
     }
 
@@ -1041,12 +1018,12 @@ function App() {
       if (msg.id <= lastSpokenMsgRef.current) continue;
       if (msg.type !== "MSG") continue;
       if (msg.from === tuiName) continue; // don't speak your own messages
-      if (!msg.body.startsWith("[speak] ")) continue;
+      if (!msg.tags.includes("speak")) continue;
 
       newSpoken.push({
         role: "agent",
         from: msg.from,
-        text: msg.body.replace("[speak] ", ""),
+        text: msg.rawBody,
         timestamp: msg.timestamp,
       });
       lastSpokenMsgRef.current = msg.id;
@@ -1055,24 +1032,13 @@ function App() {
       setVoiceThread((prev) => [...prev, ...newSpoken]);
     }
 
-    // Read agent states from state.json — this is the source of truth
-    try {
-      const statePath = join(relayDir, "state.json");
-      if (existsSync(statePath)) {
-        const states: Record<string, string> = JSON.parse(readFileSync(statePath, "utf8"));
-        const anySpeaking = Object.values(states).some((s) => s === "speaking");
-        setIsSpeaking(anySpeaking);
-      } else {
-        setIsSpeaking(false);
-      }
-    } catch {
-      setIsSpeaking(false);
-    }
-  }, []);
+    const states = readProjectedRelayAgentStatesSync(relayDir);
+    const anySpeaking = Object.values(states).some((s) => s.state === "speaking");
+    setIsSpeaking(anySpeaking);
+  }, [requestedFocusTwin]);
 
   // Initial setup
   useEffect(() => {
-    const relayDir = findRelayDir();
     if (!relayDir) {
       console.error("No relay found. Run: openscout relay init");
       process.exit(1);
@@ -1080,46 +1046,48 @@ function App() {
     relayDirRef.current = relayDir;
 
     // TUI identity — the human operator
-    const logPath = join(relayDir, "channel.log");
+    const channelPath = getRelayEventsPath(relayDir);
     const asIdx = process.argv.indexOf("--as");
     const tuiName = asIdx !== -1 && process.argv[asIdx + 1]
       ? process.argv[asIdx + 1]
-      : process.env.OPENSCOUT_AGENT || require("os").userInfo().username;
+      : process.env.OPENSCOUT_AGENT || userInfo().username;
     tuiNameRef.current = tuiName;
-    const now = Math.floor(Date.now() / 1000);
-    appendFileSync(logPath, `${now} ${tuiName} SYS ${tuiName} monitoring the relay\n`);
+    postRelaySystemMessage(relayDir, tuiName, `${tuiName} monitoring the relay`);
 
     // Try to connect to Vox for voice input
     initVox().then((ok) => {
       if (!ok) setVoiceState("error");
     });
 
-    // Heartbeat — keep TUI and dev twin showing as online
+    const configuredUserTwin = getConfiguredUserTwinName(relayDir);
+    userTwinNameRef.current = configuredUserTwin;
+
+    // Heartbeat — keep TUI and user twin showing as online
     const heartbeatIv = setInterval(() => {
-      const t = Math.floor(Date.now() / 1000);
-      appendFileSync(logPath, `${t} ${tuiName} SYS heartbeat\n`);
-      // Also heartbeat for dev if it has an active twin
-      if (tuiName !== "dev") {
+      postRelaySystemMessage(relayDir, tuiName, "heartbeat");
+      const currentUserTwin = userTwinNameRef.current;
+      if (tuiName !== currentUserTwin) {
         try {
-          const tw = JSON.parse(readFileSync(join(relayDir, "twins.json"), "utf8"));
-          if (tw.dev && isTwinAlive(tw.dev.tmuxSession)) {
-            appendFileSync(logPath, `${t} dev SYS heartbeat\n`);
+          const tw = loadTwinsSync(relayDir);
+          const userTwin = tw[currentUserTwin];
+          if (userTwin && isTwinAlive(userTwin.tmuxSession)) {
+            postRelaySystemMessage(relayDir, currentUserTwin, "heartbeat");
           }
         } catch { /* noop */ }
       }
     }, ONLINE_THRESHOLD * 500); // halfway through threshold (5 min for 10 min threshold)
 
     // Set the spoken watermark to current message count so we don't speak old messages
-    const initialMessages = readAllMessages(join(relayDir, "channel.log"));
+    const initialMessages = readAllMessages(relayDir);
     lastSpokenMsgRef.current = initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].id : 0;
 
     // Initial load
-    refresh();
+    const initialRefresh = setTimeout(() => refresh(), 0);
 
     // Watch for changes using polling (more reliable than fs.watch for appends)
     const iv = setInterval(() => {
       try {
-        const stat = statSync(logPath);
+        const stat = statSync(channelPath);
         if (stat.size !== filePosRef.current) {
           filePosRef.current = stat.size;
           refresh();
@@ -1131,19 +1099,18 @@ function App() {
     const statusIv = setInterval(() => refresh(), 5000);
 
     return () => {
+      clearTimeout(initialRefresh);
       clearInterval(iv);
       clearInterval(statusIv);
       clearInterval(heartbeatIv);
-      const t = Math.floor(Date.now() / 1000);
-      appendFileSync(logPath, `${t} ${tuiName} SYS ${tuiName} stopped monitoring\n`);
+      postRelaySystemMessage(relayDir, tuiName, `${tuiName} stopped monitoring`);
     };
-  }, [refresh]);
+  }, [refresh, relayDir]);
 
   // Voice toggle
   const toggleVoice = useCallback(async () => {
     const relayDir = relayDirRef.current;
     if (!relayDir) return;
-    const logPath = join(relayDir, "channel.log");
     const tuiName = tuiNameRef.current;
 
     // If recording, stop
@@ -1170,25 +1137,30 @@ function App() {
         return;
       }
     }
+    const client = voxClient;
+    if (!client) {
+      setVoiceState("error");
+      return;
+    }
 
     setVoiceState("recording");
     setRecordingStart(Date.now());
     setPartialText("");
 
-    const session = voxClient.createLiveSession();
+    const session = client.createLiveSession();
     voxSessionRef.current = session;
 
-    session.on("partial", (event: any) => {
+    session.on("partial", (event: VoxSessionEvent) => {
       setPartialText(event.text || "");
     });
 
-    session.on("final", (event: any) => {
+    session.on("final", (event: VoxSessionEvent) => {
       let text = (event.text || "").trim();
       if (text) {
-        // If no @mention, route to default agent (dev twin)
+        // If no @mention, route to the configured user twin.
         const hasMention = /@[\w.-]+/.test(text);
         if (!hasMention) {
-          text = `@dev ${text}`;
+          text = `@${userTwinNameRef.current} ${text}`;
         }
 
         const now = Math.floor(Date.now() / 1000);
@@ -1197,8 +1169,14 @@ function App() {
         try {
           execSync(`openscout relay send --as ${tuiName} --channel voice ${JSON.stringify(text)}`, { stdio: "ignore" });
         } catch {
-          // Fallback: write directly to log
-          appendFileSync(logPath, `${now} ${tuiName} MSG ${text}\n`);
+          // Fallback: route directly through the shared Relay writer.
+          void appendRelayMessage(relayDir, {
+            ts: now,
+            from: tuiName,
+            type: "MSG",
+            body: text,
+            channel: "voice",
+          });
         }
 
         // Track @mentioned agents — we expect voice responses from them
@@ -1208,14 +1186,13 @@ function App() {
           for (const m of mentions) {
             const target = m.slice(1);
             if (target !== tuiName && target !== "system") {
-              createFlight(tuiName, target, text);
+              void createFlight(relayDirRef.current || relayDir, tuiName, target, text);
             }
           }
         }
 
         // Add to voice thread
         setVoiceThread((prev) => [...prev, { role: "you", from: tuiName, text, timestamp: now }]);
-        setRecentTranscriptions((prev) => [...prev, { text, timestamp: now }]);
         refresh();
       }
       setVoiceState("idle");
@@ -1248,7 +1225,7 @@ function App() {
 
     if (key.name === "tab") {
       setTab((prev) => {
-        const tabs: ActiveTab[] = ["chat", "agents", "stats", "voice"];
+        const tabs: ActiveTab[] = ["chat", "agents", "twin", "stats", "voice"];
         const dir = key.shift ? -1 : 1;
         return tabs[(tabs.indexOf(prev) + dir + tabs.length) % tabs.length];
       });
@@ -1256,8 +1233,9 @@ function App() {
 
     if (key.name === "1") setTab("chat");
     if (key.name === "2") setTab("agents");
-    if (key.name === "3") setTab("stats");
-    if (key.name === "4") setTab("voice");
+    if (key.name === "3") setTab("twin");
+    if (key.name === "4") setTab("stats");
+    if (key.name === "5") setTab("voice");
     if (key.name === "r") refresh();
 
     // Voice toggle — works from any tab
@@ -1340,8 +1318,10 @@ function App() {
             // No twin registered — check if there's a known project path
             // For now, just nudge via relay if the agent is online
             try {
-              const t = Math.floor(Date.now() / 1000);
-              appendFileSync(join(relayDirRef.current || "", "channel.log"), `${t} ${agent.name} SYS nudge\n`);
+              const relayDir = relayDirRef.current;
+              if (relayDir) {
+                postRelaySystemMessage(relayDir, agent.name, "nudge");
+              }
               refresh();
             } catch { /* noop */ }
           }
@@ -1370,13 +1350,67 @@ function App() {
           if (twin && isTwinAlive(twin.tmuxSession)) {
             try {
               execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
-              // Also write a heartbeat
-              const t = Math.floor(Date.now() / 1000);
-              appendFileSync(join(relayDirRef.current || "", "channel.log"), `${t} ${agent.name} SYS heartbeat\n`);
+              const relayDir = relayDirRef.current;
+              if (relayDir) {
+                postRelaySystemMessage(relayDir, agent.name, "heartbeat");
+              }
               refresh();
             } catch { /* noop */ }
           }
         }
+      }
+    }
+
+    if (tab === "twin") {
+      const twinName = focusedTwinNameRef.current;
+      const twin = twins[twinName];
+
+      if (key.name === "return" && twin && isTwinAlive(twin.tmuxSession)) {
+        const inTmux = !!process.env.TMUX;
+        if (inTmux) {
+          try {
+            execSync(`tmux display-popup -w 80% -h 80% -E "tmux attach -t ${twin.tmuxSession}"`);
+          } catch {
+            try {
+              execSync(`tmux new-window -n "${twinName}" "tmux attach -t ${twin.tmuxSession}"`);
+            } catch { /* noop */ }
+          }
+        } else {
+          try {
+            execSync(
+              `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${twin.tmuxSession}"' 2>/dev/null`
+            );
+          } catch {
+            try {
+              execSync(`tmux new-window -n "${twinName}" "tmux attach -t ${twin.tmuxSession}"`);
+            } catch { /* noop */ }
+          }
+        }
+      }
+
+      if (key.name === "u" && twin && !isTwinAlive(twin.tmuxSession)) {
+        try {
+          execSync(`openscout relay up ${JSON.stringify(twin.cwd)} --name ${twinName}`, { stdio: "ignore", timeout: 10000 });
+          refresh();
+        } catch { /* noop */ }
+      }
+
+      if (key.name === "d" && twin && isTwinAlive(twin.tmuxSession)) {
+        try {
+          execSync(`openscout relay down ${twinName}`, { stdio: "ignore", timeout: 5000 });
+          refresh();
+        } catch { /* noop */ }
+      }
+
+      if (key.name === "n" && twin && isTwinAlive(twin.tmuxSession)) {
+        try {
+          execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
+          const relayDir = relayDirRef.current;
+          if (relayDir) {
+            postRelaySystemMessage(relayDir, twinName, "heartbeat");
+          }
+          refresh();
+        } catch { /* noop */ }
       }
     }
 
@@ -1394,23 +1428,34 @@ function App() {
 
   return (
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
-      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
+      <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} focusTwinName={focusedTwinName} />
 
-      <AgentCockpit twins={twins} agents={agents} voiceState={voiceState} isSpeaking={isSpeaking} partialText={partialText} pendingCount={activeFlights.length} relayDir={relayDirRef.current || ""} width={width} recordingStart={recordingStart} />
+      <AgentCockpit twins={twins} agents={agents} userTwinName={userTwinName} voiceState={voiceState} isSpeaking={isSpeaking} relayDir={relayDir} width={width} recordingStart={recordingStart} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
           {tab === "chat" && (
             <ChatPanel
               messages={messages}
-              selectedId={selectedId}
               scrollOffset={scrollOffset}
               maxVisible={maxVisible}
               width={width}
             />
           )}
           {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
-          {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
+          {tab === "twin" && (
+            <TwinPanel
+              twinName={focusedTwinName}
+              twin={twins[focusedTwinName]}
+              messages={messages}
+              agents={agents}
+              activeFlights={activeFlights}
+              scrollOffset={scrollOffset}
+              maxVisible={maxVisible}
+              width={width}
+            />
+          )}
+          {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} nowTs={statsNow} />}
           {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} thread={voiceThread} isSpeaking={isSpeaking} />}
         </box>
 

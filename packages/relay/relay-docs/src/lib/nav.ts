@@ -11,10 +11,23 @@ export type NavGroup = {
   items: NavItem[]
 }
 
-export const navGroups: NavGroup[] = (docsJson as any).groups.map((group: any) => ({
+type DocsJson = {
+  groups: Array<{
+    id: string
+    title: string
+    items: Array<{
+      id: string
+      title: string
+    }>
+  }>
+}
+
+const docs = docsJson as DocsJson
+
+export const navGroups: NavGroup[] = docs.groups.map((group) => ({
   id: group.id,
   title: group.title,
-  items: group.items.map((item: any) => ({
+  items: group.items.map((item) => ({
     title: item.title,
     href: '/docs/relay/docs/' + item.id,
   })),

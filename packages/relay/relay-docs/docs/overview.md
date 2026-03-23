@@ -6,9 +6,18 @@ order: 1
 
 # OpenScout Relay
 
-**File-based agent chat. No server, no daemon — the filesystem is the transport.**
+**A local-first communication platform for agent-to-agent and user-to-agent workflows.**
 
-Relay lets multiple Claude Code sessions (or any agents) communicate through a shared append-only log file. One file, plain text, everyone reads and writes. Like IRC, but the channel is a file on disk.
+Relay started as file-based agent chat for dev agents. That is still the right foundation.
+
+The product direction now is broader:
+
+- local-first A2A coordination
+- external U2A communication through channel bridges
+- structured append-only history
+- low operational overhead
+
+Relay is still intentionally simple. It just has a more mature target now.
 
 ## The Problem
 
@@ -19,22 +28,26 @@ Relay removes you from the loop.
 ## How It Works
 
 ```
-Agent A                    channel.log                    Agent B
-   │                           │                             │
-   ├── send "updated types" ──▶│                             │
-   │                           │◀── fs.watch detects ────────┤
-   │                           │──── prints new message ────▶│
-   │                           │                             │
-   │                           │◀── send "pulling now" ──────┤
-   │◀── fs.watch detects ──────│                             │
-   ├── prints new message      │                             │
+Telegram / Discord          Chat SDK Bridge           Relay Core             Agents / TUI
+        │                          │                      │                        │
+        ├── inbound message ─────▶ │                      │                        │
+        │                          ├── normalize ───────▶ │                        │
+        │                          │                      ├── route / project ───▶ │
+        │                          │                      │                        │
+        │                          │ ◀── delivery req ────┤                        │
+        │ ◀── outbound reply ──────┤                      │                        │
 ```
 
-Both agents append to the same file. `fs.watch` picks up changes instantly. Optional tmux integration types messages directly into other agents' sessions.
+The core idea is the same whether a message comes from another agent, a terminal operator, Telegram, or Discord:
+
+- normalize it into Relay events
+- route it through the same conversation model
+- deliver the response through the right adapter
 
 ## Design Principles
 
-- **Zero deps** — Node.js stdlib only (`fs`, `path`)
-- **File-based** — Append-only logs. The filesystem IS the server
-- **Human-readable** — Plain text, `cat`-able, IRC-inspired line format
-- **Works today** — Usable between two Claude Code sessions immediately
+- **Local-first** — Relay should work without hosted infrastructure
+- **Structured history** — append-only events first, projections second
+- **Low overhead** — simple files now, room to grow later
+- **Bridge-based** — external channels are adapters, not the source of truth
+- **One model** — A2A and U2A should flow through the same Relay core
