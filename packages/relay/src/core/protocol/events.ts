@@ -34,6 +34,17 @@ export type RelayAgentStateSetEvent = RelayEventBase<"agent.state_set", {
   state?: string | null;
 }>;
 
+export type RelayAgentSessionRegisteredEvent = RelayEventBase<"agent.session_registered", {
+  pane?: string;
+  cwd: string;
+  project: string;
+  sessionId?: string;
+  registeredAt: number;
+}>;
+
+export type RelayAgentSessionClearedEvent = RelayEventBase<"agent.session_cleared", {
+}>;
+
 export type RelayProjectTwinStartedEvent = RelayEventBase<"project_twin.started", {
   record: ProjectTwinRecord;
 }>;
@@ -75,6 +86,8 @@ export type RelayExternalDeliveryCompletedEvent = RelayEventBase<"external.deliv
 export type RelayEvent =
   | RelayMessagePostedEvent
   | RelayAgentStateSetEvent
+  | RelayAgentSessionRegisteredEvent
+  | RelayAgentSessionClearedEvent
   | RelayProjectTwinStartedEvent
   | RelayProjectTwinStoppedEvent
   | RelayFlightOpenedEvent
@@ -143,6 +156,41 @@ export function isRelayAgentStateSetEvent(value: unknown): value is RelayAgentSt
       candidate.payload.state === null ||
       typeof candidate.payload.state === "string"
     )
+  );
+}
+
+export function isRelayAgentSessionRegisteredEvent(value: unknown): value is RelayAgentSessionRegisteredEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayAgentSessionRegisteredEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "agent.session_registered" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object" &&
+    (candidate.payload.pane === undefined || typeof candidate.payload.pane === "string") &&
+    typeof candidate.payload.cwd === "string" &&
+    typeof candidate.payload.project === "string" &&
+    (candidate.payload.sessionId === undefined || typeof candidate.payload.sessionId === "string") &&
+    typeof candidate.payload.registeredAt === "number"
+  );
+}
+
+export function isRelayAgentSessionClearedEvent(value: unknown): value is RelayAgentSessionClearedEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelayAgentSessionClearedEvent>;
+
+  return (
+    typeof candidate.id === "string" &&
+    candidate.kind === "agent.session_cleared" &&
+    candidate.v === 1 &&
+    typeof candidate.ts === "number" &&
+    typeof candidate.actor === "string" &&
+    !!candidate.payload &&
+    typeof candidate.payload === "object"
   );
 }
 
@@ -260,6 +308,8 @@ export function isRelayEvent(value: unknown): value is RelayEvent {
   return (
     isRelayMessagePostedEvent(value) ||
     isRelayAgentStateSetEvent(value) ||
+    isRelayAgentSessionRegisteredEvent(value) ||
+    isRelayAgentSessionClearedEvent(value) ||
     isRelayProjectTwinStartedEvent(value) ||
     isRelayProjectTwinStoppedEvent(value) ||
     isRelayFlightOpenedEvent(value) ||

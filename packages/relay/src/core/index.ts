@@ -6,6 +6,7 @@ export * from "./tts.js";
 export * from "./compat/channel-log.js";
 export * from "./store/jsonl-store.js";
 export * from "./projections/messages.js";
+export * from "./projections/agents.js";
 export * from "./projections/states.js";
 export * from "./projections/twins.js";
 export * from "./projections/flights.js";

@@ -6,6 +6,7 @@ import {
   createTmuxClaudeProjectTwinRuntime,
   DEFAULT_USER_TWIN,
   ensureRelayFiles,
+  readProjectedRelayChannelBindings,
   getVoiceForChannel,
   createRelayEventId,
   getUserTwinName as resolveUserTwinName,
@@ -22,8 +23,13 @@ import {
   type RelayConfig,
   type RelayStoredMessage,
 } from "./core/index.js";
+import {
+  createTelegramRelayBridge,
+  queueRelayExternalDeliveryForChannel,
+} from "./bridge/chat/index.js";
 import { invokeClaudeExploreTwinAction } from "./hosts/claude/explore-twin-subagent.js";
 import { invokeCodexExecTwinAction } from "./hosts/codex/exec-twin-subagent.js";
+import { deliverRelayMessageToTarget } from "./hosts/delivery.js";
 import { createProjectTwinActionRunner } from "./twin-actions/project-twin-runner.js";
 import type {
   TwinActionKind,
@@ -631,27 +637,6 @@ async function relayInit() {
   print("    openscout relay watch --as agent-a\n");
 }
 
-interface AgentRegistryEntry {
-  pane: string;
-  cwd: string;
-  project: string;
-  session_id?: string;
-  registered_at?: number;
-}
-
-async function loadRegistry(): Promise<Record<string, AgentRegistryEntry>> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-  const hub = await getGlobalRelayDir();
-  const registryPath = path.join(hub, "agents.json");
-  try {
-    const raw = await fs.readFile(registryPath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
 // ── Channel-based audio ───────────────────────────────
 // Audio is a property of the channel, not the user or the message.
 // The voice channel has audio: true. Responses to messages from that channel get spoken.
@@ -667,42 +652,60 @@ async function speak(text: string, voice: string, relayDir: string): Promise<voi
 }
 
 async function deliverToAgent(name: string, from: string, message: string, channel?: string, messageId?: string): Promise<"delivered" | "nudged" | "queued"> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
   const hub = await getGlobalRelayDir();
-  const twinRuntime = getProjectTwinRuntime(hub);
-
-  // Notification only — channel.jsonl is the source of truth (already written by relaySend)
-  const agentsPath = path.join(hub, "agents.json");
-  try {
-    const agentsRaw = await fs.readFile(agentsPath, "utf-8");
-    const agents = JSON.parse(agentsRaw);
-    const agent = agents[name];
-    if (agent?.session_id) {
-      const replyCmd = channel === "voice" ? "speak" : "send";
-      const idRef = messageId ? ` (message: ${messageId})` : "";
-      const nudge = `You have a new relay message from ${from}${idRef}. Check the channel and respond.\n\nRead recent: openscout relay read -n 5 --as ${name}\nReply via: openscout relay ${replyCmd} --as ${name} "@${from} <your response>"`;
-      const { spawn } = await import("node:child_process");
-      const child = spawn("claude", ["--resume", agent.session_id, "--print", nudge], {
-        cwd: agent.cwd || process.cwd(),
-        stdio: "ignore",
-        detached: true,
-      });
-      child.unref();
-      return "delivered";
-    }
-  } catch { /* no session — fall through */ }
-
-  const idRef = messageId ? ` (message: ${messageId})` : "";
-  const twinTicked = await twinRuntime.tickProjectTwin(
+  return deliverRelayMessageToTarget(
+    hub,
     name,
-    `new relay message from ${from}${idRef}`,
+    from,
+    message,
+    channel,
+    messageId,
   );
-  if (twinTicked) {
-    return "nudged";
+}
+
+async function relayRegister() {
+  const { hub } = await requireRelay();
+  const path = await import("node:path");
+
+  const agent = getAgentName();
+  const pane = getFlagValue("--pane") || process.env.TMUX_PANE;
+  const sessionId = getFlagValue("--session-id");
+  const cwd = getFlagValue("--cwd") || process.cwd();
+  const project = getFlagValue("--project") || path.basename(cwd);
+
+  if (args.includes("--clear")) {
+    await appendRelayEvent(hub, {
+      id: createRelayEventId("agent"),
+      kind: "agent.session_cleared",
+      v: 1,
+      ts: Math.floor(Date.now() / 1000),
+      actor: agent,
+      payload: {},
+    });
+    print(`  \x1b[32m✓\x1b[0m Cleared relay session registration for \x1b[1m${agent}\x1b[0m`);
+    return;
   }
 
-  return "queued";
+  await appendRelayEvent(hub, {
+    id: createRelayEventId("agent"),
+    kind: "agent.session_registered",
+    v: 1,
+    ts: Math.floor(Date.now() / 1000),
+    actor: agent,
+    payload: {
+      pane,
+      cwd,
+      project,
+      sessionId,
+      registeredAt: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  print(`  \x1b[32m✓\x1b[0m Registered \x1b[1m${agent}\x1b[0m for relay delivery`);
+  print(`  \x1b[2mproject: ${project}\x1b[0m`);
+  print(`  \x1b[2mcwd:     ${cwd}\x1b[0m`);
+  if (pane) print(`  \x1b[2mpane:    ${pane}\x1b[0m`);
+  if (sessionId) print(`  \x1b[2msession: ${sessionId}\x1b[0m`);
 }
 
 // ── @system agent ─────────────────────────────────────
@@ -961,7 +964,18 @@ async function relaySend() {
     channel,
   });
 
+  const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
+    hub,
+    agent,
+    channel,
+    message,
+    entry.id,
+  );
+
   print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${message}`));
+  if (queuedExternalDelivery) {
+    print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
+  }
 
   // Track the origin channel for audio responses
   const config = await loadRelayConfig();
@@ -1006,9 +1020,15 @@ async function relaySpeak() {
   // Collect message — same flag parsing as send
   const speakIdx = args.indexOf("speak");
   const msgParts: string[] = [];
+  let channel: string | undefined;
   let i = speakIdx + 1;
   while (i < args.length) {
     if (args[i] === "--as") {
+      i += 2;
+      continue;
+    }
+    if (args[i] === "--channel") {
+      channel = args[i + 1];
       i += 2;
       continue;
     }
@@ -1030,8 +1050,20 @@ async function relaySpeak() {
     ts, from: agent, type: "MSG", body: message,
     tags: ["speak"],
     to: mentions.length ? mentions : undefined,
+    channel,
   });
   print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
+
+  const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
+    hub,
+    agent,
+    channel,
+    message,
+    entry.id,
+  );
+  if (queuedExternalDelivery) {
+    print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
+  }
 
   // Set state → speaking, play TTS, set state → idle
   await setAgentState(agent, "speaking");
@@ -1431,6 +1463,7 @@ async function relayEnroll() {
     "Relay commands:",
     `  openscout relay send --as ${agent} "your message"   — send a message`,
     `  openscout relay read                                — check recent messages`,
+    `  openscout relay register --as ${agent}              — register this session for delivery`,
     `  openscout relay who                                 — see who's active`,
     "",
     "Rules:",
@@ -2019,6 +2052,98 @@ async function relayStatus() {
   print("");
 }
 
+async function relayBridgeBindings() {
+  const { hub } = await requireRelay();
+  const bindings = await readProjectedRelayChannelBindings(hub);
+  const entries = Object.values(bindings)
+    .sort((a, b) => a.updatedAt - b.updatedAt);
+
+  if (entries.length === 0) {
+    print("\n  \x1b[2mNo external channel bindings.\x1b[0m\n");
+    return;
+  }
+
+  print("");
+  for (const binding of entries) {
+    print(
+      `  ${binding.platform}:${binding.bindingId} -> @${binding.conversationId}  ` +
+      `thread=${binding.externalThreadId ?? "?"} channel=${binding.platform}:${binding.bindingId}`,
+    );
+  }
+  print("");
+}
+
+async function relayBridgeTelegram() {
+  const { hub } = await requireRelay();
+  const config = await loadRelayConfig();
+  const defaultTarget = getFlagValue("--to") || resolveUserTwinName(config);
+  const modeValue = getFlagValue("--mode");
+  const mode = modeValue === "polling" || modeValue === "webhook" || modeValue === "auto"
+    ? modeValue
+    : "auto";
+  const actor = getFlagValue("--as") || "bridge.telegram";
+  const once = hasFlag("--once");
+  let bridge: ReturnType<typeof createTelegramRelayBridge>;
+
+  try {
+    bridge = createTelegramRelayBridge({
+      hub,
+      actor,
+      defaultTarget,
+      mode,
+    });
+    await bridge.start();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    print(`\n  \x1b[31m✗\x1b[0m Telegram bridge failed to start: ${detail}\n`);
+    process.exit(1);
+  }
+
+  if (once) {
+    const delivered = await bridge.pumpPendingDeliveries();
+    print(`  \x1b[32m✓\x1b[0m Telegram bridge initialized (${bridge.runtimeMode})`);
+    print(`  \x1b[2mdefault target: ${defaultTarget}\x1b[0m`);
+    print(`  \x1b[2mdeliveries flushed: ${delivered}\x1b[0m`);
+    await bridge.stop();
+    return;
+  }
+
+  printBrand();
+  print(`  Telegram bridge online (${bridge.runtimeMode})`);
+  print(`  \x1b[2mdefault target: ${defaultTarget}\x1b[0m`);
+  print("  \x1b[2mMention the bot or DM it to create a bound Relay thread.\x1b[0m");
+  print("  \x1b[2mReply from Relay with --channel telegram:<bindingId>.\x1b[0m\n");
+
+  await new Promise<void>((resolve) => {
+    const shutdown = () => {
+      void bridge.stop().finally(resolve);
+    };
+
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+  });
+}
+
+async function relayBridge() {
+  const sub = args[2];
+
+  switch (sub) {
+    case "telegram":
+      await relayBridgeTelegram();
+      break;
+    case "bindings":
+      await relayBridgeBindings();
+      break;
+    default:
+      print("");
+      print("  openscout relay bridge telegram [--to <agent>] [--mode auto|polling|webhook]");
+      print("  openscout relay bridge telegram --once");
+      print("  openscout relay bridge bindings");
+      print("");
+      break;
+  }
+}
+
 function relayHelp() {
   printBrand();
   print("  \x1b[1mRelay\x1b[0m — local-first agent communication\n");
@@ -2039,9 +2164,12 @@ function relayHelp() {
   print("    watch --tmux <pane>            Stream + nudge a tmux pane on new messages");
   print("    who                            List agents and their last activity");
   print("    forget <name>                  Remove a stale agent from the list");
+  print("    bridge telegram                Run the Telegram Chat SDK bridge");
+  print("    bridge bindings                List external channel bindings");
   print("    tui                            Open the relay monitor dashboard");
   print("    twin <command>                 Twin-native workflow (up/view/ps/down/tick)");
   print("    enroll --as <name>             Generate enrollment prompt for an agent");
+  print("    register --as <name>           Register this session for relay delivery");
   print("    broadcast <message>            Send + nudge all tmux panes (alias: bc)\n");
   print("  \x1b[1mTwins:\x1b[0m \x1b[2m(persistent project-native runtimes)\x1b[0m");
   print("    up <path> [--name n] [--task t]  Start a twin for a project");
@@ -2064,6 +2192,8 @@ function relayHelp() {
   print("    openscout relay up ~/dev/arc --task \"run tests\"   # twin with a task");
   print("    openscout relay ps                                # check twins");
   print("    openscout relay send --as dev \"@lattices hey\"     # talk to a twin");
+  print("    openscout relay bridge telegram --to dev          # bridge Telegram -> Relay");
+  print("    openscout relay send --as dev --channel telegram:<bindingId> \"hello\"");
   print("    openscout relay ask --via claude --twin lattices \"what changed?\"");
   print("    openscout relay ask --via codex --twin lattices \"what changed?\"");
   print("    openscout relay down lattices                     # stop a twin");
@@ -2098,6 +2228,9 @@ async function relay() {
     case "enroll":
       await relayEnroll();
       break;
+    case "register":
+      await relayRegister();
+      break;
     case "forget":
       await relayForget();
       break;
@@ -2110,6 +2243,9 @@ async function relay() {
       break;
     case "status":
       await relayStatus();
+      break;
+    case "bridge":
+      await relayBridge();
       break;
     case "twin":
       await relayTwin();
