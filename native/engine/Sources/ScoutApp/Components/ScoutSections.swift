@@ -9,14 +9,15 @@ struct ScoutSurface<Content: View>: View {
 
     var body: some View {
         content
-            .padding(18)
+            .padding(20)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.thinMaterial)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(ScoutTheme.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(ScoutTheme.border, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(ScoutTheme.border.opacity(0.55), lineWidth: 0.75)
                     )
+                    .shadow(color: ScoutTheme.shadow.opacity(0.55), radius: 16, y: 6)
             )
     }
 }
@@ -41,12 +42,12 @@ struct ScoutSection<Content: View>: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(ScoutTheme.ink)
 
                     if let subtitle {
                         Text(subtitle)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 13))
                             .foregroundStyle(ScoutTheme.inkSecondary)
                     }
                 }
@@ -92,14 +93,14 @@ struct ScoutSubsectionHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .textCase(.uppercase)
-                .tracking(0.8)
+                .tracking(0.6)
                 .foregroundStyle(ScoutTheme.inkMuted)
 
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12))
                     .foregroundStyle(ScoutTheme.inkSecondary)
             }
         }

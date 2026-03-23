@@ -5,7 +5,7 @@ struct ScoutConsoleWorkspaceView: View {
 
     var body: some View {
         HSplitView {
-            ScoutWebConsoleView(consoleURL: viewModel.consoleURL)
+            ScoutWebConsoleView(consoleURL: resolvedConsoleURL)
                 .frame(minWidth: 760, minHeight: 500)
 
             VStack(alignment: .leading, spacing: 16) {
@@ -41,5 +41,17 @@ struct ScoutConsoleWorkspaceView: View {
         }
         .padding(24)
         .background(ScoutTheme.canvas)
+    }
+
+    private var resolvedConsoleURL: URL {
+        if let bundledURL = Bundle.module.url(
+            forResource: "index",
+            withExtension: "html",
+            subdirectory: "Console"
+        ) {
+            return bundledURL
+        }
+
+        return URL(string: "https://openscout.app")!
     }
 }

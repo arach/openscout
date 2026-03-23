@@ -53,6 +53,17 @@
       "name": "@openscout/runtime",
       "version": "0.0.0",
     },
+    "packages/voice": {
+      "name": "@openscout/voice",
+      "version": "0.0.0",
+      "dependencies": {
+        "@arach/ora": "github:arach/ora",
+      },
+      "devDependencies": {
+        "@types/node": "^22",
+        "typescript": "^5",
+      },
+    },
     "packages/workflows": {
       "name": "@openscout/workflows",
       "version": "0.0.0",
@@ -64,6 +75,8 @@
   ],
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
+
+    "@arach/ora": ["@arach/ora@github:arach/ora#cd06d2c", { "bin": { "ora-worker": "./dist/worker-cli.js" } }, "arach-ora-cd06d2c"],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
 
@@ -282,6 +295,8 @@
     "@openscout/relay": ["@openscout/relay@workspace:packages/relay"],
 
     "@openscout/runtime": ["@openscout/runtime@workspace:packages/runtime"],
+
+    "@openscout/voice": ["@openscout/voice@workspace:packages/voice"],
 
     "@openscout/workflows": ["@openscout/workflows@workspace:packages/workflows"],
 
@@ -1122,6 +1137,8 @@
     "@jimp/types/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@openscout/relay/@types/node": ["@types/node@22.19.15", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg=="],
+
+    "@openscout/voice/@types/node": ["@types/node@22.19.15", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg=="],
 
     "@tailwindcss/oxide-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.9.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.0", "tslib": "^2.4.0" }, "bundled": true }, "sha512-0DQ98G9ZQZOxfUcQn1waV2yS8aWdZ6kJMbYCJB3oUBecjWYO1fqJ+a1DRfPF3O5JEkwqwP1A9QEN/9mYm2Yd0w=="],
 

@@ -15,13 +15,13 @@ public enum ScoutRoute: String, CaseIterable, Codable, Hashable, Identifiable, S
         case .home:
             return "Home"
         case .sessions:
-            return "Sessions"
+            return "Notes"
         case .console:
-            return "Workspace"
+            return "Compose"
         case .integrations:
-            return "Integrations"
+            return "Workflows"
         case .workers:
-            return "Workers"
+            return "Relay"
         case .settings:
             return "Settings"
         }
@@ -32,13 +32,13 @@ public enum ScoutRoute: String, CaseIterable, Codable, Hashable, Identifiable, S
         case .home:
             return "square.grid.2x2"
         case .sessions:
-            return "clock.arrow.trianglehead.counterclockwise.rotate.90"
+            return "note.text"
         case .console:
-            return "globe"
+            return "square.and.pencil"
         case .integrations:
-            return "point.3.connected.trianglepath.dotted"
+            return "bolt.horizontal.circle"
         case .workers:
-            return "cpu"
+            return "bubble.left.and.bubble.right"
         case .settings:
             return "gearshape"
         }
@@ -49,13 +49,13 @@ public enum ScoutRoute: String, CaseIterable, Codable, Hashable, Identifiable, S
         case .home:
             return "Primary shell overview and module entry points."
         case .sessions:
-            return "Shared session history and runtime context."
+            return "Persistent notes, prompts, and attached context."
         case .console:
-            return "Embedded workspace surface for dashboards, tools, and local web content."
+            return "Prompt composition, workflow framing, and agent-ready packets."
         case .integrations:
-            return "Linked and embedded capabilities across the app family."
+            return "Prompt-centric workflow templates and generated runs."
         case .workers:
-            return "Helper process health and runtime supervision."
+            return "Live relay chat, roster state, and channel delivery."
         case .settings:
             return "Local preferences, paths, and environment state."
         }
