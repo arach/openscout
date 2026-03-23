@@ -16,6 +16,7 @@ import type {
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
+import { discoverMeshNodes } from "./mesh-discovery.js";
 import { SQLiteControlPlaneStore } from "./sqlite-store.js";
 
 function createRuntimeId(prefix: string): string {
@@ -68,6 +69,11 @@ const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
 const tailnetName = process.env.TAILSCALE_TAILNET ?? undefined;
 const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${host}:${port}`;
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "0", 10);
 
 const store = new SQLiteControlPlaneStore(dbPath);
 const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId: nodeId });
@@ -96,6 +102,23 @@ const localNode: NodeDefinition = {
 
 await runtime.upsertNode(localNode);
 store.upsertNode(localNode);
+
+async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
+  const result = await discoverMeshNodes({
+    localNodeId: nodeId,
+    localBrokerUrl: brokerUrl,
+    defaultPort: port,
+    meshId,
+    seeds: [...seedUrls, ...seeds],
+  });
+
+  for (const node of result.discovered) {
+    await runtime.upsertNode(node);
+    store.upsertNode(node);
+  }
+
+  return result.discovered;
+}
 
 function parseLimit(url: URL): number {
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
@@ -192,6 +215,11 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "GET" && url.pathname === "/v1/mesh/nodes") {
+    json(response, 200, runtime.snapshot().nodes);
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/v1/events/stream") {
     response.writeHead(200, {
       "content-type": "text/event-stream",
@@ -212,6 +240,20 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const command = await readRequestBody<ControlCommand>(request);
       const result = await handleCommand(command);
       json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/mesh/discover") {
+    try {
+      const body = await readRequestBody<{ seeds?: string[] }>(request);
+      const discovered = await discoverPeers(body.seeds ?? []);
+      json(response, 200, {
+        ok: true,
+        discovered,
+      });
     } catch (error) {
       badRequest(response, error);
     }
@@ -323,6 +365,20 @@ server.listen(port, host, () => {
   console.log(`[openscout-runtime] node ${nodeId} in mesh ${meshId}`);
   console.log(`[openscout-runtime] sqlite ${dbPath}`);
 });
+
+if (seedUrls.length > 0) {
+  discoverPeers().catch((error) => {
+    console.error("[openscout-runtime] initial mesh discovery failed:", error);
+  });
+}
+
+if (Number.isFinite(discoveryIntervalMs) && discoveryIntervalMs > 0) {
+  setInterval(() => {
+    discoverPeers().catch((error) => {
+      console.error("[openscout-runtime] periodic mesh discovery failed:", error);
+    });
+  }, discoveryIntervalMs).unref();
+}
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

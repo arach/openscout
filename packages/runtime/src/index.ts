@@ -4,3 +4,5 @@ export * from "./schema.js";
 export * from "./service.js";
 export * from "./broker.js";
 export * from "./sqlite-store.js";
+export * from "./mesh-discovery.js";
+export * from "./tailscale.js";

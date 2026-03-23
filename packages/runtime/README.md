@@ -11,6 +11,7 @@ runtime primitives needed to build one:
 - delivery planning
 - service contracts for a local broker
 - a first local HTTP broker daemon with SSE event streaming
+- mesh discovery via Tailscale peers or explicit broker seeds
 
 The intent is:
 
