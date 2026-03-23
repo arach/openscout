@@ -22,6 +22,7 @@ export interface DeliveryIntent {
   messageId?: ScoutId;
   invocationId?: ScoutId;
   targetId: ScoutId;
+  targetNodeId?: ScoutId;
   targetKind: DeliveryTargetKind;
   transport: DeliveryTransport;
   reason: DeliveryReason;

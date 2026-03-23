@@ -4,6 +4,21 @@ export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS nodes (
+  id TEXT PRIMARY KEY,
+  mesh_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  host_name TEXT,
+  advertise_scope TEXT NOT NULL,
+  broker_url TEXT,
+  tailnet_name TEXT,
+  capabilities_json TEXT,
+  labels_json TEXT,
+  metadata_json TEXT,
+  last_seen_at INTEGER,
+  registered_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS actors (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -15,11 +30,13 @@ CREATE TABLE IF NOT EXISTS actors (
 );
 
 CREATE TABLE IF NOT EXISTS agents (
-  id TEXT PRIMARY KEY,
-  actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY REFERENCES actors(id) ON DELETE CASCADE,
   agent_class TEXT NOT NULL,
   capabilities_json TEXT NOT NULL,
   wake_policy TEXT NOT NULL,
+  home_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  authority_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  advertise_scope TEXT NOT NULL,
   owner_id TEXT,
   metadata_json TEXT
 );
@@ -27,6 +44,7 @@ CREATE TABLE IF NOT EXISTS agents (
 CREATE TABLE IF NOT EXISTS agent_endpoints (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
   harness TEXT NOT NULL,
   transport TEXT NOT NULL,
   state TEXT NOT NULL,
@@ -44,6 +62,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   visibility TEXT NOT NULL,
+  share_mode TEXT NOT NULL,
+  authority_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
   topic TEXT,
   parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
   message_id TEXT,
@@ -62,6 +82,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE RESTRICT,
+  origin_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
   class TEXT NOT NULL,
   body TEXT NOT NULL,
   reply_to_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
@@ -94,7 +115,9 @@ CREATE TABLE IF NOT EXISTS message_attachments (
 CREATE TABLE IF NOT EXISTS invocations (
   id TEXT PRIMARY KEY,
   requester_id TEXT NOT NULL REFERENCES actors(id) ON DELETE RESTRICT,
+  requester_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
   target_agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+  target_node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL,
   action TEXT NOT NULL,
   task TEXT NOT NULL,
   conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
@@ -136,6 +159,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
   invocation_id TEXT REFERENCES invocations(id) ON DELETE CASCADE,
   target_id TEXT NOT NULL,
+  target_node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL,
   target_kind TEXT NOT NULL,
   transport TEXT NOT NULL,
   reason TEXT NOT NULL,
@@ -163,10 +187,13 @@ CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
   actor_id TEXT NOT NULL,
+  node_id TEXT,
   ts INTEGER NOT NULL,
   payload_json TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
+  ON nodes (mesh_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
   ON messages (conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_invocations_target_created_at

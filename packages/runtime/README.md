@@ -10,6 +10,7 @@ runtime primitives needed to build one:
 - SQLite schema
 - delivery planning
 - service contracts for a local broker
+- a first local HTTP broker daemon with SSE event streaming
 
 The intent is:
 

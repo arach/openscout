@@ -1,4 +1,9 @@
-import type { MetadataMap, ScoutId, VisibilityScope } from "./common.js";
+import type {
+  MetadataMap,
+  ScoutId,
+  ShareMode,
+  VisibilityScope,
+} from "./common.js";
 
 export type ConversationKind =
   | "channel"
@@ -12,6 +17,8 @@ export interface ConversationDefinition {
   kind: ConversationKind;
   title: string;
   visibility: VisibilityScope;
+  shareMode: ShareMode;
+  authorityNodeId: ScoutId;
   participantIds: ScoutId[];
   topic?: string;
   parentConversationId?: ScoutId;

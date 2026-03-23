@@ -22,6 +22,7 @@
     "relay:build": "bun run --cwd packages/relay build",
     "relay:dev": "bun run --cwd packages/relay dev",
     "relay:tui": "bun run --cwd packages/relay tui",
+    "runtime:broker": "bun run --cwd packages/runtime broker",
     "runtime:check": "bun run --cwd packages/runtime check",
     "voice:bridge": "bun run --cwd packages/voice bridge",
     "voice:check": "bun run --cwd packages/voice check",

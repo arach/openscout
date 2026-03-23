@@ -7,8 +7,10 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
+import type { NodeDefinition } from "@openscout/protocol";
 
 export interface RuntimeRegistrySnapshot {
+  nodes: Record<string, NodeDefinition>;
   actors: Record<string, ActorIdentity>;
   agents: Record<string, AgentDefinition>;
   endpoints: Record<string, AgentEndpoint>;
@@ -22,6 +24,7 @@ export function createRuntimeRegistrySnapshot(
   value: Partial<RuntimeRegistrySnapshot> = {},
 ): RuntimeRegistrySnapshot {
   return {
+    nodes: value.nodes ?? {},
     actors: value.actors ?? {},
     agents: value.agents ?? {},
     endpoints: value.endpoints ?? {},

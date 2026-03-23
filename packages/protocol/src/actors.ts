@@ -1,4 +1,10 @@
-import type { ActorKind, AgentState, MetadataMap, ScoutId } from "./common.js";
+import type {
+  ActorKind,
+  AdvertiseScope,
+  AgentState,
+  MetadataMap,
+  ScoutId,
+} from "./common.js";
 
 export type AgentClass =
   | "general"
@@ -44,12 +50,16 @@ export interface AgentDefinition extends ActorIdentity {
   agentClass: AgentClass;
   capabilities: AgentCapability[];
   wakePolicy: WakePolicy;
+  homeNodeId: ScoutId;
+  authorityNodeId: ScoutId;
+  advertiseScope: AdvertiseScope;
   ownerId?: ScoutId;
 }
 
 export interface HelperDefinition extends ActorIdentity {
   kind: "helper";
   ownerId: ScoutId;
+  nodeId: ScoutId;
   engine: AgentHarness;
   capabilities: AgentCapability[];
 }
@@ -57,6 +67,7 @@ export interface HelperDefinition extends ActorIdentity {
 export interface AgentEndpoint {
   id: ScoutId;
   agentId: ScoutId;
+  nodeId: ScoutId;
   harness: AgentHarness;
   transport: "local_socket" | "http" | "websocket" | "codex_exec" | "claude_resume" | "tmux";
   state: AgentState;

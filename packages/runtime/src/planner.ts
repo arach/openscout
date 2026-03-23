@@ -12,6 +12,7 @@ import type {
 
 export interface DeliveryRoute {
   targetId: ScoutId;
+  nodeId?: ScoutId;
   targetKind: DeliveryTargetKind;
   transport: DeliveryTransport;
   bindingId?: ScoutId;
@@ -19,6 +20,7 @@ export interface DeliveryRoute {
 }
 
 export interface DeliveryPlanningInput {
+  localNodeId?: ScoutId;
   message: MessageRecord;
   conversation: ConversationDefinition;
   participantRoutes: DeliveryRoute[];
@@ -67,6 +69,7 @@ function planTargetDelivery(
     id: createDeliveryId(message.id, route.targetId, reason, route.transport),
     messageId: message.id,
     targetId: route.targetId,
+    targetNodeId: route.nodeId,
     targetKind: route.targetKind,
     transport: route.transport,
     reason,
@@ -86,7 +89,12 @@ export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryInt
     if (visibilityIds.has(route.targetId)) {
       const intent = planTargetDelivery(
         input.message,
-        route,
+        {
+          ...route,
+          transport: route.nodeId && input.localNodeId && route.nodeId !== input.localNodeId
+            ? "peer_broker"
+            : route.transport,
+        },
         input.conversation.kind === "direct" || input.conversation.kind === "group_direct"
           ? "direct_message"
           : "conversation_visibility",
@@ -96,12 +104,32 @@ export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryInt
     }
 
     if (notifyIds.has(route.targetId)) {
-      const intent = planTargetDelivery(input.message, route, "mention", "must_ack");
+      const intent = planTargetDelivery(
+        input.message,
+        {
+          ...route,
+          transport: route.nodeId && input.localNodeId && route.nodeId !== input.localNodeId
+            ? "peer_broker"
+            : route.transport,
+        },
+        "mention",
+        "must_ack",
+      );
       deliveries.set(intent.id, intent);
     }
 
     if (invokeIds.has(route.targetId)) {
-      const intent = planTargetDelivery(input.message, route, "invocation", "must_ack");
+      const intent = planTargetDelivery(
+        input.message,
+        {
+          ...route,
+          transport: route.nodeId && input.localNodeId && route.nodeId !== input.localNodeId
+            ? "peer_broker"
+            : route.transport,
+        },
+        "invocation",
+        "must_ack",
+      );
       deliveries.set(intent.id, intent);
     }
 

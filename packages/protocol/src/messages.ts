@@ -39,6 +39,7 @@ export interface MessageRecord {
   id: ScoutId;
   conversationId: ScoutId;
   actorId: ScoutId;
+  originNodeId: ScoutId;
   class: MessageClass;
   body: string;
   replyToMessageId?: ScoutId;

@@ -1,4 +1,5 @@
 import type { ScoutId } from "./common.js";
+import type { NodeDefinition } from "./mesh.js";
 import type { ConversationBinding, ConversationDefinition } from "./conversations.js";
 import type { DeliveryAttempt, DeliveryIntent } from "./deliveries.js";
 import type { FlightRecord, InvocationRequest } from "./invocations.js";
@@ -10,8 +11,13 @@ export interface ControlEventBase<K extends string, P> {
   kind: K;
   ts: number;
   actorId: ScoutId;
+  nodeId?: ScoutId;
   payload: P;
 }
+
+export type NodeUpsertedEvent = ControlEventBase<"node.upserted", {
+  node: NodeDefinition;
+}>;
 
 export type ActorRegisteredEvent = ControlEventBase<"actor.registered", {
   actor: ActorIdentity;
@@ -54,6 +60,7 @@ export type DeliveryAttemptedEvent = ControlEventBase<"delivery.attempted", {
 }>;
 
 export type ControlEvent =
+  | NodeUpsertedEvent
   | ActorRegisteredEvent
   | AgentRegisteredEvent
   | AgentEndpointUpsertedEvent

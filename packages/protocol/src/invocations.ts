@@ -19,7 +19,9 @@ export type FlightState =
 export interface InvocationRequest {
   id: ScoutId;
   requesterId: ScoutId;
+  requesterNodeId: ScoutId;
   targetAgentId: ScoutId;
+  targetNodeId?: ScoutId;
   action: InvocationAction;
   task: string;
   conversationId?: ScoutId;

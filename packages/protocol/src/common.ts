@@ -38,6 +38,7 @@ export type DeliveryTargetKind =
 export type DeliveryTransport =
   | "local_socket"
   | "websocket"
+  | "peer_broker"
   | "http"
   | "webhook"
   | "telegram"
@@ -58,6 +59,10 @@ export type DeliveryReason =
   | "invocation"
   | "bridge_outbound"
   | "speech";
+
+export type AdvertiseScope = "local" | "mesh";
+
+export type ShareMode = "local" | "summary" | "shared";
 
 export interface MetadataMap {
   [key: string]: unknown;
