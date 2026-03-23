@@ -56,38 +56,6 @@ private enum RelayChannel: String, CaseIterable, Hashable {
     }
 }
 
-private enum RelayComposeMode: String, CaseIterable, Hashable {
-    case message
-    case speak
-
-    var title: String {
-        switch self {
-        case .message:
-            return "Message"
-        case .speak:
-            return "Speak"
-        }
-    }
-
-    var sendLabel: String {
-        switch self {
-        case .message:
-            return "Send"
-        case .speak:
-            return "Speak"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .message:
-            return "Append a normal relay message."
-        case .speak:
-            return "Tag the message for voice delivery."
-        }
-    }
-}
-
 private enum RelayPresenceState: String, CaseIterable, Hashable {
     case thinking
     case reviewing
@@ -121,7 +89,6 @@ struct ScoutAgentDeskView: View {
 
     @State private var draft = ""
     @State private var targetAgentIDs = Set<String>()
-    @State private var composeMode: RelayComposeMode = .message
     @State private var selectedDestination: RelayDestination = .channel(.shared)
     @State private var leftRailCollapsed = false
     @State private var composerMetrics = ScoutEditorMetrics.empty
@@ -416,7 +383,7 @@ struct ScoutAgentDeskView: View {
                 }
                 .buttonStyle(ScoutButtonStyle(tone: viewModel.isVoiceCaptureActive ? .primary : .secondary))
 
-                Button(viewModel.voiceRepliesEnabled ? "Voice On" : "Voice Off") {
+                Button(viewModel.voiceRepliesEnabled ? "Hear On" : "Hear Off") {
                     viewModel.toggleVoiceRepliesEnabled()
                 }
                 .buttonStyle(ScoutButtonStyle(tone: viewModel.voiceRepliesEnabled ? .secondary : .quiet))
@@ -497,17 +464,12 @@ struct ScoutAgentDeskView: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(ScoutTheme.ink)
 
-                    Text(composeMode.subtitle)
+                    Text(composeSubtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(ScoutTheme.inkSecondary)
                 }
 
                 Spacer(minLength: 0)
-
-                ScoutTabBar(
-                    items: RelayComposeMode.allCases.map { ScoutTabItem(id: $0, title: $0.title) },
-                    selection: $composeMode
-                )
             }
 
             HStack(spacing: 8) {
@@ -579,7 +541,7 @@ struct ScoutAgentDeskView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkFaint)
 
-                Button(composeMode.sendLabel) {
+                Button("Send") {
                     sendMessage()
                 }
                 .buttonStyle(ScoutButtonStyle(tone: .primary))
@@ -616,11 +578,20 @@ struct ScoutAgentDeskView: View {
         case .channel(.mentions):
             return "Write a targeted note for one or more agents."
         case .channel(.voice):
-            return "Write the message that should be treated as spoken relay output."
+            return "Post a typed message to the voice channel."
         case .channel(.system):
             return "Describe the system event or state change you want to log."
         case .direct:
             return "Write a direct relay message."
+        }
+    }
+
+    private var composeSubtitle: String {
+        switch selectedDestination {
+        case .channel(.voice):
+            return "Type to the voice channel. Playback stays optional and separate."
+        default:
+            return "Append a normal relay message."
         }
     }
 
@@ -748,7 +719,7 @@ struct ScoutAgentDeskView: View {
             await viewModel.quickSendMessage(
                 message,
                 to: resolvedTargets,
-                speaksAloud: shouldSpeakMessage,
+                speaksAloud: false,
                 channel: composeChannel,
                 type: composeMessageType
             )
@@ -823,7 +794,6 @@ struct ScoutAgentDeskView: View {
     private func resetComposer() {
         draft = ""
         targetAgentIDs.removeAll()
-        composeMode = .message
         selectedDestination = .channel(.shared)
     }
 
@@ -849,14 +819,6 @@ struct ScoutAgentDeskView: View {
         default:
             return .msg
         }
-    }
-
-    private var shouldSpeakMessage: Bool {
-        guard composeMessageType != .sys else {
-            return false
-        }
-
-        return composeMode == .speak
     }
 
     private var resolvedTargets: [String] {

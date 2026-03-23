@@ -42,7 +42,7 @@ final class ScoutShellViewModel {
     var relayLastUpdatedAt: Date?
     var relayComposerResetToken = 0
     var voiceBridgeStatus = ScoutVoiceBridgeStatus.unavailable
-    var voiceRepliesEnabled = true
+    var voiceRepliesEnabled = false
     var voicePartialTranscript = ""
     var voiceLastTranscript: String?
     var voiceLastError: String?
@@ -613,7 +613,6 @@ final class ScoutShellViewModel {
         relayLastUpdatedAt = .now
 
         if !voicePreferencesSeeded {
-            voiceRepliesEnabled = relayConfig.voiceChannel?.audio ?? voiceRepliesEnabled
             voicePreferencesSeeded = true
         }
 
