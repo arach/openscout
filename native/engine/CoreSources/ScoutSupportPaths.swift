@@ -33,6 +33,15 @@ public struct ScoutSupportPaths: Sendable {
         self.relayInboxDirectory = relayInboxDirectory
     }
 
+    public var relayMonitorFileURLs: [URL] {
+        [
+            relayEventStreamURL,
+            relayChannelLogURL,
+            relayConfigFileURL,
+            relayStateFileURL,
+        ]
+    }
+
     public static func `default`() -> ScoutSupportPaths {
         let homeDirectory = URL.homeDirectory
         let supportDirectory = URL.applicationSupportDirectory

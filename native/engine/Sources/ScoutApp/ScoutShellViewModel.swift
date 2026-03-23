@@ -120,7 +120,7 @@ final class ScoutShellViewModel {
             ),
         ]
         self.relayMonitor = ScoutRelayMonitor(
-            directoryURL: supportPaths.relayHubDirectory
+            fileURLs: supportPaths.relayMonitorFileURLs
         ) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.scheduleRelayRefresh()
