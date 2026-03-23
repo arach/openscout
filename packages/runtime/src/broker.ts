@@ -272,7 +272,22 @@ export class InMemoryControlRuntime implements ControlRuntime {
     });
   }
 
-  async postMessage(message: MessageRecord): Promise<DeliveryIntent[]> {
+  async upsertFlight(flight: FlightRecord): Promise<void> {
+    this.registry.flights[flight.id] = flight;
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "flight.updated",
+      ts: Date.now(),
+      actorId: flight.requesterId,
+      nodeId: this.localNodeId,
+      payload: { flight },
+    });
+  }
+
+  async postMessage(
+    message: MessageRecord,
+    options: { localOnly?: boolean } = {},
+  ): Promise<DeliveryIntent[]> {
     const conversation = this.registry.conversations[message.conversationId];
     if (!conversation) {
       throw new Error(`unknown conversation: ${message.conversationId}`);
@@ -283,12 +298,16 @@ export class InMemoryControlRuntime implements ControlRuntime {
     const bindingRoutes = resolveBindingRoutes(
       Object.values(this.registry.bindings).filter((binding) => binding.conversationId === conversation.id),
     );
+    const participantRoutes = options.localOnly
+      ? resolveParticipantRoutes(this.registry, conversation.participantIds)
+        .filter((route) => !route.nodeId || route.nodeId === this.localNodeId)
+      : resolveParticipantRoutes(this.registry, conversation.participantIds);
     const deliveries = planMessageDeliveries({
       localNodeId: this.localNodeId,
       message,
       conversation,
-      participantRoutes: resolveParticipantRoutes(this.registry, conversation.participantIds),
-      bindingRoutes,
+      participantRoutes,
+      bindingRoutes: options.localOnly ? [] : bindingRoutes,
     });
 
     this.emit({

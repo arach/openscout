@@ -10,6 +10,7 @@ import type {
   ControlEvent,
   ConversationBinding,
   ConversationDefinition,
+  DeliveryIntent,
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
@@ -17,6 +18,14 @@ import type {
 
 import { createInMemoryControlRuntime } from "./broker.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
+import {
+  buildMeshInvocationBundle,
+  buildMeshMessageBundle,
+  forwardMeshInvocation,
+  forwardMeshMessage,
+  type MeshInvocationBundle,
+  type MeshMessageBundle,
+} from "./mesh-forwarding.js";
 import { SQLiteControlPlaneStore } from "./sqlite-store.js";
 
 function createRuntimeId(prefix: string): string {
@@ -120,6 +129,107 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
   return result.discovered;
 }
 
+function currentLocalNode(): NodeDefinition {
+  return runtime.snapshot().nodes[nodeId] ?? localNode;
+}
+
+async function applyMeshBundle(bundle: {
+  originNode: NodeDefinition;
+  actors: ActorIdentity[];
+  agents: AgentDefinition[];
+  conversation?: ConversationDefinition;
+  bindings?: ConversationBinding[];
+}): Promise<void> {
+  await runtime.upsertNode(bundle.originNode);
+  store.upsertNode(bundle.originNode);
+
+  for (const actor of bundle.actors) {
+    await runtime.upsertActor(actor);
+    store.upsertActor(actor);
+  }
+
+  for (const agent of bundle.agents) {
+    await runtime.upsertActor(agent);
+    await runtime.upsertAgent(agent);
+    store.upsertActor(agent);
+    store.upsertAgent(agent);
+  }
+
+  if (bundle.conversation) {
+    await runtime.upsertConversation(bundle.conversation);
+    store.upsertConversation(bundle.conversation);
+  }
+
+  for (const binding of bundle.bindings ?? []) {
+    await runtime.upsertBinding(binding);
+    store.upsertBinding(binding);
+  }
+}
+
+async function forwardPeerBrokerDeliveries(
+  message: MessageRecord,
+  deliveries: DeliveryIntent[],
+): Promise<{ forwarded: string[]; failed: string[] }> {
+  const snapshot = runtime.snapshot();
+  const conversation = snapshot.conversations[message.conversationId];
+  if (!conversation || conversation.shareMode === "local") {
+    return { forwarded: [], failed: [] };
+  }
+
+  const targetNodeIds = [...new Set(
+    deliveries
+      .filter((delivery) => delivery.transport === "peer_broker" && delivery.targetNodeId)
+      .map((delivery) => delivery.targetNodeId as string),
+  )];
+  const originNode = currentLocalNode();
+  const forwarded: string[] = [];
+  const failed: string[] = [];
+
+  for (const targetNodeId of targetNodeIds) {
+    const targetNode = snapshot.nodes[targetNodeId];
+    if (!targetNode?.brokerUrl) {
+      failed.push(targetNodeId);
+      continue;
+    }
+
+    try {
+      const bundle = buildMeshMessageBundle(snapshot, originNode, message);
+      await forwardMeshMessage(targetNode.brokerUrl, bundle);
+      forwarded.push(targetNodeId);
+    } catch {
+      failed.push(targetNodeId);
+    }
+  }
+
+  return { forwarded, failed };
+}
+
+async function maybeForwardInvocation(
+  invocation: InvocationRequest,
+): Promise<{ forwarded: boolean; flight?: { id: string; invocationId: string; requesterId: string; targetAgentId: string; state: string; startedAt?: number; completedAt?: number; summary?: string; output?: string; error?: string; metadata?: Record<string, unknown> } }> {
+  const snapshot = runtime.snapshot();
+  const targetAgent = snapshot.agents[invocation.targetAgentId];
+  if (!targetAgent) {
+    throw new Error(`unknown agent ${invocation.targetAgentId}`);
+  }
+
+  if (targetAgent.authorityNodeId === nodeId) {
+    return { forwarded: false };
+  }
+
+  const authorityNode = snapshot.nodes[targetAgent.authorityNodeId];
+  if (!authorityNode?.brokerUrl) {
+    throw new Error(`authority node ${targetAgent.authorityNodeId} is not reachable`);
+  }
+
+  const bundle = buildMeshInvocationBundle(snapshot, currentLocalNode(), invocation);
+  const result = await forwardMeshInvocation(authorityNode.brokerUrl, bundle);
+  await runtime.upsertFlight(result.flight);
+  store.recordInvocation(invocation);
+  store.recordFlight(result.flight);
+  return { forwarded: true, flight: result.flight };
+}
+
 function parseLimit(url: URL): number {
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
   if (!Number.isFinite(limit) || limit <= 0) return 100;
@@ -158,9 +268,14 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       const deliveries = await runtime.postMessage(command.message);
       store.recordMessage(command.message);
       store.recordDeliveries(deliveries);
-      return { ok: true, deliveries };
+      const mesh = await forwardPeerBrokerDeliveries(command.message, deliveries);
+      return { ok: true, deliveries, mesh };
     }
     case "agent.invoke": {
+      const forwarded = await maybeForwardInvocation(command.invocation);
+      if (forwarded.forwarded) {
+        return { ok: true, flight: forwarded.flight, forwarded: true };
+      }
       const flight = await runtime.invokeAgent(command.invocation);
       store.recordInvocation(command.invocation);
       store.recordFlight(flight);
@@ -254,6 +369,60 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         ok: true,
         discovered,
       });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/mesh/messages") {
+    try {
+      const bundle = await readRequestBody<MeshMessageBundle>(request);
+      await applyMeshBundle(bundle);
+
+      if (runtime.snapshot().messages[bundle.message.id]) {
+        json(response, 200, { ok: true, duplicate: true });
+        return;
+      }
+
+      const deliveries = await runtime.postMessage(bundle.message, { localOnly: true });
+      store.recordMessage(bundle.message);
+      store.recordDeliveries(deliveries);
+      json(response, 200, { ok: true, deliveries });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/mesh/invocations") {
+    try {
+      const bundle = await readRequestBody<MeshInvocationBundle>(request);
+      await applyMeshBundle(bundle);
+
+      const targetAgent = runtime.snapshot().agents[bundle.invocation.targetAgentId];
+      if (!targetAgent) {
+        throw new Error(`unknown target agent ${bundle.invocation.targetAgentId}`);
+      }
+      if (targetAgent.authorityNodeId !== nodeId) {
+        json(response, 409, {
+          error: "not_authority",
+          detail: `agent ${targetAgent.id} is owned by ${targetAgent.authorityNodeId}`,
+        });
+        return;
+      }
+
+      const existing = Object.values(runtime.snapshot().flights)
+        .find((flight) => flight.invocationId === bundle.invocation.id);
+      if (existing) {
+        json(response, 200, { ok: true, duplicate: true, flight: existing });
+        return;
+      }
+
+      const flight = await runtime.invokeAgent(bundle.invocation);
+      store.recordInvocation(bundle.invocation);
+      store.recordFlight(flight);
+      json(response, 200, { ok: true, flight });
     } catch (error) {
       badRequest(response, error);
     }

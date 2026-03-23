@@ -24,7 +24,8 @@ export interface ControlRuntime {
   upsertEndpoint(endpoint: AgentEndpoint): Promise<void>;
   upsertConversation(conversation: ConversationDefinition): Promise<void>;
   upsertBinding(binding: ConversationBinding): Promise<void>;
-  postMessage(message: MessageRecord): Promise<DeliveryIntent[]>;
+  upsertFlight(flight: FlightRecord): Promise<void>;
+  postMessage(message: MessageRecord, options?: { localOnly?: boolean }): Promise<DeliveryIntent[]>;
   invokeAgent(invocation: InvocationRequest): Promise<FlightRecord>;
   subscribe(listener: (event: ControlEvent) => void): () => void;
 }
