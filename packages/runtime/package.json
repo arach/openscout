@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "broker": "bun run src/broker-daemon.ts",
-    "discover": "bun run src/broker-daemon.ts",
+    "discover": "bun run src/mesh-discover.ts",
     "check": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
