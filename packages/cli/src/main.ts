@@ -34,8 +34,14 @@ switch (command) {
   case "init":
     runInit(rest);
     break;
+  case "dev":
+    await runDevCommand(subcommand, rest);
+    break;
   case "app":
-    await runAppCommand(subcommand, rest);
+    await runScopedNativeCommand("app", subcommand, rest);
+    break;
+  case "agent":
+    await runScopedNativeCommand("agent", subcommand, rest);
     break;
   default:
     fail(`unknown command: ${command}`);
@@ -51,16 +57,26 @@ Usage:
   scout version
   scout doctor
   scout init
+  scout dev help
+  scout dev build app
+  scout dev launch agent
+  scout app build
   scout app launch
+  scout app relaunch
+  scout app relaunch --rebuild
   scout app status
+  scout agent build
+  scout agent launch
+  scout agent status
 
 Commands:
   help           Show this help text
   version        Print the CLI version
   doctor         Show local OpenScout environment status
   init           Scaffold a future Scout workspace entry point
-  app launch     Launch the local Scout app through scout-dev
-  app status     Show local Scout app and helper status
+  dev            Pass native developer commands through to scout-dev
+  app            Run a scoped native app command through scout-dev
+  agent          Run a scoped native agent command through scout-dev
 `);
 }
 
@@ -91,16 +107,27 @@ function runInit(_args: string[]) {
   console.log("This package is the scaffold for the long-term user-facing Scout CLI.");
 }
 
-async function runAppCommand(sub: string | undefined, passthrough: string[]) {
+async function runDevCommand(sub: string | undefined, passthrough: string[]) {
+  await runScoutDev(sub ? [sub, ...passthrough] : ["help"]);
+}
+
+async function runScopedNativeCommand(
+  target: "app" | "agent",
+  sub: string | undefined,
+  passthrough: string[],
+) {
   switch (sub) {
+    case "build":
+    case "rebuild":
     case "launch":
-      await runScoutDev(["launch", ...passthrough]);
-      break;
+    case "relaunch":
+    case "quit":
     case "status":
-      await runScoutDev(["status", ...passthrough]);
+    case "clean":
+      await runScoutDev([sub, target, ...passthrough]);
       break;
     default:
-      fail(`unknown app command: ${sub ?? "(missing)"}`);
+      fail(`unknown ${target} command: ${sub ?? "(missing)"}`);
   }
 }
 
