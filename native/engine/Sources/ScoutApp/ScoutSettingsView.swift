@@ -91,11 +91,52 @@ struct ScoutSettingsView: View {
                 ScoutValueRow(label: "Active Messages", value: "\(viewModel.relayMessages.count)")
             }
 
+            ScoutSubsection(title: "Mesh") {
+                ScoutValueRow(label: "Discovery", value: viewModel.meshDiscoveryState.title)
+                ScoutValueRow(label: "Detail", value: viewModel.meshDiscoveryDetail)
+                ScoutValueRow(label: "Broker Port", value: "\(viewModel.meshBrokerPort)")
+                ScoutValueRow(label: "Local Broker", value: viewModel.meshLocalBrokerReachable ? "Reachable" : "Not running")
+                ScoutValueRow(label: "Brokers Found", value: "\(viewModel.meshBrokerNodeCount)")
+                ScoutValueRow(label: "Tailscale Peers", value: "\(viewModel.meshPeersScanned)")
+                if let meshLastUpdatedAt = viewModel.meshLastUpdatedAt {
+                    ScoutValueRow(
+                        label: "Last Updated",
+                        value: meshLastUpdatedAt.formatted(date: .abbreviated, time: .standard)
+                    )
+                }
+                if !viewModel.meshNodes.isEmpty {
+                    ForEach(viewModel.meshNodes) { node in
+                        ScoutValueRow(
+                            label: node.name,
+                            value: "\(node.detail) · \(node.brokerLabel)"
+                        )
+                    }
+                }
+            }
+
+            if !viewModel.meshProbeResults.isEmpty {
+                ScoutSubsection(title: "Mesh Probes") {
+                    ForEach(viewModel.meshProbeResults) { probe in
+                        ScoutValueRow(
+                            label: probe.target,
+                            value: probe.detail
+                        )
+                    }
+                }
+            }
+
             HStack(spacing: 10) {
                 Button("Restart Helper") {
                     viewModel.supervisor.restart()
                 }
                 .buttonStyle(ScoutButtonStyle(tone: .primary))
+
+                Button("Refresh Mesh") {
+                    Task {
+                        await viewModel.refreshMeshNow()
+                    }
+                }
+                .buttonStyle(ScoutButtonStyle())
 
                 Button("Open Support Directory") {
                     viewModel.supervisor.openSupportDirectory()

@@ -40,6 +40,15 @@ final class ScoutShellViewModel {
     var relayStates: [String: String] = [:]
     var relayTransportMode: ScoutRelayTransportMode = .inactive
     var relayLastUpdatedAt: Date?
+    var meshDiscoveryState: ScoutMeshDiscoveryState = .inactive
+    var meshNodes: [ScoutMeshNode] = []
+    var meshPeersScanned = 0
+    var meshProbeResults: [ScoutMeshProbeResult] = []
+    var meshLastUpdatedAt: Date?
+    var meshLastError: String?
+    var meshDiscoveryDetail = "Mesh discovery has not run yet."
+    var meshLocalBrokerReachable = false
+    var meshBrokerPort = 55555
     var relayComposerResetToken = 0
     var voiceBridgeStatus = ScoutVoiceBridgeStatus.unavailable
     var voiceRepliesEnabled = false
@@ -52,9 +61,11 @@ final class ScoutShellViewModel {
 
     private let workspaceStore: ScoutWorkspaceStore
     private let voiceBridge: ScoutVoiceBridgeService
+    private let meshDiscovery: ScoutMeshDiscoveryService
     private var hasStarted = false
     @ObservationIgnored private var relayFallbackTask: Task<Void, Never>?
     @ObservationIgnored private var relayRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var meshMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var relayMonitor: ScoutRelayMonitor?
     @ObservationIgnored private var relayHistorySeeded = false
     @ObservationIgnored private var voicePreferencesSeeded = false
@@ -75,6 +86,7 @@ final class ScoutShellViewModel {
             seedSnapshot: seedSnapshot
         )
         self.voiceBridge = ScoutVoiceBridgeService()
+        self.meshDiscovery = ScoutMeshDiscoveryService()
         self.notes = seedSnapshot.notes
         self.drafts = seedSnapshot.drafts
         self.agentProfiles = seedSnapshot.agents
@@ -168,6 +180,7 @@ final class ScoutShellViewModel {
             _ = await workspaceStore.prepareRelayHub()
             await loadWorkspace()
             startRelayMonitoring()
+            startMeshMonitoring()
         }
     }
 
@@ -230,6 +243,81 @@ final class ScoutShellViewModel {
 
     var relayVoiceChannelEnabled: Bool {
         relayConfig.voiceChannel?.audio ?? false
+    }
+
+    var meshKnownNodeCount: Int {
+        meshNodes.count
+    }
+
+    var meshPeerNodeCount: Int {
+        meshNodes.filter { !$0.isLocal }.count
+    }
+
+    var meshBrokerNodeCount: Int {
+        meshNodes.count
+    }
+
+    var meshStatusTitle: String {
+        switch meshDiscoveryState {
+        case .inactive:
+            return "Mesh idle"
+        case .scanning:
+            return "Scanning"
+        case .ready where meshPeerNodeCount > 0:
+            return "\(meshPeerNodeCount) broker\(meshPeerNodeCount == 1 ? "" : "s")"
+        case .ready where meshPeersScanned > 0:
+            return "\(meshPeersScanned) peer\(meshPeersScanned == 1 ? "" : "s")"
+        case .ready where meshLocalBrokerReachable:
+            return "Local only"
+        case .ready:
+            return "No peers"
+        case .unavailable:
+            return "Unavailable"
+        case .failed:
+            return "Error"
+        }
+    }
+
+    var meshInlineMetricLabel: String {
+        switch meshDiscoveryState {
+        case .scanning:
+            return "Scanning"
+        case .ready where meshPeerNodeCount > 0:
+            return "\(meshPeerNodeCount) brokers"
+        case .ready where meshPeersScanned > 0:
+            return "\(meshPeersScanned) peers"
+        case .ready where meshLocalBrokerReachable:
+            return "Local only"
+        case .ready:
+            return "No peers"
+        case .unavailable:
+            return "No Tailscale"
+        case .failed:
+            return "Mesh error"
+        case .inactive:
+            return "Mesh idle"
+        }
+    }
+
+    var meshStatusLine: String {
+        switch meshDiscoveryState {
+        case .scanning:
+            return "scanning mesh"
+        case .ready where meshPeerNodeCount > 0:
+            return "\(meshPeerNodeCount) remote broker\(meshPeerNodeCount == 1 ? "" : "s")"
+        case .ready where meshPeersScanned > 0:
+            return "\(meshPeersScanned) tailscale peer\(meshPeersScanned == 1 ? "" : "s")"
+        case .ready where meshLocalBrokerReachable:
+            return "local broker only"
+        case .ready:
+            return "no tailscale peers"
+        case .unavailable:
+            return "mesh unavailable"
+        case .failed:
+            return "mesh error"
+        case .inactive:
+            return "mesh idle"
+        }
     }
 
     var relayDefaultVoice: String {
@@ -511,6 +599,29 @@ final class ScoutShellViewModel {
         await refreshRelayData()
     }
 
+    func refreshWorkersNow() async {
+        await refreshRelayNow()
+        await refreshMeshNow()
+    }
+
+    func refreshMeshNow() async {
+        guard meshDiscoveryState != .scanning else {
+            return
+        }
+
+        meshDiscoveryState = .scanning
+        let snapshot = await meshDiscovery.discover()
+        meshNodes = snapshot.nodes
+        meshPeersScanned = snapshot.tailscalePeerCount
+        meshProbeResults = snapshot.probes
+        meshLastUpdatedAt = .now
+        meshLastError = snapshot.lastError
+        meshDiscoveryDetail = snapshot.detail
+        meshLocalBrokerReachable = snapshot.localBrokerReachable
+        meshBrokerPort = snapshot.brokerPort
+        meshDiscoveryState = snapshot.state
+    }
+
     func prepareNewRelayMessage() {
         selectedRoute = .workers
         relayComposerResetToken &+= 1
@@ -588,6 +699,16 @@ final class ScoutShellViewModel {
             while let self, !Task.isCancelled {
                 await self.refreshRelayData()
                 try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private func startMeshMonitoring() {
+        meshMonitorTask?.cancel()
+        meshMonitorTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                await self.refreshMeshNow()
+                try? await Task.sleep(for: .seconds(30))
             }
         }
     }

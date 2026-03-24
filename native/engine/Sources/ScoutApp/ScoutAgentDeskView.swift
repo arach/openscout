@@ -304,6 +304,11 @@ struct ScoutAgentDeskView: View {
                         )
 
                         RelayInlineMetric(
+                            icon: "point.3.connected.trianglepath.dotted",
+                            label: viewModel.meshInlineMetricLabel
+                        )
+
+                        RelayInlineMetric(
                             icon: voiceCaptureIcon,
                             label: viewModel.voiceBridgeStatus.captureState.title
                         )
@@ -392,6 +397,12 @@ struct ScoutAgentDeskView: View {
                     title: viewModel.relayTransportMode.title,
                     icon: viewModel.relayTransportMode == .watching ? "dot.radiowaves.left.and.right" : "clock.arrow.circlepath",
                     tint: viewModel.relayTransportMode == .watching ? ScoutTheme.accent : ScoutTheme.inkMuted
+                )
+
+                RelayPill(
+                    title: viewModel.meshStatusTitle,
+                    icon: "point.3.connected.trianglepath.dotted",
+                    tint: meshStatusTint
                 )
             }
         }
@@ -874,6 +885,19 @@ struct ScoutAgentDeskView: View {
         case .idle:
             return Color(nsColor: .systemTeal)
         case .unavailable:
+            return ScoutTheme.inkMuted
+        }
+    }
+
+    private var meshStatusTint: Color {
+        switch viewModel.meshDiscoveryState {
+        case .ready where viewModel.meshKnownNodeCount > 0:
+            return ScoutTheme.success
+        case .scanning:
+            return ScoutTheme.accent
+        case .failed:
+            return ScoutTheme.warning
+        case .ready, .inactive, .unavailable:
             return ScoutTheme.inkMuted
         }
     }

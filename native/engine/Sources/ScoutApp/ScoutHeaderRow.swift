@@ -18,6 +18,19 @@ struct ScoutHeaderRow: View {
         }
     }
 
+    private var meshColor: Color {
+        switch viewModel.meshDiscoveryState {
+        case .ready where viewModel.meshKnownNodeCount > 0:
+            return ScoutTheme.success
+        case .scanning:
+            return ScoutTheme.accent
+        case .failed:
+            return ScoutTheme.warning
+        case .ready, .inactive, .unavailable:
+            return ScoutTheme.inkMuted
+        }
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
@@ -53,7 +66,7 @@ struct ScoutHeaderRow: View {
         }
 
         if viewModel.selectedRoute == .workers {
-            return "\(viewModel.relayMessages.count) messages · \(viewModel.agentProfiles.count) agents · \(viewModel.relayTransportMode.title.lowercased())"
+            return "\(viewModel.relayMessages.count) messages · \(viewModel.agentProfiles.count) agents · \(viewModel.meshStatusLine)"
         }
 
         if let lastHeartbeat = viewModel.supervisor.lastHeartbeat {
@@ -73,6 +86,12 @@ struct ScoutHeaderRow: View {
             )
 
             if viewModel.selectedRoute == .workers {
+                RuntimePill(
+                    label: viewModel.meshStatusTitle,
+                    detail: "Mesh",
+                    color: meshColor
+                )
+
                 Button {
                     viewModel.prepareNewRelayMessage()
                 } label: {
@@ -83,13 +102,13 @@ struct ScoutHeaderRow: View {
 
                 Button {
                     Task {
-                        await viewModel.refreshRelayNow()
+                        await viewModel.refreshWorkersNow()
                     }
                 } label: {
                     Label("Reload", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(ScoutButtonStyle(tone: .quiet))
-                .help("Refresh relay")
+                .help("Refresh relay and mesh")
             } else {
                 Button {
                     viewModel.selectedRoute = .console

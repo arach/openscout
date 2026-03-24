@@ -236,6 +236,67 @@ function parseLimit(url: URL): number {
   return Math.min(limit, 500);
 }
 
+function isAddressInUse(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "code" in error
+    && (error as { code?: string }).code === "EADDRINUSE",
+  );
+}
+
+async function probeExistingBroker() {
+  const healthUrl = `${brokerUrl}/health`;
+  const nodeUrl = `${brokerUrl}/v1/node`;
+
+  try {
+    const [healthResponse, nodeResponse] = await Promise.all([
+      fetch(healthUrl, { headers: { accept: "application/json" } }),
+      fetch(nodeUrl, { headers: { accept: "application/json" } }),
+    ]);
+
+    if (!healthResponse.ok || !nodeResponse.ok) {
+      return null;
+    }
+
+    const health = await healthResponse.json() as {
+      ok?: boolean;
+      nodeId?: string;
+      meshId?: string;
+    };
+    const node = await nodeResponse.json() as NodeDefinition;
+
+    if (!health.ok || !node.id) {
+      return null;
+    }
+
+    return {
+      nodeId: node.id,
+      meshId: node.meshId ?? health.meshId,
+      brokerUrl: node.brokerUrl ?? brokerUrl,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function listen(serverInstance: ReturnType<typeof createServer>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: unknown) => {
+      serverInstance.off("listening", handleListening);
+      reject(error);
+    };
+    const handleListening = () => {
+      serverInstance.off("error", handleError);
+      resolve();
+    };
+
+    serverInstance.once("error", handleError);
+    serverInstance.once("listening", handleListening);
+    serverInstance.listen(port, host);
+  });
+}
+
 async function handleCommand(command: ControlCommand): Promise<unknown> {
   switch (command.kind) {
     case "node.upsert":
@@ -529,11 +590,26 @@ const server = createServer((request, response) => {
   });
 });
 
-server.listen(port, host, () => {
+try {
+  await listen(server);
   console.log(`[openscout-runtime] broker listening on ${brokerUrl}`);
   console.log(`[openscout-runtime] node ${nodeId} in mesh ${meshId}`);
   console.log(`[openscout-runtime] sqlite ${dbPath}`);
-});
+} catch (error) {
+  if (isAddressInUse(error)) {
+    const existing = await probeExistingBroker();
+    if (existing) {
+      console.log(`[openscout-runtime] broker already running on ${brokerUrl}`);
+      console.log(`[openscout-runtime] node ${existing.nodeId} in mesh ${existing.meshId ?? "unknown"}`);
+      process.exit(0);
+    }
+
+    console.error(`[openscout-runtime] port ${port} is already in use by another process on ${host}`);
+    process.exit(1);
+  }
+
+  throw error;
+}
 
 if (seedUrls.length > 0) {
   discoverPeers().catch((error) => {
