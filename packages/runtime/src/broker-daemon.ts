@@ -71,7 +71,7 @@ function badRequest(response: ServerResponse, error: unknown): void {
 
 const controlHome = resolveControlPlaneHome();
 const dbPath = join(controlHome, "control-plane.sqlite");
-const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "55555", 10);
+const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "65556", 10);
 const host = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
 const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();

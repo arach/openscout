@@ -41,7 +41,7 @@ struct ScoutMeshNode: Identifiable, Equatable {
 
     var brokerLabel: String {
         if let host = brokerURL.host() {
-            return "\(host):\(brokerURL.port ?? 55555)"
+            return "\(host):\(brokerURL.port ?? 65556)"
         }
 
         return brokerURL.absoluteString
@@ -395,8 +395,8 @@ actor ScoutMeshDiscoveryService {
     }
 
     private static func resolvedBrokerPort() -> Int {
-        let raw = ProcessInfo.processInfo.environment["OPENSCOUT_BROKER_PORT"] ?? "55555"
-        return Int(raw) ?? 55555
+        let raw = ProcessInfo.processInfo.environment["OPENSCOUT_BROKER_PORT"] ?? "65556"
+        return Int(raw) ?? 65556
     }
 
     private func resolvedTailscaleBinary() -> String {

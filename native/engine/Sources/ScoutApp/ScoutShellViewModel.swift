@@ -48,7 +48,7 @@ final class ScoutShellViewModel {
     var meshLastError: String?
     var meshDiscoveryDetail = "Mesh discovery has not run yet."
     var meshLocalBrokerReachable = false
-    var meshBrokerPort = 55555
+    var meshBrokerPort = 65556
     var relayComposerResetToken = 0
     var voiceBridgeStatus = ScoutVoiceBridgeStatus.unavailable
     var voiceRepliesEnabled = false

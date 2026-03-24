@@ -1,5 +1,5 @@
 function resolveBrokerUrl(): string {
-  return (process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:55555").replace(/\/$/, "");
+  return (process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65556").replace(/\/$/, "");
 }
 
 function collectSeeds(argv: string[]): string[] {
