@@ -11,6 +11,7 @@ import type {
   ConversationBinding,
   ConversationDefinition,
   DeliveryIntent,
+  FlightRecord,
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
@@ -26,6 +27,11 @@ import {
   type MeshInvocationBundle,
   type MeshMessageBundle,
 } from "./mesh-forwarding.js";
+import {
+  invokeProjectTwinEndpoint,
+  loadRegisteredProjectTwinBindings,
+  shouldDisableGeneratedCodexEndpoint,
+} from "./project-twins.js";
 import { SQLiteControlPlaneStore } from "./sqlite-store.js";
 
 function createRuntimeId(prefix: string): string {
@@ -71,7 +77,7 @@ function badRequest(response: ServerResponse, error: unknown): void {
 
 const controlHome = resolveControlPlaneHome();
 const dbPath = join(controlHome, "control-plane.sqlite");
-const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "65556", 10);
+const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "65535", 10);
 const host = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
 const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
@@ -82,19 +88,46 @@ const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "0", 10);
+const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 
 const store = new SQLiteControlPlaneStore(dbPath);
 const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId: nodeId });
 const eventClients = new Set<ServerResponse>();
+const activeInvocationTasks = new Map<string, Promise<void>>();
+const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 
-runtime.subscribe((event) => {
+function streamEvent(event: ControlEvent): void {
   store.recordEvent(event);
   const payload = `event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
   for (const client of eventClients) {
     client.write(payload);
   }
+}
+
+function streamKeepAlive(): void {
+  if (eventClients.size == 0) {
+    return;
+  }
+
+  for (const client of eventClients) {
+    client.write(": keepalive\n\n");
+  }
+}
+
+runtime.subscribe((event) => {
+  streamEvent(event);
 });
+
+if (sseKeepAliveIntervalMs > 0) {
+  setInterval(() => {
+    streamKeepAlive();
+  }, sseKeepAliveIntervalMs).unref();
+}
 
 const localNode: NodeDefinition = {
   id: nodeId,
@@ -111,6 +144,22 @@ const localNode: NodeDefinition = {
 
 await runtime.upsertNode(localNode);
 store.upsertNode(localNode);
+
+const systemActor: ActorIdentity = {
+  id: "system",
+  kind: "system",
+  displayName: "System",
+  handle: "system",
+  labels: ["runtime"],
+  metadata: {
+    source: "broker",
+  },
+};
+
+await runtime.upsertActor(systemActor);
+store.upsertActor(systemActor);
+await syncRegisteredProjectTwins();
+await ensureCoreProjectTwinsOnline();
 
 async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
   const result = await discoverMeshNodes({
@@ -164,6 +213,311 @@ async function applyMeshBundle(bundle: {
     await runtime.upsertBinding(binding);
     store.upsertBinding(binding);
   }
+}
+
+async function persistFlight(flight: FlightRecord): Promise<void> {
+  await runtime.upsertFlight(flight);
+  store.recordFlight(flight);
+}
+
+async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
+  await runtime.upsertEndpoint(endpoint);
+  store.upsertEndpoint(endpoint);
+}
+
+async function syncRegisteredProjectTwins(): Promise<void> {
+  const bindings = await loadRegisteredProjectTwinBindings(nodeId);
+  console.log(
+    `[openscout-runtime] project twin sync found ${bindings.length} registered twin${bindings.length === 1 ? "" : "s"}`,
+  );
+
+  for (const binding of bindings) {
+    await runtime.upsertActor(binding.actor);
+    await runtime.upsertAgent(binding.agent);
+    store.upsertActor(binding.actor);
+    store.upsertAgent(binding.agent);
+    await persistEndpoint(binding.endpoint);
+    console.log(
+      `[openscout-runtime] project twin ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
+    );
+  }
+
+  const snapshot = runtime.snapshot();
+  for (const endpoint of Object.values(snapshot.endpoints)) {
+    if (!shouldDisableGeneratedCodexEndpoint(endpoint)) {
+      continue;
+    }
+
+    if (endpoint.state === "offline") {
+      continue;
+    }
+
+    await persistEndpoint({
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        disabledReason: "synthetic_executor_disabled",
+      },
+    });
+    console.log(`[openscout-runtime] disabled synthetic endpoint ${endpoint.id}`);
+  }
+}
+
+async function ensureCoreProjectTwinsOnline(): Promise<void> {
+  const coreBindings = await loadRegisteredProjectTwinBindings(nodeId, {
+    ensureOnline: true,
+    agentIds: configuredCoreAgentIds.length > 0 ? configuredCoreAgentIds : undefined,
+  });
+
+  if (coreBindings.length === 0) {
+    console.log("[openscout-runtime] no configured core twins to warm");
+    return;
+  }
+
+  console.log(
+    `[openscout-runtime] warming ${coreBindings.length} core twin${coreBindings.length === 1 ? "" : "s"}`,
+  );
+
+  for (const binding of coreBindings) {
+    await runtime.upsertActor(binding.actor);
+    await runtime.upsertAgent(binding.agent);
+    store.upsertActor(binding.actor);
+    store.upsertAgent(binding.agent);
+    await persistEndpoint(binding.endpoint);
+    console.log(
+      `[openscout-runtime] core twin ready ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
+    );
+  }
+}
+
+function messageVisibilityForConversation(conversation?: ConversationDefinition): MessageRecord["visibility"] {
+  switch (conversation?.visibility) {
+    case "private":
+    case "public":
+    case "system":
+      return conversation.visibility;
+    case "workspace":
+    default:
+      return "workspace";
+  }
+}
+
+async function postConversationMessage(
+  message: MessageRecord,
+): Promise<void> {
+  const deliveries = await runtime.postMessage(message);
+  store.recordMessage(message);
+  store.recordDeliveries(deliveries);
+  await forwardPeerBrokerDeliveries(message, deliveries);
+}
+
+async function postInvocationStatusMessage(
+  invocation: InvocationRequest,
+  flight: {
+    summary?: string;
+    error?: string;
+  },
+): Promise<void> {
+  if (!invocation.conversationId) {
+    return;
+  }
+
+  const snapshot = runtime.snapshot();
+  const conversation = snapshot.conversations[invocation.conversationId];
+  if (!conversation) {
+    return;
+  }
+
+  const body = [flight.summary, flight.error]
+    .filter((value): value is string => Boolean(value && value.trim().length > 0))
+    .join("\n");
+  if (!body) {
+    return;
+  }
+
+  await postConversationMessage({
+    id: createRuntimeId("msg"),
+    conversationId: invocation.conversationId,
+    actorId: systemActor.id,
+    originNodeId: nodeId,
+    class: "status",
+    body,
+    replyToMessageId: invocation.messageId,
+    audience: {
+      notify: [invocation.requesterId],
+    },
+    visibility: messageVisibilityForConversation(conversation),
+    policy: "durable",
+    createdAt: Date.now(),
+    metadata: {
+      flightId: invocation.id,
+      source: "broker",
+      targetAgentId: invocation.targetAgentId,
+    },
+  });
+}
+
+function activeLocalEndpointForAgent(agentId: string): AgentEndpoint | undefined {
+  const candidates = Object.values(runtime.snapshot().endpoints).filter((endpoint) => (
+    endpoint.agentId === agentId
+    && endpoint.nodeId === nodeId
+    && endpoint.state !== "offline"
+    && endpoint.transport === "tmux"
+  ));
+  return candidates[0];
+}
+
+async function executeLocalInvocation(
+  invocation: InvocationRequest,
+  initialFlight: FlightRecord,
+): Promise<void> {
+  const snapshot = runtime.snapshot();
+  const agent = snapshot.agents[invocation.targetAgentId];
+  const endpoint = activeLocalEndpointForAgent(invocation.targetAgentId);
+
+  if (!agent || !endpoint) {
+    const failedFlight = {
+      ...initialFlight,
+      state: "failed" as const,
+      summary: `${agent?.displayName ?? invocation.targetAgentId} is not runnable yet.`,
+      error: `No runnable endpoint is registered for agent ${invocation.targetAgentId}.`,
+      completedAt: Date.now(),
+    };
+    await persistFlight(failedFlight);
+    await postInvocationStatusMessage(invocation, failedFlight);
+    return;
+  }
+
+  if (endpoint.transport !== "tmux") {
+    const failedFlight = {
+      ...initialFlight,
+      state: "failed" as const,
+      summary: `${agent.displayName} has no supported twin executor.`,
+      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through tmux-backed twins right now.`,
+      completedAt: Date.now(),
+    };
+    await persistFlight(failedFlight);
+    await postInvocationStatusMessage(invocation, failedFlight);
+    return;
+  }
+
+  const runningEndpoint: AgentEndpoint = {
+    ...endpoint,
+    state: "active",
+    metadata: {
+      ...(endpoint.metadata ?? {}),
+      lastInvocationId: invocation.id,
+      lastStartedAt: Date.now(),
+    },
+  };
+  await persistEndpoint(runningEndpoint);
+
+  const runningFlight = {
+    ...initialFlight,
+    state: "running" as const,
+    summary: `${agent.displayName} is working.`,
+    error: undefined,
+    completedAt: undefined,
+  };
+  await persistFlight(runningFlight);
+  await postInvocationStatusMessage(invocation, runningFlight);
+
+  try {
+    const result = await invokeProjectTwinEndpoint(runningEndpoint, invocation);
+
+    const completedFlight = {
+      ...runningFlight,
+      state: "completed" as const,
+      summary: `${agent.displayName} replied.`,
+      output: result.output,
+      completedAt: Date.now(),
+    };
+    await persistFlight(completedFlight);
+
+    await persistEndpoint({
+      ...runningEndpoint,
+      state: "idle",
+      metadata: {
+        ...(runningEndpoint.metadata ?? {}),
+        lastCompletedAt: Date.now(),
+      },
+    });
+
+    if (invocation.conversationId) {
+      const conversation = runtime.snapshot().conversations[invocation.conversationId];
+      if (conversation) {
+        await postConversationMessage({
+          id: createRuntimeId("msg"),
+          conversationId: invocation.conversationId,
+          actorId: agent.id,
+          originNodeId: nodeId,
+          class: "agent",
+          body: result.output,
+          replyToMessageId: invocation.messageId,
+          audience: {
+            notify: [invocation.requesterId],
+          },
+          visibility: messageVisibilityForConversation(conversation),
+          policy: "durable",
+          createdAt: Date.now(),
+          metadata: {
+            invocationId: invocation.id,
+            flightId: completedFlight.id,
+            source: "broker",
+            responderHarness: runningEndpoint.harness,
+            responderTransport: runningEndpoint.transport,
+            responderSessionId: runningEndpoint.sessionId ?? "",
+            responderCwd: runningEndpoint.cwd ?? "",
+            responderProjectRoot: runningEndpoint.projectRoot ?? "",
+            responderTwinName: String(runningEndpoint.metadata?.twinName ?? agent.id),
+            responderStartedAt: String(runningEndpoint.metadata?.startedAt ?? ""),
+            responderNodeId: runningEndpoint.nodeId,
+          },
+        });
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failedFlight = {
+      ...runningFlight,
+      state: "failed" as const,
+      summary: `${agent.displayName} failed to respond.`,
+      error: message,
+      completedAt: Date.now(),
+    };
+    await persistFlight(failedFlight);
+
+    await persistEndpoint({
+      ...runningEndpoint,
+      state: "degraded",
+      metadata: {
+        ...(runningEndpoint.metadata ?? {}),
+        lastError: message,
+        lastFailedAt: Date.now(),
+      },
+    });
+
+    await postInvocationStatusMessage(invocation, failedFlight);
+  }
+}
+
+function launchLocalInvocation(
+  invocation: InvocationRequest,
+  initialFlight: FlightRecord,
+): void {
+  if (activeInvocationTasks.has(invocation.id)) {
+    return;
+  }
+
+  const task = executeLocalInvocation(invocation, initialFlight)
+    .catch((error) => {
+      console.error(`[openscout-runtime] local invocation ${invocation.id} crashed:`, error);
+    })
+    .finally(() => {
+      activeInvocationTasks.delete(invocation.id);
+    });
+  activeInvocationTasks.set(invocation.id, task);
 }
 
 async function forwardPeerBrokerDeliveries(
@@ -330,16 +684,30 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       store.recordMessage(command.message);
       store.recordDeliveries(deliveries);
       const mesh = await forwardPeerBrokerDeliveries(command.message, deliveries);
-      return { ok: true, deliveries, mesh };
+      console.log(
+        `[openscout-runtime] message ${command.message.id} posted by ${command.message.actorId} to ${command.message.conversationId} with ${deliveries.length} deliveries`,
+      );
+      return { ok: true, message: command.message, deliveries, mesh };
     }
     case "agent.invoke": {
       const forwarded = await maybeForwardInvocation(command.invocation);
       if (forwarded.forwarded) {
+        console.log(
+          `[openscout-runtime] invocation ${command.invocation.id} forwarded to ${command.invocation.targetAgentId}`,
+        );
         return { ok: true, flight: forwarded.flight, forwarded: true };
       }
       const flight = await runtime.invokeAgent(command.invocation);
       store.recordInvocation(command.invocation);
       store.recordFlight(flight);
+      console.log(
+        `[openscout-runtime] invocation ${command.invocation.id} -> ${command.invocation.targetAgentId} is ${flight.state}${flight.summary ? ` (${flight.summary})` : ""}`,
+      );
+      if (flight.state === "failed") {
+        await postInvocationStatusMessage(command.invocation, flight);
+      } else {
+        launchLocalInvocation(command.invocation, flight);
+      }
       return { ok: true, flight };
     }
     case "agent.ensure_awake":
@@ -633,4 +1001,19 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     store.close();
     server.close(() => process.exit(0));
   });
+}
+
+if (Number.isFinite(parentPid) && parentPid > 0) {
+  setInterval(() => {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      console.log(`[openscout-runtime] parent ${parentPid} is gone, exiting broker`);
+      for (const client of eventClients) {
+        client.end();
+      }
+      store.close();
+      server.close(() => process.exit(0));
+    }
+  }, 2_000).unref();
 }

@@ -2,6 +2,7 @@ import AppKit
 
 final class ScoutTextView: NSTextView {
     var onMetricsChange: ((ScoutEditorMetrics) -> Void)?
+    var onCommandEnter: (() -> Void)?
 
     private let indentUnit = "    "
 
@@ -20,6 +21,24 @@ final class ScoutTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handlesCommandReturn(event) {
+            onCommandEnter?()
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handlesCommandReturn(event) {
+            onCommandEnter?()
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
     }
 
     override func didChangeText() {
@@ -94,6 +113,14 @@ final class ScoutTextView: NSTextView {
 
         insertText(continuation, replacementRange: selectedRange())
         publishMetrics()
+    }
+
+    private func handlesCommandReturn(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+            || event.charactersIgnoringModifiers == "\r"
+            || event.charactersIgnoringModifiers == "\n"
+        return modifiers.contains(.command) && isReturnKey
     }
 
     private func transformSelectedLines(_ transform: (String) -> String) {

@@ -1,14 +1,41 @@
 import AppKit
 import SwiftUI
 
+enum ScoutTextEditorBehavior {
+    case document
+    case composer
+}
+
 struct ScoutTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var metrics: ScoutEditorMetrics
 
     let usesMonospacedFont: Bool
     let showsLineNumbers: Bool
+    let behavior: ScoutTextEditorBehavior
     let accessibilityLabel: String
     let accessibilityHint: String
+    let onCommandEnter: (() -> Void)?
+
+    init(
+        text: Binding<String>,
+        metrics: Binding<ScoutEditorMetrics>,
+        usesMonospacedFont: Bool,
+        showsLineNumbers: Bool,
+        behavior: ScoutTextEditorBehavior = .document,
+        accessibilityLabel: String,
+        accessibilityHint: String,
+        onCommandEnter: (() -> Void)?
+    ) {
+        _text = text
+        _metrics = metrics
+        self.usesMonospacedFont = usesMonospacedFont
+        self.showsLineNumbers = showsLineNumbers
+        self.behavior = behavior
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+        self.onCommandEnter = onCommandEnter
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, metrics: $metrics)
@@ -76,12 +103,7 @@ struct ScoutTextEditor: NSViewRepresentable {
         scrollView.hasVerticalRuler = showsLineNumbers
         scrollView.rulersVisible = showsLineNumbers
 
-        if textView.string != text {
-            let selectedRange = textView.selectedRange()
-            let safeLocation = min(selectedRange.location, (text as NSString).length)
-            textView.string = text
-            textView.setSelectedRange(NSRange(location: safeLocation, length: 0))
-        }
+        context.coordinator.syncTextView(textView, with: text)
 
         context.coordinator.publishMetrics(from: textView)
     }
@@ -96,12 +118,12 @@ struct ScoutTextEditor: NSViewRepresentable {
         textView.importsGraphics = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = true
-        textView.isAutomaticDataDetectionEnabled = true
-        textView.isAutomaticSpellingCorrectionEnabled = true
-        textView.isIncrementalSearchingEnabled = true
-        textView.usesFindBar = true
-        textView.isContinuousSpellCheckingEnabled = true
+        textView.isAutomaticTextReplacementEnabled = behavior == .document
+        textView.isAutomaticDataDetectionEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = behavior == .document
+        textView.isIncrementalSearchingEnabled = behavior == .document
+        textView.usesFindBar = behavior == .document
+        textView.isContinuousSpellCheckingEnabled = behavior == .document
         textView.isGrammarCheckingEnabled = false
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
@@ -114,6 +136,7 @@ struct ScoutTextEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.allowsUndo = true
         textView.focusRingType = .default
+        textView.onCommandEnter = onCommandEnter
         textView.setAccessibilityLabel(accessibilityLabel)
         textView.setAccessibilityHelp(accessibilityHint)
         textView.font = usesMonospacedFont
@@ -131,6 +154,8 @@ struct ScoutTextEditor: NSViewRepresentable {
         private let text: Binding<String>
         private let metrics: Binding<ScoutEditorMetrics>
         private weak var rulerView: ScoutLineNumberRulerView?
+        private var lastPublishedText: String
+        private var isSynchronizingText = false
 
         init(
             text: Binding<String>,
@@ -138,6 +163,7 @@ struct ScoutTextEditor: NSViewRepresentable {
         ) {
             self.text = text
             self.metrics = metrics
+            self.lastPublishedText = text.wrappedValue
         }
 
         func configure(
@@ -152,11 +178,44 @@ struct ScoutTextEditor: NSViewRepresentable {
             self.rulerView = rulerView
         }
 
+        func syncTextView(_ textView: ScoutTextView, with externalText: String) {
+            guard !isSynchronizingText else {
+                return
+            }
+
+            if textView.string == externalText {
+                lastPublishedText = externalText
+                return
+            }
+
+            guard externalText != lastPublishedText else {
+                return
+            }
+
+            guard !textView.hasMarkedText() else {
+                return
+            }
+
+            let selectedRange = textView.selectedRange()
+            let nsText = externalText as NSString
+            let safeLocation = min(selectedRange.location, nsText.length)
+            let safeLength = min(selectedRange.length, nsText.length - safeLocation)
+
+            isSynchronizingText = true
+            textView.string = externalText
+            textView.setSelectedRange(NSRange(location: safeLocation, length: safeLength))
+            lastPublishedText = externalText
+            isSynchronizingText = false
+        }
+
         func publishMetrics(from textView: ScoutTextView) {
-            metrics.wrappedValue = ScoutEditorMetrics.measuring(
+            let measured = ScoutEditorMetrics.measuring(
                 text: textView.string,
                 selectedRange: textView.selectedRange()
             )
+            if metrics.wrappedValue != measured {
+                metrics.wrappedValue = measured
+            }
             rulerView?.refresh()
         }
 
@@ -165,6 +224,11 @@ struct ScoutTextEditor: NSViewRepresentable {
                 return
             }
 
+            guard !isSynchronizingText else {
+                return
+            }
+
+            lastPublishedText = textView.string
             text.wrappedValue = textView.string
             publishMetrics(from: textView)
         }

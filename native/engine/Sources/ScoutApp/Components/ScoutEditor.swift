@@ -23,7 +23,8 @@ struct ScoutEditor: View {
                     usesMonospacedFont: usesMonospacedFont,
                     showsLineNumbers: showsLineNumbers,
                     accessibilityLabel: title,
-                    accessibilityHint: subtitle ?? placeholder
+                    accessibilityHint: subtitle ?? placeholder,
+                    onCommandEnter: nil
                 )
                 .frame(minHeight: minHeight)
 

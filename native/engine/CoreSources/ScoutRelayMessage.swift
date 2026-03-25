@@ -11,6 +11,12 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
     public var tags: [String]
     public var recipients: [String]
     public var channel: String?
+    public var isDirectConversation: Bool
+    public var replyToMessageID: String?
+    public var metadata: [String: String]?
+    public var routingSummary: String?
+    public var provenanceSummary: String?
+    public var provenanceDetail: String?
 
     public var id: String {
         eventID ?? "\(timestamp)-\(from)-\(type.rawValue)-\(body.hashValue)"
@@ -26,7 +32,13 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
         eventID: String? = nil,
         tags: [String] = [],
         recipients: [String] = [],
-        channel: String? = nil
+        channel: String? = nil,
+        isDirectConversation: Bool = false,
+        replyToMessageID: String? = nil,
+        metadata: [String: String]? = nil,
+        routingSummary: String? = nil,
+        provenanceSummary: String? = nil,
+        provenanceDetail: String? = nil
     ) {
         self.timestamp = timestamp
         self.from = from
@@ -38,10 +50,16 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
         self.tags = tags
         self.recipients = recipients
         self.channel = channel
+        self.isDirectConversation = isDirectConversation
+        self.replyToMessageID = replyToMessageID
+        self.metadata = metadata
+        self.routingSummary = routingSummary
+        self.provenanceSummary = provenanceSummary
+        self.provenanceDetail = provenanceDetail
     }
 
     public var mentionedAgents: [String] {
-        let inlineMentions = body
+        body
             .split(separator: " ")
             .compactMap { token -> String? in
                 guard token.hasPrefix("@") else {
@@ -54,15 +72,18 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
                     .trimmingCharacters(in: CharacterSet(charactersIn: ".,:;!?"))
                 )
             }
+            .reduce(into: [String]()) { partialResult, agent in
+                if !partialResult.contains(agent) {
+                    partialResult.append(agent)
+                }
+            }
+    }
 
-        return Array(Set(recipients + inlineMentions)).sorted()
+    public var targetedAgents: [String] {
+        Array(Set(recipients)).sorted()
     }
 
     public var renderedBody: String {
-        if body.hasPrefix("[speak] ") {
-            return String(body.dropFirst(8)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
         return body
     }
 
@@ -72,9 +93,9 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
             return explicitSpeech
         }
 
-        if tags.contains("speak") || body.hasPrefix("[speak] ") {
-            let legacySpeech = renderedBody.trimmingCharacters(in: .whitespacesAndNewlines)
-            return legacySpeech.isEmpty ? nil : legacySpeech
+        if tags.contains("speak") {
+            let spokenBody = renderedBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            return spokenBody.isEmpty ? nil : spokenBody
         }
 
         return nil
@@ -85,7 +106,7 @@ public struct ScoutRelayMessage: Identifiable, Codable, Hashable, Sendable {
     }
 
     public var isDirectMessage: Bool {
-        !mentionedAgents.isEmpty
+        isDirectConversation
     }
 
     public var normalizedChannel: String? {

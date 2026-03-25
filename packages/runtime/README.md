@@ -17,4 +17,4 @@ The intent is:
 
 - `@openscout/protocol` defines the language
 - `@openscout/runtime` defines how that language is stored and executed locally
-- the old Relay package becomes just one surface and compatibility path
+- the control plane is the source of truth for local communication and execution

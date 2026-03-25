@@ -3,7 +3,6 @@ import SwiftUI
 
 private enum RelayChannel: String, CaseIterable, Hashable {
     case shared
-    case mentions
     case voice
     case system
 
@@ -11,8 +10,6 @@ private enum RelayChannel: String, CaseIterable, Hashable {
         switch self {
         case .shared:
             return "shared-channel"
-        case .mentions:
-            return "mentions"
         case .voice:
             return "voice"
         case .system:
@@ -22,8 +19,8 @@ private enum RelayChannel: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .mentions:
-            return "@ mentions"
+        case .shared:
+            return "# \(title)"
         default:
             return "# \(title)"
         }
@@ -33,8 +30,6 @@ private enum RelayChannel: String, CaseIterable, Hashable {
         switch self {
         case .shared:
             return "number"
-        case .mentions:
-            return "at"
         case .voice:
             return "waveform"
         case .system:
@@ -46,12 +41,35 @@ private enum RelayChannel: String, CaseIterable, Hashable {
         switch self {
         case .shared:
             return "Broadcast updates and shared context."
-        case .mentions:
-            return "Messages with explicit agent targets."
         case .voice:
             return "Voice-related chat, transcripts, and explicit speech cues."
         case .system:
             return "State and infrastructure events."
+        }
+    }
+}
+
+private enum RelayFilter: String, CaseIterable, Hashable {
+    case mentions
+
+    var title: String {
+        switch self {
+        case .mentions:
+            return "Mentions"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .mentions:
+            return "at"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .mentions:
+            return "Focused view of shared-channel messages that target agents."
         }
     }
 }
@@ -81,7 +99,15 @@ private enum RelayPresenceState: String, CaseIterable, Hashable {
 
 private enum RelayDestination: Hashable {
     case channel(RelayChannel)
+    case filter(RelayFilter)
     case direct(String)
+}
+
+private enum RelayComposeFeedback: Equatable {
+    case idle
+    case sending
+    case sent(String)
+    case failed(String)
 }
 
 struct ScoutAgentDeskView: View {
@@ -92,20 +118,21 @@ struct ScoutAgentDeskView: View {
     @State private var selectedDestination: RelayDestination = .channel(.shared)
     @State private var leftRailCollapsed = false
     @State private var composerMetrics = ScoutEditorMetrics.empty
+    @State private var composeFeedback: RelayComposeFeedback = .idle
 
     private var filteredMessages: [ScoutRelayMessage] {
         switch selectedDestination {
         case .channel(.shared):
             return viewModel.relayMessages.filter(isSharedChannelMessage)
-        case .channel(.mentions):
-            return viewModel.relayMessages.filter(isMentionsChannelMessage)
         case .channel(.voice):
             return viewModel.relayMessages.filter(isVoiceChannelMessage)
         case .channel(.system):
             return viewModel.relayMessages.filter(isSystemChannelMessage)
+        case .filter(.mentions):
+            return viewModel.relayMessages.filter(isMentionsChannelMessage)
         case let .direct(agentID):
             return viewModel.relayMessages.filter {
-                $0.from == agentID || $0.mentionedAgents.contains(agentID)
+                $0.isDirectConversation && ($0.from == agentID || $0.recipients.contains(agentID))
             }
         }
     }
@@ -114,6 +141,14 @@ struct ScoutAgentDeskView: View {
         viewModel.agentProfiles
             .filter { targetAgentIDs.contains($0.id) }
             .map(\.name)
+    }
+
+    private var directAgents: [ScoutAgentProfile] {
+        viewModel.agentProfiles.filter { agent in
+            viewModel.relayReachableAgentIDs.contains(agent.id)
+            || viewModel.latestRelayMessage(for: agent.id) != nil
+            || selectedDestination == .direct(agent.id)
+        }
     }
 
     private var selectedAgent: ScoutAgentProfile? {
@@ -143,6 +178,14 @@ struct ScoutAgentDeskView: View {
         .onChange(of: targetAgentIDs) { _, _ in
             syncVoiceRouting()
         }
+        .onChange(of: draft) { _, _ in
+            switch composeFeedback {
+            case .sent, .failed:
+                composeFeedback = .idle
+            case .idle, .sending:
+                break
+            }
+        }
         .onChange(of: viewModel.relayComposerResetToken) { _, _ in
             resetComposer()
         }
@@ -168,8 +211,24 @@ struct ScoutAgentDeskView: View {
                         }
                     }
 
+                    railSection(title: "Views") {
+                        ForEach(RelayFilter.allCases, id: \.self) { filter in
+                            RelayRailRow(
+                                title: filter.title,
+                                subtitle: filter.subtitle,
+                                icon: filter.icon,
+                                badge: messageCount(for: filter) > 0 ? "\(messageCount(for: filter))" : nil,
+                                isSelected: selectedDestination == .filter(filter),
+                                isCollapsed: leftRailCollapsed,
+                                action: {
+                                    select(filter: filter)
+                                }
+                            )
+                        }
+                    }
+
                     railSection(title: "Direct Messages") {
-                        ForEach(viewModel.agentProfiles) { agent in
+                        ForEach(directAgents) { agent in
                             RelayDirectRow(
                                 agent: agent,
                                 state: viewModel.relayState(for: agent.id),
@@ -347,7 +406,7 @@ struct ScoutAgentDeskView: View {
     }
 
     private var threadHeader: some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .top, spacing: 18) {
             RelayConversationIcon(
                 icon: selectedConversationIcon,
                 label: selectedConversationAbbreviation,
@@ -358,87 +417,80 @@ struct ScoutAgentDeskView: View {
                 Text(selectedConversationTitle)
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(ScoutTheme.ink)
+                    .lineLimit(1)
 
-                HStack(spacing: 8) {
-                    Text(selectedConversationSubtitle)
-                        .font(.system(size: 13))
-                        .foregroundStyle(ScoutTheme.inkSecondary)
-
-                    Circle()
-                        .fill(ScoutTheme.borderStrong)
-                        .frame(width: 4, height: 4)
-
-                    Text("\(filteredMessages.count) message\(filteredMessages.count == 1 ? "" : "s")")
-                        .font(.system(size: 12))
-                        .foregroundStyle(ScoutTheme.inkMuted)
-                }
+                Text(threadSummaryLine)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ScoutTheme.inkSecondary)
+                    .lineLimit(1)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 18)
 
-            HStack(spacing: 8) {
-                RelayPill(
-                    title: viewModel.voiceBridgeStatus.captureState.title,
-                    icon: voiceCaptureIcon,
-                    tint: voiceCaptureTint
-                )
-
-                Button(viewModel.voiceCaptureButtonTitle) {
-                    viewModel.toggleVoiceCapture()
+            VStack(alignment: .trailing, spacing: 8) {
+                if shouldShowHeaderVoiceStatus {
+                    RelayInlineStatus(
+                        title: voiceStatusTitle,
+                        detail: compactVoiceStatusDetail,
+                        icon: voiceCaptureIcon,
+                        tint: voiceCaptureTint
+                    )
                 }
-                .buttonStyle(ScoutButtonStyle(tone: viewModel.isVoiceCaptureActive ? .primary : .secondary))
 
-                Button(viewModel.voiceRepliesEnabled ? "Hear On" : "Hear Off") {
-                    viewModel.toggleVoiceRepliesEnabled()
+                HStack(spacing: 10) {
+                    RelayHeaderToggle(
+                        title: "Mic",
+                        icon: voiceCaptureIcon,
+                        isActive: viewModel.isVoiceCaptureActive,
+                        tint: voiceCaptureTint
+                    ) {
+                        viewModel.toggleVoiceCapture()
+                    }
+
+                    RelayHeaderToggle(
+                        title: "Speak",
+                        icon: viewModel.voiceRepliesEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                        isActive: viewModel.voiceRepliesEnabled,
+                        tint: ScoutTheme.accent
+                    ) {
+                        viewModel.toggleVoiceRepliesEnabled()
+                    }
                 }
-                .buttonStyle(ScoutButtonStyle(tone: viewModel.voiceRepliesEnabled ? .secondary : .quiet))
-
-                RelayPill(
-                    title: viewModel.relayTransportMode.title,
-                    icon: viewModel.relayTransportMode == .watching ? "dot.radiowaves.left.and.right" : "clock.arrow.circlepath",
-                    tint: viewModel.relayTransportMode == .watching ? ScoutTheme.accent : ScoutTheme.inkMuted
-                )
-
-                RelayPill(
-                    title: viewModel.meshStatusTitle,
-                    icon: "point.3.connected.trianglepath.dotted",
-                    tint: meshStatusTint
-                )
             }
+            .layoutPriority(1)
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
         .background(ScoutTheme.surfaceStrong.opacity(0.96))
     }
 
     private var timeline: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if filteredMessages.isEmpty {
-                        emptyThread
-                    } else {
-                        ForEach(Array(filteredMessages.enumerated()), id: \.element.id) { index, message in
-                            RelayThreadRow(
-                                message: message,
-                                currentIdentity: viewModel.relayIdentity,
-                                profile: agentProfile(id: message.from)
-                            )
-
-                            if index < filteredMessages.count - 1 {
-                                Rectangle()
-                                    .fill(ScoutTheme.border.opacity(0.38))
-                                    .frame(height: 1)
-                                    .padding(.leading, message.type == .sys ? 24 : 72)
+                VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if filteredMessages.isEmpty {
+                            emptyThread
+                        } else {
+                            ForEach(Array(filteredMessages.enumerated()), id: \.element.id) { index, message in
+                                RelayThreadRow(
+                                    message: message,
+                                    previousMessage: index > 0 ? filteredMessages[index - 1] : nil,
+                                    currentIdentity: viewModel.relayIdentity,
+                                    profile: agentProfile(id: message.from)
+                                )
                             }
                         }
-                    }
 
-                    Color.clear
-                        .frame(height: 1)
-                        .id("relay-bottom")
+                        Color.clear
+                            .frame(height: 1)
+                            .id("relay-bottom")
+                    }
+                    .frame(maxWidth: 940, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
                 }
-                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -518,8 +570,12 @@ struct ScoutAgentDeskView: View {
                     metrics: $composerMetrics,
                     usesMonospacedFont: false,
                     showsLineNumbers: false,
+                    behavior: .composer,
                     accessibilityLabel: "Relay message",
-                    accessibilityHint: composePlaceholder
+                    accessibilityHint: composePlaceholder,
+                    onCommandEnter: {
+                        sendMessage()
+                    }
                 )
                 .frame(minHeight: 110, maxHeight: 180)
 
@@ -541,6 +597,13 @@ struct ScoutAgentDeskView: View {
                     )
             )
 
+            if let feedbackDetail {
+                RelayComposerFeedbackStrip(
+                    detail: feedbackDetail,
+                    tone: feedbackTone
+                )
+            }
+
             HStack(alignment: .center, spacing: 12) {
                 Text(composeFooter)
                     .font(.system(size: 12))
@@ -552,11 +615,11 @@ struct ScoutAgentDeskView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkFaint)
 
-                Button("Send") {
+                Button(isSending ? "Sending…" : "Send") {
                     sendMessage()
                 }
                 .buttonStyle(ScoutButtonStyle(tone: .primary))
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isSendDisabled)
             }
         }
         .padding(.horizontal, 20)
@@ -573,6 +636,8 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case let .channel(channel):
             return "Post to \(channel.label)"
+        case .filter(.mentions):
+            return "Post to #shared-channel"
         case .direct:
             return "Post to direct thread"
         }
@@ -586,12 +651,12 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case .channel(.shared):
             return "Share context, ask a question, or broadcast an update to the channel."
-        case .channel(.mentions):
-            return "Write a targeted note for one or more agents."
         case .channel(.voice):
             return "Post a typed message to the voice channel."
         case .channel(.system):
             return "Describe the system event or state change you want to log."
+        case .filter(.mentions):
+            return "Write a targeted note for one or more agents. It still posts into #shared-channel."
         case .direct:
             return "Write a direct relay message."
         }
@@ -601,21 +666,65 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case .channel(.voice):
             return "Type to the voice channel. Playback stays optional and separate."
+        case .filter(.mentions):
+            return "This is a filtered view of targeted shared-channel messages, not a separate channel."
         default:
             return "Append a normal relay message."
         }
     }
 
     private var composeFooter: String {
-        if targetAgentIDs.isEmpty {
-            return "No explicit targets selected. This will post to the selected channel."
+        if isSending {
+            return "Posting through the local control plane."
         }
 
-        return "Selected targets are prepended as @mentions before the message body."
+        if targetAgentIDs.isEmpty {
+            return "No explicit targets selected. This will post to the selected channel. Use ⌘↩ to send."
+        }
+
+        if selectedDestination == .filter(.mentions) {
+            return "Selected targets are mentioned and invoked when runnable. The message still posts to #shared-channel. Use ⌘↩ to send."
+        }
+
+        return "Selected targets are invoked as well as mentioned. Use ⌘↩ to send."
     }
 
     private var metricsSummary: String {
         "Ln \(composerMetrics.cursorLine)  Col \(composerMetrics.cursorColumn)  \(composerMetrics.wordCount) words"
+    }
+
+    private var isSending: Bool {
+        if case .sending = composeFeedback {
+            return true
+        }
+
+        return false
+    }
+
+    private var isSendDisabled: Bool {
+        isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var feedbackDetail: String? {
+        switch composeFeedback {
+        case .idle:
+            return nil
+        case .sending:
+            return "Sending through the broker."
+        case let .sent(detail), let .failed(detail):
+            return detail
+        }
+    }
+
+    private var feedbackTone: RelayComposerFeedbackStrip.Tone {
+        switch composeFeedback {
+        case .idle, .sending:
+            return .neutral
+        case .sent:
+            return .success
+        case .failed:
+            return .warning
+        }
     }
 
     private var targetSummary: String {
@@ -630,6 +739,8 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case let .channel(channel):
             return channel.label
+        case let .filter(filter):
+            return filter.title
         case .direct:
             return "Direct thread"
         }
@@ -643,6 +754,8 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case let .channel(channel):
             return channel.label
+        case let .filter(filter):
+            return filter.title
         case .direct:
             return "Direct thread"
         }
@@ -656,6 +769,8 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case let .channel(channel):
             return channel.subtitle
+        case let .filter(filter):
+            return filter.subtitle
         case .direct:
             return "Direct thread"
         }
@@ -669,6 +784,8 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case let .channel(channel):
             return channel.icon
+        case let .filter(filter):
+            return filter.icon
         case .direct:
             return "person.crop.circle"
         }
@@ -682,12 +799,12 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case .channel(.shared):
             return ScoutTheme.accent
-        case .channel(.mentions):
-            return Color(nsColor: .systemOrange)
         case .channel(.voice):
             return Color(nsColor: .systemPink)
         case .channel(.system):
             return ScoutTheme.inkMuted
+        case .filter(.mentions):
+            return Color(nsColor: .systemOrange)
         case .direct:
             return ScoutTheme.accent
         }
@@ -701,12 +818,12 @@ struct ScoutAgentDeskView: View {
         switch selectedDestination {
         case .channel(.shared):
             return "#"
-        case .channel(.mentions):
-            return "@"
         case .channel(.voice):
             return "V"
         case .channel(.system):
             return "S"
+        case .filter(.mentions):
+            return "@"
         case .direct:
             return "D"
         }
@@ -722,24 +839,71 @@ struct ScoutAgentDeskView: View {
 
     private func sendMessage() {
         let message = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
+        guard !message.isEmpty, !isSending else {
             return
         }
 
+        composeFeedback = .sending
+
         Task {
-            await viewModel.quickSendMessage(
-                message,
-                to: resolvedTargets,
-                speaksAloud: false,
-                channel: composeChannel,
-                type: composeMessageType
-            )
-            draft = ""
+            do {
+                let outcome = try await viewModel.quickSendMessage(
+                    message,
+                    to: resolvedTargets,
+                    invokeTargets: resolvedTargets,
+                    speaksAloud: false,
+                    channel: composeChannel,
+                    type: composeMessageType
+                )
+                draft = ""
+                let detail = sendSuccessDetail(for: outcome)
+                if outcome.flights.contains(where: { $0.state == "failed" }) || !outcome.skippedInvokeTargets.isEmpty {
+                    composeFeedback = .failed(detail)
+                } else {
+                    composeFeedback = .sent(detail)
+                }
+            } catch {
+                composeFeedback = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func sendSuccessDetail(for outcome: ScoutRelaySendOutcome) -> String {
+        let failedFlights = outcome.flights.filter { $0.state == "failed" }
+        if !failedFlights.isEmpty {
+            let targets = failedFlights.map(\.targetAgentID).sorted().joined(separator: ", ")
+            let detail = failedFlights.compactMap { $0.summary ?? $0.error }.first
+                ?? "No runnable endpoint is attached yet."
+            return "Message posted, but \(targets) did not run. \(detail)"
+        }
+
+        if !outcome.skippedInvokeTargets.isEmpty {
+            let skipped = outcome.skippedInvokeTargets.joined(separator: ", ")
+            return "Message posted, but \(skipped) is not connected to a runnable endpoint yet."
+        }
+
+        if !outcome.flights.isEmpty {
+            let targets = outcome.flights.map(\.targetAgentID).sorted().joined(separator: ", ")
+            return "Message posted and handed off to \(targets)."
+        }
+
+        switch selectedDestination {
+        case let .channel(channel):
+            return "Message posted to \(channel.label)."
+        case .filter(.mentions):
+            return "Message posted to #shared-channel."
+        case let .direct(agentID):
+            return "Message posted to \(agentID)."
         }
     }
 
     private func select(channel: RelayChannel) {
         selectedDestination = .channel(channel)
+        targetAgentIDs.removeAll()
+    }
+
+    private func select(filter: RelayFilter) {
+        selectedDestination = .filter(filter)
         targetAgentIDs.removeAll()
     }
 
@@ -752,12 +916,17 @@ struct ScoutAgentDeskView: View {
         switch channel {
         case .shared:
             return viewModel.relayMessages.filter(isSharedChannelMessage).count
-        case .mentions:
-            return viewModel.relayMessages.filter(isMentionsChannelMessage).count
         case .voice:
             return viewModel.relayMessages.filter(isVoiceChannelMessage).count
         case .system:
             return viewModel.relayMessages.filter(isSystemChannelMessage).count
+        }
+    }
+
+    private func messageCount(for filter: RelayFilter) -> Int {
+        switch filter {
+        case .mentions:
+            return viewModel.relayMessages.filter(isMentionsChannelMessage).count
         }
     }
 
@@ -806,18 +975,19 @@ struct ScoutAgentDeskView: View {
         draft = ""
         targetAgentIDs.removeAll()
         selectedDestination = .channel(.shared)
+        composeFeedback = .idle
     }
 
     private var composeChannel: String? {
         switch selectedDestination {
         case .channel(.shared):
             return "shared"
-        case .channel(.mentions):
-            return "mentions"
         case .channel(.voice):
             return "voice"
         case .channel(.system):
             return "system"
+        case .filter(.mentions):
+            return "shared"
         case .direct:
             return nil
         }
@@ -841,6 +1011,14 @@ struct ScoutAgentDeskView: View {
         viewModel.isVoiceCaptureActive ||
         !viewModel.voicePartialTranscript.isEmpty ||
         viewModel.voiceLastError != nil
+    }
+
+    private var shouldShowHeaderVoiceStatus: Bool {
+        viewModel.isVoiceCaptureActive ||
+        !viewModel.voicePartialTranscript.isEmpty ||
+        viewModel.voiceLastError != nil ||
+        viewModel.voiceBridgeStatus.captureState == .processing ||
+        viewModel.voiceBridgeStatus.captureState == .connecting
     }
 
     private var voiceStatusTitle: String {
@@ -889,17 +1067,45 @@ struct ScoutAgentDeskView: View {
         }
     }
 
-    private var meshStatusTint: Color {
-        switch viewModel.meshDiscoveryState {
-        case .ready where viewModel.meshKnownNodeCount > 0:
-            return ScoutTheme.success
-        case .scanning:
-            return ScoutTheme.accent
-        case .failed:
-            return ScoutTheme.warning
-        case .ready, .inactive, .unavailable:
-            return ScoutTheme.inkMuted
+    private var compactVoiceStatusDetail: String? {
+        if let error = viewModel.voiceLastError, !error.isEmpty {
+            return error
         }
+
+        if !viewModel.voicePartialTranscript.isEmpty {
+            return viewModel.voicePartialTranscript
+        }
+
+        switch viewModel.voiceBridgeStatus.captureState {
+        case .processing:
+            return "Transcribing your latest capture."
+        case .connecting:
+            return "Connecting to the voice runtime."
+        default:
+            return nil
+        }
+    }
+
+    private var threadSummaryLine: String {
+        var parts: [String] = [
+            selectedConversationSubtitle,
+            "\(filteredMessages.count) message\(filteredMessages.count == 1 ? "" : "s")",
+        ]
+
+        switch viewModel.relayTransportMode {
+        case .watching:
+            parts.append("live sync")
+        case .pollingFallback:
+            parts.append("polling")
+        case .inactive:
+            parts.append("starting")
+        }
+
+        if viewModel.meshPeerNodeCount > 0 {
+            parts.append("\(viewModel.meshPeerNodeCount) peer\(viewModel.meshPeerNodeCount == 1 ? "" : "s")")
+        }
+
+        return parts.joined(separator: " · ")
     }
 
     private func syncVoiceRouting() {
@@ -919,11 +1125,20 @@ struct ScoutAgentDeskView: View {
             return false
         }
 
-        return message.normalizedChannel == nil || message.normalizedChannel == "shared"
+        return message.normalizedChannel == nil
+            || message.normalizedChannel == "shared"
     }
 
     private func isMentionsChannelMessage(_ message: ScoutRelayMessage) -> Bool {
-        message.normalizedChannel == "mentions" || message.isDirectMessage
+        guard !message.isDirectMessage else {
+            return false
+        }
+
+        guard !message.isSystemChannelMessage, !message.isVoiceChannelMessage else {
+            return false
+        }
+
+        return !message.targetedAgents.isEmpty
     }
 
     private func isVoiceChannelMessage(_ message: ScoutRelayMessage) -> Bool {
@@ -932,6 +1147,63 @@ struct ScoutAgentDeskView: View {
 
     private func isSystemChannelMessage(_ message: ScoutRelayMessage) -> Bool {
         message.isSystemChannelMessage
+    }
+}
+
+private struct RelayComposerFeedbackStrip: View {
+    enum Tone {
+        case neutral
+        case success
+        case warning
+    }
+
+    let detail: String
+    let tone: Tone
+
+    private var tint: Color {
+        switch tone {
+        case .neutral:
+            return ScoutTheme.inkMuted
+        case .success:
+            return ScoutTheme.success
+        case .warning:
+            return ScoutTheme.warning
+        }
+    }
+
+    private var icon: String {
+        switch tone {
+        case .neutral:
+            return "arrow.triangle.2.circlepath"
+        case .success:
+            return "checkmark.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(ScoutTheme.inkSecondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(ScoutTheme.input.opacity(0.9))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(tint.opacity(0.22), lineWidth: 0.8)
+                )
+        )
     }
 }
 
@@ -1091,6 +1363,7 @@ private struct RelayDirectRow: View {
 
 private struct RelayThreadRow: View {
     let message: ScoutRelayMessage
+    let previousMessage: ScoutRelayMessage?
     let currentIdentity: String
     let profile: ScoutAgentProfile?
 
@@ -1098,52 +1371,47 @@ private struct RelayThreadRow: View {
         message.from == currentIdentity
     }
 
+    private var isGroupedWithPrevious: Bool {
+        guard let previousMessage else {
+            return false
+        }
+
+        guard message.type != .sys, previousMessage.type != .sys else {
+            return false
+        }
+
+        guard previousMessage.from == message.from else {
+            return false
+        }
+
+        return abs(message.timestamp - previousMessage.timestamp) <= 300
+    }
+
     var body: some View {
         Group {
             if message.type == .sys {
-                HStack {
-                    Spacer()
-
-                    VStack(spacing: 4) {
-                        Text(message.body)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(ScoutTheme.inkMuted)
-                            .multilineTextAlignment(.center)
-
-                        Text(timestampLabel)
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(ScoutTheme.inkFaint)
-                    }
-
-                    Spacer()
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 10)
-            } else {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: 10) {
                     RelayConversationIcon(
-                        icon: profile?.systemImage ?? (isCurrentUser ? "person.crop.circle.fill" : nil),
-                        label: senderAbbreviation,
-                        tint: avatarTint
+                        icon: "sparkles",
+                        label: "S",
+                        tint: Color(nsColor: .systemIndigo)
                     )
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .center, spacing: 8) {
-                            Text(senderName)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(ScoutTheme.ink)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(systemSenderName)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(ScoutTheme.inkMuted)
 
-                            if message.isVoiceChannelMessage || message.speaksAloud {
-                                RelayPill(
-                                    title: message.isVoiceChannelMessage ? "#voice" : "speak",
-                                    icon: "waveform",
-                                    tint: Color(nsColor: .systemPink)
+                            Text("Status")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(ScoutTheme.inkFaint)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(ScoutTheme.surfaceMuted)
                                 )
-                            }
-
-                            ForEach(message.mentionedAgents, id: \.self) { agent in
-                                RelayPill(title: "@\(agent)", icon: nil, tint: ScoutTheme.inkMuted)
-                            }
 
                             Spacer(minLength: 0)
 
@@ -1152,22 +1420,107 @@ private struct RelayThreadRow: View {
                                 .foregroundStyle(ScoutTheme.inkFaint)
                         }
 
-                        Text(message.renderedBody)
-                            .font(.system(size: 14))
+                        Text(message.body)
+                            .font(.system(size: 13))
                             .foregroundStyle(ScoutTheme.inkSecondary)
                             .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(ScoutTheme.surfaceMuted.opacity(0.92))
+                    )
 
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(
-                    isCurrentUser ? ScoutTheme.selection.opacity(0.24) : Color.clear
-                )
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    if isGroupedWithPrevious {
+                        Color.clear
+                            .frame(width: 36, height: 8)
+                    } else {
+                        RelayConversationIcon(
+                            icon: profile?.systemImage ?? (isCurrentUser ? "person.crop.circle.fill" : nil),
+                            label: senderAbbreviation,
+                            tint: avatarTint
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: isGroupedWithPrevious ? 3 : 6) {
+                        if !isGroupedWithPrevious {
+                            HStack(alignment: .center, spacing: 8) {
+                                Text(senderName)
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .foregroundStyle(ScoutTheme.ink)
+
+                                if message.isVoiceChannelMessage || message.speaksAloud {
+                                    RelayPill(
+                                        title: message.isVoiceChannelMessage ? "#voice" : "speak",
+                                        icon: "waveform",
+                                        tint: Color(nsColor: .systemPink)
+                                    )
+                                }
+
+                                Spacer(minLength: 0)
+
+                                Text(timestampLabel)
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(ScoutTheme.inkFaint)
+                            }
+
+                            if let metadataLine {
+                                Text(metadataLine)
+                                    .font(.system(size: 10.5, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(ScoutTheme.inkFaint)
+                                    .lineLimit(1)
+                                    .help(message.provenanceDetail ?? metadataLine)
+                            } else if let routingSummary = message.routingSummary {
+                                Text(routingSummary)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(ScoutTheme.inkMuted)
+                                    .lineLimit(1)
+                            }
+
+                            if let replyContext {
+                                Text(replyContext)
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .foregroundStyle(ScoutTheme.inkMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        Text(message.renderedBody)
+                            .font(.system(size: 14.25))
+                            .lineSpacing(1.5)
+                            .foregroundStyle(ScoutTheme.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .padding(.top, isGroupedWithPrevious ? 0 : 1)
+                    }
+                    .frame(maxWidth: 760, alignment: .leading)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, isGroupedWithPrevious ? 2 : 11)
+                .padding(.bottom, isGroupedWithPrevious ? 2 : 7)
             }
         }
+    }
+
+    private var replyContext: String? {
+        guard let routingSummary = message.routingSummary else {
+            return nil
+        }
+
+        let normalized = routingSummary.lowercased()
+        guard normalized.hasPrefix("replying") else {
+            return nil
+        }
+
+        return routingSummary
     }
 
     private var senderName: String {
@@ -1196,6 +1549,33 @@ private struct RelayThreadRow: View {
         }
 
         return palette[seed % palette.count]
+    }
+
+    private var metadataLine: String? {
+        var parts: [String] = []
+
+        if let provenanceSummary = message.provenanceSummary {
+            parts.append(provenanceSummary)
+        }
+
+        if let routingSummary = message.routingSummary,
+           !routingSummary.lowercased().hasPrefix("replying") {
+            parts.append(routingSummary)
+        }
+
+        guard !parts.isEmpty else {
+            return nil
+        }
+
+        return parts.joined(separator: "  ·  ")
+    }
+
+    private var systemSenderName: String {
+        if let target = message.metadata?["targetAgentId"], !target.isEmpty {
+            return target.capitalized
+        }
+
+        return "System"
     }
 
     private var timestampLabel: String {
@@ -1252,6 +1632,71 @@ private struct RelayPill: View {
         .background(
             Capsule(style: .continuous)
                 .fill(tint.opacity(0.12))
+        )
+    }
+}
+
+private struct RelayHeaderToggle: View {
+    let title: String
+    let icon: String
+    let isActive: Bool
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+
+                Text(title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isActive ? Color.white : ScoutTheme.inkSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(isActive ? tint : ScoutTheme.surfaceMuted)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(isActive ? tint.opacity(0.15) : ScoutTheme.border.opacity(0.5), lineWidth: 0.8)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct RelayInlineStatus: View {
+    let title: String
+    let detail: String?
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(tint)
+
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(ScoutTheme.ink)
+
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(ScoutTheme.inkMuted)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(ScoutTheme.surfaceMuted)
         )
     }
 }

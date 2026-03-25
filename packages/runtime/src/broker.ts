@@ -53,14 +53,37 @@ function defaultTransportForActor(actor?: ActorIdentity): DeliveryTransport {
 function resolveParticipantRoutes(
   registry: RuntimeRegistrySnapshot,
   participantIds: ScoutId[],
+  localNodeId?: ScoutId,
 ): DeliveryRoute[] {
-  return participantIds.map((participantId) => {
+  const routes: DeliveryRoute[] = [];
+
+  for (const participantId of participantIds) {
     const actor = registry.actors[participantId];
     const agent = registry.agents[participantId];
-    const endpoints = Object.values(registry.endpoints).filter((endpoint) => endpoint.agentId === participantId);
-    const endpoint = endpoints[0];
+    const endpoints = Object.values(registry.endpoints).filter((endpoint) => (
+      endpoint.agentId === participantId && endpoint.state !== "offline"
+    ));
+    const endpoint = endpoints.sort((lhs, rhs) => {
+      const lhsRank = lhs.transport === "tmux" ? 0 : lhs.transport === "local_socket" ? 1 : 2;
+      const rhsRank = rhs.transport === "tmux" ? 0 : rhs.transport === "local_socket" ? 1 : 2;
+      return lhsRank - rhsRank;
+    })[0];
 
-    return {
+    if (!endpoint) {
+      if (agent?.authorityNodeId && agent.authorityNodeId !== localNodeId) {
+        routes.push({
+          targetId: participantId,
+          nodeId: agent.authorityNodeId,
+          targetKind: toTargetKind(actor),
+          transport: defaultTransportForActor(actor),
+          speechEnabled: false,
+        });
+      }
+
+      continue;
+    }
+
+    routes.push({
       targetId: participantId,
       nodeId: endpoint?.nodeId ?? agent?.authorityNodeId,
       targetKind: toTargetKind(actor),
@@ -69,8 +92,10 @@ function resolveParticipantRoutes(
         actor?.kind === "device" ||
         endpoints.some((candidate) => candidate.transport === "local_socket" || candidate.transport === "websocket"),
       ),
-    };
-  });
+    });
+  }
+
+  return routes;
 }
 
 function resolveBindingRoutes(
@@ -86,6 +111,19 @@ function resolveBindingRoutes(
         : "webhook",
     bindingId: binding.id,
   }));
+}
+
+function activeEndpointsForAgent(
+  registry: RuntimeRegistrySnapshot,
+  agentId: ScoutId,
+  nodeId?: ScoutId,
+): AgentEndpoint[] {
+  return Object.values(registry.endpoints).filter((endpoint) => {
+    if (endpoint.agentId !== agentId) return false;
+    if (endpoint.state === "offline") return false;
+    if (nodeId && endpoint.nodeId !== nodeId) return false;
+    return true;
+  });
 }
 
 export class InMemoryControlRuntime implements ControlRuntime {
@@ -299,9 +337,9 @@ export class InMemoryControlRuntime implements ControlRuntime {
       Object.values(this.registry.bindings).filter((binding) => binding.conversationId === conversation.id),
     );
     const participantRoutes = options.localOnly
-      ? resolveParticipantRoutes(this.registry, conversation.participantIds)
+      ? resolveParticipantRoutes(this.registry, conversation.participantIds, this.localNodeId)
         .filter((route) => !route.nodeId || route.nodeId === this.localNodeId)
-      : resolveParticipantRoutes(this.registry, conversation.participantIds);
+      : resolveParticipantRoutes(this.registry, conversation.participantIds, this.localNodeId);
     const deliveries = planMessageDeliveries({
       localNodeId: this.localNodeId,
       message,
@@ -339,13 +377,41 @@ export class InMemoryControlRuntime implements ControlRuntime {
       throw new Error(`unknown agent: ${invocation.targetAgentId}`);
     }
 
+    const targetEndpoints = activeEndpointsForAgent(
+      this.registry,
+      invocation.targetAgentId,
+      targetAgent.authorityNodeId,
+    );
+    const isLocalAuthority = !this.localNodeId || targetAgent.authorityNodeId === this.localNodeId;
+    const startedAt = Date.now();
+
+    let state: FlightRecord["state"] = invocation.ensureAwake ? "waking" : "queued";
+    let summary: string | undefined;
+    let error: string | undefined;
+    let completedAt: number | undefined;
+
+    if (isLocalAuthority) {
+      if (targetEndpoints.length == 0) {
+        state = "failed";
+        summary = `${targetAgent.displayName} is not runnable yet.`;
+        error = `No runnable endpoint is registered for agent ${targetAgent.id}. The broker can store the invocation, but nothing on this node can execute it yet.`;
+        completedAt = startedAt;
+      } else {
+        state = "queued";
+        summary = `${targetAgent.displayName} queued for local execution.`;
+      }
+    }
+
     const flight: FlightRecord = {
       id: createRuntimeId("flt"),
       invocationId: invocation.id,
       requesterId: invocation.requesterId,
       targetAgentId: invocation.targetAgentId,
-      state: invocation.ensureAwake ? "waking" : "queued",
-      startedAt: Date.now(),
+      state,
+      summary,
+      error,
+      startedAt,
+      completedAt,
       metadata: invocation.metadata,
     };
 

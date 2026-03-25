@@ -148,10 +148,8 @@ speech, and attachment metadata while media transport stays on a dedicated trans
 
 ## Migration Direction
 
-The existing Relay package can survive as:
+The control protocol replaces Relay as the core architecture.
 
-- a compatibility reader/writer
-- a legacy TUI
-- a bridge surface
-
-But it should no longer define the core architecture.
+Any remaining Relay-specific tools are outside the control-plane contract and
+should be treated as separate utilities, not as canonical storage or runtime
+paths.
