@@ -1,4 +1,5 @@
 import Foundation
+import ScoutCore
 
 enum ScoutVoiceCaptureState: String {
     case unavailable
@@ -55,19 +56,27 @@ final class ScoutVoiceBridgeService {
 
     func startIfNeeded() {
         guard process?.isRunning != true else {
+            ScoutDiagnosticsLogger.log("Voice bridge start ignored because process is already running.")
             return
         }
 
-        guard let packageURL = resolvedVoicePackageURL() else {
+        guard let packageURL = ScoutRuntimeLocator.packageURL(relativePath: "packages/voice") else {
+            ScoutDiagnosticsLogger.log("Voice bridge launch failed: voice package path could not be resolved.")
             publishError("Unable to locate the repo-local voice bridge package.")
             publishStatus(.unavailable)
             return
         }
 
+        guard let bunURL = ScoutRuntimeLocator.bunExecutableURL() else {
+            ScoutDiagnosticsLogger.log("Voice bridge launch failed: Bun executable could not be resolved.")
+            publishError("Unable to locate Bun for the voice bridge.")
+            publishStatus(.unavailable)
+            return
+        }
+
         let process = Process()
-        process.executableURL = URL(filePath: "/usr/bin/env")
+        process.executableURL = bunURL
         process.arguments = [
-            "bun",
             "run",
             "--cwd",
             packageURL.path(percentEncoded: false),
@@ -94,14 +103,17 @@ final class ScoutVoiceBridgeService {
         }
 
         do {
+            ScoutDiagnosticsLogger.log("Launching voice bridge with \(bunURL.path(percentEncoded: false)) in \(packageURL.path(percentEncoded: false)).")
             try process.run()
             self.process = process
             self.inputHandle = inputPipe.fileHandleForWriting
+            ScoutDiagnosticsLogger.log("Voice bridge started with pid \(process.processIdentifier).")
             self.outputTask = Task { [weak self] in
                 await self?.readOutput(from: outputPipe.fileHandleForReading)
             }
             send(method: "health")
         } catch {
+            ScoutDiagnosticsLogger.log("Voice bridge launch failed: \(error.localizedDescription)")
             publishError("Failed to launch voice bridge: \(error.localizedDescription)")
             publishStatus(.unavailable)
         }
@@ -143,6 +155,17 @@ final class ScoutVoiceBridgeService {
         send(method: "speech.stop")
     }
 
+    func stop() {
+        ScoutDiagnosticsLogger.log("Voice bridge stop requested.")
+        outputTask?.cancel()
+        outputTask = nil
+        inputHandle = nil
+        process?.terminate()
+        process = nil
+        publishStatus(.unavailable)
+        ScoutDiagnosticsLogger.log("Voice bridge stop complete.")
+    }
+
     private func send(method: String, params: [String: Any]? = nil) {
         guard let inputHandle else {
             return
@@ -165,6 +188,7 @@ final class ScoutVoiceBridgeService {
             try inputHandle.write(contentsOf: data)
             try inputHandle.write(contentsOf: newline)
         } catch {
+            ScoutDiagnosticsLogger.log("Voice bridge write failed: \(error.localizedDescription)")
             publishError("Failed to write to voice bridge: \(error.localizedDescription)")
         }
     }
@@ -176,6 +200,7 @@ final class ScoutVoiceBridgeService {
             }
         } catch {
             await MainActor.run {
+                ScoutDiagnosticsLogger.log("Voice bridge output failed: \(error.localizedDescription)")
                 publishError("Voice bridge output failed: \(error.localizedDescription)")
             }
         }
@@ -238,48 +263,4 @@ final class ScoutVoiceBridgeService {
         )
     }
 
-    private func resolvedVoicePackageURL() -> URL? {
-        if let override = ProcessInfo.processInfo.environment["OPENSCOUT_REPO_ROOT"],
-           !override.isEmpty {
-            let rootURL = URL(filePath: override, directoryHint: .isDirectory)
-            return rootURL.appending(path: "packages/voice", directoryHint: .isDirectory)
-        }
-
-        let candidates: [URL] = [
-            URL(filePath: FileManager.default.currentDirectoryPath, directoryHint: .isDirectory),
-            Bundle.main.executableURL?.deletingLastPathComponent(),
-            URL(filePath: CommandLine.arguments[0]).deletingLastPathComponent(),
-        ].compactMap { $0 }
-
-        for candidate in candidates {
-            if let root = searchUpwardsForRepositoryRoot(from: candidate) {
-                return root.appending(path: "packages/voice", directoryHint: .isDirectory)
-            }
-        }
-
-        return nil
-    }
-
-    private func searchUpwardsForRepositoryRoot(from startURL: URL) -> URL? {
-        var currentURL = startURL
-
-        while true {
-            let packageURL = currentURL.appending(path: "package.json")
-            let packagesURL = currentURL.appending(path: "packages", directoryHint: .isDirectory)
-            let nativeURL = currentURL.appending(path: "native", directoryHint: .isDirectory)
-
-            if FileManager.default.fileExists(atPath: packageURL.path(percentEncoded: false)),
-               FileManager.default.fileExists(atPath: packagesURL.path(percentEncoded: false)),
-               FileManager.default.fileExists(atPath: nativeURL.path(percentEncoded: false)) {
-                return currentURL
-            }
-
-            let parentURL = currentURL.deletingLastPathComponent()
-            if parentURL == currentURL {
-                return nil
-            }
-
-            currentURL = parentURL
-        }
-    }
 }

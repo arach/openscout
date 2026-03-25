@@ -48,12 +48,12 @@ struct ScoutSettingsView: View {
         HStack(alignment: .top, spacing: 18) {
             ScoutSection(
                 title: "Workspace",
-                subtitle: "The end-user layer now lives in the local workspace snapshot and relay hub."
+                subtitle: "The end-user layer now lives in the local workspace snapshot and control plane."
             ) {
                 ScoutValueRow(label: "Support Directory", value: viewModel.supportPaths.applicationSupportDirectory.path(percentEncoded: false))
                 ScoutValueRow(label: "Workspace State", value: viewModel.supportPaths.workspaceStateFileURL.path(percentEncoded: false))
-                ScoutValueRow(label: "Relay Hub", value: viewModel.supportPaths.relayHubDirectory.path(percentEncoded: false))
-                ScoutValueRow(label: "Relay Events", value: viewModel.supportPaths.relayEventStreamURL.path(percentEncoded: false))
+                ScoutValueRow(label: "Control Plane", value: viewModel.supportPaths.controlPlaneDirectory.path(percentEncoded: false))
+                ScoutValueRow(label: "SQLite", value: viewModel.supportPaths.controlPlaneDatabaseURL.path(percentEncoded: false))
             }
 
             ScoutSection(
@@ -63,7 +63,7 @@ struct ScoutSettingsView: View {
                 ScoutValueRow(label: "Notes", value: "\(viewModel.notes.count)")
                 ScoutValueRow(label: "Drafts", value: "\(viewModel.drafts.count)")
                 ScoutValueRow(label: "Workflow Runs", value: "\(viewModel.workflowRuns.count)")
-                ScoutValueRow(label: "Relay Messages", value: "\(viewModel.relayMessages.count)")
+                ScoutValueRow(label: "Messages", value: "\(viewModel.relayMessages.count)")
             }
         }
     }
@@ -84,11 +84,38 @@ struct ScoutSettingsView: View {
                 }
             }
 
-            ScoutSubsection(title: "Relay") {
-                ScoutValueRow(label: "Event Stream", value: viewModel.supportPaths.relayEventStreamURL.path(percentEncoded: false))
-                ScoutValueRow(label: "Channel Log", value: viewModel.supportPaths.relayChannelLogURL.path(percentEncoded: false))
-                ScoutValueRow(label: "Inbox Directory", value: viewModel.supportPaths.relayInboxDirectory.path(percentEncoded: false))
+            ScoutSubsection(title: "Broker") {
+                ScoutValueRow(label: "State", value: viewModel.brokerSupervisor.state.title)
+                ScoutValueRow(label: "Detail", value: viewModel.brokerSupervisor.detail)
+                ScoutValueRow(label: "URL", value: viewModel.brokerSupervisor.brokerURL.absoluteString)
+                ScoutValueRow(label: "Control Plane", value: viewModel.supportPaths.controlPlaneDirectory.path(percentEncoded: false))
+                ScoutValueRow(label: "SQLite", value: viewModel.supportPaths.controlPlaneDatabaseURL.path(percentEncoded: false))
+                if let nodeID = viewModel.brokerSupervisor.nodeID {
+                    ScoutValueRow(label: "Node ID", value: nodeID)
+                }
+                if let meshID = viewModel.brokerSupervisor.meshID {
+                    ScoutValueRow(label: "Mesh ID", value: meshID)
+                }
+                ScoutValueRow(label: "Counts", value: viewModel.brokerSupervisor.counts.summary)
+                if let lastHealthCheck = viewModel.brokerSupervisor.lastHealthCheck {
+                    ScoutValueRow(
+                        label: "Last Health",
+                        value: lastHealthCheck.formatted(date: .abbreviated, time: .standard)
+                    )
+                }
+                if let deviceActorID = viewModel.brokerSupervisor.localDeviceActorID {
+                    ScoutValueRow(label: "Device Actor", value: deviceActorID)
+                }
+                if let lastLogLine = viewModel.brokerSupervisor.lastLogLine, !lastLogLine.isEmpty {
+                    ScoutValueRow(label: "Last Log", value: lastLogLine)
+                }
+            }
+
+            ScoutSubsection(title: "Messaging") {
+                ScoutValueRow(label: "Authority", value: "Broker-backed control plane")
                 ScoutValueRow(label: "Active Messages", value: "\(viewModel.relayMessages.count)")
+                ScoutValueRow(label: "Recent Flights", value: "\(viewModel.relayFlights.count)")
+                ScoutValueRow(label: "Recent Events", value: "\(viewModel.relayEvents.count)")
             }
 
             ScoutSubsection(title: "Mesh") {
@@ -125,11 +152,69 @@ struct ScoutSettingsView: View {
                 }
             }
 
+            if !viewModel.relayFlights.isEmpty {
+                ScoutSubsection(title: "Recent Flights") {
+                    ForEach(Array(viewModel.relayFlights.prefix(8)), id: \.id) { flight in
+                        ScoutValueRow(
+                            label: "\(flight.targetAgentID) · \(flight.state)",
+                            value: flight.summary ?? flight.error ?? "No detail yet."
+                        )
+                    }
+                }
+            }
+
+            if !viewModel.relayEvents.isEmpty {
+                ScoutSubsection(title: "Recent Broker Events") {
+                    ForEach(Array(viewModel.relayEvents.prefix(12)), id: \.id) { event in
+                        ScoutValueRow(
+                            label: "\(event.kind) · \(event.actorID)",
+                            value: Date(timeIntervalSince1970: TimeInterval(event.timestamp) / 1000).formatted(date: .omitted, time: .standard)
+                        )
+                    }
+                }
+            }
+
+            ScoutSubsection(title: "Diagnostics Log") {
+                if viewModel.diagnosticsLogLines.isEmpty {
+                    ScoutValueRow(label: "Status", value: "No diagnostic lines captured yet.")
+                } else {
+                    ScrollView {
+                        Text(viewModel.diagnosticsLogLines.joined(separator: "\n"))
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundStyle(ScoutTheme.inkSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(12)
+                    }
+                    .frame(minHeight: 180, maxHeight: 260)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(ScoutTheme.input)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(ScoutTheme.border.opacity(0.6), lineWidth: 0.75)
+                            )
+                    )
+                }
+            }
+
             HStack(spacing: 10) {
                 Button("Restart Helper") {
                     viewModel.supervisor.restart()
                 }
                 .buttonStyle(ScoutButtonStyle(tone: .primary))
+
+                Button("Restart Broker") {
+                    viewModel.brokerSupervisor.restart()
+                }
+                .buttonStyle(ScoutButtonStyle())
+
+                Button("Refresh Broker") {
+                    Task {
+                        await viewModel.brokerSupervisor.refreshNow()
+                    }
+                }
+                .buttonStyle(ScoutButtonStyle())
 
                 Button("Refresh Mesh") {
                     Task {
@@ -140,6 +225,11 @@ struct ScoutSettingsView: View {
 
                 Button("Open Support Directory") {
                     viewModel.supervisor.openSupportDirectory()
+                }
+                .buttonStyle(ScoutButtonStyle())
+
+                Button("Open Control Plane") {
+                    viewModel.brokerSupervisor.openControlPlaneDirectory()
                 }
                 .buttonStyle(ScoutButtonStyle())
             }
@@ -158,7 +248,7 @@ struct ScoutSettingsView: View {
                 ScoutValueRow(label: "Editors", value: "AppKit-backed text surfaces for serious note and brief writing")
                 ScoutValueRow(label: "Compose", value: "Prompt packets generated from workflow templates and linked notes")
                 ScoutValueRow(label: "Workflows", value: "Data-driven prompt structures inspired by Talkie’s non-voice workflows")
-                ScoutValueRow(label: "Relay", value: "Event-backed relay with a channel-log mirror, compatible with the existing OpenScout CLI")
+                ScoutValueRow(label: "Messaging", value: "Broker-backed local communication and delivery planning")
             }
         }
     }

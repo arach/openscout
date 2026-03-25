@@ -18,6 +18,21 @@ struct ScoutHeaderRow: View {
         }
     }
 
+    private var brokerColor: Color {
+        switch viewModel.brokerSupervisor.state {
+        case .running:
+            return ScoutTheme.success
+        case .launching:
+            return ScoutTheme.accent
+        case .degraded:
+            return ScoutTheme.warning
+        case .failed:
+            return .red
+        case .stopped:
+            return ScoutTheme.inkMuted
+        }
+    }
+
     private var meshColor: Color {
         switch viewModel.meshDiscoveryState {
         case .ready where viewModel.meshKnownNodeCount > 0:
@@ -32,14 +47,14 @@ struct ScoutHeaderRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(viewModel.selectedRoute.title)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(ScoutTheme.ink)
 
                 Text(statusLine)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(ScoutTheme.inkSecondary)
             }
 
@@ -48,10 +63,10 @@ struct ScoutHeaderRow: View {
             headerActions
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 11)
+        .padding(.vertical, 9)
         .background(
             Rectangle()
-                .fill(ScoutTheme.chrome.opacity(0.98))
+                .fill(ScoutTheme.surfaceStrong.opacity(0.98))
         )
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -78,15 +93,21 @@ struct ScoutHeaderRow: View {
 
     @ViewBuilder
     private var headerActions: some View {
-        HStack(spacing: 8) {
-            RuntimePill(
+        HStack(spacing: 9) {
+            RuntimeStatusInline(
                 label: viewModel.supervisor.state.title,
                 detail: "Helper",
                 color: helperColor
             )
 
+            RuntimeStatusInline(
+                label: viewModel.brokerSupervisor.state.title,
+                detail: "Broker",
+                color: brokerColor
+            )
+
             if viewModel.selectedRoute == .workers {
-                RuntimePill(
+                RuntimeStatusInline(
                     label: viewModel.meshStatusTitle,
                     detail: "Mesh",
                     color: meshColor
@@ -97,7 +118,7 @@ struct ScoutHeaderRow: View {
                 } label: {
                     Label("New", systemImage: "square.and.pencil")
                 }
-                .buttonStyle(ScoutButtonStyle(tone: .quiet))
+                .buttonStyle(ScoutHeaderToolbarButtonStyle())
                 .help("Start a new relay message")
 
                 Button {
@@ -107,7 +128,7 @@ struct ScoutHeaderRow: View {
                 } label: {
                     Label("Reload", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(ScoutButtonStyle(tone: .quiet))
+                .buttonStyle(ScoutHeaderToolbarButtonStyle())
                 .help("Refresh relay and mesh")
             } else {
                 Button {
@@ -130,36 +151,26 @@ struct ScoutHeaderRow: View {
     }
 }
 
-private struct RuntimePill: View {
+private struct RuntimeStatusInline: View {
     let label: String
     let detail: String
     let color: Color
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Circle()
                 .fill(color)
-                .frame(width: 6, height: 6)
+                .frame(width: 5, height: 5)
 
             Text(detail)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                 .textCase(.uppercase)
                 .foregroundStyle(ScoutTheme.inkFaint)
 
             Text(label)
-                .font(.system(size: 11))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(ScoutTheme.ink)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(ScoutTheme.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(ScoutTheme.border.opacity(0.5), lineWidth: 0.75)
-                )
-        )
     }
 }
 
@@ -173,5 +184,24 @@ private struct ScoutIconButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(configuration.isPressed ? ScoutTheme.hover : Color.clear)
             )
+    }
+}
+
+private struct ScoutHeaderToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(ScoutTheme.ink)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(ScoutTheme.surfaceStrong)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(ScoutTheme.border.opacity(0.7), lineWidth: 0.75)
+                    )
+            )
+            .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }

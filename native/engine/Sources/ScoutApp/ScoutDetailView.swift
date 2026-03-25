@@ -15,7 +15,7 @@ struct ScoutDetailView: View {
         case .integrations:
             ScoutWorkflowsView(viewModel: viewModel)
         case .workers:
-            ScoutAgentDeskView(viewModel: viewModel)
+            ScoutRelayWorkspaceView(viewModel: viewModel)
         case .settings:
             ScoutSettingsView(viewModel: viewModel)
         }

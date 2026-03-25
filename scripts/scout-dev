@@ -17,6 +17,7 @@ SUPPORT_DIR="$HOME/Library/Application Support/OpenScout"
 STATUS_FILE="$SUPPORT_DIR/agent-status.json"
 APP_LOG_FILE="$SUPPORT_DIR/scout-app.log"
 AGENT_LOG_FILE="$SUPPORT_DIR/scout-agent.log"
+APP_BUNDLE_NAME="OpenScout.app"
 
 mkdir -p "$SUPPORT_DIR"
 
@@ -104,6 +105,87 @@ find_binary() {
   find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/$name" -type f 2>/dev/null | head -n 1
 }
 
+find_app_resource_bundle() {
+  find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/ScoutEngine_ScoutApp.bundle" -type d 2>/dev/null | head -n 1
+}
+
+find_app_bundle() {
+  find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/$APP_BUNDLE_NAME" -type d 2>/dev/null | head -n 1
+}
+
+build_relay_web() {
+  info "Building Relay web workspace..."
+  (
+    cd "$ROOT_DIR"
+    bun run relay-web:build
+  )
+}
+
+package_app_bundle() {
+  local app_bin agent_bin resource_bundle bundle_dir contents_dir macos_dir resources_dir plist_path
+
+  app_bin="$(find_binary ScoutApp)"
+  [[ -n "$app_bin" ]] || fail "ScoutApp binary not found after build."
+  agent_bin="$(find_binary ScoutAgent)"
+  [[ -n "$agent_bin" ]] || fail "ScoutAgent binary not found after build."
+
+  resource_bundle="$(find_app_resource_bundle)"
+  [[ -n "$resource_bundle" ]] || fail "ScoutApp resource bundle not found after build."
+
+  bundle_dir="$(dirname "$app_bin")/$APP_BUNDLE_NAME"
+  contents_dir="$bundle_dir/Contents"
+  macos_dir="$contents_dir/MacOS"
+  resources_dir="$contents_dir/Resources"
+  plist_path="$contents_dir/Info.plist"
+
+  rm -rf "$bundle_dir"
+  mkdir -p "$macos_dir" "$resources_dir"
+
+  cp "$app_bin" "$macos_dir/ScoutApp"
+  chmod +x "$macos_dir/ScoutApp"
+  cp "$agent_bin" "$macos_dir/ScoutAgent"
+  chmod +x "$macos_dir/ScoutAgent"
+  cp -R "$resource_bundle" "$resources_dir/"
+  cp "$ENGINE_DIR/Sources/ScoutApp/Resources/AppIcon.icns" "$resources_dir/AppIcon.icns"
+
+  cat >"$plist_path" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>OpenScout</string>
+  <key>CFBundleExecutable</key>
+  <string>ScoutApp</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.openscout.native</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>OpenScout</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>15.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>
+EOF
+
+  info "Packaged app bundle: $bundle_dir"
+}
+
 build_target() {
   local scheme="$1"
 
@@ -131,10 +213,13 @@ build_selected() {
 
   case "$target" in
     app)
-      info "Building ScoutApp..."
+      info "Building ScoutApp and ScoutAgent..."
       (
         cd "$ENGINE_DIR"
+        build_relay_web
         build_target ScoutApp
+        build_target ScoutAgent
+        package_app_bundle
       )
       ;;
     agent)
@@ -148,8 +233,10 @@ build_selected() {
       info "Building Scout native targets..."
       (
         cd "$ENGINE_DIR"
+        build_relay_web
         build_target ScoutApp
         build_target ScoutAgent
+        package_app_bundle
       )
       ;;
     *)
@@ -163,11 +250,15 @@ rebuild_selected() {
 
   case "$target" in
     app)
-      info "Cleaning and rebuilding ScoutApp..."
+      info "Cleaning and rebuilding ScoutApp and ScoutAgent..."
       (
         cd "$ENGINE_DIR"
+        build_relay_web
         clean_target ScoutApp
+        clean_target ScoutAgent
         build_target ScoutApp
+        build_target ScoutAgent
+        package_app_bundle
       )
       ;;
     agent)
@@ -193,7 +284,7 @@ ensure_built_for_launch() {
 
   case "$target" in
     app|all)
-      if [[ -z "$(find_binary ScoutApp)" || -z "$(find_binary ScoutAgent)" ]]; then
+      if [[ -z "$(find_binary ScoutApp)" || -z "$(find_binary ScoutAgent)" || -z "$(find_app_bundle)" ]]; then
         build_selected all
       fi
       ;;
@@ -347,13 +438,13 @@ launch_app() {
     return
   fi
 
-  local app_bin
-  app_bin="$(find_binary ScoutApp)"
-  [[ -n "$app_bin" ]] || fail "ScoutApp binary not found after build."
+  local app_bundle
+  app_bundle="$(find_app_bundle)"
+  [[ -n "$app_bundle" ]] || fail "OpenScout app bundle not found after build."
 
-  info "Launching ScoutApp..."
-  nohup "$app_bin" </dev/null >"$APP_LOG_FILE" 2>&1 &
-  info "ScoutApp log: $APP_LOG_FILE"
+  info "Launching OpenScout.app..."
+  open -n "$app_bundle"
+  info "OpenScout app bundle: $app_bundle"
 }
 
 launch_agent() {
@@ -557,6 +648,7 @@ print_paths() {
   info "App log: $APP_LOG_FILE"
   info "Agent log: $AGENT_LOG_FILE"
   info "ScoutApp binary: $(find_binary ScoutApp || true)"
+  info "OpenScout app bundle: $(find_app_bundle || true)"
   info "ScoutAgent binary: $(find_binary ScoutAgent || true)"
 }
 

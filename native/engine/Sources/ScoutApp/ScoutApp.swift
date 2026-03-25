@@ -1,11 +1,20 @@
 import AppKit
+import ScoutCore
 import SwiftUI
 
 final class ScoutApplicationDelegate: NSObject, NSApplicationDelegate {
+    var onTerminate: (() -> Void)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         installApplicationIcon()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        ScoutDiagnosticsLogger.log("ScoutApp launched (pid \(ProcessInfo.processInfo.processIdentifier)).")
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        ScoutDiagnosticsLogger.log("ScoutApp will terminate.")
+        onTerminate?()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -13,6 +22,7 @@ final class ScoutApplicationDelegate: NSObject, NSApplicationDelegate {
             sender.windows.first?.makeKeyAndOrderFront(nil)
         }
 
+        ScoutDiagnosticsLogger.log("ScoutApp reopen requested.")
         sender.activate(ignoringOtherApps: true)
         return true
     }
@@ -37,6 +47,11 @@ struct ScoutApp: App {
         WindowGroup("OpenScout") {
             ScoutChromeScene(viewModel: viewModel)
                 .frame(minWidth: 1120, minHeight: 720)
+                .onAppear {
+                    appDelegate.onTerminate = {
+                        viewModel.shutdown()
+                    }
+                }
         }
         .commands {
             ScoutAppCommands(viewModel: viewModel)

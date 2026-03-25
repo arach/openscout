@@ -15,7 +15,7 @@ struct ScoutStatusBarView: View {
                     .foregroundStyle(ScoutTheme.inkFaint)
 
                 Text(viewModel.selectedRoute.title)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkMuted)
 
                 Circle()
@@ -23,7 +23,7 @@ struct ScoutStatusBarView: View {
                     .frame(width: 5, height: 5)
 
                 Text(viewModel.supervisor.state.title)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkMuted)
 
                 Spacer()

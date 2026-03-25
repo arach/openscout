@@ -1,3 +1,4 @@
+import AppKit
 import ScoutCore
 import SwiftUI
 
@@ -67,29 +68,23 @@ struct ScoutSidebarView: View {
                 viewModel.toggleSidebar()
             }
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "scope")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(ScoutTheme.accent)
-                    .frame(width: ScoutSidebarLayout.logoSize, height: ScoutSidebarLayout.logoSize)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(ScoutTheme.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .strokeBorder(ScoutTheme.border.opacity(0.55), lineWidth: 0.75)
-                            )
-                    )
-                    .frame(width: ScoutSidebarLayout.logoBlockWidth, alignment: .center)
+            Group {
+                if isCompact {
+                    ScoutBrandMark(size: ScoutSidebarLayout.logoSize)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else {
+                    HStack(spacing: 10) {
+                        ScoutBrandMark(size: ScoutSidebarLayout.logoSize)
+                            .frame(width: ScoutSidebarLayout.logoBlockWidth, alignment: .center)
 
-                if viewModel.sidebarExpanded {
-                    Text("OpenScout")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(ScoutTheme.ink)
-                        .transition(.opacity)
+                        Text("OpenScout")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(ScoutTheme.ink)
+                            .transition(.opacity)
+
+                        Spacer(minLength: 0)
+                    }
                 }
-
-                Spacer(minLength: 0)
             }
             .frame(height: 28)
             .contentShape(Rectangle())
@@ -97,6 +92,7 @@ struct ScoutSidebarView: View {
         .buttonStyle(.plain)
         .focusable(false)
         .focusEffectDisabled()
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, isCompact ? 0 : 10)
     }
 
@@ -131,6 +127,37 @@ struct ScoutSidebarView: View {
             isCompact: isCompact,
             action: action
         )
+    }
+}
+
+private struct ScoutBrandMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(nsColor: NSColor(calibratedWhite: 0.13, alpha: 1)),
+                            Color(nsColor: NSColor(calibratedWhite: 0.07, alpha: 1)),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(ScoutTheme.border.opacity(0.4), lineWidth: 0.75)
+                )
+
+            Text(">_")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .kerning(-0.4)
+                .foregroundStyle(.white.opacity(0.96))
+        }
+        .frame(width: size, height: size)
+        .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
     }
 }
 

@@ -2,64 +2,43 @@ import Foundation
 
 public struct ScoutSupportPaths: Sendable {
     public let applicationSupportDirectory: URL
+    public let diagnosticsLogURL: URL
     public let agentStatusFileURL: URL
     public let workspaceStateFileURL: URL
-    public let relayHubDirectory: URL
-    public let relayEventStreamURL: URL
-    public let relayChannelLogURL: URL
-    public let relayConfigFileURL: URL
-    public let relayStateFileURL: URL
-    public let relayInboxDirectory: URL
+    public let controlPlaneDirectory: URL
+    public let controlPlaneDatabaseURL: URL
 
     public init(
         applicationSupportDirectory: URL,
+        diagnosticsLogURL: URL,
         agentStatusFileURL: URL,
         workspaceStateFileURL: URL,
-        relayHubDirectory: URL,
-        relayEventStreamURL: URL,
-        relayChannelLogURL: URL,
-        relayConfigFileURL: URL,
-        relayStateFileURL: URL,
-        relayInboxDirectory: URL
+        controlPlaneDirectory: URL,
+        controlPlaneDatabaseURL: URL
     ) {
         self.applicationSupportDirectory = applicationSupportDirectory
+        self.diagnosticsLogURL = diagnosticsLogURL
         self.agentStatusFileURL = agentStatusFileURL
         self.workspaceStateFileURL = workspaceStateFileURL
-        self.relayHubDirectory = relayHubDirectory
-        self.relayEventStreamURL = relayEventStreamURL
-        self.relayChannelLogURL = relayChannelLogURL
-        self.relayConfigFileURL = relayConfigFileURL
-        self.relayStateFileURL = relayStateFileURL
-        self.relayInboxDirectory = relayInboxDirectory
-    }
-
-    public var relayMonitorFileURLs: [URL] {
-        [
-            relayEventStreamURL,
-            relayChannelLogURL,
-            relayConfigFileURL,
-            relayStateFileURL,
-        ]
+        self.controlPlaneDirectory = controlPlaneDirectory
+        self.controlPlaneDatabaseURL = controlPlaneDatabaseURL
     }
 
     public static func `default`() -> ScoutSupportPaths {
         let homeDirectory = URL.homeDirectory
         let supportDirectory = URL.applicationSupportDirectory
             .appending(path: "OpenScout", directoryHint: .isDirectory)
-        let relayHubDirectory = homeDirectory
+        let controlPlaneDirectory = homeDirectory
             .appending(path: ".openscout", directoryHint: .isDirectory)
-            .appending(path: "relay", directoryHint: .isDirectory)
+            .appending(path: "control-plane", directoryHint: .isDirectory)
 
         return ScoutSupportPaths(
             applicationSupportDirectory: supportDirectory,
+            diagnosticsLogURL: supportDirectory.appending(path: "diagnostics.log"),
             agentStatusFileURL: supportDirectory.appending(path: "agent-status.json"),
             workspaceStateFileURL: supportDirectory.appending(path: "workspace-state.json"),
-            relayHubDirectory: relayHubDirectory,
-            relayEventStreamURL: relayHubDirectory.appending(path: "channel.jsonl"),
-            relayChannelLogURL: relayHubDirectory.appending(path: "channel.log"),
-            relayConfigFileURL: relayHubDirectory.appending(path: "config.json"),
-            relayStateFileURL: relayHubDirectory.appending(path: "state.json"),
-            relayInboxDirectory: relayHubDirectory.appending(path: "inbox", directoryHint: .isDirectory)
+            controlPlaneDirectory: controlPlaneDirectory,
+            controlPlaneDatabaseURL: controlPlaneDirectory.appending(path: "control-plane.sqlite")
         )
     }
 }
