@@ -11,6 +11,15 @@
   --border-strong: #303136;
   --surface: #0e0f11;
   --surface-elevated: #171819;
+  --shell-bg: #f4f6f8;
+  --shell-panel: rgba(247, 249, 252, 0.9);
+  --shell-ink: #252a31;
+  --shell-copy: #464c55;
+  --shell-dim: #7e8793;
+  --shell-muted: #b6bcc5;
+  --shell-line: rgba(15, 23, 42, 0.09);
+  --shell-line-strong: rgba(15, 23, 42, 0.16);
+  --shell-accent: #5b84ff;
 }
 
 @theme inline {

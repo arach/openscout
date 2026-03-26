@@ -11,6 +11,7 @@ export default function Home() {
           {[
             ["Relay", "#relay"],
             ["Get Started", "#get-started"],
+            ["Inventory", "/inventory"],
             ["Docs", "/docs/relay"],
             ["GitHub", "https://github.com/arach/openscout"],
           ].map(([label, href]) => (
