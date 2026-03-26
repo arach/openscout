@@ -32,16 +32,16 @@ private struct ScoutTabButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(isSelected ? ScoutTheme.ink : ScoutTheme.inkMuted)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? ScoutTheme.selection : ScoutTheme.hover.opacity(configuration.isPressed ? 1 : 0.35))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? ScoutTheme.selectionStrong : ScoutTheme.hover.opacity(configuration.isPressed ? 1 : 0.35))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(isSelected ? ScoutTheme.accent.opacity(0.18) : ScoutTheme.border, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(isSelected ? ScoutTheme.accent.opacity(0.16) : ScoutTheme.border.opacity(0.45), lineWidth: 0.75)
                     )
             )
     }

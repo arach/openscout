@@ -11,11 +11,11 @@ struct ScoutStatusBarView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: viewModel.selectedRoute.systemImage)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(ScoutTheme.inkFaint)
 
                 Text(viewModel.selectedRoute.title)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkMuted)
 
                 Circle()
@@ -23,25 +23,25 @@ struct ScoutStatusBarView: View {
                     .frame(width: 5, height: 5)
 
                 Text(viewModel.supervisor.state.title)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkMuted)
 
                 Spacer()
 
                 Text("OpenScout")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(ScoutTheme.inkFaint)
 
                 if let lastHeartbeat = viewModel.supervisor.lastHeartbeat {
                     Text(lastHeartbeat.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(ScoutTheme.inkFaint)
                         .monospacedDigit()
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(ScoutTheme.surfaceStrong.opacity(0.92))
+            .padding(.vertical, 4)
+            .background(ScoutTheme.chrome.opacity(0.96))
         }
     }
 

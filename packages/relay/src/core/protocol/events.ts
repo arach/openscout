@@ -1,6 +1,11 @@
 import type { ProjectTwinRecord } from "./twins.js";
 
 export type RelayMessageType = "MSG" | "SYS";
+export type RelayMessageClass = "agent" | "log" | "system" | "status";
+
+export interface RelaySpeechInstruction {
+  text: string;
+}
 
 export interface RelayEventBase<K extends string, P> {
   id: string;
@@ -17,6 +22,8 @@ export interface RelayStoredMessage {
   from: string;
   type: RelayMessageType;
   body: string;
+  class?: RelayMessageClass;
+  speech?: RelaySpeechInstruction;
   tags?: string[];
   to?: string[];
   channel?: string;
@@ -25,6 +32,8 @@ export interface RelayStoredMessage {
 export type RelayMessagePostedEvent = RelayEventBase<"message.posted", {
   type: RelayMessageType;
   body: string;
+  class?: RelayMessageClass;
+  speech?: RelaySpeechInstruction;
   tags?: string[];
   to?: string[];
   channel?: string;
@@ -99,6 +108,16 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
+function isRelayMessageClass(value: unknown): value is RelayMessageClass {
+  return value === "agent" || value === "log" || value === "system" || value === "status";
+}
+
+function isRelaySpeechInstruction(value: unknown): value is RelaySpeechInstruction {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RelaySpeechInstruction>;
+  return typeof candidate.text === "string";
+}
+
 function isProjectTwinRecord(value: unknown): value is ProjectTwinRecord {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<ProjectTwinRecord>;
@@ -133,6 +152,8 @@ export function isRelayMessagePostedEvent(value: unknown): value is RelayMessage
     typeof candidate.payload === "object" &&
     (candidate.payload.type === "MSG" || candidate.payload.type === "SYS") &&
     typeof candidate.payload.body === "string" &&
+    (candidate.payload.class === undefined || isRelayMessageClass(candidate.payload.class)) &&
+    (candidate.payload.speech === undefined || isRelaySpeechInstruction(candidate.payload.speech)) &&
     (candidate.payload.tags === undefined || isStringArray(candidate.payload.tags)) &&
     (candidate.payload.to === undefined || isStringArray(candidate.payload.to)) &&
     (candidate.payload.channel === undefined || typeof candidate.payload.channel === "string")
@@ -329,7 +350,9 @@ export function isRelayStoredMessage(value: unknown): value is RelayStoredMessag
     typeof candidate.ts === "number" &&
     typeof candidate.from === "string" &&
     (candidate.type === "MSG" || candidate.type === "SYS") &&
-    typeof candidate.body === "string"
+    typeof candidate.body === "string" &&
+    (candidate.class === undefined || isRelayMessageClass(candidate.class)) &&
+    (candidate.speech === undefined || isRelaySpeechInstruction(candidate.speech))
   );
 }
 
@@ -344,6 +367,8 @@ export function relayEventToStoredMessage(event: RelayEvent): RelayStoredMessage
     from: event.actor,
     type: event.payload.type,
     body: event.payload.body,
+    class: event.payload.class,
+    speech: event.payload.speech,
     tags: event.payload.tags,
     to: event.payload.to,
     channel: event.payload.channel,
@@ -360,6 +385,8 @@ export function relayStoredMessageToEvent(message: RelayStoredMessage): RelayMes
     payload: {
       type: message.type,
       body: message.body,
+      class: message.class,
+      speech: message.speech,
       tags: message.tags,
       to: message.to,
       channel: message.channel,

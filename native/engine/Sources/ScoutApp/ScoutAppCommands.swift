@@ -10,8 +10,20 @@ struct ScoutAppCommands: Commands {
                 viewModel.selectedRoute = .home
             }
 
-            Button("Open Console") {
+            Button("Open Notes") {
+                viewModel.selectedRoute = .sessions
+            }
+
+            Button("Open Compose") {
                 viewModel.selectedRoute = .console
+            }
+
+            Button("Open Workflows") {
+                viewModel.selectedRoute = .integrations
+            }
+
+            Button("Open Agent Desk") {
+                viewModel.selectedRoute = .workers
             }
 
             Divider()

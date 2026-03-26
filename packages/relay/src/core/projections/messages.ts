@@ -4,7 +4,7 @@ import {
   type ReadRelayMessagesOptions,
 } from "../store/jsonl-store.js";
 import { decorateRelayMessageBody } from "../compat/channel-log.js";
-import type { RelayStoredMessage } from "../protocol/events.js";
+import type { RelayMessageClass, RelayStoredMessage } from "../protocol/events.js";
 
 export interface ProjectedRelayMessage {
   id: number;
@@ -14,6 +14,8 @@ export interface ProjectedRelayMessage {
   type: "MSG" | "SYS";
   body: string;
   rawBody: string;
+  messageClass?: RelayMessageClass;
+  speechText?: string;
   tags: string[];
   to?: string[];
   channel?: string;
@@ -28,6 +30,8 @@ export function projectRelayMessages(messages: RelayStoredMessage[]): ProjectedR
     type: message.type,
     body: decorateRelayMessageBody(message),
     rawBody: message.body,
+    messageClass: message.class,
+    speechText: message.speech?.text,
     tags: message.tags ?? [],
     to: message.to,
     channel: message.channel,

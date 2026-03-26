@@ -17,40 +17,46 @@ SUPPORT_DIR="$HOME/Library/Application Support/OpenScout"
 STATUS_FILE="$SUPPORT_DIR/agent-status.json"
 APP_LOG_FILE="$SUPPORT_DIR/scout-app.log"
 AGENT_LOG_FILE="$SUPPORT_DIR/scout-agent.log"
+APP_BUNDLE_NAME="OpenScout.app"
 
 mkdir -p "$SUPPORT_DIR"
 
 usage() {
   cat <<'EOF'
-scout-dev: local developer CLI for OpenScout
+scout-dev: local developer CLI for OpenScout native targets
 
 Usage:
-  scout-dev build
-  scout-dev rebuild
-  scout-dev launch
-  scout-dev relaunch
-  scout-dev status
-  scout-dev help
+  scout-dev build [app|agent|all]
+  scout-dev rebuild [app|agent|all]
+  scout-dev launch [app|agent|all]
+  scout-dev relaunch [app|agent|all] [--rebuild]
+  scout-dev quit [app|agent|all]
+  scout-dev status [app|agent|all]
+
+  scout-dev app <build|rebuild|launch|relaunch|quit|status|clean>
+  scout-dev agent <build|rebuild|launch|relaunch|quit|status|clean>
+
   scout-dev doctor
-  scout-dev quit
-  scout-dev agent
+  scout-dev paths
   scout-dev open-support
-  scout-dev clean
+  scout-dev clean [app|agent|all]
+  scout-dev help
 
-Commands:
-  build         Build ScoutApp and ScoutAgent
-  rebuild       Clean native artifacts, then build again
-  launch        Launch ScoutApp if it is not already running
-  relaunch      Stop running Scout processes, then launch ScoutApp
-  status        Show current process and heartbeat status
+Defaults:
+  build/rebuild/status/quit/clean default to `all`
+  launch/relaunch default to `all`
+  `all` launch/relaunch uses ScoutApp as the stack entry point
+  `scout-dev app` and `scout-dev agent` default to `launch`
 
-Secondary:
-  help          Show this help text
-  doctor        Build if needed, then show status and key paths
-  quit          Stop running ScoutApp and ScoutAgent processes
-  agent         Launch ScoutAgent directly
-  open-support  Open ~/Library/Application Support/OpenScout
-  clean         Stop processes and remove native build artifacts
+Examples:
+  scout-dev build app
+  scout-dev build agent
+  scout-dev launch app
+  scout-dev launch agent
+  scout-dev relaunch
+  scout-dev relaunch app --rebuild
+  scout-dev app status
+  scout-dev agent quit
 EOF
 }
 
@@ -63,9 +69,121 @@ fail() {
   exit 1
 }
 
+is_target() {
+  case "${1:-}" in
+    app|agent|all)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+default_target_for_action() {
+  case "$1" in
+    build|rebuild|status|quit|clean|launch|relaunch)
+      printf 'all\n'
+      ;;
+    *)
+      fail "no default target for action: $1"
+      ;;
+  esac
+}
+
+assert_no_extra_args() {
+  local context="$1"
+  shift
+
+  if [[ $# -gt 0 ]]; then
+    fail "unexpected arguments for $context: $*"
+  fi
+}
+
 find_binary() {
   local name="$1"
   find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/$name" -type f 2>/dev/null | head -n 1
+}
+
+find_app_resource_bundle() {
+  find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/ScoutEngine_ScoutApp.bundle" -type d 2>/dev/null | head -n 1
+}
+
+find_app_bundle() {
+  find "$DERIVED_DATA_DIR/Build/Products" -path "*/Debug/$APP_BUNDLE_NAME" -type d 2>/dev/null | head -n 1
+}
+
+build_relay_web() {
+  info "Building Relay web workspace..."
+  (
+    cd "$ROOT_DIR"
+    bun run relay-web:build
+  )
+}
+
+package_app_bundle() {
+  local app_bin agent_bin resource_bundle bundle_dir contents_dir macos_dir resources_dir plist_path
+
+  app_bin="$(find_binary ScoutApp)"
+  [[ -n "$app_bin" ]] || fail "ScoutApp binary not found after build."
+  agent_bin="$(find_binary ScoutAgent)"
+  [[ -n "$agent_bin" ]] || fail "ScoutAgent binary not found after build."
+
+  resource_bundle="$(find_app_resource_bundle)"
+  [[ -n "$resource_bundle" ]] || fail "ScoutApp resource bundle not found after build."
+
+  bundle_dir="$(dirname "$app_bin")/$APP_BUNDLE_NAME"
+  contents_dir="$bundle_dir/Contents"
+  macos_dir="$contents_dir/MacOS"
+  resources_dir="$contents_dir/Resources"
+  plist_path="$contents_dir/Info.plist"
+
+  rm -rf "$bundle_dir"
+  mkdir -p "$macos_dir" "$resources_dir"
+
+  cp "$app_bin" "$macos_dir/ScoutApp"
+  chmod +x "$macos_dir/ScoutApp"
+  cp "$agent_bin" "$macos_dir/ScoutAgent"
+  chmod +x "$macos_dir/ScoutAgent"
+  cp -R "$resource_bundle" "$resources_dir/"
+  cp "$ENGINE_DIR/Sources/ScoutApp/Resources/AppIcon.icns" "$resources_dir/AppIcon.icns"
+
+  cat >"$plist_path" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>OpenScout</string>
+  <key>CFBundleExecutable</key>
+  <string>ScoutApp</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.openscout.native</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>OpenScout</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>15.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>
+EOF
+
+  info "Packaged app bundle: $bundle_dir"
 }
 
 build_target() {
@@ -79,19 +197,106 @@ build_target() {
     build
 }
 
-ensure_build() {
-  if [[ -z "$(find_binary ScoutApp)" || -z "$(find_binary ScoutAgent)" ]]; then
-    build
-  fi
+clean_target() {
+  local scheme="$1"
+
+  xcodebuild \
+    -scheme "$scheme" \
+    -configuration Debug \
+    -derivedDataPath "$DERIVED_DATA_DIR" \
+    -destination "platform=macOS" \
+    clean
 }
 
-build() {
-  info "Building Scout native targets..."
-  (
-    cd "$ENGINE_DIR"
-    build_target ScoutApp
-    build_target ScoutAgent
-  )
+build_selected() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      info "Building ScoutApp and ScoutAgent..."
+      (
+        cd "$ENGINE_DIR"
+        build_relay_web
+        build_target ScoutApp
+        build_target ScoutAgent
+        package_app_bundle
+      )
+      ;;
+    agent)
+      info "Building ScoutAgent..."
+      (
+        cd "$ENGINE_DIR"
+        build_target ScoutAgent
+      )
+      ;;
+    all)
+      info "Building Scout native targets..."
+      (
+        cd "$ENGINE_DIR"
+        build_relay_web
+        build_target ScoutApp
+        build_target ScoutAgent
+        package_app_bundle
+      )
+      ;;
+    *)
+      fail "unknown build target: $target"
+      ;;
+  esac
+}
+
+rebuild_selected() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      info "Cleaning and rebuilding ScoutApp and ScoutAgent..."
+      (
+        cd "$ENGINE_DIR"
+        build_relay_web
+        clean_target ScoutApp
+        clean_target ScoutAgent
+        build_target ScoutApp
+        build_target ScoutAgent
+        package_app_bundle
+      )
+      ;;
+    agent)
+      info "Cleaning and rebuilding ScoutAgent..."
+      (
+        cd "$ENGINE_DIR"
+        clean_target ScoutAgent
+        build_target ScoutAgent
+      )
+      ;;
+    all)
+      clean_selected all
+      build_selected all
+      ;;
+    *)
+      fail "unknown rebuild target: $target"
+      ;;
+  esac
+}
+
+ensure_built_for_launch() {
+  local target="$1"
+
+  case "$target" in
+    app|all)
+      if [[ -z "$(find_binary ScoutApp)" || -z "$(find_binary ScoutAgent)" || -z "$(find_app_bundle)" ]]; then
+        build_selected all
+      fi
+      ;;
+    agent)
+      if [[ -z "$(find_binary ScoutAgent)" ]]; then
+        build_selected agent
+      fi
+      ;;
+    *)
+      fail "unknown launch target: $target"
+      ;;
+  esac
 }
 
 app_pids() {
@@ -106,50 +311,144 @@ swift_wrapper_pids() {
   pgrep -f "swift run --package-path native/engine ScoutApp" || true
 }
 
-quit_processes() {
-  if [[ -z "$(app_pids)" && -z "$(agent_pids)" && -z "$(swift_wrapper_pids)" ]]; then
-    info "No running Scout processes."
+has_running_target() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      [[ -n "$(app_pids)" || -n "$(swift_wrapper_pids)" ]]
+      ;;
+    agent)
+      [[ -n "$(agent_pids)" ]]
+      ;;
+    all)
+      [[ -n "$(app_pids)" || -n "$(agent_pids)" || -n "$(swift_wrapper_pids)" ]]
+      ;;
+    *)
+      fail "unknown process target: $target"
+      ;;
+  esac
+}
+
+kill_target_once() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      pkill -x ScoutApp 2>/dev/null || true
+      pkill -f "/ScoutApp( |$)" 2>/dev/null || true
+      pkill -f "swift run --package-path native/engine ScoutApp" 2>/dev/null || true
+      ;;
+    agent)
+      pkill -x ScoutAgent 2>/dev/null || true
+      pkill -f "/ScoutAgent( |$)" 2>/dev/null || true
+      ;;
+    all)
+      kill_target_once app
+      kill_target_once agent
+      ;;
+    *)
+      fail "unknown process target: $target"
+      ;;
+  esac
+}
+
+force_kill_target() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      pkill -9 -x ScoutApp 2>/dev/null || true
+      pkill -9 -f "/ScoutApp( |$)" 2>/dev/null || true
+      pkill -9 -f "swift run --package-path native/engine ScoutApp" 2>/dev/null || true
+      ;;
+    agent)
+      pkill -9 -x ScoutAgent 2>/dev/null || true
+      pkill -9 -f "/ScoutAgent( |$)" 2>/dev/null || true
+      ;;
+    all)
+      force_kill_target app
+      force_kill_target agent
+      ;;
+    *)
+      fail "unknown process target: $target"
+      ;;
+  esac
+}
+
+target_label() {
+  case "$1" in
+    app)
+      printf 'ScoutApp'
+      ;;
+    agent)
+      printf 'ScoutAgent'
+      ;;
+    all)
+      printf 'Scout stack'
+      ;;
+    *)
+      printf '%s' "$1"
+      ;;
+  esac
+}
+
+clear_agent_status_if_stopped() {
+  if [[ -z "$(agent_pids)" ]]; then
+    rm -f "$STATUS_FILE"
+  fi
+}
+
+quit_selected() {
+  local target="$1"
+
+  if ! has_running_target "$target"; then
+    if [[ "$target" == "agent" || "$target" == "all" ]]; then
+      clear_agent_status_if_stopped
+    fi
+
+    info "No running $(target_label "$target") processes."
     return
   fi
 
-  info "Stopping Scout processes..."
-  for _ in $(seq 1 20); do
-    pkill -x ScoutApp 2>/dev/null || true
-    pkill -f "/ScoutApp( |$)" 2>/dev/null || true
-    pkill -f "/ScoutAgent( |$)" 2>/dev/null || true
-    pkill -f "swift run --package-path native/engine ScoutApp" 2>/dev/null || true
+  info "Stopping $(target_label "$target")..."
 
-    if [[ -z "$(app_pids)" && -z "$(agent_pids)" && -z "$(swift_wrapper_pids)" ]]; then
+  for _ in $(seq 1 20); do
+    kill_target_once "$target"
+
+    if ! has_running_target "$target"; then
       return
     fi
 
     sleep 0.1
   done
 
-  pkill -9 -f "/ScoutApp( |$)" 2>/dev/null || true
-  pkill -9 -f "/ScoutAgent( |$)" 2>/dev/null || true
-  pkill -9 -f "swift run --package-path native/engine ScoutApp" 2>/dev/null || true
+  force_kill_target "$target"
+
+  if [[ "$target" == "agent" || "$target" == "all" ]]; then
+    clear_agent_status_if_stopped
+  fi
 }
 
 launch_app() {
-  ensure_build
+  ensure_built_for_launch app
 
   if [[ -n "$(app_pids)" ]]; then
     info "ScoutApp is already running."
     return
   fi
 
-  local app_bin
-  app_bin="$(find_binary ScoutApp)"
-  [[ -n "$app_bin" ]] || fail "ScoutApp binary not found after build."
+  local app_bundle
+  app_bundle="$(find_app_bundle)"
+  [[ -n "$app_bundle" ]] || fail "OpenScout app bundle not found after build."
 
-  info "Launching ScoutApp..."
-  nohup "$app_bin" </dev/null >"$APP_LOG_FILE" 2>&1 &
-  info "ScoutApp log: $APP_LOG_FILE"
+  info "Launching OpenScout.app..."
+  open -n "$app_bundle"
+  info "OpenScout app bundle: $app_bundle"
 }
 
 launch_agent() {
-  ensure_build
+  ensure_built_for_launch agent
 
   if [[ -n "$(agent_pids)" ]]; then
     info "ScoutAgent is already running."
@@ -160,45 +459,104 @@ launch_agent() {
   agent_bin="$(find_binary ScoutAgent)"
   [[ -n "$agent_bin" ]] || fail "ScoutAgent binary not found after build."
 
+  rm -f "$STATUS_FILE"
   info "Launching ScoutAgent..."
   nohup "$agent_bin" --status-file "$STATUS_FILE" </dev/null >"$AGENT_LOG_FILE" 2>&1 &
   info "ScoutAgent log: $AGENT_LOG_FILE"
 }
 
-print_status() {
-  local app_list agent_list
-  app_list="$(app_pids)"
-  agent_list="$(agent_pids)"
+launch_selected() {
+  local target="$1"
 
+  case "$target" in
+    app|all)
+      launch_app
+      ;;
+    agent)
+      launch_agent
+      ;;
+    *)
+      fail "unknown launch target: $target"
+      ;;
+  esac
+}
+
+relaunch_selected() {
+  local target="$1"
+  shift
+  local rebuild=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --rebuild)
+        rebuild=1
+        ;;
+      *)
+        fail "unexpected arguments for 'scout-dev relaunch $target': $1"
+        ;;
+    esac
+    shift
+  done
+
+  if [[ "$rebuild" == "1" ]]; then
+    case "$target" in
+      app)
+        quit_selected app
+        rebuild_selected app
+        launch_app
+        ;;
+      agent)
+        quit_selected agent
+        rebuild_selected agent
+        launch_agent
+        ;;
+      all)
+        quit_selected all
+        rebuild_selected all
+        launch_app
+        ;;
+      *)
+        fail "unknown relaunch target: $target"
+        ;;
+    esac
+    return
+  fi
+
+  case "$target" in
+    app)
+      quit_selected app
+      launch_app
+      ;;
+    agent)
+      quit_selected agent
+      launch_agent
+      ;;
+    all)
+      quit_selected all
+      launch_app
+      ;;
+    *)
+      fail "unknown relaunch target: $target"
+      ;;
+  esac
+}
+
+print_header_paths() {
   info "Support directory: $SUPPORT_DIR"
   info "Status file: $STATUS_FILE"
   info "App log: $APP_LOG_FILE"
   info "Agent log: $AGENT_LOG_FILE"
-  info ""
+}
 
-  if [[ -n "$app_list" ]]; then
-    info "ScoutApp PIDs:"
-    printf '%s\n' "$app_list"
+print_pid_block() {
+  local label="$1"
+  local pids="$2"
+
+  if [[ -n "$pids" ]]; then
+    info "$label PIDs:"
+    printf '%s\n' "$pids"
   else
-    info "ScoutApp: not running"
-  fi
-
-  if [[ -n "$agent_list" ]]; then
-    info "ScoutAgent PIDs:"
-    printf '%s\n' "$agent_list"
-  else
-    info "ScoutAgent: not running"
-  fi
-
-  info ""
-
-  if [[ -f "$STATUS_FILE" ]]; then
-    info "Heartbeat:"
-    cat "$STATUS_FILE"
-    info ""
-    heartbeat_health
-  else
-    info "Heartbeat: missing"
+    info "$label: not running"
   fi
 }
 
@@ -237,9 +595,66 @@ if detail:
 PY
 }
 
+print_heartbeat_block() {
+  if [[ -f "$STATUS_FILE" ]]; then
+    info "Heartbeat:"
+    cat "$STATUS_FILE"
+    info ""
+    heartbeat_health
+  else
+    info "Heartbeat: missing"
+  fi
+}
+
+print_status_selected() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      info "Support directory: $SUPPORT_DIR"
+      info "App log: $APP_LOG_FILE"
+      info ""
+      print_pid_block "ScoutApp" "$(app_pids)"
+      ;;
+    agent)
+      info "Support directory: $SUPPORT_DIR"
+      info "Status file: $STATUS_FILE"
+      info "Agent log: $AGENT_LOG_FILE"
+      info ""
+      print_pid_block "ScoutAgent" "$(agent_pids)"
+      info ""
+      print_heartbeat_block
+      ;;
+    all)
+      print_header_paths
+      info ""
+      print_pid_block "ScoutApp" "$(app_pids)"
+      print_pid_block "ScoutAgent" "$(agent_pids)"
+      info ""
+      print_heartbeat_block
+      ;;
+    *)
+      fail "unknown status target: $target"
+      ;;
+  esac
+}
+
+print_paths() {
+  info "Repo root: $ROOT_DIR"
+  info "Engine directory: $ENGINE_DIR"
+  info "Derived data: $DERIVED_DATA_DIR"
+  info "Support directory: $SUPPORT_DIR"
+  info "Status file: $STATUS_FILE"
+  info "App log: $APP_LOG_FILE"
+  info "Agent log: $AGENT_LOG_FILE"
+  info "ScoutApp binary: $(find_binary ScoutApp || true)"
+  info "OpenScout app bundle: $(find_app_bundle || true)"
+  info "ScoutAgent binary: $(find_binary ScoutAgent || true)"
+}
+
 doctor() {
-  ensure_build
-  print_status
+  ensure_built_for_launch all
+  print_status_selected all
 }
 
 open_support() {
@@ -247,55 +662,136 @@ open_support() {
   open "$SUPPORT_DIR"
 }
 
-clean() {
-  quit_processes
-  info "Removing native build artifacts..."
-  rm -rf "$ENGINE_DIR/.build" "$DERIVED_DATA_DIR"
+clean_selected() {
+  local target="$1"
+
+  case "$target" in
+    app)
+      info "Cleaning ScoutApp artifacts..."
+      (
+        cd "$ENGINE_DIR"
+        clean_target ScoutApp
+      )
+      ;;
+    agent)
+      info "Cleaning ScoutAgent artifacts..."
+      (
+        cd "$ENGINE_DIR"
+        clean_target ScoutAgent
+      )
+      ;;
+    all)
+      quit_selected all
+      info "Removing native build artifacts..."
+      rm -rf "$ENGINE_DIR/.build" "$DERIVED_DATA_DIR"
+      ;;
+    *)
+      fail "unknown clean target: $target"
+      ;;
+  esac
 }
 
-rebuild() {
-  clean
-  build
+dispatch_action() {
+  local action="$1"
+  local target="$2"
+  shift 2
+
+  case "$action" in
+    build)
+      assert_no_extra_args "'scout-dev $action $target'" "$@"
+      build_selected "$target"
+      ;;
+    rebuild)
+      assert_no_extra_args "'scout-dev $action $target'" "$@"
+      rebuild_selected "$target"
+      ;;
+    launch)
+      assert_no_extra_args "'scout-dev $action $target'" "$@"
+      launch_selected "$target"
+      ;;
+    relaunch)
+      relaunch_selected "$target" "$@"
+      ;;
+    quit)
+      assert_no_extra_args "'scout-dev $action $target'" "$@"
+      quit_selected "$target"
+      ;;
+    status)
+      assert_no_extra_args "'scout-dev $action $target'" "$@"
+      print_status_selected "$target"
+      ;;
+    clean)
+      assert_no_extra_args "'scout-dev $action $target'" "$@"
+      clean_selected "$target"
+      ;;
+    *)
+      fail "unknown action: $action"
+      ;;
+  esac
 }
 
-command="${1:-help}"
+main() {
+  local command="${1:-help}"
 
-case "$command" in
-  help|-h|--help)
-    usage
-    ;;
-  build)
-    build
-    ;;
-  rebuild)
-    rebuild
-    ;;
-  launch)
-    launch_app
-    ;;
-  relaunch)
-    quit_processes
-    launch_app
-    ;;
-  quit)
-    quit_processes
-    ;;
-  status)
-    print_status
-    ;;
-  doctor)
-    doctor
-    ;;
-  agent)
-    launch_agent
-    ;;
-  open-support)
-    open_support
-    ;;
-  clean)
-    clean
-    ;;
-  *)
-    fail "unknown command: $command"
-    ;;
-esac
+  case "$command" in
+    help|-h|--help)
+      usage
+      ;;
+    doctor)
+      shift
+      assert_no_extra_args "'scout-dev doctor'" "$@"
+      doctor
+      ;;
+    paths)
+      shift
+      assert_no_extra_args "'scout-dev paths'" "$@"
+      print_paths
+      ;;
+    open-support)
+      shift
+      assert_no_extra_args "'scout-dev open-support'" "$@"
+      open_support
+      ;;
+    app|agent)
+      local target="$command"
+      local action="${2:-launch}"
+
+      if [[ $# -gt 1 ]]; then
+        shift 2
+      else
+        shift 1
+      fi
+
+      dispatch_action "$action" "$target" "$@"
+      ;;
+    all)
+      local action="${2:-status}"
+
+      if [[ $# -gt 1 ]]; then
+        shift 2
+      else
+        shift 1
+      fi
+
+      dispatch_action "$action" all "$@"
+      ;;
+    build|rebuild|launch|relaunch|quit|status|clean)
+      local action="$command"
+      local target="${2:-}"
+
+      if is_target "$target"; then
+        shift 2
+      else
+        target="$(default_target_for_action "$action")"
+        shift 1
+      fi
+
+      dispatch_action "$action" "$target" "$@"
+      ;;
+    *)
+      fail "unknown command: $command"
+      ;;
+  esac
+}
+
+main "$@"

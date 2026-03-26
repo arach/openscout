@@ -1,32 +1,34 @@
 #!/usr/bin/env node
 
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+
 import {
   appendRelayEvent,
-  appendRelayMessage,
-  createTmuxClaudeProjectTwinRuntime,
-  DEFAULT_USER_TWIN,
   ensureRelayFiles,
-  readProjectedRelayChannelBindings,
-  getVoiceForChannel,
   createRelayEventId,
-  getUserTwinName as resolveUserTwinName,
   getRelayEventsPath,
   getRelayLogPath,
-  isAudioChannel,
-  loadRelayConfig as loadRelayConfigForHub,
-  readProjectedRelayAgentStates,
-  readProjectedRelayMessages,
-  readRelayMessages,
-  saveRelayConfig as saveRelayConfigForHub,
-  speakRelayText,
-  type ProjectTwinRecord,
-  type RelayConfig,
   type RelayStoredMessage,
-} from "./core/index.js";
+} from "./core/store/jsonl-store.js";
+import { readProjectedRelayChannelBindings } from "./core/projections/bindings.js";
+import { readProjectedRelayAgentStates } from "./core/projections/states.js";
 import {
-  createTelegramRelayBridge,
-  queueRelayExternalDeliveryForChannel,
-} from "./bridge/chat/index.js";
+  DEFAULT_USER_TWIN,
+  getUserTwinName as resolveUserTwinName,
+  loadRelayConfig as loadRelayConfigForHub,
+  saveRelayConfig as saveRelayConfigForHub,
+  type RelayConfig,
+} from "./core/config.js";
+import { createTmuxClaudeProjectTwinRuntime } from "./core/twins/tmux-claude-runtime.js";
+import type { ProjectTwinRecord } from "./core/protocol/twins.js";
+import type {
+  RelayMessageClass,
+  RelaySpeechInstruction,
+} from "./core/protocol/events.js";
 import { invokeClaudeExploreTwinAction } from "./hosts/claude/explore-twin-subagent.js";
 import { invokeCodexExecTwinAction } from "./hosts/codex/exec-twin-subagent.js";
 import { deliverRelayMessageToTarget } from "./hosts/delivery.js";
@@ -90,6 +92,42 @@ function normalizeTwinName(value: string): string {
   return normalized || DEFAULT_USER_TWIN;
 }
 
+function titleCaseIdentity(value: string): string {
+  return value
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function extractRelaySpeechInstruction(
+  input: string,
+): { body: string; speech?: RelaySpeechInstruction } {
+  const spokenFragments: string[] = [];
+
+  const body = input
+    .replace(/<speak>([\s\S]*?)<\/speak>/gi, (_match, fragment: string) => {
+      const cleanFragment = fragment.trim();
+      if (cleanFragment) {
+        spokenFragments.push(cleanFragment);
+      }
+
+      return fragment;
+    })
+    .replace(/<\/?speak>/gi, "")
+    .trim();
+
+  const speechText = spokenFragments.join(" ").trim();
+  return {
+    body,
+    speech: speechText ? { text: speechText } : undefined,
+  };
+}
+
+function defaultRelayMessageClass(type: RelayStoredMessage["type"]): RelayMessageClass {
+  return type === "SYS" ? "system" : "agent";
+}
+
 function help() {
   printBrand();
   print("  \x1b[2mAgent-forward development platform for builders\x1b[0m\n");
@@ -101,6 +139,7 @@ function help() {
   print("    run               Run your agents");
   print("    list              List configured agents and tools");
   print("    relay             File-based agent chat (relay --help)");
+  print("    broker            Manage the local broker service");
   print("    --help, -h        Show this help message");
   print("    --version, -v     Show version\n");
   print("  \x1b[1mExamples:\x1b[0m");
@@ -398,6 +437,58 @@ interface ResolvedTwinContext {
 
 type ChannelMessage = RelayStoredMessage;
 
+interface BrokerNodeResponse {
+  id: string;
+}
+
+interface BrokerConversationRecord {
+  id: string;
+  kind: string;
+  title: string;
+  visibility: string;
+  shareMode?: string;
+  authorityNodeId: string;
+  participantIds: string[];
+}
+
+interface BrokerMessageMention {
+  actorId: string;
+  label?: string;
+}
+
+interface BrokerMessageRecord {
+  id: string;
+  conversationId: string;
+  actorId: string;
+  originNodeId: string;
+  class: string;
+  body: string;
+  mentions?: BrokerMessageMention[];
+  speech?: RelaySpeechInstruction;
+  audience?: {
+    notify?: string[];
+  };
+  visibility: string;
+  policy: string;
+  createdAt: number;
+  metadata?: Record<string, string>;
+}
+
+interface BrokerSnapshot {
+  actors: Record<string, { id: string; kind: string; displayName: string }>;
+  agents: Record<string, { id: string; displayName: string }>;
+  conversations: Record<string, BrokerConversationRecord>;
+  messages: Record<string, BrokerMessageRecord>;
+  flights: Record<string, {
+    id: string;
+    targetAgentId: string;
+    state: string;
+    output?: string;
+    error?: string;
+    summary?: string;
+  }>;
+}
+
 function getProjectTwinRuntime(hub: string) {
   return createTmuxClaudeProjectTwinRuntime(hub);
 }
@@ -406,13 +497,309 @@ function getTwinActionRunner(hub: string) {
   return createProjectTwinActionRunner(getProjectTwinRuntime(hub));
 }
 
-async function writeChannel(hub: string, msg: Omit<ChannelMessage, "id">): Promise<ChannelMessage> {
-  return appendRelayMessage(hub, msg);
+async function writeChannel(_hub: string, msg: Omit<ChannelMessage, "id">): Promise<ChannelMessage> {
+  const record = await postBrokerRelayMessage({
+    actor: msg.from,
+    body: msg.body,
+    channel: msg.channel,
+    speech: msg.speech,
+    type: msg.type,
+    messageClass: msg.class,
+  });
+  return {
+    id: record.id,
+    ts: normalizeBrokerTimestamp(record.createdAt),
+    from: msg.from,
+    type: msg.type,
+    body: msg.body,
+    class: msg.class,
+    speech: msg.speech,
+    tags: msg.tags,
+    to: msg.to,
+    channel: msg.channel,
+  };
 }
 
 
 async function readChannel(hub: string, opts?: { since?: number; last?: number; id?: string }): Promise<ChannelMessage[]> {
-  return readRelayMessages(hub, opts);
+  void hub;
+  const snapshot = await fetchBrokerSnapshot();
+  const messages = Object.values(snapshot.messages)
+    .sort((lhs, rhs) => normalizeBrokerTimestamp(lhs.createdAt) - normalizeBrokerTimestamp(rhs.createdAt))
+    .filter((message) => {
+      if (opts?.id && message.id !== opts.id) return false;
+      if (opts?.since && normalizeBrokerTimestamp(message.createdAt) < opts.since) return false;
+      return true;
+    });
+  const limited = opts?.last ? messages.slice(-opts.last) : messages;
+  return limited.map((message) => ({
+    id: message.id,
+    ts: normalizeBrokerTimestamp(message.createdAt),
+    from: message.actorId,
+    type: message.class === "system" ? "SYS" : "MSG",
+    body: message.body,
+    class: message.class as RelayMessageClass | undefined,
+  }));
+}
+
+function resolveBrokerUrl(): string {
+  return process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65535";
+}
+
+type BrokerServiceStatus = {
+  label: string;
+  mode: "dev" | "prod" | "custom";
+  launchAgentPath: string;
+  brokerUrl: string;
+  supportDirectory: string;
+  controlHome: string;
+  stdoutLogPath: string;
+  stderrLogPath: string;
+  installed: boolean;
+  loaded: boolean;
+  pid: number | null;
+  launchdState: string | null;
+  lastExitStatus: number | null;
+  usesLaunchAgent: boolean;
+  reachable: boolean;
+  health: {
+    reachable: boolean;
+    ok: boolean;
+    error?: string;
+  };
+  lastLogLine: string | null;
+};
+
+function resolveRuntimePackageDir(): string {
+  return path.join(import.meta.dir, "..", "..", "runtime");
+}
+
+function resolveBunExecutable(): string {
+  const explicit = process.env.OPENSCOUT_BUN_BIN ?? process.env.BUN_BIN;
+  if (explicit && explicit.trim().length > 0) {
+    return explicit;
+  }
+
+  const pathEntries = (process.env.PATH ?? "")
+    .split(":")
+    .filter(Boolean);
+  const common = ["~/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin"];
+  for (const entry of [...pathEntries, ...common]) {
+    const expanded = entry.startsWith("~")
+      ? entry.replace(/^~/, homedir())
+      : entry;
+    const candidate = path.join(expanded, "bun");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "bun";
+}
+
+async function runBrokerServiceCommand(commandName: string): Promise<BrokerServiceStatus> {
+  const runtimeDir = resolveRuntimePackageDir();
+  const bunExecutable = resolveBunExecutable();
+
+  return await new Promise<BrokerServiceStatus>((resolve, reject) => {
+    const child = spawn(
+      bunExecutable,
+      ["run", "--cwd", runtimeDir, "src/broker-service.ts", commandName, "--json"],
+      {
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `broker service command failed with status ${code}`));
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(stdout) as BrokerServiceStatus);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+async function brokerRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(new URL(path, resolveBrokerUrl()), {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Broker request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return await response.json() as T;
+}
+
+async function fetchBrokerNode(): Promise<BrokerNodeResponse> {
+  return brokerRequest<BrokerNodeResponse>("/v1/node");
+}
+
+async function fetchBrokerSnapshot(): Promise<BrokerSnapshot> {
+  return brokerRequest<BrokerSnapshot>("/v1/snapshot");
+}
+
+async function ensureBrokerActor(
+  snapshot: BrokerSnapshot,
+  actorId: string,
+): Promise<void> {
+  if (snapshot.actors?.[actorId] || snapshot.agents?.[actorId]) {
+    return;
+  }
+
+  await brokerRequest<{ ok: boolean; actorId: string }>("/v1/actors", {
+    method: "POST",
+    body: JSON.stringify({
+      id: actorId,
+      kind: actorId === "system" ? "system" : "helper",
+      displayName: titleCaseIdentity(actorId),
+      handle: actorId,
+      labels: ["relay", "cli"],
+      metadata: {
+        source: "relay-cli",
+      },
+    }),
+  });
+}
+
+function normalizeBrokerTimestamp(value: number): number {
+  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeRelayChannelName(channel?: string): string {
+  if (!channel || channel.trim().length === 0) return "shared";
+
+  const trimmed = channel.trim().toLowerCase().replace(/^#/, "");
+  if (trimmed === "mentions") return "shared";
+  return trimmed;
+}
+
+function brokerConversationIdForSend(channel?: string): string {
+  return `channel.${normalizeRelayChannelName(channel)}`;
+}
+
+async function ensureBrokerConversationForSend(
+  snapshot: BrokerSnapshot,
+  nodeId: string,
+  actor: string,
+  mentions: string[],
+  normalizedChannel: string,
+): Promise<string> {
+  const conversationId = `channel.${normalizedChannel}`;
+  if (snapshot.conversations[conversationId]) {
+    return conversationId;
+  }
+
+  const isSystem = normalizedChannel === "system";
+  const participantIds = isSystem
+    ? [actor]
+    : Array.from(new Set([actor, ...Object.keys(snapshot.agents), ...mentions])).sort();
+
+  await brokerRequest<{ ok: boolean; conversationId: string }>("/v1/conversations", {
+    method: "POST",
+    body: JSON.stringify({
+      id: conversationId,
+      kind: isSystem ? "system" : "channel",
+      title: normalizedChannel,
+      visibility: isSystem ? "system" : "workspace",
+      shareMode: "local",
+      authorityNodeId: nodeId,
+      participantIds: participantIds,
+      metadata: {
+        surface: "relay-cli",
+      },
+    }),
+  });
+
+  return conversationId;
+}
+
+async function postBrokerRelayMessage(options: {
+  actor: string;
+  body: string;
+  channel?: string;
+  speech?: RelaySpeechInstruction;
+  type?: "MSG" | "SYS";
+  messageClass?: RelayMessageClass;
+  metadata?: Record<string, string>;
+}): Promise<BrokerMessageRecord> {
+  const [snapshot, node] = await Promise.all([
+    fetchBrokerSnapshot(),
+    fetchBrokerNode(),
+  ]);
+
+  const mentions = options.body.match(/@([\w.-]+)/g)?.map((value) => value.slice(1)) ?? [];
+  const normalizedChannel = options.type === "SYS" && !options.channel
+    ? "system"
+    : normalizeRelayChannelName(options.channel);
+  await ensureBrokerActor(snapshot, options.actor);
+  const conversationId = await ensureBrokerConversationForSend(
+    snapshot,
+    node.id,
+    options.actor,
+    mentions,
+    normalizedChannel,
+  );
+  const transportOnly = /\[ask:[^\]]+\]/.test(options.body);
+
+  const messageClass =
+    options.messageClass
+    ?? (options.type === "SYS"
+      ? "system"
+      : normalizedChannel === "system"
+        ? "system"
+        : "agent");
+
+  const payload: BrokerMessageRecord = {
+    id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    conversationId,
+    actorId: options.actor,
+    originNodeId: node.id,
+    class: messageClass,
+    body: options.body,
+    mentions: mentions.map((actorId) => ({ actorId, label: `@${actorId}` })),
+    speech: options.speech,
+    audience: mentions.length > 0 ? { notify: mentions } : undefined,
+    visibility: normalizedChannel === "system" ? "system" : "workspace",
+    policy: "durable",
+    createdAt: Date.now(),
+    metadata: {
+      source: "relay-cli",
+      ...(transportOnly ? { transportOnly: "true" } : {}),
+      ...(options.metadata ?? {}),
+    },
+  };
+
+  const response = await brokerRequest<{ ok: boolean; message: BrokerMessageRecord }>("/v1/messages", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return response.message ?? payload;
 }
 
 async function getGlobalRelayDir(): Promise<string> {
@@ -626,10 +1013,10 @@ async function relayInit() {
 
   printBrand();
   print(`  \x1b[32m✓\x1b[0m Global relay hub: \x1b[1m${hubShort}/\x1b[0m`);
-  print(`  \x1b[32m✓\x1b[0m Event stream: \x1b[1m${hubShort}/channel.jsonl\x1b[0m`);
+  print(`  \x1b[32m✓\x1b[0m Broker relay storage: \x1b[1m${hubShort}/\x1b[0m`);
   print(`  \x1b[32m✓\x1b[0m Local link: \x1b[1m.openscout/relay.json\x1b[0m → hub`);
-  print(`  \x1b[32m✓\x1b[0m Channel log: \x1b[1m${hubShort}/channel.log\x1b[0m\n`);
-  print("  \x1b[2mAll projects linked to the same hub share one channel.\x1b[0m");
+  print(`  \x1b[32m✓\x1b[0m Broker URL: \x1b[1m${resolveBrokerUrl()}\x1b[0m\n`);
+  print("  \x1b[2mAll projects linked to the same hub share the broker-backed relay.\x1b[0m");
   print("  \x1b[2mRun this in each project directory to link it.\x1b[0m\n");
   print("  \x1b[1mUsage:\x1b[0m");
   print("    openscout relay send --as agent-a \"hello\"");
@@ -643,6 +1030,7 @@ async function relayInit() {
 
 async function speak(text: string, voice: string, relayDir: string): Promise<void> {
   try {
+    const { speakRelayText } = await import("./core/tts.js");
     await speakRelayText({
       relayDir,
       text,
@@ -919,8 +1307,6 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 }
 
 async function relaySend() {
-  const { hub } = await requireRelay();
-
   // Collect message: everything after "send" that isn't a flag
   const sendIdx = args.indexOf("send");
   const msgParts: string[] = [];
@@ -954,61 +1340,52 @@ async function relaySend() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
+  const composed = extractRelaySpeechInstruction(message);
   const tags = shouldSpeak ? ["speak"] : [];
-  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const mentions = composed.body.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const speech = shouldSpeak
+    ? { text: composed.speech?.text ?? composed.body.replace(/@[\w.-]+\s*/g, "").trim() }
+    : composed.speech;
 
-  const entry = await writeChannel(hub, {
-    ts, from: agent, type: "MSG", body: message,
-    tags: tags.length ? tags : undefined,
-    to: mentions.length ? mentions : undefined,
-    channel,
-  });
-
-  const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
-    hub,
-    agent,
-    channel,
-    message,
-    entry.id,
-  );
-
-  print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${message}`));
-  if (queuedExternalDelivery) {
-    print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
+  if (channel?.includes(":")) {
+    print("\n  \x1b[31m✗\x1b[0m External bridge channels are not supported on the broker-backed relay path yet.\n");
+    process.exit(1);
   }
 
-  // Track the origin channel for audio responses
-  const config = await loadRelayConfig();
-  const audioEnabled = isAudioChannel(config, channel);
+  const posted = await postBrokerRelayMessage({
+    actor: agent,
+    body: composed.body,
+    channel,
+    speech: speech?.text ? speech : undefined,
+  });
+
+  print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${composed.body}`));
 
   // Check for @system command
-  if (message.match(/@system\b/i)) {
-    const result = await handleSystemCommand(agent, message);
+  if (composed.body.match(/@system\b/i)) {
+    const result = await handleSystemCommand(agent, composed.body);
     if (result) {
       const replyTs = Math.floor(Date.now() / 1000);
-      await writeChannel(hub, { ts: replyTs, from: "system", type: "MSG", body: `@${agent} ${result}`, to: [agent] });
+      await postBrokerRelayMessage({
+        actor: "system",
+        body: `@${agent} ${result}`,
+        channel: "system",
+      });
       print(formatLine(`${replyTs} system MSG @${agent} ${result}`));
-
-      // Audio channel → speak the system response
-      if (audioEnabled) {
-        const voice = getVoiceForChannel(config, channel);
-        void speak(result, voice, hub);
-      }
     }
     return;
   }
 
-  // Notify @mentioned agents
   if (mentions.length) {
     for (const target of mentions) {
-      if (target === agent) continue; // don't deliver to yourself
-      const result = await deliverToAgent(target, agent, message, channel, entry.id);
+      if (target === agent) continue;
+      const result = await deliverToAgent(target, agent, composed.body, channel, posted.id);
       if (result === "delivered") {
         print(`  \x1b[32m✓\x1b[0m Delivered to ${target}'s session (resumed)`);
       } else if (result === "nudged") {
         print(`  \x1b[33m○\x1b[0m Nudged ${target} via tmux (session not found)`);
       } else {
-        print(`  \x1b[2m○\x1b[0m ${target} not registered — message queued in channel\x1b[0m`);
+        print(`  \x1b[2m○\x1b[0m ${target} not registered for active delivery\x1b[0m`);
       }
     }
   }
@@ -1044,35 +1421,30 @@ async function relaySpeak() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
-  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const composed = extractRelaySpeechInstruction(message);
+  const mentions = composed.body.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const cleanSpeech = composed.speech?.text ?? composed.body.replace(/@[\w.-]+\s*/g, "").trim();
 
   const entry = await writeChannel(hub, {
-    ts, from: agent, type: "MSG", body: message,
+    ts,
+    from: agent,
+    type: "MSG",
+    body: composed.body,
+    class: "status",
+    speech: cleanSpeech ? { text: cleanSpeech } : undefined,
     tags: ["speak"],
     to: mentions.length ? mentions : undefined,
     channel,
   });
-  print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
-
-  const queuedExternalDelivery = await queueRelayExternalDeliveryForChannel(
-    hub,
-    agent,
-    channel,
-    message,
-    entry.id,
-  );
-  if (queuedExternalDelivery) {
-    print(`  \x1b[32m✓\x1b[0m Queued external delivery via ${channel}`);
-  }
+  print(formatLine(`${ts} ${agent} MSG [speak] ${composed.body}`));
 
   // Set state → speaking, play TTS, set state → idle
   await setAgentState(agent, "speaking");
 
   const config = await loadRelayConfig();
-  const voice = getVoiceForChannel(config, "voice");
-  const clean = message.replace(/@[\w.-]+\s*/g, "").trim();
-  if (clean) {
-    await speak(clean, voice, hub);
+  const voice = config.channels?.voice?.voice || config.defaultVoice || "nova";
+  if (cleanSpeech) {
+    await speak(cleanSpeech, voice, hub);
   }
 
   await setAgentState(agent, "idle");
@@ -1081,7 +1453,7 @@ async function relaySpeak() {
   if (mentions.length) {
     for (const target of mentions) {
       if (target === agent) continue;
-      await deliverToAgent(target, agent, message, undefined, entry.id);
+      await deliverToAgent(target, agent, composed.body, undefined, entry.id);
     }
   }
 }
@@ -1089,9 +1461,6 @@ async function relaySpeak() {
 // ── relay ask ─────────────────────────────────────────
 
 async function relayAsk() {
-  const { hub } = await requireRelay();
-  const twinActionRunner = getTwinActionRunner(hub);
-
   // Parse --twin
   const twinIdx = args.indexOf("--twin");
   const twinName = twinIdx !== -1 ? args[twinIdx + 1] : null;
@@ -1134,27 +1503,98 @@ async function relayAsk() {
     timeoutSeconds: timeout,
   };
 
-  try {
-    const result = via === "claude"
-      ? await invokeClaudeExploreTwinAction({
-        request,
-        cwd: process.cwd(),
-      })
-      : via === "codex"
-        ? await invokeCodexExecTwinAction({
+  if (via === "claude" || via === "codex") {
+    try {
+      const result = via === "claude"
+        ? await invokeClaudeExploreTwinAction({
           request,
           cwd: process.cwd(),
         })
-      : await twinActionRunner.invokeTwinAction(request);
+        : await invokeCodexExecTwinAction({
+          request,
+          cwd: process.cwd(),
+        });
 
-    if (result.flightId) {
-      process.stderr.write(`flight ${result.flightId} completed\n`);
-    }
-    if (!result.ok) {
-      process.stderr.write(`error: ${result.output}\n`);
+      if (result.flightId) {
+        process.stderr.write(`flight ${result.flightId} completed\n`);
+      }
+      if (!result.ok) {
+        process.stderr.write(`error: ${result.output}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(result.output + "\n");
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`error: ${message}\n`);
       process.exit(1);
     }
-    process.stdout.write(result.output + "\n");
+  }
+
+  try {
+    const [snapshot, node] = await Promise.all([
+      fetchBrokerSnapshot(),
+      fetchBrokerNode(),
+    ]);
+
+    if (!snapshot.agents[twinName]) {
+      process.stderr.write(`error: twin "${twinName}" is not registered in the broker\n`);
+      process.exit(1);
+    }
+
+    await ensureBrokerActor(snapshot, asker);
+
+    const invocationId = `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const response = await brokerRequest<{ ok: boolean; flight: { id: string; state: string; summary?: string; error?: string } }>(
+      "/v1/invocations",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          id: invocationId,
+          requesterId: asker,
+          requesterNodeId: node.id,
+          targetAgentId: twinName,
+          action: "consult",
+          task: question,
+          ensureAwake: true,
+          stream: false,
+          timeoutMs: timeout * 1000,
+          createdAt: Date.now(),
+          metadata: {
+            source: "relay-cli",
+          },
+        }),
+      },
+    );
+
+    const flightId = response.flight.id;
+    const deadline = Date.now() + timeout * 1000;
+
+    while (Date.now() < deadline) {
+      const latest = await fetchBrokerSnapshot();
+      const flight = latest.flights?.[flightId];
+      if (!flight) {
+        await sleep(500);
+        continue;
+      }
+
+      if (flight.state === "completed") {
+        process.stderr.write(`flight ${flightId} completed\n`);
+        process.stdout.write((flight.output ?? flight.summary ?? "") + "\n");
+        return;
+      }
+
+      if (flight.state === "failed" || flight.state === "cancelled") {
+        process.stderr.write(`flight ${flightId} completed\n`);
+        process.stderr.write(`error: ${flight.error ?? flight.summary ?? "Invocation failed"}\n`);
+        process.exit(1);
+      }
+
+      await sleep(500);
+    }
+
+    process.stderr.write(`error: timed out waiting for ${twinName}\n`);
+    process.exit(1);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`error: ${message}\n`);
@@ -1297,8 +1737,6 @@ async function relayState() {
 }
 
 async function relayRead() {
-  const { hub } = await requireRelay();
-
   // --since <timestamp> filter
   const sinceIdx = args.indexOf("--since");
   const since = sinceIdx !== -1 ? Number(args[sinceIdx + 1]) : 0;
@@ -1307,24 +1745,32 @@ async function relayRead() {
   const nIdx = args.indexOf("-n");
   const count = nIdx !== -1 ? Number(args[nIdx + 1]) : 20;
 
-  const messages = await readChannel(hub, since > 0 ? { since } : { last: count });
+  const snapshot = await fetchBrokerSnapshot();
+  const messages = Object.values(snapshot.messages)
+    .sort((lhs, rhs) => normalizeBrokerTimestamp(lhs.createdAt) - normalizeBrokerTimestamp(rhs.createdAt))
+    .filter((message) => {
+      if (since <= 0) return true;
+      return normalizeBrokerTimestamp(message.createdAt) >= since;
+    });
+  const visibleMessages = since > 0 ? messages : messages.slice(-count);
 
-  if (messages.length === 0) {
+  if (visibleMessages.length === 0) {
     print("\n  \x1b[2mNo messages.\x1b[0m\n");
     return;
   }
 
   print("");
-  for (const msg of messages) {
-    const tagStr = msg.tags?.length ? msg.tags.map(t => `[${t}]`).join(" ") + " " : "";
-    print(formatLine(`${msg.ts} ${msg.from} ${msg.type} ${tagStr}${msg.body}`));
+  for (const msg of visibleMessages) {
+    const conversation = snapshot.conversations[msg.conversationId];
+    const type = (msg.class === "system" || conversation?.kind === "system") ? "SYS" : "MSG";
+    const tagStr = msg.metadata?.transportOnly === "true" ? "[transport] " : "";
+    print(formatLine(`${normalizeBrokerTimestamp(msg.createdAt)} ${msg.actorId} ${type} ${tagStr}${msg.body}`));
   }
   print("");
 }
 
 async function relayWatch() {
-  const fs = await import("node:fs");
-  const { hub, channelPath } = await requireRelay();
+  const { hub } = await requireRelay();
   const { execSync } = await import("node:child_process");
 
   const agent = getAgentName();
@@ -1334,27 +1780,24 @@ async function relayWatch() {
   // Write join message
   await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} joined the relay` });
 
-  await ensureRelayFiles(hub);
-  let seenCount = (await readProjectedRelayMessages(hub)).length;
-
   printBrand();
   print(`  Watching as \x1b[1m${agent}\x1b[0m ${tmuxPane ? `(nudging tmux pane ${tmuxPane})` : ""}`);
   print("  \x1b[2mPress Ctrl+C to stop\x1b[0m\n");
 
-  const readNew = async () => {
-    const messages = await readProjectedRelayMessages(hub);
-    if (messages.length < seenCount) {
-      seenCount = 0;
-    }
+  const seenMessageIds = new Set(
+    (await readChannel(hub)).map((message) => message.id),
+  );
 
-    const fresh = messages.slice(seenCount);
+  const readNew = async () => {
+    const messages = await readChannel(hub);
+    const fresh = messages.filter((message) => !seenMessageIds.has(message.id));
     if (fresh.length === 0) return;
-    seenCount = messages.length;
 
     for (const msg of fresh) {
+      seenMessageIds.add(msg.id);
       if (msg.from === agent) continue;
 
-      print(formatLine(`${msg.timestamp} ${msg.from} ${msg.type} ${msg.body}`));
+      print(formatLine(`${msg.ts} ${msg.from} ${msg.type} ${msg.body}`));
 
       if (tmuxPane) {
         const preview = msg.body.length > 80 ? msg.body.slice(0, 80) + "…" : msg.body;
@@ -1370,12 +1813,13 @@ async function relayWatch() {
     }
   };
 
-  fs.watch(channelPath, () => {
+  const interval = setInterval(() => {
     void readNew();
-  });
+  }, 1000);
 
   // Keep process alive
   process.on("SIGINT", () => {
+    clearInterval(interval);
     writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} left the relay` }).finally(() => {
       print(`\n  \x1b[2m${agent} left the relay\x1b[0m\n`);
       process.exit(0);
@@ -1385,7 +1829,7 @@ async function relayWatch() {
 
 async function relayWho() {
   const { hub } = await requireRelay();
-  const messages = await readProjectedRelayMessages(hub);
+  const messages = await readChannel(hub);
 
   const now = Math.floor(Date.now() / 1000);
   const ONLINE_THRESHOLD = 600; // 10 minutes
@@ -1395,13 +1839,13 @@ async function relayWho() {
 
   for (const message of messages) {
     if (!agents.has(message.from)) {
-      agents.set(message.from, { lastSeen: message.timestamp, messages: 0, forgotten: false });
+      agents.set(message.from, { lastSeen: message.ts, messages: 0, forgotten: false });
     }
     const agent = agents.get(message.from)!;
-    agent.lastSeen = Math.max(agent.lastSeen, message.timestamp);
+    agent.lastSeen = Math.max(agent.lastSeen, message.ts);
 
     if (message.type === "MSG") agent.messages++;
-    if (message.type === "SYS" && message.rawBody.includes("forgotten")) agent.forgotten = true;
+    if (message.type === "SYS" && message.body.includes("forgotten")) agent.forgotten = true;
   }
 
   // Filter out forgotten agents
@@ -1426,7 +1870,6 @@ async function relayWho() {
 }
 
 async function relayForget() {
-  const fs = await import("node:fs/promises");
   const { hub } = await requireRelay();
 
   // Get agent name to forget from args after "forget"
@@ -1445,8 +1888,7 @@ async function relayForget() {
 }
 
 async function relayEnroll() {
-  const fs = await import("node:fs/promises");
-  const { hub, channelPath } = await requireRelay();
+  const { hub } = await requireRelay();
 
   const agent = getAgentName();
 
@@ -1457,14 +1899,17 @@ async function relayEnroll() {
   const prompt = [
     `You are ${agent}.`,
     "",
-    `There is a global relay event stream at ${channelPath} that other agents are using.`,
-    "Use it to coordinate with other agents working on related packages.",
+    `There is a broker-backed relay for agent communication at ${resolveBrokerUrl()}.`,
+    "Use the relay CLI for coordination with other agents working on related packages.",
     "",
     "Relay commands:",
     `  openscout relay send --as ${agent} "your message"   — send a message`,
     `  openscout relay read                                — check recent messages`,
     `  openscout relay register --as ${agent}              — register this session for delivery`,
     `  openscout relay who                                 — see who's active`,
+    "",
+    "Do not read or write channel.log or channel.jsonl directly.",
+    "Those are no longer the communication interface agents should rely on.",
     "",
     "Rules:",
     "  - Check the relay before starting work for context from other agents",
@@ -2026,9 +2471,19 @@ async function relayStatus() {
   // Check global hub
   try {
     await fs.access(channelPath);
-    const messages = await readRelayMessages(hub);
-    const msgCount = messages.filter((message) => message.type === "MSG").length;
-    print(`  \x1b[32m✓\x1b[0m Hub: \x1b[1m${hubShort}/\x1b[0m  \x1b[2m(${messages.length} events, ${msgCount} messages)\x1b[0m`);
+    const [snapshot, node, brokerService] = await Promise.all([
+      fetchBrokerSnapshot(),
+      fetchBrokerNode(),
+      runBrokerServiceCommand("status").catch(() => null),
+    ]);
+    const msgCount = Object.keys(snapshot.messages).length;
+    const conversationCount = Object.keys(snapshot.conversations).length;
+    print(`  \x1b[32m✓\x1b[0m Hub: \x1b[1m${hubShort}/\x1b[0m  \x1b[2m(${conversationCount} conversations, ${msgCount} messages)\x1b[0m`);
+    print(`  \x1b[32m✓\x1b[0m Broker: \x1b[1m${resolveBrokerUrl()}\x1b[0m  \x1b[2m(node ${node.id})\x1b[0m`);
+    if (brokerService) {
+      const serviceState = brokerService.loaded ? "loaded" : brokerService.installed ? "installed" : "not installed";
+      print(`  \x1b[32m✓\x1b[0m Service: \x1b[1m${brokerService.label}\x1b[0m  \x1b[2m(${serviceState}${brokerService.pid ? ` · pid ${brokerService.pid}` : ""})\x1b[0m`);
+    }
   } catch {
     print(`  \x1b[31m✗\x1b[0m Hub: \x1b[2mnot initialized\x1b[0m`);
     print("\n  Run \x1b[1mopenscout relay init\x1b[0m to create the global hub.\n");
@@ -2050,6 +2505,70 @@ async function relayStatus() {
   // Show linked projects by scanning known locations
   // (We can't enumerate all links, but we can show what the user might expect)
   print("");
+}
+
+async function relayBroker() {
+  const sub = args[2] ?? (args[0] === "broker" ? args[1] : undefined) ?? "status";
+
+  switch (sub) {
+    case "status": {
+      const status = await runBrokerServiceCommand("status");
+      printBrand();
+      print("  \x1b[1mBroker Service\x1b[0m\n");
+      print(`  label: \x1b[1m${status.label}\x1b[0m`);
+      print(`  launch agent: ${status.installed ? status.launchAgentPath : "\x1b[2mnot installed\x1b[0m"}`);
+      print(`  loaded: ${status.loaded ? "\x1b[32myes\x1b[0m" : "\x1b[33mno\x1b[0m"}`);
+      print(`  pid: ${status.pid ?? "—"}`);
+      print(`  broker: ${status.brokerUrl} ${status.health.ok ? "\x1b[32m(healthy)\x1b[0m" : status.health.error ? `\x1b[33m(${status.health.error})\x1b[0m` : ""}`);
+      print(`  control home: ${status.controlHome}`);
+      print(`  logs: ${status.stdoutLogPath}`);
+      if (status.lastLogLine) {
+        print(`  last log: ${status.lastLogLine}`);
+      }
+      print("");
+      return;
+    }
+    case "install":
+    case "start":
+    case "stop":
+    case "restart":
+    case "uninstall": {
+      const status = await runBrokerServiceCommand(sub);
+      printBrand();
+      print(`  \x1b[32m✓\x1b[0m Broker service ${sub} complete`);
+      print(`  \x1b[2m${status.label} · ${status.loaded ? "loaded" : status.installed ? "installed" : "not installed"} · ${status.brokerUrl}\x1b[0m\n`);
+      return;
+    }
+    case "logs": {
+      const status = await runBrokerServiceCommand("status");
+      const tailCount = Number.parseInt(getFlagValue("--last") ?? "40", 10);
+      const stdoutText = await readFile(status.stdoutLogPath, "utf8").catch(() => "");
+      const stderrText = await readFile(status.stderrLogPath, "utf8").catch(() => "");
+      const combined = [...stdoutText.split("\n"), ...stderrText.split("\n")].filter(Boolean).slice(-tailCount);
+      printBrand();
+      print("  \x1b[1mBroker Logs\x1b[0m\n");
+      if (combined.length === 0) {
+        print("  \x1b[2m(no broker logs yet)\x1b[0m\n");
+        return;
+      }
+      for (const line of combined) {
+        print(`  ${line}`);
+      }
+      print("");
+      return;
+    }
+    default:
+      print("");
+      print("  openscout relay broker status");
+      print("  openscout relay broker install");
+      print("  openscout relay broker start");
+      print("  openscout relay broker stop");
+      print("  openscout relay broker restart");
+      print("  openscout relay broker uninstall");
+      print("  openscout relay broker logs [--last 40]");
+      print("");
+      return;
+  }
 }
 
 async function relayBridgeBindings() {
@@ -2075,6 +2594,7 @@ async function relayBridgeBindings() {
 
 async function relayBridgeTelegram() {
   const { hub } = await requireRelay();
+  const { createTelegramRelayBridge } = await import("./bridge/chat/telegram.js");
   const config = await loadRelayConfig();
   const defaultTarget = getFlagValue("--to") || resolveUserTwinName(config);
   const modeValue = getFlagValue("--mode");
@@ -2147,25 +2667,26 @@ async function relayBridge() {
 function relayHelp() {
   printBrand();
   print("  \x1b[1mRelay\x1b[0m — local-first agent communication\n");
-  print("  \x1b[2mGlobal hub at ~/.openscout/relay/ — all projects share one channel.\x1b[0m\n");
+  print("  \x1b[2mBroker-backed relay with shared support state at ~/.openscout/relay/.\x1b[0m\n");
   print("  \x1b[1mUsage:\x1b[0m");
   print("    openscout relay <command> [options]\n");
   print("  \x1b[1mCommands:\x1b[0m");
   print("    init                           Create global hub + link this project");
   print("    link                           Link this project to the global hub");
   print("    status                         Show hub and link status");
-  print("    send <message>                 Append a message to the channel");
+  print("    send <message>                 Post a broker-backed relay message");
   print("    speak <message>                Send + speak aloud via TTS");
   print("    state [state]                  Set agent state (speaking, thinking, idle)");
   print("    read                           Print recent messages (last 20)");
   print("    read --since <timestamp>       Messages after a unix timestamp");
   print("    read -n <count>                Show last N messages");
-  print("    watch                          Stream new messages as they arrive");
-  print("    watch --tmux <pane>            Stream + nudge a tmux pane on new messages");
+  print("    watch                          Poll broker messages as they arrive");
+  print("    watch --tmux <pane>            Poll + nudge a tmux pane on new messages");
   print("    who                            List agents and their last activity");
   print("    forget <name>                  Remove a stale agent from the list");
   print("    bridge telegram                Run the Telegram Chat SDK bridge");
   print("    bridge bindings                List external channel bindings");
+  print("    broker <cmd>                   Manage the local broker LaunchAgent");
   print("    tui                            Open the relay monitor dashboard");
   print("    twin <command>                 Twin-native workflow (up/view/ps/down/tick)");
   print("    enroll --as <name>             Generate enrollment prompt for an agent");
@@ -2246,6 +2767,9 @@ async function relay() {
       break;
     case "bridge":
       await relayBridge();
+      break;
+    case "broker":
+      await relayBroker();
       break;
     case "twin":
       await relayTwin();
@@ -2340,6 +2864,9 @@ switch (command) {
     break;
   case "relay":
     relay();
+    break;
+  case "broker":
+    relayBroker();
     break;
   case "--version":
   case "-v":

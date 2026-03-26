@@ -41,19 +41,19 @@ struct ScoutPageHeader: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let eyebrow {
                     Text(eyebrow)
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .textCase(.uppercase)
-                        .tracking(0.8)
+                        .tracking(0.6)
                         .foregroundStyle(ScoutTheme.inkMuted)
                 }
 
                 Text(title)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: 30, weight: .medium))
                     .foregroundStyle(ScoutTheme.ink)
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 14))
                         .foregroundStyle(ScoutTheme.inkSecondary)
                         .frame(maxWidth: 640, alignment: .leading)
                 }

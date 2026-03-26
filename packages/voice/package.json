@@ -1,0 +1,17 @@
+{
+  "name": "@openscout/voice",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bridge": "bun run src/bridge.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@arach/ora": "github:arach/ora"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

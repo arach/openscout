@@ -77,6 +77,7 @@ struct ScoutSidebarTooltipOverlay: View {
                 .offset(x: localX, y: localY - tooltipHeight / 2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .shadow(color: ScoutTheme.shadow, radius: 8, y: 4)
+                .zIndex(1)
                 .allowsHitTesting(false)
                 .transition(.opacity)
             }

@@ -9,16 +9,13 @@ struct ScoutDetailView: View {
         case .home:
             ScoutDashboardView(viewModel: viewModel)
         case .sessions:
-            ScoutPlaceholderView(
-                title: "Sessions",
-                summary: "Shared session history, context, and playback will live here."
-            )
+            ScoutNotesView(viewModel: viewModel)
         case .console:
-            ScoutConsoleWorkspaceView(viewModel: viewModel)
+            ScoutComposeView(viewModel: viewModel)
         case .integrations:
-            ScoutIntegrationsView(viewModel: viewModel)
+            ScoutWorkflowsView(viewModel: viewModel)
         case .workers:
-            ScoutWorkersView(viewModel: viewModel)
+            ScoutRelayWorkspaceView(viewModel: viewModel)
         case .settings:
             ScoutSettingsView(viewModel: viewModel)
         }
