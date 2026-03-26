@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { existsSync, readFileSync, appendFileSync, writeFileSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
+import { existsSync, readFileSync, appendFileSync, writeFileSync, unlinkSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
 import { execSync, spawn } from "child_process";
 
@@ -141,6 +141,21 @@ function loadRelayConfig(relayDir: string): RelayConfig {
 
 let speakingNow = false;
 
+function acquireOnAirSync(relayDir: string, agent: string): boolean {
+  const lockPath = join(relayDir, "on-air.lock");
+  try {
+    const raw = readFileSync(lockPath, "utf8");
+    const lock = JSON.parse(raw);
+    if (Date.now() - lock.ts < 30000) return false; // someone on air
+  } catch { /* no lock */ }
+  writeFileSync(lockPath, JSON.stringify({ agent: "tui", ts: Date.now() }) + "\n");
+  return true;
+}
+
+function releaseOnAirSync(relayDir: string): void {
+  try { unlinkSync(join(relayDir, "on-air.lock")); } catch { /* noop */ }
+}
+
 function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?: () => void): void {
   const config = loadRelayConfig(relayDir);
   const voiceCh = config.channels?.voice;
@@ -161,6 +176,8 @@ function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?:
 
   const voice = voiceCh.voice || config.defaultVoice || "nova";
 
+  if (!acquireOnAirSync(relayDir, "tui")) return; // someone else on air
+
   speakingNow = true;
   onStart?.();
 
@@ -169,14 +186,14 @@ function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?:
     headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: "tts-1", voice, input: clean, response_format: "pcm", speed: 1.1 }),
   }).then(async (res) => {
-    if (!res.ok || !res.body) { speakingNow = false; onEnd?.(); return; }
+    if (!res.ok || !res.body) { speakingNow = false; releaseOnAirSync(relayDir); onEnd?.(); return; }
 
     const player = spawn("ffplay", [
       "-nodisp", "-autoexit", "-loglevel", "quiet",
       "-f", "s16le", "-ar", "24000", "-ch_layout", "mono", "-",
     ], { stdio: ["pipe", "ignore", "ignore"] });
 
-    player.on("close", () => { speakingNow = false; onEnd?.(); });
+    player.on("close", () => { speakingNow = false; releaseOnAirSync(relayDir); onEnd?.(); });
 
     const reader = res.body.getReader();
     while (true) {
@@ -185,7 +202,7 @@ function speakText(text: string, relayDir: string, onStart?: () => void, onEnd?:
       player.stdin.write(value);
     }
     player.stdin.end();
-  }).catch(() => { speakingNow = false; onEnd?.(); });
+  }).catch(() => { speakingNow = false; releaseOnAirSync(relayDir); onEnd?.(); });
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -196,6 +213,7 @@ interface RelayMessage {
   from: string;
   type: "MSG" | "ACK" | "SYS";
   body: string;
+  messageId?: string;  // structured ID from channel.jsonl (e.g. "m-abc123-xyz")
 }
 
 interface AgentInfo {
@@ -290,7 +308,37 @@ function parseLogLine(line: string, id: number): RelayMessage | null {
   };
 }
 
+function parseJsonlLine(line: string, idx: number): RelayMessage | null {
+  try {
+    const entry = JSON.parse(line);
+    const tags = entry.tags?.length ? entry.tags.map((t: string) => `[${t}]`).join(" ") + " " : "";
+    return {
+      id: idx,
+      timestamp: entry.ts,
+      from: entry.from,
+      type: entry.type as RelayMessage["type"],
+      body: tags + entry.body,
+      messageId: entry.id,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readAllMessages(logPath: string): RelayMessage[] {
+  // Prefer channel.jsonl (structured, handles multi-line messages)
+  const jsonlPath = logPath.replace("channel.log", "channel.jsonl");
+  if (existsSync(jsonlPath)) {
+    try {
+      return readFileSync(jsonlPath, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line, i) => parseJsonlLine(line, i + 1))
+        .filter((m): m is RelayMessage => m !== null);
+    } catch { /* fall through to legacy */ }
+  }
+
+  // Legacy: plain text channel.log
   if (!existsSync(logPath)) return [];
   try {
     return readFileSync(logPath, "utf8")
@@ -301,6 +349,17 @@ function readAllMessages(logPath: string): RelayMessage[] {
   } catch {
     return [];
   }
+}
+
+// Write to both JSONL (source of truth) and log (mirror)
+function writeToChannel(relayDir: string, from: string, type: "MSG" | "SYS", body: string, extra?: { tags?: string[]; to?: string[] }) {
+  const ts = Math.floor(Date.now() / 1000);
+  const id = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const entry = { id, ts, from, type, body, ...extra };
+  appendFileSync(join(relayDir, "channel.jsonl"), JSON.stringify(entry) + "\n");
+  const tagStr = extra?.tags?.length ? extra.tags.map(t => `[${t}]`).join(" ") + " " : "";
+  appendFileSync(join(relayDir, "channel.log"), `${ts} ${from} ${type} ${tagStr}${body}\n`);
+  return entry;
 }
 
 const ONLINE_THRESHOLD = 600; // 10 minutes
@@ -431,6 +490,7 @@ function Header({ tab, agentCount, msgCount, voiceState, isSpeaking, flightsInFl
         })}
       </box>
       <box flexDirection="row" gap={2}>
+        {isSpeaking ? <text fg={C.cyan}>↓</text> : flightsInFlight && flightsInFlight > 0 ? <text fg={C.accent}>↑</text> : null}
         <text fg={C.dim}><span fg={C.text}>{agentCount}</span> agents</text>
         <text fg={C.dim}><span fg={C.text}>{msgCount}</span> msgs</text>
         <text fg={C.dim}>{clock}</text>
@@ -451,47 +511,55 @@ function ChatPanel({
   messages,
   selectedId,
   scrollOffset,
+  cursorPos,
   maxVisible,
   width,
 }: {
   messages: RelayMessage[];
   selectedId: number;
   scrollOffset: number;
+  cursorPos: number;
   maxVisible: number;
   width: number;
 }) {
   const filtered = messages.filter((m) => !isNoisySys(m));
 
-  const visible = filtered.slice(
-    Math.max(0, filtered.length - maxVisible - scrollOffset),
-    filtered.length - scrollOffset
-  );
+  const windowStart = Math.max(0, filtered.length - maxVisible - scrollOffset);
+  const windowEnd = filtered.length - scrollOffset;
+  const visible = filtered.slice(windowStart, windowEnd);
+
+  // Map cursor position (in filtered list) to visible index
+  const activeCursor = cursorPos === -1 ? filtered.length - 1 : cursorPos;
+  const cursorIdx = activeCursor - windowStart;
 
   // Available width for message body: total - border(2) - padding(2) - cursor(2) - time(9) - name(14) - gaps(6)
-  const bodyWidth = Math.max(20, width - 35);
+  const bodyWidth = Math.max(20, width - 37);
 
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" borderColor={C.border} padding={1}>
       {visible.length === 0 ? (
         <text fg={C.dim}>No messages yet. Waiting for relay activity...</text>
       ) : (
-        visible.map((msg) => {
+        visible.map((msg, i) => {
           const time = fmtTime(msg.timestamp);
+          const cursor = i === cursorIdx ? "▸ " : "  ";
+
+          // Collapse to single line to prevent terminal line-wrap collisions
+          const oneLine = msg.body.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
 
           if (msg.type === "SYS") {
-            return <text key={msg.id} fg={C.dim}>{`${time}  ${pad("--", 12)}  ${msg.body.slice(0, bodyWidth)}`}</text>;
+            return <text key={msg.id} fg={C.dim}>{`${cursor}${time}  ${pad("--", 12)}  ${oneLine.slice(0, bodyWidth)}`}</text>;
           }
 
           if (msg.type === "ACK") {
-            return <text key={msg.id} fg={C.dim}>{`${time}  ${pad(msg.from, 12)}  ack ${msg.body.slice(0, bodyWidth)}`}</text>;
+            return <text key={msg.id} fg={C.dim}>{`${cursor}${time}  ${pad(msg.from, 12)}  ack ${oneLine.slice(0, bodyWidth)}`}</text>;
           }
 
           const name = pad(msg.from, 12);
-          const body = msg.body.length > bodyWidth ? msg.body.slice(0, bodyWidth - 1) + "..." : msg.body;
+          const body = oneLine.length > bodyWidth ? oneLine.slice(0, bodyWidth - 1) + "..." : oneLine;
 
-          // Color: timestamp white, name green, @mentions cyan, [speak] yellow
           return (
-            <text key={msg.id} fg={C.text}>{time}{"  "}<span fg={C.accent}><strong>{name}</strong></span>{"  "}<span fg={C.text}>{body}</span></text>
+            <text key={msg.id} fg={i === cursorIdx ? C.yellow : C.text}>{cursor}{time}{"  "}<span fg={C.accent}><strong>{name}</strong></span>{"  "}<span fg={i === cursorIdx ? C.yellow : C.text}>{body}</span></text>
           );
         })
       )}
@@ -776,7 +844,7 @@ function VoicePanel({
               <box key={i} flexDirection="row" gap={1} marginBottom={isYou ? 0 : 1}>
                 <text fg={C.dim}>{fmtTime(t.timestamp)}</text>
                 <text fg={isYou ? C.accent : C.cyan}>{isYou ? "you" : t.from}</text>
-                <text fg={isYou ? C.muted : C.text}>{t.text}</text>
+                <text fg={isYou ? C.muted : C.text}>{t.text.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim()}</text>
               </box>
             );
           })
@@ -961,7 +1029,7 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
 
 function StatusBar({ tab }: { tab: ActiveTab }) {
   const hints: Record<ActiveTab, string> = {
-    chat: "↑↓ scroll  c copy  v voice  tab switch  r refresh  q quit",
+    chat: "↑↓ scroll  ⏎ expand  c copy  v voice  tab switch  r refresh  q quit",
     agents: "↑↓ select  ⏎ peek  u up  d down  n nudge  tab switch  q quit",
     stats: "v voice  tab switch  r refresh  x clear  q quit",
     voice: "v record/stop  tab switch  q quit",
@@ -985,6 +1053,7 @@ function App() {
   const [dbEntries, setDbEntries] = useState(0);
   const [selectedId, setSelectedId] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [cursorPos, setCursorPos] = useState(-1); // -1 = pinned to bottom
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "recording" | "processing" | "error">("idle");
   const [recordingStart, setRecordingStart] = useState<number | null>(null);
   const [partialText, setPartialText] = useState("");
@@ -992,6 +1061,7 @@ function App() {
   const [voiceThread, setVoiceThread] = useState<VoiceThread[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(0);
+  const [expandedMsg, setExpandedMsg] = useState<RelayMessage | null>(null);
   const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
   const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
   const relayDirRef = useRef<string | null>(null);
@@ -1081,13 +1151,15 @@ function App() {
 
     // TUI identity — the human operator
     const logPath = join(relayDir, "channel.log");
+    const channelPath = join(relayDir, "channel.jsonl");
+    const writeMsg = (from: string, type: "MSG" | "SYS", body: string, extra?: { tags?: string[]; to?: string[] }) =>
+      writeToChannel(relayDir, from, type, body, extra);
     const asIdx = process.argv.indexOf("--as");
     const tuiName = asIdx !== -1 && process.argv[asIdx + 1]
       ? process.argv[asIdx + 1]
       : process.env.OPENSCOUT_AGENT || require("os").userInfo().username;
     tuiNameRef.current = tuiName;
-    const now = Math.floor(Date.now() / 1000);
-    appendFileSync(logPath, `${now} ${tuiName} SYS ${tuiName} monitoring the relay\n`);
+    writeMsg(tuiName, "SYS", `${tuiName} monitoring the relay`);
 
     // Try to connect to Vox for voice input
     initVox().then((ok) => {
@@ -1096,30 +1168,31 @@ function App() {
 
     // Heartbeat — keep TUI and dev twin showing as online
     const heartbeatIv = setInterval(() => {
-      const t = Math.floor(Date.now() / 1000);
-      appendFileSync(logPath, `${t} ${tuiName} SYS heartbeat\n`);
+      writeMsg(tuiName, "SYS", "heartbeat");
       // Also heartbeat for dev if it has an active twin
       if (tuiName !== "dev") {
         try {
           const tw = JSON.parse(readFileSync(join(relayDir, "twins.json"), "utf8"));
           if (tw.dev && isTwinAlive(tw.dev.tmuxSession)) {
-            appendFileSync(logPath, `${t} dev SYS heartbeat\n`);
+            writeMsg("dev", "SYS", "heartbeat");
           }
         } catch { /* noop */ }
       }
     }, ONLINE_THRESHOLD * 500); // halfway through threshold (5 min for 10 min threshold)
 
     // Set the spoken watermark to current message count so we don't speak old messages
-    const initialMessages = readAllMessages(join(relayDir, "channel.log"));
+    const initialMessages = readAllMessages(logPath);
     lastSpokenMsgRef.current = initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].id : 0;
 
     // Initial load
     refresh();
 
     // Watch for changes using polling (more reliable than fs.watch for appends)
+    // Watch channel.jsonl (source of truth) — falls back to channel.log
+    const watchPath = existsSync(channelPath) ? channelPath : logPath;
     const iv = setInterval(() => {
       try {
-        const stat = statSync(logPath);
+        const stat = statSync(watchPath);
         if (stat.size !== filePosRef.current) {
           filePosRef.current = stat.size;
           refresh();
@@ -1134,8 +1207,7 @@ function App() {
       clearInterval(iv);
       clearInterval(statusIv);
       clearInterval(heartbeatIv);
-      const t = Math.floor(Date.now() / 1000);
-      appendFileSync(logPath, `${t} ${tuiName} SYS ${tuiName} stopped monitoring\n`);
+      writeMsg(tuiName, "SYS", `${tuiName} stopped monitoring`);
     };
   }, [refresh]);
 
@@ -1191,14 +1263,13 @@ function App() {
           text = `@dev ${text}`;
         }
 
-        const now = Math.floor(Date.now() / 1000);
         // Send via CLI — handles log write, @system, and @mention delivery
         // Tag as voice channel so responses get spoken
         try {
           execSync(`openscout relay send --as ${tuiName} --channel voice ${JSON.stringify(text)}`, { stdio: "ignore" });
         } catch {
-          // Fallback: write directly to log
-          appendFileSync(logPath, `${now} ${tuiName} MSG ${text}\n`);
+          // Fallback: write directly to channel
+          writeToChannel(relayDirRef.current || "", tuiName, "MSG", text);
         }
 
         // Track @mentioned agents — we expect voice responses from them
@@ -1214,8 +1285,8 @@ function App() {
         }
 
         // Add to voice thread
-        setVoiceThread((prev) => [...prev, { role: "you", from: tuiName, text, timestamp: now }]);
-        setRecentTranscriptions((prev) => [...prev, { text, timestamp: now }]);
+        setVoiceThread((prev) => [...prev, { role: "you", from: tuiName, text, timestamp: Date.now() }]);
+        setRecentTranscriptions((prev) => [...prev, { text, timestamp: Date.now() }]);
         refresh();
       }
       setVoiceState("idle");
@@ -1239,6 +1310,17 @@ function App() {
 
   // Keyboard
   useKeyboard((key) => {
+    // Expanded message view — intercept before global handlers
+    if (expandedMsg) {
+      if (key.name === "escape" || key.name === "return" || key.name === "q") {
+        setExpandedMsg(null);
+      }
+      if (key.name === "c") {
+        try { execSync("pbcopy", { input: expandedMsg.body }); } catch { /* noop */ }
+      }
+      return; // swallow all other keys while expanded
+    }
+
     if (key.name === "escape" || (key.name === "c" && key.ctrl) || key.name === "q") {
       if (voxClient) {
         try { voxClient.disconnect(); } catch { /* noop */ }
@@ -1258,7 +1340,7 @@ function App() {
     if (key.name === "2") setTab("agents");
     if (key.name === "3") setTab("stats");
     if (key.name === "4") setTab("voice");
-    if (key.name === "r") refresh();
+    if (key.name === "r") refresh()
 
     // Voice toggle — works from any tab
     if (key.name === "v") {
@@ -1267,18 +1349,49 @@ function App() {
 
     // Chat navigation
     if (tab === "chat") {
+      const filtered = messages.filter((m) => !isNoisySys(m));
+      const lastIdx = filtered.length - 1;
+
       if (key.name === "up") {
-        setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, messages.length - maxVisible)));
+        setCursorPos((prev) => {
+          const current = prev === -1 ? lastIdx : prev;
+          const next = Math.max(0, current - 1);
+          // Scroll up if cursor goes above visible window
+          const windowStart = Math.max(0, filtered.length - maxVisible - scrollOffset);
+          if (next < windowStart) {
+            setScrollOffset(filtered.length - maxVisible - next);
+          }
+          return next;
+        });
       }
       if (key.name === "down") {
-        setScrollOffset((prev) => Math.max(prev - 1, 0));
+        setCursorPos((prev) => {
+          const current = prev === -1 ? lastIdx : prev;
+          const next = Math.min(lastIdx, current + 1);
+          // Pin back to bottom if we reach the end
+          if (next === lastIdx) {
+            setScrollOffset(0);
+            return -1;
+          }
+          // Scroll down if cursor goes below visible window
+          const windowEnd = filtered.length - scrollOffset;
+          if (next >= windowEnd) {
+            setScrollOffset(Math.max(0, scrollOffset - 1));
+          }
+          return next;
+        });
+      }
+      if (key.name === "return") {
+        const idx = cursorPos === -1 ? lastIdx : cursorPos;
+        if (idx >= 0 && idx < filtered.length) {
+          setExpandedMsg(filtered[idx]);
+        }
       }
       if (key.name === "c") {
-        const msg = messages.find((m) => m.id === selectedId);
+        const idx = cursorPos === -1 ? lastIdx : cursorPos;
+        const msg = filtered[idx];
         if (msg) {
-          try {
-            execSync("pbcopy", { input: msg.body });
-          } catch { /* noop */ }
+          try { execSync("pbcopy", { input: msg.body }); } catch { /* noop */ }
         }
       }
     }
@@ -1340,8 +1453,7 @@ function App() {
             // No twin registered — check if there's a known project path
             // For now, just nudge via relay if the agent is online
             try {
-              const t = Math.floor(Date.now() / 1000);
-              appendFileSync(join(relayDirRef.current || "", "channel.log"), `${t} ${agent.name} SYS nudge\n`);
+              writeToChannel(relayDirRef.current || "", agent.name, "SYS", "nudge");
               refresh();
             } catch { /* noop */ }
           }
@@ -1371,8 +1483,7 @@ function App() {
             try {
               execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
               // Also write a heartbeat
-              const t = Math.floor(Date.now() / 1000);
-              appendFileSync(join(relayDirRef.current || "", "channel.log"), `${t} ${agent.name} SYS heartbeat\n`);
+              writeToChannel(relayDirRef.current || "", agent.name, "SYS", "heartbeat");
               refresh();
             } catch { /* noop */ }
           }
@@ -1400,14 +1511,24 @@ function App() {
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
-          {tab === "chat" && (
+          {tab === "chat" && !expandedMsg && (
             <ChatPanel
               messages={messages}
               selectedId={selectedId}
               scrollOffset={scrollOffset}
+              cursorPos={cursorPos}
               maxVisible={maxVisible}
               width={width}
             />
+          )}
+          {tab === "chat" && expandedMsg && (
+            <box flexDirection="column" flexGrow={1} border borderStyle="rounded" borderColor={C.accent} padding={1}>
+              <text fg={C.accent}><strong>{expandedMsg.from}</strong>{"  "}<span fg={C.dim}>{fmtTime(expandedMsg.timestamp)} · {expandedMsg.type}{expandedMsg.messageId ? ` · ${expandedMsg.messageId}` : ""}</span></text>
+              <text fg={C.text}>{""}</text>
+              <text fg={C.text} wrap="word">{expandedMsg.body}</text>
+              <box flexGrow={1} />
+              <text fg={C.dim}>esc close · c copy</text>
+            </box>
           )}
           {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
@@ -1417,6 +1538,7 @@ function App() {
       </box>
 
       <StatusBar tab={tab} />
+
     </box>
   );
 }

@@ -1,0 +1,42 @@
+{
+  "name": "@arach/agent-console",
+  "version": "0.1.0",
+  "description": "Transport-agnostic agent console — spawn, persist, and communicate with agent sessions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tmux": {
+      "types": "./dist/transports/tmux.d.ts",
+      "import": "./dist/transports/tmux.js"
+    },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "import": "./dist/registry/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "agent",
+    "console",
+    "tmux",
+    "session",
+    "transport"
+  ],
+  "author": "Arach Tchoupani",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

@@ -578,6 +578,39 @@ function applyPronunciations(text: string, pronunciations?: Record<string, strin
   return result;
 }
 
+// ── On-air semaphore (prevents overlapping TTS) ──────
+
+async function acquireOnAir(agent: string, timeoutMs = 30000): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const lockPath = path.join(hub, "on-air.lock");
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const raw = await fs.readFile(lockPath, "utf-8");
+      const lock = JSON.parse(raw);
+      // Stale lock (>30s) — take over
+      if (Date.now() - lock.ts > 30000) break;
+      // Someone else is on air — wait
+      await new Promise(r => setTimeout(r, 2000));
+    } catch {
+      // No lock file — free to proceed
+      break;
+    }
+  }
+  await fs.writeFile(lockPath, JSON.stringify({ agent, ts: Date.now() }) + "\n");
+}
+
+async function releaseOnAir(): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const hub = await getGlobalRelayDir();
+  const lockPath = path.join(hub, "on-air.lock");
+  try { await fs.unlink(lockPath); } catch { /* already gone */ }
+}
+
 async function speak(text: string, voice: string): Promise<void> {
   const config = await loadRelayConfig();
 
@@ -608,6 +641,7 @@ async function speak(text: string, voice: string): Promise<void> {
       player.stdin.write(value);
     }
     player.stdin.end();
+    await new Promise<void>(resolve => player.on("close", resolve));
   } catch { /* noop */ }
 }
 
@@ -772,7 +806,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 
       const results: string[] = [];
       for (const name of roster) {
-        const tmuxSession = `relay-${name}`;
+        const tmuxSession = `relay-${tmuxSafe(name)}`;
         if (await isTmuxSessionAlive(tmuxSession)) {
           results.push(`${name} (already up)`);
           continue;
@@ -839,7 +873,7 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 
     const projectName = path.basename(projectPath);
     const twinName = parts[2] || projectName; // optional alias as 3rd arg
-    const tmuxSession = `relay-${twinName}`;
+    const tmuxSession = `relay-${tmuxSafe(twinName)}`;
 
     // Check if already running
     if (await isTmuxSessionAlive(tmuxSession)) {
@@ -1116,7 +1150,8 @@ async function relaySpeak() {
   });
   print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
 
-  // Set state → speaking, play TTS, set state → idle
+  // Acquire on-air lock, speak, then release
+  await acquireOnAir(agent);
   await setAgentState(agent, "speaking");
 
   const config = await loadRelayConfig();
@@ -1127,6 +1162,7 @@ async function relaySpeak() {
   }
 
   await setAgentState(agent, "idle");
+  await releaseOnAir();
 
   // Also notify @mentioned agents
   if (mentions.length) {
@@ -1433,31 +1469,31 @@ async function relayWatch() {
 
 async function relayWho() {
   const fs = await import("node:fs/promises");
-  const { logPath } = await requireRelay();
+  const { channelPath } = await requireRelay();
 
-  const content = await fs.readFile(logPath, "utf-8");
+  const content = await fs.readFile(channelPath, "utf-8");
   const lines = content.trim().split("\n").filter(Boolean);
 
   const now = Math.floor(Date.now() / 1000);
   const ONLINE_THRESHOLD = 600; // 10 minutes
 
-  // Build agent map
+  // Build agent map from structured JSONL
   const agents = new Map<string, { lastSeen: number; messages: number; forgotten: boolean }>();
 
   for (const line of lines) {
-    const parts = line.split(" ");
-    const [ts, from, type, ...rest] = parts;
-    const timestamp = Number(ts);
-    const body = rest.join(" ");
+    let entry: { ts?: number; from?: string; type?: string; body?: string };
+    try { entry = JSON.parse(line); } catch { continue; }
+    const { ts, from, type, body } = entry;
+    if (!from || !ts) continue;
 
     if (!agents.has(from)) {
-      agents.set(from, { lastSeen: timestamp, messages: 0, forgotten: false });
+      agents.set(from, { lastSeen: ts, messages: 0, forgotten: false });
     }
     const agent = agents.get(from)!;
-    agent.lastSeen = Math.max(agent.lastSeen, timestamp);
+    agent.lastSeen = Math.max(agent.lastSeen, ts);
 
     if (type === "MSG") agent.messages++;
-    if (type === "SYS" && body.includes("forgotten")) agent.forgotten = true;
+    if (type === "SYS" && body?.includes("forgotten")) agent.forgotten = true;
   }
 
   // Filter out forgotten agents
@@ -1678,6 +1714,11 @@ async function saveTwins(twins: Record<string, TwinEntry>): Promise<void> {
   await fs.writeFile(twinsPath, JSON.stringify(twins, null, 2) + "\n");
 }
 
+function tmuxSafe(name: string): string {
+  // tmux treats dots as window.pane separators — replace with underscores
+  return name.replace(/\./g, "_");
+}
+
 async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
   try {
     const { execSync } = await import("node:child_process");
@@ -1730,7 +1771,7 @@ async function relayUp() {
   const taskIdx = args.indexOf("--task");
   const task = taskIdx !== -1 ? args.slice(taskIdx + 1).filter((a) => !a.startsWith("--")).join(" ") : "";
 
-  const tmuxSession = `relay-${twinName}`;
+  const tmuxSession = `relay-${tmuxSafe(twinName)}`;
 
   // Check if already running
   if (await isTmuxSessionAlive(tmuxSession)) {
@@ -1902,6 +1943,105 @@ async function relayDown() {
   print("");
 }
 
+async function relayRestart() {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const { execSync } = await import("node:child_process");
+  await requireRelay();
+
+  printBrand();
+  print("  Restarting relay twins...\n");
+
+  // 0. Clear stale on-air lock
+  await releaseOnAir();
+
+  // 1. Kill all stale twins from registry
+  const twins = await loadTwins();
+  const staleNames = Object.keys(twins);
+  for (const name of staleNames) {
+    const twin = twins[name];
+    try {
+      execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
+      print(`  \x1b[32m✓\x1b[0m Stopped \x1b[1m${name}\x1b[0m`);
+    } catch {
+      print(`  \x1b[2m○\x1b[0m ${name} was already stopped`);
+    }
+  }
+  await saveTwins({});
+
+  // 2. Respawn roster
+  const config = await loadRelayConfig();
+  const roster = config.roster || [];
+  if (roster.length === 0) {
+    print("\n  \x1b[2mNo roster configured — add with: openscout relay config roster add <name>\x1b[0m\n");
+    return;
+  }
+
+  const hub = await getGlobalRelayDir();
+  const hubShort = hub.replace(os.homedir(), "~");
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "relay restart — respawning roster" });
+
+  print(`\n  Spawning roster: ${roster.join(", ")}\n`);
+
+  for (const name of roster) {
+    const tmuxSession = `relay-${tmuxSafe(name)}`;
+    if (await isTmuxSessionAlive(tmuxSession)) {
+      print(`  \x1b[33m!\x1b[0m ${name} already running`);
+      continue;
+    }
+
+    let projectPath: string;
+    try {
+      projectPath = await resolveProjectPath(name);
+      const stat = await fs.stat(projectPath);
+      if (!stat.isDirectory()) { print(`  \x1b[31m✗\x1b[0m ${name} — not found`); continue; }
+    } catch { print(`  \x1b[31m✗\x1b[0m ${name} — not found`); continue; }
+
+    const projectName = path.basename(projectPath);
+    const twinName = name;
+    const systemPrompt = [
+      `You are "${twinName}", a relay twin for the ${projectName} project.`,
+      `You have full access to the codebase at ${projectPath}.`,
+      `Relay channel at ${hubShort}/channel.log shared by all agents.`,
+      `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
+      `Always reply via: openscout relay send --as ${twinName} "your message"`,
+      `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
+      `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
+      `Be specific with file paths. Keep messages under 200 chars.`,
+    ].join("\n");
+
+    const twinDir = path.join(hub, "twins");
+    await fs.mkdir(twinDir, { recursive: true });
+    const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+    await fs.writeFile(promptFile, systemPrompt);
+    const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+    const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+    await fs.writeFile(initialFile, initialMsg);
+    const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+    await fs.writeFile(launchScript, [
+      `#!/bin/bash`,
+      `cd ${JSON.stringify(projectPath)}`,
+      `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
+      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+    ].join("\n") + "\n");
+    await fs.chmod(launchScript, 0o755);
+
+    try {
+      execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
+      const currentTwins = await loadTwins();
+      currentTwins[twinName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
+      await saveTwins(currentTwins);
+      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
+      print(`  \x1b[32m✓\x1b[0m \x1b[1m${name}\x1b[0m is alive`);
+    } catch (e) {
+      print(`  \x1b[31m✗\x1b[0m ${name} — failed to spawn`);
+    }
+  }
+
+  print("");
+}
+
 async function relayPs() {
   const { execSync } = await import("node:child_process");
   await requireRelay();
@@ -2022,6 +2162,7 @@ function relayHelp() {
   print("    up <path> [--name n] [--task t]  Spawn a twin for a project");
   print("    down <name>                      Stop a twin");
   print("    down --all                       Stop all twins");
+  print("    restart                          Clean stale twins + respawn roster");
   print("    ps                               List running twins");
   print("    ask --twin <name> \"<question>\"   Ask a twin and wait for the answer\n");
   print("  \x1b[1mIdentity:\x1b[0m");
@@ -2086,6 +2227,9 @@ async function relay() {
       break;
     case "ps":
       await relayPs();
+      break;
+    case "restart":
+      await relayRestart();
       break;
     case "ask":
       await relayAsk();

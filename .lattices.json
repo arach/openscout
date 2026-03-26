@@ -1,0 +1,8 @@
+{
+  "ensure": true,
+  "panes": [
+    { "name": "claude", "cmd": "claude", "size": 60 },
+    { "name": "dev",    "cmd": "bun run dev" },
+    { "name": "relay",  "cmd": "bun run relay:dev" }
+  ]
+}
