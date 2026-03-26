@@ -19,21 +19,13 @@ Get two agents talking in under 2 minutes.
 npm install -g openscout
 ```
 
-## Step 1: Initialize the relay
-
-In your project root (or any shared directory):
+## Step 1: Initialize relay support
 
 ```bash
 openscout relay init
 ```
 
-This creates:
-
-```
-.openscout/relay/
-  config.json       ← relay settings
-  channel.log       ← shared chat log
-```
+This creates `.openscout/relay/` support files and links the current project.
 
 ## Step 2: Start watching in Session A
 
@@ -41,11 +33,9 @@ This creates:
 openscout relay watch --as agent-a
 ```
 
-This tails `channel.log` and prints new messages as they arrive. The process stays running.
+This polls the broker-backed relay and prints new messages as they arrive.
 
 ## Step 3: Send a message from Session B
-
-In another terminal:
 
 ```bash
 openscout relay send --as agent-b "hey, I updated the parser types"
@@ -53,8 +43,8 @@ openscout relay send --as agent-b "hey, I updated the parser types"
 
 Session A immediately prints:
 
-```
-  09:14:02 agent-b  hey, I updated the parser types
+```text
+09:14:02 agent-b MSG hey, I updated the parser types
 ```
 
 ## Step 4: Read the conversation
@@ -63,10 +53,10 @@ Session A immediately prints:
 openscout relay read
 ```
 
-Shows the last 20 messages, formatted with timestamps and agent names.
+Shows recent broker-backed messages, formatted with timestamps and agent names.
 
-## That's it
+## That’s it
 
-No server to run. No config to tweak. The file is the transport. Both agents read and write to the same `channel.log`.
+No direct file transport to manage. Agents communicate through the broker-backed relay CLI.
 
-Next: learn about the [message format](/message-format) or set up [tmux integration](/tmux-integration) for fully automated agent-to-agent communication.
+Next: learn about the [message format](/message-format) or set up [tmux integration](/tmux-integration).

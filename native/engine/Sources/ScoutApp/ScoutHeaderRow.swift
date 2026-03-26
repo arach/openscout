@@ -48,47 +48,40 @@ struct ScoutHeaderRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(viewModel.selectedRoute.title)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(ScoutTheme.ink)
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    viewModel.toggleSidebar()
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    ScoutBrandMark(size: 24)
 
-                Text(statusLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(ScoutTheme.inkSecondary)
+                    Text("OpenScout")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .textCase(.uppercase)
+                        .tracking(0.4)
+                        .foregroundStyle(ScoutTheme.ink)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
             headerActions
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 9)
+        .frame(height: 32)
+        .padding(.horizontal, 14)
         .background(
             Rectangle()
-                .fill(ScoutTheme.surfaceStrong.opacity(0.98))
+                .fill(ScoutTheme.chrome.opacity(0.985))
         )
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(ScoutTheme.border)
                 .frame(height: 1)
         }
-    }
-
-    private var statusLine: String {
-        if viewModel.selectedRoute == .home {
-            return "\(viewModel.notes.count) notes · \(viewModel.drafts.count) drafts · \(viewModel.workflowRuns.count) runs"
-        }
-
-        if viewModel.selectedRoute == .workers {
-            return "\(viewModel.relayMessages.count) messages · \(viewModel.agentProfiles.count) agents · \(viewModel.meshStatusLine)"
-        }
-
-        if let lastHeartbeat = viewModel.supervisor.lastHeartbeat {
-            return "Last heartbeat \(lastHeartbeat.formatted(date: .omitted, time: .shortened))"
-        }
-
-        return viewModel.supervisor.detail
     }
 
     @ViewBuilder
@@ -116,7 +109,7 @@ struct ScoutHeaderRow: View {
                 Button {
                     viewModel.prepareNewRelayMessage()
                 } label: {
-                    Label("New", systemImage: "square.and.pencil")
+                    Label("NEW", systemImage: "square.and.pencil")
                 }
                 .buttonStyle(ScoutHeaderToolbarButtonStyle())
                 .help("Start a new relay message")
@@ -126,7 +119,7 @@ struct ScoutHeaderRow: View {
                         await viewModel.refreshWorkersNow()
                     }
                 } label: {
-                    Label("Reload", systemImage: "arrow.clockwise")
+                    Label("RELOAD", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(ScoutHeaderToolbarButtonStyle())
                 .help("Refresh relay and mesh")
@@ -163,12 +156,13 @@ private struct RuntimeStatusInline: View {
                 .frame(width: 5, height: 5)
 
             Text(detail)
-                .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
                 .textCase(.uppercase)
                 .foregroundStyle(ScoutTheme.inkFaint)
 
             Text(label)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .textCase(.uppercase)
                 .foregroundStyle(ScoutTheme.ink)
         }
     }
@@ -177,11 +171,11 @@ private struct RuntimeStatusInline: View {
 private struct ScoutIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(ScoutTheme.inkMuted)
-            .frame(width: 30, height: 28)
+            .frame(width: 26, height: 22)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(configuration.isPressed ? ScoutTheme.hover : Color.clear)
             )
     }
@@ -190,15 +184,16 @@ private struct ScoutIconButtonStyle: ButtonStyle {
 private struct ScoutHeaderToolbarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .textCase(.uppercase)
             .foregroundStyle(ScoutTheme.ink)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 999, style: .continuous)
                     .fill(ScoutTheme.surfaceStrong)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: 999, style: .continuous)
                             .strokeBorder(ScoutTheme.border.opacity(0.7), lineWidth: 0.75)
                     )
             )

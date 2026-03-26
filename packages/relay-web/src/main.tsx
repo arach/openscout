@@ -33,6 +33,11 @@ type RelayVoiceState = {
 };
 
 type RelayMessage = {
+  receipt?: {
+    state: string;
+    label: string;
+    detail: string | null;
+  } | null;
   id: string;
   authorId: string;
   authorName: string;
@@ -214,11 +219,8 @@ function App() {
 
   const currentDestination = resolveDestination(activeState, viewItems, selectedKind, selectedId);
   const visibleMessages = filterMessages(activeState.messages, selectedKind, selectedId);
-  const threadTitle = currentDestination?.title ?? "# shared-channel";
-  const threadSubtitle = currentDestination?.subtitle ?? "Broker-backed workspace chat.";
-  const composerTitle =
-    selectedKind === "direct" ? `Message ${threadTitle}` : `Post to ${threadTitle}`;
-  const sidebarSummary = `${activeState.messages.length} messages · ${activeState.directs.length} agents`;
+  const threadTitle = cleanDisplayTitle(currentDestination?.title ?? "# shared-channel");
+  const sidebarSummary = `${activeState.messages.length} msg · ${activeState.directs.length} agt`;
   const activityLabel =
     selectedKind === "direct" ? "Direct active" : selectedKind === "filter" ? "View active" : "Channel active";
 
@@ -284,7 +286,7 @@ function App() {
               <div className="workspace-header-row">
                 <div>
                   <div className="workspace-title">{activeState.title}</div>
-                  <div className="workspace-sync-line">{activeState.syncLine}</div>
+                  <div className="workspace-sync-line">{sidebarSummary}</div>
                 </div>
               </div>
             </div>
@@ -324,23 +326,22 @@ function App() {
                       setSelectedId(direct.id);
                     }}
                   >
-                    <div
-                      className="thread-avatar"
-                      style={{ background: avatarFill(colorForIdentity(direct.id)) }}
-                    >
-                      {direct.title.slice(0, 1).toUpperCase()}
+                    <div className="thread-avatar-wrap">
+                      <div
+                        className="thread-avatar"
+                        style={{ background: avatarFill(colorForIdentity(direct.id)) }}
+                      >
+                        {direct.title.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className={`thread-avatar-presence${direct.reachable ? " online" : ""}`} />
                     </div>
                     <div className="direct-thread-copy">
                       <div className="direct-thread-head">
-                        <div className="direct-thread-title">{direct.title}</div>
-                        <div className={`presence-dot${direct.reachable ? " online" : ""}`} />
-                        {direct.timestampLabel ? <div className="thread-timestamp">{direct.timestampLabel}</div> : null}
+                        <div className="direct-thread-title">{cleanDisplayTitle(direct.title)}</div>
                       </div>
-                      <div className="direct-thread-subtitle">{direct.subtitle}</div>
-                      <div className={`direct-thread-state${direct.reachable ? " online" : ""}`}>
-                        {direct.reachable ? "ON" : "OFF"}
-                      </div>
-                      {direct.preview ? <div className="direct-thread-preview">{direct.preview}</div> : null}
+                    </div>
+                    <div className={`direct-thread-state${direct.reachable ? " online" : ""}`}>
+                      {direct.reachable ? "ON" : "OFF"}
                     </div>
                   </button>
                 );
@@ -348,11 +349,6 @@ function App() {
             </div>
           </div>
 
-          <div className="workspace-rail-footer">
-            <div className="workspace-footer-copy">
-              {activeState.lastUpdatedLabel ? `Updated ${activeState.lastUpdatedLabel}.` : "Broker-backed workspace."}
-            </div>
-          </div>
         </aside>
       ) : null}
 
@@ -370,7 +366,6 @@ function App() {
             <div className="thread-glyph">{destinationGlyph(selectedKind, selectedId)}</div>
             <div className="thread-title-line">
               <div className="thread-title">{threadTitle}</div>
-              <div className="thread-count">{`${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`}</div>
             </div>
           </div>
 
@@ -381,21 +376,21 @@ function App() {
                 onClick={handleToggleMic}
               >
                 <span>Capture</span>
-                <span className="thread-control-state">{activeState.voice.isCapturing ? "On" : "Off"}</span>
+                <span className="thread-control-state">{activeState.voice.isCapturing ? "ON" : "OFF"}</span>
               </button>
               <button
                 className={`thread-control${showAnnotations ? " active" : ""}`}
                 onClick={() => setShowAnnotations((value) => !value)}
               >
                 <span>Annotations</span>
-                <span className="thread-control-state">{showAnnotations ? "On" : "Off"}</span>
+                <span className="thread-control-state">{showAnnotations ? "ON" : "OFF"}</span>
               </button>
               <button
                 className={`thread-control${activeState.voice.repliesEnabled ? " active" : ""}`}
                 onClick={handleTogglePlayback}
               >
                 <span>Playback</span>
-                <span className="thread-control-state">{activeState.voice.repliesEnabled ? "On" : "Off"}</span>
+                <span className="thread-control-state">{activeState.voice.repliesEnabled ? "ON" : "OFF"}</span>
               </button>
             </div>
             <button className="thread-sync-button" onClick={handleRefresh}>
@@ -404,19 +399,21 @@ function App() {
           </div>
         </header>
 
-        <div className="messages-scroll">
-          <div className="messages-column">
-            <Timeline messages={visibleMessages} showAnnotations={showAnnotations} />
+          <div className="messages-scroll">
+            <div className="messages-column">
+              <Timeline messages={visibleMessages} showAnnotations={showAnnotations} />
+            </div>
           </div>
-        </div>
 
         <div className="composer-shell">
           <div className="composer-column">
             <div className="composer-inline-bar">
+              <span className="composer-token operator">Operator</span>
               <textarea
                 ref={composerRef}
                 className="composer-field composer-field-inline"
-                placeholder={`Message ${threadTitle}...`}
+                placeholder={placeholderForDestination(selectedKind, selectedId)}
+                rows={1}
                 value={draft}
                 onChange={(event) => setDraft(event.currentTarget.value)}
                 onKeyDown={(event) => {
@@ -443,31 +440,31 @@ function App() {
                   disabled={sending || !draft.trim()}
                   onClick={handleSend}
                 >
-                  <MailGlyph />
+                  <SendGlyph />
                 </button>
               </div>
             </div>
-
-            <div className="composer-status-strip">
-              <div className="composer-status-left">
-                <div className="composer-status-segment">
-                  <div className="composer-caption">@ mention agents</div>
-                </div>
-                <div className="composer-status-segment">
-                  <kbd className="kbd">⌘ ↵</kbd>
-                  <div className="composer-hint">send</div>
-                </div>
-                {feedback ? (
-                  <div className="composer-status-segment">
-                    <div className="composer-hint">{feedback}</div>
-                  </div>
-                ) : null}
-              </div>
-              <div className="composer-activity">
-                <span className="composer-activity-dot" />
-                <span>{activityLabel}</span>
-              </div>
-            </div>
+          </div>
+        </div>
+        <div className="channel-footer-bar">
+          <div className="composer-status-left">
+            <span className="composer-footer-item">
+              <span className="composer-footer-at">@</span> mention agents
+            </span>
+            <span className="composer-footer-divider" />
+            <span className="composer-footer-item">
+              <kbd className="kbd">⌘ ↵</kbd> send
+            </span>
+            {feedback ? (
+              <>
+                <span className="composer-footer-divider" />
+                <span className="composer-footer-item">{feedback}</span>
+              </>
+            ) : null}
+          </div>
+          <div className="composer-activity">
+            <span className="composer-activity-dot" />
+            <span>{activityLabel}</span>
           </div>
         </div>
       </main>
@@ -498,33 +495,16 @@ function MicGlyph() {
   );
 }
 
-function MailGlyph() {
+function SendGlyph() {
   return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M4 5.75h12a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6.5a1 1 0 0 1 1-1Z"
+        d="M3.714 3.714 20.286 12 3.714 20.286l2.214-6.643L14.857 12 5.928 10.357 3.714 3.714Z"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.55"
+        strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      <path
-        d="m4 7 5.17 4.1a1.35 1.35 0 0 0 1.66 0L16 7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.55"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m4.8 13.6 3.9-3.45M15.2 13.6l-3.9-3.45"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.55"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.78"
       />
     </svg>
   );
@@ -556,7 +536,7 @@ function NavSection({
           >
             <div className="lane-icon">{destinationGlyph(item.kind, item.id)}</div>
             <div className="lane-copy">
-              <div className="lane-title">{item.title}</div>
+              <div className="lane-title">{cleanDisplayTitle(item.title)}</div>
               <div className="lane-subtitle">{item.subtitle}</div>
             </div>
             {item.count > 0 ? <div className="lane-count">{item.count}</div> : <div />}
@@ -642,9 +622,11 @@ function Timeline({ messages, showAnnotations }: { messages: RelayMessage[]; sho
         </div>
         <div className="message-content">
           <div className="message-head">
-            <div className="message-author">{message.authorName}</div>
-            {visibleRole ? <div className="message-role">{visibleRole}</div> : null}
-            <div className="message-time">{message.timestampLabel}</div>
+            <div className="message-head-left">
+              <div className="message-author">{message.authorName}</div>
+              {visibleRole ? <div className="message-role">{visibleRole}</div> : null}
+              <div className="message-time">{message.timestampLabel}</div>
+            </div>
             {showAnnotations && (message.routingSummary || message.provenanceSummary) ? (
               <div className="message-annotations-inline">
                 {message.routingSummary ? <div className="message-annotation-pill">{message.routingSummary}</div> : null}
@@ -656,6 +638,12 @@ function Timeline({ messages, showAnnotations }: { messages: RelayMessage[]; sho
           {grouped.map((entry) => (
             <div key={entry.id} className={`message-entry${entry.isOperator ? " operator" : ""}`}>
               <div className="message-body">{renderMessageBody(entry.body)}</div>
+              {entry.receipt ? (
+                <div className={`message-receipt message-receipt-${entry.receipt.state}`}>
+                  <span className="message-receipt-label">{entry.receipt.label}</span>
+                  {entry.receipt.detail ? <span className="message-receipt-detail">{entry.receipt.detail}</span> : null}
+                </div>
+              ) : null}
               {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
                 <div className="message-notes">
                   {entry.routingSummary ? <div className="message-routing-chip">{entry.routingSummary}</div> : null}
@@ -698,12 +686,13 @@ function filterMessages(messages: RelayMessage[], kind: RelayDestinationKind, id
     return messages.filter(
       (message) =>
         message.isDirectConversation &&
+        message.messageClass !== "status" &&
         (message.authorId === id || message.recipients.includes(id))
     );
   }
 
   if (kind === "filter" && id === "overview") {
-    return messages.filter((message) => !message.isVoice);
+    return messages.filter((message) => !message.isVoice && message.messageClass !== "status");
   }
 
   if (kind === "filter" && id === "mentions") {
@@ -712,16 +701,17 @@ function filterMessages(messages: RelayMessage[], kind: RelayDestinationKind, id
         !message.isDirectConversation &&
         !message.isSystem &&
         !message.isVoice &&
+        message.messageClass !== "status" &&
         message.recipients.length > 0
     );
   }
 
   if (kind === "channel" && id === "voice") {
-    return messages.filter((message) => message.isVoice);
+    return messages.filter((message) => message.isVoice && message.messageClass !== "status");
   }
 
   if (kind === "channel" && id === "system") {
-    return messages.filter((message) => message.isSystem);
+    return messages.filter((message) => message.isSystem || message.messageClass === "status");
   }
 
   return messages.filter(
@@ -729,6 +719,7 @@ function filterMessages(messages: RelayMessage[], kind: RelayDestinationKind, id
       !message.isDirectConversation &&
       !message.isSystem &&
       !message.isVoice &&
+      message.messageClass !== "status" &&
       (!message.normalizedChannel || message.normalizedChannel === "shared")
   );
 }
@@ -770,15 +761,15 @@ function placeholderForDestination(kind: RelayDestinationKind, id: string) {
     return "Message #shared-channel...";
   }
   if (kind === "direct") {
-    return "Ask a direct question, hand over context, or request a concrete action.";
+    return "Message direct thread...";
   }
   if (kind === "channel" && id === "voice") {
-    return "Post a voice-related note, transcript, or spoken update.";
+    return "Message #voice...";
   }
   if (kind === "channel" && id === "system") {
-    return "Post a system or infrastructure update.";
+    return "Message #system...";
   }
-  return "Share context, ask a question, or route work with @mentions.";
+  return "Message #shared-channel...";
 }
 
 function asErrorMessage(error: unknown) {
@@ -787,6 +778,10 @@ function asErrorMessage(error: unknown) {
   }
 
   return "Action failed.";
+}
+
+function cleanDisplayTitle(title: string) {
+  return title.replace(/^[@#]\s*/, "");
 }
 
 function colorForIdentity(identity: string) {

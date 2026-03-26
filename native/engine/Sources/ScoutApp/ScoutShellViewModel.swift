@@ -25,6 +25,43 @@ struct ScoutRelaySendOutcome {
     let skippedInvokeTargets: [String]
 }
 
+struct ScoutRuntimeAgentInventoryItem: Identifiable, Equatable {
+    let id: String
+    let displayName: String
+    let state: String
+    let transport: String?
+    let harness: String?
+    let nodeID: String
+    let source: String?
+    let cwd: String?
+    let projectRoot: String?
+
+    var detail: String {
+        var parts: [String] = []
+
+        if let transport, let harness {
+            parts.append("\(transport) / \(harness)")
+        } else if let transport {
+            parts.append(transport)
+        } else if let harness {
+            parts.append(harness)
+        }
+
+        if let source, !source.isEmpty {
+            parts.append(source)
+        }
+
+        if let cwd, !cwd.isEmpty {
+            parts.append(cwd)
+        } else if let projectRoot, !projectRoot.isEmpty {
+            parts.append(projectRoot)
+        }
+
+        parts.append(nodeID)
+        return parts.joined(separator: " · ")
+    }
+}
+
 @MainActor
 @Observable
 final class ScoutShellViewModel {
@@ -49,9 +86,16 @@ final class ScoutShellViewModel {
     var relayCoreAgentIDs: Set<String> = []
     var relayFlights: [ScoutControlPlaneFlightRecord] = []
     var relayEvents: [ScoutControlPlaneEvent] = []
+    var runtimeAgents: [ScoutRuntimeAgentInventoryItem] = []
     var diagnosticsLogLines: [String] = []
     var relayTransportMode: ScoutRelayTransportMode = .inactive
     var relayLastUpdatedAt: Date?
+    var tmuxInventoryState: ScoutTmuxInventoryState = .inactive
+    var tmuxInventoryDetail = "tmux discovery has not run yet."
+    var tmuxInventoryLastError: String?
+    var tmuxSessions: [ScoutTmuxInventorySession] = []
+    var tmuxHosts: [ScoutTmuxInventoryHostStatus] = []
+    var tmuxInventoryLastUpdatedAt: Date?
     var meshDiscoveryState: ScoutMeshDiscoveryState = .inactive
     var meshNodes: [ScoutMeshNode] = []
     var meshPeersScanned = 0
@@ -71,13 +115,22 @@ final class ScoutShellViewModel {
     var selectedDraftID: UUID?
     var selectedWorkflowRunID: UUID?
 
+    var visibleRuntimeAgents: [ScoutRuntimeAgentInventoryItem] {
+        let primary = runtimeAgents.isEmpty ? fallbackRuntimeAgentInventory() : runtimeAgents
+        return primary.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
     private let workspaceStore: ScoutWorkspaceStore
     private let voiceBridge: ScoutVoiceBridgeService
     private let meshDiscovery: ScoutMeshDiscoveryService
+    private let tmuxInventory: ScoutTmuxInventoryService
     private var hasStarted = false
     @ObservationIgnored private var relayFallbackTask: Task<Void, Never>?
     @ObservationIgnored private var relayRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var meshMonitorTask: Task<Void, Never>?
+    @ObservationIgnored private var tmuxMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var relayRefreshInFlight = false
     @ObservationIgnored private var relayHistorySeeded = false
     @ObservationIgnored private var voicePreferencesSeeded = false
@@ -102,6 +155,7 @@ final class ScoutShellViewModel {
         )
         self.voiceBridge = ScoutVoiceBridgeService()
         self.meshDiscovery = ScoutMeshDiscoveryService()
+        self.tmuxInventory = ScoutTmuxInventoryService()
         self.notes = seedSnapshot.notes
         self.drafts = seedSnapshot.drafts
         self.agentProfiles = seedSnapshot.agents
@@ -191,6 +245,7 @@ final class ScoutShellViewModel {
             await loadWorkspace()
             startRelayMonitoring()
             startMeshMonitoring()
+            startTmuxMonitoring()
             ScoutDiagnosticsLogger.log("ScoutShellViewModel startup tasks complete.")
         }
     }
@@ -200,8 +255,8 @@ final class ScoutShellViewModel {
         relayFallbackTask?.cancel()
         relayRefreshTask?.cancel()
         meshMonitorTask?.cancel()
+        tmuxMonitorTask?.cancel()
         supervisor.stop()
-        brokerSupervisor.stop()
         voiceBridge.stop()
         ScoutDiagnosticsLogger.log("ScoutShellViewModel.shutdown complete.")
     }
@@ -653,6 +708,7 @@ final class ScoutShellViewModel {
         await brokerSupervisor.refreshNow()
         await refreshRelayNow()
         await refreshMeshNow()
+        await refreshTmuxInventoryNow()
     }
 
     func refreshMeshNow() async {
@@ -671,6 +727,25 @@ final class ScoutShellViewModel {
         meshLocalBrokerReachable = snapshot.localBrokerReachable
         meshBrokerPort = snapshot.brokerPort
         meshDiscoveryState = snapshot.state
+        await refreshTmuxInventoryNow()
+    }
+
+    func refreshTmuxInventoryNow() async {
+        guard tmuxInventoryState != .scanning else {
+            return
+        }
+
+        tmuxInventoryState = .scanning
+        let snapshot = await tmuxInventory.discover(meshNodes: meshNodes)
+        tmuxSessions = snapshot.sessions
+        tmuxHosts = snapshot.hosts
+        tmuxInventoryLastUpdatedAt = .now
+        tmuxInventoryLastError = snapshot.lastError
+        tmuxInventoryDetail = snapshot.detail
+        tmuxInventoryState = snapshot.state
+        if runtimeAgents.isEmpty {
+            runtimeAgents = fallbackRuntimeAgentInventory()
+        }
     }
 
     func prepareNewRelayMessage() {
@@ -841,6 +916,16 @@ final class ScoutShellViewModel {
         }
     }
 
+    private func startTmuxMonitoring() {
+        tmuxMonitorTask?.cancel()
+        tmuxMonitorTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                await self.refreshTmuxInventoryNow()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
     private func refreshRelayData() async {
         let previousMessageIDs = Set(relayMessages.map(\.id))
         let supportPaths = self.supportPaths
@@ -863,6 +948,7 @@ final class ScoutShellViewModel {
             relayMessages = messages
             relayFlights = flights
             relayEvents = (try? await eventsTask) ?? []
+            runtimeAgents = runtimeAgentInventory(from: snapshot)
             diagnosticsLogLines = await diagnosticsTask.value
             relayConfig = ScoutRelayConfig(roster: snapshot.agents.keys.sorted())
             relayReachableAgentIDs = Set(
@@ -891,6 +977,9 @@ final class ScoutShellViewModel {
 
             handleVoicePlayback(for: messages, previousMessageIDs: previousMessageIDs)
         } catch {
+            if runtimeAgents.isEmpty {
+                runtimeAgents = fallbackRuntimeAgentInventory()
+            }
             diagnosticsLogLines = ScoutDiagnosticsLogger.recentLines(limit: 80, supportPaths: supportPaths)
             relayTransportMode = .inactive
         }
@@ -1386,6 +1475,10 @@ final class ScoutShellViewModel {
         conversation: ScoutControlPlaneConversation?,
         snapshot: ScoutControlPlaneSnapshot
     ) -> ScoutRelayMessage? {
+        if message.metadata?["transportOnly"] == "true" {
+            return nil
+        }
+
         let recipients = relayRecipients(for: message, conversation: conversation)
         let messageClass = controlPlaneRelayMessageClass(for: message.messageClass)
         let channel = relayChannel(for: conversation)
@@ -1873,13 +1966,21 @@ final class ScoutShellViewModel {
         _ targets: [String],
         snapshot: ScoutControlPlaneSnapshot?
     ) -> [String] {
-        let endpointAgentIDs = Set(
-            snapshot?.endpoints.values.compactMap { endpoint in
-                endpoint.state == "offline" ? nil : endpoint.agentID
-            } ?? []
-        )
+        let uniqueTargets = Array(Set(targets)).sorted()
+        guard let snapshot else {
+            return uniqueTargets
+        }
 
-        return targets.filter { endpointAgentIDs.contains($0) }
+        let endpointAgentIDs = Set(
+            snapshot.endpoints.values.compactMap { endpoint in
+                endpoint.state == "offline" ? nil : endpoint.agentID
+            }
+        )
+        let registeredAgentIDs = Set(snapshot.agents.keys)
+
+        return uniqueTargets.filter { target in
+            endpointAgentIDs.contains(target) || registeredAgentIDs.contains(target)
+        }
     }
 
     private func ensureControlPlaneConversation(
@@ -1945,6 +2046,88 @@ final class ScoutShellViewModel {
 
         let orderedIDs = seededOrder + mergedByID.keys.filter { !seededOrder.contains($0) }.sorted()
         agentProfiles = orderedIDs.compactMap { mergedByID[$0] }
+    }
+
+    private func runtimeAgentInventory(from snapshot: ScoutControlPlaneSnapshot) -> [ScoutRuntimeAgentInventoryItem] {
+        snapshot.agents.values
+            .sorted { lhs, rhs in
+                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+            .map { agent in
+                let candidateEndpoints = snapshot.endpoints.values
+                    .filter { $0.agentID == agent.id }
+                    .sorted { lhs, rhs in
+                        endpointRank(lhs.state) < endpointRank(rhs.state)
+                    }
+
+                let endpoint = candidateEndpoints.first
+                return ScoutRuntimeAgentInventoryItem(
+                    id: agent.id,
+                    displayName: agent.displayName,
+                    state: endpoint?.state ?? "registered",
+                    transport: endpoint?.transport,
+                    harness: endpoint?.harness,
+                    nodeID: endpoint?.nodeID ?? "local",
+                    source: endpoint?.metadata?["source"],
+                    cwd: endpoint?.cwd.map(shortHomePath),
+                    projectRoot: endpoint?.projectRoot.map(shortHomePath)
+                )
+            }
+    }
+
+    private func fallbackRuntimeAgentInventory() -> [ScoutRuntimeAgentInventoryItem] {
+        var inventoryByID: [String: ScoutRuntimeAgentInventoryItem] = [:]
+
+        for session in tmuxSessions {
+            let normalizedID = inferredAgentID(fromTmuxSessionName: session.sessionName)
+            guard !normalizedID.isEmpty else {
+                continue
+            }
+
+            inventoryByID[normalizedID] = ScoutRuntimeAgentInventoryItem(
+                id: normalizedID,
+                displayName: inferredRelayDisplayName(for: normalizedID),
+                state: session.attached ? "active" : "idle",
+                transport: "tmux",
+                harness: "session",
+                nodeID: session.hostLabel,
+                source: "tmux-inventory",
+                cwd: nil,
+                projectRoot: nil
+            )
+        }
+
+        return inventoryByID.values.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
+    private func inferredAgentID(fromTmuxSessionName value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ""
+        }
+
+        if trimmed.hasPrefix("relay-") {
+            return String(trimmed.dropFirst("relay-".count)).lowercased()
+        }
+
+        return trimmed.lowercased()
+    }
+
+    private func endpointRank(_ state: String) -> Int {
+        switch state {
+        case "running":
+            return 0
+        case "waiting", "idle":
+            return 1
+        case "starting":
+            return 2
+        case "offline":
+            return 4
+        default:
+            return 3
+        }
     }
 
     private func inferredRelayDisplayName(for id: String) -> String {

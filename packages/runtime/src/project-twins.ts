@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   ActorIdentity,
@@ -9,10 +10,9 @@ import type {
   InvocationRequest,
 } from "@openscout/protocol";
 
-import { readProjectedRelayMessages } from "../../relay/src/core/projections/messages.js";
-import { appendRelayMessage } from "../../relay/src/core/store/jsonl-store.js";
-
 const BUILT_IN_LOCAL_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
+const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
 
 type ProjectTwinRecord = {
   project: string;
@@ -28,6 +28,16 @@ export type ProjectTwinBinding = {
   endpoint: AgentEndpoint;
 };
 
+interface BrokerSnapshotMessage {
+  actorId: string;
+  body: string;
+  createdAt: number;
+}
+
+interface BrokerSnapshot {
+  messages: Record<string, BrokerSnapshotMessage>;
+}
+
 function resolveRelayHub(): string {
   return process.env.OPENSCOUT_RELAY_HUB
     ?? join(process.env.HOME ?? process.cwd(), ".openscout", "relay");
@@ -36,6 +46,10 @@ function resolveRelayHub(): string {
 function resolveProjectsRoot(): string {
   return process.env.OPENSCOUT_PROJECTS_ROOT
     ?? join(process.env.HOME ?? process.cwd(), "dev");
+}
+
+function resolveBrokerUrl(): string {
+  return process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65535";
 }
 
 function twinsRegistryPath(): string {
@@ -48,6 +62,14 @@ function twinsWorkingDirectory(): string {
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function normalizeBrokerTimestamp(value: number): number {
+  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+}
+
+function brokerRelayCommand(): string {
+  return `bun run --cwd ${JSON.stringify(OPENSCOUT_REPO_ROOT)} packages/relay/src/cli.ts relay`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -94,12 +116,25 @@ function isTwinAlive(sessionName: string): boolean {
   }
 }
 
-function buildTwinSystemPrompt(
+async function readBrokerMessagesSince(sinceSeconds: number): Promise<BrokerSnapshotMessage[]> {
+  const response = await fetch(new URL("/v1/snapshot", resolveBrokerUrl()));
+  if (!response.ok) {
+    throw new Error(`Broker snapshot failed: ${response.status} ${response.statusText}`);
+  }
+
+  const snapshot = await response.json() as BrokerSnapshot;
+  return Object.values(snapshot.messages)
+    .filter((message) => normalizeBrokerTimestamp(message.createdAt) >= sinceSeconds)
+    .sort((lhs, rhs) => normalizeBrokerTimestamp(lhs.createdAt) - normalizeBrokerTimestamp(rhs.createdAt));
+}
+
+export function buildTwinSystemPrompt(
   twinName: string,
   projectName: string,
   projectPath: string,
 ): string {
-  const relayEventsPath = join(resolveRelayHub(), "channel.jsonl");
+  const brokerUrl = resolveBrokerUrl();
+  const relayCommand = brokerRelayCommand();
 
   return [
     `You are "${twinName}", a project twin for the ${projectName} project.`,
@@ -108,7 +143,7 @@ function buildTwinSystemPrompt(
     `A primary agent may call into you for context, execution, follow-through, and handoff.`,
     "",
     `You have full access to the codebase at ${projectPath}.`,
-    `There is a structured relay event stream at ${relayEventsPath} shared by all agents.`,
+    `The local broker for agent communication is at ${brokerUrl}.`,
     "",
     `Your job:`,
     `  - Respond to @${twinName} mentions from other agents`,
@@ -116,30 +151,39 @@ function buildTwinSystemPrompt(
     `  - Coordinate with other agents when they need project-native context`,
     `  - Maintain continuity for ongoing project work`,
     "",
-    `Relay commands:`,
-    `  openscout relay send --as ${twinName} "your message"`,
-    `  openscout relay read`,
+    `Broker-backed relay commands:`,
+    `  ${relayCommand} send --as ${twinName} "your message"`,
+    `  ${relayCommand} read --as ${twinName}`,
     "",
     `Rules:`,
-    `  - Always reply via relay send so other agents see your response`,
+    `  - Do not read or write channel.log or channel.jsonl directly`,
+    `  - Always reply via the broker-backed relay command above so other agents and the app can see your response`,
     `  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply`,
-    `  - Check relay read for context before responding`,
+    `  - Use the broker-backed relay read command above to inspect recent context before responding`,
   ].join("\n");
 }
 
 function buildTwinInitialMessage(projectName: string, twinName: string): string {
-  return `You are now online as the ${twinName} twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+  return `You are now online as the ${twinName} twin for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
 }
 
-function buildTwinNudge(twinName: string, asker: string, flightId: string): string {
-  return [
-    `New relay ask from ${asker}.`,
-    `Read it: openscout relay read -n 5 --as ${twinName}.`,
-    `Reply with: openscout relay send --as ${twinName} "[ask:${flightId}] @${asker} <your response>"`,
-  ].join(" ");
+export function buildTwinNudge(twinName: string, invocation: InvocationRequest, flightId: string): string {
+  const relayCommand = brokerRelayCommand();
+  const parts = [
+    `New broker ask from ${invocation.requesterId}.`,
+    `Task: ${invocation.task}`,
+  ];
+
+  if (invocation.context && Object.keys(invocation.context).length > 0) {
+    parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+  }
+
+  parts.push(`Read recent context if needed: ${relayCommand} read -n 20 --as ${twinName}.`);
+  parts.push(`Reply with: ${relayCommand} send --as ${twinName} "[ask:${flightId}] @${invocation.requesterId} <your response>"`);
+  return parts.join(" ");
 }
 
-function stripTwinReplyMetadata(body: string, flightId: string, asker: string): string {
+export function stripTwinReplyMetadata(body: string, flightId: string, asker: string): string {
   return body
     .replace(new RegExp(`\\[ask:${escapeRegExp(flightId)}\\]`, "g"), "")
     .replace(new RegExp(`@${escapeRegExp(asker)}`, "g"), "")
@@ -343,32 +387,19 @@ export async function invokeProjectTwinEndpoint(
   const flightId = createTwinFlightId();
   const askedAt = nowSeconds();
   const timeoutSeconds = invocation.timeoutMs ? Math.max(30, Math.floor(invocation.timeoutMs / 1000)) : 300;
-  const contextBlock = invocation.context
-    ? `\n\nContext: ${JSON.stringify(invocation.context, null, 2)}`
-    : "";
-
-  await appendRelayMessage(resolveRelayHub(), {
-    ts: askedAt,
-    from: invocation.requesterId,
-    type: "MSG",
-    body: `[ask:${flightId}] @${twinName} ${invocation.task}${contextBlock}`,
-    to: [twinName],
-  });
-
-  await sendTwinPrompt(onlineRecord, buildTwinNudge(twinName, invocation.requesterId, flightId));
+  await sendTwinPrompt(onlineRecord, buildTwinNudge(twinName, invocation, flightId));
 
   const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() <= deadline) {
-    const messages = await readProjectedRelayMessages(resolveRelayHub(), { since: askedAt - 1 });
+    const messages = await readBrokerMessagesSince(askedAt - 1);
 
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
-      if (message.type !== "MSG") continue;
-      if (message.from !== twinName) continue;
-      if (!message.rawBody.includes(`[ask:${flightId}]`)) continue;
+      if (message.actorId !== twinName) continue;
+      if (!message.body.includes(`[ask:${flightId}]`)) continue;
 
       return {
-        output: stripTwinReplyMetadata(message.rawBody, flightId, invocation.requesterId),
+        output: stripTwinReplyMetadata(message.body, flightId, invocation.requesterId),
       };
     }
 

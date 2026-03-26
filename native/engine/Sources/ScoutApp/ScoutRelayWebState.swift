@@ -30,6 +30,12 @@ struct ScoutRelayWebState: Encodable, Equatable {
     }
 
     struct Message: Encodable, Equatable {
+        struct Receipt: Encodable, Equatable {
+            let state: String
+            let label: String
+            let detail: String?
+        }
+
         let id: String
         let authorId: String
         let authorName: String
@@ -49,6 +55,7 @@ struct ScoutRelayWebState: Encodable, Equatable {
         let isOperator: Bool
         let avatarLabel: String
         let avatarColor: String
+        let receipt: Receipt?
     }
 
     let title: String
@@ -101,20 +108,38 @@ extension ScoutShellViewModel {
             ),
         ]
 
-        let directs = agentProfiles.compactMap { agent -> ScoutRelayWebState.DirectThread? in
-            let latestMessage = latestRelayMessage(for: agent.id)
-            let isReachable = relayReachableAgentIDs.contains(agent.id)
-            guard isReachable || latestMessage != nil else {
-                return nil
+        let runtimeInventoryByID = Dictionary(uniqueKeysWithValues: visibleRuntimeAgents.map { ($0.id, $0) })
+        let runtimeAgentIDs = visibleRuntimeAgents.map(\.id)
+        let profileAgentIDs = agentProfiles.map(\.id)
+        let directConversationAgentIDs = relayMessages.flatMap { message -> [String] in
+            guard message.isDirectConversation else {
+                return []
             }
 
+            return [message.from] + message.recipients
+        }
+
+        let allDirectIDs = Set(runtimeAgentIDs + profileAgentIDs + directConversationAgentIDs)
+        let filteredDirectIDs = allDirectIDs.filter { candidate in
+            !candidate.isEmpty && candidate != relayIdentity && candidate != "system"
+        }
+        let directSourceIDs = filteredDirectIDs.sorted { lhs, rhs in
+            relayWebDisplayName(for: lhs).localizedCaseInsensitiveCompare(relayWebDisplayName(for: rhs)) == .orderedAscending
+        }
+
+        let directs = directSourceIDs.map { agentID in
+            let latestMessage = latestRelayMessage(for: agentID)
+            let profile = agentProfiles.first(where: { $0.id == agentID })
+            let runtime = runtimeInventoryByID[agentID]
+            let isReachable = relayReachableAgentIDs.contains(agentID) || runtime?.state != "registered"
+
             return ScoutRelayWebState.DirectThread(
-                id: agent.id,
-                title: agent.name,
-                subtitle: agent.role,
+                id: agentID,
+                title: profile?.name ?? runtime?.displayName ?? relayWebDisplayName(for: agentID),
+                subtitle: profile?.role ?? runtime?.detail ?? "Project twin",
                 preview: latestMessage?.renderedBody,
                 timestampLabel: latestMessage.map { relayWebFormatTime(timestamp: $0.timestamp) },
-                state: relayState(for: agent.id),
+                state: runtime?.state ?? relayState(for: agentID),
                 reachable: isReachable
             )
         }
@@ -139,13 +164,14 @@ extension ScoutShellViewModel {
                 provenanceDetail: message.provenanceDetail,
                 isOperator: message.from == relayIdentity,
                 avatarLabel: relayWebAvatarLabel(for: message.from),
-                avatarColor: relayWebAvatarColor(for: message.from)
+                avatarColor: relayWebAvatarColor(for: message.from),
+                receipt: relayWebReceipt(for: message)
             )
         }
 
         return ScoutRelayWebState(
             title: "Relay",
-            subtitle: "\(relayMessages.count) messages · \(agentProfiles.count) agents",
+            subtitle: "\(relayMessages.count) messages · \(visibleRuntimeAgents.count) agents",
             transportTitle: relayTransportMode.title,
             meshTitle: meshStatusTitle,
             syncLine: "\(relayTransportMode.title) sync · \(meshStatusLine)",
@@ -258,6 +284,106 @@ extension ScoutShellViewModel {
         }
 
         return agentProfiles.first(where: { $0.id == actorID })?.role
+    }
+
+    private func relayWebReceipt(for message: ScoutRelayMessage) -> ScoutRelayWebState.Message.Receipt? {
+        guard message.from == relayIdentity else {
+            return nil
+        }
+
+        if message.isSystemChannelMessage || message.messageClass == .status {
+            return nil
+        }
+
+        let targets = Array(Set(message.recipients.filter { $0 != relayIdentity })).sorted()
+        guard !targets.isEmpty else {
+            return nil
+        }
+
+        let relatedMessages = relayMessages.filter { $0.replyToMessageID == message.id }
+        if relatedMessages.isEmpty {
+            return ScoutRelayWebState.Message.Receipt(
+                state: "sent",
+                label: "Sent",
+                detail: targets.count == 1 ? nil : "\(targets.count) targets"
+            )
+        }
+
+        let targetStates = targets.map { target in
+            relayWebReceiptState(for: target, relatedMessages: relatedMessages)
+        }
+
+        let repliedCount = targetStates.filter { $0 == "replied" }.count
+        let workingCount = targetStates.filter { $0 == "working" }.count
+        let failedCount = targetStates.filter { $0 == "failed" }.count
+
+        if repliedCount == targets.count {
+            return ScoutRelayWebState.Message.Receipt(
+                state: "replied",
+                label: "Replied",
+                detail: targets.count == 1 ? nil : "\(repliedCount)/\(targets.count)"
+            )
+        }
+
+        if workingCount > 0 {
+            let detail: String?
+            if repliedCount > 0 {
+                detail = "\(repliedCount) replied · \(workingCount) working"
+            } else if targets.count > 1 {
+                detail = "\(workingCount)/\(targets.count) working"
+            } else {
+                detail = nil
+            }
+
+            return ScoutRelayWebState.Message.Receipt(
+                state: "working",
+                label: "Working",
+                detail: detail
+            )
+        }
+
+        if repliedCount > 0 {
+            return ScoutRelayWebState.Message.Receipt(
+                state: "partial",
+                label: "Partial",
+                detail: "\(repliedCount)/\(targets.count) replied"
+            )
+        }
+
+        if failedCount > 0 {
+            return ScoutRelayWebState.Message.Receipt(
+                state: "failed",
+                label: "Failed",
+                detail: targets.count == 1 ? nil : "\(failedCount)/\(targets.count)"
+            )
+        }
+
+        return ScoutRelayWebState.Message.Receipt(
+            state: "sent",
+            label: "Sent",
+            detail: targets.count == 1 ? nil : "\(targets.count) targets"
+        )
+    }
+
+    private func relayWebReceiptState(for targetID: String, relatedMessages: [ScoutRelayMessage]) -> String {
+        if relatedMessages.contains(where: { $0.from == targetID && $0.messageClass != .status && !$0.isSystemChannelMessage }) {
+            return "replied"
+        }
+
+        if let statusMessage = relatedMessages.last(where: {
+            $0.messageClass == .status && ($0.metadata?["targetAgentId"] == targetID || relatedMessages.count == 1)
+        }) {
+            let normalized = statusMessage.body.lowercased()
+            if normalized.contains("failed") || normalized.contains("not runnable") || normalized.contains("not respond") {
+                return "failed"
+            }
+
+            if normalized.contains("working") {
+                return "working"
+            }
+        }
+
+        return "sent"
     }
 
     private func relayWebAvatarLabel(for actorID: String) -> String {

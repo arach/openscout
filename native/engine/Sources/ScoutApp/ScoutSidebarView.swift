@@ -6,7 +6,8 @@ private enum ScoutSidebarLayout {
     static let compactWidth: CGFloat = 52
     static let expandedWidth: CGFloat = 178
     static let compactRowSize = CGSize(width: 36, height: 34)
-    static let expandedRowHeight: CGFloat = 32
+    static let expandedRowHeight: CGFloat = 29
+    static let compactTooltipInset: CGFloat = 6
     static let logoBlockWidth: CGFloat = 52
     static let logoSize: CGFloat = 28
     static let iconSize: CGFloat = 14
@@ -29,17 +30,14 @@ struct ScoutSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-                .padding(.top, 8)
-                .padding(.bottom, 14)
-
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
                     sidebarGroup(primaryRoutes)
                     sidebarGroup(secondaryRoutes, title: "System")
                 }
-                .padding(.horizontal, isCompact ? 8 : 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, isCompact ? 8 : 9)
+                .padding(.top, 9)
+                .padding(.bottom, 6)
             }
 
             Spacer(minLength: 0)
@@ -62,40 +60,6 @@ struct ScoutSidebarView: View {
         .background(ScoutTheme.sidebar)
     }
 
-    private var header: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                viewModel.toggleSidebar()
-            }
-        } label: {
-            Group {
-                if isCompact {
-                    ScoutBrandMark(size: ScoutSidebarLayout.logoSize)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else {
-                    HStack(spacing: 10) {
-                        ScoutBrandMark(size: ScoutSidebarLayout.logoSize)
-                            .frame(width: ScoutSidebarLayout.logoBlockWidth, alignment: .center)
-
-                        Text("OpenScout")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(ScoutTheme.ink)
-                            .transition(.opacity)
-
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .frame(height: 28)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .focusEffectDisabled()
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, isCompact ? 0 : 10)
-    }
-
     @ViewBuilder
     private func sidebarGroup(_ routes: [ScoutRoute], title: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -104,8 +68,8 @@ struct ScoutSidebarView: View {
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(0.6)
                     .foregroundStyle(ScoutTheme.inkFaint)
-                    .padding(.leading, 12)
-                    .padding(.bottom, 2)
+                .padding(.leading, 11)
+                .padding(.bottom, 2)
             }
 
             ForEach(routes) { route in
@@ -130,7 +94,7 @@ struct ScoutSidebarView: View {
     }
 }
 
-private struct ScoutBrandMark: View {
+struct ScoutBrandMark: View {
     let size: CGFloat
 
     var body: some View {
@@ -211,10 +175,10 @@ private struct ScoutSidebarRouteButton: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 9)
                 .frame(height: ScoutSidebarLayout.expandedRowHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(isSelected ? ScoutTheme.selection : (isHovered ? ScoutTheme.hover : Color.clear))
                 )
             }
@@ -239,7 +203,7 @@ private struct ScoutSidebarRouteButton: View {
             let tooltip = ScoutSidebarTooltipState.shared
             switch phase {
             case .active:
-                let anchor = CGPoint(x: frame.maxX + 2, y: frame.midY)
+                let anchor = CGPoint(x: frame.maxX + ScoutSidebarLayout.compactTooltipInset, y: frame.midY)
                 if tooltip.label == route.title {
                     tooltip.update(anchor: anchor)
                 } else {
@@ -285,10 +249,10 @@ private struct ScoutSidebarUtilityButton: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 9)
                 .frame(height: ScoutSidebarLayout.expandedRowHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(isHovered ? ScoutTheme.hover : Color.clear)
                 )
             }
@@ -313,7 +277,7 @@ private struct ScoutSidebarUtilityButton: View {
             let tooltip = ScoutSidebarTooltipState.shared
             switch phase {
             case .active:
-                let anchor = CGPoint(x: frame.maxX + 2, y: frame.midY)
+                let anchor = CGPoint(x: frame.maxX + ScoutSidebarLayout.compactTooltipInset, y: frame.midY)
                 if tooltip.label == label {
                     tooltip.update(anchor: anchor)
                 } else {

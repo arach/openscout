@@ -88,6 +88,17 @@ struct ScoutSettingsView: View {
                 ScoutValueRow(label: "State", value: viewModel.brokerSupervisor.state.title)
                 ScoutValueRow(label: "Detail", value: viewModel.brokerSupervisor.detail)
                 ScoutValueRow(label: "URL", value: viewModel.brokerSupervisor.brokerURL.absoluteString)
+                if let serviceLabel = viewModel.brokerSupervisor.serviceLabel {
+                    ScoutValueRow(label: "Service Label", value: serviceLabel)
+                }
+                if let serviceMode = viewModel.brokerSupervisor.serviceMode {
+                    ScoutValueRow(label: "Service Mode", value: serviceMode)
+                }
+                ScoutValueRow(label: "LaunchAgent", value: viewModel.brokerSupervisor.serviceInstalled ? "Installed" : "Not installed")
+                ScoutValueRow(label: "Loaded", value: viewModel.brokerSupervisor.serviceLoaded ? "Yes" : "No")
+                if let launchAgentPath = viewModel.brokerSupervisor.launchAgentPath {
+                    ScoutValueRow(label: "Plist", value: launchAgentPath)
+                }
                 ScoutValueRow(label: "Control Plane", value: viewModel.supportPaths.controlPlaneDirectory.path(percentEncoded: false))
                 ScoutValueRow(label: "SQLite", value: viewModel.supportPaths.controlPlaneDatabaseURL.path(percentEncoded: false))
                 if let nodeID = viewModel.brokerSupervisor.nodeID {
@@ -109,6 +120,12 @@ struct ScoutSettingsView: View {
                 if let lastLogLine = viewModel.brokerSupervisor.lastLogLine, !lastLogLine.isEmpty {
                     ScoutValueRow(label: "Last Log", value: lastLogLine)
                 }
+                if let stdoutLogPath = viewModel.brokerSupervisor.stdoutLogPath {
+                    ScoutValueRow(label: "Stdout Log", value: stdoutLogPath)
+                }
+                if let stderrLogPath = viewModel.brokerSupervisor.stderrLogPath {
+                    ScoutValueRow(label: "Stderr Log", value: stderrLogPath)
+                }
             }
 
             ScoutSubsection(title: "Messaging") {
@@ -116,6 +133,55 @@ struct ScoutSettingsView: View {
                 ScoutValueRow(label: "Active Messages", value: "\(viewModel.relayMessages.count)")
                 ScoutValueRow(label: "Recent Flights", value: "\(viewModel.relayFlights.count)")
                 ScoutValueRow(label: "Recent Events", value: "\(viewModel.relayEvents.count)")
+            }
+
+            ScoutSubsection(title: "tmux Inventory") {
+                ScoutValueRow(label: "State", value: viewModel.tmuxInventoryState.title)
+                ScoutValueRow(label: "Detail", value: viewModel.tmuxInventoryDetail)
+                ScoutValueRow(label: "Reachable Hosts", value: "\(viewModel.tmuxHosts.filter(\.reachable).count)")
+                ScoutValueRow(label: "Sessions", value: "\(viewModel.tmuxSessions.count)")
+                if let tmuxInventoryLastUpdatedAt = viewModel.tmuxInventoryLastUpdatedAt {
+                    ScoutValueRow(
+                        label: "Last Updated",
+                        value: tmuxInventoryLastUpdatedAt.formatted(date: .abbreviated, time: .standard)
+                    )
+                }
+                if let tmuxInventoryLastError = viewModel.tmuxInventoryLastError {
+                    ScoutValueRow(label: "Last Error", value: tmuxInventoryLastError)
+                }
+            }
+
+            if !viewModel.tmuxHosts.isEmpty {
+                ScoutSubsection(title: "tmux Hosts") {
+                    ForEach(viewModel.tmuxHosts) { host in
+                        ScoutValueRow(
+                            label: host.name,
+                            value: "\(host.target) · \(host.displayValue)"
+                        )
+                    }
+                }
+            }
+
+            if !viewModel.tmuxSessions.isEmpty {
+                ScoutSubsection(title: "Available tmux Sessions") {
+                    ForEach(viewModel.tmuxSessions) { session in
+                        ScoutValueRow(
+                            label: "\(session.hostLabel) · \(session.sessionName)",
+                            value: "\(session.laneLabel) · \(session.detail)"
+                        )
+                    }
+                }
+            }
+
+            if !viewModel.visibleRuntimeAgents.isEmpty {
+                ScoutSubsection(title: "Known Agents") {
+                    ForEach(viewModel.visibleRuntimeAgents) { agent in
+                        ScoutValueRow(
+                            label: "\(agent.displayName) · \(agent.state)",
+                            value: "\(agent.id) · \(agent.detail)"
+                        )
+                    }
+                }
             }
 
             ScoutSubsection(title: "Mesh") {
@@ -204,6 +270,16 @@ struct ScoutSettingsView: View {
                 }
                 .buttonStyle(ScoutButtonStyle(tone: .primary))
 
+                Button("Start Broker") {
+                    viewModel.brokerSupervisor.startIfNeeded()
+                }
+                .buttonStyle(ScoutButtonStyle())
+
+                Button("Stop Broker") {
+                    viewModel.brokerSupervisor.stop()
+                }
+                .buttonStyle(ScoutButtonStyle())
+
                 Button("Restart Broker") {
                     viewModel.brokerSupervisor.restart()
                 }
@@ -216,9 +292,26 @@ struct ScoutSettingsView: View {
                 }
                 .buttonStyle(ScoutButtonStyle())
 
+                Button("Install LaunchAgent") {
+                    viewModel.brokerSupervisor.install()
+                }
+                .buttonStyle(ScoutButtonStyle())
+
+                Button("Remove LaunchAgent") {
+                    viewModel.brokerSupervisor.uninstall()
+                }
+                .buttonStyle(ScoutButtonStyle())
+
                 Button("Refresh Mesh") {
                     Task {
                         await viewModel.refreshMeshNow()
+                    }
+                }
+                .buttonStyle(ScoutButtonStyle())
+
+                Button("Refresh tmux") {
+                    Task {
+                        await viewModel.refreshTmuxInventoryNow()
                     }
                 }
                 .buttonStyle(ScoutButtonStyle())

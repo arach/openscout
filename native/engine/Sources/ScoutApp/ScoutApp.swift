@@ -9,6 +9,7 @@ final class ScoutApplicationDelegate: NSObject, NSApplicationDelegate {
         installApplicationIcon()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        configureWindows()
         ScoutDiagnosticsLogger.log("ScoutApp launched (pid \(ProcessInfo.processInfo.processIdentifier)).")
     }
 
@@ -24,6 +25,7 @@ final class ScoutApplicationDelegate: NSObject, NSApplicationDelegate {
 
         ScoutDiagnosticsLogger.log("ScoutApp reopen requested.")
         sender.activate(ignoringOtherApps: true)
+        configureWindows()
         return true
     }
 
@@ -35,6 +37,15 @@ final class ScoutApplicationDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.applicationIconImage = icon
+    }
+
+    @MainActor
+    private func configureWindows() {
+        for window in NSApp.windows {
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+        }
     }
 }
 

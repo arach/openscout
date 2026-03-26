@@ -16,13 +16,18 @@ final class ScoutBrokerSupervisor {
     private(set) var counts = ScoutControlPlaneCounts.zero
     private(set) var usesManagedProcess = false
     private(set) var localDeviceActorID: String?
+    private(set) var serviceInstalled = false
+    private(set) var serviceLoaded = false
+    private(set) var serviceLabel: String?
+    private(set) var serviceMode: String?
+    private(set) var launchAgentPath: String?
+    private(set) var stdoutLogPath: String?
+    private(set) var stderrLogPath: String?
 
     let supportPaths: ScoutSupportPaths
     let client: ScoutControlPlaneClient
 
-    private var process: Process?
     private var monitorTask: Task<Void, Never>?
-    private var outputTask: Task<Void, Never>?
     @ObservationIgnored private var startTask: Task<Void, Never>?
 
     init(
@@ -55,13 +60,21 @@ final class ScoutBrokerSupervisor {
                 startTask = nil
             }
 
-            if await refreshStatus() {
-                ScoutDiagnosticsLogger.log("Broker supervisor found an existing reachable broker at \(brokerURL.absoluteString).")
+            if await refreshStatus(), state == .running {
+                ScoutDiagnosticsLogger.log("Broker supervisor found a healthy broker at \(brokerURL.absoluteString).")
                 return
             }
 
-            ScoutDiagnosticsLogger.log("Broker supervisor did not find a running broker and will launch one.")
-            launchBroker()
+            do {
+                ScoutDiagnosticsLogger.log("Broker supervisor will start the broker LaunchAgent.")
+                let service = try await ScoutBrokerServiceController.start()
+                applyServiceStatus(service)
+                _ = await refreshStatus()
+            } catch {
+                state = .failed
+                detail = "Failed to start broker service: \(error.localizedDescription)"
+                ScoutDiagnosticsLogger.log("Broker service start failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -69,22 +82,92 @@ final class ScoutBrokerSupervisor {
         ScoutDiagnosticsLogger.log("Broker supervisor stop requested.")
         startTask?.cancel()
         startTask = nil
-        monitorTask?.cancel()
-        monitorTask = nil
-        outputTask?.cancel()
-        outputTask = nil
-        process?.terminate()
-        process = nil
-        processIdentifier = nil
-        usesManagedProcess = false
-        state = .stopped
-        detail = "Broker stopped."
-        ScoutDiagnosticsLogger.log("Broker supervisor stop complete.")
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let service = try await ScoutBrokerServiceController.stop()
+                applyServiceStatus(service)
+                counts = .zero
+                nodeID = nil
+                meshID = nil
+                localDeviceActorID = nil
+                lastHealthCheck = .now
+                state = .stopped
+                detail = "Broker service stopped."
+                ScoutDiagnosticsLogger.log("Broker service stopped.")
+            } catch {
+                state = .failed
+                detail = "Failed to stop broker service: \(error.localizedDescription)"
+                ScoutDiagnosticsLogger.log("Broker service stop failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func restart() {
-        stop()
-        startIfNeeded()
+        ScoutDiagnosticsLogger.log("Broker supervisor restart requested.")
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let service = try await ScoutBrokerServiceController.restart()
+                applyServiceStatus(service)
+                _ = await refreshStatus()
+                ScoutDiagnosticsLogger.log("Broker service restart complete.")
+            } catch {
+                state = .failed
+                detail = "Failed to restart broker service: \(error.localizedDescription)"
+                ScoutDiagnosticsLogger.log("Broker service restart failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func install() {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let service = try await ScoutBrokerServiceController.install()
+                applyServiceStatus(service)
+                detail = "Broker LaunchAgent installed."
+                ScoutDiagnosticsLogger.log("Broker LaunchAgent installed at \(service.launchAgentPath).")
+            } catch {
+                state = .failed
+                detail = "Failed to install broker service: \(error.localizedDescription)"
+                ScoutDiagnosticsLogger.log("Broker service install failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func uninstall() {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let service = try await ScoutBrokerServiceController.uninstall()
+                applyServiceStatus(service)
+                counts = .zero
+                nodeID = nil
+                meshID = nil
+                localDeviceActorID = nil
+                state = .stopped
+                detail = "Broker LaunchAgent removed."
+                ScoutDiagnosticsLogger.log("Broker LaunchAgent removed.")
+            } catch {
+                state = .failed
+                detail = "Failed to uninstall broker service: \(error.localizedDescription)"
+                ScoutDiagnosticsLogger.log("Broker service uninstall failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func refreshNow() async {
@@ -111,35 +194,49 @@ final class ScoutBrokerSupervisor {
     @discardableResult
     private func refreshStatus() async -> Bool {
         do {
-            let health = try await client.fetchHealth()
-            let node = try await client.fetchNode()
-            lastHealthCheck = .now
-            nodeID = node.id
-            meshID = node.meshID
-            counts = health.counts
-            state = health.ok ? .running : .degraded
-            if detail == "Broker not started." || state != .degraded {
-                detail = usesManagedProcess
+            let service = try await ScoutBrokerServiceController.status()
+            applyServiceStatus(service)
+
+            if service.health.reachable {
+                let health = try await client.fetchHealth()
+                let node = try await client.fetchNode()
+                lastHealthCheck = .now
+                nodeID = node.id
+                meshID = node.meshID
+                counts = health.counts
+                state = health.ok ? .running : .degraded
+                detail = service.loaded
                     ? "Broker healthy at \(brokerURL.absoluteString)."
                     : "Broker reachable at \(brokerURL.absoluteString)."
+                await ensureLocalDeviceRegistered(for: node.id)
+                return true
             }
-            await ensureLocalDeviceRegistered(for: node.id)
-            return true
+
+            counts = .zero
+            nodeID = nil
+            meshID = nil
+            localDeviceActorID = nil
+            lastHealthCheck = .now
+
+            if service.loaded {
+                state = .launching
+                detail = "Waiting for broker service to become healthy."
+            } else if service.installed {
+                state = .stopped
+                detail = "Broker LaunchAgent installed but not running."
+            } else {
+                state = .stopped
+                detail = "Broker LaunchAgent not installed."
+            }
+            return false
         } catch {
             counts = .zero
             nodeID = nil
             meshID = nil
             localDeviceActorID = nil
-            ScoutDiagnosticsLogger.log("Broker health check failed: \(error.localizedDescription)")
-
-            if process?.isRunning == true {
-                state = .launching
-                detail = "Waiting for control-plane broker."
-            } else if state != .failed {
-                state = .stopped
-                detail = "Control-plane broker not running."
-            }
-
+            state = .failed
+            detail = "Broker service status failed: \(error.localizedDescription)"
+            ScoutDiagnosticsLogger.log("Broker status refresh failed: \(error.localizedDescription)")
             return false
         }
     }
@@ -165,106 +262,16 @@ final class ScoutBrokerSupervisor {
         }
     }
 
-    private func launchBroker() {
-        guard process?.isRunning != true else {
-            ScoutDiagnosticsLogger.log("Broker launch skipped because managed broker is already running.")
-            return
-        }
-
-        guard let packageURL = ScoutRuntimeLocator.packageURL(relativePath: "packages/runtime") else {
-            state = .failed
-            detail = "Unable to locate the repo-local runtime package."
-            ScoutDiagnosticsLogger.log("Broker launch failed: runtime package path could not be resolved.")
-            return
-        }
-
-        guard let bunURL = ScoutRuntimeLocator.bunExecutableURL() else {
-            state = .failed
-            detail = "Unable to locate Bun for the local broker."
-            ScoutDiagnosticsLogger.log("Broker launch failed: Bun executable could not be resolved.")
-            return
-        }
-
-        let process = Process()
-        process.executableURL = bunURL
-        process.arguments = [
-            "run",
-            "--cwd",
-            packageURL.path(percentEncoded: false),
-            "broker",
-        ]
-        process.environment = mergedEnvironment()
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        process.terminationHandler = { [weak self] terminatedProcess in
-            Task { @MainActor in
-                ScoutDiagnosticsLogger.log("Broker process terminated with status \(terminatedProcess.terminationStatus).")
-                self?.process = nil
-                self?.processIdentifier = nil
-                self?.outputTask?.cancel()
-                self?.outputTask = nil
-
-                if terminatedProcess.terminationStatus != 0 {
-                    self?.state = .failed
-                    self?.detail = "Broker exited with status \(terminatedProcess.terminationStatus)."
-                }
-
-                _ = await self?.refreshStatus()
-            }
-        }
-
-        state = .launching
-        detail = "Launching control-plane broker."
-
-        do {
-            ScoutDiagnosticsLogger.log("Launching broker with \(bunURL.path(percentEncoded: false)) in \(packageURL.path(percentEncoded: false)).")
-            try process.run()
-            self.process = process
-            self.processIdentifier = process.processIdentifier
-            self.usesManagedProcess = true
-            ScoutDiagnosticsLogger.log("Broker process started with pid \(process.processIdentifier).")
-            self.outputTask = Task { [weak self] in
-                await self?.readOutput(from: outputPipe.fileHandleForReading)
-            }
-        } catch {
-            state = .failed
-            detail = "Failed to launch broker: \(error.localizedDescription)"
-            ScoutDiagnosticsLogger.log("Broker launch threw error: \(error.localizedDescription)")
-        }
-    }
-
-    private func mergedEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        environment["OPENSCOUT_BROKER_HOST"] = environment["OPENSCOUT_BROKER_HOST"] ?? "127.0.0.1"
-        environment["OPENSCOUT_BROKER_PORT"] = environment["OPENSCOUT_BROKER_PORT"] ?? "\(client.baseURL.port ?? ScoutControlPlaneClient.resolvedBrokerPort())"
-        environment["OPENSCOUT_BROKER_URL"] = environment["OPENSCOUT_BROKER_URL"] ?? client.baseURL.absoluteString
-        environment["OPENSCOUT_CONTROL_HOME"] = environment["OPENSCOUT_CONTROL_HOME"] ?? supportPaths.controlPlaneDirectory.path(percentEncoded: false)
-        environment["OPENSCOUT_PARENT_PID"] = environment["OPENSCOUT_PARENT_PID"] ?? "\(ProcessInfo.processInfo.processIdentifier)"
-        return environment
-    }
-
-    private func readOutput(from handle: FileHandle) async {
-        do {
-            for try await line in handle.bytes.lines {
-                await MainActor.run {
-                    lastLogLine = line
-                    ScoutDiagnosticsLogger.log("Broker output: \(line)")
-                    if line.contains("broker already running on") {
-                        usesManagedProcess = false
-                        detail = "Using existing broker at \(brokerURL.absoluteString)."
-                    } else if line.contains("broker listening on") {
-                        usesManagedProcess = true
-                        detail = "Broker healthy at \(brokerURL.absoluteString)."
-                    }
-                }
-            }
-        } catch {
-            await MainActor.run {
-                lastLogLine = "Broker output failed: \(error.localizedDescription)"
-                ScoutDiagnosticsLogger.log("Broker output read failed: \(error.localizedDescription)")
-            }
-        }
+    private func applyServiceStatus(_ service: ScoutBrokerServiceStatus) {
+        serviceInstalled = service.installed
+        serviceLoaded = service.loaded
+        serviceLabel = service.label
+        serviceMode = service.mode
+        launchAgentPath = service.launchAgentPath
+        stdoutLogPath = service.stdoutLogPath
+        stderrLogPath = service.stderrLogPath
+        processIdentifier = service.pid
+        usesManagedProcess = service.loaded
+        lastLogLine = service.lastLogLine
     }
 }

@@ -17189,10 +17189,8 @@ React keys must be passed directly to JSX without using spread:
     const viewItems = ensureOverviewView(activeState.views, activeState.messages);
     const currentDestination = resolveDestination(activeState, viewItems, selectedKind, selectedId);
     const visibleMessages = filterMessages(activeState.messages, selectedKind, selectedId);
-    const threadTitle = currentDestination?.title ?? "# shared-channel";
-    const threadSubtitle = currentDestination?.subtitle ?? "Broker-backed workspace chat.";
-    const composerTitle = selectedKind === "direct" ? `Message ${threadTitle}` : `Post to ${threadTitle}`;
-    const sidebarSummary = `${activeState.messages.length} messages · ${activeState.directs.length} agents`;
+    const threadTitle = cleanDisplayTitle(currentDestination?.title ?? "# shared-channel");
+    const sidebarSummary = `${activeState.messages.length} msg · ${activeState.directs.length} agt`;
     const activityLabel = selectedKind === "direct" ? "Direct active" : selectedKind === "filter" ? "View active" : "Channel active";
     async function handleRefresh() {
       setFeedback("Refreshing broker and mesh state…");
@@ -17247,118 +17245,98 @@ React keys must be passed directly to JSX without using spread:
       children: [
         !sidebarCollapsed ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("aside", {
           className: "workspace-rail",
-          children: [
-            /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-              className: "workspace-rail-scroll",
-              children: [
-                /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                  className: "workspace-rail-header",
+          children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+            className: "workspace-rail-scroll",
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                className: "workspace-rail-header",
+                children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                  className: "workspace-header-row",
                   children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                    className: "workspace-header-row",
-                    children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                    children: [
+                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                        className: "workspace-title",
+                        children: activeState.title
+                      }, undefined, false, undefined, this),
+                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                        className: "workspace-sync-line",
+                        children: sidebarSummary
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this)
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime.jsxDEV(NavSection, {
+                label: "Channels",
+                items: activeState.channels,
+                selectedKind,
+                selectedId,
+                onSelect: (kind, id) => {
+                  setSelectedKind(kind);
+                  setSelectedId(id);
+                }
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime.jsxDEV(NavSection, {
+                label: "Views",
+                items: viewItems,
+                selectedKind,
+                selectedId,
+                onSelect: (kind, id) => {
+                  setSelectedKind(kind);
+                  setSelectedId(id);
+                }
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                className: "nav-section",
+                children: [
+                  /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                    className: "nav-section-label",
+                    children: "Agents"
+                  }, undefined, false, undefined, this),
+                  activeState.directs.map((direct) => {
+                    const isActive = selectedKind === "direct" && selectedId === direct.id;
+                    return /* @__PURE__ */ jsx_dev_runtime.jsxDEV("button", {
+                      className: `direct-thread-row${isActive ? " active" : ""}`,
+                      onClick: () => {
+                        setSelectedKind("direct");
+                        setSelectedId(direct.id);
+                      },
                       children: [
                         /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                          className: "workspace-title",
-                          children: activeState.title
+                          className: "thread-avatar-wrap",
+                          children: [
+                            /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                              className: "thread-avatar",
+                              style: { background: avatarFill(colorForIdentity(direct.id)) },
+                              children: direct.title.slice(0, 1).toUpperCase()
+                            }, undefined, false, undefined, this),
+                            /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                              className: `thread-avatar-presence${direct.reachable ? " online" : ""}`
+                            }, undefined, false, undefined, this)
+                          ]
+                        }, undefined, true, undefined, this),
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                          className: "direct-thread-copy",
+                          children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                            className: "direct-thread-head",
+                            children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                              className: "direct-thread-title",
+                              children: cleanDisplayTitle(direct.title)
+                            }, undefined, false, undefined, this)
+                          }, undefined, false, undefined, this)
                         }, undefined, false, undefined, this),
                         /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                          className: "workspace-sync-line",
-                          children: activeState.syncLine
+                          className: `direct-thread-state${direct.reachable ? " online" : ""}`,
+                          children: direct.reachable ? "ON" : "OFF"
                         }, undefined, false, undefined, this)
                       ]
-                    }, undefined, true, undefined, this)
-                  }, undefined, false, undefined, this)
-                }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsx_dev_runtime.jsxDEV(NavSection, {
-                  label: "Channels",
-                  items: activeState.channels,
-                  selectedKind,
-                  selectedId,
-                  onSelect: (kind, id) => {
-                    setSelectedKind(kind);
-                    setSelectedId(id);
-                  }
-                }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsx_dev_runtime.jsxDEV(NavSection, {
-                  label: "Views",
-                  items: viewItems,
-                  selectedKind,
-                  selectedId,
-                  onSelect: (kind, id) => {
-                    setSelectedKind(kind);
-                    setSelectedId(id);
-                  }
-                }, undefined, false, undefined, this),
-                /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                  className: "nav-section",
-                  children: [
-                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                      className: "nav-section-label",
-                      children: "Agents"
-                    }, undefined, false, undefined, this),
-                    activeState.directs.map((direct) => {
-                      const isActive = selectedKind === "direct" && selectedId === direct.id;
-                      return /* @__PURE__ */ jsx_dev_runtime.jsxDEV("button", {
-                        className: `direct-thread-row${isActive ? " active" : ""}`,
-                        onClick: () => {
-                          setSelectedKind("direct");
-                          setSelectedId(direct.id);
-                        },
-                        children: [
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                            className: "thread-avatar",
-                            style: { background: avatarFill(colorForIdentity(direct.id)) },
-                            children: direct.title.slice(0, 1).toUpperCase()
-                          }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                            className: "direct-thread-copy",
-                            children: [
-                              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                className: "direct-thread-head",
-                                children: [
-                                  /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                    className: "direct-thread-title",
-                                    children: direct.title
-                                  }, undefined, false, undefined, this),
-                                  /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                    className: `presence-dot${direct.reachable ? " online" : ""}`
-                                  }, undefined, false, undefined, this),
-                                  direct.timestampLabel ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                    className: "thread-timestamp",
-                                    children: direct.timestampLabel
-                                  }, undefined, false, undefined, this) : null
-                                ]
-                              }, undefined, true, undefined, this),
-                              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                className: "direct-thread-subtitle",
-                                children: direct.subtitle
-                              }, undefined, false, undefined, this),
-                              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                className: `direct-thread-state${direct.reachable ? " online" : ""}`,
-                                children: direct.reachable ? "ON" : "OFF"
-                              }, undefined, false, undefined, this),
-                              direct.preview ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                className: "direct-thread-preview",
-                                children: direct.preview
-                              }, undefined, false, undefined, this) : null
-                            ]
-                          }, undefined, true, undefined, this)
-                        ]
-                      }, direct.id, true, undefined, this);
-                    })
-                  ]
-                }, undefined, true, undefined, this)
-              ]
-            }, undefined, true, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-              className: "workspace-rail-footer",
-              children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                className: "workspace-footer-copy",
-                children: activeState.lastUpdatedLabel ? `Updated ${activeState.lastUpdatedLabel}.` : "Broker-backed workspace."
-              }, undefined, false, undefined, this)
-            }, undefined, false, undefined, this)
-          ]
-        }, undefined, true, undefined, this) : null,
+                    }, direct.id, true, undefined, this);
+                  })
+                ]
+              }, undefined, true, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
+        }, undefined, false, undefined, this) : null,
         /* @__PURE__ */ jsx_dev_runtime.jsxDEV("main", {
           className: "thread-shell",
           children: [
@@ -17381,17 +17359,11 @@ React keys must be passed directly to JSX without using spread:
                     }, undefined, false, undefined, this),
                     /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
                       className: "thread-title-line",
-                      children: [
-                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                          className: "thread-title",
-                          children: threadTitle
-                        }, undefined, false, undefined, this),
-                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                          className: "thread-count",
-                          children: `${visibleMessages.length} message${visibleMessages.length === 1 ? "" : "s"}`
-                        }, undefined, false, undefined, this)
-                      ]
-                    }, undefined, true, undefined, this)
+                      children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                        className: "thread-title",
+                        children: threadTitle
+                      }, undefined, false, undefined, this)
+                    }, undefined, false, undefined, this)
                   ]
                 }, undefined, true, undefined, this),
                 /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
@@ -17409,7 +17381,7 @@ React keys must be passed directly to JSX without using spread:
                             }, undefined, false, undefined, this),
                             /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
                               className: "thread-control-state",
-                              children: activeState.voice.isCapturing ? "On" : "Off"
+                              children: activeState.voice.isCapturing ? "ON" : "OFF"
                             }, undefined, false, undefined, this)
                           ]
                         }, undefined, true, undefined, this),
@@ -17422,7 +17394,7 @@ React keys must be passed directly to JSX without using spread:
                             }, undefined, false, undefined, this),
                             /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
                               className: "thread-control-state",
-                              children: showAnnotations ? "On" : "Off"
+                              children: showAnnotations ? "ON" : "OFF"
                             }, undefined, false, undefined, this)
                           ]
                         }, undefined, true, undefined, this),
@@ -17435,7 +17407,7 @@ React keys must be passed directly to JSX without using spread:
                             }, undefined, false, undefined, this),
                             /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
                               className: "thread-control-state",
-                              children: activeState.voice.repliesEnabled ? "On" : "Off"
+                              children: activeState.voice.repliesEnabled ? "ON" : "OFF"
                             }, undefined, false, undefined, this)
                           ]
                         }, undefined, true, undefined, this)
@@ -17464,96 +17436,106 @@ React keys must be passed directly to JSX without using spread:
               className: "composer-shell",
               children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
                 className: "composer-column",
-                children: [
-                  /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                    className: "composer-inline-bar",
-                    children: [
-                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("textarea", {
-                        ref: composerRef,
-                        className: "composer-field composer-field-inline",
-                        placeholder: `Message ${threadTitle}...`,
-                        value: draft,
-                        onChange: (event) => setDraft(event.currentTarget.value),
-                        onKeyDown: (event) => {
-                          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                            event.preventDefault();
-                            handleSend();
-                          }
+                children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                  className: "composer-inline-bar",
+                  children: [
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                      className: "composer-token operator",
+                      children: "Operator"
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("textarea", {
+                      ref: composerRef,
+                      className: "composer-field composer-field-inline",
+                      placeholder: placeholderForDestination(selectedKind, selectedId),
+                      rows: 1,
+                      value: draft,
+                      onChange: (event) => setDraft(event.currentTarget.value),
+                      onKeyDown: (event) => {
+                        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                          event.preventDefault();
+                          handleSend();
                         }
-                      }, undefined, false, undefined, this),
-                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                        className: "composer-inline-actions",
-                        children: [
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("button", {
-                            className: `composer-icon-button${activeState.voice.isCapturing ? " active" : ""}`,
-                            type: "button",
-                            "aria-label": activeState.voice.isCapturing ? "Stop capture" : "Start capture",
-                            onClick: handleToggleMic,
-                            children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV(MicGlyph, {}, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("button", {
-                            className: "composer-icon-button",
-                            type: "button",
-                            "aria-label": sending ? "Sending" : "Send message",
-                            disabled: sending || !draft.trim(),
-                            onClick: handleSend,
-                            children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV(MailGlyph, {}, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this)
-                        ]
-                      }, undefined, true, undefined, this)
-                    ]
-                  }, undefined, true, undefined, this),
-                  /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                    className: "composer-status-strip",
-                    children: [
-                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                        className: "composer-status-left",
-                        children: [
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                            className: "composer-status-segment",
-                            children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                              className: "composer-caption",
-                              children: "@ mention agents"
-                            }, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                            className: "composer-status-segment",
-                            children: [
-                              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("kbd", {
-                                className: "kbd",
-                                children: "⌘ ↵"
-                              }, undefined, false, undefined, this),
-                              /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                                className: "composer-hint",
-                                children: "send"
-                              }, undefined, false, undefined, this)
-                            ]
-                          }, undefined, true, undefined, this),
-                          feedback ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                            className: "composer-status-segment",
-                            children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                              className: "composer-hint",
-                              children: feedback
-                            }, undefined, false, undefined, this)
-                          }, undefined, false, undefined, this) : null
-                        ]
-                      }, undefined, true, undefined, this),
-                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                        className: "composer-activity",
-                        children: [
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
-                            className: "composer-activity-dot"
-                          }, undefined, false, undefined, this),
-                          /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
-                            children: activityLabel
-                          }, undefined, false, undefined, this)
-                        ]
-                      }, undefined, true, undefined, this)
-                    ]
-                  }, undefined, true, undefined, this)
-                ]
-              }, undefined, true, undefined, this)
-            }, undefined, false, undefined, this)
+                      }
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                      className: "composer-inline-actions",
+                      children: [
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("button", {
+                          className: `composer-icon-button${activeState.voice.isCapturing ? " active" : ""}`,
+                          type: "button",
+                          "aria-label": activeState.voice.isCapturing ? "Stop capture" : "Start capture",
+                          onClick: handleToggleMic,
+                          children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV(MicGlyph, {}, undefined, false, undefined, this)
+                        }, undefined, false, undefined, this),
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("button", {
+                          className: "composer-icon-button",
+                          type: "button",
+                          "aria-label": sending ? "Sending" : "Send message",
+                          disabled: sending || !draft.trim(),
+                          onClick: handleSend,
+                          children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV(SendGlyph, {}, undefined, false, undefined, this)
+                        }, undefined, false, undefined, this)
+                      ]
+                    }, undefined, true, undefined, this)
+                  ]
+                }, undefined, true, undefined, this)
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+              className: "channel-footer-bar",
+              children: [
+                /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                  className: "composer-status-left",
+                  children: [
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                      className: "composer-footer-item",
+                      children: [
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                          className: "composer-footer-at",
+                          children: "@"
+                        }, undefined, false, undefined, this),
+                        " mention agents"
+                      ]
+                    }, undefined, true, undefined, this),
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                      className: "composer-footer-divider"
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                      className: "composer-footer-item",
+                      children: [
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("kbd", {
+                          className: "kbd",
+                          children: "⌘ ↵"
+                        }, undefined, false, undefined, this),
+                        " send"
+                      ]
+                    }, undefined, true, undefined, this),
+                    feedback ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV(jsx_dev_runtime.Fragment, {
+                      children: [
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                          className: "composer-footer-divider"
+                        }, undefined, false, undefined, this),
+                        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                          className: "composer-footer-item",
+                          children: feedback
+                        }, undefined, false, undefined, this)
+                      ]
+                    }, undefined, true, undefined, this) : null
+                  ]
+                }, undefined, true, undefined, this),
+                /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                  className: "composer-activity",
+                  children: [
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                      className: "composer-activity-dot"
+                    }, undefined, false, undefined, this),
+                    /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                      children: activityLabel
+                    }, undefined, false, undefined, this)
+                  ]
+                }, undefined, true, undefined, this)
+              ]
+            }, undefined, true, undefined, this)
           ]
         }, undefined, true, undefined, this)
       ]
@@ -17583,38 +17565,19 @@ React keys must be passed directly to JSX without using spread:
       ]
     }, undefined, true, undefined, this);
   }
-  function MailGlyph() {
+  function SendGlyph() {
     return /* @__PURE__ */ jsx_dev_runtime.jsxDEV("svg", {
-      viewBox: "0 0 20 20",
+      viewBox: "0 0 24 24",
       "aria-hidden": "true",
-      children: [
-        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("path", {
-          d: "M4 5.75h12a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6.5a1 1 0 0 1 1-1Z",
-          fill: "none",
-          stroke: "currentColor",
-          strokeWidth: "1.55",
-          strokeLinecap: "round",
-          strokeLinejoin: "round"
-        }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("path", {
-          d: "m4 7 5.17 4.1a1.35 1.35 0 0 0 1.66 0L16 7",
-          fill: "none",
-          stroke: "currentColor",
-          strokeWidth: "1.55",
-          strokeLinecap: "round",
-          strokeLinejoin: "round"
-        }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime.jsxDEV("path", {
-          d: "m4.8 13.6 3.9-3.45M15.2 13.6l-3.9-3.45",
-          fill: "none",
-          stroke: "currentColor",
-          strokeWidth: "1.55",
-          strokeLinecap: "round",
-          strokeLinejoin: "round",
-          opacity: "0.78"
-        }, undefined, false, undefined, this)
-      ]
-    }, undefined, true, undefined, this);
+      children: /* @__PURE__ */ jsx_dev_runtime.jsxDEV("path", {
+        d: "M3.714 3.714 20.286 12 3.714 20.286l2.214-6.643L14.857 12 5.928 10.357 3.714 3.714Z",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: "1.6",
+        strokeLinecap: "round",
+        strokeLinejoin: "round"
+      }, undefined, false, undefined, this)
+    }, undefined, false, undefined, this);
   }
   function NavSection({
     label,
@@ -17645,7 +17608,7 @@ React keys must be passed directly to JSX without using spread:
                 children: [
                   /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
                     className: "lane-title",
-                    children: item.title
+                    children: cleanDisplayTitle(item.title)
                   }, undefined, false, undefined, this),
                   /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
                     className: "lane-subtitle",
@@ -17762,17 +17725,22 @@ React keys must be passed directly to JSX without using spread:
                 className: "message-head",
                 children: [
                   /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                    className: "message-author",
-                    children: message.authorName
-                  }, undefined, false, undefined, this),
-                  visibleRole ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                    className: "message-role",
-                    children: visibleRole
-                  }, undefined, false, undefined, this) : null,
-                  /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
-                    className: "message-time",
-                    children: message.timestampLabel
-                  }, undefined, false, undefined, this),
+                    className: "message-head-left",
+                    children: [
+                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                        className: "message-author",
+                        children: message.authorName
+                      }, undefined, false, undefined, this),
+                      visibleRole ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                        className: "message-role",
+                        children: visibleRole
+                      }, undefined, false, undefined, this) : null,
+                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                        className: "message-time",
+                        children: message.timestampLabel
+                      }, undefined, false, undefined, this)
+                    ]
+                  }, undefined, true, undefined, this),
                   showAnnotations && (message.routingSummary || message.provenanceSummary) ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
                     className: "message-annotations-inline",
                     children: [
@@ -17795,6 +17763,19 @@ React keys must be passed directly to JSX without using spread:
                     className: "message-body",
                     children: renderMessageBody(entry.body)
                   }, undefined, false, undefined, this),
+                  entry.receipt ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
+                    className: `message-receipt message-receipt-${entry.receipt.state}`,
+                    children: [
+                      /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                        className: "message-receipt-label",
+                        children: entry.receipt.label
+                      }, undefined, false, undefined, this),
+                      entry.receipt.detail ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("span", {
+                        className: "message-receipt-detail",
+                        children: entry.receipt.detail
+                      }, undefined, false, undefined, this) : null
+                    ]
+                  }, undefined, true, undefined, this) : null,
                   showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? /* @__PURE__ */ jsx_dev_runtime.jsxDEV("div", {
                     className: "message-notes",
                     children: [
@@ -17841,21 +17822,21 @@ React keys must be passed directly to JSX without using spread:
   }
   function filterMessages(messages, kind, id) {
     if (kind === "direct") {
-      return messages.filter((message) => message.isDirectConversation && (message.authorId === id || message.recipients.includes(id)));
+      return messages.filter((message) => message.isDirectConversation && message.messageClass !== "status" && (message.authorId === id || message.recipients.includes(id)));
     }
     if (kind === "filter" && id === "overview") {
-      return messages.filter((message) => !message.isVoice);
+      return messages.filter((message) => !message.isVoice && message.messageClass !== "status");
     }
     if (kind === "filter" && id === "mentions") {
-      return messages.filter((message) => !message.isDirectConversation && !message.isSystem && !message.isVoice && message.recipients.length > 0);
+      return messages.filter((message) => !message.isDirectConversation && !message.isSystem && !message.isVoice && message.messageClass !== "status" && message.recipients.length > 0);
     }
     if (kind === "channel" && id === "voice") {
-      return messages.filter((message) => message.isVoice);
+      return messages.filter((message) => message.isVoice && message.messageClass !== "status");
     }
     if (kind === "channel" && id === "system") {
-      return messages.filter((message) => message.isSystem);
+      return messages.filter((message) => message.isSystem || message.messageClass === "status");
     }
-    return messages.filter((message) => !message.isDirectConversation && !message.isSystem && !message.isVoice && (!message.normalizedChannel || message.normalizedChannel === "shared"));
+    return messages.filter((message) => !message.isDirectConversation && !message.isSystem && !message.isVoice && message.messageClass !== "status" && (!message.normalizedChannel || message.normalizedChannel === "shared"));
   }
   function ensureOverviewView(views, messages) {
     if (views.some((view) => view.id === "overview")) {
@@ -17885,11 +17866,29 @@ React keys must be passed directly to JSX without using spread:
     }
     return "#";
   }
+  function placeholderForDestination(kind, id) {
+    if (kind === "filter" && id === "overview") {
+      return "Message #shared-channel...";
+    }
+    if (kind === "direct") {
+      return "Message direct thread...";
+    }
+    if (kind === "channel" && id === "voice") {
+      return "Message #voice...";
+    }
+    if (kind === "channel" && id === "system") {
+      return "Message #system...";
+    }
+    return "Message #shared-channel...";
+  }
   function asErrorMessage(error) {
     if (error instanceof Error) {
       return error.message;
     }
     return "Action failed.";
+  }
+  function cleanDisplayTitle(title) {
+    return title.replace(/^[@#]\s*/, "");
   }
   function colorForIdentity(identity) {
     const palette = ["#3b82f6", "#14b8a6", "#fb923c", "#f43f5e", "#8b5cf6", "#10b981"];
@@ -17977,4 +17976,4 @@ React keys must be passed directly to JSX without using spread:
   }, undefined, false, undefined, this));
 })();
 
-//# debugId=D6F86266F2623F5564756E2164756E21
+//# debugId=D71F94189DC3DCA664756E2164756E21

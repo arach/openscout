@@ -1,9 +1,7 @@
 import { execSync, spawn } from "node:child_process";
 
-import {
-  createTmuxClaudeProjectTwinRuntime,
-  readProjectedRelayAgentSessions,
-} from "../core/index.js";
+import { readProjectedRelayAgentSessions } from "../core/projections/agents.js";
+import { createTmuxClaudeProjectTwinRuntime } from "../core/twins/tmux-claude-runtime.js";
 
 export type RelayTargetDeliveryStatus = "delivered" | "nudged" | "queued";
 

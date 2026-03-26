@@ -9,19 +9,19 @@ enum ScoutTheme {
     )
 
     static let canvas = dynamic(
-        light: NSColor(srgbRed: 0.962, green: 0.968, blue: 0.978, alpha: 1),
+        light: NSColor(srgbRed: 0.979, green: 0.980, blue: 0.977, alpha: 1),
         dark: NSColor(srgbRed: 0.102, green: 0.111, blue: 0.126, alpha: 1)
     )
     static let chrome = dynamic(
-        light: NSColor(srgbRed: 0.938, green: 0.945, blue: 0.958, alpha: 1),
+        light: NSColor(srgbRed: 0.989, green: 0.989, blue: 0.986, alpha: 1),
         dark: NSColor(srgbRed: 0.132, green: 0.142, blue: 0.161, alpha: 1)
     )
     static let sidebar = dynamic(
-        light: NSColor(srgbRed: 0.915, green: 0.924, blue: 0.944, alpha: 1),
+        light: NSColor(srgbRed: 0.961, green: 0.962, blue: 0.958, alpha: 1),
         dark: NSColor(srgbRed: 0.120, green: 0.132, blue: 0.152, alpha: 1)
     )
     static let surface = dynamic(
-        light: NSColor(srgbRed: 0.982, green: 0.985, blue: 0.991, alpha: 1),
+        light: NSColor(srgbRed: 0.992, green: 0.992, blue: 0.990, alpha: 1),
         dark: NSColor(srgbRed: 0.155, green: 0.166, blue: 0.189, alpha: 1)
     )
     static let surfaceStrong = dynamic(
@@ -29,7 +29,7 @@ enum ScoutTheme {
         dark: NSColor(srgbRed: 0.182, green: 0.194, blue: 0.218, alpha: 1)
     )
     static let surfaceMuted = dynamic(
-        light: NSColor(srgbRed: 0.949, green: 0.955, blue: 0.968, alpha: 1),
+        light: NSColor(srgbRed: 0.968, green: 0.968, blue: 0.964, alpha: 1),
         dark: NSColor(srgbRed: 0.141, green: 0.152, blue: 0.173, alpha: 1)
     )
     static let thread = dynamic(
@@ -42,27 +42,27 @@ enum ScoutTheme {
     )
 
     static let border = dynamic(
-        light: NSColor(srgbRed: 0.833, green: 0.856, blue: 0.900, alpha: 0.65),
+        light: NSColor(srgbRed: 0.854, green: 0.851, blue: 0.840, alpha: 0.72),
         dark: NSColor(srgbRed: 0.286, green: 0.313, blue: 0.364, alpha: 1)
     )
     static let borderStrong = dynamic(
-        light: NSColor(srgbRed: 0.772, green: 0.804, blue: 0.857, alpha: 0.85),
+        light: NSColor(srgbRed: 0.803, green: 0.799, blue: 0.786, alpha: 0.88),
         dark: NSColor(srgbRed: 0.338, green: 0.367, blue: 0.422, alpha: 1)
     )
 
     static let ink = Color.primary
     static let inkSecondary = Color.secondary
     static let inkMuted = dynamic(
-        light: NSColor(srgbRed: 0.466, green: 0.497, blue: 0.552, alpha: 1),
+        light: NSColor(srgbRed: 0.470, green: 0.467, blue: 0.452, alpha: 1),
         dark: NSColor.tertiaryLabelColor
     )
     static let inkFaint = dynamic(
-        light: NSColor(srgbRed: 0.618, green: 0.649, blue: 0.705, alpha: 1),
+        light: NSColor(srgbRed: 0.646, green: 0.638, blue: 0.615, alpha: 1),
         dark: NSColor.quaternaryLabelColor
     )
 
     static let hover = dynamic(
-        light: NSColor.black.withAlphaComponent(0.036),
+        light: NSColor.black.withAlphaComponent(0.026),
         dark: NSColor.white.withAlphaComponent(0.05)
     )
     static let selection = dynamic(

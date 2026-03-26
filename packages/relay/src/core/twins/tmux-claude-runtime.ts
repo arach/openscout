@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { readProjectedRelayMessages } from "../projections/messages.js";
 import { readProjectedRelayTwins } from "../projections/twins.js";
@@ -41,6 +42,13 @@ function normalizeTwinRecord(twinName: string, record: Partial<ProjectTwinRecord
   };
 }
 
+const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..", "..", "..");
+
+function brokerRelayCommand(): string {
+  return `bun run --cwd ${JSON.stringify(OPENSCOUT_REPO_ROOT)} packages/relay/src/cli.ts relay`;
+}
+
 function buildTwinSystemPrompt(
   hub: string,
   twinName: string,
@@ -49,6 +57,7 @@ function buildTwinSystemPrompt(
   task?: string,
 ): string {
   const relayEventsPath = getRelayEventsPath(hub);
+  const relayCommand = brokerRelayCommand();
 
   return [
     `You are "${twinName}", a project twin for the ${projectName} project.`,
@@ -66,12 +75,12 @@ function buildTwinSystemPrompt(
     `  - Maintain continuity for ongoing project work`,
     ``,
     `Relay commands:`,
-    `  openscout relay send --as ${twinName} "your message"   — send a message`,
-    `  openscout relay read                                   — check recent messages`,
-    `  openscout relay who                                    — see who's active`,
+    `  ${relayCommand} send --as ${twinName} "your message"   — send a message`,
+    `  ${relayCommand} read                                   — check recent messages`,
+    `  ${relayCommand} who                                    — see who's active`,
     ``,
     `Rules:`,
-    `  - Always reply via relay send so other agents see your response`,
+    `  - Always reply via the broker-backed relay command above so other agents see your response`,
     `  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply`,
     `  - Be specific: include file paths, line numbers, what you found`,
     `  - Keep messages under 200 chars unless detailed info was requested`,
@@ -86,7 +95,7 @@ function buildTwinInitialMessage(projectName: string, twinName: string, task?: s
     return `You are now online as the ${twinName} twin for ${projectName}. Your task: ${task}. Announce yourself on the relay and start working.`;
   }
 
-  return `You are now online as the ${twinName} twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+  return `You are now online as the ${twinName} twin for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
 }
 
 function createTwinFlightId(): string {
@@ -105,17 +114,19 @@ function stripTwinReplyMetadata(body: string, flightId: string, asker: string): 
 }
 
 function buildTwinNudge(twinName: string, asker: string, flightId: string): string {
+  const relayCommand = brokerRelayCommand();
   return [
     `New relay ask from ${asker}.`,
-    `Read it: openscout relay read -n 5 --as ${twinName}.`,
-    `Reply with: openscout relay send --as ${twinName} "[ask:${flightId}] @${asker} <your response>"`,
+    `Read it: ${relayCommand} read -n 5 --as ${twinName}.`,
+    `Reply with: ${relayCommand} send --as ${twinName} "[ask:${flightId}] @${asker} <your response>"`,
   ].join(" ");
 }
 
 function buildTwinTickMessage(twinName: string, reason: string): string {
+  const relayCommand = brokerRelayCommand();
   return [
     `Relay tick: ${reason}.`,
-    `Check for new work with openscout relay read -n 5 --as ${twinName}.`,
+    `Check for new work with ${relayCommand} read -n 5 --as ${twinName}.`,
     `Continue any pending project work and respond on relay if needed.`,
   ].join(" ");
 }

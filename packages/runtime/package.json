@@ -14,8 +14,10 @@
   ],
   "scripts": {
     "broker": "bun run src/broker-daemon.ts",
+    "service": "bun run src/broker-service.ts",
     "discover": "bun run src/mesh-discover.ts",
-    "check": "tsc --noEmit -p tsconfig.json"
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test src/*.test.ts"
   },
   "dependencies": {
     "@openscout/protocol": "workspace:*"
