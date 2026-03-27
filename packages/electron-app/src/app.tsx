@@ -2,10 +2,13 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
+  Bot,
   LayoutGrid,
   FileText,
+  Network,
   PenTool,
   MessageSquare,
+  User,
   Settings,
   Hash,
   RefreshCw,
@@ -32,7 +35,10 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {
+  AgentConfigState,
   DesktopShellState,
+  InterAgentAgent,
+  InterAgentThread,
   RelayDirectThread,
   RelayDestinationKind,
   RelayMessage,
@@ -59,9 +65,9 @@ const C = {
 };
 
 export default function App() {
-  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeView, setActiveView] = useState<'overview' | 'sessions' | 'search' | 'relay'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionMetadata | null>(null);
@@ -73,14 +79,28 @@ export default function App() {
   const [relayDraft, setRelayDraft] = useState('');
   const [relaySending, setRelaySending] = useState(false);
   const [relayFeedback, setRelayFeedback] = useState<string | null>(null);
+  const [selectedInterAgentId, setSelectedInterAgentId] = useState<string | null>(null);
+  const [selectedInterAgentThreadId, setSelectedInterAgentThreadId] = useState<string | null>(null);
+  const [agentConfig, setAgentConfig] = useState<AgentConfigState | null>(null);
+  const [agentConfigDraft, setAgentConfigDraft] = useState<AgentConfigState | null>(null);
+  const [agentConfigLoading, setAgentConfigLoading] = useState(false);
+  const [agentConfigSaving, setAgentConfigSaving] = useState(false);
+  const [agentConfigRestarting, setAgentConfigRestarting] = useState(false);
+  const [agentConfigFeedback, setAgentConfigFeedback] = useState<string | null>(null);
+  const [pendingConfigFocusAgentId, setPendingConfigFocusAgentId] = useState<string | null>(null);
+  const [isAgentConfigEditing, setIsAgentConfigEditing] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [dark, setDark] = useState(false);
   const isDragging = useRef(false);
   const relayComposerRef = useRef<HTMLTextAreaElement | null>(null);
+  const agentRuntimePathRef = useRef<HTMLInputElement | null>(null);
+  const agentSystemPromptRef = useRef<HTMLTextAreaElement | null>(null);
+  const agentSystemPromptViewRef = useRef<HTMLDivElement | null>(null);
 
   const sessions = shellState?.sessions ?? [];
   const runtime = shellState?.runtime ?? null;
   const relayState = shellState?.relay ?? null;
+  const interAgentState = shellState?.interAgent ?? null;
 
   const loadShellState = React.useCallback(async (withSpinner = false) => {
     if (!window.openScoutDesktop) {
@@ -120,9 +140,11 @@ export default function App() {
       return;
     }
 
+    const relayFeedItems = buildRelayFeedItems(relayState);
+    const relayConversationItems = buildRelayConversationItems(relayState);
     const availableDestinations = [
-      ...relayState.channels.map((item) => `${item.kind}:${item.id}`),
-      ...relayState.views.map((item) => `${item.kind}:${item.id}`),
+      ...relayFeedItems.map((item) => `${item.kind}:${item.id}`),
+      ...relayConversationItems.map((item) => `${item.kind}:${item.id}`),
       ...relayState.directs.map((item) => `${item.kind}:${item.id}`),
     ];
 
@@ -132,6 +154,81 @@ export default function App() {
       setSelectedRelayId('shared');
     }
   }, [relayState, selectedRelayId, selectedRelayKind]);
+
+  useEffect(() => {
+    if (!interAgentState) {
+      return;
+    }
+
+    if (!interAgentState.agents.length) {
+      setSelectedInterAgentId(null);
+      setSelectedInterAgentThreadId(null);
+      return;
+    }
+
+    const preferredAgentId = interAgentState.agents.find((agent) => agent.threadCount > 0)?.id
+      ?? interAgentState.agents[0]?.id
+      ?? null;
+    const nextAgentId = interAgentState.agents.some((agent) => agent.id === selectedInterAgentId)
+      ? selectedInterAgentId
+      : preferredAgentId;
+    if (nextAgentId !== selectedInterAgentId) {
+      setSelectedInterAgentId(nextAgentId);
+    }
+
+    const availableThreads = interAgentState.threads.filter((thread) =>
+      thread.participants.some((participant) => participant.id === nextAgentId),
+    );
+    const nextThreadId = availableThreads.some((thread) => thread.id === selectedInterAgentThreadId)
+      ? selectedInterAgentThreadId
+      : availableThreads[0]?.id ?? null;
+    if (nextThreadId !== selectedInterAgentThreadId) {
+      setSelectedInterAgentThreadId(nextThreadId);
+    }
+  }, [interAgentState, selectedInterAgentId, selectedInterAgentThreadId]);
+
+  useEffect(() => {
+    if (!selectedInterAgentId || !window.openScoutDesktop?.getAgentConfig) {
+      setAgentConfig(null);
+      setAgentConfigDraft(null);
+      setAgentConfigFeedback(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadAgentConfig = async () => {
+      setAgentConfigLoading(true);
+      try {
+        const nextConfig = await window.openScoutDesktop!.getAgentConfig(selectedInterAgentId);
+        if (cancelled) {
+          return;
+        }
+        setAgentConfig(nextConfig);
+        setAgentConfigDraft(nextConfig);
+        setAgentConfigFeedback(null);
+        if (!pendingConfigFocusAgentId || pendingConfigFocusAgentId !== selectedInterAgentId) {
+          setIsAgentConfigEditing(false);
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setAgentConfig(null);
+        setAgentConfigDraft(null);
+        setAgentConfigFeedback(asErrorMessage(error));
+        setIsAgentConfigEditing(false);
+      } finally {
+        if (!cancelled) {
+          setAgentConfigLoading(false);
+        }
+      }
+    };
+
+    void loadAgentConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingConfigFocusAgentId, selectedInterAgentId]);
 
   useEffect(() => {
     const textarea = relayComposerRef.current;
@@ -145,6 +242,31 @@ export default function App() {
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [relayDraft]);
+
+  useEffect(() => {
+    if (activeView !== 'agents' || !pendingConfigFocusAgentId || selectedInterAgentId !== pendingConfigFocusAgentId || agentConfigLoading) {
+      return;
+    }
+
+    const target = agentRuntimePathRef.current ?? agentSystemPromptRef.current ?? agentSystemPromptViewRef.current;
+    if (!target) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target.focus();
+      if ("value" in target && typeof target.value === 'string') {
+        const end = target.value.length;
+        target.setSelectionRange?.(end, end);
+      }
+      setPendingConfigFocusAgentId((current) => (current === pendingConfigFocusAgentId ? null : current));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [activeView, pendingConfigFocusAgentId, selectedInterAgentId, agentConfigLoading, agentConfigDraft]);
 
   // Get unique projects
   const projects = useMemo(() => {
@@ -197,9 +319,10 @@ export default function App() {
     [sessions],
   );
 
-  const relayViewItems = useMemo(() => ensureOverviewView(relayState?.views ?? [], relayState?.messages ?? []), [relayState]);
+  const relayFeedItems = useMemo(() => buildRelayFeedItems(relayState), [relayState]);
+  const relayConversationItems = useMemo(() => buildRelayConversationItems(relayState), [relayState]);
   const relayCurrentDestination = relayState
-    ? resolveRelayDestination(relayState, relayViewItems, selectedRelayKind, selectedRelayId)
+    ? resolveRelayDestination(relayState, relayFeedItems, selectedRelayKind, selectedRelayId)
     : null;
   const selectedRelayDirectThread = relayState && selectedRelayKind === 'direct'
     ? relayState.directs.find((item) => item.id === selectedRelayId) ?? null
@@ -208,6 +331,64 @@ export default function App() {
     ? filterRelayMessages(relayState.messages, selectedRelayKind, selectedRelayId)
     : [];
   const relayThreadTitle = cleanDisplayTitle(relayCurrentDestination?.title ?? '# shared-channel');
+  const relayThreadSubtitle = selectedRelayDirectThread?.statusDetail
+    ?? selectedRelayDirectThread?.subtitle
+    ?? relayCurrentDestination?.subtitle
+    ?? null;
+  const relaySelectionIsFeed = relayFeedItems.some(
+    (item) => item.kind === selectedRelayKind && item.id === selectedRelayId,
+  );
+  const interAgentAgents = interAgentState?.agents ?? [];
+  const interAgentThreads = interAgentState?.threads ?? [];
+  const selectedInterAgent = interAgentAgents.find((agent) => agent.id === selectedInterAgentId) ?? null;
+  const visibleInterAgentThreads = useMemo(
+    () => interAgentThreads.filter((thread) => thread.participants.some((participant) => participant.id === selectedInterAgentId)),
+    [interAgentThreads, selectedInterAgentId],
+  );
+  const selectedInterAgentThread = visibleInterAgentThreads.find((thread) => thread.id === selectedInterAgentThreadId) ?? null;
+  const visibleInterAgentMessages = useMemo(
+    () => {
+      if (!relayState || !selectedInterAgentThread) {
+        return [];
+      }
+
+      const messageIds = new Set(selectedInterAgentThread.messageIds);
+      return relayState.messages.filter((message) => messageIds.has(message.id));
+    },
+    [relayState, selectedInterAgentThread],
+  );
+  const interAgentThreadTitle = selectedInterAgentThread
+    ? interAgentThreadTitleForAgent(selectedInterAgentThread, selectedInterAgentId)
+    : selectedInterAgent
+      ? `${selectedInterAgent.title}'s agent threads`
+      : 'Inter-Agent';
+  const selectedInterAgentThreadSubtitle = selectedInterAgentThread
+    ? interAgentThreadSubtitle(selectedInterAgentThread, selectedInterAgentId)
+    : selectedInterAgent?.statusDetail ?? 'Select an agent to inspect private threads between agents.';
+  const interAgentConfigureTarget = useMemo(() => {
+    if (selectedInterAgentThread) {
+      const counterparts = interAgentCounterparts(selectedInterAgentThread, selectedInterAgentId);
+      if (counterparts.length === 1) {
+        return interAgentAgents.find((agent) => agent.id === counterparts[0]?.id) ?? selectedInterAgent;
+      }
+    }
+
+    return selectedInterAgent;
+  }, [selectedInterAgentThread, selectedInterAgentId, interAgentAgents, selectedInterAgent]);
+  const interAgentConfigureLabel = interAgentConfigureTarget
+    ? interAgentConfigureTarget.profileKind === 'project' ? 'Configure' : 'Profile'
+    : null;
+  const visibleAgentConfig = agentConfigDraft ?? agentConfig;
+  const hasEditableAgentConfig = Boolean(agentConfig?.editable && visibleAgentConfig);
+  const agentConfigDirty = useMemo(
+    () => serializeEditableAgentConfig(agentConfigDraft) !== serializeEditableAgentConfig(agentConfig),
+    [agentConfigDraft, agentConfig],
+  );
+  const agentCapabilitiesPreview = useMemo(
+    () => parseCapabilityText(visibleAgentConfig?.capabilitiesText ?? ''),
+    [visibleAgentConfig?.capabilitiesText],
+  );
+  const agentRestartActionLabel = isAgentConfigEditing && agentConfigDirty ? 'Save + Restart' : 'Restart Agent';
   const overviewSessions = useMemo(
     () => [...sessions]
       .sort((lhs, rhs) => new Date(rhs.lastModified).getTime() - new Date(lhs.lastModified).getTime())
@@ -267,6 +448,29 @@ export default function App() {
     }
   };
 
+  const openAgentProfile = React.useCallback((agentId: string, focusConfig = false) => {
+    setSelectedInterAgentId(agentId);
+    setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agentId));
+    setActiveView('agents');
+    if (focusConfig) {
+      setIsAgentConfigEditing(true);
+      setPendingConfigFocusAgentId(agentId);
+    }
+  }, [interAgentThreads]);
+
+  const handleStartAgentConfigEdit = React.useCallback(() => {
+    setIsAgentConfigEditing(true);
+    if (selectedInterAgentId) {
+      setPendingConfigFocusAgentId(selectedInterAgentId);
+    }
+  }, [selectedInterAgentId]);
+
+  const handleCancelAgentConfigEdit = React.useCallback(() => {
+    setAgentConfigDraft(agentConfig);
+    setAgentConfigFeedback(null);
+    setIsAgentConfigEditing(false);
+  }, [agentConfig]);
+
   const handleBrokerControl = async (action: 'start' | 'stop' | 'restart') => {
     if (!window.openScoutDesktop) {
       setShellError('Electron desktop bridge is unavailable.');
@@ -313,6 +517,81 @@ export default function App() {
       setRelayFeedback(enabled ? 'Playback enabled.' : 'Playback disabled.');
     } catch (error) {
       setRelayFeedback(asErrorMessage(error));
+    }
+  };
+
+  const handleSaveAgentConfig = async () => {
+    if (!selectedInterAgentId || !visibleAgentConfig || !window.openScoutDesktop?.updateAgentConfig) {
+      return;
+    }
+
+    setAgentConfigSaving(true);
+    try {
+      const nextConfig = await window.openScoutDesktop.updateAgentConfig({
+        agentId: selectedInterAgentId,
+        runtime: {
+          cwd: visibleAgentConfig.runtime.cwd,
+          harness: visibleAgentConfig.runtime.harness,
+          sessionId: visibleAgentConfig.runtime.sessionId,
+        },
+        systemPrompt: visibleAgentConfig.systemPrompt,
+        toolUse: {
+          launchArgsText: visibleAgentConfig.toolUse.launchArgsText,
+        },
+        capabilitiesText: visibleAgentConfig.capabilitiesText,
+      });
+      setAgentConfig(nextConfig);
+      setAgentConfigDraft(nextConfig);
+      setAgentConfigFeedback('Agent settings saved.');
+      setIsAgentConfigEditing(false);
+    } catch (error) {
+      setAgentConfigFeedback(asErrorMessage(error));
+    } finally {
+      setAgentConfigSaving(false);
+    }
+  };
+
+  const handleRestartAgent = async () => {
+    if (!selectedInterAgentId || !visibleAgentConfig || !window.openScoutDesktop?.restartAgent) {
+      return;
+    }
+
+    setAgentConfigRestarting(true);
+    try {
+      let nextConfig = visibleAgentConfig;
+      if (agentConfigDirty && window.openScoutDesktop?.updateAgentConfig) {
+        setAgentConfigSaving(true);
+        nextConfig = await window.openScoutDesktop.updateAgentConfig({
+          agentId: selectedInterAgentId,
+          runtime: {
+            cwd: visibleAgentConfig.runtime.cwd,
+            harness: visibleAgentConfig.runtime.harness,
+            sessionId: visibleAgentConfig.runtime.sessionId,
+          },
+          systemPrompt: visibleAgentConfig.systemPrompt,
+          toolUse: {
+            launchArgsText: visibleAgentConfig.toolUse.launchArgsText,
+          },
+          capabilitiesText: visibleAgentConfig.capabilitiesText,
+        });
+        setAgentConfig(nextConfig);
+        setAgentConfigDraft(nextConfig);
+        setAgentConfigSaving(false);
+      }
+
+      const nextShellState = await window.openScoutDesktop.restartAgent({
+        agentId: selectedInterAgentId,
+        previousSessionId: selectedInterAgent?.sessionId ?? agentConfig?.runtime.sessionId ?? null,
+      });
+      setShellState(nextShellState);
+      setShellError(null);
+      setAgentConfigFeedback(`${selectedInterAgent?.title ?? 'Agent'} restarted.`);
+      setIsAgentConfigEditing(false);
+    } catch (error) {
+      setAgentConfigFeedback(asErrorMessage(error));
+    } finally {
+      setAgentConfigSaving(false);
+      setAgentConfigRestarting(false);
     }
   };
 
@@ -437,6 +716,8 @@ export default function App() {
               ['overview', <LayoutGrid size={16} strokeWidth={1.5} />, 'Overview'],
               ['sessions', <Radar size={16} strokeWidth={1.5} />, 'Session History'],
               ['search',   <Search size={16} strokeWidth={1.5} />, 'Search'],
+              ['agents', <Bot size={16} strokeWidth={1.5} />, 'Agents'],
+              ['inter-agent', <InterAgentIcon size={16} />, 'Inter-Agent'],
               ['relay',    <MessageSquare size={16} strokeWidth={1.5} />, 'Relay'],
             ] as [string, React.ReactNode, string][]).map(([view, icon, title]) => (
               <button
@@ -451,7 +732,7 @@ export default function App() {
             ))}
           </div>
           <div className="mt-auto flex flex-col gap-1 items-center w-full px-2">
-            {(activeView === 'sessions' || activeView === 'relay' || activeView === 'search') && (
+            {(activeView === 'sessions' || activeView === 'relay' || activeView === 'search' || activeView === 'inter-agent' || activeView === 'agents') && (
               <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-1.5 rounded flex items-center justify-center transition-opacity hover:opacity-70"
@@ -478,10 +759,10 @@ export default function App() {
                     Command Center
                   </div>
                   <h1 className="os-fade-up text-5xl font-bold mb-4 tracking-tight leading-tight" style={s.inkText}>
-                    Your agents,<br />unified.
+                    Your Agents,<br />Connected
                   </h1>
                   <p className="os-fade-up os-stagger-1 text-lg mb-8 max-w-xl leading-relaxed" style={s.mutedText}>
-                    Collaborate with Claude, Codex, GPT, and more. See their plans, track their work, and search every conversation across all your machines.
+                    OpenScout gives you and your agents a shared control plane to communicate, collaborate, and coordinate.
                   </p>
                   <div className="os-fade-up os-stagger-2 flex items-center gap-3">
                     <button
@@ -528,7 +809,7 @@ export default function App() {
 
               <div className="px-12 py-10">
                 <div className="text-[10px] font-mono tracking-widest uppercase mb-6" style={s.mutedText}>Capabilities</div>
-                <div className="grid grid-cols-3 gap-5 mb-12">
+                <div className="grid grid-cols-4 gap-5 mb-12">
                   {[
                     {
                       icon: <MessageSquare size={20} />,
@@ -542,6 +823,13 @@ export default function App() {
                       title: 'Sessions',
                       desc: 'Browse and organize session histories by project. Every conversation, searchable.',
                       action: () => setActiveView('sessions'),
+                      accent: false,
+                    },
+                    {
+                      icon: <InterAgentIcon size={20} />,
+                      title: 'Inter-Agent',
+                      desc: 'Read private agent-to-agent threads and inspect who Fabric, Builder, and others are talking to.',
+                      action: () => setActiveView('inter-agent'),
                       accent: false,
                     },
                     {
@@ -888,6 +1176,713 @@ export default function App() {
             </div>
           </>
 
+        /* --- INTER-AGENT --- */
+        ) : activeView === 'agents' ? (
+          <>
+            {!isCollapsed && (
+              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
+                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
+                <div className="px-4 h-14 flex items-center justify-between border-b" style={{ borderBottomColor: C.border }}>
+                  <div>
+                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Agents</h1>
+                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
+                      {interAgentAgents.length} registered
+                    </div>
+                  </div>
+                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto py-3">
+                  <div className="mb-3 px-2">
+                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>Roster</div>
+                    <div className="flex flex-col gap-px">
+                      {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => {
+                        const active = selectedInterAgentId === agent.id;
+                        return (
+                          <button
+                            key={agent.id}
+                            onClick={() => {
+                              setSelectedInterAgentId(agent.id);
+                              setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
+                            }}
+                            className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left"
+                            style={active ? s.activeItem : s.mutedText}
+                          >
+                            <div className="relative shrink-0">
+                              <div
+                                className={`w-6 h-6 rounded text-white flex items-center justify-center text-[9px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+                                style={{ backgroundColor: colorForIdentity(agent.id) }}
+                              >
+                                {agent.title.charAt(0).toUpperCase()}
+                              </div>
+                              <div
+                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(agent.state)}`}
+                                style={{ border: `1px solid ${C.bg}` }}
+                              ></div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate" style={s.inkText}>{agent.title}</div>
+                              <div className="text-[10px] truncate" style={s.mutedText}>{agent.subtitle}</div>
+                            </div>
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
+                          </button>
+                        );
+                      }) : (
+                        <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
+                          No agents available yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
+              <div className="border-b flex items-center justify-between px-4 h-14 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Bot size={14} style={s.mutedText} />
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
+                      {selectedInterAgent ? selectedInterAgent.title : 'Agent Config'}
+                    </div>
+                    <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
+                      {selectedInterAgent
+                        ? `${interAgentProfileKindLabel(selectedInterAgent.profileKind)} · ${selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Configured runtime and system prompt.'}`
+                        : 'Select an agent to inspect and configure its runtime definition.'}
+                    </div>
+                  </div>
+                </div>
+                {selectedInterAgent && hasEditableAgentConfig ? (
+                  <div className="flex items-center gap-2">
+                    {isAgentConfigEditing ? (
+                      <>
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                          style={{ color: C.ink }}
+                          onClick={() => handleCancelAgentConfigEdit()}
+                          disabled={agentConfigSaving || agentConfigRestarting}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                          style={{ color: C.ink }}
+                          onClick={() => void handleSaveAgentConfig()}
+                          disabled={!agentConfigDirty || agentConfigLoading || agentConfigSaving || agentConfigRestarting}
+                        >
+                          {agentConfigSaving ? 'Saving…' : 'Save Changes'}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                        style={{ color: C.ink }}
+                        onClick={() => handleStartAgentConfigEdit()}
+                        disabled={agentConfigLoading || agentConfigRestarting}
+                      >
+                        Edit Agent
+                      </button>
+                    )}
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                      style={{ color: C.ink }}
+                      onClick={() => void handleRestartAgent()}
+                      disabled={agentConfigLoading || agentConfigRestarting || !visibleAgentConfig}
+                    >
+                      {agentConfigRestarting ? 'Restarting…' : agentRestartActionLabel}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                {!selectedInterAgent ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                      <Bot size={24} style={{ color: C.accent }} />
+                    </div>
+                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No agent selected</h3>
+                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                      Pick an agent from the left rail to inspect its profile, runtime binding, and recent communication.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(340px,0.9fr)] gap-4">
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-start gap-3">
+                          <div className="relative shrink-0">
+                            <div
+                              className={`w-10 h-10 rounded text-white flex items-center justify-center text-[13px] font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
+                              style={{ backgroundColor: colorForIdentity(selectedInterAgent.id) }}
+                            >
+                              {selectedInterAgent.title.charAt(0).toUpperCase()}
+                            </div>
+                            <div
+                              className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(selectedInterAgent.state)}`}
+                              style={{ border: `1px solid ${C.bg}` }}
+                            ></div>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="text-[15px] font-semibold tracking-tight" style={s.inkText}>{selectedInterAgent.title}</div>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                {interAgentProfileKindLabel(selectedInterAgent.profileKind)}
+                              </span>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={relayPresencePillStyle(selectedInterAgent.state)}>
+                                {selectedInterAgent.statusLabel}
+                              </span>
+                            </div>
+                            {normalizeLegacyAgentCopy(selectedInterAgent.role) ? (
+                              <div className="text-[11px] mt-1" style={s.inkText}>{normalizeLegacyAgentCopy(selectedInterAgent.role)}</div>
+                            ) : null}
+                            {normalizeLegacyAgentCopy(selectedInterAgent.summary) ? (
+                              <div className="text-[12px] leading-[1.55] mt-2" style={s.mutedText}>{normalizeLegacyAgentCopy(selectedInterAgent.summary)}</div>
+                            ) : null}
+                            <div className="flex items-center gap-2 flex-wrap mt-3">
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                {visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'runtime'}
+                              </span>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                {visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'transport'}
+                              </span>
+                              {selectedInterAgent.timestampLabel ? (
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                  Last seen {selectedInterAgent.timestampLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>System Prompt</div>
+                            <div className="text-[11px] mt-1" style={s.mutedText}>
+                              {isAgentConfigEditing
+                                ? 'Editing the stored prompt template for this relay agent.'
+                                : 'Stored prompt template used when this relay agent boots.'}
+                            </div>
+                          </div>
+                        </div>
+                        {agentConfigLoading ? (
+                          <div className="text-[11px]" style={s.mutedText}>Loading system prompt…</div>
+                        ) : (
+                          <>
+                            {isAgentConfigEditing ? (
+                              <textarea
+                                ref={agentSystemPromptRef}
+                                value={visibleAgentConfig?.systemPrompt ?? ''}
+                                onChange={(event) => {
+                                  setAgentConfigDraft((current) => current ? {
+                                    ...current,
+                                    systemPrompt: event.target.value,
+                                  } : current);
+                                  setAgentConfigFeedback(null);
+                                }}
+                                readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                className="w-full min-h-[420px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] resize-y bg-transparent outline-none"
+                                style={{ borderColor: C.border, color: C.ink }}
+                              />
+                            ) : (
+                              <div
+                                ref={agentSystemPromptViewRef}
+                                tabIndex={0}
+                                className="w-full min-h-[420px] max-h-[620px] overflow-auto rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.6] whitespace-pre-wrap break-words outline-none"
+                                style={{ borderColor: C.border, color: C.ink }}
+                              >
+                                {visibleAgentConfig?.systemPrompt ?? 'System prompt unavailable.'}
+                              </div>
+                            )}
+                            {visibleAgentConfig?.systemPromptHint ? (
+                              <div className="text-[11px] mt-2 leading-[1.5]" style={s.mutedText}>{visibleAgentConfig.systemPromptHint}</div>
+                            ) : null}
+                            {agentConfigFeedback ? (
+                              <div className="text-[11px] mt-2 leading-[1.5]" style={s.inkText}>{agentConfigFeedback}</div>
+                            ) : null}
+                          </>
+                        )}
+                      </section>
+                    </div>
+
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Configuration</div>
+                        {agentConfigLoading ? (
+                          <div className="text-[11px]" style={s.mutedText}>Loading agent config…</div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              {[
+                                ['Agent ID', selectedInterAgent.id],
+                                ['Source', visibleAgentConfig?.runtime.source ?? selectedInterAgent.source ?? 'Built-in'],
+                                ['Class', selectedInterAgent.agentClass ?? 'Not reported'],
+                                ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
+                                ['Live Threads', `${selectedInterAgent.threadCount}`],
+                                ['Counterparts', `${selectedInterAgent.counterpartCount}`],
+                              ].map(([label, value]) => (
+                                <div key={label} className="min-w-0">
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="border-t pt-3" style={{ borderTopColor: C.border }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Runtime</div>
+                              {isAgentConfigEditing ? (
+                                <div className="space-y-3">
+                                  <div>
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Path</div>
+                                    <input
+                                      ref={agentRuntimePathRef}
+                                      value={visibleAgentConfig?.runtime.cwd ?? ''}
+                                      onChange={(event) => {
+                                        setAgentConfigDraft((current) => current ? {
+                                          ...current,
+                                          runtime: {
+                                            ...current.runtime,
+                                            cwd: event.target.value,
+                                          },
+                                        } : current);
+                                        setAgentConfigFeedback(null);
+                                      }}
+                                      readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                      className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                      style={{ borderColor: C.border, color: C.ink }}
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Harness</div>
+                                      <select
+                                        value={visibleAgentConfig?.runtime.harness ?? ''}
+                                        onChange={(event) => {
+                                          setAgentConfigDraft((current) => current ? {
+                                            ...current,
+                                            runtime: {
+                                              ...current.runtime,
+                                              harness: event.target.value,
+                                            },
+                                          } : current);
+                                          setAgentConfigFeedback(null);
+                                        }}
+                                        disabled={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                        className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                        style={{ borderColor: C.border, color: C.ink }}
+                                      >
+                                        {visibleAgentConfig?.availableHarnesses.map((harness) => (
+                                          <option key={harness} value={harness}>{harness}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Session</div>
+                                      <input
+                                        value={visibleAgentConfig?.runtime.sessionId ?? ''}
+                                        onChange={(event) => {
+                                          setAgentConfigDraft((current) => current ? {
+                                            ...current,
+                                            runtime: {
+                                              ...current.runtime,
+                                              sessionId: event.target.value,
+                                            },
+                                          } : current);
+                                          setAgentConfigFeedback(null);
+                                        }}
+                                        readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                        className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                        style={{ borderColor: C.border, color: C.ink }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Transport</div>
+                                      <div className="rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.ink }}>
+                                        {visibleAgentConfig?.runtime.transport || 'tmux'}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Live Runtime</div>
+                                      <div className="rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.ink }}>
+                                        {compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                                  {[
+                                    ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
+                                    ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
+                                    ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
+                                    ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
+                                    ['Configured Root', visibleAgentConfig?.runtime.projectRoot ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
+                                    ['Live Runtime', compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
+                                  ].map(([label, value]) => (
+                                    <div key={label} className="min-w-0">
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                      <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="text-[11px] leading-[1.5] mt-2" style={s.mutedText}>
+                                Relay agents run through `tmux` right now. Change the path, harness, or session here, then restart to make the live runtime adopt it.
+                              </div>
+                            </div>
+
+                            <div className="border-t pt-3" style={{ borderTopColor: C.border }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Tool Use</div>
+                              {isAgentConfigEditing ? (
+                                <textarea
+                                  value={visibleAgentConfig?.toolUse.launchArgsText ?? ''}
+                                  onChange={(event) => {
+                                    setAgentConfigDraft((current) => current ? {
+                                      ...current,
+                                      toolUse: {
+                                        ...current.toolUse,
+                                        launchArgsText: event.target.value,
+                                      },
+                                    } : current);
+                                    setAgentConfigFeedback(null);
+                                  }}
+                                  readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                  className="w-full min-h-[112px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.5] resize-y bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words min-h-[72px]" style={{ borderColor: C.border, color: C.ink }}>
+                                  {normalizeDraftText(visibleAgentConfig?.toolUse.launchArgsText ?? '') || 'No launch args configured.'}
+                                </div>
+                              )}
+                              <div className="text-[11px] leading-[1.5] mt-2" style={s.mutedText}>
+                                One argument per line. These flags are appended when the selected harness boots this relay agent.
+                              </div>
+                            </div>
+
+                            <div className="border-t pt-3" style={{ borderTopColor: C.border }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Capabilities</div>
+                              {isAgentConfigEditing ? (
+                                <input
+                                  value={visibleAgentConfig?.capabilitiesText ?? ''}
+                                  onChange={(event) => {
+                                    setAgentConfigDraft((current) => current ? {
+                                      ...current,
+                                      capabilitiesText: event.target.value,
+                                    } : current);
+                                    setAgentConfigFeedback(null);
+                                  }}
+                                  readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                  className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : null}
+                              {agentCapabilitiesPreview.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  {agentCapabilitiesPreview.map((capability) => (
+                                    <span key={capability} className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {capability}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] mt-2" style={s.mutedText}>No capabilities configured.</div>
+                              )}
+                              <div className="text-[11px] leading-[1.5] mt-2" style={s.mutedText}>
+                                Use commas or new lines. Capabilities are advertised after the agent restarts.
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </section>
+
+                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Recent Threads</div>
+                        {visibleInterAgentThreads.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {visibleInterAgentThreads.map((thread) => (
+                              <button
+                                key={thread.id}
+                                onClick={() => {
+                                  setSelectedInterAgentThreadId(thread.id);
+                                  setActiveView('inter-agent');
+                                }}
+                                className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
+                                style={{ borderColor: C.border, backgroundColor: selectedInterAgentThreadId === thread.id ? C.bg : C.surface }}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="text-[12px] font-medium truncate" style={s.inkText}>
+                                      {interAgentThreadTitleForAgent(thread, selectedInterAgent.id)}
+                                    </div>
+                                    <div className="text-[10px] truncate mt-1" style={s.mutedText}>
+                                      {interAgentThreadSubtitle(thread, selectedInterAgent.id)}
+                                    </div>
+                                  </div>
+                                  <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                                    {thread.timestampLabel ?? ''}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
+                                    {thread.sourceKind === 'private' ? 'Private' : 'Relay'}
+                                  </span>
+                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                    {thread.messageCount}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                            No inter-agent traffic recorded for this agent yet.
+                          </div>
+                        )}
+                      </section>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
+                <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent config and live runtime profile</span>
+                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Registry Live
+                </span>
+              </div>
+            </div>
+          </>
+
+        /* --- INTER-AGENT --- */
+        ) : activeView === 'inter-agent' ? (
+          <>
+            {!isCollapsed && (
+              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
+                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
+                <div className="px-4 h-14 flex items-center justify-between border-b" style={{ borderBottomColor: C.border }}>
+                  <div>
+                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>{interAgentState?.title ?? 'Inter-Agent'}</h1>
+                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
+                      {interAgentState?.subtitle ?? 'Agent-to-agent traffic'}
+                    </div>
+                  </div>
+                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto py-3">
+                  <div className="mb-3 px-2">
+                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>Agents</div>
+                    <div className="flex flex-col gap-px">
+                      {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => {
+                        const active = selectedInterAgentId === agent.id;
+                        return (
+                          <button
+                            key={agent.id}
+                            onClick={() => {
+                              setSelectedInterAgentId(agent.id);
+                              setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
+                            }}
+                            className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left"
+                            style={active ? s.activeItem : s.mutedText}
+                          >
+                            <div className="relative shrink-0">
+                              <div
+                                className={`w-6 h-6 rounded text-white flex items-center justify-center text-[9px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+                                style={{ backgroundColor: colorForIdentity(agent.id) }}
+                              >
+                                {agent.title.charAt(0).toUpperCase()}
+                              </div>
+                              <div
+                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(agent.state)}`}
+                                style={{ border: `1px solid ${C.bg}` }}
+                              ></div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate" style={s.inkText}>{agent.title}</div>
+                              <div className="text-[10px] truncate" style={s.mutedText}>{agent.subtitle}</div>
+                            </div>
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
+                          </button>
+                        );
+                      }) : (
+                        <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
+                          No agents available yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="w-[336px] border-r shrink-0 overflow-hidden flex flex-col" style={{ ...s.surface, borderRightColor: C.border }}>
+              <div className="px-4 h-14 border-b flex flex-col justify-center" style={{ borderBottomColor: C.border }}>
+                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Agent Threads</div>
+                <div className="text-[12px] mt-1" style={s.inkText}>
+                  {selectedInterAgent
+                    ? `${selectedInterAgent.title} · ${visibleInterAgentThreads.length} thread${visibleInterAgentThreads.length === 1 ? '' : 's'}`
+                    : 'Select an agent'}
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {selectedInterAgent && visibleInterAgentThreads.length > 0 ? (
+                  <div className="divide-y" style={{ borderColor: C.border }}>
+                    {visibleInterAgentThreads.map((thread) => {
+                      const active = selectedInterAgentThreadId === thread.id;
+                      return (
+                        <button
+                          key={thread.id}
+                          onClick={() => setSelectedInterAgentThreadId(thread.id)}
+                          className="w-full text-left px-4 py-3.5 transition-opacity hover:opacity-90"
+                          style={active ? { backgroundColor: C.bg } : undefined}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium truncate" style={s.inkText}>
+                                {interAgentThreadTitleForAgent(thread, selectedInterAgentId)}
+                              </div>
+                              <div className="mt-1">
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
+                                  {thread.sourceKind === 'private' ? 'Private' : 'Relay'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                              {thread.timestampLabel ?? ''}
+                            </span>
+                          </div>
+                          <div className="text-[10px] mb-1.5 truncate" style={s.mutedText}>
+                            {interAgentThreadSubtitle(thread, selectedInterAgentId)}
+                          </div>
+                          <div className="text-[12px] leading-[1.45] line-clamp-2" style={s.mutedText}>
+                            {thread.preview ?? 'No message preview yet.'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center px-6 text-center">
+                    <div>
+                      <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ backgroundColor: C.accentBg }}>
+                        <InterAgentIcon size={22} style={{ color: C.accent }} />
+                      </div>
+                      <div className="text-[14px] font-medium mb-1" style={s.inkText}>No agent threads</div>
+                      <div className="text-[12px]" style={s.mutedText}>
+                        {selectedInterAgent ? `No inter-agent traffic for ${selectedInterAgent.title} yet.` : 'Pick an agent to inspect its thread network.'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
+              <div className="border-b flex items-center justify-between px-4 h-14 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <InterAgentIcon size={14} style={s.mutedText} />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h2 className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>{interAgentThreadTitle}</h2>
+                      {selectedInterAgentThread ? (
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded shrink-0" style={selectedInterAgentThread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
+                          {selectedInterAgentThread.sourceKind === 'private' ? 'Private' : 'Relay'}
+                        </span>
+                      ) : null}
+                      {selectedInterAgentThread ? (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.tagBadge}>
+                          {selectedInterAgentThread.messageCount}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
+                      {selectedInterAgentThreadSubtitle}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAnnotations(!showAnnotations)}
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={showAnnotations ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
+                  >
+                    Annotations <span className="font-mono uppercase">{showAnnotations ? 'On' : 'Off'}</span>
+                  </button>
+                  {interAgentConfigureTarget ? (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentProfile(interAgentConfigureTarget.id, true)}
+                      title={interAgentConfigureTarget.profileKind === 'project'
+                        ? `Configure ${interAgentConfigureTarget.title}`
+                        : `Open ${interAgentConfigureTarget.title} profile`}
+                    >
+                      {interAgentConfigureLabel}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-3 pb-6">
+                {!selectedInterAgent ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                      <InterAgentIcon size={24} style={{ color: C.accent }} />
+                    </div>
+                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No agent selected</h3>
+                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                      Choose an agent from the left rail to inspect their traffic with other agents.
+                    </p>
+                  </div>
+                ) : !selectedInterAgentThread ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                      <MessageSquare size={24} style={{ color: C.accent }} />
+                    </div>
+                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No thread selected</h3>
+                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                      Pick one of {selectedInterAgent.title}&apos;s agent threads to read it.
+                    </p>
+                  </div>
+                ) : visibleInterAgentMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                      <MessageSquare size={24} style={{ color: C.accent }} />
+                    </div>
+                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>Thread is quiet</h3>
+                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                      This agent thread exists, but there are no visible messages in it yet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <RelayTimeline
+                      messages={visibleInterAgentMessages}
+                      showAnnotations={showAnnotations}
+                      inkStyle={s.inkText}
+                      mutedStyle={s.mutedText}
+                      tagStyle={s.tagBadge}
+                      annotStyle={s.annotBadge}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
+                <span className="text-[9px] font-mono" style={s.mutedText}>Read-only monitor over inter-agent traffic</span>
+                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Observer Mode
+                </span>
+              </div>
+            </div>
+          </>
+
         /* --- SESSIONS --- */
         ) : activeView === 'sessions' ? (
           <>
@@ -1111,60 +2106,26 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex-1 overflow-y-auto py-2">
-                  {/* Channels */}
                   <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Channels</div>
+                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Feeds</div>
                     <div className="flex flex-col gap-px">
-                      {relayState?.channels.map((channel) => {
-                        const active = selectedRelayKind === channel.kind && selectedRelayId === channel.id;
+                      {relayFeedItems.map((item) => {
+                        const active = selectedRelayKind === item.kind && selectedRelayId === item.id;
                         return (
                           <button
-                            key={`${channel.kind}:${channel.id}`}
+                            key={`${item.kind}:${item.id}`}
                             className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
                             style={active ? s.activeItem : s.mutedText}
                             onClick={() => {
-                              setSelectedRelayKind(channel.kind);
-                              setSelectedRelayId(channel.id);
+                              setSelectedRelayKind(item.kind);
+                              setSelectedRelayId(item.id);
                             }}
                           >
-                            {channel.id === 'voice' ? (
-                              <Radio size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
-                            ) : channel.id === 'system' ? (
-                              <Settings size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
-                            ) : (
-                              <Hash size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
-                            )}
-                            <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(channel.title)}</span>
-                            <span className="os-row-count text-[9px] font-mono" style={s.mutedText}>{channel.count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {/* Views */}
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Views</div>
-                    <div className="flex flex-col gap-px">
-                      {relayViewItems.map((view) => {
-                        const active = selectedRelayKind === view.kind && selectedRelayId === view.id;
-                        const icon = view.id === 'mentions'
-                          ? <AtSign size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
-                          : <Radar size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />;
-                        return (
-                          <button
-                            key={`${view.kind}:${view.id}`}
-                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
-                            style={active ? s.activeItem : s.mutedText}
-                            onClick={() => {
-                              setSelectedRelayKind(view.kind);
-                              setSelectedRelayId(view.id);
-                            }}
-                          >
-                            {icon}
-                            <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(view.title)}</span>
-                            {view.count > 0 ? (
+                            <RelayRailIcon id={item.id} active={active} />
+                            <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(item.title)}</span>
+                            {item.count > 0 ? (
                               <span className="os-row-count text-[9px] font-mono px-1 rounded" style={active ? s.activePill : s.tagBadge}>
-                                {view.count}
+                                {item.count}
                               </span>
                             ) : null}
                           </button>
@@ -1172,10 +2133,39 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                  {/* Agents */}
-                  <div className="px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Agents</div>
+
+                  <div className="mb-3 px-1.5">
+                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Conversations</div>
                     <div className="flex flex-col gap-px">
+                      {relayConversationItems.map((item) => {
+                        const active = selectedRelayKind === item.kind && selectedRelayId === item.id;
+                        return (
+                          <button
+                            key={`${item.kind}:${item.id}`}
+                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
+                            style={active ? s.activeItem : s.mutedText}
+                            onClick={() => {
+                              setSelectedRelayKind(item.kind);
+                              setSelectedRelayId(item.id);
+                            }}
+                          >
+                            <RelayRailIcon id={item.id} active={active} />
+                            <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(item.title)}</span>
+                            {item.count > 0 ? (
+                              <span className="os-row-count text-[9px] font-mono px-1 rounded" style={active ? s.activePill : s.tagBadge}>
+                                {item.count}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+
+                      {relayState?.directs.length ? (
+                        <div className="px-1.5 pt-2 pb-1 font-mono text-[8px] tracking-[0.22em] uppercase" style={s.mutedText}>
+                          Direct Threads
+                        </div>
+                      ) : null}
+
                       {relayState?.directs.map((dm) => {
                         const active = selectedRelayKind === 'direct' && selectedRelayId === dm.id;
                         return (
@@ -1218,6 +2208,47 @@ export default function App() {
                       })}
                     </div>
                   </div>
+
+                  <div className="px-1.5">
+                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Agents</div>
+                    <div className="flex flex-col gap-px">
+                      {relayState?.directs.map((dm) => {
+                        const active = selectedRelayKind === 'direct' && selectedRelayId === dm.id;
+                        return (
+                          <button
+                            key={`agent-${dm.id}`}
+                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
+                            style={active ? s.activeItem : s.mutedText}
+                            onClick={() => {
+                              setSelectedRelayKind('direct');
+                              setSelectedRelayId(dm.id);
+                            }}
+                          >
+                            <div className="relative shrink-0">
+                              <div
+                                className={`os-rail-avatar w-4 h-4 rounded text-white flex items-center justify-center font-bold text-[8px] ${dm.reachable ? '' : 'opacity-40 grayscale'}`}
+                                style={{ backgroundColor: colorForIdentity(dm.id) }}
+                              >
+                                {dm.title.charAt(0).toUpperCase()}
+                              </div>
+                              <div
+                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(dm.state)}`}
+                                style={{ border: `1px solid ${C.bg}` }}
+                              ></div>
+                            </div>
+                            <div className={`flex-1 min-w-0 ${dm.reachable ? '' : 'opacity-50'}`}>
+                              <div className="font-medium text-[12px] truncate">{cleanDisplayTitle(dm.title)}</div>
+                              <div className="text-[10px] truncate" style={s.mutedText}>{dm.subtitle}</div>
+                            </div>
+                            {dm.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
+                            <span className="text-[9px] font-mono uppercase tracking-[0.18em]" style={relayPresencePillStyle(dm.state)}>
+                              {dm.statusLabel}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1230,14 +2261,8 @@ export default function App() {
                   <div className="shrink-0">
                     {selectedRelayKind === 'direct' ? (
                       <AtSign size={14} style={s.mutedText} />
-                    ) : selectedRelayKind === 'filter' ? (
-                      <Radar size={14} style={s.mutedText} />
-                    ) : selectedRelayId === 'voice' ? (
-                      <Radio size={14} style={s.mutedText} />
-                    ) : selectedRelayId === 'system' ? (
-                      <Settings size={14} style={s.mutedText} />
                     ) : (
-                      <Hash size={14} style={s.mutedText} />
+                      <RelayRailIcon id={selectedRelayId} active={false} size={14} />
                     )}
                   </div>
                   <div className="min-w-0">
@@ -1250,9 +2275,9 @@ export default function App() {
                       ) : null}
                       {selectedRelayDirectThread ? <RelayPresenceBadge thread={selectedRelayDirectThread} /> : null}
                     </div>
-                    {selectedRelayDirectThread?.statusDetail ? (
+                    {relayThreadSubtitle ? (
                       <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
-                        {selectedRelayDirectThread.statusDetail}
+                        {relayThreadSubtitle}
                       </div>
                     ) : null}
                   </div>
@@ -1380,7 +2405,7 @@ export default function App() {
                   ) : (
                     <>
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                      <span>Channel Active</span>
+                      <span>{relaySelectionIsFeed ? 'Feed Active' : 'Conversation Active'}</span>
                     </>
                   )}
                 </div>
@@ -1705,6 +2730,106 @@ function relayReceiptStyle(state: NonNullable<RelayMessage['receipt']>['state'])
   }
 }
 
+function firstInterAgentThreadIdForAgent(threads: InterAgentThread[], agentId: string) {
+  return threads.find((thread) => thread.participants.some((participant) => participant.id === agentId))?.id ?? null;
+}
+
+function interAgentCounterparts(thread: InterAgentThread, perspectiveId: string | null) {
+  const others = perspectiveId
+    ? thread.participants.filter((participant) => participant.id !== perspectiveId)
+    : thread.participants;
+  return others.length > 0 ? others : thread.participants;
+}
+
+function interAgentThreadTitleForAgent(thread: InterAgentThread, perspectiveId: string | null) {
+  return interAgentCounterparts(thread, perspectiveId).map((participant) => participant.title).join(", ");
+}
+
+function interAgentThreadSubtitle(thread: InterAgentThread, perspectiveId: string | null) {
+  const sourceLabel = thread.sourceKind === 'private' ? 'Private thread' : 'Targeted relay traffic';
+  const participantLine = thread.participants.map((participant) => participant.title).join(" ↔ ");
+  if (!perspectiveId) {
+    return `${sourceLabel} · ${participantLine}`;
+  }
+
+  const others = interAgentCounterparts(thread, perspectiveId).map((participant) => participant.title).join(", ");
+  return thread.latestAuthorName
+    ? `${sourceLabel} · ${others} · Last from ${thread.latestAuthorName}`
+    : `${sourceLabel} · ${participantLine}`;
+}
+
+function interAgentProfileKindLabel(profileKind: InterAgentAgent['profileKind']) {
+  if (profileKind === 'project') {
+    return 'Relay Agent';
+  }
+  if (profileKind === 'system') {
+    return 'System';
+  }
+  return 'Built-in Role';
+}
+
+function normalizeDraftText(value: string) {
+  return value.replace(/\r\n/g, '\n').trim();
+}
+
+function serializeEditableAgentConfig(config: AgentConfigState | null) {
+  if (!config) {
+    return '';
+  }
+
+  return JSON.stringify({
+    cwd: normalizeDraftText(config.runtime.cwd),
+    harness: config.runtime.harness,
+    sessionId: normalizeDraftText(config.runtime.sessionId),
+    systemPrompt: normalizeDraftText(config.systemPrompt),
+    launchArgsText: normalizeDraftText(config.toolUse.launchArgsText),
+    capabilitiesText: normalizeDraftText(config.capabilitiesText),
+  });
+}
+
+function parseCapabilityText(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]/g)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function normalizeLegacyAgentCopy(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value.replace(/\bproject twin\b/gi, (match) => (
+    match[0] === match[0].toUpperCase() ? 'Relay Agent' : 'relay agent'
+  ));
+}
+
+function compactHomePath(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    .replace(/^\/Users\/[^/]+/, "~")
+    .replace(/^\/home\/[^/]+/, "~");
+}
+
+function InterAgentIcon({
+  size = 16,
+  strokeWidth = 1.35,
+  style,
+}: {
+  size?: number;
+  strokeWidth?: number;
+  style?: React.CSSProperties;
+}) {
+  return <Network size={size} strokeWidth={strokeWidth} className="shrink-0" style={style} aria-hidden="true" />;
+}
+
 function shouldRenderRole(role: string | null) {
   if (!role) {
     return false;
@@ -1712,9 +2837,138 @@ function shouldRenderRole(role: string | null) {
   return role.trim().toLowerCase() !== 'operator';
 }
 
+function RelayRailIcon({ id, active, size = 12 }: { id: string; active: boolean; size?: number }) {
+  const iconStyle = active ? { color: C.accent } : undefined;
+
+  if (id === 'voice') {
+    return <Radio size={size} className="os-row-icon shrink-0" style={iconStyle} />;
+  }
+  if (id === 'system') {
+    return <Settings size={size} className="os-row-icon shrink-0" style={iconStyle} />;
+  }
+  if (id === 'mentions') {
+    return <AtSign size={size} className="os-row-icon shrink-0" style={iconStyle} />;
+  }
+  if (id === 'coordination') {
+    return <MessageSquare size={size} className="os-row-icon shrink-0" style={iconStyle} />;
+  }
+  if (id === 'all-traffic') {
+    return <Radar size={size} className="os-row-icon shrink-0" style={iconStyle} />;
+  }
+  return <Hash size={size} className="os-row-icon shrink-0" style={iconStyle} />;
+}
+
+function isRelaySharedConversationMessage(message: RelayMessage) {
+  return (
+    !message.isDirectConversation &&
+    !message.isSystem &&
+    !message.isVoice &&
+    message.messageClass !== 'status' &&
+    (!message.normalizedChannel || message.normalizedChannel === 'shared')
+  );
+}
+
+function isRelaySystemMessage(message: RelayMessage) {
+  return message.isSystem;
+}
+
+function isRelayVoiceMessage(message: RelayMessage) {
+  return message.isVoice;
+}
+
+function isRelayAllTrafficMessage(message: RelayMessage) {
+  return !message.isVoice;
+}
+
+function isRelayCoordinationMessage(message: RelayMessage) {
+  return (
+    !message.isVoice &&
+    !message.isSystem &&
+    (message.isDirectConversation || message.recipients.length > 0 || message.messageClass === 'status')
+  );
+}
+
+function isRelayMentionMessage(message: RelayMessage) {
+  return (
+    !message.isDirectConversation &&
+    !message.isSystem &&
+    !message.isVoice &&
+    message.messageClass !== 'status' &&
+    message.recipients.length > 0
+  );
+}
+
+function relayMessageCount(messages: RelayMessage[], predicate: (message: RelayMessage) => boolean) {
+  return messages.filter(predicate).length;
+}
+
+function buildRelayFeedItems(relayState: DesktopShellState['relay'] | null): RelayNavItem[] {
+  if (!relayState) {
+    return [];
+  }
+
+  const viewById = new Map(relayState.views.map((item) => [item.id, item]));
+  const channelById = new Map(relayState.channels.map((item) => [item.id, item]));
+
+  return [
+    viewById.get('all-traffic') ?? {
+      kind: 'filter',
+      id: 'all-traffic',
+      title: 'All Traffic',
+      subtitle: 'Every non-voice message across the workspace.',
+      count: relayMessageCount(relayState.messages, isRelayAllTrafficMessage),
+    },
+    viewById.get('coordination') ?? {
+      kind: 'filter',
+      id: 'coordination',
+      title: 'Coordination',
+      subtitle: 'Targeted messages, direct threads, and task handoffs.',
+      count: relayMessageCount(relayState.messages, isRelayCoordinationMessage),
+    },
+    viewById.get('mentions') ?? {
+      kind: 'filter',
+      id: 'mentions',
+      title: 'Mentions',
+      subtitle: 'Focused view over shared-channel targeted messages.',
+      count: relayMessageCount(relayState.messages, isRelayMentionMessage),
+    },
+    channelById.get('system') ?? {
+      kind: 'channel',
+      id: 'system',
+      title: '# system',
+      subtitle: 'Infrastructure, lifecycle, and broker state events.',
+      count: relayMessageCount(relayState.messages, isRelaySystemMessage),
+    },
+    channelById.get('voice') ?? {
+      kind: 'channel',
+      id: 'voice',
+      title: '# voice',
+      subtitle: 'Voice-related chat, transcripts, and spoken updates.',
+      count: relayMessageCount(relayState.messages, isRelayVoiceMessage),
+    },
+  ];
+}
+
+function buildRelayConversationItems(relayState: DesktopShellState['relay'] | null): RelayNavItem[] {
+  if (!relayState) {
+    return [];
+  }
+
+  const sharedChannel = relayState.channels.find((item) => item.id === 'shared');
+  return [
+    sharedChannel ?? {
+      kind: 'channel',
+      id: 'shared',
+      title: '# shared-channel',
+      subtitle: 'Broadcast updates and shared context.',
+      count: relayMessageCount(relayState.messages, isRelaySharedConversationMessage),
+    },
+  ];
+}
+
 function resolveRelayDestination(
   relayState: DesktopShellState['relay'],
-  views: RelayNavItem[],
+  feedItems: RelayNavItem[],
   kind: RelayDestinationKind,
   id: string,
 ) {
@@ -1722,7 +2976,7 @@ function resolveRelayDestination(
     return relayState.channels.find((item) => item.id === id) ?? null;
   }
   if (kind === 'filter') {
-    return views.find((item) => item.id === id) ?? null;
+    return feedItems.find((item) => item.id === id) ?? null;
   }
   return relayState.directs.find((item) => item.id === id) ?? null;
 }
@@ -1732,63 +2986,39 @@ function filterRelayMessages(messages: RelayMessage[], kind: RelayDestinationKin
     return messages.filter(
       (message) =>
         message.isDirectConversation &&
-        message.messageClass !== 'status' &&
         (message.authorId === id || message.recipients.includes(id)),
     );
   }
 
-  if (kind === 'filter' && id === 'overview') {
-    return messages.filter((message) => !message.isVoice && message.messageClass !== 'status');
+  if (kind === 'filter' && id === 'all-traffic') {
+    return messages.filter(isRelayAllTrafficMessage);
+  }
+
+  if (kind === 'filter' && id === 'coordination') {
+    return messages.filter(isRelayCoordinationMessage);
   }
 
   if (kind === 'filter' && id === 'mentions') {
-    return messages.filter(
-      (message) =>
-        !message.isDirectConversation &&
-        !message.isSystem &&
-        !message.isVoice &&
-        message.messageClass !== 'status' &&
-        message.recipients.length > 0,
-    );
+    return messages.filter(isRelayMentionMessage);
   }
 
   if (kind === 'channel' && id === 'voice') {
-    return messages.filter((message) => message.isVoice && message.messageClass !== 'status');
+    return messages.filter(isRelayVoiceMessage);
   }
 
   if (kind === 'channel' && id === 'system') {
-    return messages.filter((message) => message.isSystem || message.messageClass === 'status');
+    return messages.filter(isRelaySystemMessage);
   }
 
-  return messages.filter(
-    (message) =>
-      !message.isDirectConversation &&
-      !message.isSystem &&
-      !message.isVoice &&
-      message.messageClass !== 'status' &&
-      (!message.normalizedChannel || message.normalizedChannel === 'shared'),
-  );
-}
-
-function ensureOverviewView(views: RelayNavItem[], messages: RelayMessage[]) {
-  if (views.some((view) => view.id === 'overview')) {
-    return views;
-  }
-
-  const overviewItem: RelayNavItem = {
-    kind: 'filter',
-    id: 'overview',
-    title: 'Overview',
-    subtitle: 'Cross-agent activity and workspace traffic.',
-    count: messages.filter((message) => !message.isVoice).length,
-  };
-
-  return [overviewItem, ...views];
+  return messages.filter(isRelaySharedConversationMessage);
 }
 
 function placeholderForDestination(kind: RelayDestinationKind, id: string) {
   if (kind === 'direct') {
     return 'Message direct thread...';
+  }
+  if (kind === 'filter' && id === 'coordination') {
+    return 'Message #shared-channel or @agent...';
   }
   if (kind === 'channel' && id === 'voice') {
     return 'Message #voice...';

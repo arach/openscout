@@ -115,7 +115,7 @@ export class TelegramRelayBridge implements ChatBridgeAdapter {
   private readonly telegram: TelegramAdapter;
   private readonly bot: Chat<{ telegram: TelegramAdapter }>;
   private readonly inflightDeliveries = new Set<string>();
-  private deliveryTimer: Timer | null = null;
+  private deliveryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: TelegramRelayBridgeOptions) {
     this.hub = options.hub;

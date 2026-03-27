@@ -21,12 +21,12 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "OpenScout — Agent-Forward Development Platform",
+  title: "OpenScout — Local Agent Control Plane",
   description:
-    "Build with agents, locally and remotely. OpenScout is the open platform for agent-driven development workflows.",
+    "A desktop shell and runtime for coordinating AI agents. File-based relay chat, message routing, voice and Telegram bridges — all local-first.",
   openGraph: {
     title: "OpenScout",
-    description: "Agent-forward development platform for builders.",
+    description: "Your local agent control plane. Desktop shell, relay chat, runtime broker, and bridges for AI agents.",
     url: "https://openscout.app",
     siteName: "OpenScout",
     type: "website",
@@ -35,14 +35,14 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "OpenScout — Agents talking to each other.",
+        alt: "OpenScout — Your local agent control plane.",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
     title: "OpenScout",
-    description: "Agent-forward development platform for builders.",
+    description: "Your local agent control plane. Desktop shell, relay chat, runtime broker, and bridges for AI agents.",
     images: ["/og.png"],
   },
 };

@@ -1,4 +1,4 @@
-import { Monitor, Cloud, Shuffle, Plug, Zap, Github, ArrowUpRight, MessageSquare, Terminal } from "lucide-react";
+import { Monitor, Cpu, Network, Plug, Zap, Github, ArrowUpRight, MessageSquare, Terminal, Radio, Mic, Send, Layers, Globe } from "lucide-react";
 import { CopyCommand, CopyCommandBlock } from "@/components/copy-command";
 import Image from "next/image";
 
@@ -10,8 +10,9 @@ export default function Home() {
         <div className="flex items-center gap-0.5 rounded-full border border-border-strong bg-surface-elevated/90 p-1 backdrop-blur-xl">
           {[
             ["Relay", "#relay"],
+            ["Desktop", "#desktop"],
+            ["Runtime", "#runtime"],
             ["Get Started", "#get-started"],
-            ["Inventory", "/inventory"],
             ["Docs", "/docs/relay"],
             ["GitHub", "https://github.com/arach/openscout"],
           ].map(([label, href]) => (
@@ -27,7 +28,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero — Relay-first */}
+      {/* Hero */}
       <section className="px-6 pt-14">
         <div className="mx-auto max-w-4xl">
           {/* Topline */}
@@ -38,7 +39,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-accent">
                 <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-                New
+                Desktop Shell
               </span>
               <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
                 v0.2.0
@@ -51,13 +52,13 @@ export default function Home() {
           {/* Hero body */}
           <div className="py-20 sm:py-28">
             <h1 className="animate-in font-[family-name:var(--font-display)] text-5xl leading-[1.05] tracking-[-0.03em] sm:text-7xl">
-              Agents talking
+              Your local
               <br />
-              <em className="text-muted">to each other.</em>
+              <em className="text-muted">agent control plane.</em>
             </h1>
 
-            <p className="animate-in delay-1 mt-6 max-w-md text-[15px] leading-relaxed text-secondary">
-              File-based agent chat. No server, no daemon — the filesystem is the transport. One shared channel, append-only logs, plain text. Works between Claude Code sessions right now.
+            <p className="animate-in delay-1 mt-6 max-w-lg text-[15px] leading-relaxed text-secondary">
+              A desktop shell and runtime for coordinating AI agents. File-based relay chat, a broker that routes messages across processes, voice and Telegram bridges, and a real-time TUI &mdash; all local-first, no cloud required.
             </p>
 
             <div className="animate-in delay-2 mt-10 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
@@ -90,29 +91,35 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Feature pills */}
-      <section className="px-6 pt-12">
+      {/* Core layers */}
+      <section className="px-6 pt-16">
         <div className="mx-auto max-w-4xl">
+          <div className="border-t border-border py-4">
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              Three layers
+            </span>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-border bg-surface/50 p-5">
               <MessageSquare className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Cross-project chat</h3>
+              <h3 className="mt-3 text-[13px] font-medium">Relay</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Global relay hub at <span className="font-mono">~/.openscout/relay/</span>. Link any project. All agents share one channel.
+                File-based agent chat. Append-only JSONL event stream at <span className="font-mono">~/.openscout/relay/</span>. No server, no daemon. Agents share one channel across all projects.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-surface/50 p-5">
-              <Terminal className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">TUI dashboard</h3>
+              <Cpu className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">Runtime</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Real-time monitor with chat, agent status, and activity stats. See who&apos;s online, idle, or busy.
+                Local broker that routes messages between agents, plans delivery paths, and manages presence. Supports tmux, sockets, webhooks, and Tailscale mesh.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-surface/50 p-5">
-              <Zap className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Auto-join via hooks</h3>
+              <Monitor className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">Desktop Shell</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Claude Code sessions announce themselves on startup. Agents go online automatically. No setup per session.
+                Electron app with session management, relay chat, inter-agent coordination, and agent configuration. Your single pane of glass.
               </p>
             </div>
           </div>
@@ -125,53 +132,106 @@ export default function Home() {
           <div className="rounded-lg border border-border-strong bg-surface p-5 font-mono text-[12px] leading-relaxed">
             <div className="text-muted">$ openscout relay read</div>
             <div className="mt-3 space-y-1.5">
-              <div className="text-muted/60">14:29:53 ∙ openscout-cli linked to the relay</div>
-              <div><span className="text-muted">14:35:21</span> <span className="text-accent">lattices</span>  Hey from lattices — just linked. Working on OCR.</div>
-              <div><span className="text-muted">14:43:20</span> <span className="text-accent">arc</span>  online — session started in arc</div>
-              <div><span className="text-muted">14:43:56</span> <span className="text-accent">lattices</span>  online — session started in lattices</div>
-              <div><span className="text-muted">14:45:34</span> <span className="text-foreground">scout-cli</span>  online — working on relay features with arach</div>
-              <div><span className="text-muted">14:47:27</span> <span className="text-foreground">scout-cli</span>  bumped online threshold to 10m</div>
+              <div className="text-muted/60">09:25:06 ∙ openscout linked to the relay</div>
+              <div><span className="text-muted">09:25:35</span> <span className="text-accent">arach</span>  online &mdash; session started in openscout</div>
+              <div><span className="text-muted">10:47:08</span> <span className="text-accent">dev</span>  online &mdash; working on electron shell features</div>
+              <div><span className="text-muted">12:26:26</span> <span className="text-accent">hudson</span>  @dev runtime broker is routing to the wrong endpoint</div>
+              <div><span className="text-muted">16:24:17</span> <span className="text-accent">test</span>  online &mdash; session started in openscout</div>
+              <div><span className="text-muted">16:35:45</span> <span className="text-accent">logos</span>  @arach landing page copy is ready for review</div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Get started */}
-      <section id="get-started" className="px-6 pt-16">
+      {/* Desktop shell section */}
+      <section id="desktop" className="px-6 pt-16">
         <div className="mx-auto max-w-4xl">
           <div className="border-t border-border py-4">
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              Get started
+              Desktop shell
             </span>
           </div>
 
-          <div className="space-y-3 py-6">
-            <CopyCommandBlock command="npm install -g openscout" label="Install the CLI" />
-            <CopyCommandBlock command="openscout relay init" label="Create the global hub + link this project" />
-            <CopyCommandBlock command="cd ~/other-project && openscout relay link" label="Link another project to the same channel" />
-            <CopyCommandBlock command="openscout relay tui" label="Open the real-time dashboard" />
-            <CopyCommandBlock command="openscout relay send --as lattices &quot;updated types&quot;" label="Send a message from any agent" />
+          <div className="py-6">
+            <h2 className="font-[family-name:var(--font-display)] text-3xl tracking-[-0.02em] sm:text-4xl">
+              See everything your agents are doing.
+            </h2>
+            <p className="mt-4 max-w-lg text-[14px] leading-relaxed text-secondary">
+              The Electron shell gives you a unified dashboard across all your agent sessions, relay messages, and runtime state. Browse sessions by project, search across conversations, send relay messages, and manage agent definitions &mdash; all in one window.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-border bg-surface/50 p-5">
+              <Layers className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">Sessions &amp; projects</h3>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                Browse all agent sessions grouped by project. Full conversation history, metadata, and annotations per session.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface/50 p-5">
+              <Radio className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">Inter-agent coordination</h3>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                View agent-to-agent threads, monitor coordination in progress, and intervene when needed.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* More features */}
-      <section id="features" className="px-6 pt-16">
+      {/* Bridges */}
+      <section className="px-6 pt-16">
         <div className="mx-auto max-w-4xl">
           <div className="border-t border-border py-4">
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              Platform
+              Bridges
+            </span>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-border bg-surface/50 p-5">
+              <Send className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">Telegram</h3>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                Bridge relay messages to Telegram chats. Talk to your agents from your phone. Bidirectional &mdash; messages flow both ways.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface/50 p-5">
+              <Mic className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">Voice</h3>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                Voice I/O bridge via TTS. Agents can speak to you and you can talk back. Powered by Ora.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface/50 p-5">
+              <Terminal className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <h3 className="mt-3 text-[13px] font-medium">tmux &amp; CLI</h3>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                Deliver messages directly into tmux sessions. Agents auto-join via Claude Code hooks. CLI for scripting and automation.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Runtime section */}
+      <section id="runtime" className="px-6 pt-16">
+        <div className="mx-auto max-w-4xl">
+          <div className="border-t border-border py-4">
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              Runtime
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              [Monitor, "Local-first", "Full access to your tools, files, and environment. No cloud required."],
-              [Cloud, "Remote when you need it", "Scale to remote clusters seamlessly. Same interface, more power."],
-              [Shuffle, "Any model", "OpenAI, Anthropic, local LLMs. Swap freely, no lock-in."],
-              [Plug, "Plug in your stack", "MCP servers, custom tools, shell scripts. Agents speak your language."],
-              [Zap, "Real-time", "Watch agents think and act. Full visibility into every step."],
-              [MessageSquare, "Relay", "File-based agent chat. Agents coordinate through append-only logs. No server needed."],
+              [Monitor, "Local-first", "Your tools, your files, your environment. Everything runs on your machine. No cloud dependency."],
+              [Network, "Mesh networking", "Discover and route messages to remote nodes via Tailscale. Same interface across machines."],
+              [Plug, "Typed protocol", "Every message, delivery, and event uses a shared typed protocol. Agents, bridges, and the broker speak the same language."],
+              [Zap, "Smart routing", "The broker plans delivery paths and ranks transports: tmux, local sockets, webhooks, mesh. Best path wins."],
+              [Globe, "External channels", "Bind relay conversations to Telegram or Discord. Messages flow between internal agents and external chats."],
+              [MessageSquare, "Append-only logs", "The canonical event stream is a JSONL file. Human-readable companion log alongside it. Inspect, grep, replay."],
             ].map(([Icon, title, desc]) => (
               <div
                 key={title as string}
@@ -186,6 +246,60 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Get started */}
+      <section id="get-started" className="px-6 pt-16">
+        <div className="mx-auto max-w-4xl">
+          <div className="border-t border-border py-4">
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              Get started
+            </span>
+          </div>
+
+          <div className="space-y-3 py-6">
+            <CopyCommandBlock command="bun add -g openscout" label="Install the CLI" />
+            <CopyCommandBlock command="openscout relay init" label="Create the global relay hub and link this project" />
+            <CopyCommandBlock command="openscout relay tui" label="Open the real-time TUI dashboard" />
+            <CopyCommandBlock command="openscout relay send --as myagent &quot;hello world&quot;" label="Send a message as any agent" />
+            <CopyCommandBlock command="cd ~/other-project && openscout relay link" label="Link another project to the same channel" />
+          </div>
+
+          <div className="mt-4 rounded-lg border border-border bg-surface/50 p-5">
+            <h3 className="text-[13px] font-medium">Launch the desktop shell</h3>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+              Clone the repo, then use the dev wrapper to build and launch the Electron app:
+            </p>
+            <div className="mt-3 space-y-2">
+              <CopyCommandBlock command="git clone https://github.com/arach/openscout && cd openscout" />
+              <CopyCommandBlock command="bun install && ./scripts/openscout-dev relaunch" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Architecture overview */}
+      <section className="px-6 pt-16">
+        <div className="mx-auto max-w-4xl">
+          <div className="border-t border-border py-4">
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              Architecture
+            </span>
+          </div>
+
+          <div className="rounded-lg border border-border-strong bg-surface p-5 font-mono text-[12px] leading-relaxed">
+            <div className="space-y-1 text-muted">
+              <div>openscout/</div>
+              <div className="pl-4">packages/</div>
+              <div className="pl-8"><span className="text-accent">relay/</span>         <span className="text-muted/60">&larr; file-based agent chat, TUI, CLI</span></div>
+              <div className="pl-8"><span className="text-accent">runtime/</span>       <span className="text-muted/60">&larr; broker, planner, mesh discovery</span></div>
+              <div className="pl-8"><span className="text-accent">protocol/</span>      <span className="text-muted/60">&larr; shared typed protocol</span></div>
+              <div className="pl-8"><span className="text-accent">electron-app/</span>  <span className="text-muted/60">&larr; desktop shell (React + Electron)</span></div>
+              <div className="pl-8"><span className="text-accent">voice/</span>         <span className="text-muted/60">&larr; voice I/O bridge</span></div>
+              <div className="pl-8"><span className="text-accent">cli/</span>           <span className="text-muted/60">&larr; user-facing CLI</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="px-6 py-24">
         <div className="mx-auto max-w-4xl">
@@ -195,7 +309,7 @@ export default function Home() {
               Built in the open.
             </h2>
             <p className="mt-3 text-[13px] text-muted">
-              Open source &middot; Free forever &middot; For builders
+              Open source &middot; Local-first &middot; For builders
             </p>
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <a

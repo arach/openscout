@@ -2,6 +2,9 @@
   "name": "openscout",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "openscout-dev": "./scripts/openscout-dev"
+  },
   "packageManager": "bun@1.3.11",
   "workspaces": [
     "packages/*"
@@ -21,6 +24,12 @@
     "electron:apply-v0": "bun run --cwd packages/electron-app apply:v0",
     "electron:package": "bun run --cwd packages/electron-app package:macos",
     "electron:web": "bun run --cwd packages/electron-app electron:web",
+    "openscout:build": "./scripts/openscout-dev build",
+    "openscout:launch": "./scripts/openscout-dev launch",
+    "openscout:relaunch": "./scripts/openscout-dev relaunch",
+    "openscout:quit": "./scripts/openscout-dev quit",
+    "openscout:status": "./scripts/openscout-dev status",
+    "openscout:logs": "./scripts/openscout-dev logs",
     "site": "bun run site:dev",
     "site:dev": "next dev",
     "site:build": "next build",

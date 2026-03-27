@@ -317,8 +317,346 @@ interface ChannelMessage {
   channel?: string;    // e.g. "voice"
 }
 
+interface BrokerActorRecord {
+  id: string;
+  kind?: string;
+  displayName?: string;
+  handle?: string;
+  labels?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+interface BrokerAgentRecord extends BrokerActorRecord {
+  homeNodeId?: string;
+  authorityNodeId?: string;
+}
+
+interface BrokerConversationRecord {
+  id: string;
+  kind: string;
+  title: string;
+  visibility: string;
+  shareMode?: string;
+  authorityNodeId: string;
+  participantIds: string[];
+  metadata?: Record<string, unknown>;
+}
+
+interface BrokerSnapshot {
+  actors: Record<string, BrokerActorRecord>;
+  agents: Record<string, BrokerAgentRecord>;
+  conversations: Record<string, BrokerConversationRecord>;
+}
+
+interface BrokerNodeRecord {
+  id: string;
+  brokerUrl?: string;
+}
+
+interface BrokerRelayContext {
+  baseUrl: string;
+  node: BrokerNodeRecord;
+  snapshot: BrokerSnapshot;
+}
+
+const BROKER_SHARED_CHANNEL_ID = "channel.shared";
+const BROKER_VOICE_CHANNEL_ID = "channel.voice";
+const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
+const OPERATOR_ID = "operator";
+
 function generateMessageId(): string {
   return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
+}
+
+function titleCaseName(value: string): string {
+  return value
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function resolveBrokerUrl(): string {
+  return process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65535";
+}
+
+function sanitizeConversationSegment(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
+}
+
+async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
+  const response = await fetch(new URL(path, baseUrl), {
+    headers: {
+      accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function brokerPostJson<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
+  const response = await fetch(new URL(path, baseUrl), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function loadBrokerRelayContext(): Promise<BrokerRelayContext | null> {
+  const baseUrl = resolveBrokerUrl();
+
+  try {
+    const health = await brokerReadJson<{ ok?: boolean }>(baseUrl, "/health");
+    if (!health.ok) {
+      return null;
+    }
+
+    const [node, snapshot] = await Promise.all([
+      brokerReadJson<BrokerNodeRecord>(baseUrl, "/v1/node"),
+      brokerReadJson<BrokerSnapshot>(baseUrl, "/v1/snapshot"),
+    ]);
+
+    if (!node.id) {
+      return null;
+    }
+
+    return {
+      baseUrl,
+      node,
+      snapshot,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function ensureBrokerActor(
+  baseUrl: string,
+  snapshot: BrokerSnapshot,
+  actorId: string,
+): Promise<void> {
+  if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
+    return;
+  }
+
+  const actor: BrokerActorRecord = {
+    id: actorId,
+    kind: actorId === OPERATOR_ID ? "person" : "agent",
+    displayName: titleCaseName(actorId),
+    handle: actorId,
+    labels: ["relay"],
+    metadata: { source: "relay-cli" },
+  };
+
+  await brokerPostJson(baseUrl, "/v1/actors", actor);
+  snapshot.actors[actorId] = actor;
+}
+
+function relayConversationDefinition(
+  snapshot: BrokerSnapshot,
+  nodeId: string,
+  channel: string | undefined,
+  senderId: string,
+): BrokerConversationRecord {
+  const normalizedChannel = channel?.trim() || "shared";
+  const sharedParticipants = unique([
+    OPERATOR_ID,
+    senderId,
+    ...Object.keys(snapshot.agents),
+  ]).sort();
+
+  if (normalizedChannel === "voice") {
+    return {
+      id: BROKER_VOICE_CHANNEL_ID,
+      kind: "channel",
+      title: "voice",
+      visibility: "workspace",
+      shareMode: "local",
+      authorityNodeId: nodeId,
+      participantIds: sharedParticipants,
+      metadata: { surface: "relay-cli", channel: "voice" },
+    };
+  }
+
+  if (normalizedChannel === "system") {
+    return {
+      id: BROKER_SYSTEM_CHANNEL_ID,
+      kind: "system",
+      title: "system",
+      visibility: "system",
+      shareMode: "local",
+      authorityNodeId: nodeId,
+      participantIds: unique([OPERATOR_ID, senderId]).sort(),
+      metadata: { surface: "relay-cli", channel: "system" },
+    };
+  }
+
+  if (normalizedChannel === "shared") {
+    return {
+      id: BROKER_SHARED_CHANNEL_ID,
+      kind: "channel",
+      title: "shared-channel",
+      visibility: "workspace",
+      shareMode: "shared",
+      authorityNodeId: nodeId,
+      participantIds: sharedParticipants,
+      metadata: { surface: "relay-cli", channel: "shared" },
+    };
+  }
+
+  return {
+    id: `channel.${sanitizeConversationSegment(normalizedChannel)}`,
+    kind: "channel",
+    title: normalizedChannel,
+    visibility: "workspace",
+    shareMode: "local",
+    authorityNodeId: nodeId,
+    participantIds: sharedParticipants,
+    metadata: { surface: "relay-cli", channel: normalizedChannel },
+  };
+}
+
+async function ensureBrokerConversation(
+  baseUrl: string,
+  snapshot: BrokerSnapshot,
+  nodeId: string,
+  channel: string | undefined,
+  senderId: string,
+): Promise<BrokerConversationRecord> {
+  const definition = relayConversationDefinition(snapshot, nodeId, channel, senderId);
+  const existing = snapshot.conversations[definition.id];
+  const nextParticipants = unique([
+    ...(existing?.participantIds ?? []),
+    ...definition.participantIds,
+  ]).sort();
+
+  if (
+    !existing
+    || existing.kind !== definition.kind
+    || existing.visibility !== definition.visibility
+    || nextParticipants.length !== existing.participantIds.length
+  ) {
+    const nextConversation: BrokerConversationRecord = {
+      ...definition,
+      participantIds: nextParticipants,
+    };
+    await brokerPostJson(baseUrl, "/v1/conversations", nextConversation);
+    snapshot.conversations[nextConversation.id] = nextConversation;
+    return nextConversation;
+  }
+
+  return existing;
+}
+
+type BrokerRelayPostResult = {
+  usedBroker: boolean;
+  invokedTargets: string[];
+  unresolvedTargets: string[];
+};
+
+async function postRelayMessageToBroker(input: {
+  senderId: string;
+  body: string;
+  messageId: string;
+  channel?: string;
+  shouldSpeak?: boolean;
+  mentionTargets: string[];
+  createdAtMs: number;
+}): Promise<BrokerRelayPostResult> {
+  const broker = await loadBrokerRelayContext();
+  if (!broker) {
+    return {
+      usedBroker: false,
+      invokedTargets: [],
+      unresolvedTargets: input.mentionTargets,
+    };
+  }
+
+  await ensureBrokerActor(broker.baseUrl, broker.snapshot, input.senderId);
+  const conversation = await ensureBrokerConversation(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.channel,
+    input.senderId,
+  );
+
+  const validTargets = unique(
+    input.mentionTargets.filter((target) => target !== input.senderId && Boolean(broker.snapshot.agents[target])),
+  ).sort();
+  const unresolvedTargets = input.mentionTargets.filter((target) => !validTargets.includes(target));
+  const speechText = input.shouldSpeak
+    ? input.body.replace(/@[\w.-]+\s*/g, "").trim()
+    : "";
+
+  await brokerPostJson(broker.baseUrl, "/v1/messages", {
+    id: input.messageId,
+    conversationId: conversation.id,
+    actorId: input.senderId,
+    originNodeId: broker.node.id,
+    class: conversation.kind === "system" ? "system" : "agent",
+    body: input.body,
+    mentions: validTargets.map((actorId) => ({ actorId, label: `@${actorId}` })),
+    speech: speechText ? { text: speechText } : undefined,
+    audience: validTargets.length > 0
+      ? {
+          notify: validTargets,
+          invoke: validTargets,
+          reason: "mention",
+        }
+      : undefined,
+    visibility: conversation.visibility,
+    policy: "durable",
+    createdAt: input.createdAtMs,
+    metadata: {
+      source: "relay-cli",
+      relayChannel: input.channel ?? "shared",
+      relayMessageId: input.messageId,
+    },
+  });
+
+  for (const targetAgentId of validTargets) {
+    await brokerPostJson(broker.baseUrl, "/v1/invocations", {
+      id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      requesterId: input.senderId,
+      requesterNodeId: broker.node.id,
+      targetAgentId,
+      action: "consult",
+      task: input.body,
+      conversationId: conversation.id,
+      messageId: input.messageId,
+      ensureAwake: true,
+      stream: false,
+      createdAt: Date.now(),
+      metadata: {
+        source: "relay-cli",
+        relayChannel: input.channel ?? "shared",
+      },
+    });
+  }
+
+  return {
+    usedBroker: true,
+    invokedTargets: validTargets,
+    unresolvedTargets,
+  };
 }
 
 async function writeChannel(hub: string, msg: Omit<ChannelMessage, "id">): Promise<ChannelMessage> {
@@ -1101,8 +1439,23 @@ async function relaySend() {
   }
 
   // Notify @mentioned agents
-  if (mentions.length) {
-    for (const target of mentions) {
+  const brokerResult = await postRelayMessageToBroker({
+    senderId: agent,
+    body: message,
+    messageId: entry.id,
+    channel,
+    shouldSpeak,
+    mentionTargets: mentions,
+    createdAtMs: Date.now(),
+  });
+  if (brokerResult.usedBroker) {
+    for (const target of brokerResult.invokedTargets) {
+      print(`  \x1b[32m✓\x1b[0m Routed to ${target} via broker invocation`);
+    }
+  }
+
+  if (brokerResult.unresolvedTargets.length) {
+    for (const target of brokerResult.unresolvedTargets) {
       if (target === agent) continue; // don't deliver to yourself
       const result = await deliverToAgent(target, agent, message, channel, entry.id);
       if (result === "delivered") {
@@ -1164,9 +1517,23 @@ async function relaySpeak() {
   await setAgentState(agent, "idle");
   await releaseOnAir();
 
-  // Also notify @mentioned agents
-  if (mentions.length) {
-    for (const target of mentions) {
+  const brokerResult = await postRelayMessageToBroker({
+    senderId: agent,
+    body: message,
+    messageId: entry.id,
+    channel: "voice",
+    shouldSpeak: true,
+    mentionTargets: mentions,
+    createdAtMs: Date.now(),
+  });
+  if (brokerResult.usedBroker) {
+    for (const target of brokerResult.invokedTargets) {
+      print(`  \x1b[32m✓\x1b[0m Routed to ${target} via broker invocation`);
+    }
+  }
+
+  if (brokerResult.unresolvedTargets.length) {
+    for (const target of brokerResult.unresolvedTargets) {
       if (target === agent) continue;
       await deliverToAgent(target, agent, message, undefined, entry.id);
     }

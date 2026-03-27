@@ -9,23 +9,35 @@ import {
   startBrokerService,
   stopBrokerService,
 } from "../../runtime/src/broker-service.js";
+import {
+  buildTwinSystemPrompt,
+  getProjectTwinConfig,
+  loadRegisteredProjectTwinBindings,
+  restartProjectTwin,
+  SUPPORTED_TWIN_HARNESSES,
+  updateProjectTwinConfig,
+} from "../../runtime/src/project-twins.js";
 import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
 import type {
+  AgentConfigState,
   BrokerControlAction,
   DesktopAppInfo,
   DesktopRuntimeState,
   DesktopShellState,
+  RestartAgentInput,
   RelayDirectThread,
   RelayMessage,
   RelayNavItem,
   RelayState,
   SendRelayMessageInput,
   SessionMetadata,
+  UpdateAgentConfigInput,
 } from "../src/lib/openscout-desktop.js";
 
 const OPERATOR_ID = "operator";
+const OPERATOR_DISPLAY_NAME = process.env.OPENSCOUT_OPERATOR_NAME?.trim() || "Arach";
 const SHARED_CHANNEL_ID = "channel.shared";
 const VOICE_CHANNEL_ID = "channel.voice";
 const SYSTEM_CHANNEL_ID = "channel.system";
@@ -51,6 +63,7 @@ type ActorRecord = {
 type AgentRecord = ActorRecord & {
   agentClass?: string;
   capabilities?: string[];
+  wakePolicy?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -156,6 +169,26 @@ function formatRelativeTime(value: number): string {
   if (deltaHours < 24) return `${deltaHours}h ago`;
   const deltaDays = Math.floor(deltaHours / 24);
   return `${deltaDays}d ago`;
+}
+
+function compactHomePath(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const home = homedir();
+  return value.startsWith(home) ? value.replace(home, "~") : value;
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split(/\r?\n/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function splitDelimitedTokens(value: string): string[] {
+  return value
+    .split(/[\n,]/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function isReachableEndpointState(state: string | undefined): boolean {
@@ -280,6 +313,9 @@ async function readNode(baseUrl: string): Promise<BrokerNode | null> {
 }
 
 function actorDisplayName(snapshot: RuntimeRegistrySnapshot, actorId: string): string {
+  if (actorId === OPERATOR_ID) {
+    return OPERATOR_DISPLAY_NAME;
+  }
   const agent = snapshot.agents[actorId] as AgentRecord | undefined;
   if (agent?.displayName) return agent.displayName;
   const actor = snapshot.actors[actorId] as ActorRecord | undefined;
@@ -508,7 +544,7 @@ function buildRelayDirects(
           ? String(agent.metadata.role)
           : typeof agent.metadata?.summary === "string"
             ? String(agent.metadata.summary)
-            : "Project twin";
+            : "Relay agent";
       const activity = activityByAgent.get(agent.id) ?? {
         state: "offline" as const,
         reachable: false,
@@ -652,6 +688,46 @@ function attachRelayReceipts(
   });
 }
 
+function isRelaySharedConversationMessage(message: RelayMessage) {
+  return (
+    !message.isDirectConversation &&
+    !message.isSystem &&
+    !message.isVoice &&
+    message.messageClass !== "status" &&
+    (!message.normalizedChannel || message.normalizedChannel === "shared")
+  );
+}
+
+function isRelaySystemMessage(message: RelayMessage) {
+  return message.isSystem;
+}
+
+function isRelayVoiceMessage(message: RelayMessage) {
+  return message.isVoice;
+}
+
+function isRelayAllTrafficMessage(message: RelayMessage) {
+  return !message.isVoice;
+}
+
+function isRelayCoordinationMessage(message: RelayMessage) {
+  return (
+    !message.isVoice &&
+    !message.isSystem &&
+    (message.isDirectConversation || message.recipients.length > 0 || message.messageClass === "status")
+  );
+}
+
+function isRelayMentionMessage(message: RelayMessage) {
+  return (
+    !message.isDirectConversation &&
+    !message.isSystem &&
+    !message.isVoice &&
+    message.messageClass !== "status" &&
+    message.recipients.length > 0
+  );
+}
+
 function countMessages(messages: RelayMessage[], predicate: (message: RelayMessage) => boolean) {
   return messages.filter(predicate).length;
 }
@@ -669,54 +745,45 @@ function buildRelayState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSe
       id: "shared",
       title: "# shared-channel",
       subtitle: "Broadcast updates and shared context.",
-      count: countMessages(
-        messages,
-        (message) =>
-          !message.isDirectConversation &&
-          !message.isSystem &&
-          !message.isVoice &&
-          message.messageClass !== "status" &&
-          (!message.normalizedChannel || message.normalizedChannel === "shared"),
-      ),
+      count: countMessages(messages, isRelaySharedConversationMessage),
     },
     {
       kind: "channel",
       id: "voice",
       title: "# voice",
       subtitle: "Voice-related chat, transcripts, and spoken updates.",
-      count: countMessages(messages, (message) => message.isVoice),
+      count: countMessages(messages, isRelayVoiceMessage),
     },
     {
       kind: "channel",
       id: "system",
       title: "# system",
-      subtitle: "State, lifecycle, and infrastructure events.",
-      count: countMessages(messages, (message) => message.isSystem || message.messageClass === "status"),
+      subtitle: "Infrastructure, lifecycle, and broker state events.",
+      count: countMessages(messages, isRelaySystemMessage),
     },
   ];
 
   const views: RelayNavItem[] = [
     {
       kind: "filter",
-      id: "overview",
-      title: "Overview",
-      subtitle: "Cross-agent activity and workspace traffic.",
-      count: countMessages(messages, (message) => !message.isVoice),
+      id: "all-traffic",
+      title: "All Traffic",
+      subtitle: "Every non-voice message across the workspace.",
+      count: countMessages(messages, isRelayAllTrafficMessage),
+    },
+    {
+      kind: "filter",
+      id: "coordination",
+      title: "Coordination",
+      subtitle: "Targeted messages, direct threads, and task handoffs.",
+      count: countMessages(messages, isRelayCoordinationMessage),
     },
     {
       kind: "filter",
       id: "mentions",
       title: "Mentions",
       subtitle: "Focused view over shared-channel targeted messages.",
-      count: countMessages(
-        messages,
-        (message) =>
-          !message.isDirectConversation &&
-          !message.isSystem &&
-          !message.isVoice &&
-          message.messageClass !== "status" &&
-          message.recipients.length > 0,
-      ),
+      count: countMessages(messages, isRelayMentionMessage),
     },
   ];
 
@@ -733,6 +800,283 @@ function buildRelayState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSe
     messages,
     voice: voiceState,
     lastUpdatedLabel: messages.at(-1) ? formatRelativeTime(normalizeTimestamp((snapshot.messages as Record<string, MessageRecord>)[messages.at(-1)?.id ?? ""]?.createdAt ?? 0)) : null,
+  };
+}
+
+function isInterAgentConversation(snapshot: RuntimeRegistrySnapshot, conversation: ConversationRecord) {
+  if (conversation.kind !== "direct" && conversation.kind !== "group_direct") {
+    return false;
+  }
+
+  if (conversation.participantIds.includes(OPERATOR_ID)) {
+    return false;
+  }
+
+  if (conversation.participantIds.length < 2) {
+    return false;
+  }
+
+  return conversation.participantIds.every((participantId) =>
+    Boolean((snapshot.agents as Record<string, AgentRecord>)[participantId]),
+  );
+}
+
+function isKnownAgent(snapshot: RuntimeRegistrySnapshot, actorId: string) {
+  return Boolean((snapshot.agents as Record<string, AgentRecord>)[actorId]);
+}
+
+function interAgentParticipantIds(snapshot: RuntimeRegistrySnapshot, participantIds: string[]) {
+  return Array.from(
+    new Set(
+      participantIds.filter((participantId) => participantId !== OPERATOR_ID && isKnownAgent(snapshot, participantId)),
+    ),
+  ).sort();
+}
+
+function interAgentThreadKey(participantIds: string[]) {
+  return `inter-agent:${participantIds.join("::")}`;
+}
+
+function interAgentProfileKind(agent: AgentRecord) {
+  if (agent.agentClass === "system") {
+    return "system" as const;
+  }
+  if (agent.metadata?.source === "relay-twin-registry") {
+    return "project" as const;
+  }
+  return "role" as const;
+}
+
+function agentTypeLabel(agent: AgentRecord | null | undefined) {
+  if (!agent) {
+    return "Agent";
+  }
+  if (agent.agentClass === "system") {
+    return "System";
+  }
+  if (agent.metadata?.source === "relay-twin-registry") {
+    return "Relay Agent";
+  }
+  return "Built-in Role";
+}
+
+function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSession[]) {
+  const conversations = Object.values(snapshot.conversations as Record<string, ConversationRecord>);
+  const conversationsById = snapshot.conversations as Record<string, ConversationRecord>;
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+
+  type ThreadAccumulator = {
+    id: string;
+    conversationId: string | null;
+    title: string;
+    participants: Array<{ id: string; title: string; role: string | null }>;
+    sourceKind: "private" | "projected";
+    sourceConversationIds: Set<string>;
+    messageIdSet: Set<string>;
+    messages: MessageRecord[];
+  };
+
+  const threadMap = new Map<string, ThreadAccumulator>();
+
+  const ensureThread = (
+    participantIds: string[],
+    sourceKind: "private" | "projected",
+    conversationId: string | null = null,
+    title?: string,
+  ) => {
+    const normalizedParticipantIds = interAgentParticipantIds(snapshot, participantIds);
+    if (normalizedParticipantIds.length < 2) {
+      return null;
+    }
+
+    const threadId = interAgentThreadKey(normalizedParticipantIds);
+    const existing = threadMap.get(threadId);
+    if (existing) {
+      if (sourceKind === "private") {
+        existing.sourceKind = "private";
+        existing.conversationId = conversationId ?? existing.conversationId;
+      }
+      if (title && !existing.title) {
+        existing.title = title;
+      }
+      if (conversationId) {
+        existing.sourceConversationIds.add(conversationId);
+      }
+      return existing;
+    }
+
+    const participants = normalizedParticipantIds.map((participantId) => ({
+      id: participantId,
+      title: actorDisplayName(snapshot, participantId),
+      role: actorRole(snapshot, participantId),
+    }));
+
+    const nextThread: ThreadAccumulator = {
+      id: threadId,
+      conversationId,
+      title: title || participants.map((participant) => participant.title).join(" ↔ "),
+      participants,
+      sourceKind,
+      sourceConversationIds: new Set(conversationId ? [conversationId] : []),
+      messageIdSet: new Set<string>(),
+      messages: [],
+    };
+    threadMap.set(threadId, nextThread);
+    return nextThread;
+  };
+
+  const appendMessages = (thread: ThreadAccumulator | null, messages: MessageRecord[], conversationId: string) => {
+    if (!thread) {
+      return;
+    }
+
+    thread.sourceConversationIds.add(conversationId);
+    for (const message of messages) {
+      if (thread.messageIdSet.has(message.id)) {
+        continue;
+      }
+      thread.messageIdSet.add(message.id);
+      thread.messages.push(message);
+    }
+  };
+
+  for (const conversation of conversations.filter((entry) => isInterAgentConversation(snapshot, entry))) {
+    const thread = ensureThread(
+      conversation.participantIds,
+      "private",
+      conversation.id,
+      conversation.title,
+    );
+    appendMessages(thread, messagesByConversation.get(conversation.id) ?? [], conversation.id);
+  }
+
+  for (const [conversationId, messages] of messagesByConversation.entries()) {
+    const conversation = conversationsById[conversationId];
+    for (const message of messages) {
+      if (!isKnownAgent(snapshot, message.actorId)) {
+        continue;
+      }
+
+      const recipients = inferRecipients(message, conversation)
+        .filter((recipientId) => recipientId !== message.actorId)
+        .filter((recipientId) => isKnownAgent(snapshot, recipientId));
+
+      if (recipients.length === 0) {
+        continue;
+      }
+
+      const thread = ensureThread([message.actorId, ...recipients], "projected");
+      appendMessages(thread, [message], conversationId);
+    }
+  }
+
+  const threads = Array.from(threadMap.values())
+    .map((thread) => {
+      const orderedMessages = [...thread.messages]
+        .sort((lhs, rhs) => normalizeTimestamp(lhs.createdAt) - normalizeTimestamp(rhs.createdAt));
+      const latestMessage = orderedMessages.at(-1) ?? null;
+      const previewMessage =
+        [...orderedMessages].reverse().find((message) => message.class !== "status" && message.class !== "system")
+        ?? latestMessage;
+
+      return {
+        id: thread.id,
+        conversationId: thread.conversationId,
+        title: thread.title,
+        subtitle: latestMessage
+          ? `Last from ${actorDisplayName(snapshot, latestMessage.actorId)}`
+          : `${thread.participants.length} agents`,
+        preview: previewMessage ? sanitizeRelayBody(previewMessage.body) : null,
+        timestampLabel: latestMessage ? formatTimeLabel(latestMessage.createdAt) : null,
+        messageCount: orderedMessages.length,
+        latestAuthorName: latestMessage ? actorDisplayName(snapshot, latestMessage.actorId) : null,
+        messageIds: orderedMessages.map((message) => message.id),
+        sourceKind: thread.sourceKind,
+        participants: thread.participants,
+        latestTimestamp: normalizeTimestamp(latestMessage?.createdAt ?? 0),
+      };
+    })
+    .sort((lhs, rhs) => rhs.latestTimestamp - lhs.latestTimestamp || lhs.title.localeCompare(rhs.title));
+
+  const agentThreadSummary = threads.reduce((map, thread) => {
+    for (const participant of thread.participants) {
+      const entry = map.get(participant.id) ?? {
+        threadCount: 0,
+        counterpartIds: new Set<string>(),
+        latestTimestamp: 0,
+      };
+      entry.threadCount += 1;
+      entry.latestTimestamp = Math.max(entry.latestTimestamp, thread.latestTimestamp);
+      for (const counterpart of thread.participants) {
+        if (counterpart.id !== participant.id) {
+          entry.counterpartIds.add(counterpart.id);
+        }
+      }
+      map.set(participant.id, entry);
+    }
+    return map;
+  }, new Map<string, { threadCount: number; counterpartIds: Set<string>; latestTimestamp: number }>());
+
+  const agents = Object.values(snapshot.agents as Record<string, AgentRecord>)
+    .map((agent) => {
+      const entry = agentThreadSummary.get(agent.id) ?? {
+        threadCount: 0,
+        counterpartIds: new Set<string>(),
+        latestTimestamp: 0,
+      };
+      const endpoint = activeEndpoint(snapshot, agent.id);
+      const activity = directActivity.get(agent.id) ?? {
+        state: "offline" as const,
+        reachable: false,
+        statusLabel: "Offline",
+        statusDetail: "No active endpoint detected.",
+        activeTask: null,
+      };
+      const counterpartCount = entry.counterpartIds.size;
+      const subtitle =
+        entry.threadCount === 0
+          ? "No inter-agent traffic yet"
+          : counterpartCount === 1
+            ? "1 agent counterpart"
+            : `${counterpartCount} agent counterparts`;
+
+      return {
+        id: agent.id,
+        title: actorDisplayName(snapshot, agent.id),
+        subtitle,
+        profileKind: interAgentProfileKind(agent),
+        source: typeof agent.metadata?.source === "string" ? String(agent.metadata.source) : null,
+        agentClass: typeof agent.agentClass === "string" ? String(agent.agentClass) : null,
+        role: typeof agent.metadata?.role === "string" ? String(agent.metadata.role) : null,
+        summary: typeof agent.metadata?.summary === "string" ? String(agent.metadata.summary) : null,
+        harness: endpoint?.harness ?? null,
+        transport: endpoint?.transport ?? null,
+        cwd: endpoint?.cwd ?? null,
+        projectRoot: endpoint?.projectRoot ?? null,
+        sessionId: endpoint?.sessionId ?? null,
+        wakePolicy: typeof agent.wakePolicy === "string" ? String(agent.wakePolicy) : null,
+        capabilities: Array.isArray(agent.capabilities) ? agent.capabilities.map((capability) => String(capability)) : [],
+        threadCount: entry.threadCount,
+        counterpartCount,
+        timestampLabel: entry.latestTimestamp > 0 ? formatTimeLabel(entry.latestTimestamp) : null,
+        state: activity.state,
+        reachable: activity.reachable,
+        statusLabel: activity.statusLabel,
+        statusDetail: activity.statusDetail,
+      };
+    })
+    .sort((lhs, rhs) =>
+      rhs.threadCount - lhs.threadCount
+      || lhs.title.localeCompare(rhs.title),
+    );
+
+  return {
+    title: "Inter-Agent",
+    subtitle: `${threads.length} agent threads · ${agents.length} agents`,
+    agents,
+    threads: threads.map(({ latestTimestamp: _latestTimestamp, ...thread }) => thread),
+    lastUpdatedLabel: threads[0] ? formatRelativeTime(threads[0].latestTimestamp) : null,
   };
 }
 
@@ -900,7 +1244,7 @@ async function ensureOperatorActor(baseUrl: string): Promise<void> {
   await brokerPost(baseUrl, "/v1/actors", {
     id: OPERATOR_ID,
     kind: "person",
-    displayName: "Operator",
+    displayName: OPERATOR_DISPLAY_NAME,
     handle: OPERATOR_ID,
     labels: ["operator", "desktop"],
     metadata: { source: "electron-app" },
@@ -1039,6 +1383,15 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
     appInfo,
     runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status),
     sessions: snapshot ? buildSessions(snapshot) : [],
+    interAgent: snapshot
+      ? buildInterAgentState(snapshot, tmuxSessions)
+      : {
+          title: "Inter-Agent",
+          subtitle: "Broker unavailable",
+          agents: [],
+          threads: [],
+          lastUpdatedLabel: null,
+        },
     relay: snapshot
       ? buildRelayState(snapshot, tmuxSessions)
       : {
@@ -1056,6 +1409,182 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
           lastUpdatedLabel: null,
         },
   };
+}
+
+async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = false): Promise<void> {
+  const status = await brokerServiceStatus();
+  if (!status.reachable) {
+    return;
+  }
+
+  const node = await readNode(status.brokerUrl);
+  if (!node) {
+    return;
+  }
+
+  const bindings = await loadRegisteredProjectTwinBindings(node.id, {
+    agentIds: [agentId],
+    ensureOnline,
+  });
+  const binding = bindings[0];
+  if (!binding) {
+    return;
+  }
+
+  await brokerPost(status.brokerUrl, "/v1/actors", binding.actor);
+  await brokerPost(status.brokerUrl, "/v1/agents", binding.agent);
+  await brokerPost(status.brokerUrl, "/v1/endpoints", binding.endpoint);
+}
+
+export async function getAgentConfig(agentId: string): Promise<AgentConfigState> {
+  const twinConfig = await getProjectTwinConfig(agentId);
+  if (twinConfig) {
+    return {
+      agentId,
+      editable: twinConfig.editable,
+      title: agentId,
+      typeLabel: "Relay Agent",
+      applyModeLabel: "Save changes, then restart to apply runtime, prompt, and capability updates.",
+      note: "Relay agent settings are stored in the local registry.",
+      systemPromptHint: twinConfig.templateHint,
+      availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+      runtime: {
+        cwd: compactHomePath(twinConfig.runtime.cwd) ?? twinConfig.runtime.cwd,
+        projectRoot: compactHomePath(twinConfig.runtime.cwd),
+        harness: twinConfig.runtime.harness,
+        transport: twinConfig.runtime.transport,
+        sessionId: twinConfig.runtime.sessionId,
+        wakePolicy: twinConfig.runtime.wakePolicy,
+        source: "relay-twin-registry",
+      },
+      systemPrompt: twinConfig.systemPrompt,
+      toolUse: {
+        launchArgsText: twinConfig.launchArgs.join("\n"),
+      },
+      capabilitiesText: twinConfig.capabilities.join(", "),
+    };
+  }
+
+  const status = await brokerServiceStatus();
+  const snapshot = status.reachable ? await readSnapshot(status.brokerUrl) : null;
+  const agent = snapshot?.agents?.[agentId] as AgentRecord | undefined;
+  const endpoint = snapshot ? activeEndpoint(snapshot, agentId) : null;
+  if (!agent) {
+    return {
+      agentId,
+      editable: false,
+      title: agentId,
+      typeLabel: "Agent",
+      applyModeLabel: null,
+      note: "The selected agent is not currently present in the broker snapshot.",
+      systemPromptHint: null,
+      availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+      runtime: {
+        cwd: "",
+        projectRoot: null,
+        harness: "",
+        transport: "",
+        sessionId: "",
+        wakePolicy: "",
+        source: null,
+      },
+      systemPrompt: "Agent system prompt unavailable.",
+      toolUse: {
+        launchArgsText: "",
+      },
+      capabilitiesText: "",
+    };
+  }
+
+  const role = typeof agent.metadata?.role === "string" ? String(agent.metadata.role) : "Not reported";
+  const summary = typeof agent.metadata?.summary === "string" ? String(agent.metadata.summary) : "Not reported";
+  const capabilities = Array.isArray(agent.capabilities) && agent.capabilities.length > 0
+    ? agent.capabilities.join(", ")
+    : "Not reported";
+
+  return {
+    agentId,
+    editable: false,
+    title: agent.displayName ?? agentId,
+    typeLabel: agentTypeLabel(agent),
+    applyModeLabel: null,
+    note: "Built-in role agents are not editable yet.",
+    systemPromptHint: null,
+    availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+    runtime: {
+      cwd: compactHomePath(endpoint?.cwd) ?? "",
+      projectRoot: compactHomePath(endpoint?.projectRoot ?? endpoint?.cwd),
+      harness: endpoint?.harness ?? "",
+      transport: endpoint?.transport ?? "",
+      sessionId: endpoint?.sessionId ?? "",
+      wakePolicy: agent.wakePolicy ?? "",
+      source: typeof agent.metadata?.source === "string" ? String(agent.metadata.source) : null,
+    },
+    systemPrompt: [
+      `Display name: ${agent.displayName ?? agentId}`,
+      `Class: ${agent.agentClass ?? "Not reported"}`,
+      `Role: ${role}`,
+      `Summary: ${summary}`,
+      `Capabilities: ${capabilities}`,
+    ].join("\n"),
+    toolUse: {
+      launchArgsText: "",
+    },
+    capabilitiesText: Array.isArray(agent.capabilities) ? agent.capabilities.join(", ") : "",
+  };
+}
+
+export async function updateAgentConfig(input: UpdateAgentConfigInput): Promise<AgentConfigState> {
+  const nextConfig = await updateProjectTwinConfig(input.agentId, {
+    runtime: {
+      cwd: input.runtime.cwd,
+      harness: input.runtime.harness,
+      sessionId: input.runtime.sessionId,
+    },
+    systemPrompt: input.systemPrompt,
+    launchArgs: splitLines(input.toolUse.launchArgsText),
+    capabilities: splitDelimitedTokens(input.capabilitiesText),
+  });
+  if (!nextConfig) {
+    throw new Error(`Agent ${input.agentId} is not an editable relay agent.`);
+  }
+
+  return {
+    agentId: input.agentId,
+    editable: nextConfig.editable,
+    title: input.agentId,
+    typeLabel: "Relay Agent",
+    applyModeLabel: "Saved. Restart to apply runtime, prompt, and capability updates.",
+    note: "Saved to the local relay registry.",
+    systemPromptHint: nextConfig.templateHint,
+    availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+    runtime: {
+      cwd: compactHomePath(nextConfig.runtime.cwd) ?? nextConfig.runtime.cwd,
+      projectRoot: compactHomePath(nextConfig.runtime.cwd),
+      harness: nextConfig.runtime.harness,
+      transport: nextConfig.runtime.transport,
+      sessionId: nextConfig.runtime.sessionId,
+      wakePolicy: nextConfig.runtime.wakePolicy,
+      source: "relay-twin-registry",
+    },
+    systemPrompt: nextConfig.systemPrompt,
+    toolUse: {
+      launchArgsText: nextConfig.launchArgs.join("\n"),
+    },
+    capabilitiesText: nextConfig.capabilities.join(", "),
+  };
+}
+
+export async function restartAgent(appInfo: DesktopAppInfo, input: RestartAgentInput): Promise<DesktopShellState> {
+  const nextRecord = await restartProjectTwin(input.agentId, {
+    previousSessionId: input.previousSessionId ?? null,
+  });
+  if (!nextRecord) {
+    throw new Error(`Agent ${input.agentId} is not an editable relay agent.`);
+  }
+
+  await syncProjectTwinBindingToBroker(input.agentId, true);
+  return buildDesktopShellState(appInfo);
 }
 
 export async function controlBroker(appInfo: DesktopAppInfo, action: BrokerControlAction): Promise<DesktopShellState> {

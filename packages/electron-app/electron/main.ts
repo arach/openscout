@@ -7,11 +7,19 @@ import type { MenuItemConstructorOptions } from "electron";
 import {
   buildDesktopShellState,
   controlBroker,
+  getAgentConfig,
+  restartAgent,
   sendRelayMessage,
   setVoiceRepliesEnabled,
   toggleVoiceCapture,
+  updateAgentConfig,
 } from "./openscout-runtime.js";
-import type { BrokerControlAction, SendRelayMessageInput } from "../src/lib/openscout-desktop.js";
+import type {
+  BrokerControlAction,
+  RestartAgentInput,
+  SendRelayMessageInput,
+  UpdateAgentConfigInput,
+} from "../src/lib/openscout-desktop.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
 const {
@@ -186,6 +194,26 @@ ipcMain.handle("openscout:refresh-shell-state", async () =>
     isPackaged: app.isPackaged,
     platform: process.platform,
   }),
+);
+
+ipcMain.handle("openscout:get-agent-config", async (_event, agentId: string) =>
+  getAgentConfig(agentId),
+);
+
+ipcMain.handle("openscout:update-agent-config", async (_event, input: UpdateAgentConfigInput) =>
+  updateAgentConfig(input),
+);
+
+ipcMain.handle("openscout:restart-agent", async (_event, input: RestartAgentInput) =>
+  restartAgent(
+    {
+      productName: resolveProductName(),
+      appVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+    },
+    input,
+  ),
 );
 
 ipcMain.handle("openscout:send-relay-message", async (_event, input: SendRelayMessageInput) =>

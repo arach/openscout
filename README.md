@@ -38,6 +38,33 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Run The Electron Shell
+
+Use the Electron dev wrapper when you want a rebuild-and-relaunch loop for the desktop shell:
+
+```bash
+./scripts/openscout-dev relaunch
+./scripts/openscout-dev status
+./scripts/openscout-dev logs
+```
+
+Shortcuts are also exposed through the root package scripts:
+
+```bash
+bun run openscout:relaunch
+bun run openscout:status
+bun run openscout:logs
+```
+
+`openscout-dev relaunch` rebuilds the Electron shell, stops any existing Electron shell for this workspace, launches a detached replacement, and waits for the new process to stay alive before returning. Pass `--no-build` if you only want to restart the existing build.
+
+To expose `openscout-dev` as a global CLI from this repo:
+
+```bash
+bun link
+openscout-dev status
+```
+
 ## Run The Native Scaffold
 
 Build the native targets:
@@ -70,6 +97,7 @@ For shell ergonomics:
 
 ```bash
 alias scoutd="scout-dev"
+alias osd="openscout-dev"
 ```
 
 Launch the shell:
