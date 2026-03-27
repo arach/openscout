@@ -6,7 +6,8 @@
   "productName": "OpenScout",
   "bundleId": "com.openscout.desktop",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-electron.mjs",
+    "dev:renderer": "vite",
     "import:v0": "node scripts/import-v0.mjs stage",
     "stage:v0": "node scripts/import-v0.mjs stage",
     "diff:v0": "node scripts/import-v0.mjs diff",
