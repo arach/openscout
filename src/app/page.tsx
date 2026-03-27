@@ -161,6 +161,16 @@ export default function Home() {
             </p>
           </div>
 
+          <div className="mb-8 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-2xl shadow-black/20">
+            <Image
+              src="/desktop-shell.png"
+              alt="OpenScout Desktop Shell — unified dashboard for agents, sessions, relay, and runtime"
+              width={1920}
+              height={1080}
+              className="w-full"
+            />
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border border-border bg-surface/50 p-5">
               <Layers className="h-4 w-4 text-accent" strokeWidth={1.5} />
