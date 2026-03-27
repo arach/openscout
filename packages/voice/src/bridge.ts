@@ -41,6 +41,13 @@ type VoiceStatus = {
   detail?: string;
 };
 
+type PlaybackSynthesis = {
+  audioBytes: Uint8Array;
+  mimeType: string | undefined;
+  voice: string;
+  providerLabel: string;
+};
+
 type VoxClientModule = {
   VoxClient: new (options: { clientId?: string; port?: number }) => {
     connected?: boolean;
@@ -263,6 +270,134 @@ async function ensureOraProvider() {
   return runtime.provider("openai");
 }
 
+function resolveExternalTtsBaseUrl() {
+  return (
+    process.env.OPENSCOUT_TTS_BASE_URL
+    || process.env.OPENSCOUT_VOXTRAL_BASE_URL
+    || ""
+  ).trim().replace(/\/+$/, "");
+}
+
+function resolveExternalTtsEndpoint() {
+  const explicitEndpoint = (
+    process.env.OPENSCOUT_TTS_ENDPOINT
+    || process.env.OPENSCOUT_VOXTRAL_ENDPOINT
+    || ""
+  ).trim();
+
+  if (explicitEndpoint) {
+    return explicitEndpoint;
+  }
+
+  const baseUrl = resolveExternalTtsBaseUrl();
+  if (!baseUrl) {
+    return "";
+  }
+
+  return `${baseUrl}/v1/audio/speech`;
+}
+
+function resolveExternalTtsModel() {
+  return (
+    process.env.OPENSCOUT_TTS_MODEL
+    || process.env.OPENSCOUT_VOXTRAL_MODEL
+    || "mistralai/Voxtral-4B-TTS-2603"
+  ).trim();
+}
+
+function resolveOraPlaybackVoice(voice: string | undefined) {
+  return (
+    voice
+    || process.env.OPENSCOUT_ORA_VOICE
+    || "nova"
+  ).trim();
+}
+
+function resolveExternalPlaybackVoice(voice: string | undefined) {
+  return (
+    voice
+    || process.env.OPENSCOUT_TTS_VOICE
+    || process.env.OPENSCOUT_VOXTRAL_VOICE
+    || ""
+  ).trim();
+}
+
+async function synthesizeWithExternalTts(text: string, voice: string | undefined): Promise<PlaybackSynthesis> {
+  const endpoint = resolveExternalTtsEndpoint();
+  if (!endpoint) {
+    throw new Error("External TTS endpoint is not configured.");
+  }
+
+  const selectedVoice = resolveExternalPlaybackVoice(voice);
+  const responseFormat = (process.env.OPENSCOUT_TTS_FORMAT || "mp3").trim().toLowerCase();
+  const apiKey = (
+    process.env.OPENSCOUT_TTS_API_KEY
+    || process.env.OPENAI_API_KEY
+    || ""
+  ).trim();
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "audio/*",
+      "content-type": "application/json",
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      input: text,
+      model: resolveExternalTtsModel(),
+      ...(selectedVoice ? { voice: selectedVoice } : {}),
+      response_format: responseFormat,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = (await response.text()).trim();
+    throw new Error(
+      `External TTS request failed (${response.status}): ${body.slice(0, 200) || response.statusText || "unknown error"}`,
+    );
+  }
+
+  const audioBytes = new Uint8Array(await response.arrayBuffer());
+  if (!audioBytes.length) {
+    throw new Error("External TTS returned no audio bytes.");
+  }
+
+  bridgeState.oraAvailable = true;
+  return {
+    audioBytes,
+    mimeType: response.headers.get("content-type") ?? mimeTypeForFormat(responseFormat as "mp3"),
+    voice: selectedVoice || "default voice",
+    providerLabel: resolveExternalTtsModel(),
+  };
+}
+
+async function synthesizePlaybackAudio(text: string, voice: string | undefined): Promise<PlaybackSynthesis> {
+  if (resolveExternalTtsEndpoint()) {
+    return synthesizeWithExternalTts(text, voice);
+  }
+
+  const provider = await ensureOraProvider();
+  const selectedVoice = resolveOraPlaybackVoice(voice);
+  const response = await provider.synthesize({
+    text,
+    voice: selectedVoice,
+    format: "mp3",
+  });
+
+  const audioBytes = response.audio?.data ?? response.audioData;
+  if (!audioBytes || audioBytes.length === 0) {
+    throw new Error("Ora returned no audio bytes.");
+  }
+
+  return {
+    audioBytes,
+    mimeType: response.audio?.mimeType ?? response.mimeType ?? mimeTypeForFormat("mp3"),
+    voice: selectedVoice,
+    providerLabel: "ora",
+  };
+}
+
 async function writeAudioFile(bytes: Uint8Array, mimeType: string | undefined) {
   const extension = fileExtensionForMime(mimeType);
   const digest = createHash("sha1")
@@ -292,24 +427,14 @@ async function speakText(text: string, voice: string | undefined) {
     return;
   }
 
-  const provider = await ensureOraProvider();
-  const response = await provider.synthesize({
-    text: clean,
-    voice: voice || process.env.OPENSCOUT_ORA_VOICE || "nova",
-    format: "mp3",
-  });
-
-  const audioBytes = response.audio?.data ?? response.audioData;
-  if (!audioBytes || audioBytes.length === 0) {
-    throw new Error("Ora returned no audio bytes.");
-  }
+  const playback = await synthesizePlaybackAudio(clean, voice);
 
   await stopPlayback();
-  const mimeType = response.audio?.mimeType ?? response.mimeType ?? mimeTypeForFormat("mp3");
-  playbackTempFile = await writeAudioFile(audioBytes, mimeType);
-  updateStatus({ speaking: true, detail: `Speaking with ${voice || "nova"}.` });
+  playbackTempFile = await writeAudioFile(playback.audioBytes, playback.mimeType);
+  updateStatus({ speaking: true, detail: `Speaking with ${playback.voice}.` });
   emitEvent("speech.started", {
-    voice: voice || "nova",
+    provider: playback.providerLabel,
+    voice: playback.voice,
     text: clean,
   });
 
@@ -462,6 +587,21 @@ async function stopVoiceCapture() {
 }
 
 async function listVoices() {
+  if (resolveExternalTtsEndpoint()) {
+    const configuredVoices = (process.env.OPENSCOUT_TTS_VOICES || "")
+      .split(",")
+      .map((voice) => voice.trim())
+      .filter(Boolean);
+    const voices = configuredVoices.length > 0 ? configuredVoices : [];
+
+    return {
+      voices: voices.map((voice) => ({
+        id: voice,
+        label: voice,
+      })),
+    };
+  }
+
   const provider = await ensureOraProvider();
   const voices = await provider.listVoices();
 
@@ -487,9 +627,14 @@ async function health() {
   }
 
   try {
-    await ensureOraProvider();
-    oraAvailable = true;
-    detailParts.push("ora ready");
+    if (resolveExternalTtsEndpoint()) {
+      oraAvailable = true;
+      detailParts.push(`tts ready (${resolveExternalTtsModel()})`);
+    } else {
+      await ensureOraProvider();
+      oraAvailable = true;
+      detailParts.push("ora ready");
+    }
   } catch (error) {
     detailParts.push(error instanceof Error ? error.message : "ora unavailable");
   }

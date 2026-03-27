@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 
 const packageDir = process.cwd();
-const rendererUrl = "http://127.0.0.1:5173";
+const rendererHost = process.env.OPENSCOUT_RENDERER_HOST?.trim() || "127.0.0.1";
+const rendererPort = process.env.OPENSCOUT_RENDERER_PORT?.trim() || "5173";
+const rendererUrl = `http://${rendererHost}:${rendererPort}`;
 const children = new Set();
 
 function spawnBun(args, env = {}) {
@@ -47,6 +49,10 @@ function killChildren() {
   }
 }
 
+process.on("exit", () => {
+  killChildren();
+});
+
 process.on("SIGINT", () => {
   killChildren();
   process.exit(130);
@@ -57,20 +63,32 @@ process.on("SIGTERM", () => {
   process.exit(143);
 });
 
-const renderer = spawnBun(["run", "dev:renderer"]);
+try {
+  const renderer = spawnBun(["run", "dev:renderer"], {
+    OPENSCOUT_RENDERER_HOST: rendererHost,
+    OPENSCOUT_RENDERER_PORT: rendererPort,
+  });
 
-renderer.on("exit", (code) => {
-  if (code && code !== 0) {
+  renderer.on("exit", (code) => {
+    if (code && code !== 0) {
+      killChildren();
+      process.exit(code);
+    }
+  });
+
+  await waitForRenderer(rendererUrl);
+
+  const electron = spawnBun(["run", "electron:web"], {
+    ELECTRON_START_URL: rendererUrl,
+    OPENSCOUT_RENDERER_HOST: rendererHost,
+    OPENSCOUT_RENDERER_PORT: rendererPort,
+  });
+
+  electron.on("exit", (code) => {
     killChildren();
-    process.exit(code);
-  }
-});
-
-await waitForRenderer(rendererUrl);
-
-const electron = spawnBun(["run", "electron:web"]);
-
-electron.on("exit", (code) => {
+    process.exit(code ?? 0);
+  });
+} catch (error) {
   killChildren();
-  process.exit(code ?? 0);
-});
+  throw error;
+}

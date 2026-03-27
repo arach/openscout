@@ -78,6 +78,7 @@
         "react-markdown": "^10.1.0",
         "react-resizable-panels": "^2.1.7",
         "recharts": "2.15.0",
+        "remark-gfm": "^4.0.1",
         "sonner": "^1.7.1",
         "tailwind-merge": "^3.3.1",
         "vaul": "^1.1.2",
@@ -165,6 +166,7 @@
     },
   },
   "trustedDependencies": [
+    "electron",
     "sharp",
     "unrs-resolver",
   ],
@@ -2050,8 +2052,6 @@
     "@openscout/relay/@types/node": ["@types/node@22.19.15", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg=="],
 
     "@openscout/runtime/@types/node": ["@types/node@22.19.15", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg=="],
-
-    "@openscout/voice/@arach/ora": ["@arach/ora@github:arach/ora#cd06d2c", { "bin": { "ora-worker": "./dist/worker-cli.js" } }, "arach-ora-cd06d2c", "sha512-zDtWsswKufFguxnzJzChLM7Qot5PZ4YMQphcUn2VnJmcHb2UAuBmJGB1ome/2U6n0KC5qaFM0dWSMLzGllaYsw=="],
 
     "@openscout/voice/@types/node": ["@types/node@22.19.15", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg=="],
 

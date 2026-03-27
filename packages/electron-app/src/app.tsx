@@ -12,7 +12,6 @@ import {
   Search,
   Radar,
   X,
-  Upload,
   FolderOpen,
   Clock,
   ChevronRight,
@@ -25,14 +24,16 @@ import {
   Radio,
   AtSign,
   Loader2,
-  Terminal,
   Mic,
   Send,
   Sun,
   Moon,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type {
   DesktopShellState,
+  RelayDirectThread,
   RelayDestinationKind,
   RelayMessage,
   RelayNavItem,
@@ -200,10 +201,29 @@ export default function App() {
   const relayCurrentDestination = relayState
     ? resolveRelayDestination(relayState, relayViewItems, selectedRelayKind, selectedRelayId)
     : null;
+  const selectedRelayDirectThread = relayState && selectedRelayKind === 'direct'
+    ? relayState.directs.find((item) => item.id === selectedRelayId) ?? null
+    : null;
   const visibleRelayMessages = relayState
     ? filterRelayMessages(relayState.messages, selectedRelayKind, selectedRelayId)
     : [];
   const relayThreadTitle = cleanDisplayTitle(relayCurrentDestination?.title ?? '# shared-channel');
+  const overviewSessions = useMemo(
+    () => [...sessions]
+      .sort((lhs, rhs) => new Date(rhs.lastModified).getTime() - new Date(lhs.lastModified).getTime())
+      .slice(0, 5),
+    [sessions],
+  );
+  const overviewProjects = useMemo(
+    () => [...projects]
+      .sort((lhs, rhs) => rhs.count - lhs.count || new Date(rhs.lastModified).getTime() - new Date(lhs.lastModified).getTime())
+      .slice(0, 6),
+    [projects],
+  );
+  const reachableRelayAgents = useMemo(
+    () => (relayState?.directs ?? []).filter((thread) => thread.reachable),
+    [relayState],
+  );
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -264,6 +284,38 @@ export default function App() {
     }
   };
 
+  const handleToggleVoiceCapture = async () => {
+    if (!window.openScoutDesktop?.toggleVoiceCapture) {
+      setShellError('Electron desktop bridge is unavailable.');
+      return;
+    }
+
+    try {
+      const nextState = await window.openScoutDesktop.toggleVoiceCapture();
+      setShellState(nextState);
+      setShellError(null);
+      setRelayFeedback(nextState.relay.voice.isCapturing ? 'Voice capture started.' : 'Voice capture stopped.');
+    } catch (error) {
+      setRelayFeedback(asErrorMessage(error));
+    }
+  };
+
+  const handleSetVoiceRepliesEnabled = async (enabled: boolean) => {
+    if (!window.openScoutDesktop?.setVoiceRepliesEnabled) {
+      setShellError('Electron desktop bridge is unavailable.');
+      return;
+    }
+
+    try {
+      const nextState = await window.openScoutDesktop.setVoiceRepliesEnabled(enabled);
+      setShellState(nextState);
+      setShellError(null);
+      setRelayFeedback(enabled ? 'Playback enabled.' : 'Playback disabled.');
+    } catch (error) {
+      setRelayFeedback(asErrorMessage(error));
+    }
+  };
+
   const handleRelaySend = async () => {
     const body = relayDraft.trim();
     if (!body || relaySending || !window.openScoutDesktop) {
@@ -286,6 +338,18 @@ export default function App() {
     } finally {
       setRelaySending(false);
     }
+  };
+
+  const openProjectSessions = (projectName: string) => {
+    setSelectedProject(projectName);
+    setSelectedSession(null);
+    setActiveView('sessions');
+  };
+
+  const openSessionDetail = (session: SessionMetadata) => {
+    setSelectedProject(null);
+    setSelectedSession(session);
+    setActiveView('sessions');
   };
 
   const formatDate = (dateStr: string) => {
@@ -406,115 +470,208 @@ export default function App() {
         {/* --- OVERVIEW --- */}
         {activeView === 'overview' ? (
           <div className="flex-1 flex overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-12">
-              <div className="max-w-4xl">
-                <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Overview</div>
-                <h1 className="text-3xl font-bold mb-2 tracking-tight" style={s.inkText}>Agent Interaction Shell</h1>
-                <p className="text-[14px] mb-8 max-w-2xl leading-relaxed" style={s.mutedText}>
-                  OpenScout now centers relay traffic, launch-agent broker state, and local tmux runtimes so the shell can help you steer agent work with confidence.
-                </p>
-
-                <div className="flex items-center gap-3 mb-10">
-                  <button
-                    onClick={() => setActiveView('relay')}
-                    className="text-white px-4 py-1.5 rounded-md text-[13px] font-medium transition-opacity hover:opacity-80 shadow-sm flex items-center gap-2"
-                    style={{ backgroundColor: C.accent }}
-                  >
-                    <MessageSquare size={14} />
-                    Open Relay
-                  </button>
-                  <button
-                    onClick={() => setActiveView('sessions')}
-                    className="border px-4 py-1.5 rounded-md text-[13px] font-medium transition-opacity hover:opacity-80 shadow-sm"
-                    style={{ ...s.surface, borderColor: C.border, color: C.ink }}
-                  >
-                    Browse Sessions
-                  </button>
-                  <button
-                    onClick={() => void handleRefreshShell()}
-                    className="border px-4 py-1.5 rounded-md text-[13px] font-medium transition-opacity hover:opacity-80 shadow-sm"
-                    style={{ ...s.surface, borderColor: C.border, color: C.ink }}
-                  >
-                    Refresh Runtime
-                  </button>
+            <div className="flex-1 overflow-y-auto">
+              <div className="px-12 pt-16 pb-12 border-b" style={{ borderColor: C.border }}>
+                <div className="max-w-5xl">
+                  <div className="os-fade-in text-[10px] font-mono tracking-widest uppercase mb-4 flex items-center gap-2" style={s.mutedText}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 os-status-pulse"></div>
+                    Command Center
+                  </div>
+                  <h1 className="os-fade-up text-5xl font-bold mb-4 tracking-tight leading-tight" style={s.inkText}>
+                    Your agents,<br />unified.
+                  </h1>
+                  <p className="os-fade-up os-stagger-1 text-lg mb-8 max-w-xl leading-relaxed" style={s.mutedText}>
+                    Collaborate with Claude, Codex, GPT, and more. See their plans, track their work, and search every conversation across all your machines.
+                  </p>
+                  <div className="os-fade-up os-stagger-2 flex items-center gap-3">
+                    <button
+                      onClick={() => setActiveView('relay')}
+                      className="os-btn-primary text-white px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-md flex items-center gap-2"
+                      style={{ backgroundColor: C.accent }}
+                    >
+                      <MessageSquare size={16} />
+                      Open Relay
+                    </button>
+                    <button
+                      onClick={() => setActiveView('sessions')}
+                      className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
+                      style={{ ...s.surface, borderColor: C.border, color: C.ink }}
+                    >
+                      <Radar size={16} />
+                      Browse Sessions
+                    </button>
+                    <button
+                      onClick={() => void handleRefreshShell()}
+                      className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
+                      style={{ ...s.surface, borderColor: C.border, color: C.muted }}
+                    >
+                      <RefreshCw size={16} />
+                      Sync Runtime
+                    </button>
+                  </div>
                 </div>
+              </div>
 
-                <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="px-12 py-6 border-b flex items-center gap-12" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                {[
+                  { value: stats.totalSessions, label: 'Sessions indexed' },
+                  { value: runtime?.messageCount ?? stats.totalMessages, label: 'Messages captured' },
+                  { value: `${Math.round(stats.totalTokens / 1000)}k`, label: 'Tokens processed' },
+                  { value: stats.projects, label: 'Active projects' },
+                ].map((stat, i) => (
+                  <div key={stat.label} className={`os-fade-in os-stagger-${i + 1} flex items-baseline gap-2`}>
+                    <span className="text-2xl font-bold" style={s.inkText}>{stat.value}</span>
+                    <span className="text-[12px]" style={s.mutedText}>{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="px-12 py-10">
+                <div className="text-[10px] font-mono tracking-widest uppercase mb-6" style={s.mutedText}>Capabilities</div>
+                <div className="grid grid-cols-3 gap-5 mb-12">
                   {[
-                    { label: 'Agents', value: runtime?.agentCount ?? 0, desc: 'Known broker-backed agents and registered twins.' },
-                    { label: 'Messages', value: runtime?.messageCount ?? 0, desc: 'Total relay messages stored in the control plane.' },
-                    { label: 'Flights', value: runtime?.flightCount ?? 0, desc: 'Invocation flights currently tracked by the broker.' },
-                  ].map(card => (
-                    <div key={card.label} className="border rounded-xl p-5 shadow-sm" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>{card.label}</div>
-                      <div className="text-4xl font-semibold mb-3" style={s.inkText}>{card.value}</div>
-                      <div className="text-[12px] leading-relaxed" style={s.mutedText}>{card.desc}</div>
-                    </div>
+                    {
+                      icon: <MessageSquare size={20} />,
+                      title: 'Relay',
+                      desc: 'Real-time communication hub. Agent-to-agent, human-to-agent, all in one stream.',
+                      action: () => setActiveView('relay'),
+                      accent: true,
+                    },
+                    {
+                      icon: <Radar size={20} />,
+                      title: 'Sessions',
+                      desc: 'Browse and organize session histories by project. Every conversation, searchable.',
+                      action: () => setActiveView('sessions'),
+                      accent: false,
+                    },
+                    {
+                      icon: <Search size={20} />,
+                      title: 'Search',
+                      desc: 'Full-text search across all sessions, messages, and metadata. Find anything instantly.',
+                      action: () => setActiveView('search'),
+                      accent: false,
+                    },
+                  ].map((card, i) => (
+                    <button
+                      key={card.title}
+                      onClick={card.action}
+                      className={`os-card os-fade-up os-stagger-${i + 1} text-left border rounded-xl p-6 group`}
+                      style={{ ...s.surface, borderColor: C.border }}
+                    >
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center mb-4 transition-transform duration-200 group-hover:scale-110"
+                        style={card.accent ? { backgroundColor: C.accent, color: '#fff' } : { backgroundColor: C.tagBg, color: C.muted }}
+                      >
+                        {card.icon}
+                      </div>
+                      <h3 className="text-[15px] font-semibold mb-2 flex items-center gap-2" style={s.inkText}>
+                        {card.title}
+                        <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-all duration-200 group-hover:translate-x-0.5" style={s.mutedText} />
+                      </h3>
+                      <p className="text-[13px] leading-relaxed" style={s.mutedText}>{card.desc}</p>
+                    </button>
                   ))}
                 </div>
 
-                <div>
-                  <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Projects</div>
-                  <div className="flex flex-col">
-                    {projects.map((project, i) => (
-                      <div key={project.name} className="border-t py-4" style={{ borderColor: C.border, ...(i === projects.length - 1 ? { borderBottom: `1px solid ${C.border}` } : {}) }}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Folder size={14} style={s.mutedText} />
-                            <span className="text-[13px] font-semibold" style={s.inkText}>{project.name}</span>
-                            <span className="text-[9px] font-mono border px-1.5 py-0.5 rounded" style={s.tagBadge}>{project.count} SESSIONS</span>
-                          </div>
-                          <button
-                            onClick={() => { setSelectedProject(project.name); setActiveView('sessions'); }}
-                            className="text-[11px] flex items-center gap-1 hover:opacity-70 transition-opacity"
-                            style={{ color: C.accent }}
+                <div className="grid grid-cols-2 gap-8">
+                  <div>
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4 flex items-center justify-between" style={s.mutedText}>
+                      <span>Recent Activity</span>
+                      <button onClick={() => setActiveView('sessions')} className="flex items-center gap-1 hover:opacity-70" style={{ color: C.accent }}>
+                        View all <ChevronRight size={10} />
+                      </button>
+                    </div>
+                    <div className="border rounded-xl overflow-hidden" style={{ borderColor: C.border }}>
+                      {overviewSessions.length > 0 ? overviewSessions.map((session, i) => (
+                        <div
+                          key={session.id}
+                          className={`os-row px-4 py-3 flex items-center gap-3 cursor-pointer os-fade-in os-stagger-${i + 1}`}
+                          style={{
+                            ...s.surface,
+                            ...(i < overviewSessions.length - 1 ? { borderBottom: `1px solid ${C.border}` } : {}),
+                          }}
+                          onClick={() => openSessionDetail(session)}
+                        >
+                          <div
+                            className="os-avatar w-6 h-6 rounded text-white flex items-center justify-center text-[10px] font-bold shrink-0"
+                            style={{ backgroundColor: colorForIdentity(session.agent) }}
                           >
-                            View <ChevronRight size={12} />
-                          </button>
+                            {session.agent.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[12px] font-medium truncate" style={s.inkText}>{session.title}</div>
+                            <div className="text-[10px] font-mono" style={s.mutedText}>{session.project}</div>
+                          </div>
+                          <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>{formatDate(session.lastModified)}</div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {shellError ? (
-                  <div className="mt-10">
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Runtime Error</div>
-                    <div className="flex items-center gap-2 px-3 py-2 text-[12px] border rounded" style={{ ...s.surface, borderColor: C.border, color: C.muted }}>
-                      <X size={12} />
-                      <span>{shellError}</span>
+                      )) : (
+                        <div className="px-4 py-8 text-[12px] text-center" style={{ ...s.surface, color: C.muted }}>
+                          No session history yet.
+                        </div>
+                      )}
                     </div>
                   </div>
-                ) : null}
-              </div>
-            </div>
 
-            {/* Right Sidebar (Index Status) */}
-            <div className="w-64 border-l p-8 shrink-0 overflow-y-auto" style={{ ...s.navBar, borderLeftColor: C.border }}>
-              <div className="text-[10px] font-mono tracking-widest uppercase mb-6" style={s.mutedText}>Runtime</div>
-              {[
-                { label: 'Helper', value: runtime?.helperRunning ? 'Running' : 'Offline' },
-                { label: 'Broker', value: runtime?.brokerReachable ? 'Running' : 'Offline' },
-                { label: 'Relay', value: runtime?.brokerHealthy ? 'Active' : 'Waiting' },
-                { label: 'Agents', value: runtime?.agentCount ?? 0, mono: true },
-                { label: 'Last Heartbeat', value: runtime?.lastHeartbeatLabel ?? '—', mono: true },
-                { label: 'Latest Relay', value: runtime?.latestRelayLabel ?? '—', mono: true },
-              ].map(row => (
-                <div key={row.label} className="mb-5">
-                  <div className="text-[9px] font-mono tracking-widest uppercase mb-1" style={s.mutedText}>{row.label}</div>
-                  <div className={`text-[13px] font-semibold ${row.mono ? 'font-mono' : ''}`} style={row.mono ? s.mutedText : s.inkText}>{row.value}</div>
+                  <div>
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Agents Online</div>
+                    {reachableRelayAgents.length > 0 ? (
+                      <div className="grid grid-cols-5 gap-3 mb-8">
+                        {reachableRelayAgents.slice(0, 5).map((thread) => (
+                          <button
+                            key={thread.id}
+                            onClick={() => {
+                              setSelectedRelayKind('direct');
+                              setSelectedRelayId(thread.id);
+                              setActiveView('relay');
+                            }}
+                            className="flex flex-col items-center gap-2"
+                          >
+                            <div className="os-avatar relative cursor-pointer">
+                              <div
+                                className="w-10 h-10 rounded-lg text-white flex items-center justify-center text-sm font-bold"
+                                style={{ backgroundColor: colorForIdentity(thread.id) }}
+                              >
+                                {thread.title.charAt(0)}
+                              </div>
+                              <div className="os-avatar-ring absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2" style={{ borderColor: C.surface }}></div>
+                            </div>
+                            <span className="text-[10px] font-medium truncate max-w-[4.5rem]" style={s.mutedText}>{cleanDisplayTitle(thread.title)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="border rounded-xl px-4 py-5 mb-8 text-[12px]" style={{ ...s.surface, borderColor: C.border, color: C.muted }}>
+                        No reachable agents detected right now.
+                      </div>
+                    )}
+
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Projects</div>
+                    <div className="flex flex-wrap gap-2">
+                      {overviewProjects.map((project) => (
+                        <button
+                          key={project.name}
+                          onClick={() => openProjectSessions(project.name)}
+                          className="os-btn flex items-center gap-2 px-3 py-2 border rounded-lg text-[12px] font-medium"
+                          style={{ ...s.surface, borderColor: C.border, color: C.ink }}
+                        >
+                          <Folder size={12} style={s.mutedText} />
+                          {project.name}
+                          <span className="os-tag text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>{project.count}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {shellError ? (
+                      <div className="mt-8 pt-8 border-t" style={{ borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Runtime Error</div>
+                        <div className="flex items-center gap-2 px-3 py-2 text-[12px] border rounded" style={{ ...s.surface, borderColor: C.border, color: C.muted }}>
+                          <X size={12} />
+                          <span>{shellError}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              ))}
-              <div className="flex flex-col gap-2 mt-8">
-                <button className="border px-3 py-1.5 rounded-md text-[12px] font-medium" style={{ ...s.surface, borderColor: C.border, color: C.ink }} onClick={() => void handleBrokerControl('start')}>
-                  Start Broker
-                </button>
-                <button className="border px-3 py-1.5 rounded-md text-[12px] font-medium" style={{ ...s.surface, borderColor: C.border, color: C.ink }} onClick={() => void handleBrokerControl('restart')}>
-                  Restart Broker
-                </button>
-                <button className="border px-3 py-1.5 rounded-md text-[12px] font-medium" style={{ ...s.surface, borderColor: C.border, color: C.ink }} onClick={() => void handleBrokerControl('stop')}>
-                  Stop Broker
-                </button>
               </div>
             </div>
           </div>
@@ -963,22 +1120,22 @@ export default function App() {
                         return (
                           <button
                             key={`${channel.kind}:${channel.id}`}
-                            className="flex items-center gap-2 px-1.5 py-1 shadow-sm border rounded cursor-pointer w-full text-left"
-                            style={active ? s.activeItem : { ...s.surface, borderColor: 'transparent', color: C.muted }}
+                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
+                            style={active ? s.activeItem : s.mutedText}
                             onClick={() => {
                               setSelectedRelayKind(channel.kind);
                               setSelectedRelayId(channel.id);
                             }}
                           >
                             {channel.id === 'voice' ? (
-                              <Radio size={12} style={active ? { color: C.accent } : undefined} />
+                              <Radio size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
                             ) : channel.id === 'system' ? (
-                              <Settings size={12} style={active ? { color: C.accent } : undefined} />
+                              <Settings size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
                             ) : (
-                              <Hash size={12} style={active ? { color: C.accent } : undefined} />
+                              <Hash size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
                             )}
                             <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(channel.title)}</span>
-                            <span className="text-[9px] font-mono" style={s.mutedText}>{channel.count}</span>
+                            <span className="os-row-count text-[9px] font-mono" style={s.mutedText}>{channel.count}</span>
                           </button>
                         );
                       })}
@@ -990,11 +1147,13 @@ export default function App() {
                     <div className="flex flex-col gap-px">
                       {relayViewItems.map((view) => {
                         const active = selectedRelayKind === view.kind && selectedRelayId === view.id;
-                        const icon = view.id === 'mentions' ? <AtSign size={12} style={active ? { color: C.accent } : undefined} /> : <Radar size={12} style={active ? { color: C.accent } : undefined} />;
+                        const icon = view.id === 'mentions'
+                          ? <AtSign size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />
+                          : <Radar size={12} className="os-row-icon shrink-0" style={active ? { color: C.accent } : undefined} />;
                         return (
                           <button
                             key={`${view.kind}:${view.id}`}
-                            className="flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left"
+                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
                             style={active ? s.activeItem : s.mutedText}
                             onClick={() => {
                               setSelectedRelayKind(view.kind);
@@ -1004,7 +1163,7 @@ export default function App() {
                             {icon}
                             <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(view.title)}</span>
                             {view.count > 0 ? (
-                              <span className="text-[9px] font-mono px-1 rounded" style={active ? s.activePill : { ...s.tagBadge, color: C.accent }}>
+                              <span className="os-row-count text-[9px] font-mono px-1 rounded" style={active ? s.activePill : s.tagBadge}>
                                 {view.count}
                               </span>
                             ) : null}
@@ -1022,7 +1181,7 @@ export default function App() {
                         return (
                           <button
                             key={dm.id}
-                            className="flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left"
+                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
                             style={active ? s.activeItem : s.mutedText}
                             onClick={() => {
                               setSelectedRelayKind('direct');
@@ -1031,19 +1190,28 @@ export default function App() {
                           >
                             <div className="relative shrink-0">
                               <div
-                                className={`w-4 h-4 rounded text-white flex items-center justify-center font-bold text-[8px] ${dm.reachable ? '' : 'opacity-40 grayscale'}`}
+                                className={`os-rail-avatar w-4 h-4 rounded text-white flex items-center justify-center font-bold text-[8px] ${dm.reachable ? '' : 'opacity-40 grayscale'}`}
                                 style={{ backgroundColor: colorForIdentity(dm.id) }}
                               >
                                 {dm.title.charAt(0).toUpperCase()}
                               </div>
-                              <div className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${dm.reachable ? 'bg-emerald-500' : 'bg-transparent'}`} style={{ border: `1px solid ${C.bg}` }}></div>
+                              <div
+                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(dm.state)}`}
+                                style={{ border: `1px solid ${C.bg}` }}
+                              ></div>
                             </div>
                             <div className={`flex-1 min-w-0 ${dm.reachable ? '' : 'opacity-50'}`}>
-                              <div className="font-medium text-[12px] truncate">{cleanDisplayTitle(dm.title)}</div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{dm.subtitle}</div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="font-medium text-[12px] truncate">{cleanDisplayTitle(dm.title)}</div>
+                                {dm.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
+                              </div>
+                              <div className="text-[10px] truncate" style={s.mutedText}>{relaySecondaryText(dm)}</div>
                             </div>
-                            <span className={`text-[8px] font-mono uppercase tracking-wider ${dm.reachable ? 'text-emerald-500' : 'opacity-40'}`}>
-                              {dm.reachable ? 'ON' : 'OFF'}
+                            <span
+                              className="os-rail-pill min-w-[2rem] text-center text-[8px] font-mono uppercase tracking-wider border rounded px-1.5 py-0.5"
+                              style={relayPresencePillStyle(dm.state)}
+                            >
+                              {relayPresenceIndicatorLabel(dm.state)}
                             </span>
                           </button>
                         );
@@ -1057,41 +1225,63 @@ export default function App() {
             {/* Main Chat Area */}
             <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
               {/* Channel Header */}
-              <div className="h-10 border-b flex items-center justify-between px-4 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-2">
-                  {selectedRelayKind === 'direct' ? (
-                    <AtSign size={14} style={s.mutedText} />
-                  ) : selectedRelayKind === 'filter' ? (
-                    <Radar size={14} style={s.mutedText} />
-                  ) : selectedRelayId === 'voice' ? (
-                    <Radio size={14} style={s.mutedText} />
-                  ) : selectedRelayId === 'system' ? (
-                    <Settings size={14} style={s.mutedText} />
-                  ) : (
-                    <Hash size={14} style={s.mutedText} />
-                  )}
-                  <h2 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>{relayThreadTitle}</h2>
-                  {relayCurrentDestination && 'count' in relayCurrentDestination && relayCurrentDestination.count > 0 ? (
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                      {relayCurrentDestination.count}
-                    </span>
-                  ) : null}
+              <div className="border-b flex items-center justify-between px-4 py-2 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="shrink-0">
+                    {selectedRelayKind === 'direct' ? (
+                      <AtSign size={14} style={s.mutedText} />
+                    ) : selectedRelayKind === 'filter' ? (
+                      <Radar size={14} style={s.mutedText} />
+                    ) : selectedRelayId === 'voice' ? (
+                      <Radio size={14} style={s.mutedText} />
+                    ) : selectedRelayId === 'system' ? (
+                      <Settings size={14} style={s.mutedText} />
+                    ) : (
+                      <Hash size={14} style={s.mutedText} />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h2 className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>{relayThreadTitle}</h2>
+                      {relayCurrentDestination && 'count' in relayCurrentDestination && relayCurrentDestination.count > 0 ? (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.tagBadge}>
+                          {relayCurrentDestination.count}
+                        </span>
+                      ) : null}
+                      {selectedRelayDirectThread ? <RelayPresenceBadge thread={selectedRelayDirectThread} /> : null}
+                    </div>
+                    {selectedRelayDirectThread?.statusDetail ? (
+                      <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
+                        {selectedRelayDirectThread.statusDetail}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowAnnotations(!showAnnotations)}
-                    className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded transition-opacity hover:opacity-70"
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
                     style={showAnnotations ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
                   >
                     Annotations <span className="font-mono uppercase">{showAnnotations ? 'On' : 'Off'}</span>
                   </button>
-                  <button className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded opacity-70 cursor-default" style={{ backgroundColor: C.bg, color: C.muted }}>
+                  <button
+                    className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={relayState?.voice.isCapturing ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
+                    onClick={() => void handleToggleVoiceCapture()}
+                    title={relayState?.voice.detail ?? undefined}
+                  >
                     {relayState?.voice.captureTitle ?? 'Capture'} <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.captureState ?? 'Off'}</span>
                   </button>
-                  <button className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded opacity-70 cursor-default" style={{ backgroundColor: C.bg, color: C.muted }}>
-                    Playback <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.repliesEnabled ? 'On' : 'Off'}</span>
+                  <button
+                    className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={relayState?.voice.repliesEnabled ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
+                    onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
+                    title={relayState?.voice.detail ?? undefined}
+                  >
+                    Playback <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.speaking ? 'Speaking' : relayState?.voice.repliesEnabled ? 'On' : 'Off'}</span>
                   </button>
-                  <button className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded hover:opacity-70" style={{ color: C.ink }} onClick={() => void handleRefreshShell()}>
+                  <button className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded" style={{ color: C.ink }} onClick={() => void handleRefreshShell()}>
                     Sync
                   </button>
                 </div>
@@ -1110,14 +1300,24 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <RelayTimeline
-                    messages={visibleRelayMessages}
-                    showAnnotations={showAnnotations}
-                    inkStyle={s.inkText}
-                    mutedStyle={s.mutedText}
-                    tagStyle={s.tagBadge}
-                    annotStyle={s.annotBadge}
-                  />
+                  <div className="flex flex-col gap-1">
+                    <RelayTimeline
+                      messages={visibleRelayMessages}
+                      showAnnotations={showAnnotations}
+                      inkStyle={s.inkText}
+                      mutedStyle={s.mutedText}
+                      tagStyle={s.tagBadge}
+                      annotStyle={s.annotBadge}
+                    />
+                    {selectedRelayDirectThread?.state === 'working' ? (
+                      <RelayThinkingIndicator
+                        thread={selectedRelayDirectThread}
+                        inkStyle={s.inkText}
+                        mutedStyle={s.mutedText}
+                        tagStyle={s.tagBadge}
+                      />
+                    ) : null}
+                  </div>
                 )}
               </div>
 
@@ -1170,9 +1370,20 @@ export default function App() {
                     </>
                   ) : null}
                 </div>
-                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Channel Active
-                </span>
+                <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  {selectedRelayDirectThread ? (
+                    <>
+                      <div className={`w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(selectedRelayDirectThread.state)}`}></div>
+                      <span>{selectedRelayDirectThread.statusLabel}</span>
+                      {selectedRelayDirectThread.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                      <span>Channel Active</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </>
@@ -1194,6 +1405,70 @@ export default function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 shrink-0"
+      style={relayPresencePillStyle(thread.state)}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(thread.state)}`}></span>
+      <span>{thread.statusLabel}</span>
+      {thread.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
+    </span>
+  );
+}
+
+function RelayThinkingIndicator({
+  thread,
+  inkStyle,
+  mutedStyle,
+  tagStyle,
+}: {
+  thread: RelayDirectThread;
+  inkStyle: React.CSSProperties;
+  mutedStyle: React.CSSProperties;
+  tagStyle: React.CSSProperties;
+}) {
+  return (
+    <div className="flex gap-2.5 mb-2">
+      <div
+        className="w-6 h-6 rounded text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5"
+        style={{ backgroundColor: colorForIdentity(thread.id) }}
+      >
+        {thread.title.charAt(0).toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-[12px]" style={inkStyle}>{cleanDisplayTitle(thread.title)}</span>
+          <RelayPresenceBadge thread={thread} />
+        </div>
+        <div
+          className="mt-1 inline-flex items-center gap-2 border rounded-full px-3 py-1.5"
+          style={{ ...tagStyle, borderColor: 'rgba(0,102,255,0.2)', backgroundColor: 'rgba(0,102,255,0.08)', color: 'var(--os-accent)' }}
+        >
+          <TypingDots className="text-[var(--os-accent)]" />
+          <span className="text-[11px] normal-case tracking-normal" style={inkStyle}>
+            {thread.activeTask ?? thread.statusDetail ?? 'Working on your latest message.'}
+          </span>
+        </div>
+        <div className="text-[10px] mt-1" style={mutedStyle}>
+          Live broker activity for this direct thread.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TypingDots({ className = '' }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 ${className}`} aria-hidden="true">
+      <span className="os-thinking-dot"></span>
+      <span className="os-thinking-dot"></span>
+      <span className="os-thinking-dot"></span>
+    </span>
   );
 }
 
@@ -1299,8 +1574,15 @@ function RelayTimeline({
               <div key={entry.id} className="text-[12px] leading-relaxed" style={inkStyle}>
                 <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
                 {entry.receipt ? (
-                  <div className="mt-1 text-[9px] font-mono uppercase tracking-wide" style={mutedStyle}>
-                    {entry.receipt.label}{entry.receipt.detail ? ` · ${entry.receipt.detail}` : ''}
+                  <div
+                    className="mt-1 inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 w-fit"
+                    style={relayReceiptStyle(entry.receipt.state)}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${relayReceiptDotClass(entry.receipt.state)}`}></span>
+                    <span>{entry.receipt.label}</span>
+                    {entry.receipt.detail ? (
+                      <span className="normal-case tracking-normal opacity-80">{entry.receipt.detail}</span>
+                    ) : null}
                   </div>
                 ) : null}
                 {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
@@ -1327,6 +1609,100 @@ function RelayTimeline({
   }
 
   return <>{rows}</>;
+}
+
+function relaySecondaryText(thread: RelayDirectThread) {
+  if (thread.state === 'working') {
+    return thread.activeTask ?? thread.statusDetail ?? thread.subtitle;
+  }
+
+  if (thread.statusDetail) {
+    return `${thread.subtitle} · ${thread.statusDetail}`;
+  }
+
+  return thread.subtitle;
+}
+
+function relayPresenceDotClass(state: RelayDirectThread['state']) {
+  if (state === 'working') {
+    return 'bg-[var(--os-accent)] os-presence-pulse';
+  }
+  if (state === 'available') {
+    return 'bg-emerald-500';
+  }
+  return 'bg-zinc-400/50';
+}
+
+function relayPresencePillStyle(state: RelayDirectThread['state']): React.CSSProperties {
+  if (state === 'working') {
+    return {
+      borderColor: 'rgba(0,102,255,0.2)',
+      backgroundColor: 'rgba(0,102,255,0.08)',
+      color: 'var(--os-accent)',
+    };
+  }
+
+  if (state === 'available') {
+    return {
+      borderColor: 'rgba(16,185,129,0.18)',
+      backgroundColor: 'rgba(16,185,129,0.08)',
+      color: '#059669',
+    };
+  }
+
+  return {
+    borderColor: 'var(--os-border)',
+    backgroundColor: 'var(--os-tag-bg)',
+    color: 'var(--os-muted)',
+  };
+}
+
+function relayPresenceIndicatorLabel(state: RelayDirectThread['state']) {
+  return state === 'offline' ? 'Off' : 'On';
+}
+
+function relayReceiptDotClass(state: NonNullable<RelayMessage['receipt']>['state']) {
+  switch (state) {
+    case 'replied':
+      return 'bg-emerald-500';
+    case 'seen':
+      return 'bg-[var(--os-accent)]';
+    case 'delivered':
+      return 'bg-sky-500';
+    case 'sent':
+    default:
+      return 'bg-zinc-400/60';
+  }
+}
+
+function relayReceiptStyle(state: NonNullable<RelayMessage['receipt']>['state']): React.CSSProperties {
+  switch (state) {
+    case 'replied':
+      return {
+        borderColor: 'rgba(16,185,129,0.18)',
+        backgroundColor: 'rgba(16,185,129,0.08)',
+        color: '#059669',
+      };
+    case 'seen':
+      return {
+        borderColor: 'rgba(0,102,255,0.2)',
+        backgroundColor: 'rgba(0,102,255,0.08)',
+        color: 'var(--os-accent)',
+      };
+    case 'delivered':
+      return {
+        borderColor: 'rgba(14,165,233,0.18)',
+        backgroundColor: 'rgba(14,165,233,0.08)',
+        color: '#0284c7',
+      };
+    case 'sent':
+    default:
+      return {
+        borderColor: 'var(--os-border)',
+        backgroundColor: 'var(--os-tag-bg)',
+        color: 'var(--os-muted)',
+      };
+  }
 }
 
 function shouldRenderRole(role: string | null) {
@@ -1442,81 +1818,72 @@ function renderMessageBody(
   mutedStyle: React.CSSProperties,
   tagStyle: React.CSSProperties,
 ) {
-  const parts = parseBodySegments(body);
-  return parts.map((part, index) => {
-    if (part.type === 'paragraph') {
-      return <p key={index}>{part.text}</p>;
-    }
+  const markdownStyle = {
+    '--os-markdown-ink': String(inkStyle.color ?? C.ink),
+    '--os-markdown-muted': String(mutedStyle.color ?? C.muted),
+    '--os-markdown-link': C.accent,
+    '--os-markdown-border': C.border,
+    '--os-markdown-surface': String(tagStyle.backgroundColor ?? C.tagBg),
+    '--os-markdown-inline-border': String(tagStyle.borderColor ?? C.border),
+    '--os-markdown-code-bg': C.termBg,
+    '--os-markdown-code-fg': C.termFg,
+  } as React.CSSProperties;
 
-    if (part.type === 'quote') {
-      return (
-        <div key={index} className="pl-2.5 border-l-2 italic" style={{ borderLeftColor: 'var(--os-border)', color: mutedStyle.color }}>
-          {part.text}
-        </div>
-      );
-    }
+  return (
+    <div className="os-markdown" style={markdownStyle}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote>{children}</blockquote>
+          ),
+          code: ({ className, children, ...props }) => {
+            const language = /language-([\w-]+)/.exec(className ?? '')?.[1];
+            const value = String(children).replace(/\n$/, '');
+            const isInline = !language && !value.includes('\n');
 
-    return (
-      <div key={index} className="p-2.5 rounded font-mono text-[10px] overflow-x-auto leading-normal" style={{ backgroundColor: C.termBg, color: C.termFg }}>
-        <div className="flex items-center gap-2 mb-1.5 opacity-50 select-none">
-          <Terminal size={10} />
-          <span>probe-01 ~</span>
-        </div>
-        <pre className="whitespace-pre-wrap">{part.text}</pre>
-      </div>
-    );
-  });
-}
+            if (isInline) {
+              return (
+                <code className="os-markdown-inline-code" {...props}>
+                  {value}
+                </code>
+              );
+            }
 
-function parseBodySegments(body: string): Array<{ type: 'paragraph' | 'quote' | 'code'; text: string }> {
-  const lines = body.split('\n');
-  const segments: Array<{ type: 'paragraph' | 'quote' | 'code'; text: string }> = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-
-    if (line.trim().startsWith('```')) {
-      const codeLines: string[] = [];
-      index += 1;
-      while (index < lines.length && !lines[index].trim().startsWith('```')) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-      segments.push({ type: 'code', text: codeLines.join('\n') });
-      index += 1;
-      continue;
-    }
-
-    if (line.trim().startsWith('>')) {
-      const quoteLines: string[] = [];
-      while (index < lines.length && lines[index].trim().startsWith('>')) {
-        quoteLines.push(lines[index].trim().replace(/^>\s?/, ''));
-        index += 1;
-      }
-      segments.push({ type: 'quote', text: quoteLines.join(' ') });
-      continue;
-    }
-
-    if (line.trim().length === 0) {
-      index += 1;
-      continue;
-    }
-
-    const paragraphLines: string[] = [];
-    while (
-      index < lines.length &&
-      lines[index].trim().length > 0 &&
-      !lines[index].trim().startsWith('>') &&
-      !lines[index].trim().startsWith('```')
-    ) {
-      paragraphLines.push(lines[index]);
-      index += 1;
-    }
-    segments.push({ type: 'paragraph', text: paragraphLines.join(' ') });
-  }
-
-  return segments;
+            return (
+              <div className="os-markdown-code-block">
+                <div className="os-markdown-code-header">
+                  <span>{language ?? 'code'}</span>
+                </div>
+                <pre className="os-markdown-pre">
+                  <code className={className} {...props}>
+                    {value}
+                  </code>
+                </pre>
+              </div>
+            );
+          },
+          h1: ({ children }) => <h1>{children}</h1>,
+          h2: ({ children }) => <h2>{children}</h2>,
+          h3: ({ children }) => <h3>{children}</h3>,
+          hr: () => <hr />,
+          pre: ({ children }) => <>{children}</>,
+          table: ({ children }) => (
+            <div className="os-markdown-table-wrap">
+              <table>{children}</table>
+            </div>
+          ),
+        }}
+      >
+        {body}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function asErrorMessage(error: unknown) {

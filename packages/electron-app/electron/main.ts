@@ -4,8 +4,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 
-import { buildDesktopShellState, controlBroker, sendRelayMessage } from "./openscout-runtime.js";
+import {
+  buildDesktopShellState,
+  controlBroker,
+  sendRelayMessage,
+  setVoiceRepliesEnabled,
+  toggleVoiceCapture,
+} from "./openscout-runtime.js";
 import type { BrokerControlAction, SendRelayMessageInput } from "../src/lib/openscout-desktop.js";
+import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
 const {
   BrowserWindow,
@@ -205,6 +212,27 @@ ipcMain.handle("openscout:control-broker", async (_event, action: BrokerControlA
   ),
 );
 
+ipcMain.handle("openscout:toggle-voice-capture", async () =>
+  toggleVoiceCapture({
+    productName: resolveProductName(),
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+  }),
+);
+
+ipcMain.handle("openscout:set-voice-replies-enabled", async (_event, enabled: boolean) =>
+  setVoiceRepliesEnabled(
+    {
+      productName: resolveProductName(),
+      appVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+    },
+    enabled,
+  ),
+);
+
 app.whenReady().then(async () => {
   createAppMenu();
   await createMainWindow();
@@ -219,10 +247,12 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", async () => {
   if (process.platform !== "darwin") {
     await appServer?.close();
+    await relayVoiceBridgeService.shutdown();
     app.quit();
   }
 });
 
 app.on("before-quit", async () => {
   await appServer?.close();
+  await relayVoiceBridgeService.shutdown();
 });

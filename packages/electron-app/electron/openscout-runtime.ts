@@ -10,6 +10,7 @@ import {
   stopBrokerService,
 } from "../../runtime/src/broker-service.js";
 import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
+import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
 import type {
   BrokerControlAction,
@@ -81,7 +82,13 @@ type MessageRecord = {
   originNodeId: string;
   class: string;
   body: string;
+  replyToMessageId?: string;
   createdAt: number;
+  speech?: {
+    text?: string;
+    voice?: string;
+    interruptible?: boolean;
+  };
   audience?: {
     visibleTo?: string[];
     notify?: string[];
@@ -94,11 +101,22 @@ type MessageRecord = {
 
 type FlightRecord = {
   id: string;
+  targetAgentId: string;
   state: string;
   summary?: string;
   output?: string;
   error?: string;
+  startedAt?: number;
+  completedAt?: number;
   metadata?: Record<string, unknown>;
+};
+
+type DirectAgentActivity = {
+  state: RelayDirectThread["state"];
+  reachable: boolean;
+  statusLabel: string;
+  statusDetail: string | null;
+  activeTask: string | null;
 };
 
 function normalizeTimestamp(value: number | null | undefined): number {
@@ -138,6 +156,23 @@ function formatRelativeTime(value: number): string {
   if (deltaHours < 24) return `${deltaHours}h ago`;
   const deltaDays = Math.floor(deltaHours / 24);
   return `${deltaDays}d ago`;
+}
+
+function isReachableEndpointState(state: string | undefined): boolean {
+  return state === "active" || state === "idle" || state === "waiting" || state === "degraded";
+}
+
+function isWorkingFlightState(state: string | undefined): boolean {
+  return state === "queued" || state === "waking" || state === "running" || state === "waiting";
+}
+
+function directConversationId(agentId: string): string {
+  return `dm.${OPERATOR_ID}.${agentId}`;
+}
+
+function flightMetadataString(flight: FlightRecord | null | undefined, key: string): string | null {
+  const value = flight?.metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function colorForIdentity(identity: string) {
@@ -262,11 +297,24 @@ function activeEndpoint(snapshot: RuntimeRegistrySnapshot, actorId: string): End
   const candidates = Object.values(snapshot.endpoints as Record<string, EndpointRecord>).filter(
     (endpoint) => endpoint.agentId === actorId,
   );
-  return (
-    candidates.find((endpoint) => endpoint.state === "active" || endpoint.state === "idle") ??
-    candidates[0] ??
-    null
-  );
+  const rank = (state: string | undefined) => {
+    switch (state) {
+      case "active":
+        return 0;
+      case "idle":
+        return 1;
+      case "waiting":
+        return 2;
+      case "degraded":
+        return 3;
+      case "offline":
+        return 5;
+      default:
+        return 4;
+    }
+  };
+
+  return [...candidates].sort((lhs, rhs) => rank(lhs.state) - rank(rhs.state))[0] ?? null;
 }
 
 function inferRecipients(message: MessageRecord, conversation: ConversationRecord | undefined): string[] {
@@ -298,8 +346,102 @@ function normalizedChannel(conversation: ConversationRecord | undefined): string
 function sanitizeRelayBody(body: string): string {
   return body
     .replace(/\[ask:[^\]]+\]\s*/g, "")
+    .replace(/\[speak\]\s*/gi, "")
     .replace(/^(@[\w.-]+\s+)+/g, "")
     .trim();
+}
+
+function spokenTextForMessage(message: MessageRecord): string | null {
+  const explicitSpeech = message.speech?.text?.trim();
+  if (explicitSpeech) {
+    return explicitSpeech;
+  }
+
+  const taggedSpeech = message.body.match(/^\[speak\]\s*([\s\S]+)$/i)?.[1]?.trim();
+  return taggedSpeech || null;
+}
+
+function buildMessagesByConversation(snapshot: RuntimeRegistrySnapshot): Map<string, MessageRecord[]> {
+  const messagesByConversation = new Map<string, MessageRecord[]>();
+
+  for (const message of Object.values(snapshot.messages as Record<string, MessageRecord>)) {
+    if (message.metadata?.transportOnly === "true") {
+      continue;
+    }
+
+    const bucket = messagesByConversation.get(message.conversationId) ?? [];
+    bucket.push(message);
+    messagesByConversation.set(message.conversationId, bucket);
+  }
+
+  for (const bucket of messagesByConversation.values()) {
+    bucket.sort((lhs, rhs) => normalizeTimestamp(lhs.createdAt) - normalizeTimestamp(rhs.createdAt));
+  }
+
+  return messagesByConversation;
+}
+
+function buildDirectAgentActivity(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+  messagesByConversation: Map<string, MessageRecord[]>,
+): Map<string, DirectAgentActivity> {
+  const tmuxSet = new Set(tmuxSessions.map((session) => session.name));
+  const flights = Object.values(snapshot.flights as Record<string, FlightRecord>);
+  const activity = new Map<string, DirectAgentActivity>();
+
+  for (const agent of Object.values(snapshot.agents as Record<string, AgentRecord>)) {
+    const endpoint = activeEndpoint(snapshot, agent.id);
+    const reachable = Boolean(endpoint && isReachableEndpointState(endpoint.state)) || tmuxSet.has(`relay-${agent.id}`);
+    const latestMessage = (messagesByConversation.get(directConversationId(agent.id)) ?? []).at(-1) ?? null;
+    const activeFlight =
+      flights
+        .filter((flight) => flight.targetAgentId === agent.id && isWorkingFlightState(flight.state))
+        .sort(
+          (lhs, rhs) =>
+            normalizeTimestamp(rhs.startedAt ?? rhs.completedAt ?? 0) -
+            normalizeTimestamp(lhs.startedAt ?? lhs.completedAt ?? 0),
+        )[0] ?? null;
+
+    const activeTask =
+      sanitizeRelayBody(
+        activeFlight?.summary?.trim()
+        || flightMetadataString(activeFlight, "task")
+        || "Working on your latest message.",
+      ) || null;
+
+    if (activeFlight) {
+      activity.set(agent.id, {
+        state: "working",
+        reachable: true,
+        statusLabel: "Working",
+        statusDetail: activeTask,
+        activeTask,
+      });
+      continue;
+    }
+
+    if (reachable) {
+      activity.set(agent.id, {
+        state: "available",
+        reachable,
+        statusLabel: "Available",
+        statusDetail: latestMessage ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}` : "Ready for a direct message.",
+        activeTask: null,
+      });
+      continue;
+    }
+
+    activity.set(agent.id, {
+      state: "offline",
+      reachable: false,
+      statusLabel: "Offline",
+      statusDetail: latestMessage ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}` : "No active endpoint detected.",
+      activeTask: null,
+    });
+  }
+
+  return activity;
 }
 
 function buildRelayMessages(snapshot: RuntimeRegistrySnapshot): RelayMessage[] {
@@ -321,6 +463,9 @@ function buildRelayMessages(snapshot: RuntimeRegistrySnapshot): RelayMessage[] {
 
     return {
       id: message.id,
+      conversationId: message.conversationId,
+      createdAt: message.createdAt,
+      replyToMessageId: message.replyToMessageId ?? null,
       authorId: message.actorId,
       authorName: actorDisplayName(snapshot, message.actorId),
       authorRole: actorRole(snapshot, message.actorId),
@@ -331,7 +476,7 @@ function buildRelayMessages(snapshot: RuntimeRegistrySnapshot): RelayMessage[] {
       recipients,
       isDirectConversation: conversation?.kind === "direct" || conversation?.id.startsWith("dm.") === true,
       isSystem: message.class === "system" || channel === "system" || conversation?.kind === "system",
-      isVoice: channel === "voice",
+      isVoice: channel === "voice" || Boolean(spokenTextForMessage(message)),
       messageClass: message.class,
       routingSummary: recipients.length > 0 ? `Targets ${recipients.map((id) => actorDisplayName(snapshot, id)).join(", ")}` : null,
       provenanceSummary: provenanceParts.length > 0 ? `via ${provenanceParts.join(" · ")}` : null,
@@ -344,45 +489,167 @@ function buildRelayMessages(snapshot: RuntimeRegistrySnapshot): RelayMessage[] {
   });
 }
 
-function buildRelayDirects(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSession[]): RelayDirectThread[] {
-  const tmuxSet = new Set(tmuxSessions.map((session) => session.name));
-  const conversations = snapshot.conversations as Record<string, ConversationRecord>;
-  const messagesByConversation = new Map<string, MessageRecord[]>();
-
-  for (const message of Object.values(snapshot.messages as Record<string, MessageRecord>)) {
-    const bucket = messagesByConversation.get(message.conversationId) ?? [];
-    bucket.push(message);
-    messagesByConversation.set(message.conversationId, bucket);
-  }
-
+function buildRelayDirects(
+  snapshot: RuntimeRegistrySnapshot,
+  activityByAgent: Map<string, DirectAgentActivity>,
+  messagesByConversation: Map<string, MessageRecord[]>,
+): RelayDirectThread[] {
   return Object.values(snapshot.agents as Record<string, AgentRecord>)
     .filter((agent) => !["scout", "builder", "reviewer", "research"].includes(agent.id))
     .sort((lhs, rhs) => actorDisplayName(snapshot, lhs.id).localeCompare(actorDisplayName(snapshot, rhs.id)))
     .map((agent) => {
-      const directConversationId = `dm.${OPERATOR_ID}.${agent.id}`;
-      const directMessages = (messagesByConversation.get(directConversationId) ?? [])
-        .sort((lhs, rhs) => normalizeTimestamp(lhs.createdAt) - normalizeTimestamp(rhs.createdAt));
-      const latestMessage = directMessages.at(-1);
-      const endpoint = activeEndpoint(snapshot, agent.id);
-      const reachable = Boolean(endpoint && (endpoint.state === "idle" || endpoint.state === "active")) || tmuxSet.has(`relay-${agent.id}`);
+      const directMessages = messagesByConversation.get(directConversationId(agent.id)) ?? [];
+      const latestMessage = directMessages.at(-1) ?? null;
+      const previewMessage =
+        [...directMessages].reverse().find((message) => message.class !== "status" && message.class !== "system")
+        ?? latestMessage;
       const subtitle =
         typeof agent.metadata?.role === "string"
           ? String(agent.metadata.role)
           : typeof agent.metadata?.summary === "string"
             ? String(agent.metadata.summary)
             : "Project twin";
+      const activity = activityByAgent.get(agent.id) ?? {
+        state: "offline" as const,
+        reachable: false,
+        statusLabel: "Offline",
+        statusDetail: "No active endpoint detected.",
+        activeTask: null,
+      };
 
       return {
         kind: "direct" as const,
         id: agent.id,
         title: actorDisplayName(snapshot, agent.id),
         subtitle,
-        preview: latestMessage?.body ?? null,
+        preview: previewMessage ? sanitizeRelayBody(previewMessage.body) : null,
         timestampLabel: latestMessage ? formatTimeLabel(latestMessage.createdAt) : null,
-        state: reachable ? "online" : "offline",
-        reachable,
+        state: activity.state,
+        reachable: activity.reachable,
+        statusLabel: activity.statusLabel,
+        statusDetail: activity.statusDetail,
+        activeTask: activity.activeTask,
       };
     });
+}
+
+function attachRelayReceipts(
+  snapshot: RuntimeRegistrySnapshot,
+  messages: RelayMessage[],
+  activityByAgent: Map<string, DirectAgentActivity>,
+): RelayMessage[] {
+  const latestStatusByReplyTo = new Map<string, { createdAt: number; body: string; targetAgentId: string | null }>();
+  const latestReplyByReplyTo = new Map<string, { createdAt: number; authorId: string }>();
+  const latestOperatorDirectMessageByAgent = new Map<string, string>();
+
+  for (const message of messages) {
+    if (!message.isOperator || !message.isDirectConversation) {
+      continue;
+    }
+
+    const targetAgentId = message.recipients.find((recipient) => recipient !== OPERATOR_ID);
+    if (targetAgentId) {
+      latestOperatorDirectMessageByAgent.set(targetAgentId, message.id);
+    }
+  }
+
+  for (const message of Object.values(snapshot.messages as Record<string, MessageRecord>)) {
+    if (message.metadata?.transportOnly === "true" || !message.replyToMessageId) {
+      continue;
+    }
+
+    if (message.class === "status") {
+      const current = latestStatusByReplyTo.get(message.replyToMessageId);
+      if (!current || normalizeTimestamp(current.createdAt) < normalizeTimestamp(message.createdAt)) {
+        latestStatusByReplyTo.set(message.replyToMessageId, {
+          createdAt: message.createdAt,
+          body: sanitizeRelayBody(message.body),
+          targetAgentId: typeof message.metadata?.targetAgentId === "string" ? message.metadata.targetAgentId : null,
+        });
+      }
+      continue;
+    }
+
+    if (message.actorId === OPERATOR_ID) {
+      continue;
+    }
+
+    const current = latestReplyByReplyTo.get(message.replyToMessageId);
+    if (!current || normalizeTimestamp(current.createdAt) < normalizeTimestamp(message.createdAt)) {
+      latestReplyByReplyTo.set(message.replyToMessageId, {
+        createdAt: message.createdAt,
+        authorId: message.actorId,
+      });
+    }
+  }
+
+  return messages.map((message) => {
+    if (!message.isOperator || !message.isDirectConversation) {
+      return message;
+    }
+
+    const targetAgentId = message.recipients.find((recipient) => recipient !== OPERATOR_ID);
+    if (!targetAgentId) {
+      return message;
+    }
+
+    const reply = latestReplyByReplyTo.get(message.id);
+    if (reply && reply.authorId === targetAgentId) {
+      return {
+        ...message,
+        receipt: {
+          state: "replied",
+          label: "Replied",
+          detail: formatRelativeTime(reply.createdAt),
+        },
+      };
+    }
+
+    const status = latestStatusByReplyTo.get(message.id);
+    if (status && (!status.targetAgentId || status.targetAgentId === targetAgentId)) {
+      return {
+        ...message,
+        receipt: {
+          state: "seen",
+          label: "Seen",
+          detail: status.body,
+        },
+      };
+    }
+
+    const activity = activityByAgent.get(targetAgentId);
+    const isLatestForAgent = latestOperatorDirectMessageByAgent.get(targetAgentId) === message.id;
+    if (activity?.state === "working" && isLatestForAgent) {
+      return {
+        ...message,
+        receipt: {
+          state: "seen",
+          label: "Seen",
+          detail: activity.activeTask ?? "Working now.",
+        },
+      };
+    }
+
+    if (activity?.reachable) {
+      return {
+        ...message,
+        receipt: {
+          state: "delivered",
+          label: "Delivered",
+          detail: "Agent available.",
+        },
+      };
+    }
+
+    return {
+      ...message,
+      receipt: {
+        state: "sent",
+        label: "Sent",
+        detail: "Agent offline.",
+      },
+    };
+  });
 }
 
 function countMessages(messages: RelayMessage[], predicate: (message: RelayMessage) => boolean) {
@@ -390,8 +657,11 @@ function countMessages(messages: RelayMessage[], predicate: (message: RelayMessa
 }
 
 function buildRelayState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSession[]): RelayState {
-  const messages = buildRelayMessages(snapshot);
-  const directs = buildRelayDirects(snapshot, tmuxSessions);
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const messages = attachRelayReceipts(snapshot, buildRelayMessages(snapshot), directActivity);
+  const directs = buildRelayDirects(snapshot, directActivity, messagesByConversation);
+  const voiceState = relayVoiceBridgeService.getRelayVoiceState();
 
   const channels: RelayNavItem[] = [
     {
@@ -461,13 +731,7 @@ function buildRelayState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSe
     views,
     directs,
     messages,
-    voice: {
-      captureState: "off",
-      captureTitle: "Capture",
-      repliesEnabled: false,
-      detail: "Voice is not wired in Electron yet.",
-      isCapturing: false,
-    },
+    voice: voiceState,
     lastUpdatedLabel: messages.at(-1) ? formatRelativeTime(normalizeTimestamp((snapshot.messages as Record<string, MessageRecord>)[messages.at(-1)?.id ?? ""]?.createdAt ?? 0)) : null,
   };
 }
@@ -766,6 +1030,9 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
   const [status, helper] = await Promise.all([brokerServiceStatus(), Promise.resolve(readHelperStatus())]);
   const tmuxSessions = readTmuxSessions();
   const snapshot = status.reachable ? await readSnapshot(status.brokerUrl) : null;
+  if (snapshot) {
+    relayVoiceBridgeService.syncRelayPlayback(snapshot);
+  }
   const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
 
   return {
@@ -783,15 +1050,9 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
           operatorId: OPERATOR_ID,
           channels: [],
           views: [],
-          directs: [],
-          messages: [],
-          voice: {
-            captureState: "off",
-            captureTitle: "Capture",
-            repliesEnabled: false,
-            detail: "Broker unavailable.",
-            isCapturing: false,
-          },
+        directs: [],
+        messages: [],
+          voice: relayVoiceBridgeService.getRelayVoiceState(),
           lastUpdatedLabel: null,
         },
   };
@@ -815,4 +1076,17 @@ export async function controlBroker(appInfo: DesktopAppInfo, action: BrokerContr
 
 export async function sendRelayMessage(appInfo: DesktopAppInfo, input: SendRelayMessageInput): Promise<DesktopShellState> {
   return postMessageAndInvocations(appInfo, input);
+}
+
+export async function toggleVoiceCapture(appInfo: DesktopAppInfo): Promise<DesktopShellState> {
+  await relayVoiceBridgeService.toggleCapture();
+  return buildDesktopShellState(appInfo);
+}
+
+export async function setVoiceRepliesEnabled(
+  appInfo: DesktopAppInfo,
+  enabled: boolean,
+): Promise<DesktopShellState> {
+  await relayVoiceBridgeService.setRepliesEnabled(enabled);
+  return buildDesktopShellState(appInfo);
 }

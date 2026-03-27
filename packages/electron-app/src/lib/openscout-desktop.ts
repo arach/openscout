@@ -15,6 +15,8 @@ export type RelayNavItem = {
   count: number;
 };
 
+export type RelayDirectState = "offline" | "available" | "working";
+
 export type RelayDirectThread = {
   kind: "direct";
   id: string;
@@ -22,8 +24,11 @@ export type RelayDirectThread = {
   subtitle: string;
   preview: string | null;
   timestampLabel: string | null;
-  state: string;
+  state: RelayDirectState;
   reachable: boolean;
+  statusLabel: string;
+  statusDetail: string | null;
+  activeTask: string | null;
 };
 
 export type RelayVoiceState = {
@@ -32,10 +37,13 @@ export type RelayVoiceState = {
   repliesEnabled: boolean;
   detail: string | null;
   isCapturing: boolean;
+  speaking: boolean;
 };
 
+export type RelayMessageReceiptState = "sent" | "delivered" | "seen" | "replied";
+
 export type RelayMessageReceipt = {
-  state: string;
+  state: RelayMessageReceiptState;
   label: string;
   detail: string | null;
 };
@@ -43,6 +51,9 @@ export type RelayMessageReceipt = {
 export type RelayMessage = {
   receipt?: RelayMessageReceipt | null;
   id: string;
+  conversationId: string;
+  createdAt: number;
+  replyToMessageId: string | null;
   authorId: string;
   authorName: string;
   authorRole: string | null;
@@ -136,6 +147,8 @@ declare global {
       refreshShellState: () => Promise<DesktopShellState>;
       sendRelayMessage: (input: SendRelayMessageInput) => Promise<DesktopShellState>;
       controlBroker: (action: BrokerControlAction) => Promise<DesktopShellState>;
+      toggleVoiceCapture: () => Promise<DesktopShellState>;
+      setVoiceRepliesEnabled: (enabled: boolean) => Promise<DesktopShellState>;
     };
   }
 }
