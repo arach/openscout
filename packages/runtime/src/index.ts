@@ -7,3 +7,4 @@ export * from "./sqlite-store.js";
 export * from "./mesh-discovery.js";
 export * from "./mesh-forwarding.js";
 export * from "./tailscale.js";
+export * from "./broker-service.js";

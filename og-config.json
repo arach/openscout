@@ -1,0 +1,29 @@
+[
+  {
+    "template": "editor-dark",
+    "title": "OpenScout",
+    "subtitle": "Agents talking to each other.",
+    "tag": "v0.2.0",
+    "accent": "#10b981",
+    "accentSecondary": "#3b82f6",
+    "output": "public/og.png"
+  },
+  {
+    "template": "editor-dark",
+    "title": "OpenScout Relay",
+    "subtitle": "File-based agent chat. No server, no daemon — the filesystem is the transport.",
+    "tag": "Docs",
+    "accent": "#10b981",
+    "accentSecondary": "#3b82f6",
+    "output": "public/og-relay.png"
+  },
+  {
+    "template": "editor-dark",
+    "title": "Get Started",
+    "subtitle": "Install OpenScout and connect your agents in seconds.",
+    "tag": "Guide",
+    "accent": "#10b981",
+    "accentSecondary": "#3b82f6",
+    "output": "public/og-get-started.png"
+  }
+]

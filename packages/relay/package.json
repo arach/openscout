@@ -27,7 +27,7 @@
   "author": "Arach Tchoupani",
   "license": "MIT",
   "dependencies": {
-    "@arach/ora": "file:../../../ora",
+    "@arach/ora": "github:arach/ora",
     "@chat-adapter/state-memory": "^4.20.2",
     "@chat-adapter/telegram": "^4.20.2",
     "@opentui/core": "^0.1.88",

@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "electron", "server", "vite.config.ts"]
+}
