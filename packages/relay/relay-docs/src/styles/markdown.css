@@ -7,6 +7,10 @@
     min-width: 0;
   }
 
+  .doc-content > h1:first-child {
+    display: none;
+  }
+
   .doc-content h1 {
     font-size: 2.25rem;
     margin: 0 0 1rem;
@@ -91,6 +95,45 @@
     border: none;
     padding: 0;
     color: inherit;
+  }
+
+  .doc-content .mermaid-block {
+    margin: 1.75rem 0;
+    border: 1px solid var(--color-border);
+    border-radius: calc(var(--radius-lg) + 2px);
+    padding: 1rem;
+    overflow-x: auto;
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 38%),
+      linear-gradient(180deg, color-mix(in srgb, var(--color-surface-muted) 72%, var(--color-surface)) 0%, var(--color-surface) 100%);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .doc-content .mermaid-block__canvas {
+    min-width: min(42rem, 100%);
+  }
+
+  .doc-content .mermaid-block svg {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .doc-content .mermaid-block[data-render-state='loading']::before {
+    content: "Rendering diagram…";
+    display: block;
+    margin-bottom: 0.75rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .doc-content .mermaid-error {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
   }
 
   .doc-content hr {

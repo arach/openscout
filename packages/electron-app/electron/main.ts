@@ -8,17 +8,24 @@ import {
   buildDesktopShellState,
   controlBroker,
   getAgentConfig,
+  getAppSettings,
+  getBrokerInspector,
+  getLogCatalog,
+  readLogSource,
   restartAgent,
   sendRelayMessage,
   setVoiceRepliesEnabled,
   toggleVoiceCapture,
   updateAgentConfig,
+  updateAppSettings,
 } from "./openscout-runtime.js";
 import type {
   BrokerControlAction,
+  ReadLogSourceInput,
   RestartAgentInput,
   SendRelayMessageInput,
   UpdateAgentConfigInput,
+  UpdateAppSettingsInput,
 } from "../src/lib/openscout-desktop.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
@@ -196,6 +203,14 @@ ipcMain.handle("openscout:refresh-shell-state", async () =>
   }),
 );
 
+ipcMain.handle("openscout:get-app-settings", async () =>
+  getAppSettings(),
+);
+
+ipcMain.handle("openscout:update-app-settings", async (_event, input: UpdateAppSettingsInput) =>
+  updateAppSettings(input),
+);
+
 ipcMain.handle("openscout:get-agent-config", async (_event, agentId: string) =>
   getAgentConfig(agentId),
 );
@@ -238,6 +253,18 @@ ipcMain.handle("openscout:control-broker", async (_event, action: BrokerControlA
     },
     action,
   ),
+);
+
+ipcMain.handle("openscout:get-log-catalog", async () =>
+  getLogCatalog(),
+);
+
+ipcMain.handle("openscout:get-broker-inspector", async () =>
+  getBrokerInspector(),
+);
+
+ipcMain.handle("openscout:read-log-source", async (_event, input: ReadLogSourceInput) =>
+  readLogSource(input),
 );
 
 ipcMain.handle("openscout:toggle-voice-capture", async () =>

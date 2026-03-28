@@ -14,12 +14,13 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENGINE_DIR="$ROOT_DIR/native/engine"
 DERIVED_DATA_DIR="$ENGINE_DIR/.derivedData"
 SUPPORT_DIR="$HOME/Library/Application Support/OpenScout"
+APP_LOG_DIR="$SUPPORT_DIR/logs/app"
 STATUS_FILE="$SUPPORT_DIR/agent-status.json"
-APP_LOG_FILE="$SUPPORT_DIR/scout-app.log"
-AGENT_LOG_FILE="$SUPPORT_DIR/scout-agent.log"
+APP_LOG_FILE="$APP_LOG_DIR/native.log"
+AGENT_LOG_FILE="$APP_LOG_DIR/agent-host.log"
 APP_BUNDLE_NAME="OpenScout.app"
 
-mkdir -p "$SUPPORT_DIR"
+mkdir -p "$SUPPORT_DIR" "$APP_LOG_DIR"
 
 usage() {
   cat <<'EOF'

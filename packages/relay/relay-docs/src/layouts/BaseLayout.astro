@@ -77,6 +77,200 @@ const { title = 'Docs' } = Astro.props
         </p>
       </div>
     </div>
+    <script>
+      const MERMAID_SELECTOR = [
+        'pre[data-language="mermaid"] > code',
+        'pre > code.language-mermaid',
+        'pre > code.lang-mermaid',
+      ].join(', ')
+      let mermaidRenderNonce = 0
+      let mermaidThemeTimer
+      let mermaidModulePromise
+
+      const getCssVar = (name, fallback = '') => {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+        return value || fallback
+      }
+
+      const escapeHtml = (value) =>
+        value.replace(/[&<>"']/g, (char) => (
+          char === '&' ? '&amp;'
+            : char === '<' ? '&lt;'
+            : char === '>' ? '&gt;'
+            : char === '"' ? '&quot;'
+            : '&#39;'
+        ))
+
+      const getMermaidConfig = () => ({
+        startOnLoad: false,
+        securityLevel: 'loose',
+        theme: 'base',
+        fontFamily: '"Space Grotesk", system-ui, sans-serif',
+        themeVariables: {
+          background: 'transparent',
+          fontFamily: '"Space Grotesk", system-ui, sans-serif',
+          primaryColor: getCssVar('--color-surface', '#ffffff'),
+          primaryTextColor: getCssVar('--color-text', '#101518'),
+          primaryBorderColor: getCssVar('--color-accent', '#3b82f6'),
+          secondaryColor: getCssVar('--color-surface-muted', '#e4ecf4'),
+          secondaryTextColor: getCssVar('--color-text', '#101518'),
+          secondaryBorderColor: getCssVar('--color-border', 'rgba(16, 21, 24, 0.1)'),
+          tertiaryColor: getCssVar('--color-bg', '#f0f4f8'),
+          tertiaryTextColor: getCssVar('--color-text', '#101518'),
+          tertiaryBorderColor: getCssVar('--color-border', 'rgba(16, 21, 24, 0.1)'),
+          lineColor: getCssVar('--color-text-muted', '#5c676c'),
+          edgeLabelBackground: getCssVar('--color-bg', '#f0f4f8'),
+          mainBkg: getCssVar('--color-surface', '#ffffff'),
+          secondBkg: getCssVar('--color-surface-muted', '#e4ecf4'),
+          tertiaryBkg: getCssVar('--color-bg', '#f0f4f8'),
+          clusterBkg: getCssVar('--color-bg', '#f0f4f8'),
+          clusterBorder: getCssVar('--color-border', 'rgba(16, 21, 24, 0.1)'),
+          actorBkg: getCssVar('--color-surface', '#ffffff'),
+          actorBorder: getCssVar('--color-border', 'rgba(16, 21, 24, 0.1)'),
+          actorTextColor: getCssVar('--color-text', '#101518'),
+          signalColor: getCssVar('--color-text', '#101518'),
+          signalTextColor: getCssVar('--color-text', '#101518'),
+          labelBoxBkgColor: getCssVar('--color-bg', '#f0f4f8'),
+          labelBoxBorderColor: getCssVar('--color-border', 'rgba(16, 21, 24, 0.1)'),
+          labelTextColor: getCssVar('--color-text', '#101518'),
+          noteBkgColor: getCssVar('--color-surface-muted', '#e4ecf4'),
+          noteBorderColor: getCssVar('--color-border', 'rgba(16, 21, 24, 0.1)'),
+          noteTextColor: getCssVar('--color-text', '#101518'),
+          activationBkgColor: getCssVar('--color-accent', '#3b82f6'),
+          activationBorderColor: getCssVar('--color-accent-strong', '#2563eb'),
+          sequenceNumberColor: getCssVar('--color-bg', '#f0f4f8'),
+        },
+        flowchart: {
+          htmlLabels: true,
+          useMaxWidth: true,
+          curve: 'basis',
+          nodeSpacing: 36,
+          rankSpacing: 48,
+          padding: 12,
+        },
+        sequence: {
+          useMaxWidth: true,
+          wrap: true,
+          actorMargin: 48,
+          boxMargin: 12,
+          noteMargin: 12,
+          messageMargin: 28,
+          diagramMarginX: 24,
+          diagramMarginY: 18,
+        },
+        themeCSS: `
+          .label text,
+          .nodeLabel,
+          .edgeLabel,
+          .messageText,
+          .noteText {
+            font-weight: 600;
+          }
+
+          .cluster-label text {
+            font-weight: 700;
+            letter-spacing: 0.04em;
+          }
+
+          .edgeLabel rect {
+            rx: 8px;
+            ry: 8px;
+          }
+        `,
+      })
+
+      const ensureMermaidBlocks = () => {
+        document.querySelectorAll(MERMAID_SELECTOR).forEach((code) => {
+          const pre = code.parentElement
+          if (!pre) return
+
+          const source = code.textContent?.trim()
+          if (!source) return
+
+          const block = document.createElement('figure')
+          block.className = 'mermaid-block'
+          block.dataset.source = source
+
+          const canvas = document.createElement('div')
+          canvas.className = 'mermaid-block__canvas'
+          block.appendChild(canvas)
+
+          pre.replaceWith(block)
+        })
+
+        return Array.from(document.querySelectorAll('.mermaid-block'))
+      }
+
+      const loadMermaid = async () => {
+        if (!mermaidModulePromise) {
+          mermaidModulePromise = import('mermaid').then((module) => module.default)
+        }
+
+        return mermaidModulePromise
+      }
+
+      const renderMermaidBlocks = async () => {
+        const blocks = ensureMermaidBlocks()
+        if (!blocks.length) return
+
+        const mermaid = await loadMermaid()
+        const nonce = ++mermaidRenderNonce
+        mermaid.initialize(getMermaidConfig())
+
+        for (const [index, block] of blocks.entries()) {
+          const source = block.dataset.source || ''
+          const canvas = block.querySelector('.mermaid-block__canvas') || block
+          block.dataset.renderState = 'loading'
+
+          try {
+            const { svg, bindFunctions } = await mermaid.render(`relay-mermaid-${nonce}-${index}`, source)
+            if (nonce !== mermaidRenderNonce) return
+            canvas.innerHTML = svg
+            bindFunctions?.(canvas)
+            block.dataset.renderState = 'ready'
+          } catch (error) {
+            canvas.innerHTML = `<pre><code>${escapeHtml(source)}</code></pre><p class="mermaid-error">Diagram failed to render.</p>`
+            block.dataset.renderState = 'error'
+            console.error('Mermaid render failed', error)
+          }
+        }
+
+        document.querySelectorAll('.mermaid-block svg').forEach((svg) => {
+          svg.removeAttribute('height')
+          svg.setAttribute('width', '100%')
+        })
+      }
+
+      const queueMermaidRender = () => {
+        window.clearTimeout(mermaidThemeTimer)
+        mermaidThemeTimer = window.setTimeout(() => {
+          renderMermaidBlocks()
+        }, 90)
+      }
+
+      const observeThemeChanges = () => {
+        const observer = new MutationObserver((mutations) => {
+          if (mutations.some((mutation) => mutation.attributeName === 'data-theme')) {
+            queueMermaidRender()
+          }
+        })
+
+        observer.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['data-theme'],
+        })
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderMermaidBlocks, { once: true })
+        document.addEventListener('DOMContentLoaded', observeThemeChanges, { once: true })
+      } else {
+        renderMermaidBlocks()
+        observeThemeChanges()
+      }
+
+      document.addEventListener('astro:after-swap', renderMermaidBlocks)
+    </script>
     <script is:inline>
       (() => {
         const initUi = () => {
@@ -159,6 +353,10 @@ const { title = 'Docs' } = Astro.props
         var addCopyButtons = function () {
           document.querySelectorAll('pre').forEach(function (block) {
             if (block.dataset.copyReady) return
+            if (
+              block.dataset.language === 'mermaid' ||
+              block.querySelector('code.language-mermaid, code.lang-mermaid')
+            ) return
             block.dataset.copyReady = 'true'
             var button = document.createElement('button')
             button.textContent = 'Copy'

@@ -1,0 +1,25 @@
+---
+import ArcDocsDiagram from './ArcDocsDiagram'
+import { relayArchitectureDiagram } from '../lib/relay-architecture-diagram'
+---
+
+<section class="relay-architecture-hero mb-10 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:p-5" data-pagefind-ignore>
+  <div class="relay-architecture-hero__header mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h2 class="text-xl font-semibold tracking-tight">Any-To-Any Agent Communication</h2>
+    </div>
+    <p class="max-w-md text-sm leading-relaxed text-[var(--color-text-muted)]">
+      Surfaces feed a shared runtime. That runtime persists canonical state, routes work to active agents, and links out to peer runtimes on other machines.
+    </p>
+  </div>
+
+  <div class="relay-architecture-hero__frame overflow-hidden rounded-[calc(var(--radius-lg)-6px)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2 md:p-3">
+    <div class="relay-architecture-hero__canvas">
+      <ArcDocsDiagram client:load data={relayArchitectureDiagram} />
+    </div>
+  </div>
+
+  <p class="relay-architecture-hero__hint mt-3 text-xs leading-relaxed text-[var(--color-text-muted)]">
+    This is the system in one loop: surfaces feed the runtime, the runtime persists shared state, and work can route to local agents or peer runtimes on other machines.
+  </p>
+</section>

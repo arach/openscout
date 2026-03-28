@@ -1,17 +1,22 @@
 #!/usr/bin/env bun
 
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import {
+  brokerServiceStatus,
+  initializeOpenScoutSetup,
+  loadResolvedRelayAgents,
+  resolveOpenScoutSupportPaths,
+  startBrokerService,
+} from "@openscout/runtime";
+
 const VERSION = "0.1.0";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../../..");
-const supportDir = join(homedir(), "Library", "Application Support", "OpenScout");
-const statusFile = join(supportDir, "agent-status.json");
+const supportPaths = resolveOpenScoutSupportPaths();
 const scoutDevScript = join(repoRoot, "scripts", "scout-dev");
 
 const args = process.argv.slice(2);
@@ -32,7 +37,7 @@ switch (command) {
     await runDoctor();
     break;
   case "init":
-    runInit(rest);
+    await runInit(rest);
     break;
   case "dev":
     await runDevCommand(subcommand, rest);
@@ -73,7 +78,7 @@ Commands:
   help           Show this help text
   version        Print the CLI version
   doctor         Show local OpenScout environment status
-  init           Scaffold a future Scout workspace entry point
+  init           Set up OpenScout for the current repo and your workspace roots
   dev            Pass native developer commands through to scout-dev
   app            Run a scoped native app command through scout-dev
   agent          Run a scoped native agent command through scout-dev
@@ -81,30 +86,98 @@ Commands:
 }
 
 async function runDoctor() {
+  const broker = await brokerServiceStatus();
+  const setup = await loadResolvedRelayAgents({ currentDirectory: process.cwd() });
+
   console.log(`OpenScout CLI: ${VERSION}`);
   console.log(`Repo root: ${repoRoot}`);
-  console.log(`Support directory: ${supportDir}`);
-  console.log(`Status file: ${statusFile}`);
-  console.log(`scout-dev: ${existsSync(scoutDevScript) ? "available" : "missing"}`);
-
-  if (existsSync(statusFile)) {
-    try {
-      const raw = await readFile(statusFile, "utf8");
-      console.log("");
-      console.log("Heartbeat:");
-      console.log(raw.trim());
-    } catch (error) {
-      fail(`failed to read heartbeat: ${formatError(error)}`);
-    }
-  } else {
-    console.log("");
-    console.log("Heartbeat: missing");
+  console.log(`Support directory: ${setup.supportDirectory}`);
+  console.log(`Settings: ${setup.settingsPath}`);
+  console.log(`Relay agents: ${setup.relayAgentsPath}`);
+  console.log(`Relay hub: ${setup.relayHubPath}`);
+  console.log(`Current project config: ${setup.currentProjectConfigPath ?? "not found"}`);
+  console.log("");
+  console.log("Workspace roots:");
+  for (const root of setup.settings.discovery.workspaceRoots) {
+    console.log(`  - ${root}`);
+  }
+  console.log("");
+  console.log("Agent defaults:");
+  console.log(`  Harness: ${setup.settings.agents.defaultHarness}`);
+  console.log(`  Transport: ${setup.settings.agents.defaultTransport}`);
+  console.log(`  Capabilities: ${setup.settings.agents.defaultCapabilities.join(", ")}`);
+  console.log(`  Session prefix: ${setup.settings.agents.sessionPrefix}`);
+  console.log("");
+  console.log("Broker:");
+  console.log(`  Label: ${broker.label}`);
+  console.log(`  URL: ${broker.brokerUrl}`);
+  console.log(`  Installed: ${broker.installed ? "yes" : "no"}`);
+  console.log(`  Loaded: ${broker.loaded ? "yes" : "no"}`);
+  console.log(`  Reachable: ${broker.reachable ? "yes" : "no"}`);
+  console.log(`  LaunchAgent: ${broker.launchAgentPath}`);
+  console.log(`  Broker stdout: ${broker.stdoutLogPath}`);
+  console.log(`  Broker stderr: ${broker.stderrLogPath}`);
+  console.log("");
+  console.log(`Discovered relay agents: ${setup.agents.length}`);
+  for (const agent of setup.agents) {
+    const runtimeDir = join(supportPaths.relayAgentsDirectory, agent.agentId);
+    const logsDir = join(runtimeDir, "logs");
+    console.log(`  - ${agent.displayName} (${agent.agentId})`);
+    console.log(`    Root: ${agent.projectRoot}`);
+    console.log(`    Source: ${agent.source}`);
+    console.log(`    Harness: ${agent.runtime.harness}`);
+    console.log(`    Session: ${agent.runtime.sessionId}`);
+    console.log(`    Runtime dir: ${runtimeDir}`);
+    console.log(`    Logs: ${join(logsDir, "stdout.log")} | ${join(logsDir, "stderr.log")}`);
   }
 }
 
-function runInit(_args: string[]) {
-  console.log("`scout init` is not implemented yet.");
-  console.log("This package is the scaffold for the long-term user-facing Scout CLI.");
+async function runInit(extraArgs: string[]) {
+  if (extraArgs.length > 0) {
+    fail(`unexpected arguments for init: ${extraArgs.join(" ")}`);
+  }
+
+  const setup = await initializeOpenScoutSetup({ currentDirectory: process.cwd() });
+  let broker = await brokerServiceStatus();
+  let brokerWarning: string | null = null;
+  try {
+    broker = await startBrokerService();
+  } catch (error) {
+    brokerWarning = error instanceof Error ? error.message : String(error);
+    broker = await brokerServiceStatus();
+  }
+
+  console.log("OpenScout initialized.");
+  console.log(`Support directory: ${setup.supportDirectory}`);
+  console.log(`Settings: ${setup.settingsPath}`);
+  console.log(`Relay agents: ${setup.relayAgentsPath}`);
+  console.log(`Relay hub: ${setup.relayHubPath}`);
+  console.log(`Current project config: ${setup.currentProjectConfigPath ?? "not created"}`);
+  console.log(`Created project config: ${setup.createdProjectConfig ? "yes" : "no"}`);
+  console.log("");
+  console.log("Workspace roots:");
+  for (const root of setup.settings.discovery.workspaceRoots) {
+    console.log(`  - ${root}`);
+  }
+  console.log("");
+  console.log("Relay agents:");
+  for (const agent of setup.agents) {
+    console.log(`  - ${agent.displayName} (${agent.agentId})`);
+    console.log(`    Root: ${agent.projectRoot}`);
+    console.log(`    Source: ${agent.source}`);
+    console.log(`    Harness: ${agent.runtime.harness}`);
+    console.log(`    Session: ${agent.runtime.sessionId}`);
+  }
+  console.log("");
+  console.log("Broker:");
+  console.log(`  Label: ${broker.label}`);
+  console.log(`  URL: ${broker.brokerUrl}`);
+  console.log(`  Reachable: ${broker.reachable ? "yes" : "no"}`);
+  console.log(`  LaunchAgent: ${broker.launchAgentPath}`);
+  console.log(`  Logs: ${broker.stdoutLogPath} | ${broker.stderrLogPath}`);
+  if (brokerWarning) {
+    console.log(`  Warning: ${brokerWarning}`);
+  }
 }
 
 async function runDevCommand(sub: string | undefined, passthrough: string[]) {
@@ -155,12 +228,4 @@ async function runScoutDev(devArgs: string[]) {
 function fail(message: string): never {
   console.error(`error: ${message}`);
   process.exit(1);
-}
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
 }

@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
@@ -100,6 +101,20 @@ const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
+const legacyRelayHub = join(process.env.HOME ?? process.cwd(), ".openscout", "relay");
+const legacyRelayChannelPath = join(legacyRelayHub, "channel.jsonl");
+const operatorActorId = "operator";
+
+type LegacyRelayMessage = {
+  id: string;
+  ts: number;
+  from: string;
+  type: "MSG" | "SYS";
+  body: string;
+  tags?: string[];
+  to?: string[];
+  channel?: string;
+};
 
 function streamEvent(event: ControlEvent): void {
   store.recordEvent(event);
@@ -158,8 +173,235 @@ const systemActor: ActorIdentity = {
 
 await runtime.upsertActor(systemActor);
 store.upsertActor(systemActor);
-await syncRegisteredProjectTwins();
-await ensureCoreProjectTwinsOnline();
+
+async function bootstrapRegisteredProjectTwins(): Promise<void> {
+  await syncRegisteredProjectTwins();
+  await importLegacyRelayBacklog();
+  await ensureCoreProjectTwinsOnline();
+}
+
+function titleCaseIdentity(value: string): string {
+  return value
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function importedRelayConversationDefinition(
+  senderId: string,
+  mentionTargets: string[],
+  entry: LegacyRelayMessage,
+): ConversationDefinition {
+  const normalizedChannel = entry.channel?.trim() || (entry.type === "SYS" ? "system" : "shared");
+  const participants = Array.from(new Set([
+    operatorActorId,
+    senderId,
+    ...mentionTargets,
+  ])).sort();
+
+  if (normalizedChannel === "system") {
+    return {
+      id: "channel.system",
+      kind: "system",
+      title: "system",
+      visibility: "system",
+      shareMode: "local",
+      authorityNodeId: nodeId,
+      participantIds: participants,
+      metadata: {
+        surface: "relay-import",
+        channel: "system",
+        legacyRelay: true,
+      },
+    };
+  }
+
+  if (normalizedChannel === "voice") {
+    return {
+      id: "channel.voice",
+      kind: "channel",
+      title: "voice",
+      visibility: "workspace",
+      shareMode: "local",
+      authorityNodeId: nodeId,
+      participantIds: participants,
+      metadata: {
+        surface: "relay-import",
+        channel: "voice",
+        legacyRelay: true,
+      },
+    };
+  }
+
+  if (normalizedChannel === "shared") {
+    return {
+      id: "channel.shared",
+      kind: "channel",
+      title: "shared-channel",
+      visibility: "workspace",
+      shareMode: "shared",
+      authorityNodeId: nodeId,
+      participantIds: participants,
+      metadata: {
+        surface: "relay-import",
+        channel: "shared",
+        legacyRelay: true,
+      },
+    };
+  }
+
+  return {
+    id: `channel.${normalizedChannel.toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared"}`,
+    kind: "channel",
+    title: normalizedChannel,
+    visibility: "workspace",
+    shareMode: "local",
+    authorityNodeId: nodeId,
+    participantIds: participants,
+    metadata: {
+      surface: "relay-import",
+      channel: normalizedChannel,
+      legacyRelay: true,
+    },
+  };
+}
+
+async function ensureImportedRelayActor(actorId: string): Promise<void> {
+  const snapshot = runtime.snapshot();
+  if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
+    return;
+  }
+
+  const actor: ActorIdentity = {
+    id: actorId,
+    kind: actorId === operatorActorId ? "person" : "agent",
+    displayName: titleCaseIdentity(actorId),
+    handle: actorId,
+    labels: ["relay", "imported"],
+    metadata: {
+      source: "relay-legacy-import",
+    },
+  };
+
+  await handleCommand({ kind: "actor.upsert", actor });
+}
+
+async function ensureImportedRelayConversation(conversation: ConversationDefinition): Promise<ConversationDefinition> {
+  const existing = runtime.snapshot().conversations[conversation.id];
+  if (!existing) {
+    await handleCommand({ kind: "conversation.upsert", conversation });
+    return conversation;
+  }
+
+  const participantIds = Array.from(new Set([
+    ...existing.participantIds,
+    ...conversation.participantIds,
+  ])).sort();
+
+  if (participantIds.length === existing.participantIds.length) {
+    return existing;
+  }
+
+  const nextConversation: ConversationDefinition = {
+    ...existing,
+    participantIds,
+    metadata: {
+      ...(existing.metadata ?? {}),
+      legacyRelay: true,
+    },
+  };
+  await handleCommand({ kind: "conversation.upsert", conversation: nextConversation });
+  return nextConversation;
+}
+
+async function importLegacyRelayBacklog(): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(legacyRelayChannelPath, "utf8");
+  } catch {
+    return;
+  }
+
+  const entries = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as LegacyRelayMessage;
+      } catch {
+        return null;
+      }
+    })
+    .filter((entry): entry is LegacyRelayMessage => Boolean(entry?.id && entry?.from && entry?.type));
+
+  if (entries.length === 0) {
+    return;
+  }
+
+  const snapshot = runtime.snapshot();
+  const existingMessageIds = new Set(Object.keys(snapshot.messages));
+  const latestBrokerCreatedAt = Object.values(snapshot.messages).reduce(
+    (latest, message) => Math.max(latest, message.createdAt),
+    0,
+  );
+  const pending = entries.filter((entry) => (
+    !existingMessageIds.has(entry.id)
+    && entry.ts * 1000 > latestBrokerCreatedAt
+  ));
+
+  if (pending.length === 0) {
+    return;
+  }
+
+  console.log(
+    `[openscout-runtime] importing ${pending.length} legacy relay message${pending.length === 1 ? "" : "s"} into broker`,
+  );
+
+  for (const entry of pending.sort((lhs, rhs) => lhs.ts - rhs.ts)) {
+    const mentionTargets = Array.from(new Set([
+      ...(entry.to ?? []),
+      ...Array.from(entry.body.matchAll(/@([\w.-]+)/g)).map((match) => match[1]).filter(Boolean),
+    ])).filter((actorId) => actorId !== entry.from);
+
+    await ensureImportedRelayActor(entry.from);
+    for (const actorId of mentionTargets) {
+      await ensureImportedRelayActor(actorId);
+    }
+
+    const conversation = await ensureImportedRelayConversation(
+      importedRelayConversationDefinition(entry.from, mentionTargets, entry),
+    );
+
+    await handleCommand({
+      kind: "conversation.post",
+      message: {
+        id: entry.id,
+        conversationId: conversation.id,
+        actorId: entry.from,
+        originNodeId: nodeId,
+        class: entry.type === "SYS" ? "system" : "agent",
+        body: entry.body,
+        mentions: mentionTargets.map((actorId) => ({ actorId, label: `@${actorId}` })),
+        speech: entry.tags?.includes("speak")
+          ? {
+            text: entry.body.replace(/@[\w.-]+\s*/g, "").trim(),
+          }
+          : undefined,
+        visibility: messageVisibilityForConversation(conversation),
+        policy: "durable",
+        createdAt: entry.ts * 1000,
+        metadata: {
+          source: "relay-legacy-import",
+          relayChannel: entry.channel ?? (entry.type === "SYS" ? "system" : "shared"),
+          legacyRelayMessageId: entry.id,
+          legacyRelay: true,
+        },
+      },
+    });
+  }
+}
 
 async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
   const result = await discoverMeshNodes({
@@ -978,6 +1220,12 @@ try {
 
   throw error;
 }
+
+setTimeout(() => {
+  bootstrapRegisteredProjectTwins().catch((error) => {
+    console.error("[openscout-runtime] project twin bootstrap failed:", error);
+  });
+}, 0).unref();
 
 if (seedUrls.length > 0) {
   discoverPeers().catch((error) => {

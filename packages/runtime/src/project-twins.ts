@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +12,19 @@ import type {
   AgentHarness,
   InvocationRequest,
 } from "@openscout/protocol";
+
+import {
+  loadResolvedRelayAgents,
+  readRelayAgentOverrides,
+  writeRelayAgentOverrides,
+  type RelayAgentOverride,
+  type ResolvedRelayAgentConfig,
+} from "./setup.js";
+import {
+  relayAgentLogsDirectory,
+  relayAgentRuntimeDirectory,
+  resolveOpenScoutSupportPaths,
+} from "./support-paths.js";
 
 const BUILT_IN_LOCAL_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -65,25 +79,34 @@ const DEFAULT_TWIN_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver
 const DEFAULT_TWIN_HARNESS: AgentHarness = "claude";
 
 function resolveRelayHub(): string {
-  return process.env.OPENSCOUT_RELAY_HUB
-    ?? join(process.env.HOME ?? process.cwd(), ".openscout", "relay");
+  return resolveOpenScoutSupportPaths().relayHubDirectory;
 }
 
-function resolveProjectsRoot(): string {
-  return process.env.OPENSCOUT_PROJECTS_ROOT
-    ?? join(process.env.HOME ?? process.cwd(), "dev");
+function resolveProjectsRoot(projectPath: string): string {
+  if (process.env.OPENSCOUT_PROJECTS_ROOT?.trim()) {
+    return resolve(process.env.OPENSCOUT_PROJECTS_ROOT.trim());
+  }
+
+  try {
+    const supportPaths = resolveOpenScoutSupportPaths();
+    if (!existsSync(supportPaths.settingsPath)) {
+      return dirname(projectPath);
+    }
+
+    const raw = JSON.parse(readFileSync(supportPaths.settingsPath, "utf8")) as {
+      discovery?: {
+        workspaceRoots?: string[];
+      };
+    };
+    const workspaceRoot = raw.discovery?.workspaceRoots?.find((entry) => typeof entry === "string" && entry.trim().length > 0);
+    return workspaceRoot ? resolve(workspaceRoot) : dirname(projectPath);
+  } catch {
+    return dirname(projectPath);
+  }
 }
 
 function resolveBrokerUrl(): string {
   return process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65535";
-}
-
-function twinsRegistryPath(): string {
-  return join(resolveRelayHub(), "twins.json");
-}
-
-function twinsWorkingDirectory(): string {
-  return join(resolveRelayHub(), "twins");
 }
 
 function nowSeconds(): number {
@@ -118,8 +141,6 @@ function titleCaseTwinName(value: string): string {
     .join(" ");
 }
 
-export const TWIN_SYSTEM_PROMPT_TEMPLATE_HINT = "Supports {{twin_id}}, {{display_name}}, {{project_name}}, {{project_path}}, {{cwd}}, {{broker_url}}, {{relay_command}}, and {{env.NAME}} variables.";
-
 export const SUPPORTED_TWIN_HARNESSES: AgentHarness[] = ["claude", "codex"];
 
 type TwinSystemPromptTemplateContext = {
@@ -129,27 +150,65 @@ type TwinSystemPromptTemplateContext = {
   projectPath: string;
   brokerUrl: string;
   relayCommand: string;
+  projectsRoot: string;
+  relayHub: string;
+  openscoutRoot: string;
 };
 
-export function buildTwinSystemPromptTemplate(): string {
+export const TWIN_SYSTEM_PROMPT_TEMPLATE_HINT = [
+  "Supports {{base_prompt}}, {{project_context}}, {{protocol_prompt}}, {{protocol}}, {{twin_id}}, {{display_name}}, ",
+  "{{project_name}}, {{project_path}}, {{project_root}}, {{workspace_root}}, {{cwd}}, {{projects_root}}, {{base_path}}, ",
+  "{{relay_hub}}, {{broker_url}}, {{relay_command}}, {{openscout_root}}, and {{env.NAME}} variables.",
+].join("");
+
+function buildTwinTemplateContext(
+  twinId: string,
+  projectName: string,
+  projectPath: string,
+): TwinSystemPromptTemplateContext {
+  return {
+    twinId,
+    displayName: titleCaseTwinName(twinId),
+    projectName,
+    projectPath,
+    brokerUrl: resolveBrokerUrl(),
+    relayCommand: brokerRelayCommand(),
+    projectsRoot: resolveProjectsRoot(projectPath),
+    relayHub: resolveRelayHub(),
+    openscoutRoot: OPENSCOUT_REPO_ROOT,
+  };
+}
+
+function buildTwinBasePrompt(context: TwinSystemPromptTemplateContext): string {
   return [
-    'You are "{{twin_id}}", a relay agent for the {{project_name}} project.',
+    `You are "${context.twinId}", a relay agent for the ${context.projectName} project.`,
     "",
     "You are the persistent, project-native runtime for this codebase.",
     "A primary agent may call into you for context, execution, follow-through, and handoff.",
     "",
-    "You have full access to the codebase at {{project_path}}.",
-    "The local broker for agent communication is at {{broker_url}}.",
-    "",
     "Your job:",
-    "  - Respond to @{{twin_id}} mentions from other agents",
+    `  - Respond to @${context.twinId} mentions from other agents`,
     "  - Answer questions about this project's code, architecture, and status",
     "  - Coordinate with other agents when they need project-native context",
     "  - Maintain continuity for ongoing project work",
-    "",
-    "Broker-backed relay commands:",
-    "  {{relay_command}} send --as {{twin_id}} \"your message\"",
-    "  {{relay_command}} read --as {{twin_id}}",
+  ].join("\n");
+}
+
+function buildTwinProjectContextPrompt(context: TwinSystemPromptTemplateContext): string {
+  return [
+    "Project context:",
+    `  - Codebase root: ${context.projectPath}`,
+    `  - Projects root: ${context.projectsRoot}`,
+    `  - Relay hub: ${context.relayHub}`,
+    `  - Broker URL: ${context.brokerUrl}`,
+  ].join("\n");
+}
+
+function buildTwinProtocolPrompt(context: TwinSystemPromptTemplateContext): string {
+  return [
+    "Relay protocol:",
+    `  - Read recent context with: ${context.relayCommand} read --as ${context.twinId}`,
+    `  - Reply with: ${context.relayCommand} send --as ${context.twinId} "your message"`,
     "",
     "Rules:",
     "  - Do not read or write channel.log or channel.jsonl directly",
@@ -159,16 +218,39 @@ export function buildTwinSystemPromptTemplate(): string {
   ].join("\n");
 }
 
+export function buildTwinSystemPromptTemplate(): string {
+  return [
+    "{{base_prompt}}",
+    "",
+    "{{project_context}}",
+    "",
+    "{{protocol_prompt}}",
+  ].join("\n");
+}
+
 export function renderTwinSystemPromptTemplate(template: string, context: TwinSystemPromptTemplateContext): string {
+  const basePrompt = buildTwinBasePrompt(context);
+  const projectContext = buildTwinProjectContextPrompt(context);
+  const protocolPrompt = buildTwinProtocolPrompt(context);
   const variables: Record<string, string> = {
     twin_id: context.twinId,
     agent_id: context.twinId,
     display_name: context.displayName,
     project_name: context.projectName,
     project_path: context.projectPath,
+    project_root: context.projectPath,
+    workspace_root: context.projectPath,
     cwd: context.projectPath,
+    projects_root: context.projectsRoot,
+    base_path: context.projectsRoot,
+    relay_hub: context.relayHub,
     broker_url: context.brokerUrl,
     relay_command: context.relayCommand,
+    openscout_root: context.openscoutRoot,
+    base_prompt: basePrompt,
+    project_context: projectContext,
+    protocol_prompt: protocolPrompt,
+    protocol: protocolPrompt,
   };
 
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawKey) => {
@@ -182,21 +264,126 @@ export function renderTwinSystemPromptTemplate(template: string, context: TwinSy
   });
 }
 
-async function readTwinsRegistry(): Promise<Record<string, ProjectTwinRecord>> {
-  try {
-    const raw = await readFile(twinsRegistryPath(), "utf8");
-    const parsed = JSON.parse(raw) as Record<string, ProjectTwinRecord>;
-    return Object.fromEntries(
-      Object.entries(parsed ?? {}).map(([twinId, record]) => [twinId, normalizeProjectTwinRecord(twinId, record)]),
-    );
-  } catch {
-    return {};
+function buildLegacySimpleRelayPrompt(
+  twinId: string,
+  projectName: string,
+  projectPath: string,
+  relayCommandBase: string,
+  relayHub: string,
+): string {
+  return [
+    `You are "${twinId}", a project twin for the ${projectName} project.`,
+    "",
+    "You are the persistent, project-native runtime for this codebase.",
+    "A primary agent may call into you for context, execution, follow-through, and handoff.",
+    "",
+    `You have full access to the codebase at ${projectPath}.`,
+    `There is a structured relay event stream at ${join(relayHub, "channel.jsonl")} shared by all agents.`,
+    "",
+    "Your job:",
+    `  - Respond to @${twinId} mentions from other agents`,
+    "  - Answer questions about this project's code, architecture, and status",
+    "  - Coordinate with other agents when they need project-native context",
+    "  - Maintain continuity for ongoing project work",
+    "",
+    "Relay commands:",
+    `  ${relayCommandBase} send --as ${twinId} "your message"`,
+    `  ${relayCommandBase} read`,
+    "",
+    "Rules:",
+    "  - Always reply via relay send so other agents see your response",
+    "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
+    "  - Check relay read for context before responding",
+  ].join("\n");
+}
+
+function buildLegacyBrokerBackedRelayPrompt(
+  twinId: string,
+  projectName: string,
+  projectPath: string,
+  relayCommandBase: string,
+  brokerUrl: string,
+): string {
+  return [
+    `You are "${twinId}", a project twin for the ${projectName} project.`,
+    "",
+    "You are the persistent, project-native runtime for this codebase.",
+    "A primary agent may call into you for context, execution, follow-through, and handoff.",
+    "",
+    `You have full access to the codebase at ${projectPath}.`,
+    `The local broker for agent communication is at ${brokerUrl}.`,
+    "",
+    "Your job:",
+    `  - Respond to @${twinId} mentions from other agents`,
+    "  - Answer questions about this project's code, architecture, and status",
+    "  - Coordinate with other agents when they need project-native context",
+    "  - Maintain continuity for ongoing project work",
+    "",
+    "Broker-backed relay commands:",
+    `  ${relayCommandBase} send --as ${twinId} "your message"`,
+    `  ${relayCommandBase} read --as ${twinId}`,
+    "",
+    "Rules:",
+    "  - Do not read or write channel.log or channel.jsonl directly",
+    `  - Always reply via ${relayCommandBase} send so other agents and the app can see your response`,
+    "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
+    `  - Use ${relayCommandBase} read to inspect recent broker-backed context before responding`,
+  ].join("\n");
+}
+
+function legacyTwinSystemPromptCandidates(
+  twinId: string,
+  projectName: string,
+  projectPath: string,
+): string[] {
+  const relayHub = resolveRelayHub();
+  const brokerUrl = resolveBrokerUrl();
+  const relayCommandBases = ["openscout relay", brokerRelayCommand()];
+  const projectPathCandidates = projectPath.endsWith("/") ? [projectPath, projectPath.slice(0, -1)] : [projectPath, `${projectPath}/`];
+  const candidates = new Set<string>();
+
+  for (const pathCandidate of projectPathCandidates) {
+    for (const relayCommandBase of relayCommandBases) {
+      candidates.add(buildLegacySimpleRelayPrompt(twinId, projectName, pathCandidate, relayCommandBase, relayHub));
+      candidates.add(buildLegacyBrokerBackedRelayPrompt(twinId, projectName, pathCandidate, relayCommandBase, brokerUrl));
+    }
   }
+
+  return Array.from(candidates);
+}
+
+function normalizeTwinSystemPrompt(twinId: string, projectName: string, projectPath: string, systemPrompt: string | undefined): string | undefined {
+  const trimmed = systemPrompt?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (legacyTwinSystemPromptCandidates(twinId, projectName, projectPath).includes(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+async function readTwinsRegistry(): Promise<Record<string, ProjectTwinRecord>> {
+  const setup = await loadResolvedRelayAgents();
+  return Object.fromEntries(
+    setup.agents.map((agent) => [agent.agentId, projectTwinRecordFromResolvedConfig(agent)]),
+  );
 }
 
 async function writeTwinsRegistry(registry: Record<string, ProjectTwinRecord>): Promise<void> {
-  await mkdir(resolveRelayHub(), { recursive: true });
-  await writeFile(twinsRegistryPath(), JSON.stringify(registry, null, 2) + "\n");
+  const overrides = await readRelayAgentOverrides();
+  const nextOverrides: Record<string, RelayAgentOverride> = {
+    ...overrides,
+  };
+
+  for (const [twinId, record] of Object.entries(registry)) {
+    nextOverrides[twinId] = relayAgentOverrideFromProjectTwinRecord(twinId, record, overrides[twinId]);
+  }
+
+  await writeRelayAgentOverrides(nextOverrides);
+  await loadResolvedRelayAgents({ syncLegacyMirror: true });
 }
 
 function expandHomePath(value: string): string {
@@ -262,17 +449,62 @@ function normalizeTwinLaunchArgs(value: unknown): string[] {
 }
 
 function normalizeProjectTwinRecord(twinId: string, record: ProjectTwinRecord): ProjectTwinRecord {
-  const cwd = normalizeProjectPath(record.cwd || join(resolveProjectsRoot(), twinId));
+  const cwd = normalizeProjectPath(record.cwd || process.cwd());
+  const project = record.project?.trim() || basename(cwd);
   return {
-    project: record.project?.trim() || basename(cwd),
+    project,
     tmuxSession: normalizeTmuxSessionName(record.tmuxSession, twinId),
     cwd,
     startedAt: Number.isFinite(record.startedAt) && record.startedAt > 0 ? Math.floor(record.startedAt) : nowSeconds(),
-    systemPrompt: record.systemPrompt?.trim() || undefined,
+    systemPrompt: normalizeTwinSystemPrompt(twinId, project, cwd, record.systemPrompt),
     harness: normalizeTwinHarness(record.harness),
     transport: "tmux",
     capabilities: normalizeTwinCapabilities(record.capabilities),
     launchArgs: normalizeTwinLaunchArgs(record.launchArgs),
+  };
+}
+
+function projectTwinRecordFromResolvedConfig(config: ResolvedRelayAgentConfig): ProjectTwinRecord {
+  return normalizeProjectTwinRecord(config.agentId, {
+    project: config.projectName,
+    tmuxSession: config.runtime.sessionId,
+    cwd: config.runtime.cwd,
+    startedAt: config.startedAt,
+    systemPrompt: config.systemPrompt,
+    harness: config.runtime.harness,
+    transport: "tmux",
+    capabilities: config.capabilities,
+    launchArgs: config.launchArgs,
+  });
+}
+
+function relayAgentOverrideFromProjectTwinRecord(
+  twinId: string,
+  record: ProjectTwinRecord,
+  existing: RelayAgentOverride | undefined,
+): RelayAgentOverride {
+  const normalizedRecord = normalizeProjectTwinRecord(twinId, record);
+  const projectRoot = normalizeProjectPath(existing?.projectRoot || normalizedRecord.cwd);
+
+  return {
+    ...existing,
+    agentId: twinId,
+    displayName: existing?.displayName || titleCaseTwinName(twinId),
+    projectName: normalizedRecord.project,
+    projectRoot,
+    projectConfigPath: existing?.projectConfigPath ?? null,
+    source: existing?.source ?? "manual",
+    startedAt: normalizedRecord.startedAt,
+    systemPrompt: normalizedRecord.systemPrompt,
+    launchArgs: normalizeTwinLaunchArgs(normalizedRecord.launchArgs),
+    capabilities: normalizeTwinCapabilities(normalizedRecord.capabilities),
+    runtime: {
+      cwd: normalizeProjectPath(normalizedRecord.cwd),
+      harness: normalizeTwinHarness(normalizedRecord.harness),
+      transport: "tmux",
+      sessionId: normalizedRecord.tmuxSession,
+      wakePolicy: "on_demand",
+    },
   };
 }
 
@@ -376,14 +608,7 @@ export function buildTwinSystemPrompt(
   projectName: string,
   projectPath: string,
 ): string {
-  return renderTwinSystemPromptTemplate(buildTwinSystemPromptTemplate(), {
-    twinId: twinName,
-    displayName: titleCaseTwinName(twinName),
-    projectName,
-    projectPath,
-    brokerUrl: resolveBrokerUrl(),
-    relayCommand: brokerRelayCommand(),
-  });
+  return renderTwinSystemPromptTemplate(buildTwinSystemPromptTemplate(), buildTwinTemplateContext(twinName, projectName, projectPath));
 }
 
 function buildTwinInitialMessage(projectName: string, twinName: string): string {
@@ -487,23 +712,24 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
   const projectPath = normalizedRecord.cwd;
   const projectName = normalizedRecord.project || basename(projectPath);
   const systemPromptTemplate = normalizedRecord.systemPrompt || buildTwinSystemPromptTemplate();
-  const systemPrompt = renderTwinSystemPromptTemplate(systemPromptTemplate, {
-    twinId: twinName,
-    displayName: titleCaseTwinName(twinName),
-    projectName,
-    projectPath,
-    brokerUrl: resolveBrokerUrl(),
-    relayCommand: brokerRelayCommand(),
-  });
+  const systemPrompt = renderTwinSystemPromptTemplate(
+    systemPromptTemplate,
+    buildTwinTemplateContext(twinName, projectName, projectPath),
+  );
   const initialMessage = buildTwinInitialMessage(projectName, twinName);
   const bootstrapPrompt = buildTwinBootstrapPrompt(normalizeTwinHarness(normalizedRecord.harness), systemPrompt, initialMessage);
 
-  const twinDir = twinsWorkingDirectory();
+  const twinDir = relayAgentRuntimeDirectory(twinName);
+  const logsDir = relayAgentLogsDirectory(twinName);
   await mkdir(twinDir, { recursive: true });
+  await mkdir(logsDir, { recursive: true });
 
-  const promptFile = join(twinDir, `${twinName}.prompt.txt`);
-  const initialFile = join(twinDir, `${twinName}.initial.txt`);
-  const launchScript = join(twinDir, `${twinName}.launch.sh`);
+  const promptFile = join(twinDir, "prompt.txt");
+  const initialFile = join(twinDir, "initial.txt");
+  const launchScript = join(twinDir, "launch.sh");
+  const stateFile = join(twinDir, "state.json");
+  const stdoutLogFile = join(logsDir, "stdout.log");
+  const stderrLogFile = join(logsDir, "stderr.log");
 
   await writeFile(promptFile, systemPrompt);
   await writeFile(initialFile, bootstrapPrompt);
@@ -511,13 +737,43 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
     launchScript,
     [
       "#!/bin/bash",
+      "set -euo pipefail",
+      `mkdir -p ${JSON.stringify(logsDir)}`,
       `cd ${JSON.stringify(projectPath)}`,
       `(sleep 5 && tmux send-keys -t ${JSON.stringify(normalizedRecord.tmuxSession)} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-      buildTwinLaunchCommand(twinName, normalizedRecord, projectPath, promptFile),
+      `exec ${buildTwinLaunchCommand(twinName, normalizedRecord, projectPath, promptFile).replace(/^exec\s+/, "")} 2>>${JSON.stringify(stderrLogFile)}`,
     ].join("\n") + "\n",
   );
   execSync(`chmod 755 ${JSON.stringify(launchScript)}`);
-  execSync(`tmux new-session -d -s ${JSON.stringify(normalizedRecord.tmuxSession)} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
+  const paneId = execSync(
+    `tmux new-session -dP -F '#{pane_id}' -s ${JSON.stringify(normalizedRecord.tmuxSession)} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`,
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  ).trim();
+  if (paneId) {
+    try {
+      execSync(
+        `tmux pipe-pane -o -t ${JSON.stringify(paneId)} ${JSON.stringify(`cat >> ${JSON.stringify(stdoutLogFile)}`)}`,
+        { stdio: "pipe" },
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[openscout-runtime] unable to attach tmux pipe for ${twinName}: ${reason}`);
+    }
+  }
+  await writeFile(
+    stateFile,
+    JSON.stringify({
+      agentId: twinName,
+      projectRoot: projectPath,
+      sessionId: normalizedRecord.tmuxSession,
+      promptFile,
+      initialFile,
+      launchScript,
+      stdoutLogFile,
+      stderrLogFile,
+      updatedAt: new Date().toISOString(),
+    }, null, 2) + "\n",
+  );
 
   const registry = await readTwinsRegistry();
   registry[twinName] = {
@@ -650,28 +906,20 @@ export async function inferProjectTwinBinding(agentId: string, nodeId: string): 
     return null;
   }
 
-  const projectRoot = join(resolveProjectsRoot(), agentId);
-  try {
-    const stats = await stat(projectRoot);
-    if (!stats.isDirectory()) {
-      return null;
-    }
-  } catch {
+  const setup = await loadResolvedRelayAgents();
+  const agent = setup.agents.find((entry) => entry.agentId === agentId);
+  if (!agent) {
     return null;
   }
 
-  const record: ProjectTwinRecord = {
-    project: agentId,
-    tmuxSession: `relay-${agentId}`,
-    cwd: projectRoot,
-    startedAt: nowSeconds(),
-    harness: DEFAULT_TWIN_HARNESS,
-    transport: "tmux",
-    capabilities: [...DEFAULT_TWIN_CAPABILITIES],
-    launchArgs: [],
-  };
-
-  return buildTwinBinding(agentId, record, isTwinAlive(record.tmuxSession), nodeId, "project-inferred");
+  const record = projectTwinRecordFromResolvedConfig(agent);
+  return buildTwinBinding(
+    agentId,
+    record,
+    isTwinAlive(record.tmuxSession),
+    nodeId,
+    agent.source === "inferred" ? "project-inferred" : "relay-twin-registry",
+  );
 }
 
 type TwinInvocationResult = {

@@ -9,31 +9,58 @@ import {
 } from "./project-twins";
 
 describe("project twin prompts", () => {
-  test("system prompt directs twins to broker-backed relay commands", () => {
+  test("system prompt composes shared base, project context, and broker-backed protocol", () => {
+    process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
+    process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
+
     const prompt = buildTwinSystemPrompt("shaper", "shaper", "/Users/arach/dev/shaper");
 
-    expect(prompt).toContain("The local broker for agent communication is at");
+    expect(prompt).toContain('You are "shaper", a relay agent for the shaper project.');
+    expect(prompt).toContain("Project context:");
+    expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
+    expect(prompt).toContain("Projects root: /Users/arach/dev");
     expect(prompt).toContain("packages/relay/src/cli.ts relay send --as shaper");
     expect(prompt).toContain("packages/relay/src/cli.ts relay read --as shaper");
+    expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not read or write channel.log or channel.jsonl directly");
   });
 
-  test("system prompt template renders runtime and env variables at wake time", () => {
+  test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
     process.env.OPENSCOUT_TEST_PROMPT_VAR = "broker-ready";
+    process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
+    process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
 
-    const prompt = renderTwinSystemPromptTemplate(buildTwinSystemPromptTemplate() + "\nFlag: {{env.OPENSCOUT_TEST_PROMPT_VAR}}", {
-      twinId: "shaper",
-      displayName: "Shaper",
-      projectName: "shaper",
-      projectPath: "/Users/arach/dev/shaper",
-      brokerUrl: "http://127.0.0.1:65535",
-      relayCommand: "bun relay",
-    });
+    const prompt = renderTwinSystemPromptTemplate(
+      [
+        buildTwinSystemPromptTemplate(),
+        "",
+        "Base path: {{base_path}}",
+        "Workspace root: {{workspace_root}}",
+        "Protocol alias:",
+        "{{protocol}}",
+        "Flag: {{env.OPENSCOUT_TEST_PROMPT_VAR}}",
+      ].join("\n"),
+      {
+        twinId: "shaper",
+        displayName: "Shaper",
+        projectName: "shaper",
+        projectPath: "/Users/arach/dev/shaper",
+        brokerUrl: "http://127.0.0.1:65535",
+        relayCommand: "bun relay",
+        projectsRoot: "/Users/arach/dev",
+        relayHub: "/Users/arach/.openscout/relay",
+        openscoutRoot: "/Users/arach/dev/openscout",
+      },
+    );
 
-    expect(prompt).toContain('You are "shaper", a project twin for the shaper project.');
-    expect(prompt).toContain("You have full access to the codebase at /Users/arach/dev/shaper.");
-    expect(prompt).toContain("The local broker for agent communication is at http://127.0.0.1:65535.");
+    expect(prompt).toContain('You are "shaper", a relay agent for the shaper project.');
+    expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
+    expect(prompt).toContain("Projects root: /Users/arach/dev");
+    expect(prompt).toContain("Base path: /Users/arach/dev");
+    expect(prompt).toContain("Workspace root: /Users/arach/dev/shaper");
+    expect(prompt).toContain("Broker URL: http://127.0.0.1:65535");
     expect(prompt).toContain("bun relay send --as shaper");
+    expect(prompt).toContain("bun relay read --as shaper");
     expect(prompt).toContain("Flag: broker-ready");
   });
 

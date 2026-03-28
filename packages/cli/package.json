@@ -15,5 +15,8 @@
   "scripts": {
     "build": "mkdir -p dist && bun build ./src/main.ts --target=node --outfile ./dist/main.mjs",
     "dev": "bun run ./src/main.ts"
+  },
+  "dependencies": {
+    "@openscout/runtime": "workspace:*"
   }
 }

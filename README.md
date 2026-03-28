@@ -1,11 +1,12 @@
 # OpenScout
 
-OpenScout is the integration shell for your local agent stack.
+OpenScout is the integration shell and local communication substrate for your agent stack.
 
-This repo now has two active layers:
+This repo now has three active layers:
 
 - A Next.js site at the repo root for product framing and launch messaging
-- A native macOS scaffold at `native/engine` for the first real Scout shell
+- A native macOS/Electron shell for the operator-facing desktop surface
+- A local broker/control plane in `packages/*` for durable agent communication and execution
 
 The native scaffold is intentionally aligned with the shape discussed for Scout:
 
@@ -13,6 +14,18 @@ The native scaffold is intentionally aligned with the shape discussed for Scout:
 - `ScoutAgent` is the always-on helper process Scout can supervise locally
 - `ScoutCore` holds the shared contracts for routes, module descriptors, support paths, and helper status
 - `packages/*` is where TypeScript-side runtime, protocol, and workflow logic should accumulate
+
+## Why The Broker Matters
+
+The product story is not just "chat between terminals." The current control-plane direction is:
+
+- explicit: conversation, work, delivery, and bindings are different records
+- durable: the broker is the only writer and local state is stored canonically
+- addressable: agents, conversations, messages, invocations, and flights all have stable IDs
+- replayable: surfaces rebuild from stored records instead of terminal scrollback
+- observable: you can inspect ownership, status, failures, and outputs
+- recoverable: broker restarts do not have to erase the story of what happened
+- harness-agnostic: Claude, Codex, tmux, and future harnesses are edge concerns, not protocol forks
 
 ## Current Direction
 
@@ -28,6 +41,19 @@ That means the first scaffold focuses on:
 - one helper process
 - one embedded console surface
 - one place to aggregate modules such as Talkie, Lattices, Operate, Action, and Hudson-style experiences
+
+## Getting Started
+
+The canonical machine bootstrap is:
+
+```bash
+scout init
+scout doctor
+```
+
+`scout init` creates or updates machine-local settings, discovers workspace projects, writes `.openscout/project.json` for the current repo when needed, registers known agents, installs the broker launch agent, and attempts to start the broker service.
+
+`scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
 
 ## Run The Website
 
@@ -90,6 +116,7 @@ bun link
 bun run cli:build
 (cd packages/cli && bun link)
 scout --help
+scout init
 scout-dev status
 ```
 
@@ -120,7 +147,24 @@ When `ScoutApp` starts, it creates a support directory at:
 
 The helper writes a status file there, and the shell monitors it to keep the footer and worker views up to date.
 
-The `scout-dev` wrapper also writes app and helper logs there when it launches binaries directly.
+The `scout init` bootstrap provisions the broader support tree used by the broker, app, and runtime:
+
+The support directory is now organized as:
+
+```text
+~/Library/Application Support/OpenScout
+├── settings.json
+├── relay-agents.json
+├── logs/
+│   ├── app/
+│   └── broker/
+└── runtime/
+    └── agents/
+```
+
+`~/.openscout/relay` still exists as the relay compatibility layer, but it is no longer the primary setup surface.
+
+The `scout-dev` and `openscout-dev` wrappers now write app, broker, and Electron logs into the normalized `logs/` tree.
 
 The native dev loop now builds with `xcodebuild` into:
 
@@ -153,4 +197,7 @@ native/engine/.derivedData
 
 - `docs/ARCHITECTURE.md`
 - `docs/native-runtime.md`
+- `packages/protocol/README.md`
+- `packages/runtime/README.md`
+- `packages/relay/docs/overview.md`
 - `native/engine/Package.swift`

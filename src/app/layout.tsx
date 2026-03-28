@@ -21,12 +21,13 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "OpenScout — Local Agent Control Plane",
+  title: "OpenScout — Local Agent Broker",
+  metadataBase: new URL("https://openscout.app"),
   description:
-    "A desktop shell and runtime for coordinating AI agents. File-based relay chat, message routing, voice and Telegram bridges — all local-first.",
+    "Broker-backed local communication and execution for AI agents. Durable conversations, explicit invocations, tracked flights, bridges, and a desktop shell.",
   openGraph: {
     title: "OpenScout",
-    description: "Your local agent control plane. Desktop shell, relay chat, runtime broker, and bridges for AI agents.",
+    description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
     url: "https://openscout.app",
     siteName: "OpenScout",
     type: "website",
@@ -35,14 +36,14 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "OpenScout — Your local agent control plane.",
+        alt: "OpenScout — Your local agent broker.",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
     title: "OpenScout",
-    description: "Your local agent control plane. Desktop shell, relay chat, runtime broker, and bridges for AI agents.",
+    description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
     images: ["/og.png"],
   },
 };

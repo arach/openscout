@@ -8,3 +8,6 @@ export * from "./mesh-discovery.js";
 export * from "./mesh-forwarding.js";
 export * from "./tailscale.js";
 export * from "./broker-service.js";
+export * from "./project-twins.js";
+export * from "./setup.js";
+export * from "./support-paths.js";

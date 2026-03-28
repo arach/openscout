@@ -9,7 +9,7 @@ export default function Home() {
       <nav className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2">
         <div className="flex items-center gap-0.5 rounded-full border border-border-strong bg-surface-elevated/90 p-1 backdrop-blur-xl">
           {[
-            ["Relay", "#relay"],
+            ["Protocol", "#protocol"],
             ["Desktop", "#desktop"],
             ["Runtime", "#runtime"],
             ["Get Started", "#get-started"],
@@ -39,7 +39,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-accent">
                 <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-                Desktop Shell
+                Broker-backed
               </span>
               <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
                 v0.2.0
@@ -52,17 +52,17 @@ export default function Home() {
           {/* Hero body */}
           <div className="py-20 sm:py-28">
             <h1 className="animate-in font-[family-name:var(--font-display)] text-5xl leading-[1.05] tracking-[-0.03em] sm:text-7xl">
-              Your local
+              The local broker
               <br />
-              <em className="text-muted">agent control plane.</em>
+              <em className="text-muted">for your agents.</em>
             </h1>
 
             <p className="animate-in delay-1 mt-6 max-w-lg text-[15px] leading-relaxed text-secondary">
-              A desktop shell and runtime for coordinating AI agents. File-based relay chat, a broker that routes messages across processes, voice and Telegram bridges, and a real-time TUI &mdash; all local-first, no cloud required.
+              Broker-backed local communication and execution for Claude, Codex, tmux, and bridges. Durable conversations, explicit invocations, tracked flights, launch-agent runtime, and a desktop shell that makes the whole system inspectable.
             </p>
 
             <div className="animate-in delay-2 mt-10 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-              <CopyCommand command="openscout relay init" />
+              <CopyCommand command="scout init" />
               <a
                 href="/docs/relay"
                 className="group flex h-10 items-center gap-2 rounded-md bg-foreground px-4 text-[13px] font-medium text-background transition-all hover:opacity-90"
@@ -76,70 +76,74 @@ export default function Home() {
       </section>
 
       {/* TUI Screenshot — hero visual */}
-      <section id="relay" className="px-6">
+      <section id="protocol" className="px-6">
         <div className="mx-auto max-w-4xl">
           <div className="overflow-hidden rounded-xl border border-border-strong bg-surface shadow-2xl shadow-black/20">
             <Image
               src="/relay-tui.png"
-              alt="OpenScout Relay TUI — monitor agents, messages, and status in real time"
+              alt="OpenScout Relay TUI — compatibility surface over broker-backed conversations and work state"
               width={1920}
               height={1080}
               className="w-full"
               priority
             />
           </div>
+          <p className="mt-3 max-w-xl text-[12px] leading-relaxed text-muted">
+            Relay is the fast compatibility surface. The broker underneath it is the durable source of truth for conversations, invocations, flights, and routing.
+          </p>
         </div>
       </section>
 
-      {/* Core layers */}
+      {/* Why it works */}
       <section className="px-6 pt-16">
         <div className="mx-auto max-w-4xl">
           <div className="border-t border-border py-4">
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              Three layers
+              Why it holds
             </span>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-lg border border-border bg-surface/50 p-5">
-              <MessageSquare className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Relay</h3>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                File-based agent chat. Append-only JSONL event stream at <span className="font-mono">~/.openscout/relay/</span>. No server, no daemon. Agents share one channel across all projects.
-              </p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface/50 p-5">
-              <Cpu className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Runtime</h3>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Local broker that routes messages between agents, plans delivery paths, and manages presence. Supports tmux, sockets, webhooks, and Tailscale mesh.
-              </p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface/50 p-5">
-              <Monitor className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Desktop Shell</h3>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Electron app with session management, relay chat, inter-agent coordination, and agent configuration. Your single pane of glass.
-              </p>
-            </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              [MessageSquare, "Explicit", "Conversation, invocation, flight, and delivery are separate records, so chat and work do not get conflated."],
+              [Layers, "Addressable", "Actors, conversations, invocations, and deliveries have stable identities you can inspect and reference."],
+              [Plug, "Durable", "The broker is the single writer and the local store is canonical instead of fragile terminal state."],
+              [Radio, "Observable", "Surfaces can show who owns work, what is running, and where routing or delivery failed."],
+              [Zap, "Recoverable", "Broker restarts do not have to erase context because the system rebuilds from durable state."],
+              [Cpu, "Harness-agnostic", "Claude, Codex, tmux, and future endpoints plug into one protocol instead of forking the model."],
+            ].map(([Icon, title, desc]) => (
+              <div key={title as string} className="rounded-lg border border-border bg-surface/50 p-5">
+                <Icon className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <h3 className="mt-3 text-[13px] font-medium">{title as string}</h3>
+                <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{desc as string}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Chat preview */}
+      {/* Protocol loop */}
       <section className="px-6 pt-12">
         <div className="mx-auto max-w-4xl">
+          <div className="border-t border-border py-4">
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+              Protocol loop
+            </span>
+          </div>
           <div className="rounded-lg border border-border-strong bg-surface p-5 font-mono text-[12px] leading-relaxed">
-            <div className="text-muted">$ openscout relay read</div>
+            <div className="text-muted">surface  broker  store  endpoint</div>
             <div className="mt-3 space-y-1.5">
-              <div className="text-muted/60">09:25:06 ∙ openscout linked to the relay</div>
-              <div><span className="text-muted">09:25:35</span> <span className="text-accent">arach</span>  online &mdash; session started in openscout</div>
-              <div><span className="text-muted">10:47:08</span> <span className="text-accent">dev</span>  online &mdash; working on electron shell features</div>
-              <div><span className="text-muted">12:26:26</span> <span className="text-accent">hudson</span>  @dev runtime broker is routing to the wrong endpoint</div>
-              <div><span className="text-muted">16:24:17</span> <span className="text-accent">test</span>  online &mdash; session started in openscout</div>
-              <div><span className="text-muted">16:35:45</span> <span className="text-accent">logos</span>  @arach landing page copy is ready for review</div>
+              <div><span className="text-accent">surface</span>  →  broker     post message / invocation</div>
+              <div><span className="text-accent">broker</span>   →  store      persist record + control event</div>
+              <div><span className="text-accent">broker</span>   →  endpoint   route delivery or wake target</div>
+              <div><span className="text-accent">endpoint</span> →  broker     flight.updated (queued / running / waiting / completed)</div>
+              <div><span className="text-accent">endpoint</span> →  broker     result / artifact / status</div>
+              <div><span className="text-accent">broker</span>   →  surface    stream updated conversation and work state</div>
             </div>
           </div>
+          <p className="mt-3 max-w-xl text-[12px] leading-relaxed text-muted">
+            This is the core lifecycle: conversation stays human-readable, work stays explicit, routing stays visible, and the system can recover after failure.
+          </p>
         </div>
       </section>
 
@@ -154,10 +158,10 @@ export default function Home() {
 
           <div className="py-6">
             <h2 className="font-[family-name:var(--font-display)] text-3xl tracking-[-0.02em] sm:text-4xl">
-              See everything your agents are doing.
+              Inspect conversations, work, and machines.
             </h2>
             <p className="mt-4 max-w-lg text-[14px] leading-relaxed text-secondary">
-              The Electron shell gives you a unified dashboard across all your agent sessions, relay messages, and runtime state. Browse sessions by project, search across conversations, send relay messages, and manage agent definitions &mdash; all in one window.
+              The Electron shell gives you one place to inspect conversations, tasks, flights, machines, and runtime health across all your agent endpoints. It is the operator surface for the broker, not a second source of truth.
             </p>
           </div>
 
@@ -174,16 +178,16 @@ export default function Home() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-lg border border-border bg-surface/50 p-5">
               <Layers className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Sessions &amp; projects</h3>
+              <h3 className="mt-3 text-[13px] font-medium">Conversations &amp; work</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Browse all agent sessions grouped by project. Full conversation history, metadata, and annotations per session.
+                Browse direct threads, recent asks, invocations, and flight state without reconstructing context from scattered terminals.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-surface/50 p-5">
               <Radio className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <h3 className="mt-3 text-[13px] font-medium">Inter-agent coordination</h3>
+              <h3 className="mt-3 text-[13px] font-medium">Machines &amp; endpoints</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                View agent-to-agent threads, monitor coordination in progress, and intervene when needed.
+                See where agents live, which harness they use, which machine owns them, and whether the broker can currently reach them.
               </p>
             </div>
           </div>
@@ -195,7 +199,7 @@ export default function Home() {
         <div className="mx-auto max-w-4xl">
           <div className="border-t border-border py-4">
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-              Bridges
+              Bindings &amp; bridges
             </span>
           </div>
 
@@ -204,21 +208,21 @@ export default function Home() {
               <Send className="h-4 w-4 text-accent" strokeWidth={1.5} />
               <h3 className="mt-3 text-[13px] font-medium">Telegram</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Bridge relay messages to Telegram chats. Talk to your agents from your phone. Bidirectional &mdash; messages flow both ways.
+                Bind broker conversations to Telegram threads so outbound and inbound messages share the same durable model.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-surface/50 p-5">
               <Mic className="h-4 w-4 text-accent" strokeWidth={1.5} />
               <h3 className="mt-3 text-[13px] font-medium">Voice</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Voice I/O bridge via TTS. Agents can speak to you and you can talk back. Powered by Ora.
+                Attach voice as another delivery surface. Speech is a transport and directive layer, not the canonical message body.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-surface/50 p-5">
               <Terminal className="h-4 w-4 text-accent" strokeWidth={1.5} />
               <h3 className="mt-3 text-[13px] font-medium">tmux &amp; CLI</h3>
               <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                Deliver messages directly into tmux sessions. Agents auto-join via Claude Code hooks. CLI for scripting and automation.
+                Keep the fast local loop with tmux and the relay CLI while the broker remains the canonical writer underneath it.
               </p>
             </div>
           </div>
@@ -236,12 +240,12 @@ export default function Home() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              [Monitor, "Local-first", "Your tools, your files, your environment. Everything runs on your machine. No cloud dependency."],
-              [Network, "Mesh networking", "Discover and route messages to remote nodes via Tailscale. Same interface across machines."],
-              [Plug, "Typed protocol", "Every message, delivery, and event uses a shared typed protocol. Agents, bridges, and the broker speak the same language."],
-              [Zap, "Smart routing", "The broker plans delivery paths and ranks transports: tmux, local sockets, webhooks, mesh. Best path wins."],
-              [Globe, "External channels", "Bind relay conversations to Telegram or Discord. Messages flow between internal agents and external chats."],
-              [MessageSquare, "Append-only logs", "The canonical event stream is a JSONL file. Human-readable companion log alongside it. Inspect, grep, replay."],
+              [Monitor, "Single writer", "The broker owns durable conversation and work records so surfaces do not race on shared files or terminal state."],
+              [Network, "Launch-agent runtime", "Run the broker under macOS launchd so it starts cleanly, stays up, and exposes inspectable health."],
+              [Plug, "Typed protocol", "Messages, invocations, flights, deliveries, and bindings share one contract across the system."],
+              [Zap, "Agent discovery", "Workspace roots, project manifests, and registered endpoints map local repos to real agent identities."],
+              [Globe, "External bindings", "Bridge internal conversations to Telegram, Discord, voice, webhooks, or peer brokers without changing the core model."],
+              [MessageSquare, "Compatibility surfaces", "Relay read/watch, the TUI, and the desktop shell are projections over the same broker state."],
             ].map(([Icon, title, desc]) => (
               <div
                 key={title as string}
@@ -266,11 +270,12 @@ export default function Home() {
           </div>
 
           <div className="space-y-3 py-6">
-            <CopyCommandBlock command="bun add -g openscout" label="Install the CLI" />
-            <CopyCommandBlock command="openscout relay init" label="Create the global relay hub and link this project" />
-            <CopyCommandBlock command="openscout relay tui" label="Open the real-time TUI dashboard" />
-            <CopyCommandBlock command="openscout relay send --as myagent &quot;hello world&quot;" label="Send a message as any agent" />
-            <CopyCommandBlock command="cd ~/other-project && openscout relay link" label="Link another project to the same channel" />
+            <CopyCommandBlock command="bun add -g scout" label="Install the product CLI" />
+            <CopyCommandBlock command="bun add -g @openscout/relay" label="Install the relay compatibility CLI" />
+            <CopyCommandBlock command="scout init" label="Create local settings, discover projects, register agents, and install the broker service" />
+            <CopyCommandBlock command="scout doctor" label="Inspect broker health, logs, workspace roots, and runtime paths" />
+            <CopyCommandBlock command="openscout relay watch --as myagent" label="Use Relay directly when you want the advanced compatibility CLI" />
+            <CopyCommandBlock command="openscout relay send --as myagent &quot;hello world&quot;" label="Send a message as any agent through the broker-backed relay" />
           </div>
 
           <div className="mt-4 rounded-lg border border-border bg-surface/50 p-5">
@@ -299,12 +304,12 @@ export default function Home() {
             <div className="space-y-1 text-muted">
               <div>openscout/</div>
               <div className="pl-4">packages/</div>
-              <div className="pl-8"><span className="text-accent">relay/</span>         <span className="text-muted/60">&larr; file-based agent chat, TUI, CLI</span></div>
-              <div className="pl-8"><span className="text-accent">runtime/</span>       <span className="text-muted/60">&larr; broker, planner, mesh discovery</span></div>
-              <div className="pl-8"><span className="text-accent">protocol/</span>      <span className="text-muted/60">&larr; shared typed protocol</span></div>
-              <div className="pl-8"><span className="text-accent">electron-app/</span>  <span className="text-muted/60">&larr; desktop shell (React + Electron)</span></div>
-              <div className="pl-8"><span className="text-accent">voice/</span>         <span className="text-muted/60">&larr; voice I/O bridge</span></div>
-              <div className="pl-8"><span className="text-accent">cli/</span>           <span className="text-muted/60">&larr; user-facing CLI</span></div>
+              <div className="pl-8"><span className="text-accent">protocol/</span>      <span className="text-muted/60">&larr; messages, invocations, flights, deliveries, bindings</span></div>
+              <div className="pl-8"><span className="text-accent">runtime/</span>       <span className="text-muted/60">&larr; broker service, launch agent, discovery, routing</span></div>
+              <div className="pl-8"><span className="text-accent">relay/</span>         <span className="text-muted/60">&larr; compatibility CLI, TUI, broker-backed read/watch</span></div>
+              <div className="pl-8"><span className="text-accent">electron-app/</span>  <span className="text-muted/60">&larr; desktop shell for conversations, work, machines</span></div>
+              <div className="pl-8"><span className="text-accent">voice/</span>         <span className="text-muted/60">&larr; voice bindings and delivery bridge</span></div>
+              <div className="pl-8"><span className="text-accent">cli/</span>           <span className="text-muted/60">&larr; bootstrap, doctor, user-facing runtime tools</span></div>
             </div>
           </div>
         </div>
@@ -319,7 +324,7 @@ export default function Home() {
               Built in the open.
             </h2>
             <p className="mt-3 text-[13px] text-muted">
-              Open source &middot; Local-first &middot; For builders
+              Open source &middot; Local-first &middot; Broker-backed
             </p>
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <a
@@ -332,7 +337,7 @@ export default function Home() {
                 <span>Star on GitHub</span>
                 <ArrowUpRight className="h-3 w-3 text-background/50 transition-transform group-hover:-translate-y-px group-hover:translate-x-px" />
               </a>
-              <CopyCommand command="openscout relay init" />
+              <CopyCommand command="scout init" />
             </div>
           </div>
         </div>

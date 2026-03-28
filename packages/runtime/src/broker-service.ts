@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { resolveOpenScoutSupportPaths } from "./support-paths.js";
+
 export type BrokerServiceMode = "dev" | "prod" | "custom";
 
 export type BrokerServiceConfig = {
@@ -124,9 +126,10 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const mode = resolveBrokerServiceMode();
   const label = resolveBrokerServiceLabel(mode);
   const uid = typeof process.getuid === "function" ? process.getuid() : Number.parseInt(process.env.UID ?? "0", 10);
-  const supportDirectory = join(homedir(), "Library", "Application Support", "OpenScout");
-  const logsDirectory = join(supportDirectory, "logs");
-  const controlHome = process.env.OPENSCOUT_CONTROL_HOME ?? join(homedir(), ".openscout", "control-plane");
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const supportDirectory = supportPaths.supportDirectory;
+  const logsDirectory = supportPaths.brokerLogsDirectory;
+  const controlHome = supportPaths.controlHome;
   const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
   const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "65535", 10);
   const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
@@ -141,8 +144,8 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     launchAgentPath,
     supportDirectory,
     logsDirectory,
-    stdoutLogPath: join(logsDirectory, "broker.stdout.log"),
-    stderrLogPath: join(logsDirectory, "broker.stderr.log"),
+    stdoutLogPath: join(logsDirectory, "stdout.log"),
+    stderrLogPath: join(logsDirectory, "stderr.log"),
     controlHome,
     runtimePackageDir: runtimePackageDir(),
     bunExecutable: resolveBunExecutable(),

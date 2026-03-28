@@ -18,12 +18,14 @@ const supportDir = path.resolve(
   "Application Support",
   "OpenScout",
 );
+const appLogsDir = path.resolve(supportDir, "logs", "app");
+const electronRuntimeDir = path.resolve(supportDir, "runtime", "electron");
 const logFile =
   process.env.OPENSCOUT_ELECTRON_LOG_FILE ||
-  path.resolve(supportDir, "openscout-electron-dev.log");
+  path.resolve(appLogsDir, "electron.log");
 const pidFile =
   process.env.OPENSCOUT_ELECTRON_PID_FILE ||
-  path.resolve(supportDir, "openscout-electron-dev.pid");
+  path.resolve(electronRuntimeDir, "electron-dev.pid");
 
 fs.mkdirSync(path.dirname(logFile), { recursive: true });
 fs.mkdirSync(path.dirname(pidFile), { recursive: true });

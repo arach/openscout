@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../node_modules/@arach/arc-viewer/dist/index.js";
 @import "./tokens.css";
 @import "./base.css";
 @import "./markdown.css";
@@ -43,5 +44,79 @@
     background: var(--color-surface-muted);
     color: var(--color-text);
     border: 1px solid var(--color-border);
+  }
+
+  .relay-architecture-hero {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 34%),
+      linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 84%, var(--color-surface-muted)) 0%, var(--color-surface) 100%);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .relay-architecture-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 26%),
+      linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--color-bg) 18%, transparent) 100%);
+    opacity: 0.9;
+  }
+
+  .relay-architecture-hero > * {
+    position: relative;
+  }
+
+  .relay-architecture-hero__header h2 {
+    font-size: clamp(1.35rem, 1rem + 1vw, 1.8rem);
+    line-height: 1.1;
+  }
+
+  .relay-architecture-hero__frame {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--color-surface-muted) 82%, var(--color-surface)) 0%, color-mix(in srgb, var(--color-bg) 12%, var(--color-surface-muted)) 100%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-text) 4%, transparent),
+      inset 0 0 0 1px color-mix(in srgb, var(--color-text) 3%, transparent);
+  }
+
+  .relay-architecture-hero__canvas {
+    padding: 2px;
+  }
+
+  .relay-arc-diagram-shell {
+    width: 100%;
+  }
+
+  .relay-arc-diagram__canvas {
+    position: relative;
+  }
+
+  .relay-arc-diagram__stage {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+    background: color-mix(in srgb, var(--color-surface-muted) 88%, var(--color-surface));
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-text) 4%, transparent),
+      0 16px 32px rgba(0, 0, 0, 0.14);
+  }
+
+  .relay-arc-diagram {
+    display: block;
+  }
+
+  .relay-arc-diagram__hint {
+    margin: 0.75rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+  }
+
+  .relay-architecture-hero__hint {
+    letter-spacing: 0.01em;
   }
 }

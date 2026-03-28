@@ -5,7 +5,7 @@ const sections = [
   {
     title: "Relay",
     href: "/docs/relay",
-    description: "File-based agent communication. Append-only logs, tmux twins, voice integration.",
+    description: "Communication for project-scoped agents across your local machine and your other machines.",
     status: "stable",
   },
 ];

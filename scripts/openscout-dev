@@ -13,12 +13,14 @@ SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ELECTRON_DIR="$ROOT_DIR/packages/electron-app"
 SUPPORT_DIR="$HOME/Library/Application Support/OpenScout"
-ELECTRON_LOG_FILE="$SUPPORT_DIR/openscout-electron-dev.log"
-ELECTRON_PID_FILE="$SUPPORT_DIR/openscout-electron-dev.pid"
+APP_LOG_DIR="$SUPPORT_DIR/logs/app"
+ELECTRON_RUNTIME_DIR="$SUPPORT_DIR/runtime/electron"
+ELECTRON_LOG_FILE="$APP_LOG_DIR/electron.log"
+ELECTRON_PID_FILE="$ELECTRON_RUNTIME_DIR/electron-dev.pid"
 ELECTRON_LAUNCHER="$ROOT_DIR/scripts/launch-openscout-electron.mjs"
 ELECTRON_MAIN_PATH="$ELECTRON_DIR/dist/electron/main.js"
 
-mkdir -p "$SUPPORT_DIR"
+mkdir -p "$SUPPORT_DIR" "$APP_LOG_DIR" "$ELECTRON_RUNTIME_DIR"
 
 usage() {
   cat <<'EOF'

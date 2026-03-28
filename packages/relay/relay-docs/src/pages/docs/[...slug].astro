@@ -33,6 +33,7 @@ const fallbackTitle = fileName
   .join(' ')
 const title = frontmatter?.title ?? fallbackTitle
 const description = frontmatter?.description
+const heroDiagram = frontmatter?.heroDiagram
 
 const rawMarkdownFiles = import.meta.glob('../../../docs/**/*.md', {
   query: '?raw',
@@ -51,6 +52,6 @@ const agentLoader = agentMarkdownFiles[agentFilePath]
 const agentMarkdown = agentLoader ? await agentLoader() : ''
 ---
 
-<DocsLayout title={title} headings={headings} description={description} rawMarkdown={rawMarkdown} agentMarkdown={agentMarkdown}>
+<DocsLayout title={title} headings={headings} description={description} heroDiagram={heroDiagram} rawMarkdown={rawMarkdown} agentMarkdown={agentMarkdown}>
   <Content />
 </DocsLayout>

@@ -1163,11 +1163,13 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
         const systemPrompt = [
           `You are "${twinName}", a relay twin for the ${projectName} project.`,
           `You have full access to the codebase at ${projectPath}.`,
-          `Relay channel at ${hubShort}/channel.log shared by all agents.`,
+          `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
           `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
           `Always reply via: openscout relay send --as ${twinName} "your message"`,
+          `Read context via: openscout relay read --as ${twinName}`,
           `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
           `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
+          `Do not read or write channel.log or channel.jsonl directly.`,
           `Be specific with file paths. Keep messages under 200 chars.`,
         ].join("\n");
 
@@ -1223,17 +1225,17 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     const systemPrompt = [
       `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
       `You have full access to the codebase at ${projectPath}.`,
-      `There is a global relay channel at ${hubShort}/channel.log shared by all agents.`,
+      `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
       `Your job: respond to @${twinName} mentions, answer questions about this project's code, coordinate with other agents.`,
       `Relay commands:`,
       `  openscout relay send --as ${twinName} "your message"`,
       `  openscout relay speak --as ${twinName} "your message"  (speaks aloud to the human via TTS)`,
-      `  openscout relay read`,
+      `  openscout relay read --as ${twinName}`,
       `  openscout relay who`,
       `Audio: the human may be in a voice conversation. Use 'relay speak' when you have a substantive`,
       `answer or result for the human. Do NOT speak acks, status updates, or agent-to-agent chatter.`,
       `Only speak the final, meaningful response directed at a human.`,
-      `Rules: always reply via relay send, be specific with file paths, keep messages under 200 chars.`,
+      `Rules: always reply via relay send, do not read or write channel.log or channel.jsonl directly, be specific with file paths, keep messages under 200 chars.`,
     ].join("\n");
 
     // Write files
@@ -2150,13 +2152,11 @@ async function relayUp() {
   // Build the enrollment system prompt
   const hub = await getGlobalRelayDir();
   const hubShort = hub.replace(os.homedir(), "~");
-  const logPath = path.join(hub, "channel.log");
-
   const systemPrompt = [
     `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
     ``,
     `You have full access to the codebase at ${projectPath}.`,
-    `There is a global relay channel at ${hubShort}/channel.log shared by all agents.`,
+    `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
     ``,
     `Your job:`,
     `  - Respond to @${twinName} mentions from other agents`,
@@ -2166,11 +2166,12 @@ async function relayUp() {
     ``,
     `Relay commands:`,
     `  openscout relay send --as ${twinName} "your message"   — send a message`,
-    `  openscout relay read                                   — check recent messages`,
+    `  openscout relay read --as ${twinName}                  — check recent messages`,
     `  openscout relay who                                    — see who's active`,
     ``,
     `Rules:`,
     `  - Always reply via relay send so other agents see your response`,
+    `  - Do not read or write channel.log or channel.jsonl directly`,
     `  - Be specific: include file paths, line numbers, what you found`,
     `  - Keep messages under 200 chars unless detailed info was requested`,
     `  - Check relay read for context before responding`,
@@ -2370,11 +2371,13 @@ async function relayRestart() {
     const systemPrompt = [
       `You are "${twinName}", a relay twin for the ${projectName} project.`,
       `You have full access to the codebase at ${projectPath}.`,
-      `Relay channel at ${hubShort}/channel.log shared by all agents.`,
+      `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
       `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
       `Always reply via: openscout relay send --as ${twinName} "your message"`,
+      `Read context via: openscout relay read --as ${twinName}`,
       `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
       `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
+      `Do not read or write channel.log or channel.jsonl directly.`,
       `Be specific with file paths. Keep messages under 200 chars.`,
     ].join("\n");
 

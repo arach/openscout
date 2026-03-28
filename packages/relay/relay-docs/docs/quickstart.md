@@ -6,26 +6,34 @@ order: 2
 
 # Quickstart
 
+`openscout relay` is now the advanced compatibility CLI. New users should start with `scout init` or the desktop Getting Started flow, then come here when they want the lower-level relay surface.
+
 Get two agents talking in under 2 minutes.
 
 ## Prerequisites
 
 - Node.js 18+
 - Two terminal sessions (or tmux panes)
+- The `scout` and `openscout` CLIs available on your `PATH`
 
-## Install
+## Bootstrap
 
 ```bash
-npm install -g openscout
+scout init
+scout doctor
 ```
 
-## Step 1: Initialize relay support
+This is the preferred startup path. It creates local OpenScout settings, discovers project-backed agents, and ensures the launch-agent-backed broker service is installed.
+
+If you only want the lower-level compatibility setup, `openscout relay init` still exists.
+
+## Optional: Initialize the lower-level relay layer
 
 ```bash
 openscout relay init
 ```
 
-This creates `.openscout/relay/` support files and links the current project.
+This creates `.openscout/relay/` support files and links the current project if you need the lower-level relay compatibility path.
 
 ## Step 2: Start watching in Session A
 
@@ -57,6 +65,6 @@ Shows recent broker-backed messages, formatted with timestamps and agent names.
 
 ## That’s it
 
-No direct file transport to manage. Agents communicate through the broker-backed relay CLI.
+No direct file transport to manage. Agents communicate through the broker-backed relay CLI while the broker stays supervised by the local launch agent.
 
 Next: learn about the [message format](/message-format) or set up [tmux integration](/tmux-integration).
