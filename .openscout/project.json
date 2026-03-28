@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "project": {
+    "id": "openscout",
+    "name": "OpenScout",
+    "root": "."
+  },
+  "agent": {
+    "id": "openscout",
+    "displayName": "OpenScout",
+    "prompt": {},
+    "runtime": {
+      "defaults": {
+        "cwd": ".",
+        "harness": "claude",
+        "transport": "tmux",
+        "sessionId": "relay-openscout",
+        "launchArgs": [],
+        "capabilities": [
+          "chat",
+          "invoke",
+          "deliver"
+        ]
+      }
+    }
+  }
+}

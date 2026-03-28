@@ -29,6 +29,8 @@ import {
   type MeshMessageBundle,
 } from "./mesh-forwarding.js";
 import {
+  ensureProjectTwinBindingOnline,
+  isProjectTwinSessionAlive,
   invokeProjectTwinEndpoint,
   loadRegisteredProjectTwinBindings,
   shouldDisableGeneratedCodexEndpoint,
@@ -486,6 +488,28 @@ async function syncRegisteredProjectTwins(): Promise<void> {
 
   const snapshot = runtime.snapshot();
   for (const endpoint of Object.values(snapshot.endpoints)) {
+    if (endpoint.transport === "tmux") {
+      const sessionId =
+        endpoint.sessionId
+        ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
+      const sessionAlive = sessionId ? isProjectTwinSessionAlive(sessionId) : false;
+      if (!sessionAlive) {
+        if (endpoint.state !== "offline") {
+          await persistEndpoint({
+            ...endpoint,
+            state: "offline",
+            metadata: {
+              ...(endpoint.metadata ?? {}),
+              lastError: sessionId ? `tmux session missing: ${sessionId}` : "tmux session missing",
+              lastFailedAt: Date.now(),
+            },
+          });
+          console.log(`[openscout-runtime] marked stale tmux endpoint offline ${endpoint.id}`);
+        }
+        continue;
+      }
+    }
+
     if (!shouldDisableGeneratedCodexEndpoint(endpoint)) {
       continue;
     }
@@ -607,16 +631,65 @@ function activeLocalEndpointForAgent(agentId: string): AgentEndpoint | undefined
     && endpoint.state !== "offline"
     && endpoint.transport === "tmux"
   ));
-  return candidates[0];
+  return candidates.find((endpoint) => {
+    const sessionId =
+      endpoint.sessionId
+      ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
+    return sessionId ? isProjectTwinSessionAlive(sessionId) : false;
+  });
+}
+
+async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
+  const existing = activeLocalEndpointForAgent(invocation.targetAgentId);
+  if (existing) {
+    return existing;
+  }
+
+  const staleEndpoints = Object.values(runtime.snapshot().endpoints).filter((endpoint) => (
+    endpoint.agentId === invocation.targetAgentId
+    && endpoint.nodeId === nodeId
+    && endpoint.transport === "tmux"
+    && endpoint.state !== "offline"
+  ));
+
+  for (const endpoint of staleEndpoints) {
+    await persistEndpoint({
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        lastError: `tmux session missing: ${endpoint.sessionId ?? endpoint.id}`,
+        lastFailedAt: Date.now(),
+      },
+    });
+  }
+
+  if (!invocation.ensureAwake) {
+    return undefined;
+  }
+
+  const binding = await ensureProjectTwinBindingOnline(invocation.targetAgentId, nodeId, {
+    includeDiscovered: true,
+  });
+  if (!binding) {
+    return undefined;
+  }
+
+  await runtime.upsertActor(binding.actor);
+  await runtime.upsertAgent(binding.agent);
+  store.upsertActor(binding.actor);
+  store.upsertAgent(binding.agent);
+  await persistEndpoint(binding.endpoint);
+  return binding.endpoint;
 }
 
 async function executeLocalInvocation(
   invocation: InvocationRequest,
   initialFlight: FlightRecord,
 ): Promise<void> {
+  const endpoint = await resolveLocalEndpointForInvocation(invocation);
   const snapshot = runtime.snapshot();
   const agent = snapshot.agents[invocation.targetAgentId];
-  const endpoint = activeLocalEndpointForAgent(invocation.targetAgentId);
 
   if (!agent || !endpoint) {
     const failedFlight = {

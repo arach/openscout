@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -493,7 +493,7 @@ function relayAgentOverrideFromProjectTwinRecord(
     projectName: normalizedRecord.project,
     projectRoot,
     projectConfigPath: existing?.projectConfigPath ?? null,
-    source: existing?.source ?? "manual",
+    source: existing?.source && existing.source !== "inferred" ? existing.source : "manual",
     startedAt: normalizedRecord.startedAt,
     systemPrompt: normalizedRecord.systemPrompt,
     launchArgs: normalizeTwinLaunchArgs(normalizedRecord.launchArgs),
@@ -582,9 +582,9 @@ export async function updateProjectTwinConfig(
   return buildProjectTwinConfigState(twinId, nextRecord);
 }
 
-function isTwinAlive(sessionName: string): boolean {
+export function isProjectTwinSessionAlive(sessionName: string): boolean {
   try {
-    execSync(`tmux has-session -t ${JSON.stringify(sessionName)}`, { stdio: "pipe" });
+    execFileSync("tmux", ["has-session", "-t", sessionName], { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -639,10 +639,7 @@ export function stripTwinReplyMetadata(body: string, flightId: string, asker: st
 }
 
 async function sendTwinPrompt(record: ProjectTwinRecord, prompt: string): Promise<void> {
-  execSync(
-    `tmux send-keys -t ${JSON.stringify(record.tmuxSession)} ${JSON.stringify(prompt)} Enter`,
-    { stdio: "pipe" },
-  );
+  execFileSync("tmux", ["send-keys", "-t", record.tmuxSession, prompt, "Enter"], { stdio: "pipe" });
 }
 
 function shellQuoteArguments(args: string[]): string {
@@ -672,7 +669,7 @@ function buildTwinLaunchCommand(
   const extraArgs = shellQuoteArguments(normalizeTwinLaunchArgs(record.launchArgs));
   if (normalizeTwinHarness(record.harness) === "codex") {
     return [
-      "exec codex",
+      "codex",
       "-a never",
       "-s workspace-write",
       "--no-alt-screen",
@@ -685,7 +682,7 @@ function buildTwinLaunchCommand(
   }
 
   return [
-    "exec claude",
+    "claude",
     `--append-system-prompt "$(cat ${JSON.stringify(promptFile)})"`,
     "--name",
     JSON.stringify(`${twinName}-relay-agent`),
@@ -705,7 +702,7 @@ function killTwinSession(sessionName: string): void {
 
 async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Promise<ProjectTwinRecord> {
   const normalizedRecord = normalizeProjectTwinRecord(twinName, record);
-  if (isTwinAlive(normalizedRecord.tmuxSession)) {
+  if (isProjectTwinSessionAlive(normalizedRecord.tmuxSession)) {
     return normalizedRecord;
   }
 
@@ -733,26 +730,45 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
 
   await writeFile(promptFile, systemPrompt);
   await writeFile(initialFile, bootstrapPrompt);
+  await writeFile(stderrLogFile, "");
+  const bootstrapLine = normalizeTwinHarness(normalizedRecord.harness) === "codex"
+    ? `(sleep 5 && tmux send-keys -t ${JSON.stringify(normalizedRecord.tmuxSession)} "$(cat ${JSON.stringify(initialFile)})" Enter) &`
+    : null;
+
   await writeFile(
     launchScript,
     [
       "#!/bin/bash",
-      "set -euo pipefail",
+      "set -uo pipefail",
       `mkdir -p ${JSON.stringify(logsDir)}`,
       `cd ${JSON.stringify(projectPath)}`,
-      `(sleep 5 && tmux send-keys -t ${JSON.stringify(normalizedRecord.tmuxSession)} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-      `exec ${buildTwinLaunchCommand(twinName, normalizedRecord, projectPath, promptFile).replace(/^exec\s+/, "")} 2>>${JSON.stringify(stderrLogFile)}`,
-    ].join("\n") + "\n",
+      bootstrapLine,
+      buildTwinLaunchCommand(twinName, normalizedRecord, projectPath, promptFile),
+    ].filter(Boolean).join("\n") + "\n",
   );
-  execSync(`chmod 755 ${JSON.stringify(launchScript)}`);
-  const paneId = execSync(
-    `tmux new-session -dP -F '#{pane_id}' -s ${JSON.stringify(normalizedRecord.tmuxSession)} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`,
+  execFileSync("chmod", ["755", launchScript], { stdio: "pipe" });
+  const paneId = execFileSync(
+    "tmux",
+    [
+      "new-session",
+      "-dP",
+      "-F",
+      "#{pane_id}",
+      "-s",
+      normalizedRecord.tmuxSession,
+      "-c",
+      projectPath,
+      "bash",
+      "-c",
+      JSON.stringify(launchScript),
+    ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   ).trim();
   if (paneId) {
     try {
-      execSync(
-        `tmux pipe-pane -o -t ${JSON.stringify(paneId)} ${JSON.stringify(`cat >> ${JSON.stringify(stdoutLogFile)}`)}`,
+      execFileSync(
+        "tmux",
+        ["pipe-pane", "-o", "-t", paneId, `cat >> ${JSON.stringify(stdoutLogFile)}`],
         { stdio: "pipe" },
       );
     } catch (error) {
@@ -774,6 +790,24 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
       updatedAt: new Date().toISOString(),
     }, null, 2) + "\n",
   );
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (isProjectTwinSessionAlive(normalizedRecord.tmuxSession)) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  if (!isProjectTwinSessionAlive(normalizedRecord.tmuxSession)) {
+    const stderrTail = existsSync(stderrLogFile)
+      ? readFileSync(stderrLogFile, "utf8").trim().split(/\r?\n/).slice(-10).join("\n").trim()
+      : "";
+    throw new Error(
+      stderrTail
+        ? `Relay agent ${twinName} failed to stay online:\n${stderrTail}`
+        : `Relay agent ${twinName} failed to stay online.`,
+    );
+  }
 
   const registry = await readTwinsRegistry();
   registry[twinName] = {
@@ -894,7 +928,7 @@ export async function loadRegisteredProjectTwinBindings(
     return buildTwinBinding(
       twinId,
       effectiveRecord,
-      isTwinAlive(effectiveRecord.tmuxSession),
+      isProjectTwinSessionAlive(effectiveRecord.tmuxSession),
       nodeId,
       "relay-twin-registry",
     );
@@ -916,9 +950,42 @@ export async function inferProjectTwinBinding(agentId: string, nodeId: string): 
   return buildTwinBinding(
     agentId,
     record,
-    isTwinAlive(record.tmuxSession),
+    isProjectTwinSessionAlive(record.tmuxSession),
     nodeId,
     agent.source === "inferred" ? "project-inferred" : "relay-twin-registry",
+  );
+}
+
+export async function ensureProjectTwinBindingOnline(
+  agentId: string,
+  nodeId: string,
+  options: { includeDiscovered?: boolean } = {},
+): Promise<ProjectTwinBinding | null> {
+  if (!agentId || BUILT_IN_LOCAL_AGENT_IDS.has(agentId)) {
+    return null;
+  }
+
+  const setup = await loadResolvedRelayAgents();
+  const candidate =
+    setup.agents.find((entry) => entry.agentId === agentId)
+    ?? (options.includeDiscovered ? setup.discoveredAgents.find((entry) => entry.agentId === agentId) : undefined);
+
+  if (!candidate) {
+    return null;
+  }
+
+  const source =
+    candidate.registrationKind === "configured"
+      ? "relay-twin-registry"
+      : "project-inferred";
+  const onlineRecord = await ensureTwinOnline(agentId, projectTwinRecordFromResolvedConfig(candidate));
+
+  return buildTwinBinding(
+    agentId,
+    onlineRecord,
+    isProjectTwinSessionAlive(onlineRecord.tmuxSession),
+    nodeId,
+    source,
   );
 }
 

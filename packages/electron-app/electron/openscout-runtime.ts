@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { open, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -64,6 +64,11 @@ const DEFAULT_OPERATOR_DISPLAY_NAME = process.env.OPENSCOUT_OPERATOR_NAME?.trim(
 const SHARED_CHANNEL_ID = "channel.shared";
 const VOICE_CHANNEL_ID = "channel.voice";
 const SYSTEM_CHANNEL_ID = "channel.system";
+const BUILT_IN_ROLE_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
+const PROJECT_GIT_ACTIVITY_CACHE_TTL_MS = 30_000;
+const RECENT_AGENT_ACTIVITY_WINDOW_SECONDS = 60 * 60 * 24 * 30;
+const LOG_TAIL_CHUNK_BYTES = 64 * 1024;
+const LOG_CATALOG_CACHE_TTL_MS = 1_500;
 
 type TmuxSession = {
   name: string;
@@ -77,6 +82,13 @@ type BrokerNode = {
 type ResolvedLogSource = DesktopLogSource & {
   paths: string[];
 };
+
+type CachedLogCatalog = {
+  expiresAt: number;
+  sources: ResolvedLogSource[];
+};
+
+let cachedLogCatalog: CachedLogCatalog | null = null;
 
 type ActorRecord = {
   id: string;
@@ -158,6 +170,7 @@ type DirectAgentActivity = {
   statusLabel: string;
   statusDetail: string | null;
   activeTask: string | null;
+  lastMessageAt: number | null;
 };
 
 type TwinWorkspaceRecord = {
@@ -165,6 +178,13 @@ type TwinWorkspaceRecord = {
   project: string;
   cwd: string;
 };
+
+type ProjectGitActivity = {
+  lastCodeChangeAt: number | null;
+  lastCodeChangeLabel: string | null;
+};
+
+const projectGitActivityCache = new Map<string, { cachedAt: number; activity: ProjectGitActivity }>();
 
 type ParsedPlanFrontmatter = {
   attributes: Record<string, string>;
@@ -293,6 +313,96 @@ function runOptionalCommand(command: string, args: string[]): string | null {
   }
 }
 
+function readProjectGitActivity(projectRoot: string | null | undefined): ProjectGitActivity {
+  if (!projectRoot) {
+    return {
+      lastCodeChangeAt: null,
+      lastCodeChangeLabel: null,
+    };
+  }
+
+  const normalizedRoot = path.resolve(projectRoot);
+  const cached = projectGitActivityCache.get(normalizedRoot);
+  if (cached && Date.now() - cached.cachedAt < PROJECT_GIT_ACTIVITY_CACHE_TTL_MS) {
+    return cached.activity;
+  }
+
+  const rawTimestamp = runOptionalCommand("git", ["-C", normalizedRoot, "log", "-1", "--format=%ct"]);
+  const parsedTimestamp = Number.parseInt(rawTimestamp ?? "", 10);
+  const lastCodeChangeAt = Number.isFinite(parsedTimestamp) && parsedTimestamp > 0
+    ? normalizeTimestamp(parsedTimestamp)
+    : null;
+  const activity = {
+    lastCodeChangeAt,
+    lastCodeChangeLabel: lastCodeChangeAt ? formatRelativeTime(lastCodeChangeAt) : null,
+  } satisfies ProjectGitActivity;
+  projectGitActivityCache.set(normalizedRoot, {
+    cachedAt: Date.now(),
+    activity,
+  });
+  return activity;
+}
+
+function visibleRelayAgentIds(
+  snapshot: RuntimeRegistrySnapshot,
+  configuredAgentIds: Set<string>,
+  messagesByConversation: Map<string, MessageRecord[]>,
+  directActivity: Map<string, DirectAgentActivity>,
+) {
+  const visible = new Set<string>([
+    ...configuredAgentIds,
+    ...Array.from(BUILT_IN_ROLE_AGENT_IDS),
+  ]);
+  const cutoff = Math.floor(Date.now() / 1000) - RECENT_AGENT_ACTIVITY_WINDOW_SECONDS;
+  const conversationsById = snapshot.conversations as Record<string, ConversationRecord>;
+
+  for (const [agentId, activity] of directActivity.entries()) {
+    if (activity.reachable || activity.state === "working" || (activity.lastMessageAt ?? 0) >= cutoff) {
+      visible.add(agentId);
+    }
+  }
+
+  for (const endpoint of Object.values(snapshot.endpoints as Record<string, EndpointRecord>)) {
+    if (endpoint.state && endpoint.state !== "offline") {
+      visible.add(endpoint.agentId);
+    }
+  }
+
+  for (const conversation of Object.values(conversationsById)) {
+    const messages = messagesByConversation.get(conversation.id) ?? [];
+    const latestMessage = messages.at(-1);
+    if (!latestMessage || normalizeTimestamp(latestMessage.createdAt) < cutoff) {
+      continue;
+    }
+
+    if (isInterAgentConversation(snapshot, conversation)) {
+      for (const participantId of conversation.participantIds) {
+        if ((snapshot.agents as Record<string, AgentRecord>)[participantId]) {
+          visible.add(participantId);
+        }
+      }
+      continue;
+    }
+
+    for (const message of messages) {
+      if (normalizeTimestamp(message.createdAt) < cutoff || !isKnownAgent(snapshot, message.actorId)) {
+        continue;
+      }
+      const recipients = inferRecipients(message, conversation)
+        .filter((recipientId) => recipientId !== OPERATOR_ID && recipientId !== message.actorId)
+        .filter((recipientId) => isKnownAgent(snapshot, recipientId));
+      const participantIds = interAgentParticipantIds(snapshot, [message.actorId, ...recipients]);
+      if (participantIds.length >= 2 && participantIds.length <= 3) {
+        for (const participantId of participantIds) {
+          visible.add(participantId);
+        }
+      }
+    }
+  }
+
+  return visible;
+}
+
 function resolveBrokerProcessId(brokerUrl: string, fallbackPid: number | null): number | null {
   if (fallbackPid && Number.isFinite(fallbackPid)) {
     return fallbackPid;
@@ -413,6 +523,10 @@ function brokerFeedbackSummary(
 }
 
 async function buildResolvedLogCatalog(): Promise<ResolvedLogSource[]> {
+  if (cachedLogCatalog && cachedLogCatalog.expiresAt > Date.now()) {
+    return cachedLogCatalog.sources;
+  }
+
   const supportPaths = resolveOpenScoutSupportPaths();
   const setup = await loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() });
 
@@ -457,6 +571,10 @@ async function buildResolvedLogCatalog(): Promise<ResolvedLogSource[]> {
     });
   }
 
+  cachedLogCatalog = {
+    expiresAt: Date.now() + LOG_CATALOG_CACHE_TTL_MS,
+    sources,
+  };
   return sources;
 }
 
@@ -473,18 +591,12 @@ async function tailLogSource(source: ResolvedLogSource, tailLines = 240): Promis
     }
 
     foundAny = true;
-    const raw = await readFile(filePath, "utf8");
-    const stats = await stat(filePath);
-    updatedAtMs = Math.max(updatedAtMs, stats.mtimeMs);
-    const lines = raw.split(/\r?\n/);
-    if (lines.length > 0 && lines.at(-1) === "") {
-      lines.pop();
-    }
-    lineCount += lines.length;
-    const visibleLines = tailLines > 0 ? lines.slice(-tailLines) : lines;
-    truncated = truncated || visibleLines.length < lines.length;
+    const content = await readVisibleLogFile(filePath, tailLines);
+    updatedAtMs = Math.max(updatedAtMs, content.updatedAtMs);
+    lineCount += content.lines.length;
+    truncated = truncated || content.truncated;
     sections.push(`== ${logSectionLabel(filePath)} ==`);
-    sections.push(visibleLines.join("\n") || "(empty)");
+    sections.push(content.lines.join("\n") || "(empty)");
   }
 
   return {
@@ -500,6 +612,66 @@ async function tailLogSource(source: ResolvedLogSource, tailLines = 240): Promis
   };
 }
 
+async function readVisibleLogFile(filePath: string, tailLines: number): Promise<{
+  lines: string[];
+  updatedAtMs: number;
+  truncated: boolean;
+}> {
+  const file = await open(filePath, "r");
+  try {
+    const stats = await file.stat();
+    if (tailLines <= 0 || stats.size <= 0) {
+      const raw = stats.size > 0 ? await file.readFile({ encoding: "utf8" }) : "";
+      return {
+        lines: splitLogLines(raw),
+        updatedAtMs: stats.mtimeMs,
+        truncated: false,
+      };
+    }
+
+    let position = stats.size;
+    let newlineCount = 0;
+    let totalBytes = 0;
+    const chunks: Buffer[] = [];
+
+    while (position > 0 && newlineCount <= tailLines) {
+      const readSize = Math.min(LOG_TAIL_CHUNK_BYTES, position);
+      position -= readSize;
+      const buffer = Buffer.allocUnsafe(readSize);
+      const { bytesRead } = await file.read(buffer, 0, readSize, position);
+      if (bytesRead <= 0) {
+        break;
+      }
+      const chunk = buffer.subarray(0, bytesRead);
+      chunks.unshift(chunk);
+      totalBytes += bytesRead;
+      for (const byte of chunk) {
+        if (byte === 10) {
+          newlineCount += 1;
+        }
+      }
+    }
+
+    const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
+    const lines = splitLogLines(raw);
+    return {
+      lines: lines.length > tailLines ? lines.slice(-tailLines) : lines,
+      updatedAtMs: stats.mtimeMs,
+      truncated: position > 0 || lines.length > tailLines,
+    };
+  } finally {
+    await file.close();
+  }
+}
+
+function splitLogLines(raw: string): string[] {
+  const lines = raw.split(/\r?\n/);
+  if (lines.length > 0 && lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
 function splitDelimitedTokens(value: string): string[] {
   return value
     .split(/[\n,]/g)
@@ -508,7 +680,7 @@ function splitDelimitedTokens(value: string): string[] {
 }
 
 function isReachableEndpointState(state: string | undefined): boolean {
-  return state === "active" || state === "idle" || state === "waiting" || state === "degraded";
+  return state === "active" || state === "idle" || state === "waiting";
 }
 
 function isWorkingFlightState(state: string | undefined): boolean {
@@ -1059,8 +1231,21 @@ function buildDirectAgentActivity(
 
   for (const agent of Object.values(snapshot.agents as Record<string, AgentRecord>)) {
     const endpoint = activeEndpoint(snapshot, agent.id);
-    const reachable = Boolean(endpoint && isReachableEndpointState(endpoint.state)) || tmuxSet.has(`relay-${agent.id}`);
+    const endpointSessionId =
+      endpoint?.sessionId
+      ?? (typeof endpoint?.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
+    const tmuxReachable = endpointSessionId ? tmuxSet.has(endpointSessionId) : false;
+    const reachable =
+      (endpoint?.transport === "tmux"
+        ? tmuxReachable
+        : Boolean(endpoint && isReachableEndpointState(endpoint.state)))
+      || tmuxSet.has(`relay-${agent.id}`);
     const latestMessage = (messagesByConversation.get(directConversationId(agent.id)) ?? []).at(-1) ?? null;
+    const lastMessageAt = latestMessage ? normalizeTimestamp(latestMessage.createdAt) : null;
+    const degradedReason =
+      typeof endpoint?.metadata?.lastError === "string"
+        ? String(endpoint.metadata.lastError)
+        : null;
     const activeFlight =
       flights
         .filter((flight) => flight.targetAgentId === agent.id && isWorkingFlightState(flight.state))
@@ -1084,6 +1269,7 @@ function buildDirectAgentActivity(
         statusLabel: "Working",
         statusDetail: activeTask,
         activeTask,
+        lastMessageAt,
       });
       continue;
     }
@@ -1095,6 +1281,7 @@ function buildDirectAgentActivity(
         statusLabel: "Available",
         statusDetail: latestMessage ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}` : "Ready for a direct message.",
         activeTask: null,
+        lastMessageAt,
       });
       continue;
     }
@@ -1103,8 +1290,14 @@ function buildDirectAgentActivity(
       state: "offline",
       reachable: false,
       statusLabel: "Offline",
-      statusDetail: latestMessage ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}` : "No active endpoint detected.",
+      statusDetail:
+        degradedReason && degradedReason.includes("tmux session missing")
+          ? "Relay session is not running."
+          : latestMessage
+            ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}`
+            : "No active endpoint detected.",
       activeTask: null,
+      lastMessageAt,
     });
   }
 
@@ -1566,9 +1759,10 @@ function buildRelayDirects(
   snapshot: RuntimeRegistrySnapshot,
   activityByAgent: Map<string, DirectAgentActivity>,
   messagesByConversation: Map<string, MessageRecord[]>,
+  visibleAgentIds: Set<string>,
 ): RelayDirectThread[] {
   return Object.values(snapshot.agents as Record<string, AgentRecord>)
-    .filter((agent) => !["scout", "builder", "reviewer", "research"].includes(agent.id))
+    .filter((agent) => visibleAgentIds.has(agent.id))
     .sort((lhs, rhs) => actorDisplayName(snapshot, lhs.id).localeCompare(actorDisplayName(snapshot, rhs.id)))
     .map((agent) => {
       const directMessages = messagesByConversation.get(directConversationId(agent.id)) ?? [];
@@ -1588,6 +1782,7 @@ function buildRelayDirects(
         statusLabel: "Offline",
         statusDetail: "No active endpoint detected.",
         activeTask: null,
+        lastMessageAt: null,
       };
 
       return {
@@ -1769,11 +1964,16 @@ function countMessages(messages: RelayMessage[], predicate: (message: RelayMessa
   return messages.filter(predicate).length;
 }
 
-function buildRelayState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSession[]): RelayState {
+function buildRelayState(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+  configuredAgentIds: Set<string>,
+): RelayState {
   const messagesByConversation = buildMessagesByConversation(snapshot);
   const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
   const messages = attachRelayReceipts(snapshot, buildRelayMessages(snapshot), directActivity);
-  const directs = buildRelayDirects(snapshot, directActivity, messagesByConversation);
+  const directs = buildRelayDirects(snapshot, directActivity, messagesByConversation, visibleAgentIds);
   const voiceState = relayVoiceBridgeService.getRelayVoiceState();
 
   const channels: RelayNavItem[] = [
@@ -1858,14 +2058,23 @@ function isInterAgentConversation(snapshot: RuntimeRegistrySnapshot, conversatio
   );
 }
 
-function isKnownAgent(snapshot: RuntimeRegistrySnapshot, actorId: string) {
-  return Boolean((snapshot.agents as Record<string, AgentRecord>)[actorId]);
+function isKnownAgent(
+  snapshot: RuntimeRegistrySnapshot,
+  actorId: string,
+  visibleAgentIds?: Set<string>,
+) {
+  return Boolean((snapshot.agents as Record<string, AgentRecord>)[actorId])
+    && (!visibleAgentIds || visibleAgentIds.has(actorId));
 }
 
-function interAgentParticipantIds(snapshot: RuntimeRegistrySnapshot, participantIds: string[]) {
+function interAgentParticipantIds(
+  snapshot: RuntimeRegistrySnapshot,
+  participantIds: string[],
+  visibleAgentIds?: Set<string>,
+) {
   return Array.from(
     new Set(
-      participantIds.filter((participantId) => participantId !== OPERATOR_ID && isKnownAgent(snapshot, participantId)),
+      participantIds.filter((participantId) => participantId !== OPERATOR_ID && isKnownAgent(snapshot, participantId, visibleAgentIds)),
     ),
   ).sort();
 }
@@ -1897,11 +2106,19 @@ function agentTypeLabel(agent: AgentRecord | null | undefined) {
   return "Built-in Role";
 }
 
-function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: TmuxSession[]) {
+function buildInterAgentState(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+  configuredAgentIds: Set<string>,
+) {
   const conversations = Object.values(snapshot.conversations as Record<string, ConversationRecord>);
   const conversationsById = snapshot.conversations as Record<string, ConversationRecord>;
   const messagesByConversation = buildMessagesByConversation(snapshot);
   const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
+  const tmuxSessionCreatedAt = new Map(
+    tmuxSessions.map((session) => [session.name, normalizeTimestamp(session.createdAt ?? 0)]),
+  );
 
   type ThreadAccumulator = {
     id: string;
@@ -1922,7 +2139,7 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
     conversationId: string | null = null,
     title?: string,
   ) => {
-    const normalizedParticipantIds = interAgentParticipantIds(snapshot, participantIds);
+    const normalizedParticipantIds = interAgentParticipantIds(snapshot, participantIds, visibleAgentIds);
     if (normalizedParticipantIds.length < 2) {
       return null;
     }
@@ -1995,19 +2212,19 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
     }
 
     for (const message of messages) {
-      if (!isKnownAgent(snapshot, message.actorId)) {
+      if (!isKnownAgent(snapshot, message.actorId, visibleAgentIds)) {
         continue;
       }
 
       const recipients = inferRecipients(message, conversation)
         .filter((recipientId) => recipientId !== OPERATOR_ID && recipientId !== message.actorId)
-        .filter((recipientId) => isKnownAgent(snapshot, recipientId));
+        .filter((recipientId) => isKnownAgent(snapshot, recipientId, visibleAgentIds));
 
       if (recipients.length === 0) {
         continue;
       }
 
-      const projectedParticipantIds = interAgentParticipantIds(snapshot, [message.actorId, ...recipients]);
+      const projectedParticipantIds = interAgentParticipantIds(snapshot, [message.actorId, ...recipients], visibleAgentIds);
       if (projectedParticipantIds.length < 2 || projectedParticipantIds.length > 3) {
         continue;
       }
@@ -2065,6 +2282,7 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
   }, new Map<string, { threadCount: number; counterpartIds: Set<string>; latestTimestamp: number }>());
 
   const agents = Object.values(snapshot.agents as Record<string, AgentRecord>)
+    .filter((agent) => visibleAgentIds.has(agent.id))
     .map((agent) => {
       const entry = agentThreadSummary.get(agent.id) ?? {
         threadCount: 0,
@@ -2078,7 +2296,30 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
         statusLabel: "Offline",
         statusDetail: "No active endpoint detected.",
         activeTask: null,
+        lastMessageAt: null,
       };
+      const projectRoot =
+        endpoint?.projectRoot
+        ?? endpoint?.cwd
+        ?? (typeof agent.metadata?.projectRoot === "string" ? String(agent.metadata.projectRoot) : null);
+      const endpointSessionAt = normalizeTimestamp(
+        typeof endpoint?.metadata?.lastCompletedAt === "number"
+          ? Number(endpoint.metadata.lastCompletedAt)
+          : typeof endpoint?.metadata?.lastStartedAt === "number"
+            ? Number(endpoint.metadata.lastStartedAt)
+            : 0,
+      );
+      const endpointStartedAt = normalizeTimestamp(
+        typeof endpoint?.metadata?.startedAt === "string"
+          ? Number(endpoint.metadata.startedAt)
+          : typeof endpoint?.metadata?.startedAt === "number"
+            ? Number(endpoint.metadata.startedAt)
+            : 0,
+      );
+      const tmuxCreatedAt = normalizeTimestamp(tmuxSessionCreatedAt.get(endpoint?.sessionId ?? `relay-${agent.id}`) ?? 0);
+      const lastChatAt = Math.max(entry.latestTimestamp, activity.lastMessageAt ?? 0) || null;
+      const lastSessionAt = Math.max(endpointSessionAt, endpointStartedAt, tmuxCreatedAt) || null;
+      const codeActivity = readProjectGitActivity(projectRoot);
       const counterpartCount = entry.counterpartIds.size;
       const subtitle =
         entry.threadCount === 0
@@ -2092,6 +2333,7 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
         title: actorDisplayName(snapshot, agent.id),
         subtitle,
         profileKind: interAgentProfileKind(agent),
+        registrationKind: "configured" as const,
         source: typeof agent.metadata?.source === "string" ? String(agent.metadata.source) : null,
         agentClass: typeof agent.agentClass === "string" ? String(agent.agentClass) : null,
         role: typeof agent.metadata?.role === "string" ? String(agent.metadata.role) : null,
@@ -2099,13 +2341,19 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
         harness: endpoint?.harness ?? null,
         transport: endpoint?.transport ?? null,
         cwd: endpoint?.cwd ?? null,
-        projectRoot: endpoint?.projectRoot ?? null,
+        projectRoot,
         sessionId: endpoint?.sessionId ?? null,
         wakePolicy: typeof agent.wakePolicy === "string" ? String(agent.wakePolicy) : null,
         capabilities: Array.isArray(agent.capabilities) ? agent.capabilities.map((capability) => String(capability)) : [],
         threadCount: entry.threadCount,
         counterpartCount,
-        timestampLabel: entry.latestTimestamp > 0 ? formatTimeLabel(entry.latestTimestamp) : null,
+        timestampLabel: lastChatAt ? formatTimeLabel(lastChatAt) : null,
+        lastChatAt,
+        lastChatLabel: lastChatAt ? formatRelativeTime(lastChatAt) : null,
+        lastCodeChangeAt: codeActivity.lastCodeChangeAt,
+        lastCodeChangeLabel: codeActivity.lastCodeChangeLabel,
+        lastSessionAt,
+        lastSessionLabel: lastSessionAt ? formatRelativeTime(lastSessionAt) : null,
         state: activity.state,
         reachable: activity.reachable,
         statusLabel: activity.statusLabel,
@@ -2177,6 +2425,7 @@ function buildRuntimeState(
   latestRelayLabel: string | null,
   helper: ReturnType<typeof readHelperStatus>,
   status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  visibleAgentCount: number,
 ): DesktopRuntimeState {
   return {
     helperRunning: helper.running,
@@ -2188,7 +2437,7 @@ function buildRuntimeState(
     brokerLabel: status.label,
     brokerUrl: status.brokerUrl,
     nodeId: status.health.nodeId ?? null,
-    agentCount: snapshot ? Object.keys(snapshot.agents).length : status.health.counts?.agents ?? 0,
+    agentCount: visibleAgentCount,
     conversationCount: snapshot ? Object.keys(snapshot.conversations).length : status.health.counts?.conversations ?? 0,
     messageCount: snapshot ? Object.keys(snapshot.messages).length : status.health.counts?.messages ?? 0,
     flightCount: snapshot ? Object.keys(snapshot.flights).length : status.health.counts?.flights ?? 0,
@@ -2416,10 +2665,20 @@ async function postMessageAndInvocations(
 }
 
 export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<DesktopShellState> {
-  const [status, helper] = await Promise.all([brokerServiceStatus(), Promise.resolve(readHelperStatus())]);
+  const [status, helper, setup] = await Promise.all([
+    brokerServiceStatus(),
+    Promise.resolve(readHelperStatus()),
+    loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() }),
+  ]);
   const liveBroker = await readLiveBrokerState(status);
   const tmuxSessions = readTmuxSessions();
   const snapshot = liveBroker.snapshot;
+  const configuredAgentIds = new Set(setup.agents.map((agent) => agent.agentId));
+  const messagesByConversation = snapshot ? buildMessagesByConversation(snapshot) : null;
+  const directActivity = snapshot ? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation) : null;
+  const visibleAgentCount = snapshot && messagesByConversation && directActivity
+    ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
+    : setup.agents.length;
   if (snapshot) {
     relayVoiceBridgeService.syncRelayPlayback(snapshot);
   }
@@ -2428,14 +2687,14 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
 
   return {
     appInfo,
-    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, liveBroker.status),
+    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, liveBroker.status, visibleAgentCount),
     machines: snapshot
       ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? null)
       : buildEmptyMachinesState(),
     plans,
     sessions: snapshot ? buildSessions(snapshot) : [],
     interAgent: snapshot
-      ? buildInterAgentState(snapshot, tmuxSessions)
+      ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
       : {
           title: "Inter-Agent",
           subtitle: "Broker unavailable",
@@ -2444,7 +2703,7 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
           lastUpdatedLabel: null,
         },
     relay: snapshot
-      ? buildRelayState(snapshot, tmuxSessions)
+      ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
       : {
           title: "Relay",
           subtitle: "Broker unavailable",
@@ -2489,11 +2748,12 @@ export async function getAppSettings(): Promise<AppSettingsState> {
     defaultTransport: setup.settings.agents.defaultTransport,
     defaultCapabilities: [...setup.settings.agents.defaultCapabilities],
     sessionPrefix: setup.settings.agents.sessionPrefix,
-    discoveredAgents: setup.agents.map((agent) => ({
+    discoveredAgents: setup.discoveredAgents.map((agent) => ({
       id: agent.agentId,
       title: agent.displayName,
       root: compactHomePath(agent.projectRoot) ?? agent.projectRoot,
       source: agent.source,
+      registrationKind: agent.registrationKind,
       harness: agent.runtime.harness,
       sessionId: agent.runtime.sessionId,
       projectConfigPath: agent.projectConfigPath ? compactHomePath(agent.projectConfigPath) ?? agent.projectConfigPath : null,

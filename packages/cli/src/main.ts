@@ -118,7 +118,7 @@ async function runDoctor() {
   console.log(`  Broker stdout: ${broker.stdoutLogPath}`);
   console.log(`  Broker stderr: ${broker.stderrLogPath}`);
   console.log("");
-  console.log(`Discovered relay agents: ${setup.agents.length}`);
+  console.log(`Configured relay agents: ${setup.agents.length}`);
   for (const agent of setup.agents) {
     const runtimeDir = join(supportPaths.relayAgentsDirectory, agent.agentId);
     const logsDir = join(runtimeDir, "logs");
@@ -129,6 +129,14 @@ async function runDoctor() {
     console.log(`    Session: ${agent.runtime.sessionId}`);
     console.log(`    Runtime dir: ${runtimeDir}`);
     console.log(`    Logs: ${join(logsDir, "stdout.log")} | ${join(logsDir, "stderr.log")}`);
+  }
+  console.log("");
+  console.log(`Discovered project candidates: ${setup.discoveredAgents.length}`);
+  for (const agent of setup.discoveredAgents.filter((agent) => agent.registrationKind === "discovered")) {
+    console.log(`  - ${agent.displayName} (${agent.agentId})`);
+    console.log(`    Root: ${agent.projectRoot}`);
+    console.log(`    Source: ${agent.source}`);
+    console.log(`    Harness: ${agent.runtime.harness}`);
   }
 }
 
@@ -160,13 +168,24 @@ async function runInit(extraArgs: string[]) {
     console.log(`  - ${root}`);
   }
   console.log("");
-  console.log("Relay agents:");
+  console.log("Configured relay agents:");
   for (const agent of setup.agents) {
     console.log(`  - ${agent.displayName} (${agent.agentId})`);
     console.log(`    Root: ${agent.projectRoot}`);
     console.log(`    Source: ${agent.source}`);
     console.log(`    Harness: ${agent.runtime.harness}`);
     console.log(`    Session: ${agent.runtime.sessionId}`);
+  }
+  const discoveredOnly = setup.discoveredAgents.filter((agent) => agent.registrationKind === "discovered");
+  if (discoveredOnly.length > 0) {
+    console.log("");
+    console.log("Discovered project candidates:");
+    for (const agent of discoveredOnly) {
+      console.log(`  - ${agent.displayName} (${agent.agentId})`);
+      console.log(`    Root: ${agent.projectRoot}`);
+      console.log(`    Source: ${agent.source}`);
+      console.log(`    Harness: ${agent.runtime.harness}`);
+    }
   }
   console.log("");
   console.log("Broker:");

@@ -2,8 +2,10 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
+  ArrowUpDown,
   Bot,
   Database,
+  Filter,
   LayoutGrid,
   FileText,
   Network,
@@ -73,6 +75,9 @@ const C = {
   markFg:    'var(--os-mark-fg)',
 };
 
+type AgentRosterFilterMode = 'all' | 'active';
+type AgentRosterSortMode = 'chat' | 'code' | 'session' | 'alpha';
+
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -97,6 +102,9 @@ export default function App() {
   const [pendingRelayComposerFocusTick, setPendingRelayComposerFocusTick] = useState(0);
   const [selectedInterAgentId, setSelectedInterAgentId] = useState<string | null>(null);
   const [selectedInterAgentThreadId, setSelectedInterAgentThreadId] = useState<string | null>(null);
+  const [agentRosterFilter, setAgentRosterFilter] = useState<AgentRosterFilterMode>('all');
+  const [agentRosterSort, setAgentRosterSort] = useState<AgentRosterSortMode>('chat');
+  const [agentRosterMenu, setAgentRosterMenu] = useState<null | 'filter' | 'sort'>(null);
   const [agentConfig, setAgentConfig] = useState<AgentConfigState | null>(null);
   const [agentConfigDraft, setAgentConfigDraft] = useState<AgentConfigState | null>(null);
   const [agentConfigLoading, setAgentConfigLoading] = useState(false);
@@ -195,16 +203,24 @@ export default function App() {
       return;
     }
 
-    if (!interAgentState.agents.length) {
+    const allAgents = interAgentState.agents;
+    const filteredAgents = allAgents
+      .filter((agent) => (agentRosterFilter === 'all' ? true : isAgentRosterActive(agent)))
+      .sort((lhs, rhs) => compareAgentRoster(lhs, rhs, agentRosterSort));
+    const selectableAgents = activeView === 'agents' || activeView === 'inter-agent'
+      ? filteredAgents
+      : allAgents;
+
+    if (!selectableAgents.length) {
       setSelectedInterAgentId(null);
       setSelectedInterAgentThreadId(null);
       return;
     }
 
-    const preferredAgentId = interAgentState.agents.find((agent) => agent.threadCount > 0)?.id
-      ?? interAgentState.agents[0]?.id
+    const preferredAgentId = selectableAgents.find((agent) => agent.threadCount > 0)?.id
+      ?? selectableAgents[0]?.id
       ?? null;
-    const nextAgentId = interAgentState.agents.some((agent) => agent.id === selectedInterAgentId)
+    const nextAgentId = selectableAgents.some((agent) => agent.id === selectedInterAgentId)
       ? selectedInterAgentId
       : preferredAgentId;
     if (nextAgentId !== selectedInterAgentId) {
@@ -220,7 +236,7 @@ export default function App() {
     if (nextThreadId !== selectedInterAgentThreadId) {
       setSelectedInterAgentThreadId(nextThreadId);
     }
-  }, [interAgentState, selectedInterAgentId, selectedInterAgentThreadId]);
+  }, [activeView, agentRosterFilter, agentRosterSort, interAgentState, selectedInterAgentId, selectedInterAgentThreadId]);
 
   useEffect(() => {
     if (!selectedInterAgentId || !window.openScoutDesktop?.getAgentConfig) {
@@ -566,6 +582,16 @@ export default function App() {
   );
   const interAgentAgents = interAgentState?.agents ?? [];
   const interAgentThreads = interAgentState?.threads ?? [];
+  const rosterInterAgentAgents = useMemo(
+    () => {
+      const filteredAgents = interAgentAgents.filter((agent) => (
+        agentRosterFilter === 'all' ? true : isAgentRosterActive(agent)
+      ));
+
+      return [...filteredAgents].sort((lhs, rhs) => compareAgentRoster(lhs, rhs, agentRosterSort));
+    },
+    [agentRosterFilter, agentRosterSort, interAgentAgents],
+  );
   const selectedInterAgent = interAgentAgents.find((agent) => agent.id === selectedInterAgentId) ?? null;
   const visibleInterAgentThreads = useMemo(
     () => interAgentThreads.filter((thread) => thread.participants.some((participant) => participant.id === selectedInterAgentId)),
@@ -1148,8 +1174,7 @@ export default function App() {
             <div className="flex-1 overflow-y-auto">
               <div className="px-12 pt-16 pb-12 border-b" style={{ borderColor: C.border }}>
                 <div className="max-w-5xl">
-                  <div className="os-fade-in text-[10px] font-mono tracking-widest uppercase mb-4 flex items-center gap-2" style={s.mutedText}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 os-status-pulse"></div>
+                  <div className="os-fade-in text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>
                     Command Center
                   </div>
                   <h1 className="os-fade-up text-5xl font-bold mb-4 tracking-tight leading-tight" style={s.inkText}>
@@ -1626,9 +1651,7 @@ export default function App() {
 
               <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
                 <span className="text-[9px] font-mono" style={s.mutedText}>Indexed: {stats.totalSessions} sessions / {stats.totalMessages} messages</span>
-                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Index Ready
-                </span>
+                <span className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Index Ready</span>
               </div>
             </div>
           </>
@@ -1970,12 +1993,16 @@ export default function App() {
 
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Discovered Relay Agents</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Discovered Projects</div>
                         <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
                           {(visibleAppSettings?.discoveredAgents ?? []).length > 0 ? (visibleAppSettings?.discoveredAgents ?? []).map((agent) => (
                             <button
                               key={agent.id}
-                              onClick={() => openAgentProfile(agent.id)}
+                              onClick={() => {
+                                if (agent.registrationKind === 'configured') {
+                                  openAgentProfile(agent.id);
+                                }
+                              }}
                               className="w-full text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90"
                               style={{ borderColor: C.border, backgroundColor: C.bg }}
                             >
@@ -1984,16 +2011,21 @@ export default function App() {
                                   <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
                                   <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{agent.root}</div>
                                   <div className="text-[10px] mt-1" style={s.mutedText}>
-                                    {agent.source} · {agent.harness} · {agent.sessionId}
+                                    {agent.registrationKind === 'configured' ? 'relay agent' : 'candidate'} · {agent.source} · {agent.harness}
                                   </div>
                                 </div>
-                                {agent.projectConfigPath ? (
-                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.tagBadge}>manifest</span>
-                                ) : null}
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {agent.projectConfigPath ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>manifest</span>
+                                  ) : null}
+                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={agent.registrationKind === 'configured' ? s.activePill : s.tagBadge}>
+                                    {agent.registrationKind === 'configured' ? 'agent' : 'candidate'}
+                                  </span>
+                                </div>
                               </div>
                             </button>
                           )) : (
-                            <div className="text-[11px]" style={s.mutedText}>No relay agents discovered yet.</div>
+                            <div className="text-[11px]" style={s.mutedText}>No projects discovered yet.</div>
                           )}
                         </div>
                       </section>
@@ -2588,7 +2620,9 @@ export default function App() {
                   <div>
                     <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Agents</h1>
                     <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {interAgentAgents.length} registered
+                      {rosterInterAgentAgents.length === interAgentAgents.length
+                        ? `${interAgentAgents.length} agents`
+                        : `${rosterInterAgentAgents.length} visible · ${interAgentAgents.length} total`}
                     </div>
                   </div>
                   <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
@@ -2598,8 +2632,74 @@ export default function App() {
                 <div className="flex-1 overflow-y-auto py-3">
                   <div className="mb-3 px-2">
                     <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>Roster</div>
+                    <div className="flex items-center justify-end gap-2 px-2 mb-2 relative">
+                      <div className="relative">
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => setAgentRosterMenu((current) => current === 'filter' ? null : 'filter')}
+                          title="Filter roster"
+                        >
+                          <Filter size={11} />
+                          <span style={s.mutedText}>{agentRosterFilterLabel(agentRosterFilter)}</span>
+                        </button>
+                        {agentRosterMenu === 'filter' ? (
+                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
+                            {([
+                              ['all', 'All Agents'],
+                              ['active', 'Active Only'],
+                            ] as const).map(([value, label]) => (
+                              <button
+                                key={value}
+                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
+                                style={value === agentRosterFilter ? s.activeItem : s.inkText}
+                                onClick={() => {
+                                  setAgentRosterFilter(value);
+                                  setAgentRosterMenu(null);
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="relative">
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => setAgentRosterMenu((current) => current === 'sort' ? null : 'sort')}
+                          title="Sort roster"
+                        >
+                          <ArrowUpDown size={11} />
+                          <span style={s.mutedText}>{agentRosterSortLabel(agentRosterSort)}</span>
+                        </button>
+                        {agentRosterMenu === 'sort' ? (
+                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
+                            {([
+                              ['chat', 'Recent Chat'],
+                              ['code', 'Code Changes'],
+                              ['session', 'Dev Sessions'],
+                              ['alpha', 'A-Z'],
+                            ] as const).map(([value, label]) => (
+                              <button
+                                key={value}
+                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
+                                style={value === agentRosterSort ? s.activeItem : s.inkText}
+                                onClick={() => {
+                                  setAgentRosterSort(value);
+                                  setAgentRosterMenu(null);
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-px">
-                      {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => {
+                      {rosterInterAgentAgents.length > 0 ? rosterInterAgentAgents.map((agent) => {
                         const active = selectedInterAgentId === agent.id;
                         return (
                           <button
@@ -2625,14 +2725,14 @@ export default function App() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-medium truncate" style={s.inkText}>{agent.title}</div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{agent.subtitle}</div>
+                              <div className="text-[10px] truncate" style={s.mutedText}>{agentRosterSecondaryText(agent, agentRosterSort)}</div>
                             </div>
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
                           </button>
                         );
                       }) : (
                         <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
-                          No agents available yet.
+                          No agents match this view yet.
                         </div>
                       )}
                     </div>
@@ -2719,9 +2819,6 @@ export default function App() {
                               <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
                                 {interAgentProfileKindLabel(selectedInterAgent.profileKind)}
                               </span>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={relayPresencePillStyle(selectedInterAgent.state)}>
-                                {selectedInterAgent.statusLabel}
-                              </span>
                             </div>
                             {normalizeLegacyAgentCopy(selectedInterAgent.role) ? (
                               <div className="text-[11px] mt-1" style={s.inkText}>{normalizeLegacyAgentCopy(selectedInterAgent.role)}</div>
@@ -2729,19 +2826,6 @@ export default function App() {
                             {normalizeLegacyAgentCopy(selectedInterAgent.summary) ? (
                               <div className="text-[12px] leading-[1.55] mt-2" style={s.mutedText}>{normalizeLegacyAgentCopy(selectedInterAgent.summary)}</div>
                             ) : null}
-                            <div className="flex items-center gap-2 flex-wrap mt-3">
-                              {selectedInterAgent.timestampLabel ? (
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                  Last seen {selectedInterAgent.timestampLabel}
-                                </span>
-                              ) : null}
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {selectedInterAgent.threadCount} thread{selectedInterAgent.threadCount === 1 ? '' : 's'}
-                              </span>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {selectedInterAgent.counterpartCount} counterpart{selectedInterAgent.counterpartCount === 1 ? '' : 's'}
-                              </span>
-                            </div>
                             <div className="mt-3 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                               <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Direct Line</div>
                               <div className="text-[12px] leading-[1.5]" style={s.inkText}>
@@ -2749,13 +2833,19 @@ export default function App() {
                                   ? relaySecondaryText(selectedInterAgentDirectThread)
                                   : `${selectedInterAgent.title} is ready for a direct message.`}
                               </div>
-                              <div className="flex items-center gap-2 mt-2">
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={selectedInterAgentDirectThread ? relayPresencePillStyle(selectedInterAgentDirectThread.state) : s.tagBadge}>
-                                  {selectedInterAgentDirectThread?.statusLabel ?? 'Available'}
-                                </span>
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              <div className="flex items-center justify-between gap-3 mt-3">
+                                <div className="text-[10px]" style={s.mutedText}>
+                                  {selectedInterAgent.lastChatLabel
+                                    ? `Last chat ${selectedInterAgent.lastChatLabel}`
+                                    : 'No chat activity yet.'}
+                                </div>
+                                <button
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
+                                  style={{ color: C.ink }}
+                                  onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
+                                >
                                   {selectedInterAgentChatActionLabel}
-                                </span>
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -2862,16 +2952,14 @@ export default function App() {
                           {[
                             ['Agent ID', selectedInterAgent.id],
                             ['Source', visibleAgentConfig?.runtime.source ?? selectedInterAgent.source ?? 'Built-in'],
-                            ['Status', selectedInterAgent.statusLabel],
-                            ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
                             ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
                             ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
                             ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
                             ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
-                            ['Live Threads', `${selectedInterAgent.threadCount}`],
-                            ['Counterparts', `${selectedInterAgent.counterpartCount}`],
-                            ['Direct Chat', selectedInterAgentDirectThread?.statusLabel ?? 'Available'],
-                            ['Last Seen', selectedInterAgent.timestampLabel ?? 'Not reported'],
+                            ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
+                            ['Last Chat', selectedInterAgent.lastChatLabel ?? 'Not reported'],
+                            ['Last Dev Session', selectedInterAgent.lastSessionLabel ?? 'Not reported'],
+                            ['Last Code Change', selectedInterAgent.lastCodeChangeLabel ?? 'Not reported'],
                           ].map(([label, value]) => (
                             <div key={label} className="min-w-0">
                               <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
@@ -2888,11 +2976,8 @@ export default function App() {
                 )}
               </div>
 
-              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
+              <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
                 <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent overview, direct line, and recent thread activity</span>
-                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Registry Live
-                </span>
               </div>
             </div>
           </>
@@ -2984,7 +3069,11 @@ export default function App() {
                   style={{ borderColor: C.border, color: C.ink }}
                 />
                 <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                  {logContent ? `${logContent.lineCount} lines` : 'No file'}
+                  {logContent
+                    ? logContent.truncated
+                      ? `Tail ${logContent.lineCount} lines`
+                      : `${logContent.lineCount} lines`
+                    : 'No file'}
                 </div>
               </div>
 
@@ -3057,7 +3146,9 @@ export default function App() {
                   <div>
                     <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>{interAgentState?.title ?? 'Inter-Agent'}</h1>
                     <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {interAgentState?.subtitle ?? 'Agent-to-agent traffic'}
+                      {rosterInterAgentAgents.length === interAgentAgents.length
+                        ? interAgentState?.subtitle ?? 'Agent-to-agent traffic'
+                        : `${rosterInterAgentAgents.length} visible · ${interAgentState?.subtitle ?? `${interAgentAgents.length} agents`}`}
                     </div>
                   </div>
                   <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
@@ -3067,8 +3158,74 @@ export default function App() {
                 <div className="flex-1 overflow-y-auto py-3">
                   <div className="mb-3 px-2">
                     <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>Agents</div>
+                    <div className="flex items-center justify-end gap-2 px-2 mb-2 relative">
+                      <div className="relative">
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => setAgentRosterMenu((current) => current === 'filter' ? null : 'filter')}
+                          title="Filter roster"
+                        >
+                          <Filter size={11} />
+                          <span style={s.mutedText}>{agentRosterFilterLabel(agentRosterFilter)}</span>
+                        </button>
+                        {agentRosterMenu === 'filter' ? (
+                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
+                            {([
+                              ['all', 'All Agents'],
+                              ['active', 'Active Only'],
+                            ] as const).map(([value, label]) => (
+                              <button
+                                key={value}
+                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
+                                style={value === agentRosterFilter ? s.activeItem : s.inkText}
+                                onClick={() => {
+                                  setAgentRosterFilter(value);
+                                  setAgentRosterMenu(null);
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="relative">
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => setAgentRosterMenu((current) => current === 'sort' ? null : 'sort')}
+                          title="Sort roster"
+                        >
+                          <ArrowUpDown size={11} />
+                          <span style={s.mutedText}>{agentRosterSortLabel(agentRosterSort)}</span>
+                        </button>
+                        {agentRosterMenu === 'sort' ? (
+                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
+                            {([
+                              ['chat', 'Recent Chat'],
+                              ['code', 'Code Changes'],
+                              ['session', 'Dev Sessions'],
+                              ['alpha', 'A-Z'],
+                            ] as const).map(([value, label]) => (
+                              <button
+                                key={value}
+                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
+                                style={value === agentRosterSort ? s.activeItem : s.inkText}
+                                onClick={() => {
+                                  setAgentRosterSort(value);
+                                  setAgentRosterMenu(null);
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-px">
-                      {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => {
+                      {rosterInterAgentAgents.length > 0 ? rosterInterAgentAgents.map((agent) => {
                         const active = selectedInterAgentId === agent.id;
                         return (
                           <button
@@ -3094,14 +3251,14 @@ export default function App() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-medium truncate" style={s.inkText}>{agent.title}</div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{agent.subtitle}</div>
+                              <div className="text-[10px] truncate" style={s.mutedText}>{agentRosterSecondaryText(agent, agentRosterSort)}</div>
                             </div>
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
                           </button>
                         );
                       }) : (
                         <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
-                          No agents available yet.
+                          No agents match this view yet.
                         </div>
                       )}
                     </div>
@@ -3264,11 +3421,8 @@ export default function App() {
                 )}
               </div>
 
-              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
+              <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
                 <span className="text-[9px] font-mono" style={s.mutedText}>Read-only monitor over inter-agent traffic</span>
-                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Observer Mode
-                </span>
               </div>
             </div>
           </>
@@ -3415,9 +3569,7 @@ export default function App() {
 
               <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
                 <span className="text-[9px] font-mono" style={s.mutedText}>Click session to view details</span>
-                <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Index Ready
-                </span>
+                <span className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Index Ready</span>
               </div>
             </div>
 
@@ -3587,12 +3739,6 @@ export default function App() {
                               </div>
                               <div className="text-[10px] truncate" style={s.mutedText}>{relaySecondaryText(dm)}</div>
                             </div>
-                            <span
-                              className="os-rail-pill min-w-[2rem] text-center text-[8px] font-mono uppercase tracking-wider border rounded px-1.5 py-0.5"
-                              style={relayPresencePillStyle(dm.state)}
-                            >
-                              {relayPresenceIndicatorLabel(dm.state)}
-                            </span>
                           </button>
                         );
                       })}
@@ -3631,9 +3777,6 @@ export default function App() {
                               <div className="text-[10px] truncate" style={s.mutedText}>{dm.subtitle}</div>
                             </div>
                             {dm.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
-                            <span className="text-[9px] font-mono uppercase tracking-[0.18em]" style={relayPresencePillStyle(dm.state)}>
-                              {dm.statusLabel}
-                            </span>
                           </button>
                         );
                       })}
@@ -3806,18 +3949,14 @@ export default function App() {
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  {selectedRelayDirectThread ? (
+                  {selectedRelayDirectThread?.state === 'working' ? (
                     <>
-                      <div className={`w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(selectedRelayDirectThread.state)}`}></div>
-                      <span>{selectedRelayDirectThread.statusLabel}</span>
-                      {selectedRelayDirectThread.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
+                      <span>Working</span>
+                      <TypingDots className="text-[var(--os-accent)]" />
                     </>
-                  ) : (
-                    <>
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                      <span>{relaySelectionIsFeed ? 'Feed Active' : 'Conversation Active'}</span>
-                    </>
-                  )}
+                  ) : selectedRelayDirectThread?.state === 'offline' ? (
+                    <span>Offline</span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -3830,9 +3969,6 @@ export default function App() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 hover:opacity-70 cursor-pointer transition-opacity">
             <LayoutGrid size={9} /> Home
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Ready
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -3859,6 +3995,10 @@ export default function App() {
 }
 
 function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
+  if (thread.state === "available") {
+    return null;
+  }
+
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 shrink-0"
@@ -4364,6 +4504,65 @@ function interAgentProfileKindLabel(profileKind: InterAgentAgent['profileKind'])
     return 'System';
   }
   return 'Built-in Role';
+}
+
+function agentRosterFilterLabel(mode: AgentRosterFilterMode) {
+  return mode === 'active' ? 'active' : 'all';
+}
+
+function agentRosterSortLabel(mode: AgentRosterSortMode) {
+  if (mode === 'code') {
+    return 'code';
+  }
+  if (mode === 'session') {
+    return 'session';
+  }
+  if (mode === 'alpha') {
+    return 'a-z';
+  }
+  return 'chat';
+}
+
+function isAgentRosterActive(agent: InterAgentAgent) {
+  return agent.threadCount > 0
+    || agent.reachable
+    || Boolean(agent.lastChatAt || agent.lastCodeChangeAt || agent.lastSessionAt);
+}
+
+function agentRosterTimestamp(agent: InterAgentAgent, mode: AgentRosterSortMode) {
+  if (mode === 'code') {
+    return agent.lastCodeChangeAt ?? 0;
+  }
+  if (mode === 'session') {
+    return agent.lastSessionAt ?? 0;
+  }
+  return agent.lastChatAt ?? 0;
+}
+
+function compareAgentRoster(lhs: InterAgentAgent, rhs: InterAgentAgent, mode: AgentRosterSortMode) {
+  if (mode === 'alpha') {
+    return lhs.title.localeCompare(rhs.title);
+  }
+
+  const delta = agentRosterTimestamp(rhs, mode) - agentRosterTimestamp(lhs, mode);
+  if (delta !== 0) {
+    return delta;
+  }
+
+  return rhs.threadCount - lhs.threadCount || lhs.title.localeCompare(rhs.title);
+}
+
+function agentRosterSecondaryText(agent: InterAgentAgent, mode: AgentRosterSortMode) {
+  if (mode === 'chat' && agent.lastChatLabel) {
+    return `${agent.subtitle} · chat ${agent.lastChatLabel}`;
+  }
+  if (mode === 'code' && agent.lastCodeChangeLabel) {
+    return `${agent.subtitle} · code ${agent.lastCodeChangeLabel}`;
+  }
+  if (mode === 'session' && agent.lastSessionLabel) {
+    return `${agent.subtitle} · session ${agent.lastSessionLabel}`;
+  }
+  return agent.subtitle;
 }
 
 function normalizeDraftText(value: string) {

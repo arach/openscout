@@ -410,6 +410,13 @@ function sleep(ms: number): Promise<void> {
 
 export async function stopBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
   runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const status = await brokerServiceStatus(config);
+    if (!status.health.reachable) {
+      return status;
+    }
+    await sleep(100);
+  }
   return brokerServiceStatus(config);
 }
 

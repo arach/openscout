@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -77,6 +78,7 @@ export type ResolvedRelayAgentConfig = {
   projectRoot: string;
   projectConfigPath: string | null;
   source: "manifest" | "inferred" | "legacy-import" | "manual";
+  registrationKind: "configured" | "discovered";
   startedAt: number;
   systemPrompt?: string;
   launchArgs: string[];
@@ -99,6 +101,7 @@ export type SetupResult = {
   createdProjectConfig: boolean;
   settings: OpenScoutSettings;
   agents: ResolvedRelayAgentConfig[];
+  discoveredAgents: ResolvedRelayAgentConfig[];
 };
 
 export type UpdateOpenScoutSettingsInput = {
@@ -218,6 +221,56 @@ function normalizeLaunchArgs(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((entry) => String(entry).trim()).filter(Boolean)
     : [];
+}
+
+function hasCustomCapabilities(value: unknown, defaults: AgentCapability[]): boolean {
+  const normalized = normalizeCapabilities(value);
+  return normalized.join("\n") !== normalizeCapabilities(defaults).join("\n");
+}
+
+function tmuxSessionExists(sessionId: string): boolean {
+  try {
+    execFileSync("tmux", ["has-session", "-t", sessionId], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isConfiguredRelayAgentOverride(
+  agentId: string,
+  override: RelayAgentOverride | undefined,
+  settings: OpenScoutSettings,
+): boolean {
+  if (!override?.source || override.source === "inferred") {
+    return false;
+  }
+
+  if (override.source !== "legacy-import") {
+    return true;
+  }
+
+  if (override.systemPrompt?.trim()) {
+    return true;
+  }
+
+  if (normalizeLaunchArgs(override.launchArgs).length > 0) {
+    return true;
+  }
+
+  if (hasCustomCapabilities(override.capabilities, settings.agents.defaultCapabilities)) {
+    return true;
+  }
+
+  return tmuxSessionExists(
+    normalizeTmuxSessionName(
+      override.runtime?.sessionId,
+      agentId,
+      settings.agents.sessionPrefix,
+    ),
+  );
 }
 
 function defaultSettings(): OpenScoutSettings {
@@ -679,6 +732,9 @@ function mergeResolvedAgentConfig(
     projectRoot: override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot,
     projectConfigPath: override.projectConfigPath ?? base.projectConfigPath,
     source: override.source ?? base.source,
+    registrationKind: isConfiguredRelayAgentOverride(base.agentId, override, settings)
+      ? "configured"
+      : base.registrationKind,
     startedAt: Number.isFinite(override.startedAt) && override.startedAt ? Math.floor(override.startedAt) : base.startedAt,
     systemPrompt: override.systemPrompt?.trim() || base.systemPrompt,
     launchArgs: normalizeLaunchArgs(override.launchArgs).length > 0 ? normalizeLaunchArgs(override.launchArgs) : base.launchArgs,
@@ -707,19 +763,20 @@ async function resolveManifestBackedAgent(
   const projectName = config.project.name?.trim() || titleCase(config.project.id || basename(resolvedProjectRoot));
   const fallbackAgentId = normalizeAgentId(config.project.id || basename(resolvedProjectRoot));
   const agentId = normalizeAgentId(
-    override?.agentId
-      || config.agent?.id
+    config.agent?.id
+      || override?.agentId
       || fallbackAgentId,
   );
   const detectedHarness = await detectPreferredHarness(resolvedProjectRoot, settings.agents.defaultHarness);
   const runtimeDefaults = config.agent?.runtime?.defaults;
   const base: ResolvedRelayAgentConfig = {
     agentId,
-    displayName: config.agent?.displayName?.trim() || titleCase(agentId),
+    displayName: config.agent?.displayName?.trim() || override?.displayName?.trim() || titleCase(agentId),
     projectName,
     projectRoot: resolvedProjectRoot,
     projectConfigPath: projectConfigPath(projectRoot),
     source: "manifest",
+    registrationKind: "configured",
     startedAt: nowSeconds(),
     systemPrompt: config.agent?.prompt?.template?.trim() || undefined,
     launchArgs: normalizeLaunchArgs(runtimeDefaults?.launchArgs),
@@ -752,6 +809,7 @@ async function resolveInferredAgent(
     projectRoot,
     projectConfigPath: null,
     source: override?.source ?? "inferred",
+    registrationKind: isConfiguredRelayAgentOverride(agentId, override, settings) ? "configured" : "discovered",
     startedAt: Number.isFinite(override?.startedAt) && override?.startedAt ? Math.floor(override.startedAt) : nowSeconds(),
     systemPrompt: override?.systemPrompt?.trim() || undefined,
     launchArgs: normalizeLaunchArgs(override?.launchArgs),
@@ -948,8 +1006,9 @@ export async function loadResolvedRelayAgents(options: {
     resolvedAgents.push(resolvedAgent);
   }
 
+  const configuredAgents = resolvedAgents.filter((agent) => agent.registrationKind === "configured");
   const nextOverrides = Object.fromEntries(
-    resolvedAgents.map((agent) => [
+    configuredAgents.map((agent) => [
       agent.agentId,
       {
         agentId: agent.agentId,
@@ -976,7 +1035,7 @@ export async function loadResolvedRelayAgents(options: {
   await writeRelayAgentOverrides(nextOverrides);
 
   if (options.syncLegacyMirror) {
-    await syncLegacyTwinMirror(resolvedAgents);
+    await syncLegacyTwinMirror(configuredAgents);
     if (currentProjectConfig.projectRoot) {
       await ensureLegacyRelayLink(currentProjectConfig.projectRoot);
     }
@@ -990,7 +1049,8 @@ export async function loadResolvedRelayAgents(options: {
     currentProjectConfigPath: currentProjectConfig.projectConfigPath,
     createdProjectConfig: currentProjectConfig.created,
     settings,
-    agents: resolvedAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
+    agents: configuredAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
+    discoveredAgents: resolvedAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
   };
 }
 

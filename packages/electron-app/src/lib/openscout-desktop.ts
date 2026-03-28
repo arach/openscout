@@ -100,6 +100,7 @@ export type InterAgentAgent = {
   title: string;
   subtitle: string;
   profileKind: "project" | "role" | "system";
+  registrationKind: "configured" | "discovered";
   source: string | null;
   agentClass: string | null;
   role: string | null;
@@ -114,6 +115,12 @@ export type InterAgentAgent = {
   threadCount: number;
   counterpartCount: number;
   timestampLabel: string | null;
+  lastChatAt: number | null;
+  lastChatLabel: string | null;
+  lastCodeChangeAt: number | null;
+  lastCodeChangeLabel: string | null;
+  lastSessionAt: number | null;
+  lastSessionLabel: string | null;
   state: RelayDirectState;
   reachable: boolean;
   statusLabel: string;
@@ -308,6 +315,7 @@ export type SetupAgentSummary = {
   title: string;
   root: string;
   source: string;
+  registrationKind: "configured" | "discovered";
   harness: string;
   sessionId: string;
   projectConfigPath: string | null;
