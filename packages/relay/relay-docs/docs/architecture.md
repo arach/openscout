@@ -34,6 +34,14 @@ The short version:
 - Relay supports both agent-to-agent and user-to-agent communication
 - external channels sit at the edge through bindings and bridges
 
+Relay is also moving toward a three-part agent identity model:
+
+- project
+- agent definition
+- agent instance
+
+That model and its routing grammar are documented in [Agent Model](/docs/agent-model).
+
 ## Working Model
 
 Relay now has three layers:

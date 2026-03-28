@@ -1,5 +1,6 @@
 export * from "./common.js";
 export * from "./actors.js";
+export * from "./agent-selectors.js";
 export * from "./mesh.js";
 export * from "./conversations.js";
 export * from "./messages.js";

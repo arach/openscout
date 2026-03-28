@@ -5,6 +5,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import {
+  extractAgentSelectors,
+  resolveAgentSelector,
+  type AgentSelectorCandidate,
+} from "@openscout/protocol";
+
+import {
   brokerServiceStatus,
   restartBrokerService,
   startBrokerService,
@@ -1880,7 +1886,7 @@ function attachRelayReceipts(
         receipt: {
           state: "seen",
           label: "Seen",
-          detail: status.body,
+          detail: null,
         },
       };
     }
@@ -1893,7 +1899,7 @@ function attachRelayReceipts(
         receipt: {
           state: "seen",
           label: "Seen",
-          detail: activity.activeTask ?? "Working now.",
+          detail: null,
         },
       };
     }
@@ -1904,7 +1910,7 @@ function attachRelayReceipts(
         receipt: {
           state: "delivered",
           label: "Delivered",
-          detail: "Agent available.",
+          detail: null,
         },
       };
     }
@@ -1914,7 +1920,7 @@ function attachRelayReceipts(
       receipt: {
         state: "sent",
         label: "Sent",
-        detail: "Agent offline.",
+        detail: null,
       },
     };
   });
@@ -2517,7 +2523,9 @@ async function ensureDirectConversation(
   agentId: string,
 ): Promise<string> {
   const conversationId = `dm.${OPERATOR_ID}.${agentId}`;
-  if (snapshot.conversations[conversationId]) {
+  const nextShareMode = snapshot.agents[agentId]?.authorityNodeId && snapshot.agents[agentId]?.authorityNodeId !== nodeId ? "shared" : "local";
+  const existing = snapshot.conversations[conversationId];
+  if (existing?.shareMode === nextShareMode) {
     return conversationId;
   }
 
@@ -2526,7 +2534,7 @@ async function ensureDirectConversation(
     kind: "direct",
     title: actorDisplayName(snapshot, agentId),
     visibility: "private",
-    shareMode: "local",
+    shareMode: nextShareMode,
     authorityNodeId: nodeId,
     participantIds: [OPERATOR_ID, agentId].sort(),
     metadata: { surface: "electron" },
@@ -2550,32 +2558,58 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
-function parseMentionTargets(body: string, snapshot: RuntimeRegistrySnapshot): string[] {
-  const matches = Array.from(body.matchAll(/(^|\s)@([a-z0-9._-]+)/gi)).map((match) => (match[2] ?? "").toLowerCase());
-  if (!matches.length) {
-    return [];
-  }
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
 
+function parseMentionTargets(
+  body: string,
+  snapshot: RuntimeRegistrySnapshot,
+): { actorIds: string[]; labels: Record<string, string> } {
   const validAgents = new Set(Object.keys(snapshot.agents));
   const endpointBackedAgents = unique(
     Object.values(snapshot.endpoints as Record<string, EndpointRecord>).map((endpoint) => endpoint.agentId),
   );
 
+  const labels: Record<string, string> = {};
   const targets = new Set<string>();
-  for (const match of matches) {
-    if (match === "all") {
+  const selectors = extractAgentSelectors(body);
+  if (!selectors.length) {
+    return { actorIds: [], labels };
+  }
+
+  const candidates: AgentSelectorCandidate[] = Object.values(snapshot.agents).map((agent) => ({
+    agentId: agent.id,
+    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
+    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
+    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+    aliases: [
+      metadataString(agent.metadata, "selector"),
+      metadataString(agent.metadata, "defaultSelector"),
+    ].filter(Boolean) as string[],
+  }));
+
+  for (const selector of selectors) {
+    if (selector.definitionId === "all") {
       for (const agentId of endpointBackedAgents) {
         targets.add(agentId);
+        labels[agentId] = "@all";
       }
       continue;
     }
 
-    if (validAgents.has(match)) {
-      targets.add(match);
+    const match = resolveAgentSelector(selector, candidates);
+    if (match && validAgents.has(match.agentId)) {
+      targets.add(match.agentId);
+      labels[match.agentId] = selector.label;
     }
   }
 
-  return Array.from(targets).sort();
+  return {
+    actorIds: Array.from(targets).sort(),
+    labels,
+  };
 }
 
 async function postMessageAndInvocations(
@@ -2597,7 +2631,7 @@ async function postMessageAndInvocations(
 
   const directTarget = input.destinationKind === "direct" ? input.destinationId : null;
   const mentionTargets = parseMentionTargets(input.body, snapshot);
-  const invokeTargets = unique([...(directTarget ? [directTarget] : []), ...mentionTargets]);
+  const invokeTargets = unique([...(directTarget ? [directTarget] : []), ...mentionTargets.actorIds]);
 
   let conversationId = SHARED_CHANNEL_ID;
   let visibility = "workspace";
@@ -2623,7 +2657,10 @@ async function postMessageAndInvocations(
     originNodeId: node.id,
     class: messageClass,
     body: input.body.trim(),
-    mentions: invokeTargets.map((actorId) => ({ actorId, label: `@${actorId}` })),
+    mentions: invokeTargets.map((actorId) => ({
+      actorId,
+      label: actorId === directTarget ? `@${actorId}` : (mentionTargets.labels[actorId] ?? `@${actorId}`),
+    })),
     audience: invokeTargets.length > 0
       ? {
           notify: invokeTargets,

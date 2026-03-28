@@ -1,10 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
-import type { AgentCapability, AgentHarness } from "@openscout/protocol";
+import {
+  formatAgentSelector,
+  normalizeAgentSelectorSegment,
+  type AgentCapability,
+  type AgentHarness,
+} from "@openscout/protocol";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
@@ -73,6 +78,7 @@ export type RelayAgentOverride = {
 
 export type ResolvedRelayAgentConfig = {
   agentId: string;
+  definitionId: string;
   displayName: string;
   projectName: string;
   projectRoot: string;
@@ -83,6 +89,15 @@ export type ResolvedRelayAgentConfig = {
   systemPrompt?: string;
   launchArgs: string[];
   capabilities: AgentCapability[];
+  instance: {
+    id: string;
+    selector: string;
+    defaultSelector: string;
+    nodeQualifier: string;
+    workspaceQualifier: string;
+    branch: string | null;
+    isDefault: true;
+  };
   runtime: {
     cwd: string;
     harness: AgentHarness;
@@ -167,11 +182,7 @@ function uniquePaths(values: Iterable<string>): string[] {
 }
 
 function normalizeAgentId(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return normalizeAgentSelectorSegment(value);
 }
 
 function titleCase(value: string): string {
@@ -185,6 +196,50 @@ function titleCase(value: string): string {
 function normalizeSessionPrefix(value: string | undefined): string {
   const trimmed = (value ?? "").trim().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
   return trimmed || "relay";
+}
+
+function resolveNodeQualifier(): string {
+  return normalizeAgentSelectorSegment(
+    process.env.OPENSCOUT_NODE_QUALIFIER?.trim()
+    || hostname()
+    || "local",
+  ) || "local";
+}
+
+function detectGitBranch(projectRoot: string): string | null {
+  try {
+    const branch = execFileSync(
+      "git",
+      ["-C", projectRoot, "rev-parse", "--abbrev-ref", "HEAD"],
+      { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8" },
+    ).trim();
+    return branch && branch !== "HEAD" ? branch : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveWorkspaceQualifier(projectRoot: string): { workspaceQualifier: string; branch: string | null } {
+  const branch = detectGitBranch(projectRoot);
+  const workspaceQualifier = normalizeAgentSelectorSegment(branch || basename(projectRoot) || "workspace");
+  return {
+    workspaceQualifier: workspaceQualifier || "workspace",
+    branch,
+  };
+}
+
+export function buildRelayAgentInstance(agentId: string, projectRoot: string): ResolvedRelayAgentConfig["instance"] {
+  const nodeQualifier = resolveNodeQualifier();
+  const { workspaceQualifier, branch } = resolveWorkspaceQualifier(projectRoot);
+  return {
+    id: `${agentId}@${nodeQualifier}#${workspaceQualifier}`,
+    selector: formatAgentSelector({ definitionId: agentId, nodeQualifier, workspaceQualifier }),
+    defaultSelector: formatAgentSelector({ definitionId: agentId }),
+    nodeQualifier,
+    workspaceQualifier,
+    branch,
+    isDefault: true,
+  };
 }
 
 function normalizeTmuxSessionName(value: string | undefined, fallbackId: string, prefix = "relay"): string {
@@ -727,6 +782,7 @@ function mergeResolvedAgentConfig(
 
   return {
     ...base,
+    definitionId: override.agentId || base.definitionId,
     displayName: override.displayName?.trim() || base.displayName,
     projectName: override.projectName?.trim() || base.projectName,
     projectRoot: override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot,
@@ -739,6 +795,7 @@ function mergeResolvedAgentConfig(
     systemPrompt: override.systemPrompt?.trim() || base.systemPrompt,
     launchArgs: normalizeLaunchArgs(override.launchArgs).length > 0 ? normalizeLaunchArgs(override.launchArgs) : base.launchArgs,
     capabilities: normalizeCapabilities(override.capabilities).length > 0 ? normalizeCapabilities(override.capabilities) : base.capabilities,
+    instance: buildRelayAgentInstance(base.agentId, override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot),
     runtime: {
       cwd: override.runtime?.cwd ? normalizePath(override.runtime.cwd) : base.runtime.cwd,
       harness: normalizeHarness(override.runtime?.harness, base.runtime.harness),
@@ -771,6 +828,7 @@ async function resolveManifestBackedAgent(
   const runtimeDefaults = config.agent?.runtime?.defaults;
   const base: ResolvedRelayAgentConfig = {
     agentId,
+    definitionId: agentId,
     displayName: config.agent?.displayName?.trim() || override?.displayName?.trim() || titleCase(agentId),
     projectName,
     projectRoot: resolvedProjectRoot,
@@ -781,6 +839,7 @@ async function resolveManifestBackedAgent(
     systemPrompt: config.agent?.prompt?.template?.trim() || undefined,
     launchArgs: normalizeLaunchArgs(runtimeDefaults?.launchArgs),
     capabilities: normalizeCapabilities(runtimeDefaults?.capabilities),
+    instance: buildRelayAgentInstance(agentId, resolvedProjectRoot),
     runtime: {
       cwd: runtimeDefaults?.cwd ? normalizePath(join(projectRoot, runtimeDefaults.cwd)) : resolvedProjectRoot,
       harness: normalizeHarness(runtimeDefaults?.harness, detectedHarness),
@@ -804,6 +863,7 @@ async function resolveInferredAgent(
   const detectedHarness = await detectPreferredHarness(projectRoot, settings.agents.defaultHarness);
   const base: ResolvedRelayAgentConfig = {
     agentId,
+    definitionId: agentId,
     displayName: override?.displayName?.trim() || titleCase(agentId),
     projectName: override?.projectName?.trim() || titleCase(projectName),
     projectRoot,
@@ -814,6 +874,7 @@ async function resolveInferredAgent(
     systemPrompt: override?.systemPrompt?.trim() || undefined,
     launchArgs: normalizeLaunchArgs(override?.launchArgs),
     capabilities: normalizeCapabilities(override?.capabilities),
+    instance: buildRelayAgentInstance(agentId, projectRoot),
     runtime: {
       cwd: override?.runtime?.cwd ? normalizePath(override.runtime.cwd) : projectRoot,
       harness: normalizeHarness(override?.runtime?.harness, detectedHarness),

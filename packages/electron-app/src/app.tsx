@@ -4,6 +4,9 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ArrowUpDown,
   Bot,
+  Check,
+  CheckCheck,
+  CornerUpLeft,
   Database,
   Filter,
   LayoutGrid,
@@ -32,6 +35,7 @@ import {
   AtSign,
   Loader2,
   Mic,
+  Reply,
   Send,
   Sun,
   Moon,
@@ -582,6 +586,14 @@ export default function App() {
   );
   const interAgentAgents = interAgentState?.agents ?? [];
   const interAgentThreads = interAgentState?.threads ?? [];
+  const interAgentAgentLookup = useMemo(
+    () => new Map(interAgentAgents.map((agent) => [agent.id, agent])),
+    [interAgentAgents],
+  );
+  const relayDirectLookup = useMemo(
+    () => new Map((relayState?.directs ?? []).map((thread) => [thread.id, thread])),
+    [relayState],
+  );
   const rosterInterAgentAgents = useMemo(
     () => {
       const filteredAgents = interAgentAgents.filter((agent) => (
@@ -636,9 +648,15 @@ export default function App() {
   const interAgentConfigureLabel = interAgentConfigureTarget
     ? interAgentConfigureTarget.profileKind === 'project' ? 'Configure' : 'Profile'
     : null;
+  const interAgentMessageTarget = interAgentConfigureTarget ?? selectedInterAgent;
   const selectedInterAgentChatActionLabel = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
     ? 'Open Chat'
     : 'Start Chat';
+  const selectedAgentDirectLinePreview = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
+    ? relaySecondaryText(selectedInterAgentDirectThread)
+    : selectedInterAgent
+      ? `${selectedInterAgent.title} is ready for a direct message.`
+      : 'Direct line available.';
   const visibleAppSettings = isAppSettingsEditing ? (appSettingsDraft ?? appSettings) : appSettings;
   const appSettingsDirty = useMemo(
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
@@ -1043,6 +1061,13 @@ export default function App() {
       focusComposer: true,
     });
     setRelayFeedback(`Drafting a follow-up to ${message.authorName}.`);
+  }, [openRelayAgentThread]);
+
+  const openAgentDirectMessage = React.useCallback((agentId: string, draft?: string | null) => {
+    openRelayAgentThread(agentId, {
+      draft: draft ?? null,
+      focusComposer: true,
+    });
   }, [openRelayAgentThread]);
 
   const formatDate = (dateStr: string) => {
@@ -2826,27 +2851,14 @@ export default function App() {
                             {normalizeLegacyAgentCopy(selectedInterAgent.summary) ? (
                               <div className="text-[12px] leading-[1.55] mt-2" style={s.mutedText}>{normalizeLegacyAgentCopy(selectedInterAgent.summary)}</div>
                             ) : null}
-                            <div className="mt-3 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Direct Line</div>
-                              <div className="text-[12px] leading-[1.5]" style={s.inkText}>
-                                {selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
-                                  ? relaySecondaryText(selectedInterAgentDirectThread)
-                                  : `${selectedInterAgent.title} is ready for a direct message.`}
-                              </div>
-                              <div className="flex items-center justify-between gap-3 mt-3">
-                                <div className="text-[10px]" style={s.mutedText}>
-                                  {selectedInterAgent.lastChatLabel
-                                    ? `Last chat ${selectedInterAgent.lastChatLabel}`
-                                    : 'No chat activity yet.'}
-                                </div>
-                                <button
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
-                                  style={{ color: C.ink }}
-                                  onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
-                                >
-                                  {selectedInterAgentChatActionLabel}
-                                </button>
-                              </div>
+                            <div className="mt-3 flex items-center gap-2 flex-wrap text-[10px]" style={s.mutedText}>
+                              <span>{selectedInterAgent.lastChatLabel ? `Last chat ${selectedInterAgent.lastChatLabel}` : 'No direct chat yet.'}</span>
+                              {selectedInterAgent.lastSessionLabel ? (
+                                <>
+                                  <span className="w-1 h-1 rounded-full" style={{ backgroundColor: C.border }}></span>
+                                  <span>Last session {selectedInterAgent.lastSessionLabel}</span>
+                                </>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -2855,20 +2867,53 @@ export default function App() {
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-center justify-between gap-3 mb-3">
                           <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Recent Threads</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Open Threads</div>
                             <div className="text-[11px] mt-1" style={s.mutedText}>
-                              Private and targeted conversations this agent is currently involved in.
+                              Your direct line first, then the other channels this agent is actively involved in.
                             </div>
                           </div>
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                            style={{ color: C.ink }}
-                            onClick={() => setActiveView('inter-agent')}
-                            disabled={visibleInterAgentThreads.length === 0}
-                          >
-                            Open Inter-Agent
-                          </button>
+                          {visibleInterAgentThreads.length > 0 ? (
+                            <button
+                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                              style={{ color: C.ink }}
+                              onClick={() => setActiveView('inter-agent')}
+                            >
+                              Open Inter-Agent
+                            </button>
+                          ) : null}
                         </div>
+                        <div className="flex flex-col gap-3">
+                          <div className="border rounded-lg px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-[13px] font-medium truncate" style={s.inkText}>Direct Line</div>
+                                <div className="text-[10px] truncate mt-1" style={s.mutedText}>You and {selectedInterAgent.title}</div>
+                              </div>
+                              <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                                {selectedInterAgentDirectThread?.timestampLabel ?? selectedInterAgent.lastChatLabel ?? ''}
+                              </span>
+                            </div>
+                            <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
+                              {selectedAgentDirectLinePreview}
+                            </div>
+                            <div className="flex items-center justify-between gap-3 mt-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
+                                  Direct
+                                </span>
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                  {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
+                                </span>
+                              </div>
+                              <button
+                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
+                                style={{ color: C.ink }}
+                                onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
+                              >
+                                {selectedInterAgentChatActionLabel}
+                              </button>
+                            </div>
+                          </div>
                         {visibleInterAgentThreads.length > 0 ? (
                           <div className="flex flex-col gap-3">
                             {visibleInterAgentThreads.map((thread) => (
@@ -2931,17 +2976,11 @@ export default function App() {
                         ) : (
                           <div className="flex flex-col items-start gap-3">
                             <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                              No recent inter-agent threads for this agent yet.
+                              No other active channels for this agent yet.
                             </div>
-                            <button
-                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                              style={{ color: C.ink }}
-                              onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
-                            >
-                              {selectedInterAgentChatActionLabel}
-                            </button>
                           </div>
                         )}
+                        </div>
                       </section>
                     </div>
 
@@ -3360,6 +3399,16 @@ export default function App() {
                   >
                     Annotations <span className="font-mono uppercase">{showAnnotations ? 'On' : 'Off'}</span>
                   </button>
+                  {interAgentMessageTarget ? (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentDirectMessage(interAgentMessageTarget.id)}
+                      title={`Open direct chat with ${interAgentMessageTarget.title}`}
+                    >
+                      Message
+                    </button>
+                  ) : null}
                   {interAgentConfigureTarget ? (
                     <button
                       className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
@@ -3411,10 +3460,15 @@ export default function App() {
                     <RelayTimeline
                       messages={visibleInterAgentMessages}
                       showAnnotations={showAnnotations}
+                      showStatusMessages={false}
                       inkStyle={s.inkText}
                       mutedStyle={s.mutedText}
                       tagStyle={s.tagBadge}
                       annotStyle={s.annotBadge}
+                      agentLookup={interAgentAgentLookup}
+                      directThreadLookup={relayDirectLookup}
+                      onOpenAgentProfile={openAgentProfile}
+                      onOpenAgentChat={openAgentDirectMessage}
                       onNudgeMessage={handleNudgeMessage}
                     />
                   </div>
@@ -3862,18 +3916,21 @@ export default function App() {
                     <RelayTimeline
                       messages={visibleRelayMessages}
                       showAnnotations={showAnnotations}
+                      showStatusMessages={selectedRelayKind === 'channel' && selectedRelayId === 'system'}
                       inkStyle={s.inkText}
                       mutedStyle={s.mutedText}
                       tagStyle={s.tagBadge}
                       annotStyle={s.annotBadge}
+                      agentLookup={interAgentAgentLookup}
+                      directThreadLookup={relayDirectLookup}
+                      onOpenAgentProfile={openAgentProfile}
+                      onOpenAgentChat={openAgentDirectMessage}
                       onNudgeMessage={handleNudgeMessage}
                     />
                     {selectedRelayDirectThread?.state === 'working' ? (
                       <RelayThinkingIndicator
                         thread={selectedRelayDirectThread}
-                        inkStyle={s.inkText}
                         mutedStyle={s.mutedText}
-                        tagStyle={s.tagBadge}
                       />
                     ) : null}
                   </div>
@@ -3949,12 +4006,7 @@ export default function App() {
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  {selectedRelayDirectThread?.state === 'working' ? (
-                    <>
-                      <span>Working</span>
-                      <TypingDots className="text-[var(--os-accent)]" />
-                    </>
-                  ) : selectedRelayDirectThread?.state === 'offline' ? (
+                  {selectedRelayDirectThread?.state === 'offline' ? (
                     <span>Offline</span>
                   ) : null}
                 </div>
@@ -3999,6 +4051,15 @@ function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
     return null;
   }
 
+  if (thread.state === "working") {
+    return (
+      <span className="inline-flex items-center gap-1.5 shrink-0 text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: C.accent }}>
+        <TypingDots className="text-[var(--os-accent)]" />
+        <span>{thread.statusLabel}</span>
+      </span>
+    );
+  }
+
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 shrink-0"
@@ -4006,21 +4067,16 @@ function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
     >
       <span className={`w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(thread.state)}`}></span>
       <span>{thread.statusLabel}</span>
-      {thread.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
     </span>
   );
 }
 
 function RelayThinkingIndicator({
   thread,
-  inkStyle,
   mutedStyle,
-  tagStyle,
 }: {
   thread: RelayDirectThread;
-  inkStyle: React.CSSProperties;
   mutedStyle: React.CSSProperties;
-  tagStyle: React.CSSProperties;
 }) {
   return (
     <div className="flex gap-2.5 mb-2">
@@ -4030,22 +4086,15 @@ function RelayThinkingIndicator({
       >
         {thread.title.charAt(0).toUpperCase()}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-[12px]" style={inkStyle}>{cleanDisplayTitle(thread.title)}</span>
-          <RelayPresenceBadge thread={thread} />
-        </div>
-        <div
-          className="mt-1 inline-flex items-center gap-2 border rounded-full px-3 py-1.5"
-          style={{ ...tagStyle, borderColor: 'rgba(0,102,255,0.2)', backgroundColor: 'rgba(0,102,255,0.08)', color: 'var(--os-accent)' }}
-        >
+      <div className="flex-1 min-w-0 pt-1">
+        <div className="inline-flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: C.accent }}>
           <TypingDots className="text-[var(--os-accent)]" />
-          <span className="text-[11px] normal-case tracking-normal" style={inkStyle}>
-            {thread.activeTask ?? thread.statusDetail ?? 'Working on your latest message.'}
-          </span>
-        </div>
-        <div className="text-[10px] mt-1" style={mutedStyle}>
-          Live broker activity for this direct thread.
+          <span>{cleanDisplayTitle(thread.title)} is working</span>
+          {thread.activeTask ? (
+            <span className="normal-case tracking-normal" style={mutedStyle}>
+              · {thread.activeTask}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -4065,18 +4114,28 @@ function TypingDots({ className = '' }: { className?: string }) {
 function RelayTimeline({
   messages,
   showAnnotations,
+  showStatusMessages,
   inkStyle,
   mutedStyle,
   tagStyle,
   annotStyle,
+  agentLookup,
+  directThreadLookup,
+  onOpenAgentProfile,
+  onOpenAgentChat,
   onNudgeMessage,
 }: {
   messages: RelayMessage[];
   showAnnotations: boolean;
+  showStatusMessages: boolean;
   inkStyle: React.CSSProperties;
   mutedStyle: React.CSSProperties;
   tagStyle: React.CSSProperties;
   annotStyle: React.CSSProperties;
+  agentLookup: Map<string, InterAgentAgent>;
+  directThreadLookup: Map<string, RelayDirectThread>;
+  onOpenAgentProfile: (agentId: string) => void;
+  onOpenAgentChat: (agentId: string, draft?: string | null) => void;
   onNudgeMessage?: (message: RelayMessage) => void;
 }) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -4085,9 +4144,13 @@ function RelayTimeline({
   const rows: React.ReactNode[] = [];
   let lastDayLabel = '';
   let index = 0;
+  const timelineMessages = useMemo(
+    () => showStatusMessages ? messages : messages.filter((message) => message.messageClass !== 'status'),
+    [messages, showStatusMessages],
+  );
   const messageById = useMemo(
-    () => new Map(messages.map((message) => [message.id, message])),
-    [messages],
+    () => new Map(timelineMessages.map((message) => [message.id, message])),
+    [timelineMessages],
   );
 
   useEffect(() => {
@@ -4154,9 +4217,11 @@ function RelayTimeline({
     setHighlightedMessageId(messageId);
   }, []);
 
-  while (index < messages.length) {
-    const message = messages[index];
+  while (index < timelineMessages.length) {
+    const message = timelineMessages[index];
     const visibleRole = shouldRenderRole(message.authorRole) ? message.authorRole : null;
+    const authorAgent = message.isOperator ? null : agentLookup.get(message.authorId) ?? null;
+    const authorDirectThread = authorAgent ? directThreadLookup.get(authorAgent.id) ?? null : null;
 
     if (message.dayLabel !== lastDayLabel) {
       rows.push(
@@ -4176,8 +4241,24 @@ function RelayTimeline({
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline justify-between mb-0.5">
               <div className="flex items-baseline gap-2">
-                <span className="font-semibold text-[12px]" style={inkStyle}>{message.authorName}</span>
-                <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
+                {authorAgent ? (
+                  <AgentIdentityInline
+                    agent={authorAgent}
+                    directThread={authorDirectThread}
+                    visibleRole={visibleRole}
+                    timestampLabel={message.timestampLabel}
+                    inkStyle={inkStyle}
+                    mutedStyle={mutedStyle}
+                    tagStyle={tagStyle}
+                    onOpenProfile={onOpenAgentProfile}
+                    onOpenChat={onOpenAgentChat}
+                  />
+                ) : (
+                  <>
+                    <span className="font-semibold text-[12px]" style={inkStyle}>{message.authorName}</span>
+                    <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
+                  </>
+                )}
               </div>
             </div>
             <div
@@ -4210,13 +4291,13 @@ function RelayTimeline({
     const grouped: RelayMessage[] = [message];
     let cursor = index + 1;
     while (
-      cursor < messages.length &&
-      messages[cursor].authorId === message.authorId &&
-      messages[cursor].dayLabel === message.dayLabel &&
-      !messages[cursor].isSystem &&
-      messages[cursor].messageClass !== 'status'
+      cursor < timelineMessages.length &&
+      timelineMessages[cursor].authorId === message.authorId &&
+      timelineMessages[cursor].dayLabel === message.dayLabel &&
+      !timelineMessages[cursor].isSystem &&
+      timelineMessages[cursor].messageClass !== 'status'
     ) {
-      grouped.push(messages[cursor]);
+      grouped.push(timelineMessages[cursor]);
       cursor += 1;
     }
 
@@ -4228,11 +4309,27 @@ function RelayTimeline({
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between mb-0.5">
             <div className="flex items-baseline gap-2">
-              <span className="font-semibold text-[12px]" style={inkStyle}>{message.authorName}</span>
-              {visibleRole ? (
-                <span className="text-[9px] font-mono border px-1 py-0.5 rounded" style={tagStyle}>{visibleRole}</span>
-              ) : null}
-              <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
+              {authorAgent ? (
+                <AgentIdentityInline
+                  agent={authorAgent}
+                  directThread={authorDirectThread}
+                  visibleRole={visibleRole}
+                  timestampLabel={message.timestampLabel}
+                  inkStyle={inkStyle}
+                  mutedStyle={mutedStyle}
+                  tagStyle={tagStyle}
+                  onOpenProfile={onOpenAgentProfile}
+                  onOpenChat={onOpenAgentChat}
+                />
+              ) : (
+                <>
+                  <span className="font-semibold text-[12px]" style={inkStyle}>{message.authorName}</span>
+                  {visibleRole ? (
+                    <span className="text-[9px] font-mono border px-1 py-0.5 rounded" style={tagStyle}>{visibleRole}</span>
+                  ) : null}
+                  <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
+                </>
+              )}
             </div>
             {showAnnotations && (message.routingSummary || message.provenanceSummary) ? (
               <div className="flex items-center gap-1">
@@ -4257,36 +4354,22 @@ function RelayTimeline({
                 >
                   {entry.replyToMessageId ? (
                     replyTarget ? (
-                      <button
-                        type="button"
-                        onClick={() => handleJumpToMessage(entry.replyToMessageId!)}
-                        className="mb-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-mono transition-opacity hover:opacity-80"
-                        style={tagStyle}
-                        title={stableMessageRef(entry.replyToMessageId)}
-                      >
-                        <span>↪</span>
-                        <span>{shortMessageRef(entry.replyToMessageId)}</span>
-                        <span className="normal-case tracking-normal" style={mutedStyle}>{messagePreviewSnippet(replyTarget.body, 48)}</span>
-                      </button>
+                      <ReplyReferenceLine
+                        messageId={entry.replyToMessageId}
+                        preview={messagePreviewSnippet(replyTarget.body, 64)}
+                        mutedStyle={mutedStyle}
+                        onJump={() => handleJumpToMessage(entry.replyToMessageId!)}
+                      />
                     ) : (
-                      <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-mono" style={tagStyle}>
-                        <span>↪</span>
-                        <span>{shortMessageRef(entry.replyToMessageId)}</span>
-                      </div>
+                      <ReplyReferenceLine
+                        messageId={entry.replyToMessageId}
+                        mutedStyle={mutedStyle}
+                      />
                     )
                   ) : null}
                   <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
                   {entry.receipt ? (
-                    <div
-                      className="mt-1 inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 w-fit"
-                      style={relayReceiptStyle(entry.receipt.state)}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${relayReceiptDotClass(entry.receipt.state)}`}></span>
-                      <span>{entry.receipt.label}</span>
-                      {entry.receipt.detail ? (
-                        <span className="normal-case tracking-normal opacity-80">{entry.receipt.detail}</span>
-                      ) : null}
-                    </div>
+                    <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} />
                   ) : null}
                   {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -4367,6 +4450,213 @@ function MessageReferenceControls({
   );
 }
 
+function AgentIdentityInline({
+  agent,
+  directThread,
+  visibleRole,
+  timestampLabel,
+  inkStyle,
+  mutedStyle,
+  tagStyle,
+  onOpenProfile,
+  onOpenChat,
+}: {
+  agent: InterAgentAgent;
+  directThread: RelayDirectThread | null;
+  visibleRole: string | null;
+  timestampLabel: string;
+  inkStyle: React.CSSProperties;
+  mutedStyle: React.CSSProperties;
+  tagStyle: React.CSSProperties;
+  onOpenProfile: (agentId: string) => void;
+  onOpenChat: (agentId: string, draft?: string | null) => void;
+}) {
+  const handleTriggerClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.metaKey || event.ctrlKey) {
+      onOpenChat(agent.id);
+      return;
+    }
+    onOpenProfile(agent.id);
+  };
+
+  return (
+    <div className="relative group/agent inline-flex items-baseline gap-2 min-w-0">
+      <button
+        type="button"
+        onClick={handleTriggerClick}
+        className="inline-flex items-baseline gap-2 min-w-0 text-left hover:opacity-90 transition-opacity"
+        title="Click for overview. Cmd-click to open direct chat."
+      >
+        <span className="font-semibold text-[12px] truncate" style={inkStyle}>{agent.title}</span>
+        {visibleRole ? (
+          <span className="text-[9px] font-mono border px-1 py-0.5 rounded shrink-0" style={tagStyle}>{visibleRole}</span>
+        ) : null}
+      </button>
+      <span className="text-[9px] font-mono shrink-0" style={mutedStyle}>{timestampLabel}</span>
+      <AgentHoverCard
+        agent={agent}
+        directThread={directThread}
+        mutedStyle={mutedStyle}
+        onOpenProfile={onOpenProfile}
+        onOpenChat={onOpenChat}
+      />
+    </div>
+  );
+}
+
+function AgentHoverCard({
+  agent,
+  directThread,
+  mutedStyle,
+  onOpenProfile,
+  onOpenChat,
+}: {
+  agent: InterAgentAgent;
+  directThread: RelayDirectThread | null;
+  mutedStyle: React.CSSProperties;
+  onOpenProfile: (agentId: string) => void;
+  onOpenChat: (agentId: string, draft?: string | null) => void;
+}) {
+  return (
+    <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border p-3 shadow-lg opacity-0 pointer-events-none translate-y-1 transition-all duration-150 group-hover/agent:opacity-100 group-hover/agent:pointer-events-auto group-hover/agent:translate-y-0 group-focus-within/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:translate-y-0" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+      <div className="flex items-start gap-3">
+        <div className="relative shrink-0">
+          <div
+            className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+            style={{ backgroundColor: colorForIdentity(agent.id) }}
+          >
+            {agent.title.charAt(0).toUpperCase()}
+          </div>
+          <div
+            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(agent.state)}`}
+            style={{ border: `1px solid ${C.surface}` }}
+          ></div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-[12px] font-semibold truncate" style={{ color: C.ink }}>{agent.title}</div>
+            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
+              {interAgentProfileKindLabel(agent.profileKind)}
+            </span>
+          </div>
+          <div className="text-[10px] mt-1" style={mutedStyle}>
+            {directThread?.statusDetail ?? agent.statusDetail ?? agent.summary ?? 'Available as a local relay channel.'}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] mt-2" style={mutedStyle}>
+            <span>{agent.harness ?? 'runtime'}</span>
+            <span>{compactHomePath(agent.projectRoot ?? agent.cwd) ?? 'no path'}</span>
+            {agent.lastChatLabel ? <span>last chat {agent.lastChatLabel}</span> : null}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+          style={{ color: C.ink }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenChat(agent.id);
+          }}
+        >
+          Message
+        </button>
+        <button
+          type="button"
+          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+          style={{ color: C.ink }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenProfile(agent.id);
+          }}
+        >
+          Overview
+        </button>
+        <span className="ml-auto text-[9px] font-mono" style={mutedStyle}>Cmd-click to DM</span>
+      </div>
+    </div>
+  );
+}
+
+function ReplyReferenceLine({
+  messageId,
+  preview,
+  mutedStyle,
+  onJump,
+}: {
+  messageId: string;
+  preview?: string | null;
+  mutedStyle: React.CSSProperties;
+  onJump?: () => void;
+}) {
+  const refLabel = shortMessageRef(messageId);
+  return (
+    <div className="mb-1.5 flex items-center gap-1.5 text-[10px] leading-none min-w-0" style={mutedStyle}>
+      <CornerUpLeft size={10} className="shrink-0" />
+      <span className="font-mono uppercase tracking-[0.14em] shrink-0">Reply to</span>
+      {onJump ? (
+        <button
+          type="button"
+          onClick={onJump}
+          className="font-mono underline-offset-2 hover:underline shrink-0"
+          style={{ color: C.accent }}
+          title={stableMessageRef(messageId)}
+        >
+          {refLabel}
+        </button>
+      ) : (
+        <span className="font-mono shrink-0">{refLabel}</span>
+      )}
+      {preview ? (
+        <span className="truncate min-w-0" title={preview}>
+          {preview}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function RelayReceiptInline({
+  receipt,
+  mutedStyle,
+}: {
+  receipt: NonNullable<RelayMessage['receipt']>;
+  mutedStyle: React.CSSProperties;
+}) {
+  const tone = relayReceiptTone(receipt.state);
+  return (
+    <div
+      className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] leading-none"
+      style={{ ...mutedStyle, color: tone.color }}
+      title={receipt.detail ?? receipt.label}
+    >
+      <RelayReceiptIcon state={receipt.state} />
+      <span className="font-mono uppercase tracking-[0.14em]">{receipt.label}</span>
+      {receipt.state === 'replied' && receipt.detail ? (
+        <span style={mutedStyle}>{receipt.detail}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function RelayReceiptIcon({ state }: { state: NonNullable<RelayMessage['receipt']>['state'] }) {
+  switch (state) {
+    case 'replied':
+      return <Reply size={11} />;
+    case 'seen':
+      return <CheckCheck size={11} />;
+    case 'delivered':
+      return <CheckCheck size={11} />;
+    case 'sent':
+    default:
+      return <Check size={11} />;
+  }
+}
+
 function relaySecondaryText(thread: RelayDirectThread) {
   if (thread.state === 'working') {
     return thread.activeTask ?? thread.statusDetail ?? thread.subtitle;
@@ -4417,47 +4707,17 @@ function relayPresenceIndicatorLabel(state: RelayDirectThread['state']) {
   return state === 'offline' ? 'Off' : 'On';
 }
 
-function relayReceiptDotClass(state: NonNullable<RelayMessage['receipt']>['state']) {
+function relayReceiptTone(state: NonNullable<RelayMessage['receipt']>['state']) {
   switch (state) {
     case 'replied':
-      return 'bg-emerald-500';
+      return { color: '#059669' };
     case 'seen':
-      return 'bg-[var(--os-accent)]';
+      return { color: 'var(--os-accent)' };
     case 'delivered':
-      return 'bg-sky-500';
+      return { color: '#64748b' };
     case 'sent':
     default:
-      return 'bg-zinc-400/60';
-  }
-}
-
-function relayReceiptStyle(state: NonNullable<RelayMessage['receipt']>['state']): React.CSSProperties {
-  switch (state) {
-    case 'replied':
-      return {
-        borderColor: 'rgba(16,185,129,0.18)',
-        backgroundColor: 'rgba(16,185,129,0.08)',
-        color: '#059669',
-      };
-    case 'seen':
-      return {
-        borderColor: 'rgba(0,102,255,0.2)',
-        backgroundColor: 'rgba(0,102,255,0.08)',
-        color: 'var(--os-accent)',
-      };
-    case 'delivered':
-      return {
-        borderColor: 'rgba(14,165,233,0.18)',
-        backgroundColor: 'rgba(14,165,233,0.08)',
-        color: '#0284c7',
-      };
-    case 'sent':
-    default:
-      return {
-        borderColor: 'var(--os-border)',
-        backgroundColor: 'var(--os-tag-bg)',
-        color: 'var(--os-muted)',
-      };
+      return { color: 'var(--os-muted)' };
   }
 }
 

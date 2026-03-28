@@ -60,6 +60,14 @@ The runtime already has a layered discovery model:
 
 That gives OpenScout a way to map "which agents exist on this machine?" without making every repo hand-configure everything from scratch.
 
+The next abstraction boundary is:
+
+- `Project`
+- `Agent Definition`
+- `Agent Instance`
+
+The important distinction is that operator-facing mentions usually start from a logical definition like `@fabric`, while routing and mesh replication eventually need a concrete instance such as `@fabric@laptop#feature-x`.
+
 ## Durable Execution Story
 
 The runtime separates communication from execution tracking:

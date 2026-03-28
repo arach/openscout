@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import {
+  extractAgentSelectors,
+  normalizeAgentSelectorSegment,
+  resolveAgentSelector,
+  type AgentSelector,
+  type AgentSelectorCandidate,
+} from "@openscout/protocol";
+
 const VERSION = "0.2.0";
 const BRAND = "\x1b[32m◆\x1b[0m";
 
@@ -359,6 +367,12 @@ interface BrokerRelayContext {
   snapshot: BrokerSnapshot;
 }
 
+interface BrokerMentionTarget {
+  agentId: string;
+  label: string;
+  selector: AgentSelector;
+}
+
 const BROKER_SHARED_CHANNEL_ID = "channel.shared";
 const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
@@ -386,6 +400,86 @@ function resolveBrokerUrl(): string {
 
 function sanitizeConversationSegment(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
+}
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveMentionTargets(
+  snapshot: BrokerSnapshot,
+  text: string,
+): { resolved: BrokerMentionTarget[]; unresolved: string[]; legacyTargets: string[] } {
+  const selectors = extractAgentSelectors(text);
+  const resolved = new Map<string, BrokerMentionTarget>();
+  const unresolved: string[] = [];
+  const legacyTargets = new Set<string>();
+  const candidates: AgentSelectorCandidate[] = Object.values(snapshot.agents).map((agent) => ({
+    agentId: agent.id,
+    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
+    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
+    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+    aliases: [
+      metadataString(agent.metadata, "selector"),
+      metadataString(agent.metadata, "defaultSelector"),
+    ].filter(Boolean) as string[],
+  }));
+
+  for (const selector of selectors) {
+    if (selector.definitionId === "system" || selector.definitionId === "all") {
+      continue;
+    }
+
+    const match = resolveAgentSelector(selector, candidates);
+    if (!match) {
+      unresolved.push(selector.label);
+      if (!selector.nodeQualifier && !selector.workspaceQualifier) {
+        legacyTargets.add(selector.definitionId);
+      }
+      continue;
+    }
+
+    resolved.set(match.agentId, {
+      agentId: match.agentId,
+      label: selector.label,
+      selector,
+    });
+    legacyTargets.add(match.agentId);
+  }
+
+  return {
+    resolved: Array.from(resolved.values()).sort((lhs, rhs) => lhs.agentId.localeCompare(rhs.agentId)),
+    unresolved: Array.from(new Set(unresolved)).sort(),
+    legacyTargets: Array.from(legacyTargets)
+      .map((value) => normalizeAgentSelectorSegment(value))
+      .filter(Boolean)
+      .sort(),
+  };
+}
+
+function resolveConversationShareMode(
+  snapshot: BrokerSnapshot,
+  nodeId: string,
+  participantIds: string[],
+  fallback: "local" | "shared",
+): "local" | "shared" {
+  if (fallback === "shared") {
+    return "shared";
+  }
+
+  const hasRemoteParticipant = participantIds.some((participantId) => {
+    const participant = snapshot.agents[participantId];
+    return Boolean(participant?.authorityNodeId && participant.authorityNodeId !== nodeId);
+  });
+
+  return hasRemoteParticipant ? "shared" : fallback;
+}
+
+function stripAgentSelectorLabels(text: string): string {
+  return extractAgentSelectors(text).reduce((next, selector) => (
+    next.replaceAll(selector.label, "").replace(/\s{2,}/g, " ").trim()
+  ), text).trim();
 }
 
 async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
@@ -474,12 +568,18 @@ function relayConversationDefinition(
   nodeId: string,
   channel: string | undefined,
   senderId: string,
+  targetParticipantIds: string[] = [],
 ): BrokerConversationRecord {
   const normalizedChannel = channel?.trim() || "shared";
   const sharedParticipants = unique([
     OPERATOR_ID,
     senderId,
     ...Object.keys(snapshot.agents),
+  ]).sort();
+  const scopedParticipants = unique([
+    OPERATOR_ID,
+    senderId,
+    ...targetParticipantIds,
   ]).sort();
 
   if (normalizedChannel === "voice") {
@@ -488,9 +588,9 @@ function relayConversationDefinition(
       kind: "channel",
       title: "voice",
       visibility: "workspace",
-      shareMode: "local",
+      shareMode: resolveConversationShareMode(snapshot, nodeId, scopedParticipants, "local"),
       authorityNodeId: nodeId,
-      participantIds: sharedParticipants,
+      participantIds: scopedParticipants,
       metadata: { surface: "relay-cli", channel: "voice" },
     };
   }
@@ -526,9 +626,9 @@ function relayConversationDefinition(
     kind: "channel",
     title: normalizedChannel,
     visibility: "workspace",
-    shareMode: "local",
+    shareMode: resolveConversationShareMode(snapshot, nodeId, scopedParticipants, "local"),
     authorityNodeId: nodeId,
-    participantIds: sharedParticipants,
+    participantIds: scopedParticipants,
     metadata: { surface: "relay-cli", channel: normalizedChannel },
   };
 }
@@ -539,8 +639,9 @@ async function ensureBrokerConversation(
   nodeId: string,
   channel: string | undefined,
   senderId: string,
+  targetParticipantIds: string[] = [],
 ): Promise<BrokerConversationRecord> {
-  const definition = relayConversationDefinition(snapshot, nodeId, channel, senderId);
+  const definition = relayConversationDefinition(snapshot, nodeId, channel, senderId, targetParticipantIds);
   const existing = snapshot.conversations[definition.id];
   const nextParticipants = unique([
     ...(existing?.participantIds ?? []),
@@ -551,6 +652,7 @@ async function ensureBrokerConversation(
     !existing
     || existing.kind !== definition.kind
     || existing.visibility !== definition.visibility
+    || existing.shareMode !== definition.shareMode
     || nextParticipants.length !== existing.participantIds.length
   ) {
     const nextConversation: BrokerConversationRecord = {
@@ -577,7 +679,7 @@ async function postRelayMessageToBroker(input: {
   messageId: string;
   channel?: string;
   shouldSpeak?: boolean;
-  mentionTargets: string[];
+  mentionTargets: BrokerMentionTarget[];
   createdAtMs: number;
 }): Promise<BrokerRelayPostResult> {
   const broker = await loadBrokerRelayContext();
@@ -585,7 +687,7 @@ async function postRelayMessageToBroker(input: {
     return {
       usedBroker: false,
       invokedTargets: [],
-      unresolvedTargets: input.mentionTargets,
+      unresolvedTargets: input.mentionTargets.map((target) => target.label),
     };
   }
 
@@ -596,14 +698,19 @@ async function postRelayMessageToBroker(input: {
     broker.node.id,
     input.channel,
     input.senderId,
+    input.mentionTargets.map((target) => target.agentId),
   );
 
   const validTargets = unique(
-    input.mentionTargets.filter((target) => target !== input.senderId && Boolean(broker.snapshot.agents[target])),
+    input.mentionTargets
+      .map((target) => target.agentId)
+      .filter((target) => target !== input.senderId && Boolean(broker.snapshot.agents[target])),
   ).sort();
-  const unresolvedTargets = input.mentionTargets.filter((target) => !validTargets.includes(target));
+  const unresolvedTargets = input.mentionTargets
+    .filter((target) => !validTargets.includes(target.agentId))
+    .map((target) => target.label);
   const speechText = input.shouldSpeak
-    ? input.body.replace(/@[\w.-]+\s*/g, "").trim()
+    ? stripAgentSelectorLabels(input.body)
     : "";
 
   await brokerPostJson(broker.baseUrl, "/v1/messages", {
@@ -613,7 +720,9 @@ async function postRelayMessageToBroker(input: {
     originNodeId: broker.node.id,
     class: conversation.kind === "system" ? "system" : "agent",
     body: input.body,
-    mentions: validTargets.map((actorId) => ({ actorId, label: `@${actorId}` })),
+    mentions: input.mentionTargets
+      .filter((target) => validTargets.includes(target.agentId))
+      .map((target) => ({ actorId: target.agentId, label: target.label })),
     speech: speechText ? { text: speechText } : undefined,
     audience: validTargets.length > 0
       ? {
@@ -1408,12 +1517,16 @@ async function relaySend() {
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
   const tags = shouldSpeak ? ["speak"] : [];
-  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const broker = await loadBrokerRelayContext();
+  const mentionResolution = broker
+    ? resolveMentionTargets(broker.snapshot, message)
+    : { resolved: [] as BrokerMentionTarget[], unresolved: [] as string[], legacyTargets: [] as string[] };
+  const legacyMentions = mentionResolution.legacyTargets;
 
   const entry = await writeChannel(hub, {
     ts, from: agent, type: "MSG", body: message,
     tags: tags.length ? tags : undefined,
-    to: mentions.length ? mentions : undefined,
+    to: legacyMentions.length ? legacyMentions : undefined,
     channel,
   });
 
@@ -1441,23 +1554,34 @@ async function relaySend() {
   }
 
   // Notify @mentioned agents
-  const brokerResult = await postRelayMessageToBroker({
-    senderId: agent,
-    body: message,
-    messageId: entry.id,
-    channel,
-    shouldSpeak,
-    mentionTargets: mentions,
-    createdAtMs: Date.now(),
-  });
+  const brokerResult = broker
+    ? await postRelayMessageToBroker({
+        senderId: agent,
+        body: message,
+        messageId: entry.id,
+        channel,
+        shouldSpeak,
+        mentionTargets: mentionResolution.resolved,
+        createdAtMs: Date.now(),
+      })
+    : {
+        usedBroker: false,
+        invokedTargets: [] as string[],
+        unresolvedTargets: [...mentionResolution.unresolved, ...legacyMentions],
+      };
   if (brokerResult.usedBroker) {
     for (const target of brokerResult.invokedTargets) {
       print(`  \x1b[32m✓\x1b[0m Routed to ${target} via broker invocation`);
     }
   }
 
-  if (brokerResult.unresolvedTargets.length) {
-    for (const target of brokerResult.unresolvedTargets) {
+  for (const label of mentionResolution.unresolved) {
+    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable — message queued in channel\x1b[0m`);
+  }
+
+  const fallbackTargets = legacyMentions.filter((target) => !brokerResult.invokedTargets.includes(target));
+  if (fallbackTargets.length) {
+    for (const target of fallbackTargets) {
       if (target === agent) continue; // don't deliver to yourself
       const result = await deliverToAgent(target, agent, message, channel, entry.id);
       if (result === "delivered") {
@@ -1496,12 +1620,16 @@ async function relaySpeak() {
 
   const agent = getAgentName();
   const ts = Math.floor(Date.now() / 1000);
-  const mentions = message.match(/@([\w.-]+)/g)?.map(m => m.slice(1)) || [];
+  const broker = await loadBrokerRelayContext();
+  const mentionResolution = broker
+    ? resolveMentionTargets(broker.snapshot, message)
+    : { resolved: [] as BrokerMentionTarget[], unresolved: [] as string[], legacyTargets: [] as string[] };
+  const legacyMentions = mentionResolution.legacyTargets;
 
   const entry = await writeChannel(hub, {
     ts, from: agent, type: "MSG", body: message,
     tags: ["speak"],
-    to: mentions.length ? mentions : undefined,
+    to: legacyMentions.length ? legacyMentions : undefined,
   });
   print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
 
@@ -1511,7 +1639,7 @@ async function relaySpeak() {
 
   const config = await loadRelayConfig();
   const voice = getVoiceForChannel(config, "voice");
-  const clean = message.replace(/@[\w.-]+\s*/g, "").trim();
+  const clean = stripAgentSelectorLabels(message);
   if (clean) {
     await speak(clean, voice);
   }
@@ -1519,23 +1647,34 @@ async function relaySpeak() {
   await setAgentState(agent, "idle");
   await releaseOnAir();
 
-  const brokerResult = await postRelayMessageToBroker({
-    senderId: agent,
-    body: message,
-    messageId: entry.id,
-    channel: "voice",
-    shouldSpeak: true,
-    mentionTargets: mentions,
-    createdAtMs: Date.now(),
-  });
+  const brokerResult = broker
+    ? await postRelayMessageToBroker({
+        senderId: agent,
+        body: message,
+        messageId: entry.id,
+        channel: "voice",
+        shouldSpeak: true,
+        mentionTargets: mentionResolution.resolved,
+        createdAtMs: Date.now(),
+      })
+    : {
+        usedBroker: false,
+        invokedTargets: [] as string[],
+        unresolvedTargets: [...mentionResolution.unresolved, ...legacyMentions],
+      };
   if (brokerResult.usedBroker) {
     for (const target of brokerResult.invokedTargets) {
       print(`  \x1b[32m✓\x1b[0m Routed to ${target} via broker invocation`);
     }
   }
 
-  if (brokerResult.unresolvedTargets.length) {
-    for (const target of brokerResult.unresolvedTargets) {
+  for (const label of mentionResolution.unresolved) {
+    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable — message queued in channel\x1b[0m`);
+  }
+
+  const fallbackTargets = legacyMentions.filter((target) => !brokerResult.invokedTargets.includes(target));
+  if (fallbackTargets.length) {
+    for (const target of fallbackTargets) {
       if (target === agent) continue;
       await deliverToAgent(target, agent, message, undefined, entry.id);
     }

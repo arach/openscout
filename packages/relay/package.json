@@ -30,6 +30,7 @@
     "@arach/ora": "github:arach/ora",
     "@chat-adapter/state-memory": "^4.20.2",
     "@chat-adapter/telegram": "^4.20.2",
+    "@openscout/protocol": "workspace:*",
     "@opentui/core": "^0.1.88",
     "@opentui/react": "^0.1.88",
     "chat": "^4.20.2",

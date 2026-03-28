@@ -14,6 +14,7 @@ import type {
 } from "@openscout/protocol";
 
 import {
+  buildRelayAgentInstance,
   loadResolvedRelayAgents,
   readRelayAgentOverrides,
   writeRelayAgentOverrides,
@@ -852,6 +853,7 @@ function buildTwinBinding(
 ): ProjectTwinBinding {
   const displayName = titleCaseTwinName(twinId);
   const normalizedRecord = normalizeProjectTwinRecord(twinId, record);
+  const instance = buildRelayAgentInstance(twinId, normalizedRecord.cwd);
 
   return {
     actor: {
@@ -865,6 +867,13 @@ function buildTwinBinding(
         project: normalizedRecord.project,
         projectRoot: normalizedRecord.cwd,
         tmuxSession: normalizedRecord.tmuxSession,
+        definitionId: twinId,
+        instanceId: instance.id,
+        selector: instance.selector,
+        defaultSelector: instance.defaultSelector,
+        nodeQualifier: instance.nodeQualifier,
+        workspaceQualifier: instance.workspaceQualifier,
+        branch: instance.branch,
       },
     },
     agent: {
@@ -880,6 +889,13 @@ function buildTwinBinding(
         tmuxSession: normalizedRecord.tmuxSession,
         summary: `${displayName} relay agent for ${normalizedRecord.project}.`,
         role: "Relay agent",
+        definitionId: twinId,
+        instanceId: instance.id,
+        selector: instance.selector,
+        defaultSelector: instance.defaultSelector,
+        nodeQualifier: instance.nodeQualifier,
+        workspaceQualifier: instance.workspaceQualifier,
+        branch: instance.branch,
       },
       agentClass: "general",
       capabilities: normalizeTwinCapabilities(normalizedRecord.capabilities),
@@ -905,6 +921,11 @@ function buildTwinBinding(
         project: normalizedRecord.project,
         projectRoot: normalizedRecord.cwd,
         startedAt: String(normalizedRecord.startedAt),
+        instanceId: instance.id,
+        selector: instance.selector,
+        nodeQualifier: instance.nodeQualifier,
+        workspaceQualifier: instance.workspaceQualifier,
+        branch: instance.branch,
       },
     },
   };
