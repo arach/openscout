@@ -129,7 +129,8 @@ The scaffold defaults to `link` so the products can continue evolving independen
 The next credible steps after this scaffold are:
 
 1. Replace the placeholder helper heartbeat with a real local runtime bridge.
-2. Move the first workflow and action primitives into `packages/workflows`.
+2. Move the first collaboration workflow primitives into `packages/workflows`, starting
+   with canonical `question` and `work_item` semantics in TypeScript.
 3. Add a local command palette and command routing model.
 4. Add a real embedded HUD or console web app.
 5. Promote module descriptors into a formal capability registry.

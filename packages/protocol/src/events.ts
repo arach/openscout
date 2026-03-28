@@ -5,6 +5,7 @@ import type { DeliveryAttempt, DeliveryIntent } from "./deliveries.js";
 import type { FlightRecord, InvocationRequest } from "./invocations.js";
 import type { MessageRecord } from "./messages.js";
 import type { AgentDefinition, AgentEndpoint, ActorIdentity } from "./actors.js";
+import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
 
 export interface ControlEventBase<K extends string, P> {
   id: ScoutId;
@@ -59,6 +60,14 @@ export type DeliveryAttemptedEvent = ControlEventBase<"delivery.attempted", {
   attempt: DeliveryAttempt;
 }>;
 
+export type CollaborationUpsertedEvent = ControlEventBase<"collaboration.upserted", {
+  record: CollaborationRecord;
+}>;
+
+export type CollaborationEventAppendedEvent = ControlEventBase<"collaboration.event.appended", {
+  event: CollaborationEvent;
+}>;
+
 export type ControlEvent =
   | NodeUpsertedEvent
   | ActorRegisteredEvent
@@ -70,4 +79,6 @@ export type ControlEvent =
   | InvocationRequestedEvent
   | FlightUpdatedEvent
   | DeliveryPlannedEvent
-  | DeliveryAttemptedEvent;
+  | DeliveryAttemptedEvent
+  | CollaborationUpsertedEvent
+  | CollaborationEventAppendedEvent;

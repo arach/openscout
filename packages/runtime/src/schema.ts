@@ -183,6 +183,37 @@ CREATE TABLE IF NOT EXISTS delivery_attempts (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS collaboration_records (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL,
+  acceptance_state TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT,
+  created_by_id TEXT NOT NULL REFERENCES actors(id) ON DELETE RESTRICT,
+  owner_id TEXT REFERENCES actors(id) ON DELETE SET NULL,
+  next_move_owner_id TEXT REFERENCES actors(id) ON DELETE SET NULL,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  parent_id TEXT REFERENCES collaboration_records(id) ON DELETE SET NULL,
+  priority TEXT,
+  labels_json TEXT,
+  relations_json TEXT,
+  detail_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS collaboration_events (
+  id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL REFERENCES collaboration_records(id) ON DELETE CASCADE,
+  record_kind TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE RESTRICT,
+  summary TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -202,6 +233,12 @@ CREATE INDEX IF NOT EXISTS idx_flights_target_state
   ON flights (target_agent_id, state);
 CREATE INDEX IF NOT EXISTS idx_deliveries_status_transport
   ON deliveries (status, transport);
+CREATE INDEX IF NOT EXISTS idx_collaboration_records_state
+  ON collaboration_records (state);
+CREATE INDEX IF NOT EXISTS idx_collaboration_records_updated_at
+  ON collaboration_records (updated_at);
+CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
+  ON collaboration_events (record_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_kind_ts
   ON events (kind, ts);
 `;

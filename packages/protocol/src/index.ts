@@ -3,6 +3,7 @@ export * from "./actors.js";
 export * from "./agent-selectors.js";
 export * from "./mesh.js";
 export * from "./conversations.js";
+export * from "./collaboration.js";
 export * from "./messages.js";
 export * from "./invocations.js";
 export * from "./deliveries.js";

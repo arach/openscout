@@ -4,6 +4,7 @@ import type { ConversationBinding, ConversationDefinition } from "./conversation
 import type { InvocationRequest } from "./invocations.js";
 import type { NodeDefinition } from "./mesh.js";
 import type { MessageRecord } from "./messages.js";
+import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
 
 export interface SubscriptionRequest {
   actorId: ScoutId;
@@ -66,6 +67,16 @@ export interface BindingUpsertCommand {
   binding: ConversationBinding;
 }
 
+export interface CollaborationUpsertCommand {
+  kind: "collaboration.upsert";
+  record: CollaborationRecord;
+}
+
+export interface CollaborationEventAppendCommand {
+  kind: "collaboration.event.append";
+  event: CollaborationEvent;
+}
+
 export type ControlCommand =
   | NodeUpsertCommand
   | ActorUpsertCommand
@@ -73,6 +84,8 @@ export type ControlCommand =
   | AgentEndpointUpsertCommand
   | ConversationUpsertCommand
   | BindingUpsertCommand
+  | CollaborationUpsertCommand
+  | CollaborationEventAppendCommand
   | PostMessageCommand
   | InvokeAgentCommand
   | EnsureAwakeCommand

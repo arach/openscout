@@ -15,6 +15,8 @@ const openScoutDesktop = {
   getLogCatalog: () => ipcRenderer.invoke("openscout:get-log-catalog"),
   getBrokerInspector: () => ipcRenderer.invoke("openscout:get-broker-inspector"),
   readLogSource: (input) => ipcRenderer.invoke("openscout:read-log-source", input),
+  getAgentSession: (agentId) => ipcRenderer.invoke("openscout:get-agent-session", agentId),
+  openAgentSession: (agentId) => ipcRenderer.invoke("openscout:open-agent-session", agentId),
   toggleVoiceCapture: () => ipcRenderer.invoke("openscout:toggle-voice-capture"),
   setVoiceRepliesEnabled: (enabled) => ipcRenderer.invoke("openscout:set-voice-replies-enabled", enabled),
 };

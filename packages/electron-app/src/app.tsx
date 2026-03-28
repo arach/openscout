@@ -45,6 +45,7 @@ import remarkGfm from 'remark-gfm';
 import MachinesView from "@/components/machines-view";
 import PlansView from "@/components/plans-view";
 import type {
+  AgentSessionInspector,
   AgentConfigState,
   AppSettingsState,
   DesktopBrokerInspector,
@@ -117,6 +118,11 @@ export default function App() {
   const [agentConfigFeedback, setAgentConfigFeedback] = useState<string | null>(null);
   const [pendingConfigFocusAgentId, setPendingConfigFocusAgentId] = useState<string | null>(null);
   const [isAgentConfigEditing, setIsAgentConfigEditing] = useState(false);
+  const [agentSession, setAgentSession] = useState<AgentSessionInspector | null>(null);
+  const [agentSessionLoading, setAgentSessionLoading] = useState(false);
+  const [agentSessionFeedback, setAgentSessionFeedback] = useState<string | null>(null);
+  const [agentSessionCopied, setAgentSessionCopied] = useState(false);
+  const [agentSessionRefreshTick, setAgentSessionRefreshTick] = useState(0);
   const [appSettings, setAppSettings] = useState<AppSettingsState | null>(null);
   const [appSettingsDraft, setAppSettingsDraft] = useState<AppSettingsState | null>(null);
   const [appSettingsLoading, setAppSettingsLoading] = useState(false);
@@ -286,6 +292,48 @@ export default function App() {
   }, [pendingConfigFocusAgentId, selectedInterAgentId]);
 
   useEffect(() => {
+    if (activeView !== 'agents' || !selectedInterAgentId || !window.openScoutDesktop?.getAgentSession) {
+      setAgentSession(null);
+      setAgentSessionFeedback(null);
+      setAgentSessionCopied(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadAgentSession = async () => {
+      setAgentSessionLoading((current) => current || !agentSession);
+      try {
+        const nextSession = await window.openScoutDesktop!.getAgentSession(selectedInterAgentId);
+        if (cancelled) {
+          return;
+        }
+        setAgentSession(nextSession);
+        setAgentSessionFeedback(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setAgentSession(null);
+        setAgentSessionFeedback(asErrorMessage(error));
+      } finally {
+        if (!cancelled) {
+          setAgentSessionLoading(false);
+        }
+      }
+    };
+
+    void loadAgentSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, agentSessionRefreshTick, selectedInterAgentId]);
+
+  useEffect(() => {
+    setAgentSessionFeedback(null);
+    setAgentSessionCopied(false);
+  }, [selectedInterAgentId]);
+
+  useEffect(() => {
     if (activeView !== 'settings' || !window.openScoutDesktop?.getAppSettings) {
       return;
     }
@@ -409,6 +457,34 @@ export default function App() {
       window.clearInterval(interval);
     };
   }, [activeView]);
+
+  useEffect(() => {
+    if (activeView !== 'agents' || !selectedInterAgentId) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setAgentSessionRefreshTick((current) => current + 1);
+    }, 2500);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeView, selectedInterAgentId]);
+
+  useEffect(() => {
+    if (!agentSessionCopied) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setAgentSessionCopied(false);
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [agentSessionCopied]);
 
   useEffect(() => {
     const textarea = relayComposerRef.current;
@@ -652,6 +728,7 @@ export default function App() {
   const selectedInterAgentChatActionLabel = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
     ? 'Open Chat'
     : 'Start Chat';
+  const visibleAgentSession = agentSession?.agentId === selectedInterAgent?.id ? agentSession : null;
   const selectedAgentDirectLinePreview = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
     ? relaySecondaryText(selectedInterAgentDirectThread)
     : selectedInterAgent
@@ -986,6 +1063,33 @@ export default function App() {
       setAgentConfigRestarting(false);
     }
   };
+
+  const handleOpenAgentSession = React.useCallback(async () => {
+    if (!selectedInterAgentId || !window.openScoutDesktop?.openAgentSession) {
+      return;
+    }
+
+    try {
+      await window.openScoutDesktop.openAgentSession(selectedInterAgentId);
+      setAgentSessionFeedback(agentSession?.mode === 'tmux' ? 'Opening tmux session in Terminal.' : 'Opening session logs.');
+    } catch (error) {
+      setAgentSessionFeedback(asErrorMessage(error));
+    }
+  }, [agentSession?.mode, selectedInterAgentId]);
+
+  const handleCopyAgentSessionCommand = React.useCallback(async () => {
+    if (!agentSession?.commandLabel) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(agentSession.commandLabel);
+      setAgentSessionCopied(true);
+      setAgentSessionFeedback('Attach command copied.');
+    } catch (error) {
+      setAgentSessionFeedback(asErrorMessage(error));
+    }
+  }, [agentSession]);
 
   const handleRelaySend = async () => {
     const body = relayDraft.trim();
@@ -2866,6 +2970,100 @@ export default function App() {
 
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-center justify-between gap-3 mb-3">
+                            <div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Live Session</div>
+                            <div className="text-[11px] mt-1" style={s.mutedText}>
+                              {visibleAgentSession?.mode === 'tmux'
+                                ? 'Live tmux pane capture for the selected agent.'
+                                : visibleAgentSession?.mode === 'logs'
+                                  ? 'Canonical runtime session logs for the selected agent.'
+                                  : 'No live tmux pane or predictable runtime logs are available yet.'}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {visibleAgentSession?.commandLabel ? (
+                              <button
+                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                style={{ color: C.ink }}
+                                onClick={() => void handleCopyAgentSessionCommand()}
+                              >
+                                {agentSessionCopied ? 'Copied' : 'Copy Attach'}
+                              </button>
+                            ) : null}
+                            {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
+                              <button
+                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                style={{ color: C.ink }}
+                                onClick={() => void handleOpenAgentSession()}
+                              >
+                                {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap text-[10px] mb-3" style={s.mutedText}>
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
+                            {visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+                          </span>
+                          {visibleAgentSession?.harness ? (
+                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {visibleAgentSession.harness}
+                            </span>
+                          ) : null}
+                          {visibleAgentSession?.transport ? (
+                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {visibleAgentSession.transport}
+                            </span>
+                          ) : null}
+                          {visibleAgentSession?.sessionId ? (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {visibleAgentSession.sessionId}
+                            </span>
+                          ) : null}
+                          {visibleAgentSession?.updatedAtLabel ? (
+                            <span>Updated {visibleAgentSession.updatedAtLabel}</span>
+                          ) : null}
+                          {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? (
+                            <span>{visibleAgentSession.lineCount} lines</span>
+                          ) : null}
+                          {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
+                        </div>
+
+                        <div
+                          className="border rounded-lg overflow-hidden"
+                          style={{ borderColor: C.border, backgroundColor: C.bg }}
+                        >
+                          {agentSessionLoading && !visibleAgentSession ? (
+                            <div className="px-3 py-6 text-[11px]" style={s.mutedText}>
+                              Loading live session…
+                            </div>
+                          ) : visibleAgentSession?.body ? (
+                            <pre
+                              className="px-3 py-3 text-[11px] leading-[1.55] overflow-x-auto whitespace-pre-wrap break-words min-h-[220px] max-h-[420px] overflow-y-auto"
+                              style={{ color: C.ink, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                            >
+                              {visibleAgentSession.body}
+                            </pre>
+                          ) : (
+                            <div className="px-3 py-6 text-[11px] leading-[1.6]" style={s.mutedText}>
+                              {visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 mt-3 text-[10px]" style={s.mutedText}>
+                          <div className="truncate min-w-0">
+                            {visibleAgentSession?.pathLabel ?? 'No stable session path yet.'}
+                          </div>
+                          {agentSessionFeedback ? (
+                            <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
+                          ) : null}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-center justify-between gap-3 mb-3">
                           <div>
                             <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Open Threads</div>
                             <div className="text-[11px] mt-1" style={s.mutedText}>
@@ -2991,7 +3189,6 @@ export default function App() {
                           {[
                             ['Agent ID', selectedInterAgent.id],
                             ['Source', visibleAgentConfig?.runtime.source ?? selectedInterAgent.source ?? 'Built-in'],
-                            ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
                             ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
                             ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
                             ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
@@ -3016,7 +3213,7 @@ export default function App() {
               </div>
 
               <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent overview, direct line, and recent thread activity</span>
+                <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent overview, live session, direct line, and recent thread activity</span>
               </div>
             </div>
           </>

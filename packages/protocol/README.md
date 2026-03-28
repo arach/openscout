@@ -32,6 +32,36 @@ The protocol keeps a small set of nouns and gives each one a single job:
 - `binding`: a mapping from an OpenScout conversation to an external thread or channel
 - `event`: an append-only fact emitted whenever one of the durable records changes
 
+## Emerging Collaboration Model
+
+The protocol package now also exports a collaboration vocabulary for the next layer above
+messages and invocations. This is the first thin slice toward explicit human-agent and
+agent-agent workflow tracking. It is intentionally small.
+
+The current canonical collaboration kinds are:
+
+- `question`: a lightweight information-seeking interaction with states such as `open`,
+  `answered`, `closed`, and `declined`
+- `work_item`: a durable execution object with states such as `open`, `working`,
+  `waiting`, `review`, `done`, and `cancelled`
+
+These are peers, not points on one severity ladder:
+
+- a question can resolve directly
+- a question can attach to a work item
+- a question can spawn a work item
+- a work item can accumulate progress, waiting conditions, and review state without
+  pretending it started as a question
+
+Acceptance is modeled separately from workflow state so that a reply and satisfaction do
+not collapse into one transition. A work item can be done without peer acceptance, and a
+question can be answered without being closed yet.
+
+The exported collaboration shapes are a protocol vocabulary for upcoming runtime and UI
+work. They do not yet imply that the broker persists the full collaboration layer today.
+See [docs/collaboration-workflows-v1.md](../../docs/collaboration-workflows-v1.md) for the
+v1 model.
+
 ## Identity Model
 
 The important distinction is between a helper and an agent:

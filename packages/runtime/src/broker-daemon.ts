@@ -7,6 +7,8 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  CollaborationEvent,
+  CollaborationRecord,
   ControlCommand,
   ControlEvent,
   ConversationBinding,
@@ -994,6 +996,14 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       await runtime.upsertBinding(command.binding);
       store.upsertBinding(command.binding);
       return { ok: true };
+    case "collaboration.upsert":
+      await runtime.upsertCollaboration(command.record);
+      store.recordCollaborationRecord(command.record);
+      return { ok: true, recordId: command.record.id };
+    case "collaboration.event.append":
+      await runtime.appendCollaborationEvent(command.event);
+      store.recordCollaborationEvent(command.event);
+      return { ok: true, eventId: command.event.id };
     case "conversation.post": {
       const deliveries = await runtime.postMessage(command.message);
       store.recordMessage(command.message);
@@ -1054,6 +1064,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         conversations: Object.keys(snapshot.conversations).length,
         messages: Object.keys(snapshot.messages).length,
         flights: Object.keys(snapshot.flights).length,
+        collaborationRecords: Object.keys(snapshot.collaborationRecords).length,
       },
     });
     return;
@@ -1071,6 +1082,32 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/events") {
     json(response, 200, store.recentEvents(parseLimit(url)));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/collaboration/records") {
+    const kind = url.searchParams.get("kind") ?? undefined;
+    const state = url.searchParams.get("state") ?? undefined;
+    const ownerId = url.searchParams.get("ownerId") ?? undefined;
+    const nextMoveOwnerId = url.searchParams.get("nextMoveOwnerId") ?? undefined;
+    const records = store.listCollaborationRecords({
+      limit: parseLimit(url),
+      kind: kind as CollaborationRecord["kind"] | undefined,
+      state: state ?? undefined,
+      ownerId: ownerId ?? undefined,
+      nextMoveOwnerId: nextMoveOwnerId ?? undefined,
+    });
+    json(response, 200, records);
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/collaboration/events") {
+    const recordId = url.searchParams.get("recordId") ?? undefined;
+    const events = store.listCollaborationEvents({
+      limit: parseLimit(url),
+      recordId: recordId ?? undefined,
+    });
+    json(response, 200, events);
     return;
   }
 
@@ -1233,6 +1270,28 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const binding = await readRequestBody<ConversationBinding>(request);
       await handleCommand({ kind: "binding.upsert", binding });
       json(response, 200, { ok: true, bindingId: binding.id });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/collaboration/records") {
+    try {
+      const record = await readRequestBody<CollaborationRecord>(request);
+      const result = await handleCommand({ kind: "collaboration.upsert", record });
+      json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/collaboration/events") {
+    try {
+      const event = await readRequestBody<CollaborationEvent>(request);
+      const result = await handleCommand({ kind: "collaboration.event.append", event });
+      json(response, 200, result);
     } catch (error) {
       badRequest(response, error);
     }

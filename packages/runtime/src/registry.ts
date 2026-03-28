@@ -2,6 +2,7 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  CollaborationRecord,
   ConversationBinding,
   ConversationDefinition,
   FlightRecord,
@@ -18,6 +19,7 @@ export interface RuntimeRegistrySnapshot {
   bindings: Record<string, ConversationBinding>;
   messages: Record<string, MessageRecord>;
   flights: Record<string, FlightRecord>;
+  collaborationRecords: Record<string, CollaborationRecord>;
 }
 
 export function createRuntimeRegistrySnapshot(
@@ -32,5 +34,6 @@ export function createRuntimeRegistrySnapshot(
     bindings: value.bindings ?? {},
     messages: value.messages ?? {},
     flights: value.flights ?? {},
+    collaborationRecords: value.collaborationRecords ?? {},
   };
 }

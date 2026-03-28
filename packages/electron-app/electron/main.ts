@@ -1,4 +1,7 @@
+import { execFile as execFileCallback } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import electron from "electron";
@@ -8,6 +11,7 @@ import {
   buildDesktopShellState,
   controlBroker,
   getAgentConfig,
+  getAgentSession,
   getAppSettings,
   getBrokerInspector,
   getLogCatalog,
@@ -47,6 +51,51 @@ const preloadPath = path.resolve(__dirname, "preload.cjs");
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let appServer: StartedAppServer | null = null;
+const execFile = promisify(execFileCallback);
+
+function expandHomePath(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  if (value === "~") {
+    return os.homedir();
+  }
+  if (value.startsWith("~/")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
+function escapeAppleScriptString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+async function openAgentSessionSurface(agentId: string) {
+  const session = await getAgentSession(agentId);
+  if (session.mode === "tmux" && session.commandLabel) {
+    if (process.platform !== "darwin") {
+      throw new Error("Direct tmux attach is only wired for macOS right now.");
+    }
+    await execFile("osascript", [
+      "-e",
+      'tell application "Terminal" to activate',
+      "-e",
+      `tell application "Terminal" to do script "${escapeAppleScriptString(session.commandLabel)}"`,
+    ]);
+    return true;
+  }
+
+  const targetPath = expandHomePath(session.directoryPath);
+  if (targetPath) {
+    const errorMessage = await shell.openPath(targetPath);
+    if (errorMessage) {
+      throw new Error(errorMessage);
+    }
+    return true;
+  }
+
+  throw new Error("No live tmux pane or session logs are available for this agent yet.");
+}
 
 function resolveProductName() {
   return process.env.OPENSCOUT_PRODUCT_NAME?.trim() || app.getName() || "OpenScout";
@@ -265,6 +314,14 @@ ipcMain.handle("openscout:get-broker-inspector", async () =>
 
 ipcMain.handle("openscout:read-log-source", async (_event, input: ReadLogSourceInput) =>
   readLogSource(input),
+);
+
+ipcMain.handle("openscout:get-agent-session", async (_event, agentId: string) =>
+  getAgentSession(agentId),
+);
+
+ipcMain.handle("openscout:open-agent-session", async (_event, agentId: string) =>
+  openAgentSessionSurface(agentId),
 );
 
 ipcMain.handle("openscout:toggle-voice-capture", async () =>

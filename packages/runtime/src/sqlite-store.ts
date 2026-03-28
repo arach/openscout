@@ -7,6 +7,14 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  CollaborationEvent,
+  CollaborationRecord,
+  CollaborationRelation,
+  CollaborationPriority,
+  CollaborationWaitingOn,
+  CollaborationProgress,
+  QuestionState,
+  WorkItemState,
   ControlEvent,
   ConversationBinding,
   ConversationDefinition,
@@ -178,6 +186,37 @@ interface FlightRow {
   completed_at: number | null;
 }
 
+interface CollaborationRecordRow {
+  id: string;
+  kind: CollaborationRecord["kind"];
+  state: string;
+  acceptance_state: string;
+  title: string;
+  summary: string | null;
+  created_by_id: string;
+  owner_id: string | null;
+  next_move_owner_id: string | null;
+  conversation_id: string | null;
+  parent_id: string | null;
+  priority: string | null;
+  labels_json: string | null;
+  relations_json: string | null;
+  detail_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface CollaborationEventRow {
+  id: string;
+  record_id: string;
+  record_kind: string;
+  kind: string;
+  actor_id: string;
+  summary: string | null;
+  metadata_json: string | null;
+  created_at: number;
+}
+
 interface DeliveryRow {
   id: string;
   message_id: string | null;
@@ -202,6 +241,54 @@ interface EventRow {
   node_id: string | null;
   ts: number;
   payload_json: string;
+}
+
+function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRecord {
+  const detail = parseJson<Record<string, unknown>>(row.detail_json, {});
+  const base = {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    summary: row.summary ?? undefined,
+    createdById: row.created_by_id,
+    ownerId: row.owner_id ?? undefined,
+    nextMoveOwnerId: row.next_move_owner_id ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
+    parentId: row.parent_id ?? undefined,
+    priority: (row.priority ?? undefined) as CollaborationPriority | undefined,
+    labels: parseJson<string[] | undefined>(row.labels_json, undefined),
+    relations: parseJson<CollaborationRelation[] | undefined>(row.relations_json, undefined),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    metadata: (detail as { metadata?: Record<string, unknown> }).metadata,
+  };
+
+  if (row.kind === "question") {
+    return {
+      ...base,
+      kind: "question",
+      state: row.state as QuestionState,
+      acceptanceState: row.acceptance_state as CollaborationRecord["acceptanceState"],
+      askedById: detail.askedById as string | undefined,
+      askedOfId: detail.askedOfId as string | undefined,
+      answerMessageId: detail.answerMessageId as string | undefined,
+      spawnedWorkItemId: detail.spawnedWorkItemId as string | undefined,
+      closedAt: detail.closedAt as number | undefined,
+    };
+  }
+
+  return {
+    ...base,
+    kind: "work_item",
+    state: row.state as WorkItemState,
+    acceptanceState: row.acceptance_state as CollaborationRecord["acceptanceState"],
+    requestedById: detail.requestedById as string | undefined,
+    waitingOn: detail.waitingOn as CollaborationWaitingOn | undefined,
+    progress: detail.progress as CollaborationProgress | undefined,
+    startedAt: detail.startedAt as number | undefined,
+    reviewRequestedAt: detail.reviewRequestedAt as number | undefined,
+    completedAt: detail.completedAt as number | undefined,
+  };
 }
 
 export class SQLiteControlPlaneStore {
@@ -386,6 +473,13 @@ export class SQLiteControlPlaneStore {
         startedAt: row.started_at ?? undefined,
         completedAt: row.completed_at ?? undefined,
       };
+    }
+
+    const collaborationRows = this.db.query<CollaborationRecordRow>(
+      "SELECT * FROM collaboration_records",
+    ).all();
+    for (const row of collaborationRows) {
+      snapshot.collaborationRecords[row.id] = buildCollaborationRecord(row);
     }
 
     return snapshot;
@@ -676,6 +770,137 @@ export class SQLiteControlPlaneStore {
       flight.startedAt ?? null,
       flight.completedAt ?? null,
     );
+  }
+
+  recordCollaborationRecord(record: CollaborationRecord): void {
+    const detail: Record<string, unknown> = {
+      metadata: record.metadata,
+    };
+
+    if (record.kind === "question") {
+      detail.askedById = record.askedById;
+      detail.askedOfId = record.askedOfId;
+      detail.answerMessageId = record.answerMessageId;
+      detail.spawnedWorkItemId = record.spawnedWorkItemId;
+      detail.closedAt = record.closedAt;
+    } else {
+      detail.requestedById = record.requestedById;
+      detail.waitingOn = record.waitingOn;
+      detail.progress = record.progress;
+      detail.startedAt = record.startedAt;
+      detail.reviewRequestedAt = record.reviewRequestedAt;
+      detail.completedAt = record.completedAt;
+    }
+
+    this.db.query(
+      `INSERT OR REPLACE INTO collaboration_records (
+        id, kind, state, acceptance_state, title, summary, created_by_id, owner_id,
+        next_move_owner_id, conversation_id, parent_id, priority, labels_json, relations_json,
+        detail_json, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+    ).run(
+      record.id,
+      record.kind,
+      record.state,
+      record.acceptanceState,
+      record.title,
+      record.summary ?? null,
+      record.createdById,
+      record.ownerId ?? null,
+      record.nextMoveOwnerId ?? null,
+      record.conversationId ?? null,
+      record.parentId ?? null,
+      record.priority ?? null,
+      stringify(record.labels),
+      stringify(record.relations),
+      stringify(detail),
+      record.createdAt,
+      record.updatedAt,
+    );
+  }
+
+  recordCollaborationEvent(event: CollaborationEvent): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO collaboration_events (
+        id, record_id, record_kind, kind, actor_id, summary, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    ).run(
+      event.id,
+      event.recordId,
+      event.recordKind,
+      event.kind,
+      event.actorId,
+      event.summary ?? null,
+      stringify(event.metadata),
+      event.at,
+    );
+  }
+
+  listCollaborationRecords(options: {
+    limit?: number;
+    kind?: CollaborationRecord["kind"];
+    state?: string;
+    ownerId?: string;
+    nextMoveOwnerId?: string;
+  } = {}): CollaborationRecord[] {
+    const filters: string[] = [];
+    const values: Array<string | number> = [];
+
+    if (options.kind) {
+      filters.push(`kind = ?${values.length + 1}`);
+      values.push(options.kind);
+    }
+    if (options.state) {
+      filters.push(`state = ?${values.length + 1}`);
+      values.push(options.state);
+    }
+    if (options.ownerId) {
+      filters.push(`owner_id = ?${values.length + 1}`);
+      values.push(options.ownerId);
+    }
+    if (options.nextMoveOwnerId) {
+      filters.push(`next_move_owner_id = ?${values.length + 1}`);
+      values.push(options.nextMoveOwnerId);
+    }
+
+    const limit = options.limit ?? 200;
+    const sql = [
+      "SELECT * FROM collaboration_records",
+      filters.length ? `WHERE ${filters.join(" AND ")}` : "",
+      "ORDER BY updated_at DESC",
+      `LIMIT ?${values.length + 1}`,
+    ].filter(Boolean).join(" ");
+    const rows = this.db.query<CollaborationRecordRow>(sql).all(...values, limit);
+    return rows.map(buildCollaborationRecord);
+  }
+
+  listCollaborationEvents(options: { limit?: number; recordId?: string } = {}): CollaborationEvent[] {
+    const filters: string[] = [];
+    const values: Array<string | number> = [];
+
+    if (options.recordId) {
+      filters.push(`record_id = ?${values.length + 1}`);
+      values.push(options.recordId);
+    }
+
+    const limit = options.limit ?? 200;
+    const sql = [
+      "SELECT * FROM collaboration_events",
+      filters.length ? `WHERE ${filters.join(" AND ")}` : "",
+      "ORDER BY created_at DESC",
+      `LIMIT ?${values.length + 1}`,
+    ].filter(Boolean).join(" ");
+    const rows = this.db.query<CollaborationEventRow>(sql).all(...values, limit);
+    return rows.map((row) => ({
+      id: row.id,
+      recordId: row.record_id,
+      recordKind: row.record_kind as CollaborationEvent["recordKind"],
+      kind: row.kind as CollaborationEvent["kind"],
+      actorId: row.actor_id,
+      summary: row.summary ?? undefined,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+      at: row.created_at,
+    }));
   }
 
   recordDeliveries(deliveries: DeliveryIntent[]): void {

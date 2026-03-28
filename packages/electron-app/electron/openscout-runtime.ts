@@ -35,6 +35,7 @@ import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
 import type {
+  AgentSessionInspector,
   AgentConfigState,
   AppSettingsState,
   BrokerControlAction,
@@ -611,6 +612,82 @@ async function tailLogSource(source: ResolvedLogSource, tailLines = 240): Promis
     subtitle: source.subtitle,
     pathLabel: source.pathLabel,
     body: foundAny ? sections.join("\n\n") : "",
+    updatedAtLabel: updatedAtMs > 0 ? formatRelativeTime(updatedAtMs) : null,
+    lineCount,
+    truncated,
+    missing: !foundAny,
+  };
+}
+
+function captureTmuxPane(sessionId: string, tailLines: number): {
+  body: string;
+  lineCount: number;
+  truncated: boolean;
+  missing: boolean;
+} {
+  const output = runOptionalCommand("tmux", [
+    "capture-pane",
+    "-p",
+    "-t",
+    sessionId,
+    "-S",
+    `-${Math.max(tailLines, 40)}`,
+  ]);
+  if (output === null) {
+    return {
+      body: "",
+      lineCount: 0,
+      truncated: false,
+      missing: true,
+    };
+  }
+
+  const lines = splitLogLines(output);
+  const visibleLines = lines.length > tailLines ? lines.slice(-tailLines) : lines;
+  return {
+    body: visibleLines.join("\n"),
+    lineCount: visibleLines.length,
+    truncated: lines.length > tailLines,
+    missing: false,
+  };
+}
+
+async function readAgentSessionLogs(agentId: string, tailLines: number): Promise<{
+  body: string;
+  pathLabel: string;
+  updatedAtLabel: string | null;
+  lineCount: number;
+  truncated: boolean;
+  missing: boolean;
+}> {
+  const logsDirectory = relayAgentLogsDirectory(agentId);
+  const sources = [
+    path.join(logsDirectory, "stdout.log"),
+    path.join(logsDirectory, "stderr.log"),
+  ];
+  const sections: string[] = [];
+  let updatedAtMs = 0;
+  let lineCount = 0;
+  let truncated = false;
+  let foundAny = false;
+
+  for (const filePath of sources) {
+    if (!existsSync(filePath)) {
+      continue;
+    }
+
+    foundAny = true;
+    const content = await readVisibleLogFile(filePath, tailLines);
+    updatedAtMs = Math.max(updatedAtMs, content.updatedAtMs);
+    lineCount += content.lines.length;
+    truncated = truncated || content.truncated;
+    sections.push(`== ${logSectionLabel(filePath)} ==`);
+    sections.push(content.lines.join("\n") || "(empty)");
+  }
+
+  return {
+    body: foundAny ? sections.join("\n\n") : "",
+    pathLabel: compactHomePath(logsDirectory) ?? logsDirectory,
     updatedAtLabel: updatedAtMs > 0 ? formatRelativeTime(updatedAtMs) : null,
     lineCount,
     truncated,
@@ -2869,6 +2946,84 @@ export async function readLogSource(input: ReadLogSourceInput): Promise<DesktopL
     throw new Error(`Unknown log source: ${input.sourceId}`);
   }
   return tailLogSource(source, input.tailLines ?? 240);
+}
+
+export async function getAgentSession(agentId: string): Promise<AgentSessionInspector> {
+  const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
+  const snapshot = liveBroker.snapshot;
+  const agent = snapshot?.agents?.[agentId] as AgentRecord | undefined;
+  const endpoint = snapshot ? activeEndpoint(snapshot, agentId) : null;
+  const twinConfig = await getProjectTwinConfig(agentId);
+
+  const title = agent?.displayName ?? twinConfig?.twinId ?? agentId;
+  const harness = endpoint?.harness ?? twinConfig?.runtime.harness ?? null;
+  const transport = endpoint?.transport ?? twinConfig?.runtime.transport ?? null;
+  const sessionId = endpoint?.sessionId ?? twinConfig?.runtime.sessionId ?? null;
+  const cwd = compactHomePath(endpoint?.cwd ?? twinConfig?.runtime.cwd ?? "") || null;
+
+  if (transport === "tmux" && sessionId) {
+    const tmuxCapture = captureTmuxPane(sessionId, 180);
+    if (!tmuxCapture.missing) {
+      return {
+        agentId,
+        title,
+        subtitle: cwd ? `Live tmux pane capture · ${cwd}` : "Live tmux pane capture",
+        mode: "tmux",
+      harness,
+      transport,
+      sessionId,
+      commandLabel: `tmux attach -t ${sessionId}`,
+      pathLabel: cwd ? `${cwd} · tmux:${sessionId}` : `tmux:${sessionId}`,
+      directoryPath: endpoint?.cwd ?? twinConfig?.runtime.cwd ?? null,
+      body: tmuxCapture.body,
+      updatedAtLabel: null,
+      lineCount: tmuxCapture.lineCount,
+      truncated: tmuxCapture.truncated,
+      missing: false,
+      };
+    }
+  }
+
+  const logCapture = await readAgentSessionLogs(agentId, 180);
+  if (!logCapture.missing) {
+    return {
+      agentId,
+      title,
+      subtitle: transport && transport !== "tmux"
+        ? `${transport} session logs`
+        : "Runtime session logs",
+      mode: "logs",
+      harness,
+      transport,
+      sessionId,
+      commandLabel: null,
+      pathLabel: logCapture.pathLabel,
+      directoryPath: relayAgentLogsDirectory(agentId),
+      body: logCapture.body,
+      updatedAtLabel: logCapture.updatedAtLabel,
+      lineCount: logCapture.lineCount,
+      truncated: logCapture.truncated,
+      missing: false,
+    };
+  }
+
+  return {
+    agentId,
+    title,
+    subtitle: "No live tmux pane or session logs available yet.",
+    mode: "none",
+    harness,
+    transport,
+    sessionId,
+    commandLabel: sessionId && transport === "tmux" ? `tmux attach -t ${sessionId}` : null,
+    pathLabel: cwd,
+    directoryPath: endpoint?.cwd ?? twinConfig?.runtime.cwd ?? null,
+    body: "",
+    updatedAtLabel: null,
+    lineCount: 0,
+    truncated: false,
+    missing: true,
+  };
 }
 
 export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<AppSettingsState> {

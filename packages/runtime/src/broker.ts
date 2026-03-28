@@ -2,6 +2,8 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  CollaborationEvent,
+  CollaborationRecord,
   ControlCommand,
   ControlEvent,
   ConversationBinding,
@@ -153,6 +155,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       bindings: { ...this.registry.bindings },
       messages: { ...this.registry.messages },
       flights: { ...this.registry.flights },
+      collaborationRecords: { ...this.registry.collaborationRecords },
     });
   }
 
@@ -186,6 +189,12 @@ export class InMemoryControlRuntime implements ControlRuntime {
         return;
       case "binding.upsert":
         await this.upsertBinding(command.binding);
+        return;
+      case "collaboration.upsert":
+        await this.upsertCollaboration(command.record);
+        return;
+      case "collaboration.event.append":
+        await this.appendCollaborationEvent(command.event);
         return;
       case "conversation.post":
         await this.postMessage(command.message);
@@ -307,6 +316,29 @@ export class InMemoryControlRuntime implements ControlRuntime {
       actorId: "system",
       nodeId: this.localNodeId,
       payload: { binding },
+    });
+  }
+
+  async upsertCollaboration(record: CollaborationRecord): Promise<void> {
+    this.registry.collaborationRecords[record.id] = record;
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "collaboration.upserted",
+      ts: Date.now(),
+      actorId: record.createdById,
+      nodeId: this.localNodeId,
+      payload: { record },
+    });
+  }
+
+  async appendCollaborationEvent(event: CollaborationEvent): Promise<void> {
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "collaboration.event.appended",
+      ts: Date.now(),
+      actorId: event.actorId,
+      nodeId: this.localNodeId,
+      payload: { event },
     });
   }
 

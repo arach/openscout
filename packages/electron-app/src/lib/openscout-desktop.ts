@@ -477,6 +477,24 @@ export type DesktopLogContent = {
   missing: boolean;
 };
 
+export type AgentSessionInspector = {
+  agentId: string;
+  title: string;
+  subtitle: string;
+  mode: "tmux" | "logs" | "none";
+  harness: string | null;
+  transport: string | null;
+  sessionId: string | null;
+  commandLabel: string | null;
+  pathLabel: string | null;
+  directoryPath: string | null;
+  body: string;
+  updatedAtLabel: string | null;
+  lineCount: number;
+  truncated: boolean;
+  missing: boolean;
+};
+
 declare global {
   interface Window {
     openScoutDesktop?: {
@@ -494,6 +512,8 @@ declare global {
       getLogCatalog: () => Promise<DesktopLogCatalog>;
       getBrokerInspector: () => Promise<DesktopBrokerInspector>;
       readLogSource: (input: ReadLogSourceInput) => Promise<DesktopLogContent>;
+      getAgentSession: (agentId: string) => Promise<AgentSessionInspector>;
+      openAgentSession: (agentId: string) => Promise<boolean>;
       toggleVoiceCapture: () => Promise<DesktopShellState>;
       setVoiceRepliesEnabled: (enabled: boolean) => Promise<DesktopShellState>;
     };

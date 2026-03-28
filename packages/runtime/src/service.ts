@@ -2,6 +2,8 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  CollaborationEvent,
+  CollaborationRecord,
   ConversationBinding,
   ConversationDefinition,
   ControlCommand,
@@ -25,6 +27,8 @@ export interface ControlRuntime {
   upsertConversation(conversation: ConversationDefinition): Promise<void>;
   upsertBinding(binding: ConversationBinding): Promise<void>;
   upsertFlight(flight: FlightRecord): Promise<void>;
+  upsertCollaboration(record: CollaborationRecord): Promise<void>;
+  appendCollaborationEvent(event: CollaborationEvent): Promise<void>;
   postMessage(message: MessageRecord, options?: { localOnly?: boolean }): Promise<DeliveryIntent[]>;
   invokeAgent(invocation: InvocationRequest): Promise<FlightRecord>;
   subscribe(listener: (event: ControlEvent) => void): () => void;
