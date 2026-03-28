@@ -176,12 +176,180 @@ export type DesktopRuntimeState = {
   updatedAtLabel: string | null;
 };
 
+export type DesktopMachineEndpointState = "running" | "idle" | "waiting" | "offline";
+
+export type DesktopMachineEndpoint = {
+  id: string;
+  agentId: string;
+  agentName: string;
+  project: string | null;
+  projectRoot: string | null;
+  cwd: string | null;
+  harness: string | null;
+  transport: string | null;
+  sessionId: string | null;
+  state: DesktopMachineEndpointState;
+  stateLabel: string;
+  reachable: boolean;
+  lastActiveLabel: string | null;
+  activeTask: string | null;
+};
+
+export type DesktopMachineStatus = "online" | "degraded" | "offline";
+
+export type DesktopMachine = {
+  id: string;
+  title: string;
+  hostName: string | null;
+  status: DesktopMachineStatus;
+  statusLabel: string;
+  statusDetail: string | null;
+  advertiseScope: string | null;
+  brokerUrl: string | null;
+  capabilities: string[];
+  labels: string[];
+  isLocal: boolean;
+  registeredAtLabel: string | null;
+  lastSeenLabel: string | null;
+  projectRoots: string[];
+  projectCount: number;
+  endpointCount: number;
+  reachableEndpointCount: number;
+  workingEndpointCount: number;
+  idleEndpointCount: number;
+  waitingEndpointCount: number;
+  endpoints: DesktopMachineEndpoint[];
+};
+
+export type DesktopMachinesState = {
+  title: string;
+  subtitle: string;
+  totalMachines: number;
+  onlineCount: number;
+  degradedCount: number;
+  offlineCount: number;
+  lastUpdatedLabel: string | null;
+  machines: DesktopMachine[];
+};
+
+export type DesktopTaskStatus = "queued" | "running" | "completed" | "failed";
+
+export type DesktopTask = {
+  id: string;
+  messageId: string;
+  conversationId: string;
+  targetAgentId: string;
+  targetAgentName: string;
+  project: string | null;
+  projectRoot: string | null;
+  title: string;
+  body: string;
+  status: DesktopTaskStatus;
+  statusLabel: string;
+  statusDetail: string | null;
+  replyPreview: string | null;
+  createdAt: number;
+  createdAtLabel: string;
+  updatedAtLabel: string | null;
+  ageLabel: string | null;
+};
+
+export type DesktopPlanStatus =
+  | "awaiting-review"
+  | "in-progress"
+  | "completed"
+  | "paused"
+  | "draft";
+
+export type DesktopPlan = {
+  id: string;
+  title: string;
+  summary: string;
+  status: DesktopPlanStatus;
+  stepsCompleted: number;
+  stepsTotal: number;
+  progressPercent: number;
+  tags: string[];
+  twinId: string;
+  agent: string;
+  workspaceName: string;
+  workspacePath: string;
+  path: string;
+  updatedAt: string;
+  updatedAtLabel: string;
+};
+
+export type DesktopPlansState = {
+  title: string;
+  subtitle: string;
+  taskCount: number;
+  runningTaskCount: number;
+  failedTaskCount: number;
+  completedTaskCount: number;
+  planCount: number;
+  workspaceCount: number;
+  lastUpdatedLabel: string | null;
+  tasks: DesktopTask[];
+  plans: DesktopPlan[];
+};
+
 export type DesktopShellState = {
   appInfo: DesktopAppInfo;
   runtime: DesktopRuntimeState;
+  machines: DesktopMachinesState;
+  plans: DesktopPlansState;
   sessions: SessionMetadata[];
   relay: RelayState;
   interAgent: InterAgentState;
+};
+
+export type SetupAgentSummary = {
+  id: string;
+  title: string;
+  root: string;
+  source: string;
+  harness: string;
+  sessionId: string;
+  projectConfigPath: string | null;
+};
+
+export type AppSettingsState = {
+  operatorId: string;
+  operatorName: string;
+  operatorNameDefault: string;
+  note: string | null;
+  settingsPath: string;
+  relayAgentsPath: string;
+  relayHubPath: string;
+  supportDirectory: string;
+  currentProjectConfigPath: string | null;
+  workspaceRoots: string[];
+  workspaceRootsNote: string | null;
+  includeCurrentRepo: boolean;
+  defaultHarness: string;
+  defaultTransport: string;
+  defaultCapabilities: string[];
+  sessionPrefix: string;
+  discoveredAgents: SetupAgentSummary[];
+  broker: {
+    label: string;
+    url: string;
+    installed: boolean;
+    loaded: boolean;
+    reachable: boolean;
+    launchAgentPath: string;
+    stdoutLogPath: string;
+    stderrLogPath: string;
+  };
+};
+
+export type UpdateAppSettingsInput = {
+  operatorName: string;
+  workspaceRootsText: string;
+  includeCurrentRepo: boolean;
+  defaultHarness: string;
+  defaultCapabilitiesText: string;
+  sessionPrefix: string;
 };
 
 export type AgentConfigState = {
@@ -232,9 +400,74 @@ export type SendRelayMessageInput = {
   destinationKind: RelayDestinationKind;
   destinationId: string;
   body: string;
+  replyToMessageId?: string | null;
 };
 
 export type BrokerControlAction = "start" | "stop" | "restart";
+
+export type DesktopLogGroup = "runtime" | "app" | "agents";
+
+export type DesktopLogSource = {
+  id: string;
+  title: string;
+  subtitle: string;
+  group: DesktopLogGroup;
+  pathLabel: string;
+};
+
+export type DesktopLogCatalog = {
+  sources: DesktopLogSource[];
+  defaultSourceId: string | null;
+};
+
+export type DesktopBrokerInspector = {
+  statusLabel: string;
+  statusDetail: string | null;
+  version: string | null;
+  label: string;
+  mode: string;
+  url: string;
+  installed: boolean;
+  loaded: boolean;
+  reachable: boolean;
+  pid: string | null;
+  processCommand: string | null;
+  lastRestartLabel: string | null;
+  nodeId: string | null;
+  meshId: string | null;
+  launchdState: string | null;
+  lastExitStatus: string | null;
+  lastLogLine: string | null;
+  supportDirectory: string;
+  controlHome: string;
+  launchAgentPath: string;
+  stdoutLogPath: string;
+  stderrLogPath: string;
+  actorCount: number | null;
+  agentCount: number | null;
+  conversationCount: number | null;
+  messageCount: number | null;
+  flightCount: number | null;
+  troubleshooting: string[];
+  feedbackSummary: string;
+};
+
+export type ReadLogSourceInput = {
+  sourceId: string;
+  tailLines?: number;
+};
+
+export type DesktopLogContent = {
+  sourceId: string;
+  title: string;
+  subtitle: string;
+  pathLabel: string;
+  body: string;
+  updatedAtLabel: string | null;
+  lineCount: number;
+  truncated: boolean;
+  missing: boolean;
+};
 
 declare global {
   interface Window {
@@ -243,11 +476,16 @@ declare global {
       getAppInfo: () => Promise<DesktopAppInfo>;
       getShellState: () => Promise<DesktopShellState>;
       refreshShellState: () => Promise<DesktopShellState>;
+      getAppSettings: () => Promise<AppSettingsState>;
+      updateAppSettings: (input: UpdateAppSettingsInput) => Promise<AppSettingsState>;
       getAgentConfig: (agentId: string) => Promise<AgentConfigState>;
       updateAgentConfig: (input: UpdateAgentConfigInput) => Promise<AgentConfigState>;
       restartAgent: (input: RestartAgentInput) => Promise<DesktopShellState>;
       sendRelayMessage: (input: SendRelayMessageInput) => Promise<DesktopShellState>;
       controlBroker: (action: BrokerControlAction) => Promise<DesktopShellState>;
+      getLogCatalog: () => Promise<DesktopLogCatalog>;
+      getBrokerInspector: () => Promise<DesktopBrokerInspector>;
+      readLogSource: (input: ReadLogSourceInput) => Promise<DesktopLogContent>;
       toggleVoiceCapture: () => Promise<DesktopShellState>;
       setVoiceRepliesEnabled: (enabled: boolean) => Promise<DesktopShellState>;
     };

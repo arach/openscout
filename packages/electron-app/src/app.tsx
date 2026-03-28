@@ -3,9 +3,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Bot,
+  Database,
   LayoutGrid,
   FileText,
   Network,
+  Palette,
   PenTool,
   MessageSquare,
   User,
@@ -34,8 +36,15 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import MachinesView from "@/components/machines-view";
+import PlansView from "@/components/plans-view";
 import type {
   AgentConfigState,
+  AppSettingsState,
+  DesktopBrokerInspector,
+  DesktopLogCatalog,
+  DesktopLogContent,
+  DesktopLogSource,
   DesktopShellState,
   InterAgentAgent,
   InterAgentThread,
@@ -67,7 +76,7 @@ const C = {
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeView, setActiveView] = useState<'overview' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionMetadata | null>(null);
@@ -79,6 +88,13 @@ export default function App() {
   const [relayDraft, setRelayDraft] = useState('');
   const [relaySending, setRelaySending] = useState(false);
   const [relayFeedback, setRelayFeedback] = useState<string | null>(null);
+  const [relayReplyTarget, setRelayReplyTarget] = useState<{
+    messageId: string;
+    authorId: string;
+    authorName: string;
+    preview: string;
+  } | null>(null);
+  const [pendingRelayComposerFocusTick, setPendingRelayComposerFocusTick] = useState(0);
   const [selectedInterAgentId, setSelectedInterAgentId] = useState<string | null>(null);
   const [selectedInterAgentThreadId, setSelectedInterAgentThreadId] = useState<string | null>(null);
   const [agentConfig, setAgentConfig] = useState<AgentConfigState | null>(null);
@@ -89,6 +105,22 @@ export default function App() {
   const [agentConfigFeedback, setAgentConfigFeedback] = useState<string | null>(null);
   const [pendingConfigFocusAgentId, setPendingConfigFocusAgentId] = useState<string | null>(null);
   const [isAgentConfigEditing, setIsAgentConfigEditing] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettingsState | null>(null);
+  const [appSettingsDraft, setAppSettingsDraft] = useState<AppSettingsState | null>(null);
+  const [appSettingsLoading, setAppSettingsLoading] = useState(false);
+  const [appSettingsSaving, setAppSettingsSaving] = useState(false);
+  const [appSettingsFeedback, setAppSettingsFeedback] = useState<string | null>(null);
+  const [isAppSettingsEditing, setIsAppSettingsEditing] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'profile' | 'agents' | 'communication' | 'database' | 'appearance'>('profile');
+  const [logCatalog, setLogCatalog] = useState<DesktopLogCatalog | null>(null);
+  const [selectedLogSourceId, setSelectedLogSourceId] = useState<string | null>(null);
+  const [logContent, setLogContent] = useState<DesktopLogContent | null>(null);
+  const [brokerInspector, setBrokerInspector] = useState<DesktopBrokerInspector | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsFeedback, setLogsFeedback] = useState<string | null>(null);
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [logSourceQuery, setLogSourceQuery] = useState('');
+  const [logsRefreshTick, setLogsRefreshTick] = useState(0);
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [dark, setDark] = useState(false);
   const isDragging = useRef(false);
@@ -96,8 +128,11 @@ export default function App() {
   const agentRuntimePathRef = useRef<HTMLInputElement | null>(null);
   const agentSystemPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const agentSystemPromptViewRef = useRef<HTMLDivElement | null>(null);
+  const settingsOperatorNameRef = useRef<HTMLInputElement | null>(null);
 
   const sessions = shellState?.sessions ?? [];
+  const machinesState = shellState?.machines ?? null;
+  const plansState = shellState?.plans ?? null;
   const runtime = shellState?.runtime ?? null;
   const relayState = shellState?.relay ?? null;
   const interAgentState = shellState?.interAgent ?? null;
@@ -231,6 +266,131 @@ export default function App() {
   }, [pendingConfigFocusAgentId, selectedInterAgentId]);
 
   useEffect(() => {
+    if (activeView !== 'settings' || !window.openScoutDesktop?.getAppSettings) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadAppSettings = async () => {
+      setAppSettingsLoading(true);
+      try {
+        const nextSettings = await window.openScoutDesktop!.getAppSettings();
+        if (cancelled) {
+          return;
+        }
+        setAppSettings(nextSettings);
+        setAppSettingsDraft(nextSettings);
+        setAppSettingsFeedback(null);
+        setIsAppSettingsEditing(false);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setAppSettings(null);
+        setAppSettingsDraft(null);
+        setAppSettingsFeedback(asErrorMessage(error));
+        setIsAppSettingsEditing(false);
+      } finally {
+        if (!cancelled) {
+          setAppSettingsLoading(false);
+        }
+      }
+    };
+
+    void loadAppSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
+
+  useEffect(() => {
+    if (activeView !== 'logs' || !window.openScoutDesktop?.getLogCatalog || !window.openScoutDesktop?.readLogSource) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadLogs = async () => {
+      setLogsLoading(true);
+      try {
+        const nextCatalog = await window.openScoutDesktop!.getLogCatalog();
+        if (cancelled) {
+          return;
+        }
+        setLogCatalog(nextCatalog);
+        const nextSourceId = nextCatalog.sources.some((source) => source.id === selectedLogSourceId)
+          ? selectedLogSourceId
+          : nextCatalog.defaultSourceId ?? nextCatalog.sources[0]?.id ?? null;
+        setSelectedLogSourceId(nextSourceId);
+        if (!nextSourceId) {
+          setLogContent(null);
+          setLogsFeedback('No log sources available.');
+          return;
+        }
+        const nextContent = await window.openScoutDesktop!.readLogSource({ sourceId: nextSourceId, tailLines: 240 });
+        if (cancelled) {
+          return;
+        }
+        setLogContent(nextContent);
+        setLogsFeedback(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setLogContent(null);
+        setLogsFeedback(asErrorMessage(error));
+      } finally {
+        if (!cancelled) {
+          setLogsLoading(false);
+        }
+      }
+    };
+
+    void loadLogs();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, selectedLogSourceId, logsRefreshTick]);
+
+  useEffect(() => {
+    if (activeView !== 'settings' || settingsSection !== 'communication' || !window.openScoutDesktop?.getBrokerInspector) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadRelayInspector = async () => {
+      try {
+        const nextInspector = await window.openScoutDesktop!.getBrokerInspector();
+        if (!cancelled) {
+          setBrokerInspector(nextInspector);
+        }
+      } catch {
+        if (!cancelled) {
+          setBrokerInspector(null);
+        }
+      }
+    };
+
+    void loadRelayInspector();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, settingsSection, logsRefreshTick]);
+
+  useEffect(() => {
+    if (activeView !== 'logs') {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setLogsRefreshTick((current) => current + 1);
+    }, 2500);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeView]);
+
+  useEffect(() => {
     const textarea = relayComposerRef.current;
     if (!textarea) {
       return;
@@ -244,7 +404,44 @@ export default function App() {
   }, [relayDraft]);
 
   useEffect(() => {
-    if (activeView !== 'agents' || !pendingConfigFocusAgentId || selectedInterAgentId !== pendingConfigFocusAgentId || agentConfigLoading) {
+    if (activeView !== 'relay' || pendingRelayComposerFocusTick === 0) {
+      return;
+    }
+
+    const target = relayComposerRef.current;
+    if (!target) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      target.focus();
+      const end = target.value.length;
+      target.setSelectionRange?.(end, end);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [activeView, pendingRelayComposerFocusTick]);
+
+  useEffect(() => {
+    if (!relayReplyTarget) {
+      return;
+    }
+
+    if (selectedRelayKind !== 'direct' || selectedRelayId !== relayReplyTarget.authorId) {
+      setRelayReplyTarget(null);
+    }
+  }, [relayReplyTarget, selectedRelayKind, selectedRelayId]);
+
+  useEffect(() => {
+    if (
+      activeView !== 'settings'
+      || settingsSection !== 'agents'
+      || !pendingConfigFocusAgentId
+      || selectedInterAgentId !== pendingConfigFocusAgentId
+      || agentConfigLoading
+    ) {
       return;
     }
 
@@ -267,6 +464,35 @@ export default function App() {
       window.cancelAnimationFrame(rafId);
     };
   }, [activeView, pendingConfigFocusAgentId, selectedInterAgentId, agentConfigLoading, agentConfigDraft]);
+
+  useEffect(() => {
+    if (activeView !== 'settings' || !isAppSettingsEditing) {
+      return;
+    }
+
+    const target = settingsOperatorNameRef.current;
+    if (!target) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      target.focus();
+      target.select();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [activeView, isAppSettingsEditing]);
+
+  useEffect(() => {
+    if (activeView !== 'agents' || !isAgentConfigEditing) {
+      return;
+    }
+
+    setIsAgentConfigEditing(false);
+    setPendingConfigFocusAgentId(null);
+  }, [activeView, isAgentConfigEditing]);
 
   // Get unique projects
   const projects = useMemo(() => {
@@ -345,6 +571,12 @@ export default function App() {
     () => interAgentThreads.filter((thread) => thread.participants.some((participant) => participant.id === selectedInterAgentId)),
     [interAgentThreads, selectedInterAgentId],
   );
+  const selectedInterAgentDirectThread = useMemo(
+    () => selectedInterAgent
+      ? relayState?.directs.find((thread) => thread.id === selectedInterAgent.id) ?? null
+      : null,
+    [relayState, selectedInterAgent],
+  );
   const selectedInterAgentThread = visibleInterAgentThreads.find((thread) => thread.id === selectedInterAgentThreadId) ?? null;
   const visibleInterAgentMessages = useMemo(
     () => {
@@ -378,8 +610,45 @@ export default function App() {
   const interAgentConfigureLabel = interAgentConfigureTarget
     ? interAgentConfigureTarget.profileKind === 'project' ? 'Configure' : 'Profile'
     : null;
+  const selectedInterAgentChatActionLabel = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
+    ? 'Open Chat'
+    : 'Start Chat';
+  const visibleAppSettings = isAppSettingsEditing ? (appSettingsDraft ?? appSettings) : appSettings;
+  const appSettingsDirty = useMemo(
+    () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
+    [appSettingsDraft, appSettings],
+  );
   const visibleAgentConfig = agentConfigDraft ?? agentConfig;
   const hasEditableAgentConfig = Boolean(agentConfig?.editable && visibleAgentConfig);
+  const logSources = logCatalog?.sources ?? [];
+  const filteredLogSources = useMemo(
+    () => {
+      const query = logSourceQuery.trim().toLowerCase();
+      if (!query) {
+        return logSources;
+      }
+      return logSources.filter((source) => (
+        source.title.toLowerCase().includes(query)
+        || source.subtitle.toLowerCase().includes(query)
+      ));
+    },
+    [logSourceQuery, logSources],
+  );
+  const selectedLogSource = logSources.find((source) => source.id === selectedLogSourceId) ?? null;
+  const visibleLogBody = useMemo(
+    () => {
+      const body = logContent?.body ?? '';
+      const query = logSearchQuery.trim().toLowerCase();
+      if (!query) {
+        return body;
+      }
+      return body
+        .split(/\r?\n/)
+        .filter((line) => line.toLowerCase().includes(query))
+        .join('\n');
+    },
+    [logContent, logSearchQuery],
+  );
   const agentConfigDirty = useMemo(
     () => serializeEditableAgentConfig(agentConfigDraft) !== serializeEditableAgentConfig(agentConfig),
     [agentConfigDraft, agentConfig],
@@ -405,6 +674,54 @@ export default function App() {
     () => (relayState?.directs ?? []).filter((thread) => thread.reachable),
     [relayState],
   );
+  const logsAttentionLevel = useMemo<'error' | 'warning' | null>(() => {
+    if (shellError || relayState?.voice.captureState === 'error') {
+      return 'error';
+    }
+    if (runtime && (!runtime.brokerReachable || !runtime.brokerHealthy)) {
+      return 'warning';
+    }
+    return null;
+  }, [relayState?.voice.captureState, runtime, shellError]);
+  const logsButtonTitle = logsAttentionLevel === 'error'
+    ? 'Logs · attention required'
+    : logsAttentionLevel === 'warning'
+      ? 'Logs · check runtime warnings'
+      : 'Logs';
+  const footerTimeLabel = formatFooterTime(new Date());
+  const settingsSections = [
+    {
+      id: 'profile' as const,
+      label: 'Getting Started',
+      description: 'Identity, workspace roots, starter relay-agent defaults, and discovered projects.',
+      icon: <FolderOpen size={15} />,
+    },
+    {
+      id: 'agents' as const,
+      label: 'Agents',
+      description: 'Relay agent configuration, runtime definitions, prompts, and restart controls.',
+      icon: <Bot size={15} />,
+    },
+    {
+      id: 'communication' as const,
+      label: 'Communication',
+      description: 'Broker, relay delivery, and live operator-facing runtime status.',
+      icon: <Radio size={15} />,
+    },
+    {
+      id: 'database' as const,
+      label: 'Database',
+      description: 'Session indexing and storage surfaces that back the desktop shell.',
+      icon: <Database size={15} />,
+    },
+    {
+      id: 'appearance' as const,
+      label: 'Appearance',
+      description: 'Visual preferences for the shell and operator-focused overlays.',
+      icon: <Palette size={15} />,
+    },
+  ];
+  const activeSettingsMeta = settingsSections.find((section) => section.id === settingsSection) ?? settingsSections[0];
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -448,17 +765,65 @@ export default function App() {
     }
   };
 
-  const openAgentProfile = React.useCallback((agentId: string, focusConfig = false) => {
+  const handleStartAppSettingsEdit = React.useCallback(() => {
+    setAppSettingsDraft(appSettings);
+    setAppSettingsFeedback(null);
+    setIsAppSettingsEditing(true);
+  }, [appSettings]);
+
+  const handleCancelAppSettingsEdit = React.useCallback(() => {
+    setAppSettingsDraft(appSettings);
+    setAppSettingsFeedback(null);
+    setIsAppSettingsEditing(false);
+  }, [appSettings]);
+
+  const handleSaveAppSettings = async () => {
+    if (!appSettingsDraft || !window.openScoutDesktop?.updateAppSettings) {
+      return;
+    }
+
+    setAppSettingsSaving(true);
+    try {
+      const nextSettings = await window.openScoutDesktop.updateAppSettings({
+        operatorName: appSettingsDraft.operatorName,
+        workspaceRootsText: appSettingsDraft.workspaceRoots.join('\n'),
+        includeCurrentRepo: appSettingsDraft.includeCurrentRepo,
+        defaultHarness: appSettingsDraft.defaultHarness,
+        defaultCapabilitiesText: appSettingsDraft.defaultCapabilities.join('\n'),
+        sessionPrefix: appSettingsDraft.sessionPrefix,
+      });
+      setAppSettings(nextSettings);
+      setAppSettingsDraft(nextSettings);
+      setAppSettingsFeedback('Settings saved.');
+      setIsAppSettingsEditing(false);
+      await loadShellState(false);
+    } catch (error) {
+      setAppSettingsFeedback(asErrorMessage(error));
+    } finally {
+      setAppSettingsSaving(false);
+    }
+  };
+
+  const openAgentProfile = React.useCallback((agentId: string) => {
     setSelectedInterAgentId(agentId);
     setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agentId));
+    setIsAgentConfigEditing(false);
+    setPendingConfigFocusAgentId(null);
     setActiveView('agents');
-    if (focusConfig) {
-      setIsAgentConfigEditing(true);
-      setPendingConfigFocusAgentId(agentId);
-    }
+  }, [interAgentThreads]);
+
+  const openAgentSettings = React.useCallback((agentId: string, focusConfig = false) => {
+    setSelectedInterAgentId(agentId);
+    setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agentId));
+    setSettingsSection('agents');
+    setActiveView('settings');
+    setIsAgentConfigEditing(focusConfig);
+    setPendingConfigFocusAgentId(focusConfig ? agentId : null);
   }, [interAgentThreads]);
 
   const handleStartAgentConfigEdit = React.useCallback(() => {
+    setActiveView('settings');
+    setSettingsSection('agents');
     setIsAgentConfigEditing(true);
     if (selectedInterAgentId) {
       setPendingConfigFocusAgentId(selectedInterAgentId);
@@ -470,23 +835,6 @@ export default function App() {
     setAgentConfigFeedback(null);
     setIsAgentConfigEditing(false);
   }, [agentConfig]);
-
-  const handleBrokerControl = async (action: 'start' | 'stop' | 'restart') => {
-    if (!window.openScoutDesktop) {
-      setShellError('Electron desktop bridge is unavailable.');
-      return;
-    }
-
-    setRelayFeedback(`${action[0]?.toUpperCase()}${action.slice(1)}ing broker…`);
-    try {
-      const nextState = await window.openScoutDesktop.controlBroker(action);
-      setShellState(nextState);
-      setShellError(null);
-      setRelayFeedback(`Broker ${action}ed.`);
-    } catch (error) {
-      setRelayFeedback(asErrorMessage(error));
-    }
-  };
 
   const handleToggleVoiceCapture = async () => {
     if (!window.openScoutDesktop?.toggleVoiceCapture) {
@@ -608,9 +956,11 @@ export default function App() {
         destinationKind: selectedRelayKind,
         destinationId: selectedRelayId,
         body,
+        replyToMessageId: relayReplyTarget?.messageId ?? null,
       });
       setShellState(nextState);
       setRelayDraft('');
+      setRelayReplyTarget(null);
       setRelayFeedback('Sent.');
     } catch (error) {
       setRelayFeedback(asErrorMessage(error));
@@ -630,6 +980,44 @@ export default function App() {
     setSelectedSession(session);
     setActiveView('sessions');
   };
+
+  const openRelayAgentThread = React.useCallback((
+    agentId: string,
+    options?: {
+      replyToMessage?: RelayMessage | null;
+      draft?: string | null;
+      focusComposer?: boolean;
+    },
+  ) => {
+    setSelectedRelayKind('direct');
+    setSelectedRelayId(agentId);
+    setActiveView('relay');
+    setRelayReplyTarget(options?.replyToMessage ? {
+      messageId: options.replyToMessage.id,
+      authorId: options.replyToMessage.authorId,
+      authorName: options.replyToMessage.authorName,
+      preview: messagePreviewSnippet(options.replyToMessage.body, 96),
+    } : null);
+    if (typeof options?.draft === 'string') {
+      setRelayDraft(options.draft);
+    }
+    if (options?.focusComposer) {
+      setPendingRelayComposerFocusTick((current) => current + 1);
+    }
+  }, []);
+
+  const handleNudgeMessage = React.useCallback((message: RelayMessage) => {
+    if (message.isOperator) {
+      return;
+    }
+
+    openRelayAgentThread(message.authorId, {
+      replyToMessage: message,
+      draft: 'Following up on this.',
+      focusComposer: true,
+    });
+    setRelayFeedback(`Drafting a follow-up to ${message.authorName}.`);
+  }, [openRelayAgentThread]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -683,10 +1071,9 @@ export default function App() {
           <div className="flex items-center gap-3 font-mono text-[9px] uppercase tracking-wider" style={s.mutedText}>
             <div className="flex items-center gap-1.5">
               <div className={`w-1.5 h-1.5 rounded-full ${runtime?.brokerReachable ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-              Broker <span className="font-medium" style={s.inkText}>{runtime?.brokerReachable ? 'Running' : 'Offline'}</span>
+              Relay <span className="font-medium" style={s.inkText}>{runtime?.brokerReachable ? 'Running' : 'Offline'}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
               Agents <span className="font-medium" style={s.inkText}>{runtime?.agentCount ?? 0}</span>
             </div>
           </div>
@@ -714,6 +1101,8 @@ export default function App() {
           <div className="flex flex-col gap-1 w-full px-2 mt-2" style={s.mutedText}>
             {([
               ['overview', <LayoutGrid size={16} strokeWidth={1.5} />, 'Overview'],
+              ['machines', <Network size={16} strokeWidth={1.5} />, 'Machines'],
+              ['plans', <FileText size={16} strokeWidth={1.5} />, 'Plans'],
               ['sessions', <Radar size={16} strokeWidth={1.5} />, 'Session History'],
               ['search',   <Search size={16} strokeWidth={1.5} />, 'Search'],
               ['agents', <Bot size={16} strokeWidth={1.5} />, 'Agents'],
@@ -732,7 +1121,7 @@ export default function App() {
             ))}
           </div>
           <div className="mt-auto flex flex-col gap-1 items-center w-full px-2">
-            {(activeView === 'sessions' || activeView === 'relay' || activeView === 'search' || activeView === 'inter-agent' || activeView === 'agents') && (
+            {(activeView === 'machines' || activeView === 'plans' || activeView === 'sessions' || activeView === 'relay' || activeView === 'search' || activeView === 'inter-agent' || activeView === 'agents' || activeView === 'logs') && (
               <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-1.5 rounded flex items-center justify-center transition-opacity hover:opacity-70"
@@ -742,7 +1131,12 @@ export default function App() {
                 {isCollapsed ? <PanelLeftOpen size={16} strokeWidth={1.5} /> : <PanelLeftClose size={16} strokeWidth={1.5} />}
               </button>
             )}
-            <button className="p-1.5 rounded flex items-center justify-center transition-opacity hover:opacity-70" style={s.mutedText}>
+            <button
+              className="p-1.5 rounded flex items-center justify-center transition-colors"
+              style={activeView === 'settings' ? s.activePill : s.mutedText}
+              title="Settings"
+              onClick={() => setActiveView('settings')}
+            >
               <Settings size={16} strokeWidth={1.5} />
             </button>
           </div>
@@ -797,8 +1191,8 @@ export default function App() {
                 {[
                   { value: stats.totalSessions, label: 'Sessions indexed' },
                   { value: runtime?.messageCount ?? stats.totalMessages, label: 'Messages captured' },
-                  { value: `${Math.round(stats.totalTokens / 1000)}k`, label: 'Tokens processed' },
-                  { value: stats.projects, label: 'Active projects' },
+                  { value: machinesState?.onlineCount ?? 0, label: 'Live nodes' },
+                  { value: plansState?.planCount ?? 0, label: 'Plans tracked' },
                 ].map((stat, i) => (
                   <div key={stat.label} className={`os-fade-in os-stagger-${i + 1} flex items-baseline gap-2`}>
                     <span className="text-2xl font-bold" style={s.inkText}>{stat.value}</span>
@@ -809,7 +1203,7 @@ export default function App() {
 
               <div className="px-12 py-10">
                 <div className="text-[10px] font-mono tracking-widest uppercase mb-6" style={s.mutedText}>Capabilities</div>
-                <div className="grid grid-cols-4 gap-5 mb-12">
+                <div className="grid grid-cols-3 gap-5 mb-12">
                   {[
                     {
                       icon: <MessageSquare size={20} />,
@@ -830,6 +1224,20 @@ export default function App() {
                       title: 'Inter-Agent',
                       desc: 'Read private agent-to-agent threads and inspect who Fabric, Builder, and others are talking to.',
                       action: () => setActiveView('inter-agent'),
+                      accent: false,
+                    },
+                    {
+                      icon: <Network size={20} />,
+                      title: 'Machines',
+                      desc: 'Inspect servers and computers on the mesh, including runtime endpoints and active projects.',
+                      action: () => setActiveView('machines'),
+                      accent: false,
+                    },
+                    {
+                      icon: <FileText size={20} />,
+                      title: 'Plans',
+                      desc: 'Track recent asks and load Markdown plans from registered twin workspaces.',
+                      action: () => setActiveView('plans'),
                       accent: false,
                     },
                     {
@@ -963,6 +1371,55 @@ export default function App() {
               </div>
             </div>
           </div>
+
+        /* --- MACHINES --- */
+        ) : activeView === 'machines' ? (
+          <MachinesView
+            machinesState={machinesState ?? {
+              title: 'Machines',
+              subtitle: 'Broker unavailable',
+              totalMachines: 0,
+              onlineCount: 0,
+              degradedCount: 0,
+              offlineCount: 0,
+              lastUpdatedLabel: null,
+              machines: [],
+            }}
+            C={C}
+            s={s}
+            isCollapsed={isCollapsed}
+            sidebarWidth={sidebarWidth}
+            onResizeStart={handleMouseDown}
+            onOpenRelayAgent={openRelayAgentThread}
+            onRefresh={() => void handleRefreshShell()}
+            identityColor={colorForIdentity}
+          />
+
+        /* --- PLANS --- */
+        ) : activeView === 'plans' ? (
+          <PlansView
+            plansState={plansState ?? {
+              title: 'Plans',
+              subtitle: 'No broker snapshot yet',
+              taskCount: 0,
+              runningTaskCount: 0,
+              failedTaskCount: 0,
+              completedTaskCount: 0,
+              planCount: 0,
+              workspaceCount: 0,
+              lastUpdatedLabel: null,
+              tasks: [],
+              plans: [],
+            }}
+            C={C}
+            s={s}
+            isCollapsed={isCollapsed}
+            sidebarWidth={sidebarWidth}
+            onResizeStart={handleMouseDown}
+            onOpenRelayAgent={openRelayAgentThread}
+            onRefresh={() => void handleRefreshShell()}
+            identityColor={colorForIdentity}
+          />
 
         /* --- SEARCH --- */
         ) : activeView === 'search' ? (
@@ -1176,7 +1633,952 @@ export default function App() {
             </div>
           </>
 
-        /* --- INTER-AGENT --- */
+        /* --- SETTINGS --- */
+        ) : activeView === 'settings' ? (
+          <div className="flex-1 flex overflow-hidden" style={s.surface}>
+            <div className="w-56 border-r flex flex-col shrink-0" style={{ backgroundColor: C.bg, borderColor: C.border }}>
+              <div className="px-4 py-4 border-b" style={{ borderColor: C.border }}>
+                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Settings</div>
+              </div>
+              <div className="px-2 py-2 flex flex-col gap-1">
+                {settingsSections.map((section) => {
+                  const active = settingsSection === section.id;
+                  return (
+                    <button
+                      key={section.id}
+                      onClick={() => setSettingsSection(section.id)}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors"
+                      style={active ? s.activeItem : s.mutedText}
+                    >
+                      <span style={{ color: active ? C.accent : C.muted }}>{section.icon}</span>
+                      <span className="text-[13px] font-medium" style={active ? s.inkText : undefined}>{section.label}</span>
+                      {active ? <ChevronRight size={12} className="ml-auto" style={s.mutedText} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <div className="max-w-6xl mx-auto px-8 py-8">
+                <div className="flex items-start justify-between gap-6 mb-6">
+                  <div>
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Settings</div>
+                    <h1 className="text-[28px] font-semibold tracking-tight" style={s.inkText}>{activeSettingsMeta.label}</h1>
+                    <p className="text-[13px] mt-2 max-w-2xl leading-[1.6]" style={s.mutedText}>
+                      {activeSettingsMeta.description}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {settingsSection === 'profile' ? (
+                      isAppSettingsEditing ? (
+                        <>
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => handleCancelAppSettingsEdit()}
+                            disabled={appSettingsSaving}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => void handleSaveAppSettings()}
+                            disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
+                          >
+                            {appSettingsSaving ? 'Saving…' : 'Save Setup'}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                          style={{ color: C.ink }}
+                          onClick={() => handleStartAppSettingsEdit()}
+                          disabled={appSettingsLoading || !visibleAppSettings}
+                        >
+                          Edit Setup
+                        </button>
+                      )
+                    ) : settingsSection === 'agents' ? (
+                      <>
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => setActiveView('agents')}
+                        >
+                          Open Overview
+                        </button>
+                        {selectedInterAgent && hasEditableAgentConfig ? (
+                          isAgentConfigEditing ? (
+                            <>
+                              <button
+                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                                style={{ color: C.ink }}
+                                onClick={() => handleCancelAgentConfigEdit()}
+                                disabled={agentConfigSaving || agentConfigRestarting}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                                style={{ color: C.ink }}
+                                onClick={() => void handleSaveAgentConfig()}
+                                disabled={!agentConfigDirty || agentConfigLoading || agentConfigSaving || agentConfigRestarting}
+                              >
+                                {agentConfigSaving ? 'Saving…' : 'Save Changes'}
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                              style={{ color: C.ink }}
+                              onClick={() => handleStartAgentConfigEdit()}
+                              disabled={agentConfigLoading || agentConfigRestarting}
+                            >
+                              Edit Agent
+                            </button>
+                          )
+                        ) : null}
+                        {selectedInterAgent && hasEditableAgentConfig ? (
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => void handleRestartAgent()}
+                            disabled={agentConfigLoading || agentConfigRestarting || !visibleAgentConfig}
+                          >
+                            {agentConfigRestarting ? 'Restarting…' : agentRestartActionLabel}
+                          </button>
+                        ) : null}
+                      </>
+                    ) : settingsSection === 'communication' ? (
+                      <>
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => setActiveView('relay')}
+                        >
+                          Open Relay
+                        </button>
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                          style={{ color: C.ink }}
+                          onClick={() => void handleRefreshShell()}
+                        >
+                          Refresh
+                        </button>
+                      </>
+                    ) : settingsSection === 'database' ? (
+                      <button
+                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                        style={{ color: C.ink }}
+                        onClick={() => setActiveView('sessions')}
+                      >
+                        Browse Sessions
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {settingsSection === 'profile' ? (
+                  <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)] gap-4">
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-start gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
+                            <FolderOpen size={18} style={{ color: C.accent }} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Setup</div>
+                            <div className="text-[13px] font-medium mt-1" style={s.inkText}>Identity, workspace roots, and starter defaults</div>
+                            <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
+                              This is the canonical onboarding surface for OpenScout. The desktop app and `scout init` both use the same underlying setup state.
+                            </div>
+                          </div>
+                        </div>
+
+                        {appSettingsLoading ? (
+                          <div className="text-[11px]" style={s.mutedText}>Loading settings…</div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Your Name</div>
+                              {isAppSettingsEditing ? (
+                                <input
+                                  ref={settingsOperatorNameRef}
+                                  value={visibleAppSettings?.operatorName ?? ''}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      operatorName: event.target.value,
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  placeholder={appSettings?.operatorNameDefault ?? 'Arach'}
+                                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                  <div className="text-[20px] font-semibold tracking-tight" style={s.inkText}>
+                                    {visibleAppSettings?.operatorName ?? 'Arach'}
+                                  </div>
+                                  <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                    {visibleAppSettings?.note ?? 'Shown everywhere the desktop shell refers to you.'}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Workspace Roots</div>
+                              {isAppSettingsEditing ? (
+                                <textarea
+                                  value={(visibleAppSettings?.workspaceRoots ?? []).join('\n')}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      workspaceRoots: event.target.value.split(/\r?\n/g).map((entry) => entry.trim()).filter(Boolean),
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  rows={4}
+                                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none resize-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                  <div className="flex flex-wrap gap-2">
+                                    {(visibleAppSettings?.workspaceRoots ?? []).length > 0 ? (visibleAppSettings?.workspaceRoots ?? []).map((root) => (
+                                      <span key={root} className="text-[10px] font-mono px-2 py-1 rounded" style={s.tagBadge}>{root}</span>
+                                    )) : (
+                                      <span className="text-[11px]" style={s.mutedText}>No workspace roots configured yet.</span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                    {visibleAppSettings?.workspaceRootsNote ?? 'OpenScout scans each configured root shallowly for repos and project manifests.'}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Default Harness</div>
+                                {isAppSettingsEditing ? (
+                                  <select
+                                    value={visibleAppSettings?.defaultHarness ?? 'claude'}
+                                    onChange={(event) => {
+                                      setAppSettingsDraft((current) => current ? {
+                                        ...current,
+                                        defaultHarness: event.target.value,
+                                      } : current);
+                                      setAppSettingsFeedback(null);
+                                    }}
+                                    disabled={appSettingsSaving}
+                                    className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                    style={{ borderColor: C.border, color: C.ink }}
+                                  >
+                                    <option value="claude">claude</option>
+                                    <option value="codex">codex</option>
+                                  </select>
+                                ) : (
+                                  <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.defaultHarness ?? 'claude'}</div>
+                                )}
+                              </div>
+
+                              <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Session Prefix</div>
+                                {isAppSettingsEditing ? (
+                                  <input
+                                    value={visibleAppSettings?.sessionPrefix ?? 'relay'}
+                                    onChange={(event) => {
+                                      setAppSettingsDraft((current) => current ? {
+                                        ...current,
+                                        sessionPrefix: event.target.value,
+                                      } : current);
+                                      setAppSettingsFeedback(null);
+                                    }}
+                                    readOnly={appSettingsSaving}
+                                    className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                    style={{ borderColor: C.border, color: C.ink }}
+                                  />
+                                ) : (
+                                  <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.sessionPrefix ?? 'relay'}</div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Default Capabilities</div>
+                              {isAppSettingsEditing ? (
+                                <textarea
+                                  value={(visibleAppSettings?.defaultCapabilities ?? []).join('\n')}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      defaultCapabilities: event.target.value.split(/[\r\n,]/g).map((entry) => entry.trim()).filter(Boolean),
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  rows={3}
+                                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none resize-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  {(visibleAppSettings?.defaultCapabilities ?? []).map((capability) => (
+                                    <span key={capability} className="text-[10px] font-mono px-2 py-1 rounded" style={s.tagBadge}>
+                                      {capability}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <label className="flex items-center gap-2 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <input
+                                type="checkbox"
+                                checked={visibleAppSettings?.includeCurrentRepo ?? true}
+                                disabled={!isAppSettingsEditing || appSettingsSaving}
+                                onChange={(event) => {
+                                  setAppSettingsDraft((current) => current ? {
+                                    ...current,
+                                    includeCurrentRepo: event.target.checked,
+                                  } : current);
+                                  setAppSettingsFeedback(null);
+                                }}
+                              />
+                              <div className="min-w-0">
+                                <div className="text-[12px] font-medium" style={s.inkText}>Include the current repo</div>
+                                <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                                  Create or honor `.openscout/project.json` in the repo you launched from and keep it in discovery.
+                                </div>
+                              </div>
+                            </label>
+
+                            {appSettingsFeedback ? (
+                              <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
+                            ) : null}
+                          </div>
+                        )}
+                      </section>
+                    </div>
+
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Discovered Relay Agents</div>
+                        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                          {(visibleAppSettings?.discoveredAgents ?? []).length > 0 ? (visibleAppSettings?.discoveredAgents ?? []).map((agent) => (
+                            <button
+                              key={agent.id}
+                              onClick={() => openAgentProfile(agent.id)}
+                              className="w-full text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90"
+                              style={{ borderColor: C.border, backgroundColor: C.bg }}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
+                                  <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{agent.root}</div>
+                                  <div className="text-[10px] mt-1" style={s.mutedText}>
+                                    {agent.source} · {agent.harness} · {agent.sessionId}
+                                  </div>
+                                </div>
+                                {agent.projectConfigPath ? (
+                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.tagBadge}>manifest</span>
+                                ) : null}
+                              </div>
+                            </button>
+                          )) : (
+                            <div className="text-[11px]" style={s.mutedText}>No relay agents discovered yet.</div>
+                          )}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Canonical Paths</div>
+                        <div className="grid grid-cols-1 gap-3">
+                          {[
+                            ['Settings', visibleAppSettings?.settingsPath ?? 'Not reported'],
+                            ['Relay Agents', visibleAppSettings?.relayAgentsPath ?? 'Not reported'],
+                            ['Relay Hub', visibleAppSettings?.relayHubPath ?? 'Not reported'],
+                            ['Current Project', visibleAppSettings?.currentProjectConfigPath ?? 'Not created'],
+                          ].map(([label, value]) => (
+                            <div key={label}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Service</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {[
+                            ['Label', visibleAppSettings?.broker.label ?? 'Not reported'],
+                            ['Reachable', visibleAppSettings?.broker.reachable ? 'Yes' : 'No'],
+                            ['Installed', visibleAppSettings?.broker.installed ? 'Yes' : 'No'],
+                            ['Loaded', visibleAppSettings?.broker.loaded ? 'Yes' : 'No'],
+                            ['Relay URL', visibleAppSettings?.broker.url ?? 'Not reported'],
+                            ['LaunchAgent', visibleAppSettings?.broker.launchAgentPath ?? 'Not reported'],
+                            ['Stdout Log', visibleAppSettings?.broker.stdoutLogPath ?? 'Not reported'],
+                            ['Stderr Log', visibleAppSettings?.broker.stderrLogPath ?? 'Not reported'],
+                          ].map(([label, value]) => (
+                            <div key={label} className="min-w-0">
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : settingsSection === 'agents' ? (
+                  <div className="grid grid-cols-[minmax(280px,0.58fr)_minmax(0,1.42fr)] gap-4">
+                    <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Configured Agents</div>
+                      <div className="flex flex-col gap-2 max-h-[780px] overflow-y-auto pr-1">
+                        {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => (
+                          <button
+                            key={agent.id}
+                            onClick={() => {
+                              setSelectedInterAgentId(agent.id);
+                              setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
+                              setIsAgentConfigEditing(false);
+                              setAgentConfigFeedback(null);
+                            }}
+                            className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
+                            style={{ borderColor: C.border, backgroundColor: selectedInterAgentId === agent.id ? C.bg : C.surface }}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex items-start gap-3">
+                                <div
+                                  className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold shrink-0 ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+                                  style={{ backgroundColor: colorForIdentity(agent.id) }}
+                                >
+                                  {agent.title.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
+                                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {interAgentProfileKindLabel(agent.profileKind)}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
+                                    {agent.summary ?? agent.subtitle}
+                                  </div>
+                                  <div className="text-[10px] mt-1" style={s.mutedText}>
+                                    {agent.harness ?? 'runtime'} · {agent.transport ?? 'transport'} · {agent.threadCount} threads
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                                {agent.timestampLabel ?? ''}
+                              </span>
+                            </div>
+                          </button>
+                        )) : (
+                          <div className="text-[11px]" style={s.mutedText}>No registered agents found.</div>
+                        )}
+                      </div>
+                    </section>
+
+                    <div className="space-y-4 min-w-0">
+                      {!selectedInterAgent ? (
+                        <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                          <div className="text-[13px] font-medium mb-1" style={s.inkText}>No agent selected</div>
+                          <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
+                            Pick a relay agent from the left to edit its runtime, system prompt, tool use, and capabilities.
+                          </div>
+                        </section>
+                      ) : (
+                        <>
+                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Selected Agent</div>
+                                <div className="text-[20px] font-semibold tracking-tight mt-2" style={s.inkText}>{selectedInterAgent.title}</div>
+                                <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
+                                  {interAgentProfileKindLabel(selectedInterAgent.profileKind)} · {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Stored runtime definition and prompt template.'}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                  style={{ color: C.ink }}
+                                  onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
+                                >
+                                  Message
+                                </button>
+                                <button
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                  style={{ color: C.ink }}
+                                  onClick={() => openAgentProfile(selectedInterAgent.id)}
+                                >
+                                  Open Overview
+                                </button>
+                              </div>
+                            </div>
+                          </section>
+
+                          <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
+                            <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>System Prompt</div>
+                              {agentConfigLoading ? (
+                                <div className="text-[11px]" style={s.mutedText}>Loading system prompt…</div>
+                              ) : isAgentConfigEditing ? (
+                                <textarea
+                                  ref={agentSystemPromptRef}
+                                  value={visibleAgentConfig?.systemPrompt ?? ''}
+                                  onChange={(event) => {
+                                    setAgentConfigDraft((current) => current ? {
+                                      ...current,
+                                      systemPrompt: event.target.value,
+                                    } : current);
+                                    setAgentConfigFeedback(null);
+                                  }}
+                                  readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                  className="w-full min-h-[460px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] resize-y bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div
+                                  ref={agentSystemPromptViewRef}
+                                  tabIndex={0}
+                                  className="w-full min-h-[460px] max-h-[760px] overflow-auto rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.6] whitespace-pre-wrap break-words outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                >
+                                  {visibleAgentConfig?.systemPrompt ?? 'System prompt unavailable.'}
+                                </div>
+                              )}
+                              {visibleAgentConfig?.systemPromptHint ? (
+                                <div className="text-[11px] mt-2 leading-[1.5]" style={s.mutedText}>{visibleAgentConfig.systemPromptHint}</div>
+                              ) : null}
+                              {agentConfigFeedback ? (
+                                <div className="text-[11px] mt-2 leading-[1.5]" style={s.inkText}>{agentConfigFeedback}</div>
+                              ) : null}
+                            </section>
+
+                            <div className="space-y-4 min-w-0">
+                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Runtime</div>
+                                {agentConfigLoading ? (
+                                  <div className="text-[11px]" style={s.mutedText}>Loading runtime…</div>
+                                ) : isAgentConfigEditing ? (
+                                  <div className="space-y-3">
+                                    <div>
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Path</div>
+                                      <input
+                                        ref={agentRuntimePathRef}
+                                        value={visibleAgentConfig?.runtime.cwd ?? ''}
+                                        onChange={(event) => {
+                                          setAgentConfigDraft((current) => current ? {
+                                            ...current,
+                                            runtime: {
+                                              ...current.runtime,
+                                              cwd: event.target.value,
+                                            },
+                                          } : current);
+                                          setAgentConfigFeedback(null);
+                                        }}
+                                        readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                        className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                        style={{ borderColor: C.border, color: C.ink }}
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Harness</div>
+                                        <select
+                                          value={visibleAgentConfig?.runtime.harness ?? ''}
+                                          onChange={(event) => {
+                                            setAgentConfigDraft((current) => current ? {
+                                              ...current,
+                                              runtime: {
+                                                ...current.runtime,
+                                                harness: event.target.value,
+                                              },
+                                            } : current);
+                                            setAgentConfigFeedback(null);
+                                          }}
+                                          disabled={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                          className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                          style={{ borderColor: C.border, color: C.ink }}
+                                        >
+                                          {visibleAgentConfig?.availableHarnesses.map((harness) => (
+                                            <option key={harness} value={harness}>{harness}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Session</div>
+                                        <input
+                                          value={visibleAgentConfig?.runtime.sessionId ?? ''}
+                                          onChange={(event) => {
+                                            setAgentConfigDraft((current) => current ? {
+                                              ...current,
+                                              runtime: {
+                                                ...current.runtime,
+                                                sessionId: event.target.value,
+                                              },
+                                            } : current);
+                                            setAgentConfigFeedback(null);
+                                          }}
+                                          readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                          className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                          style={{ borderColor: C.border, color: C.ink }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                                    {[
+                                      ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
+                                      ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
+                                      ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
+                                      ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
+                                      ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
+                                      ['Live Runtime', compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
+                                    ].map(([label, value]) => (
+                                      <div key={label} className="min-w-0">
+                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                        <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </section>
+
+                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Tool Use</div>
+                                {isAgentConfigEditing ? (
+                                  <textarea
+                                    value={visibleAgentConfig?.toolUse.launchArgsText ?? ''}
+                                    onChange={(event) => {
+                                      setAgentConfigDraft((current) => current ? {
+                                        ...current,
+                                        toolUse: {
+                                          ...current.toolUse,
+                                          launchArgsText: event.target.value,
+                                        },
+                                      } : current);
+                                      setAgentConfigFeedback(null);
+                                    }}
+                                    readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                    className="w-full min-h-[132px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.5] resize-y bg-transparent outline-none"
+                                    style={{ borderColor: C.border, color: C.ink }}
+                                  />
+                                ) : (
+                                  <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words min-h-[88px]" style={{ borderColor: C.border, color: C.ink }}>
+                                    {normalizeDraftText(visibleAgentConfig?.toolUse.launchArgsText ?? '') || 'No launch args configured.'}
+                                  </div>
+                                )}
+                              </section>
+
+                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Capabilities</div>
+                                {isAgentConfigEditing ? (
+                                  <input
+                                    value={visibleAgentConfig?.capabilitiesText ?? ''}
+                                    onChange={(event) => {
+                                      setAgentConfigDraft((current) => current ? {
+                                        ...current,
+                                        capabilitiesText: event.target.value,
+                                      } : current);
+                                      setAgentConfigFeedback(null);
+                                    }}
+                                    readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
+                                    className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
+                                    style={{ borderColor: C.border, color: C.ink }}
+                                  />
+                                ) : null}
+                                {agentCapabilitiesPreview.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {agentCapabilitiesPreview.map((capability) => (
+                                      <span key={capability} className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                        {capability}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px]" style={s.mutedText}>No capabilities configured.</div>
+                                )}
+                              </section>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : settingsSection === 'communication' ? (
+                  <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] gap-4">
+                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Runtime</div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                        {[
+                          ['Relay', runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'],
+                          ['Relay URL', runtime?.brokerUrl ?? 'Not reported'],
+                          ['Node ID', runtime?.nodeId ?? 'Not reported'],
+                          ['Agents', `${runtime?.agentCount ?? 0}`],
+                          ['Conversations', `${runtime?.conversationCount ?? 0}`],
+                          ['Flights', `${runtime?.flightCount ?? 0}`],
+                          ['Latest Relay', runtime?.latestRelayLabel ?? 'Not reported'],
+                          ['Updated', runtime?.updatedAtLabel ?? 'Not reported'],
+                        ].map(([label, value]) => (
+                          <div key={label} className="min-w-0">
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                            <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <div className="space-y-4 min-w-0">
+                      {brokerInspector ? (
+                        <>
+                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="flex items-start justify-between gap-3 mb-3">
+                              <div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Relay Service</div>
+                                <div className="text-[11px] mt-1" style={s.mutedText}>
+                                  {brokerInspector.statusDetail ?? 'Relay service profile and runtime state.'}
+                                </div>
+                              </div>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
+                                {brokerInspector.statusLabel}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              {[
+                                ['Version', brokerInspector.version ?? 'Not reported'],
+                                ['Mode', brokerInspector.mode],
+                                ['Service Label', brokerInspector.label],
+                                ['Relay URL', brokerInspector.url],
+                                ['PID', brokerInspector.pid ?? 'Not reported'],
+                                ['Last Restart', brokerInspector.lastRestartLabel ?? 'Not reported'],
+                                ['Installed', brokerInspector.installed ? 'Yes' : 'No'],
+                                ['Loaded', brokerInspector.loaded ? 'Yes' : 'No'],
+                                ['Reachable', brokerInspector.reachable ? 'Yes' : 'No'],
+                                ['Launch State', brokerInspector.launchdState ?? 'Not reported'],
+                                ['Last Exit', brokerInspector.lastExitStatus ?? 'Not reported'],
+                                ['Mesh', brokerInspector.meshId ?? 'Not reported'],
+                              ].map(([label, value]) => (
+                                <div key={label} className="min-w-0">
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {brokerInspector.processCommand ? (
+                              <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
+                                <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Process</div>
+                                <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{brokerInspector.processCommand}</div>
+                              </div>
+                            ) : null}
+                          </section>
+
+                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Paths</div>
+                            <div className="space-y-3">
+                              {[
+                                ['Support', brokerInspector.supportDirectory],
+                                ['Control Home', brokerInspector.controlHome],
+                                ['LaunchAgent', brokerInspector.launchAgentPath],
+                                ['Stdout Log', brokerInspector.stdoutLogPath],
+                                ['Stderr Log', brokerInspector.stderrLogPath],
+                              ].map(([label, value]) => (
+                                <div key={label}>
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {brokerInspector.lastLogLine ? (
+                              <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
+                                <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Service Log</div>
+                                <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{brokerInspector.lastLogLine}</div>
+                              </div>
+                            ) : null}
+                          </section>
+
+                          {brokerInspector.troubleshooting.length > 0 || brokerInspector.feedbackSummary ? (
+                            <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Diagnostics</div>
+                              {brokerInspector.troubleshooting.length > 0 ? (
+                                <div className="space-y-2 mb-4">
+                                  {brokerInspector.troubleshooting.map((item) => (
+                                    <div key={item} className="text-[11px] leading-[1.5]" style={s.inkText}>{item}</div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {brokerInspector.feedbackSummary ? (
+                                <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words" style={{ borderColor: C.border, color: C.ink }}>
+                                  {brokerInspector.feedbackSummary}
+                                </div>
+                              ) : null}
+                            </section>
+                          ) : null}
+                        </>
+                      ) : null}
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Voice & Delivery</div>
+                        <div className="space-y-3">
+                          <div>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Capture</div>
+                            <div className="text-[12px]" style={s.inkText}>{relayState?.voice.captureTitle ?? 'Not reported'}</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Replies</div>
+                            <button
+                              className="os-toolbar-button text-[11px] font-medium px-2 py-1 rounded"
+                              style={{ color: C.ink }}
+                              onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
+                            >
+                              {relayState?.voice.repliesEnabled ? 'Disable voice replies' : 'Enable voice replies'}
+                            </button>
+                          </div>
+                          <div>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Reachable Directs</div>
+                            <div className="text-[12px]" style={s.inkText}>{reachableRelayAgents.length}</div>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Surfaces</div>
+                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
+                          Relay remains the live operator-facing communication surface. Inter-Agent gives you passive visibility into private agent traffic without mixing it back into your own threads, and Logs stays focused on raw tails rather than service configuration.
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : settingsSection === 'database' ? (
+                  <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.85fr)] gap-4">
+                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Session Index</div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                        {[
+                          ['Sessions Indexed', `${stats.totalSessions}`],
+                          ['Messages Indexed', `${stats.totalMessages}`],
+                          ['Projects', `${stats.projects}`],
+                          ['Tokens', `${Math.round(stats.totalTokens / 1000)}k`],
+                          ['Runtime Messages', `${runtime?.messageCount ?? 0}`],
+                          ['tmux Sessions', `${runtime?.tmuxSessionCount ?? 0}`],
+                        ].map(([label, value]) => (
+                          <div key={label}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                            <div className="text-[15px] font-semibold" style={s.inkText}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Current Backing</div>
+                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
+                          The desktop shell currently combines indexed session history with the live broker snapshot. The richer database controls from the v0 PR are useful directionally, but they are not wired in this Electron runtime yet.
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Next Step</div>
+                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
+                          If we want this section to become editable, the root fix is a real persisted storage config model in the runtime first, rather than adding disconnected form controls in the shell.
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(320px,0.85fr)] gap-4">
+                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Color Mode</div>
+                      <div className="flex gap-3 mb-5">
+                        {[
+                          { id: 'light', label: 'Light' },
+                          { id: 'dark', label: 'Dark' },
+                        ].map((mode) => {
+                          const active = mode.id === (dark ? 'dark' : 'light');
+                          return (
+                            <button
+                              key={mode.id}
+                              onClick={() => setDark(mode.id === 'dark')}
+                              className="flex-1 border rounded-xl px-4 py-4 text-left"
+                              style={{
+                                borderColor: active ? C.accent : C.border,
+                                backgroundColor: active ? C.bg : C.surface,
+                              }}
+                            >
+                              <div className="flex items-center gap-2 mb-1" style={{ color: active ? C.accent : C.muted }}>
+                                {mode.id === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
+                                <span className="text-[12px] font-medium" style={active ? { color: C.accent } : s.inkText}>{mode.label}</span>
+                              </div>
+                              <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                                {mode.id === 'dark' ? 'Deep shell contrast for low-light work.' : 'Warm neutral shell with higher paper-like contrast.'}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="border rounded-xl px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={s.mutedText}>Annotations</div>
+                            <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
+                              Show routing and provenance tags inside Relay and Inter-Agent timelines.
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setShowAnnotations((current) => !current)}
+                            className="os-toolbar-button text-[11px] font-medium px-2 py-1 rounded"
+                            style={{ color: C.ink }}
+                          >
+                            {showAnnotations ? 'Hide annotations' : 'Show annotations'}
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Current Surface</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {[
+                            ['Mode', dark ? 'Dark' : 'Light'],
+                            ['Annotations', showAnnotations ? 'Visible' : 'Hidden'],
+                            ['Sidebar', isCollapsed ? 'Collapsed' : 'Expanded'],
+                            ['Section', activeSettingsMeta.label],
+                          ].map(([label, value]) => (
+                            <div key={label}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[12px]" style={s.inkText}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Direction</div>
+                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
+                          The v0 PR includes richer theme, density, and typography controls. Those belong here once we promote them from purely visual settings to persisted desktop preferences.
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+        /* --- AGENTS --- */
         ) : activeView === 'agents' ? (
           <>
             {!isCollapsed && (
@@ -1245,53 +2647,39 @@ export default function App() {
                   <Bot size={14} style={s.mutedText} />
                   <div className="min-w-0">
                     <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
-                      {selectedInterAgent ? selectedInterAgent.title : 'Agent Config'}
+                      {selectedInterAgent ? selectedInterAgent.title : 'Agents'}
                     </div>
                     <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
                       {selectedInterAgent
-                        ? `${interAgentProfileKindLabel(selectedInterAgent.profileKind)} · ${selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Configured runtime and system prompt.'}`
-                        : 'Select an agent to inspect and configure its runtime definition.'}
+                        ? `${interAgentProfileKindLabel(selectedInterAgent.profileKind)} · ${selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Operational snapshot and recent thread activity.'}`
+                        : 'Select an agent to inspect its operational snapshot and recent threads.'}
                     </div>
                   </div>
                 </div>
-                {selectedInterAgent && hasEditableAgentConfig ? (
+                {selectedInterAgent ? (
                   <div className="flex items-center gap-2">
-                    {isAgentConfigEditing ? (
-                      <>
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                          style={{ color: C.ink }}
-                          onClick={() => handleCancelAgentConfigEdit()}
-                          disabled={agentConfigSaving || agentConfigRestarting}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                          style={{ color: C.ink }}
-                          onClick={() => void handleSaveAgentConfig()}
-                          disabled={!agentConfigDirty || agentConfigLoading || agentConfigSaving || agentConfigRestarting}
-                        >
-                          {agentConfigSaving ? 'Saving…' : 'Save Changes'}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                        style={{ color: C.ink }}
-                        onClick={() => handleStartAgentConfigEdit()}
-                        disabled={agentConfigLoading || agentConfigRestarting}
-                      >
-                        Edit Agent
-                      </button>
-                    )}
                     <button
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
                       style={{ color: C.ink }}
-                      onClick={() => void handleRestartAgent()}
-                      disabled={agentConfigLoading || agentConfigRestarting || !visibleAgentConfig}
+                      onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
                     >
-                      {agentConfigRestarting ? 'Restarting…' : agentRestartActionLabel}
+                      {selectedInterAgentChatActionLabel}
+                    </button>
+                    {visibleInterAgentThreads.length > 0 ? (
+                      <button
+                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                        style={{ color: C.ink }}
+                        onClick={() => setActiveView('inter-agent')}
+                      >
+                        Open Threads
+                      </button>
+                    ) : null}
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentSettings(selectedInterAgent.id, selectedInterAgent.profileKind === 'project')}
+                    >
+                      {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Open Settings'}
                     </button>
                   </div>
                 ) : null}
@@ -1309,7 +2697,7 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(340px,0.9fr)] gap-4">
+                  <div className="grid grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] gap-4">
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start gap-3">
@@ -1342,17 +2730,33 @@ export default function App() {
                               <div className="text-[12px] leading-[1.55] mt-2" style={s.mutedText}>{normalizeLegacyAgentCopy(selectedInterAgent.summary)}</div>
                             ) : null}
                             <div className="flex items-center gap-2 flex-wrap mt-3">
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'runtime'}
-                              </span>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'transport'}
-                              </span>
                               {selectedInterAgent.timestampLabel ? (
                                 <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
                                   Last seen {selectedInterAgent.timestampLabel}
                                 </span>
                               ) : null}
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                {selectedInterAgent.threadCount} thread{selectedInterAgent.threadCount === 1 ? '' : 's'}
+                              </span>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                {selectedInterAgent.counterpartCount} counterpart{selectedInterAgent.counterpartCount === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                            <div className="mt-3 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Direct Line</div>
+                              <div className="text-[12px] leading-[1.5]" style={s.inkText}>
+                                {selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
+                                  ? relaySecondaryText(selectedInterAgentDirectThread)
+                                  : `${selectedInterAgent.title} is ready for a direct message.`}
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={selectedInterAgentDirectThread ? relayPresencePillStyle(selectedInterAgentDirectThread.state) : s.tagBadge}>
+                                  {selectedInterAgentDirectThread?.statusLabel ?? 'Available'}
+                                </span>
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                  {selectedInterAgentChatActionLabel}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1361,262 +2765,31 @@ export default function App() {
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-center justify-between gap-3 mb-3">
                           <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>System Prompt</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Recent Threads</div>
                             <div className="text-[11px] mt-1" style={s.mutedText}>
-                              {isAgentConfigEditing
-                                ? 'Editing the stored prompt template for this relay agent.'
-                                : 'Stored prompt template used when this relay agent boots.'}
+                              Private and targeted conversations this agent is currently involved in.
                             </div>
                           </div>
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                            style={{ color: C.ink }}
+                            onClick={() => setActiveView('inter-agent')}
+                            disabled={visibleInterAgentThreads.length === 0}
+                          >
+                            Open Inter-Agent
+                          </button>
                         </div>
-                        {agentConfigLoading ? (
-                          <div className="text-[11px]" style={s.mutedText}>Loading system prompt…</div>
-                        ) : (
-                          <>
-                            {isAgentConfigEditing ? (
-                              <textarea
-                                ref={agentSystemPromptRef}
-                                value={visibleAgentConfig?.systemPrompt ?? ''}
-                                onChange={(event) => {
-                                  setAgentConfigDraft((current) => current ? {
-                                    ...current,
-                                    systemPrompt: event.target.value,
-                                  } : current);
-                                  setAgentConfigFeedback(null);
-                                }}
-                                readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                className="w-full min-h-[420px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] resize-y bg-transparent outline-none"
-                                style={{ borderColor: C.border, color: C.ink }}
-                              />
-                            ) : (
-                              <div
-                                ref={agentSystemPromptViewRef}
-                                tabIndex={0}
-                                className="w-full min-h-[420px] max-h-[620px] overflow-auto rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.6] whitespace-pre-wrap break-words outline-none"
-                                style={{ borderColor: C.border, color: C.ink }}
-                              >
-                                {visibleAgentConfig?.systemPrompt ?? 'System prompt unavailable.'}
-                              </div>
-                            )}
-                            {visibleAgentConfig?.systemPromptHint ? (
-                              <div className="text-[11px] mt-2 leading-[1.5]" style={s.mutedText}>{visibleAgentConfig.systemPromptHint}</div>
-                            ) : null}
-                            {agentConfigFeedback ? (
-                              <div className="text-[11px] mt-2 leading-[1.5]" style={s.inkText}>{agentConfigFeedback}</div>
-                            ) : null}
-                          </>
-                        )}
-                      </section>
-                    </div>
-
-                    <div className="space-y-4 min-w-0">
-                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Configuration</div>
-                        {agentConfigLoading ? (
-                          <div className="text-[11px]" style={s.mutedText}>Loading agent config…</div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              {[
-                                ['Agent ID', selectedInterAgent.id],
-                                ['Source', visibleAgentConfig?.runtime.source ?? selectedInterAgent.source ?? 'Built-in'],
-                                ['Class', selectedInterAgent.agentClass ?? 'Not reported'],
-                                ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
-                                ['Live Threads', `${selectedInterAgent.threadCount}`],
-                                ['Counterparts', `${selectedInterAgent.counterpartCount}`],
-                              ].map(([label, value]) => (
-                                <div key={label} className="min-w-0">
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="border-t pt-3" style={{ borderTopColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Runtime</div>
-                              {isAgentConfigEditing ? (
-                                <div className="space-y-3">
-                                  <div>
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Path</div>
-                                    <input
-                                      ref={agentRuntimePathRef}
-                                      value={visibleAgentConfig?.runtime.cwd ?? ''}
-                                      onChange={(event) => {
-                                        setAgentConfigDraft((current) => current ? {
-                                          ...current,
-                                          runtime: {
-                                            ...current.runtime,
-                                            cwd: event.target.value,
-                                          },
-                                        } : current);
-                                        setAgentConfigFeedback(null);
-                                      }}
-                                      readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                      className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                      style={{ borderColor: C.border, color: C.ink }}
-                                    />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Harness</div>
-                                      <select
-                                        value={visibleAgentConfig?.runtime.harness ?? ''}
-                                        onChange={(event) => {
-                                          setAgentConfigDraft((current) => current ? {
-                                            ...current,
-                                            runtime: {
-                                              ...current.runtime,
-                                              harness: event.target.value,
-                                            },
-                                          } : current);
-                                          setAgentConfigFeedback(null);
-                                        }}
-                                        disabled={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                        className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                        style={{ borderColor: C.border, color: C.ink }}
-                                      >
-                                        {visibleAgentConfig?.availableHarnesses.map((harness) => (
-                                          <option key={harness} value={harness}>{harness}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Session</div>
-                                      <input
-                                        value={visibleAgentConfig?.runtime.sessionId ?? ''}
-                                        onChange={(event) => {
-                                          setAgentConfigDraft((current) => current ? {
-                                            ...current,
-                                            runtime: {
-                                              ...current.runtime,
-                                              sessionId: event.target.value,
-                                            },
-                                          } : current);
-                                          setAgentConfigFeedback(null);
-                                        }}
-                                        readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                        className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                        style={{ borderColor: C.border, color: C.ink }}
-                                      />
-                                    </div>
-                                    <div>
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Transport</div>
-                                      <div className="rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.ink }}>
-                                        {visibleAgentConfig?.runtime.transport || 'tmux'}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Live Runtime</div>
-                                      <div className="rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.ink }}>
-                                        {compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                                  {[
-                                    ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
-                                    ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
-                                    ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
-                                    ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
-                                    ['Configured Root', visibleAgentConfig?.runtime.projectRoot ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
-                                    ['Live Runtime', compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
-                                  ].map(([label, value]) => (
-                                    <div key={label} className="min-w-0">
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                      <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              <div className="text-[11px] leading-[1.5] mt-2" style={s.mutedText}>
-                                Relay agents run through `tmux` right now. Change the path, harness, or session here, then restart to make the live runtime adopt it.
-                              </div>
-                            </div>
-
-                            <div className="border-t pt-3" style={{ borderTopColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Tool Use</div>
-                              {isAgentConfigEditing ? (
-                                <textarea
-                                  value={visibleAgentConfig?.toolUse.launchArgsText ?? ''}
-                                  onChange={(event) => {
-                                    setAgentConfigDraft((current) => current ? {
-                                      ...current,
-                                      toolUse: {
-                                        ...current.toolUse,
-                                        launchArgsText: event.target.value,
-                                      },
-                                    } : current);
-                                    setAgentConfigFeedback(null);
-                                  }}
-                                  readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                  className="w-full min-h-[112px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.5] resize-y bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words min-h-[72px]" style={{ borderColor: C.border, color: C.ink }}>
-                                  {normalizeDraftText(visibleAgentConfig?.toolUse.launchArgsText ?? '') || 'No launch args configured.'}
-                                </div>
-                              )}
-                              <div className="text-[11px] leading-[1.5] mt-2" style={s.mutedText}>
-                                One argument per line. These flags are appended when the selected harness boots this relay agent.
-                              </div>
-                            </div>
-
-                            <div className="border-t pt-3" style={{ borderTopColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Capabilities</div>
-                              {isAgentConfigEditing ? (
-                                <input
-                                  value={visibleAgentConfig?.capabilitiesText ?? ''}
-                                  onChange={(event) => {
-                                    setAgentConfigDraft((current) => current ? {
-                                      ...current,
-                                      capabilitiesText: event.target.value,
-                                    } : current);
-                                    setAgentConfigFeedback(null);
-                                  }}
-                                  readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                  className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : null}
-                              {agentCapabilitiesPreview.length > 0 ? (
-                                <div className="flex flex-wrap gap-1.5 mt-2">
-                                  {agentCapabilitiesPreview.map((capability) => (
-                                    <span key={capability} className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {capability}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="text-[11px] mt-2" style={s.mutedText}>No capabilities configured.</div>
-                              )}
-                              <div className="text-[11px] leading-[1.5] mt-2" style={s.mutedText}>
-                                Use commas or new lines. Capabilities are advertised after the agent restarts.
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </section>
-
-                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Recent Threads</div>
                         {visibleInterAgentThreads.length > 0 ? (
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-3">
                             {visibleInterAgentThreads.map((thread) => (
-                              <button
+                              <div
                                 key={thread.id}
-                                onClick={() => {
-                                  setSelectedInterAgentThreadId(thread.id);
-                                  setActiveView('inter-agent');
-                                }}
-                                className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
+                                className="border rounded-lg px-3 py-3"
                                 style={{ borderColor: C.border, backgroundColor: selectedInterAgentThreadId === thread.id ? C.bg : C.surface }}
                               >
-                                <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0">
-                                    <div className="text-[12px] font-medium truncate" style={s.inkText}>
+                                    <div className="text-[13px] font-medium truncate" style={s.inkText}>
                                       {interAgentThreadTitleForAgent(thread, selectedInterAgent.id)}
                                     </div>
                                     <div className="text-[10px] truncate mt-1" style={s.mutedText}>
@@ -1627,22 +2800,88 @@ export default function App() {
                                     {thread.timestampLabel ?? ''}
                                   </span>
                                 </div>
-                                <div className="flex items-center gap-2 mt-2">
-                                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
-                                    {thread.sourceKind === 'private' ? 'Private' : 'Relay'}
-                                  </span>
-                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                    {thread.messageCount}
-                                  </span>
+                                <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
+                                  {thread.preview ?? 'No message preview yet.'}
                                 </div>
-                              </button>
+                                <div className="flex items-center justify-between gap-3 mt-3">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
+                                      {thread.sourceKind === 'private' ? 'Private' : 'Targeted'}
+                                    </span>
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {thread.messageCount} msgs
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                      style={{ color: C.ink }}
+                                      onClick={() => openRelayAgentThread(selectedInterAgent.id, {
+                                        draft: agentThreadFollowUpDraft(thread, selectedInterAgent.id),
+                                        focusComposer: true,
+                                      })}
+                                    >
+                                      Ask About This
+                                    </button>
+                                    <button
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                      style={{ color: C.ink }}
+                                      onClick={() => {
+                                        setSelectedInterAgentThreadId(thread.id);
+                                        setActiveView('inter-agent');
+                                      }}
+                                    >
+                                      Open
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
                             ))}
                           </div>
                         ) : (
-                          <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                            No inter-agent traffic recorded for this agent yet.
+                          <div className="flex flex-col items-start gap-3">
+                            <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                              No recent inter-agent threads for this agent yet.
+                            </div>
+                            <button
+                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                              style={{ color: C.ink }}
+                              onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
+                            >
+                              {selectedInterAgentChatActionLabel}
+                            </button>
                           </div>
                         )}
+                      </section>
+                    </div>
+
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Operational Snapshot</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {[
+                            ['Agent ID', selectedInterAgent.id],
+                            ['Source', visibleAgentConfig?.runtime.source ?? selectedInterAgent.source ?? 'Built-in'],
+                            ['Status', selectedInterAgent.statusLabel],
+                            ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
+                            ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent.projectRoot ?? selectedInterAgent.cwd) ?? 'Not reported'],
+                            ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
+                            ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
+                            ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
+                            ['Live Threads', `${selectedInterAgent.threadCount}`],
+                            ['Counterparts', `${selectedInterAgent.counterpartCount}`],
+                            ['Direct Chat', selectedInterAgentDirectThread?.statusLabel ?? 'Available'],
+                            ['Last Seen', selectedInterAgent.timestampLabel ?? 'Not reported'],
+                          ].map(([label, value]) => (
+                            <div key={label} className="min-w-0">
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="text-[11px] leading-[1.5] mt-3 pt-3 border-t" style={{ ...s.mutedText, borderTopColor: C.border }}>
+                          The main agent view stays operational. Use Settings when you want to edit the system prompt, runtime definition, tools, or capabilities.
+                        </div>
                       </section>
                     </div>
                   </div>
@@ -1650,10 +2889,160 @@ export default function App() {
               </div>
 
               <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent config and live runtime profile</span>
+                <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent overview, direct line, and recent thread activity</span>
                 <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Registry Live
                 </span>
+              </div>
+            </div>
+          </>
+
+        /* --- LOGS --- */
+        ) : activeView === 'logs' ? (
+          <>
+            {!isCollapsed && (
+              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
+                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
+                <div className="px-4 h-14 flex items-center border-b" style={{ borderBottomColor: C.border }}>
+                  <div>
+                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Logs</h1>
+                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
+                      {logSources.length} sources
+                    </div>
+                  </div>
+                </div>
+                <div className="px-3 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                  <input
+                    type="text"
+                    value={logSourceQuery}
+                    onChange={(event) => setLogSourceQuery(event.target.value)}
+                    placeholder="Filter sources…"
+                    className="w-full rounded-lg border px-3 py-2 text-[11px] bg-transparent outline-none"
+                    style={{ borderColor: C.border, color: C.ink }}
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto py-3">
+                  {(['runtime', 'app', 'agents'] as const).map((group) => {
+                    const groupSources = filteredLogSources.filter((source) => source.group === group);
+                    if (groupSources.length === 0) {
+                      return null;
+                    }
+                    const label = group === 'runtime' ? 'Runtime' : group === 'app' ? 'App' : 'Agents';
+                    return (
+                      <div key={group} className="mb-3 px-2">
+                        <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>{label}</div>
+                        <div className="flex flex-col gap-px">
+                          {groupSources.map((source) => {
+                            const active = selectedLogSourceId === source.id;
+                            return (
+                              <button
+                                key={source.id}
+                                onClick={() => {
+                                  setSelectedLogSourceId(source.id);
+                                  setLogSearchQuery('');
+                                }}
+                                className="w-full text-left px-2 py-2 rounded transition-opacity hover:opacity-90"
+                                style={active ? s.activeItem : s.mutedText}
+                              >
+                                <div className="text-[12px] font-medium truncate" style={s.inkText}>{source.title}</div>
+                                <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>{source.subtitle}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
+              <div className="border-b flex items-center justify-between px-4 h-14 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileJson size={14} style={s.mutedText} />
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
+                      {selectedLogSource?.title ?? 'Logs'}
+                    </div>
+                    <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
+                      {logContent?.updatedAtLabel
+                        ? `${selectedLogSource?.subtitle ?? 'Log tail'} · Updated ${logContent.updatedAtLabel}`
+                        : selectedLogSource?.subtitle ?? 'Relay runtime, app, and relay agent logs.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b px-4 py-3 flex items-center gap-3" style={{ borderBottomColor: C.border }}>
+                <input
+                  type="text"
+                  value={logSearchQuery}
+                  onChange={(event) => setLogSearchQuery(event.target.value)}
+                  placeholder="Filter visible lines…"
+                  className="flex-1 rounded-lg border px-3 py-2 text-[11px] bg-transparent outline-none"
+                  style={{ borderColor: C.border, color: C.ink }}
+                />
+                <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                  {logContent ? `${logContent.lineCount} lines` : 'No file'}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                {!selectedLogSource ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                      <FileJson size={24} style={{ color: C.accent }} />
+                    </div>
+                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No log selected</h3>
+                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                      Pick a relay runtime, app, or relay agent source from the left rail.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    <div className="border rounded-xl overflow-hidden min-h-[360px]" style={{ borderColor: C.border, backgroundColor: C.termBg }}>
+                      <div className="px-4 py-2 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-mono uppercase tracking-widest" style={s.mutedText}>{selectedLogSource.title}</div>
+                          <div className="text-[11px] truncate mt-1" style={s.mutedText}>{logContent?.pathLabel ?? selectedLogSource.pathLabel}</div>
+                        </div>
+                        <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                          {logContent?.truncated ? 'Tail' : 'Full'}
+                        </div>
+                      </div>
+                      {logsLoading && !logContent ? (
+                        <div className="flex items-center justify-center min-h-[240px]">
+                          <div className="flex flex-col items-center gap-3">
+                            <Loader2 size={18} className="animate-spin" style={{ color: C.accent }} />
+                            <span className="text-[13px]" style={s.mutedText}>Loading log tail…</span>
+                          </div>
+                        </div>
+                      ) : logContent?.missing ? (
+                        <div className="flex flex-col items-center justify-center min-h-[240px] px-6 text-center">
+                          <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                            <FileJson size={24} style={{ color: C.accent }} />
+                          </div>
+                          <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No log file yet</h3>
+                          <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                            {selectedLogSource.title} has not written a log yet. This panel stays live and will update as soon as the next log line lands.
+                          </p>
+                        </div>
+                      ) : (
+                        <pre className="h-full overflow-auto p-4 text-[11px] leading-[1.55] whitespace-pre-wrap break-words" style={{ color: C.termFg }}>
+                          {visibleLogBody || (logSearchQuery.trim() ? 'No visible lines match the current filter.' : '(empty log)')}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {logsFeedback ? (
+                  <div className="text-[11px] leading-[1.5] mt-3" style={s.inkText}>{logsFeedback}</div>
+                ) : null}
+              </div>
+
+              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
+                <span className="text-[9px] font-mono" style={s.mutedText}>Canonical relay runtime, app, and relay agent log tails</span>
               </div>
             </div>
           </>
@@ -1818,7 +3207,7 @@ export default function App() {
                     <button
                       className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
                       style={{ color: C.ink }}
-                      onClick={() => openAgentProfile(interAgentConfigureTarget.id, true)}
+                      onClick={() => openAgentSettings(interAgentConfigureTarget.id, interAgentConfigureTarget.profileKind === 'project')}
                       title={interAgentConfigureTarget.profileKind === 'project'
                         ? `Configure ${interAgentConfigureTarget.title}`
                         : `Open ${interAgentConfigureTarget.title} profile`}
@@ -1869,6 +3258,7 @@ export default function App() {
                       mutedStyle={s.mutedText}
                       tagStyle={s.tagBadge}
                       annotStyle={s.annotBadge}
+                      onNudgeMessage={handleNudgeMessage}
                     />
                   </div>
                 )}
@@ -2333,6 +3723,7 @@ export default function App() {
                       mutedStyle={s.mutedText}
                       tagStyle={s.tagBadge}
                       annotStyle={s.annotBadge}
+                      onNudgeMessage={handleNudgeMessage}
                     />
                     {selectedRelayDirectThread?.state === 'working' ? (
                       <RelayThinkingIndicator
@@ -2348,6 +3739,25 @@ export default function App() {
 
               {/* Compose */}
               <div className="px-4 py-3 shrink-0" style={s.surface}>
+                {relayReplyTarget ? (
+                  <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                    <div className="min-w-0">
+                      <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                        Replying to {relayReplyTarget.authorName} · {shortMessageRef(relayReplyTarget.messageId)}
+                      </div>
+                      <div className="text-[11px] truncate mt-1" style={s.mutedText}>{relayReplyTarget.preview}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRelayReplyTarget(null)}
+                      className="shrink-0 rounded p-1 transition-opacity hover:opacity-70"
+                      style={s.mutedText}
+                      title="Clear reply context"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : null}
                 <div className="border rounded flex items-center px-2 py-1 transition-all focus-within:ring-1" style={{ backgroundColor: C.bg, borderColor: C.border }}>
                   <textarea
                     ref={relayComposerRef}
@@ -2425,8 +3835,23 @@ export default function App() {
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Ready
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <span>OpenScout</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setActiveView('logs')}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:opacity-80"
+            style={activeView === 'logs' ? s.activePill : s.mutedText}
+            title={logsButtonTitle}
+          >
+            <FileJson size={9} />
+            <span>Logs</span>
+            {logsAttentionLevel ? (
+              <span
+                className={`block w-1.5 h-1.5 rounded-full ${logsAttentionLevel === 'error' ? 'bg-rose-500' : 'bg-amber-500'}`}
+              />
+            ) : null}
+          </button>
+          <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
+          <span style={s.inkText}>{footerTimeLabel}</span>
         </div>
       </div>
     </div>
@@ -2504,6 +3929,7 @@ function RelayTimeline({
   mutedStyle,
   tagStyle,
   annotStyle,
+  onNudgeMessage,
 }: {
   messages: RelayMessage[];
   showAnnotations: boolean;
@@ -2511,10 +3937,82 @@ function RelayTimeline({
   mutedStyle: React.CSSProperties;
   tagStyle: React.CSSProperties;
   annotStyle: React.CSSProperties;
+  onNudgeMessage?: (message: RelayMessage) => void;
 }) {
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [nudgedMessageId, setNudgedMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const rows: React.ReactNode[] = [];
   let lastDayLabel = '';
   let index = 0;
+  const messageById = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  );
+
+  useEffect(() => {
+    if (!copiedMessageId) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedMessageId((current) => (current === copiedMessageId ? null : current));
+    }, 1400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [copiedMessageId]);
+
+  useEffect(() => {
+    if (!nudgedMessageId) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNudgedMessageId((current) => (current === nudgedMessageId ? null : current));
+    }, 1400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [nudgedMessageId]);
+
+  useEffect(() => {
+    if (!highlightedMessageId) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setHighlightedMessageId((current) => (current === highlightedMessageId ? null : current));
+    }, 2200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [highlightedMessageId]);
+
+  const handleCopyMessageRef = React.useCallback(async (messageId: string) => {
+    try {
+      await copyTextToClipboard(stableMessageRef(messageId));
+      setCopiedMessageId(messageId);
+    } catch {
+      setCopiedMessageId(null);
+    }
+  }, []);
+
+  const handleNudge = React.useCallback((message: RelayMessage) => {
+    onNudgeMessage?.(message);
+    setNudgedMessageId(message.id);
+  }, [onNudgeMessage]);
+
+  const handleJumpToMessage = React.useCallback((messageId: string) => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const target = document.getElementById(messageDomId(messageId));
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setHighlightedMessageId(messageId);
+  }, []);
 
   while (index < messages.length) {
     const message = messages[index];
@@ -2542,12 +4040,25 @@ function RelayTimeline({
                 <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
               </div>
             </div>
-            <div className="text-[12px] leading-relaxed" style={inkStyle}>
+            <div
+              id={messageDomId(message.id)}
+              className="group/message relative text-[12px] leading-relaxed rounded-lg px-2 py-1.5 pr-12 -mx-2"
+              style={highlightedMessageId === message.id ? highlightedMessageStyle() : inkStyle}
+            >
               <div className="flex items-center gap-2 px-2 py-1.5 border rounded font-mono text-[10px] w-fit" style={tagStyle}>
                 <Loader2 size={10} className="animate-spin" />
                 <span><span style={mutedStyle}>TASK //</span> {message.body}</span>
                 <span className="ml-2 px-1 rounded" style={{ backgroundColor: 'rgba(99,102,241,0.12)', color: 'var(--os-accent)' }}>IN PROGRESS</span>
               </div>
+              <MessageReferenceControls
+                message={message}
+                copied={copiedMessageId === message.id}
+                nudged={nudgedMessageId === message.id}
+                canNudge={Boolean(onNudgeMessage && !message.isOperator)}
+                mutedStyle={mutedStyle}
+                onCopyRef={handleCopyMessageRef}
+                onNudge={() => handleNudge(message)}
+              />
             </div>
           </div>
         </div>,
@@ -2595,36 +4106,73 @@ function RelayTimeline({
             ) : null}
           </div>
           <div className="flex flex-col gap-2 mt-0.5">
-            {grouped.map((entry) => (
-              <div key={entry.id} className="text-[12px] leading-relaxed" style={inkStyle}>
-                <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
-                {entry.receipt ? (
-                  <div
-                    className="mt-1 inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 w-fit"
-                    style={relayReceiptStyle(entry.receipt.state)}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${relayReceiptDotClass(entry.receipt.state)}`}></span>
-                    <span>{entry.receipt.label}</span>
-                    {entry.receipt.detail ? (
-                      <span className="normal-case tracking-normal opacity-80">{entry.receipt.detail}</span>
-                    ) : null}
-                  </div>
-                ) : null}
-                {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    {entry.routingSummary ? (
-                      <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{entry.routingSummary}</span>
-                    ) : null}
-                    {entry.provenanceSummary ? (
-                      <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{entry.provenanceSummary}</span>
-                    ) : null}
-                    {entry.provenanceDetail ? (
-                      <span className="text-[9px]" style={mutedStyle}>{entry.provenanceDetail}</span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ))}
+            {grouped.map((entry) => {
+              const replyTarget = entry.replyToMessageId ? messageById.get(entry.replyToMessageId) ?? null : null;
+              return (
+                <div
+                  key={entry.id}
+                  id={messageDomId(entry.id)}
+                  className="group/message relative text-[12px] leading-relaxed rounded-lg px-2 py-1.5 pr-12 -mx-2"
+                  style={highlightedMessageId === entry.id ? highlightedMessageStyle() : inkStyle}
+                >
+                  {entry.replyToMessageId ? (
+                    replyTarget ? (
+                      <button
+                        type="button"
+                        onClick={() => handleJumpToMessage(entry.replyToMessageId!)}
+                        className="mb-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-mono transition-opacity hover:opacity-80"
+                        style={tagStyle}
+                        title={stableMessageRef(entry.replyToMessageId)}
+                      >
+                        <span>↪</span>
+                        <span>{shortMessageRef(entry.replyToMessageId)}</span>
+                        <span className="normal-case tracking-normal" style={mutedStyle}>{messagePreviewSnippet(replyTarget.body, 48)}</span>
+                      </button>
+                    ) : (
+                      <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-mono" style={tagStyle}>
+                        <span>↪</span>
+                        <span>{shortMessageRef(entry.replyToMessageId)}</span>
+                      </div>
+                    )
+                  ) : null}
+                  <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
+                  {entry.receipt ? (
+                    <div
+                      className="mt-1 inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 w-fit"
+                      style={relayReceiptStyle(entry.receipt.state)}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${relayReceiptDotClass(entry.receipt.state)}`}></span>
+                      <span>{entry.receipt.label}</span>
+                      {entry.receipt.detail ? (
+                        <span className="normal-case tracking-normal opacity-80">{entry.receipt.detail}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {entry.routingSummary ? (
+                        <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{entry.routingSummary}</span>
+                      ) : null}
+                      {entry.provenanceSummary ? (
+                        <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{entry.provenanceSummary}</span>
+                      ) : null}
+                      {entry.provenanceDetail ? (
+                        <span className="text-[9px]" style={mutedStyle}>{entry.provenanceDetail}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <MessageReferenceControls
+                    message={entry}
+                    copied={copiedMessageId === entry.id}
+                    nudged={nudgedMessageId === entry.id}
+                    canNudge={Boolean(onNudgeMessage && !entry.isOperator)}
+                    mutedStyle={mutedStyle}
+                    onCopyRef={handleCopyMessageRef}
+                    onNudge={() => handleNudge(entry)}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>,
@@ -2634,6 +4182,49 @@ function RelayTimeline({
   }
 
   return <>{rows}</>;
+}
+
+function MessageReferenceControls({
+  message,
+  copied,
+  nudged,
+  canNudge,
+  mutedStyle,
+  onCopyRef,
+  onNudge,
+}: {
+  message: RelayMessage;
+  copied: boolean;
+  nudged: boolean;
+  canNudge: boolean;
+  mutedStyle: React.CSSProperties;
+  onCopyRef: (messageId: string) => void;
+  onNudge: () => void;
+}) {
+  return (
+    <div className="absolute top-1.5 right-2 flex items-center gap-2 opacity-0 pointer-events-none transition-opacity group-hover/message:opacity-100 group-hover/message:pointer-events-auto group-focus-within/message:opacity-100 group-focus-within/message:pointer-events-auto">
+      {canNudge ? (
+        <button
+          type="button"
+          onClick={onNudge}
+          className="text-[9px] font-mono lowercase tracking-wide transition-colors hover:opacity-80"
+          style={nudged ? { color: C.accent } : mutedStyle}
+          title={`Follow up with ${message.authorName}`}
+        >
+          {nudged ? 'drafted' : 'nudge'}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => void onCopyRef(message.id)}
+        className="text-[9px] font-mono lowercase tracking-wide transition-colors hover:opacity-80"
+        style={copied ? { color: C.accent } : mutedStyle}
+        title={stableMessageRef(message.id)}
+      >
+        {copied ? 'copied' : messageRefSuffix(message.id)}
+      </button>
+    </div>
+  );
 }
 
 function relaySecondaryText(thread: RelayDirectThread) {
@@ -2758,6 +4349,13 @@ function interAgentThreadSubtitle(thread: InterAgentThread, perspectiveId: strin
     : `${sourceLabel} · ${participantLine}`;
 }
 
+function agentThreadFollowUpDraft(thread: InterAgentThread, perspectiveId: string | null) {
+  const others = interAgentCounterparts(thread, perspectiveId).map((participant) => participant.title).join(", ");
+  return others
+    ? `Can you catch me up on your thread with ${others}?`
+    : "Can you catch me up on this thread?";
+}
+
 function interAgentProfileKindLabel(profileKind: InterAgentAgent['profileKind']) {
   if (profileKind === 'project') {
     return 'Relay Agent';
@@ -2784,6 +4382,21 @@ function serializeEditableAgentConfig(config: AgentConfigState | null) {
     systemPrompt: normalizeDraftText(config.systemPrompt),
     launchArgsText: normalizeDraftText(config.toolUse.launchArgsText),
     capabilitiesText: normalizeDraftText(config.capabilitiesText),
+  });
+}
+
+function serializeAppSettings(settings: AppSettingsState | null) {
+  if (!settings) {
+    return '';
+  }
+
+  return JSON.stringify({
+    operatorName: normalizeDraftText(settings.operatorName),
+    workspaceRoots: settings.workspaceRoots.map((entry) => normalizeDraftText(entry)),
+    includeCurrentRepo: settings.includeCurrentRepo,
+    defaultHarness: settings.defaultHarness,
+    defaultCapabilities: settings.defaultCapabilities.map((entry) => normalizeDraftText(entry)),
+    sessionPrefix: normalizeDraftText(settings.sessionPrefix),
   });
 }
 
@@ -3033,6 +4646,13 @@ function cleanDisplayTitle(title: string) {
   return title.replace(/^[@#]\s*/, '');
 }
 
+function formatFooterTime(date: Date) {
+  return new Intl.DateTimeFormat([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
 function colorForIdentity(identity: string) {
   const palette = ['#3b82f6', '#14b8a6', '#fb923c', '#f43f5e', '#8b5cf6', '#10b981'];
   let seed = 0;
@@ -3114,6 +4734,65 @@ function renderMessageBody(
       </ReactMarkdown>
     </div>
   );
+}
+
+function shortMessageRef(messageId: string) {
+  const normalized = messageId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const suffix = normalized.slice(-7) || normalized.slice(0, 7) || 'message';
+  return `m:${suffix}`;
+}
+
+function messageRefSuffix(messageId: string) {
+  const normalized = messageId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return normalized.slice(-4) || normalized.slice(0, 4) || 'ref';
+}
+
+function stableMessageRef(messageId: string) {
+  return `message:${messageId}`;
+}
+
+function messageDomId(messageId: string) {
+  return `message-${messageId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+function messagePreviewSnippet(body: string, maxLength = 88) {
+  const compact = body.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) {
+    return compact;
+  }
+  return `${compact.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function highlightedMessageStyle(): React.CSSProperties {
+  return {
+    color: C.ink,
+    backgroundColor: C.accentBg,
+    boxShadow: 'inset 0 0 0 1px rgba(0,102,255,0.16)',
+  };
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document !== 'undefined') {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (copied) {
+      return;
+    }
+  }
+
+  throw new Error('Clipboard unavailable.');
 }
 
 function asErrorMessage(error: unknown) {

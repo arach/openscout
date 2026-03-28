@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -17,16 +18,37 @@ import {
   SUPPORTED_TWIN_HARNESSES,
   updateProjectTwinConfig,
 } from "../../runtime/src/project-twins.js";
+import {
+  initializeOpenScoutSetup,
+  loadResolvedRelayAgents,
+  readOpenScoutSettings,
+  writeOpenScoutSettings,
+} from "../../runtime/src/setup.js";
+import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "../../runtime/src/support-paths.js";
 import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 
 import type {
   AgentConfigState,
+  AppSettingsState,
   BrokerControlAction,
+  DesktopBrokerInspector,
+  DesktopLogCatalog,
+  DesktopLogContent,
+  DesktopLogSource,
   DesktopAppInfo,
+  DesktopMachine,
+  DesktopMachineEndpoint,
+  DesktopMachineEndpointState,
+  DesktopMachinesState,
+  DesktopPlan,
+  DesktopPlansState,
   DesktopRuntimeState,
   DesktopShellState,
+  DesktopTask,
+  DesktopTaskStatus,
   RestartAgentInput,
+  ReadLogSourceInput,
   RelayDirectThread,
   RelayMessage,
   RelayNavItem,
@@ -34,10 +56,11 @@ import type {
   SendRelayMessageInput,
   SessionMetadata,
   UpdateAgentConfigInput,
+  UpdateAppSettingsInput,
 } from "../src/lib/openscout-desktop.js";
 
 const OPERATOR_ID = "operator";
-const OPERATOR_DISPLAY_NAME = process.env.OPENSCOUT_OPERATOR_NAME?.trim() || "Arach";
+const DEFAULT_OPERATOR_DISPLAY_NAME = process.env.OPENSCOUT_OPERATOR_NAME?.trim() || "Arach";
 const SHARED_CHANNEL_ID = "channel.shared";
 const VOICE_CHANNEL_ID = "channel.voice";
 const SYSTEM_CHANNEL_ID = "channel.system";
@@ -49,6 +72,10 @@ type TmuxSession = {
 
 type BrokerNode = {
   id: string;
+};
+
+type ResolvedLogSource = DesktopLogSource & {
+  paths: string[];
 };
 
 type ActorRecord = {
@@ -70,6 +97,7 @@ type AgentRecord = ActorRecord & {
 type EndpointRecord = {
   id: string;
   agentId: string;
+  nodeId?: string;
   state?: string;
   transport?: string;
   harness?: string;
@@ -132,6 +160,17 @@ type DirectAgentActivity = {
   activeTask: string | null;
 };
 
+type TwinWorkspaceRecord = {
+  twinId: string;
+  project: string;
+  cwd: string;
+};
+
+type ParsedPlanFrontmatter = {
+  attributes: Record<string, string>;
+  body: string;
+};
+
 function normalizeTimestamp(value: number | null | undefined): number {
   if (!value) return 0;
   return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
@@ -171,10 +210,34 @@ function formatRelativeTime(value: number): string {
   return `${deltaDays}d ago`;
 }
 
+function formatDateTimeLabel(value: number | null | undefined): string | null {
+  const normalized = normalizeTimestamp(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(normalized * 1000));
+}
+
 function compactHomePath(value: string | null | undefined): string | null {
   if (!value) return null;
   const home = homedir();
   return value.startsWith(home) ? value.replace(home, "~") : value;
+}
+
+function expandHomePath(value: string): string {
+  if (value === "~") {
+    return homedir();
+  }
+  if (value.startsWith("~/")) {
+    return path.join(homedir(), value.slice(2));
+  }
+  return value;
 }
 
 function splitLines(value: string): string[] {
@@ -182,6 +245,259 @@ function splitLines(value: string): string[] {
     .split(/\r?\n/g)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function logSectionLabel(filePath: string): string {
+  return path.basename(filePath);
+}
+
+function readJsonField(filePath: string, field: string): string | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+    const value = payload[field];
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function runtimeVersionLabel(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), "packages", "runtime", "package.json"),
+    path.resolve(process.cwd(), "package.json"),
+  ];
+
+  for (const candidate of candidates) {
+    const version = readJsonField(candidate, "version");
+    if (version) {
+      return version;
+    }
+  }
+
+  return null;
+}
+
+function runOptionalCommand(command: string, args: string[]): string | null {
+  try {
+    const output = execFileSync(command, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return output.length > 0 ? output : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBrokerProcessId(brokerUrl: string, fallbackPid: number | null): number | null {
+  if (fallbackPid && Number.isFinite(fallbackPid)) {
+    return fallbackPid;
+  }
+
+  try {
+    const port = new URL(brokerUrl).port;
+    if (!port) {
+      return null;
+    }
+    const output = runOptionalCommand("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+    const pid = Number.parseInt(output?.split(/\s+/g)[0] ?? "", 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatProcessStartLabel(pid: number | null): string | null {
+  if (!pid) {
+    return null;
+  }
+
+  const raw = runOptionalCommand("ps", ["-p", String(pid), "-o", "lstart="]);
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return formatRelativeTime(Math.floor(parsed.getTime() / 1000));
+  }
+
+  return raw;
+}
+
+function readProcessCommand(pid: number | null): string | null {
+  if (!pid) {
+    return null;
+  }
+
+  return runOptionalCommand("ps", ["-p", String(pid), "-o", "command="]);
+}
+
+function brokerStatusLabel(status: Awaited<ReturnType<typeof brokerServiceStatus>>): { label: string; detail: string | null } {
+  if (status.reachable && status.health.ok) {
+    return {
+      label: "Running",
+      detail: `Broker is responding at ${status.brokerUrl}.`,
+    };
+  }
+  if (status.loaded) {
+    return {
+      label: "Starting",
+      detail: "LaunchAgent is loaded, but the broker health endpoint is not responding yet.",
+    };
+  }
+  if (status.installed) {
+    return {
+      label: "Installed",
+      detail: "LaunchAgent exists on disk, but it is not currently loaded.",
+    };
+  }
+  return {
+    label: "Missing",
+    detail: "No LaunchAgent is installed for the broker yet.",
+  };
+}
+
+function brokerTroubleshootingHints(status: Awaited<ReturnType<typeof brokerServiceStatus>>): string[] {
+  const hints: string[] = [];
+
+  if (!status.installed) {
+    hints.push("The broker LaunchAgent is not installed.");
+  }
+  if (status.installed && !status.loaded) {
+    hints.push("The LaunchAgent exists but is not loaded.");
+  }
+  if (status.loaded && !status.reachable) {
+    hints.push("launchd reports the service as loaded, but the broker health endpoint is not responding.");
+  }
+  if (status.lastExitStatus !== null && status.lastExitStatus !== 0) {
+    hints.push(`The last broker exit status was ${status.lastExitStatus}.`);
+  }
+  if (status.lastLogLine) {
+    hints.push(`Last broker log line: ${status.lastLogLine}`);
+  }
+
+  return hints;
+}
+
+function brokerFeedbackSummary(
+  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  processId: number | null,
+  processCommand: string | null,
+  startedLabel: string | null,
+  version: string | null,
+): string {
+  const counts = status.health.counts;
+  return [
+    `status: ${status.reachable ? "reachable" : "unreachable"}`,
+    `label: ${status.label}`,
+    `mode: ${status.mode}`,
+    `version: ${version ?? "not reported"}`,
+    `url: ${status.brokerUrl}`,
+    `pid: ${processId ?? "not reported"}`,
+    `started: ${startedLabel ?? "not reported"}`,
+    `launchd: ${status.launchdState ?? "not reported"}`,
+    `last_exit: ${status.lastExitStatus ?? "not reported"}`,
+    `node: ${status.health.nodeId ?? "not reported"}`,
+    `mesh: ${status.health.meshId ?? "not reported"}`,
+    `counts: actors=${counts?.actors ?? "?"} agents=${counts?.agents ?? "?"} conversations=${counts?.conversations ?? "?"} messages=${counts?.messages ?? "?"} flights=${counts?.flights ?? "?"}`,
+    `command: ${processCommand ?? "not reported"}`,
+    `stdout: ${compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath}`,
+    `stderr: ${compactHomePath(status.stderrLogPath) ?? status.stderrLogPath}`,
+    `last_log: ${status.lastLogLine ?? "not reported"}`,
+  ].join("\n");
+}
+
+async function buildResolvedLogCatalog(): Promise<ResolvedLogSource[]> {
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const setup = await loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() });
+
+  const sources: ResolvedLogSource[] = [
+    {
+      id: "broker",
+      title: "Relay Runtime",
+      subtitle: "Relay service stdout and stderr",
+      group: "runtime",
+      pathLabel: compactHomePath(supportPaths.brokerLogsDirectory) ?? supportPaths.brokerLogsDirectory,
+      paths: [
+        path.join(supportPaths.brokerLogsDirectory, "stdout.log"),
+        path.join(supportPaths.brokerLogsDirectory, "stderr.log"),
+      ],
+    },
+    {
+      id: "app",
+      title: "Desktop App",
+      subtitle: "Electron and local app logs",
+      group: "app",
+      pathLabel: compactHomePath(supportPaths.appLogsDirectory) ?? supportPaths.appLogsDirectory,
+      paths: [
+        path.join(supportPaths.appLogsDirectory, "electron.log"),
+        path.join(supportPaths.appLogsDirectory, "native.log"),
+        path.join(supportPaths.appLogsDirectory, "agent-host.log"),
+      ],
+    },
+  ];
+
+  for (const agent of setup.agents.slice().sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName))) {
+    const logsDirectory = relayAgentLogsDirectory(agent.agentId);
+    sources.push({
+      id: `agent:${agent.agentId}`,
+      title: agent.displayName,
+      subtitle: "Relay agent runtime logs",
+      group: "agents",
+      pathLabel: compactHomePath(logsDirectory) ?? logsDirectory,
+      paths: [
+        path.join(logsDirectory, "stdout.log"),
+        path.join(logsDirectory, "stderr.log"),
+      ],
+    });
+  }
+
+  return sources;
+}
+
+async function tailLogSource(source: ResolvedLogSource, tailLines = 240): Promise<DesktopLogContent> {
+  const sections: string[] = [];
+  let updatedAtMs = 0;
+  let lineCount = 0;
+  let truncated = false;
+  let foundAny = false;
+
+  for (const filePath of source.paths) {
+    if (!existsSync(filePath)) {
+      continue;
+    }
+
+    foundAny = true;
+    const raw = await readFile(filePath, "utf8");
+    const stats = await stat(filePath);
+    updatedAtMs = Math.max(updatedAtMs, stats.mtimeMs);
+    const lines = raw.split(/\r?\n/);
+    if (lines.length > 0 && lines.at(-1) === "") {
+      lines.pop();
+    }
+    lineCount += lines.length;
+    const visibleLines = tailLines > 0 ? lines.slice(-tailLines) : lines;
+    truncated = truncated || visibleLines.length < lines.length;
+    sections.push(`== ${logSectionLabel(filePath)} ==`);
+    sections.push(visibleLines.join("\n") || "(empty)");
+  }
+
+  return {
+    sourceId: source.id,
+    title: source.title,
+    subtitle: source.subtitle,
+    pathLabel: source.pathLabel,
+    body: foundAny ? sections.join("\n\n") : "",
+    updatedAtLabel: updatedAtMs > 0 ? formatRelativeTime(updatedAtMs) : null,
+    lineCount,
+    truncated,
+    missing: !foundAny,
+  };
 }
 
 function splitDelimitedTokens(value: string): string[] {
@@ -217,8 +533,294 @@ function colorForIdentity(identity: string) {
   return palette[seed % palette.length];
 }
 
+type DesktopSettingsRecord = {
+  operatorName?: string;
+  profile?: {
+    operatorName?: string;
+  };
+};
+
+function openScoutSupportDirectory(): string {
+  return resolveOpenScoutSupportPaths().supportDirectory;
+}
+
+function desktopSettingsPath(): string {
+  return resolveOpenScoutSupportPaths().settingsPath;
+}
+
+function desktopCurrentDirectory(): string {
+  return process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
+}
+
+function normalizeOperatorName(value: string | undefined | null): string {
+  const trimmed = value?.trim() ?? "";
+  return trimmed || DEFAULT_OPERATOR_DISPLAY_NAME;
+}
+
+function readDesktopSettingsRecord(): DesktopSettingsRecord {
+  try {
+    const raw = JSON.parse(readFileSync(desktopSettingsPath(), "utf8")) as DesktopSettingsRecord;
+    return raw ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function resolveOperatorDisplayName(): string {
+  const record = readDesktopSettingsRecord();
+  return normalizeOperatorName(record.profile?.operatorName ?? record.operatorName);
+}
+
+async function readRegisteredTwinWorkspaces(): Promise<TwinWorkspaceRecord[]> {
+  const registryPath = path.join(resolveOpenScoutSupportPaths().relayHubDirectory, "twins.json");
+
+  try {
+    const raw = JSON.parse(await readFile(registryPath, "utf8")) as Record<string, {
+      project?: string;
+      cwd?: string;
+    }>;
+    const records = Object.entries(raw ?? {})
+      .map(([twinId, record]) => {
+        const cwd = record?.cwd?.trim();
+        if (!cwd) {
+          return null;
+        }
+
+        const resolvedCwd = path.resolve(expandHomePath(cwd));
+        return {
+          twinId,
+          project: record?.project?.trim() || path.basename(resolvedCwd),
+          cwd: resolvedCwd,
+        } satisfies TwinWorkspaceRecord;
+      })
+      .filter((entry): entry is TwinWorkspaceRecord => Boolean(entry));
+
+    return Array.from(
+      records.reduce((map, entry) => map.set(entry.cwd, entry), new Map<string, TwinWorkspaceRecord>()).values(),
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function walkMarkdownFiles(directory: string): Promise<string[]> {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const files: string[] = [];
+
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await walkMarkdownFiles(fullPath)));
+        continue;
+      }
+
+      if (entry.isFile() && fullPath.endsWith(".md")) {
+        files.push(fullPath);
+      }
+    }
+
+    return files;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+function parsePlanFrontmatter(source: string): ParsedPlanFrontmatter {
+  const normalized = source.replace(/\r\n/g, "\n");
+
+  if (!normalized.startsWith("---\n")) {
+    return { attributes: {}, body: normalized.trim() };
+  }
+
+  const endOfFrontmatter = normalized.indexOf("\n---\n", 4);
+  if (endOfFrontmatter === -1) {
+    return { attributes: {}, body: normalized.trim() };
+  }
+
+  const rawAttributes = normalized.slice(4, endOfFrontmatter).trim();
+  const body = normalized.slice(endOfFrontmatter + 5).trim();
+  const attributes: Record<string, string> = {};
+
+  for (const line of rawAttributes.split("\n")) {
+    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    attributes[match[1].trim().toLowerCase()] = match[2].trim();
+  }
+
+  return { attributes, body };
+}
+
+function parsePlanStatus(value: string | undefined): DesktopPlan["status"] {
+  switch (value) {
+    case "awaiting-review":
+    case "in-progress":
+    case "completed":
+    case "paused":
+    case "draft":
+      return value;
+    default:
+      return "draft";
+  }
+}
+
+function extractPlanTitle(attributes: Record<string, string>, body: string, slug: string): string {
+  if (attributes.title) {
+    return attributes.title;
+  }
+
+  const heading = body.match(/^#\s+(.+)$/m);
+  if (heading) {
+    return heading[1].trim();
+  }
+
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((segment) => segment[0]?.toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function extractPlanSummary(attributes: Record<string, string>, body: string): string {
+  if (attributes.summary) {
+    return attributes.summary;
+  }
+
+  for (const line of body.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    if (
+      trimmed.startsWith("#")
+      || trimmed.startsWith("- ")
+      || trimmed.startsWith("* ")
+      || trimmed.startsWith(">")
+      || /^\d+\.\s/.test(trimmed)
+    ) {
+      continue;
+    }
+
+    return trimmed;
+  }
+
+  return "No summary yet.";
+}
+
+function countPlanChecklistItems(markdown: string): { stepsCompleted: number; stepsTotal: number } {
+  let stepsCompleted = 0;
+  let stepsTotal = 0;
+
+  for (const line of markdown.split("\n")) {
+    const match = line.match(/^\s*[-*]\s+\[([ xX])\]\s+/);
+    if (!match) {
+      continue;
+    }
+
+    stepsTotal += 1;
+    if (match[1].toLowerCase() === "x") {
+      stepsCompleted += 1;
+    }
+  }
+
+  return { stepsCompleted, stepsTotal };
+}
+
+function parsePlanTags(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+async function loadWorkspacePlans(snapshot: RuntimeRegistrySnapshot | null): Promise<DesktopPlan[]> {
+  const workspaces = new Map<string, TwinWorkspaceRecord>();
+
+  for (const workspace of await readRegisteredTwinWorkspaces()) {
+    workspaces.set(workspace.cwd, workspace);
+  }
+
+  if (snapshot) {
+    for (const endpoint of Object.values(snapshot.endpoints as Record<string, EndpointRecord>)) {
+      const cwd = endpoint.projectRoot ?? endpoint.cwd;
+      if (!cwd) {
+        continue;
+      }
+
+      const resolvedCwd = path.resolve(cwd);
+      workspaces.set(resolvedCwd, {
+        twinId: endpoint.agentId,
+        project: String(endpoint.metadata?.project ?? path.basename(resolvedCwd)),
+        cwd: resolvedCwd,
+      });
+    }
+  }
+
+  const plans = (
+    await Promise.all(
+      Array.from(workspaces.values()).map(async (workspace) => {
+        const planFiles = (
+          await Promise.all([
+            walkMarkdownFiles(path.join(workspace.cwd, "plans")),
+            walkMarkdownFiles(path.join(workspace.cwd, ".openscout", "plans")),
+          ])
+        ).flat();
+
+        return Promise.all(
+          planFiles.map(async (filePath) => {
+            const [source, fileStats] = await Promise.all([
+              readFile(filePath, "utf8"),
+              stat(filePath),
+            ]);
+            const { attributes, body } = parsePlanFrontmatter(source);
+            const slug = path.basename(filePath, ".md");
+            const { stepsCompleted, stepsTotal } = countPlanChecklistItems(body);
+            const updatedAt = attributes.updated && !Number.isNaN(Date.parse(attributes.updated))
+              ? new Date(attributes.updated).toISOString()
+              : fileStats.mtime.toISOString();
+
+            return {
+              id: attributes.id || slug.toUpperCase(),
+              title: extractPlanTitle(attributes, body, slug),
+              summary: extractPlanSummary(attributes, body),
+              status: parsePlanStatus(attributes.status),
+              stepsCompleted,
+              stepsTotal,
+              progressPercent: stepsTotal > 0 ? Math.round((stepsCompleted / stepsTotal) * 100) : 0,
+              tags: parsePlanTags(attributes.tags),
+              twinId: attributes.twin || workspace.twinId,
+              agent: attributes.agent || workspace.project,
+              workspaceName: workspace.project,
+              workspacePath: compactHomePath(workspace.cwd) ?? workspace.cwd,
+              path: compactHomePath(filePath) ?? filePath,
+              updatedAt,
+              updatedAtLabel: formatDateTimeLabel(Math.floor(Date.parse(updatedAt) / 1000)) ?? "Unknown",
+            } satisfies DesktopPlan;
+          }),
+        );
+      }),
+    )
+  )
+    .flat()
+    .sort((lhs, rhs) => Date.parse(rhs.updatedAt) - Date.parse(lhs.updatedAt) || lhs.title.localeCompare(rhs.title));
+
+  return plans;
+}
+
 function readHelperStatus() {
-  const statusPath = path.join(homedir(), "Library", "Application Support", "OpenScout", "agent-status.json");
+  const statusPath = resolveOpenScoutSupportPaths().desktopStatusPath;
   if (!existsSync(statusPath)) {
     return {
       running: false,
@@ -312,9 +914,38 @@ async function readNode(baseUrl: string): Promise<BrokerNode | null> {
   return brokerGet<BrokerNode>(baseUrl, "/v1/node");
 }
 
+async function readLiveBrokerState(status: Awaited<ReturnType<typeof brokerServiceStatus>>) {
+  const [snapshot, node] = await Promise.all([
+    readSnapshot(status.brokerUrl),
+    readNode(status.brokerUrl),
+  ]);
+  const snapshotReachable = Boolean(snapshot);
+
+  if (!snapshotReachable || status.reachable) {
+    return { snapshot, node, status };
+  }
+
+  return {
+    snapshot,
+    node,
+    status: {
+      ...status,
+      reachable: true,
+      loaded: status.loaded || Boolean(snapshot),
+      health: {
+        ...status.health,
+        reachable: true,
+        ok: true,
+        error: undefined,
+        nodeId: status.health.nodeId ?? node?.id,
+      },
+    },
+  };
+}
+
 function actorDisplayName(snapshot: RuntimeRegistrySnapshot, actorId: string): string {
   if (actorId === OPERATOR_ID) {
-    return OPERATOR_DISPLAY_NAME;
+    return resolveOperatorDisplayName();
   }
   const agent = snapshot.agents[actorId] as AgentRecord | undefined;
   if (agent?.displayName) return agent.displayName;
@@ -478,6 +1109,412 @@ function buildDirectAgentActivity(
   }
 
   return activity;
+}
+
+function machineEndpointState(
+  endpoint: EndpointRecord,
+  activity: DirectAgentActivity | undefined,
+): DesktopMachineEndpointState {
+  if (activity?.state === "working" || endpoint.state === "active") {
+    return "running";
+  }
+
+  if (endpoint.state === "idle") {
+    return "idle";
+  }
+
+  if (endpoint.state === "waiting" || endpoint.state === "degraded") {
+    return "waiting";
+  }
+
+  return "offline";
+}
+
+function machineEndpointStateLabel(state: DesktopMachineEndpointState): string {
+  switch (state) {
+    case "running":
+      return "Running";
+    case "idle":
+      return "Idle";
+    case "waiting":
+      return "Waiting";
+    case "offline":
+      return "Offline";
+  }
+}
+
+function isTaskLikeOperatorMessage(body: string): boolean {
+  const normalized = sanitizeRelayBody(body).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized.length >= 24 || normalized.includes("?") || normalized.includes("\n")) {
+    return true;
+  }
+
+  return /\b(can you|could you|please|review|check|update|build|fix|write|work on|look at|ask|ship|plan|test|deploy|investigate|sync|implement)\b/i.test(normalized);
+}
+
+function taskTitleFromBody(body: string): string {
+  const normalized = sanitizeRelayBody(body).replace(/\s+/g, " ").trim();
+  if (normalized.length <= 110) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 109).trimEnd()}…`;
+}
+
+function taskSignalKey(messageId: string, targetAgentId: string): string {
+  return `${messageId}::${targetAgentId}`;
+}
+
+function buildDesktopTasks(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+): DesktopTask[] {
+  const conversations = snapshot.conversations as Record<string, ConversationRecord>;
+  const messages = Object.values(snapshot.messages as Record<string, MessageRecord>)
+    .filter((message) => message.metadata?.transportOnly !== "true")
+    .sort((lhs, rhs) => normalizeTimestamp(rhs.createdAt) - normalizeTimestamp(lhs.createdAt));
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const latestStatusByTask = new Map<string, { createdAt: number; body: string }>();
+  const latestReplyByTask = new Map<string, { createdAt: number; body: string }>();
+
+  for (const message of messages) {
+    if (!message.replyToMessageId) {
+      continue;
+    }
+
+    if (message.class === "status") {
+      const targetAgentId = typeof message.metadata?.targetAgentId === "string"
+        ? String(message.metadata.targetAgentId)
+        : null;
+      if (!targetAgentId) {
+        continue;
+      }
+
+      const key = taskSignalKey(message.replyToMessageId, targetAgentId);
+      const current = latestStatusByTask.get(key);
+      if (!current || normalizeTimestamp(current.createdAt) < normalizeTimestamp(message.createdAt)) {
+        latestStatusByTask.set(key, {
+          createdAt: message.createdAt,
+          body: sanitizeRelayBody(message.body),
+        });
+      }
+      continue;
+    }
+
+    if (message.actorId === OPERATOR_ID) {
+      continue;
+    }
+
+    const key = taskSignalKey(message.replyToMessageId, message.actorId);
+    const current = latestReplyByTask.get(key);
+    if (!current || normalizeTimestamp(current.createdAt) < normalizeTimestamp(message.createdAt)) {
+      latestReplyByTask.set(key, {
+        createdAt: message.createdAt,
+        body: sanitizeRelayBody(message.body),
+      });
+    }
+  }
+
+  const candidates = messages.flatMap((message) => {
+    if (message.actorId !== OPERATOR_ID || !isTaskLikeOperatorMessage(message.body)) {
+      return [];
+    }
+
+    const conversation = conversations[message.conversationId];
+    const targets = inferRecipients(message, conversation)
+      .filter((recipient) => recipient !== OPERATOR_ID)
+      .filter((recipient) => Boolean((snapshot.agents as Record<string, AgentRecord>)[recipient]));
+
+    return targets.map((targetAgentId) => ({ message, targetAgentId }));
+  });
+
+  const latestTaskIdByAgent = new Map<string, string>();
+  for (const candidate of candidates) {
+    if (!latestTaskIdByAgent.has(candidate.targetAgentId)) {
+      latestTaskIdByAgent.set(candidate.targetAgentId, candidate.message.id);
+    }
+  }
+
+  return candidates
+    .map(({ message, targetAgentId }) => {
+      const key = taskSignalKey(message.id, targetAgentId);
+      const reply = latestReplyByTask.get(key) ?? null;
+      const statusSignal = latestStatusByTask.get(key) ?? null;
+      const activity = directActivity.get(targetAgentId);
+      const endpoint = activeEndpoint(snapshot, targetAgentId);
+      const agent = (snapshot.agents as Record<string, AgentRecord>)[targetAgentId];
+      const projectRoot = endpoint?.projectRoot
+        ?? endpoint?.cwd
+        ?? (typeof agent?.metadata?.projectRoot === "string" ? String(agent.metadata.projectRoot) : null);
+      const project =
+        typeof endpoint?.metadata?.project === "string"
+          ? String(endpoint.metadata.project)
+          : typeof agent?.metadata?.project === "string"
+            ? String(agent.metadata.project)
+            : projectRoot
+              ? path.basename(projectRoot)
+              : null;
+      const isLatestTaskForAgent = latestTaskIdByAgent.get(targetAgentId) === message.id;
+      let status: DesktopTaskStatus = "queued";
+      let statusLabel = activity?.reachable ? "Queued" : "Pending";
+      let statusDetail = activity?.reachable ? "Delivered to the agent." : "Waiting for the agent to come online.";
+      let updatedAt = message.createdAt;
+
+      if (reply) {
+        status = "completed";
+        statusLabel = "Completed";
+        statusDetail = `Answered ${formatRelativeTime(reply.createdAt)}`;
+        updatedAt = reply.createdAt;
+      } else if (statusSignal && /failed|timed out|error/i.test(statusSignal.body)) {
+        status = "failed";
+        statusLabel = "Failed";
+        statusDetail = statusSignal.body;
+        updatedAt = statusSignal.createdAt;
+      } else if (
+        (statusSignal && /working|running|waking|queued/i.test(statusSignal.body))
+        || (activity?.state === "working" && isLatestTaskForAgent)
+      ) {
+        status = "running";
+        statusLabel = "Running";
+        statusDetail = statusSignal?.body || activity?.activeTask || "Working on the latest ask.";
+        updatedAt = statusSignal?.createdAt ?? message.createdAt;
+      } else if (statusSignal) {
+        statusDetail = statusSignal.body;
+        updatedAt = statusSignal.createdAt;
+      }
+
+      return {
+        id: `task:${message.id}:${targetAgentId}`,
+        messageId: message.id,
+        conversationId: message.conversationId,
+        targetAgentId,
+        targetAgentName: actorDisplayName(snapshot, targetAgentId),
+        project,
+        projectRoot: compactHomePath(projectRoot) ?? projectRoot,
+        title: taskTitleFromBody(message.body),
+        body: sanitizeRelayBody(message.body),
+        status,
+        statusLabel,
+        statusDetail,
+        replyPreview: reply?.body ?? null,
+        createdAt: message.createdAt,
+        createdAtLabel: formatDateTimeLabel(message.createdAt) ?? formatTimeLabel(message.createdAt),
+        updatedAtLabel: formatDateTimeLabel(updatedAt) ?? formatTimeLabel(updatedAt),
+        ageLabel: formatRelativeTime(message.createdAt),
+      } satisfies DesktopTask;
+    })
+    .sort((lhs, rhs) => normalizeTimestamp(rhs.createdAt) - normalizeTimestamp(lhs.createdAt));
+}
+
+function buildEmptyMachinesState(): DesktopMachinesState {
+  return {
+    title: "Machines",
+    subtitle: "Broker unavailable",
+    totalMachines: 0,
+    onlineCount: 0,
+    degradedCount: 0,
+    offlineCount: 0,
+    lastUpdatedLabel: null,
+    machines: [],
+  };
+}
+
+function buildMachinesState(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+  localNodeId: string | null,
+): DesktopMachinesState {
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const endpoints = Object.values(snapshot.endpoints as Record<string, EndpointRecord>);
+  const endpointsByNode = endpoints.reduce((map, endpoint) => {
+    const bucket = map.get(endpoint.nodeId) ?? [];
+    bucket.push(endpoint);
+    map.set(endpoint.nodeId, bucket);
+    return map;
+  }, new Map<string, EndpointRecord[]>());
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const nodeIds = unique([
+    ...Object.keys(snapshot.nodes),
+    ...endpoints.map((endpoint) => endpoint.nodeId),
+  ]);
+
+  const machines = nodeIds
+    .map((nodeId) => {
+      const node = snapshot.nodes[nodeId];
+      const nodeEndpoints = endpointsByNode.get(nodeId) ?? [];
+      const endpointItems = nodeEndpoints
+        .map((endpoint) => {
+          const activity = directActivity.get(endpoint.agentId);
+          const projectRoot = compactHomePath(endpoint.projectRoot ?? endpoint.cwd);
+          const project =
+            typeof endpoint.metadata?.project === "string"
+              ? String(endpoint.metadata.project)
+              : endpoint.projectRoot
+                ? path.basename(endpoint.projectRoot)
+                : endpoint.cwd
+                  ? path.basename(endpoint.cwd)
+                  : null;
+          const lastActiveAt =
+            typeof endpoint.metadata?.lastCompletedAt === "number"
+              ? Number(endpoint.metadata.lastCompletedAt)
+              : typeof endpoint.metadata?.lastStartedAt === "number"
+                ? Number(endpoint.metadata.lastStartedAt)
+                : null;
+          const state = machineEndpointState(endpoint, activity);
+
+          return {
+            id: endpoint.id,
+            agentId: endpoint.agentId,
+            agentName: actorDisplayName(snapshot, endpoint.agentId),
+            project,
+            projectRoot,
+            cwd: compactHomePath(endpoint.cwd),
+            harness: endpoint.harness ?? null,
+            transport: endpoint.transport ?? null,
+            sessionId: endpoint.sessionId ?? null,
+            state,
+            stateLabel: machineEndpointStateLabel(state),
+            reachable: Boolean(activity?.reachable),
+            lastActiveLabel: lastActiveAt ? formatRelativeTime(lastActiveAt) : null,
+            activeTask: activity?.state === "working" ? activity.activeTask : null,
+          } satisfies DesktopMachineEndpoint;
+        })
+        .sort((lhs, rhs) => lhs.agentName.localeCompare(rhs.agentName));
+
+      const latestEndpointActivityAt = nodeEndpoints.reduce((latest, endpoint) => {
+        const completedAt = typeof endpoint.metadata?.lastCompletedAt === "number"
+          ? Number(endpoint.metadata.lastCompletedAt)
+          : 0;
+        const startedAt = typeof endpoint.metadata?.lastStartedAt === "number"
+          ? Number(endpoint.metadata.lastStartedAt)
+          : 0;
+        return Math.max(latest, normalizeTimestamp(completedAt || startedAt || 0));
+      }, 0);
+      const lastSeenAt = normalizeTimestamp(
+        node?.lastSeenAt
+        ?? latestEndpointActivityAt
+        ?? node?.registeredAt
+        ?? 0,
+      );
+      const reachableEndpointCount = endpointItems.filter((endpoint) => endpoint.reachable).length;
+      const workingEndpointCount = endpointItems.filter((endpoint) => endpoint.state === "running").length;
+      const idleEndpointCount = endpointItems.filter((endpoint) => endpoint.state === "idle").length;
+      const waitingEndpointCount = endpointItems.filter((endpoint) => endpoint.state === "waiting").length;
+      const ageSeconds = lastSeenAt ? Math.max(0, nowSeconds - lastSeenAt) : Number.POSITIVE_INFINITY;
+      const status: DesktopMachine["status"] =
+        reachableEndpointCount > 0 || ageSeconds <= 300
+          ? "online"
+          : nodeEndpoints.length > 0 || ageSeconds <= 3600
+            ? "degraded"
+            : "offline";
+      const statusLabel =
+        status === "online"
+          ? "Online"
+          : status === "degraded"
+            ? "Degraded"
+            : "Offline";
+      const projectRoots = unique(
+        endpointItems
+          .map((endpoint) => endpoint.projectRoot)
+          .filter((value): value is string => Boolean(value)),
+      );
+
+      return {
+        id: nodeId,
+        title: node?.name || node?.hostName || nodeId,
+        hostName: node?.hostName ?? null,
+        status,
+        statusLabel,
+        statusDetail: reachableEndpointCount > 0
+          ? `${reachableEndpointCount} reachable endpoint${reachableEndpointCount === 1 ? "" : "s"}`
+          : lastSeenAt
+            ? `Last seen ${formatRelativeTime(lastSeenAt)}`
+            : "No active endpoint detected.",
+        advertiseScope: typeof node?.advertiseScope === "string" ? String(node.advertiseScope) : null,
+        brokerUrl: typeof node?.brokerUrl === "string" ? String(node.brokerUrl) : null,
+        capabilities: Array.isArray(node?.capabilities) ? node.capabilities.map((capability) => String(capability)) : [],
+        labels: Array.isArray(node?.labels) ? node.labels.map((label) => String(label)) : [],
+        isLocal: localNodeId === nodeId,
+        registeredAtLabel: formatDateTimeLabel(node?.registeredAt) ?? null,
+        lastSeenLabel: lastSeenAt ? formatRelativeTime(lastSeenAt) : null,
+        projectRoots,
+        projectCount: projectRoots.length,
+        endpointCount: endpointItems.length,
+        reachableEndpointCount,
+        workingEndpointCount,
+        idleEndpointCount,
+        waitingEndpointCount,
+        endpoints: endpointItems,
+      } satisfies DesktopMachine;
+    })
+    .sort((lhs, rhs) => {
+      const rank = (value: DesktopMachine["status"]) => {
+        switch (value) {
+          case "online":
+            return 0;
+          case "degraded":
+            return 1;
+          case "offline":
+            return 2;
+        }
+      };
+
+      return (
+        rank(lhs.status) - rank(rhs.status)
+        || rhs.workingEndpointCount - lhs.workingEndpointCount
+        || lhs.title.localeCompare(rhs.title)
+      );
+    });
+
+  return {
+    title: "Machines",
+    subtitle: `${machines.length} nodes · ${endpoints.length} endpoints`,
+    totalMachines: machines.length,
+    onlineCount: machines.filter((machine) => machine.status === "online").length,
+    degradedCount: machines.filter((machine) => machine.status === "degraded").length,
+    offlineCount: machines.filter((machine) => machine.status === "offline").length,
+    lastUpdatedLabel: machines.find((machine) => machine.lastSeenLabel)?.lastSeenLabel ?? null,
+    machines,
+  };
+}
+
+async function buildPlansState(
+  snapshot: RuntimeRegistrySnapshot | null,
+  tmuxSessions: TmuxSession[],
+): Promise<DesktopPlansState> {
+  const [plans, tasks] = await Promise.all([
+    loadWorkspacePlans(snapshot),
+    Promise.resolve(snapshot ? buildDesktopTasks(snapshot, tmuxSessions) : []),
+  ]);
+  const workspaceCount = new Set(plans.map((plan) => plan.workspacePath)).size;
+  const runningTaskCount = tasks.filter((task) => task.status === "running").length;
+  const failedTaskCount = tasks.filter((task) => task.status === "failed").length;
+  const completedTaskCount = tasks.filter((task) => task.status === "completed").length;
+  const latestTask = tasks[0];
+  const latestPlan = plans[0];
+  const latestPlanLabel = latestPlan
+    ? formatRelativeTime(Math.floor(Date.parse(latestPlan.updatedAt) / 1000))
+    : null;
+
+  return {
+    title: "Plans",
+    subtitle: `${tasks.length} asks · ${plans.length} plans · ${workspaceCount} workspaces`,
+    taskCount: tasks.length,
+    runningTaskCount,
+    failedTaskCount,
+    completedTaskCount,
+    planCount: plans.length,
+    workspaceCount,
+    lastUpdatedLabel: latestTask?.ageLabel ?? latestPlanLabel,
+    tasks,
+    plans,
+  };
 }
 
 function buildRelayMessages(snapshot: RuntimeRegistrySnapshot): RelayMessage[] {
@@ -953,20 +1990,29 @@ function buildInterAgentState(snapshot: RuntimeRegistrySnapshot, tmuxSessions: T
 
   for (const [conversationId, messages] of messagesByConversation.entries()) {
     const conversation = conversationsById[conversationId];
+    if (conversation && isInterAgentConversation(snapshot, conversation)) {
+      continue;
+    }
+
     for (const message of messages) {
       if (!isKnownAgent(snapshot, message.actorId)) {
         continue;
       }
 
       const recipients = inferRecipients(message, conversation)
-        .filter((recipientId) => recipientId !== message.actorId)
+        .filter((recipientId) => recipientId !== OPERATOR_ID && recipientId !== message.actorId)
         .filter((recipientId) => isKnownAgent(snapshot, recipientId));
 
       if (recipients.length === 0) {
         continue;
       }
 
-      const thread = ensureThread([message.actorId, ...recipients], "projected");
+      const projectedParticipantIds = interAgentParticipantIds(snapshot, [message.actorId, ...recipients]);
+      if (projectedParticipantIds.length < 2 || projectedParticipantIds.length > 3) {
+        continue;
+      }
+
+      const thread = ensureThread(projectedParticipantIds, "projected");
       appendMessages(thread, [message], conversationId);
     }
   }
@@ -1244,7 +2290,7 @@ async function ensureOperatorActor(baseUrl: string): Promise<void> {
   await brokerPost(baseUrl, "/v1/actors", {
     id: OPERATOR_ID,
     kind: "person",
-    displayName: OPERATOR_DISPLAY_NAME,
+    displayName: resolveOperatorDisplayName(),
     handle: OPERATOR_ID,
     labels: ["operator", "desktop"],
     metadata: { source: "electron-app" },
@@ -1287,12 +2333,10 @@ async function postMessageAndInvocations(
   appInfo: DesktopAppInfo,
   input: SendRelayMessageInput,
 ): Promise<DesktopShellState> {
-  const status = await brokerServiceStatus();
-  if (!status.reachable) {
-    throw new Error("Broker is not reachable.");
-  }
-
-  const [snapshot, node] = await Promise.all([readSnapshot(status.brokerUrl), readNode(status.brokerUrl)]);
+  const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
+  const status = liveBroker.status;
+  const snapshot = liveBroker.snapshot;
+  const node = liveBroker.node;
   if (!snapshot || !node?.id) {
     throw new Error("Broker snapshot is unavailable.");
   }
@@ -1325,6 +2369,7 @@ async function postMessageAndInvocations(
   await brokerPost(status.brokerUrl, "/v1/messages", {
     id: messageId,
     conversationId,
+    replyToMessageId: input.replyToMessageId ?? undefined,
     actorId: OPERATOR_ID,
     originNodeId: node.id,
     class: messageClass,
@@ -1372,16 +2417,22 @@ async function postMessageAndInvocations(
 
 export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<DesktopShellState> {
   const [status, helper] = await Promise.all([brokerServiceStatus(), Promise.resolve(readHelperStatus())]);
+  const liveBroker = await readLiveBrokerState(status);
   const tmuxSessions = readTmuxSessions();
-  const snapshot = status.reachable ? await readSnapshot(status.brokerUrl) : null;
+  const snapshot = liveBroker.snapshot;
   if (snapshot) {
     relayVoiceBridgeService.syncRelayPlayback(snapshot);
   }
+  const plans = await buildPlansState(snapshot, tmuxSessions);
   const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
 
   return {
     appInfo,
-    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status),
+    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, liveBroker.status),
+    machines: snapshot
+      ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? null)
+      : buildEmptyMachinesState(),
+    plans,
     sessions: snapshot ? buildSessions(snapshot) : [],
     interAgent: snapshot
       ? buildInterAgentState(snapshot, tmuxSessions)
@@ -1403,21 +2454,164 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
           operatorId: OPERATOR_ID,
           channels: [],
           views: [],
-        directs: [],
-        messages: [],
+          directs: [],
+          messages: [],
           voice: relayVoiceBridgeService.getRelayVoiceState(),
           lastUpdatedLabel: null,
         },
   };
 }
 
-async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = false): Promise<void> {
+export async function getAppSettings(): Promise<AppSettingsState> {
+  const [setup, status] = await Promise.all([
+    loadResolvedRelayAgents({
+      currentDirectory: desktopCurrentDirectory(),
+      syncLegacyMirror: true,
+    }),
+    brokerServiceStatus(),
+  ]);
+  const record = await readOpenScoutSettings({ currentDirectory: desktopCurrentDirectory() });
+
+  return {
+    operatorId: OPERATOR_ID,
+    operatorName: normalizeOperatorName(record.profile.operatorName),
+    operatorNameDefault: DEFAULT_OPERATOR_DISPLAY_NAME,
+    note: "Shown across Relay, Inter-Agent, and other desktop surfaces. Clear it to fall back to the default name.",
+    settingsPath: setup.settingsPath,
+    relayAgentsPath: setup.relayAgentsPath,
+    relayHubPath: setup.relayHubPath,
+    supportDirectory: setup.supportDirectory,
+    currentProjectConfigPath: setup.currentProjectConfigPath,
+    workspaceRoots: setup.settings.discovery.workspaceRoots.map((root) => compactHomePath(root) ?? root),
+    workspaceRootsNote: "Workspace roots are user-configured. OpenScout scans them shallowly for repos and project manifests.",
+    includeCurrentRepo: setup.settings.discovery.includeCurrentRepo,
+    defaultHarness: setup.settings.agents.defaultHarness,
+    defaultTransport: setup.settings.agents.defaultTransport,
+    defaultCapabilities: [...setup.settings.agents.defaultCapabilities],
+    sessionPrefix: setup.settings.agents.sessionPrefix,
+    discoveredAgents: setup.agents.map((agent) => ({
+      id: agent.agentId,
+      title: agent.displayName,
+      root: compactHomePath(agent.projectRoot) ?? agent.projectRoot,
+      source: agent.source,
+      harness: agent.runtime.harness,
+      sessionId: agent.runtime.sessionId,
+      projectConfigPath: agent.projectConfigPath ? compactHomePath(agent.projectConfigPath) ?? agent.projectConfigPath : null,
+    })),
+    broker: {
+      label: status.label,
+      url: status.brokerUrl,
+      installed: status.installed,
+      loaded: status.loaded,
+      reachable: status.reachable,
+      launchAgentPath: compactHomePath(status.launchAgentPath) ?? status.launchAgentPath,
+      stdoutLogPath: compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath,
+      stderrLogPath: compactHomePath(status.stderrLogPath) ?? status.stderrLogPath,
+    },
+  };
+}
+
+export async function getLogCatalog(): Promise<DesktopLogCatalog> {
+  const [sources, broker] = await Promise.all([
+    buildResolvedLogCatalog(),
+    brokerServiceStatus(),
+  ]);
+
+  return {
+    sources: sources.map(({ paths: _paths, ...source }) => source),
+    defaultSourceId: broker.reachable ? "broker" : "app",
+  };
+}
+
+export async function getBrokerInspector(): Promise<DesktopBrokerInspector> {
   const status = await brokerServiceStatus();
-  if (!status.reachable) {
-    return;
+  const processId = resolveBrokerProcessId(status.brokerUrl, status.pid);
+  const processCommand = readProcessCommand(processId);
+  const lastRestartLabel = formatProcessStartLabel(processId);
+  const version = runtimeVersionLabel();
+  const { label, detail } = brokerStatusLabel(status);
+  const counts = status.health.counts;
+
+  return {
+    statusLabel: label,
+    statusDetail: detail,
+    version,
+    label: status.label,
+    mode: status.mode,
+    url: status.brokerUrl,
+    installed: status.installed,
+    loaded: status.loaded,
+    reachable: status.reachable,
+    pid: processId ? String(processId) : null,
+    processCommand,
+    lastRestartLabel,
+    nodeId: status.health.nodeId ?? null,
+    meshId: status.health.meshId ?? null,
+    launchdState: status.launchdState,
+    lastExitStatus: status.lastExitStatus !== null ? String(status.lastExitStatus) : null,
+    lastLogLine: status.lastLogLine,
+    supportDirectory: compactHomePath(status.supportDirectory) ?? status.supportDirectory,
+    controlHome: compactHomePath(status.controlHome) ?? status.controlHome,
+    launchAgentPath: compactHomePath(status.launchAgentPath) ?? status.launchAgentPath,
+    stdoutLogPath: compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath,
+    stderrLogPath: compactHomePath(status.stderrLogPath) ?? status.stderrLogPath,
+    actorCount: counts?.actors ?? null,
+    agentCount: counts?.agents ?? null,
+    conversationCount: counts?.conversations ?? null,
+    messageCount: counts?.messages ?? null,
+    flightCount: counts?.flights ?? null,
+    troubleshooting: brokerTroubleshootingHints(status),
+    feedbackSummary: brokerFeedbackSummary(status, processId, processCommand, lastRestartLabel, version),
+  };
+}
+
+export async function readLogSource(input: ReadLogSourceInput): Promise<DesktopLogContent> {
+  const sources = await buildResolvedLogCatalog();
+  const source = sources.find((entry) => entry.id === input.sourceId);
+  if (!source) {
+    throw new Error(`Unknown log source: ${input.sourceId}`);
+  }
+  return tailLogSource(source, input.tailLines ?? 240);
+}
+
+export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<AppSettingsState> {
+  const trimmedOperatorName = input.operatorName?.trim() ?? "";
+  await writeOpenScoutSettings({
+    profile: {
+      operatorName: trimmedOperatorName || DEFAULT_OPERATOR_DISPLAY_NAME,
+    },
+    discovery: {
+      workspaceRoots: splitLines(input.workspaceRootsText).map((entry) => expandHomePath(entry)),
+      includeCurrentRepo: input.includeCurrentRepo,
+    },
+    agents: {
+      defaultHarness: input.defaultHarness === "codex" ? "codex" : "claude",
+      defaultTransport: "tmux",
+      defaultCapabilities: splitDelimitedTokens(input.defaultCapabilitiesText) as Array<"chat" | "invoke" | "deliver" | "speak" | "listen" | "bridge" | "summarize" | "review" | "execute">,
+      sessionPrefix: input.sessionPrefix,
+    },
+  }, {
+    currentDirectory: desktopCurrentDirectory(),
+  });
+  await initializeOpenScoutSetup({ currentDirectory: desktopCurrentDirectory() });
+
+  const status = await brokerServiceStatus();
+  if (status.reachable) {
+    try {
+      await ensureOperatorActor(status.brokerUrl);
+      await syncAllProjectTwinBindingsToBroker();
+    } catch {
+      // Persisting settings should not fail just because the live broker actor could not refresh.
+    }
   }
 
-  const node = await readNode(status.brokerUrl);
+  return getAppSettings();
+}
+
+async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = false): Promise<void> {
+  const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
+  const status = liveBroker.status;
+  const node = liveBroker.node;
   if (!node) {
     return;
   }
@@ -1436,16 +2630,34 @@ async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = fa
   await brokerPost(status.brokerUrl, "/v1/endpoints", binding.endpoint);
 }
 
+async function syncAllProjectTwinBindingsToBroker(): Promise<void> {
+  const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
+  const status = liveBroker.status;
+  const node = liveBroker.node;
+  if (!node) {
+    return;
+  }
+
+  const bindings = await loadRegisteredProjectTwinBindings(node.id);
+  for (const binding of bindings) {
+    await brokerPost(status.brokerUrl, "/v1/actors", binding.actor);
+    await brokerPost(status.brokerUrl, "/v1/agents", binding.agent);
+    await brokerPost(status.brokerUrl, "/v1/endpoints", binding.endpoint);
+  }
+}
+
 export async function getAgentConfig(agentId: string): Promise<AgentConfigState> {
   const twinConfig = await getProjectTwinConfig(agentId);
   if (twinConfig) {
+    const runtimeDirectory = relayAgentRuntimeDirectory(agentId);
+    const logsDirectory = relayAgentLogsDirectory(agentId);
     return {
       agentId,
       editable: twinConfig.editable,
       title: agentId,
       typeLabel: "Relay Agent",
       applyModeLabel: "Save changes, then restart to apply runtime, prompt, and capability updates.",
-      note: "Relay agent settings are stored in the local registry.",
+      note: `Stored in the canonical relay agent registry. Runtime files live at ${compactHomePath(runtimeDirectory) ?? runtimeDirectory} and logs at ${compactHomePath(logsDirectory) ?? logsDirectory}.`,
       systemPromptHint: twinConfig.templateHint,
       availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
       runtime: {
@@ -1465,8 +2677,8 @@ export async function getAgentConfig(agentId: string): Promise<AgentConfigState>
     };
   }
 
-  const status = await brokerServiceStatus();
-  const snapshot = status.reachable ? await readSnapshot(status.brokerUrl) : null;
+  const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
+  const snapshot = liveBroker.snapshot;
   const agent = snapshot?.agents?.[agentId] as AgentRecord | undefined;
   const endpoint = snapshot ? activeEndpoint(snapshot, agentId) : null;
   if (!agent) {
@@ -1591,12 +2803,26 @@ export async function controlBroker(appInfo: DesktopAppInfo, action: BrokerContr
   switch (action) {
     case "start":
       await startBrokerService();
+      try {
+        const status = await brokerServiceStatus();
+        await ensureOperatorActor(status.brokerUrl);
+        await syncAllProjectTwinBindingsToBroker();
+      } catch {
+        // A restarted broker can still be warming; return live state even if reconciliation has to catch up.
+      }
       break;
     case "stop":
       await stopBrokerService();
       break;
     case "restart":
       await restartBrokerService();
+      try {
+        const status = await brokerServiceStatus();
+        await ensureOperatorActor(status.brokerUrl);
+        await syncAllProjectTwinBindingsToBroker();
+      } catch {
+        // A restarted broker can still be warming; return live state even if reconciliation has to catch up.
+      }
       break;
   }
 
