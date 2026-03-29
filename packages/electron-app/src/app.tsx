@@ -82,6 +82,10 @@ const C = {
 
 type AgentRosterFilterMode = 'all' | 'active';
 type AgentRosterSortMode = 'chat' | 'code' | 'session' | 'alpha';
+type PendingRelayMessage = {
+  clientMessageId: string;
+  message: RelayMessage;
+};
 
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
@@ -104,6 +108,7 @@ export default function App() {
     authorName: string;
     preview: string;
   } | null>(null);
+  const [pendingRelayMessages, setPendingRelayMessages] = useState<PendingRelayMessage[]>([]);
   const [pendingRelayComposerFocusTick, setPendingRelayComposerFocusTick] = useState(0);
   const [selectedInterAgentId, setSelectedInterAgentId] = useState<string | null>(null);
   const [selectedInterAgentThreadId, setSelectedInterAgentThreadId] = useState<string | null>(null);
@@ -123,6 +128,7 @@ export default function App() {
   const [agentSessionFeedback, setAgentSessionFeedback] = useState<string | null>(null);
   const [agentSessionCopied, setAgentSessionCopied] = useState(false);
   const [agentSessionRefreshTick, setAgentSessionRefreshTick] = useState(0);
+  const [isAgentSessionPeekOpen, setIsAgentSessionPeekOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettingsState | null>(null);
   const [appSettingsDraft, setAppSettingsDraft] = useState<AppSettingsState | null>(null);
   const [appSettingsLoading, setAppSettingsLoading] = useState(false);
@@ -332,6 +338,39 @@ export default function App() {
     setAgentSessionFeedback(null);
     setAgentSessionCopied(false);
   }, [selectedInterAgentId]);
+
+  useEffect(() => {
+    if (activeView !== 'agents') {
+      setIsAgentSessionPeekOpen(false);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    if (activeView !== 'agents' || !isAgentSessionPeekOpen || !selectedInterAgentId) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setAgentSessionRefreshTick((current) => current + 1);
+    }, 1600);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeView, isAgentSessionPeekOpen, selectedInterAgentId]);
+
+  useEffect(() => {
+    if (!isAgentSessionPeekOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsAgentSessionPeekOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAgentSessionPeekOpen]);
 
   useEffect(() => {
     if (activeView !== 'settings' || !window.openScoutDesktop?.getAppSettings) {
@@ -590,6 +629,23 @@ export default function App() {
     setPendingConfigFocusAgentId(null);
   }, [activeView, isAgentConfigEditing]);
 
+  useEffect(() => {
+    if (!relayState?.messages.length) {
+      return;
+    }
+
+    const confirmedClientIds = new Set(
+      relayState.messages
+        .map((message) => message.clientMessageId)
+        .filter((messageId): messageId is string => Boolean(messageId)),
+    );
+    if (!confirmedClientIds.size) {
+      return;
+    }
+
+    setPendingRelayMessages((current) => current.filter((entry) => !confirmedClientIds.has(entry.clientMessageId)));
+  }, [relayState]);
+
   // Get unique projects
   const projects = useMemo(() => {
     const projectMap = new Map<string, { count: number; lastModified: string }>();
@@ -649,14 +705,43 @@ export default function App() {
   const selectedRelayDirectThread = relayState && selectedRelayKind === 'direct'
     ? relayState.directs.find((item) => item.id === selectedRelayId) ?? null
     : null;
-  const visibleRelayMessages = relayState
-    ? filterRelayMessages(relayState.messages, selectedRelayKind, selectedRelayId)
-    : [];
+  const mergedRelayMessages = useMemo(
+    () => {
+      const brokerMessages = relayState?.messages ?? [];
+      if (!pendingRelayMessages.length) {
+        return brokerMessages;
+      }
+
+      const confirmedClientIds = new Set(
+        brokerMessages
+          .map((message) => message.clientMessageId)
+          .filter((messageId): messageId is string => Boolean(messageId)),
+      );
+      const pendingMessages = pendingRelayMessages
+        .filter((entry) => !confirmedClientIds.has(entry.clientMessageId))
+        .map((entry) => entry.message);
+
+      if (!pendingMessages.length) {
+        return brokerMessages;
+      }
+
+      return [...brokerMessages, ...pendingMessages].sort(
+        (lhs, rhs) => lhs.createdAt - rhs.createdAt || lhs.id.localeCompare(rhs.id),
+      );
+    },
+    [pendingRelayMessages, relayState],
+  );
+  const visibleRelayMessages = useMemo(
+    () => filterRelayMessages(mergedRelayMessages, selectedRelayKind, selectedRelayId),
+    [mergedRelayMessages, selectedRelayKind, selectedRelayId],
+  );
   const relayThreadTitle = cleanDisplayTitle(relayCurrentDestination?.title ?? '# shared-channel');
-  const relayThreadSubtitle = selectedRelayDirectThread?.statusDetail
-    ?? selectedRelayDirectThread?.subtitle
-    ?? relayCurrentDestination?.subtitle
-    ?? null;
+  const relayThreadSubtitle = selectedRelayDirectThread?.state === 'working'
+    ? null
+    : selectedRelayDirectThread?.statusDetail
+      ?? selectedRelayDirectThread?.subtitle
+      ?? relayCurrentDestination?.subtitle
+      ?? null;
   const relaySelectionIsFeed = relayFeedItems.some(
     (item) => item.kind === selectedRelayKind && item.id === selectedRelayId,
   );
@@ -729,6 +814,7 @@ export default function App() {
     ? 'Open Chat'
     : 'Start Chat';
   const visibleAgentSession = agentSession?.agentId === selectedInterAgent?.id ? agentSession : null;
+  const agentSessionPending = agentSessionLoading && !visibleAgentSession;
   const selectedAgentDirectLinePreview = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
     ? relaySecondaryText(selectedInterAgentDirectThread)
     : selectedInterAgent
@@ -739,7 +825,9 @@ export default function App() {
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
     [appSettingsDraft, appSettings],
   );
-  const visibleAgentConfig = agentConfigDraft ?? agentConfig;
+  const visibleAgentConfig = selectedInterAgentId && (agentConfigDraft ?? agentConfig)?.agentId === selectedInterAgentId
+    ? (agentConfigDraft ?? agentConfig)
+    : null;
   const hasEditableAgentConfig = Boolean(agentConfig?.editable && visibleAgentConfig);
   const logSources = logCatalog?.sources ?? [];
   const filteredLogSources = useMemo(
@@ -1091,26 +1179,62 @@ export default function App() {
     }
   }, [agentSession]);
 
+  const handlePeekAgentSession = React.useCallback(() => {
+    setAgentSessionFeedback(null);
+    setIsAgentSessionPeekOpen(true);
+    setAgentSessionRefreshTick((current) => current + 1);
+  }, []);
+
   const handleRelaySend = async () => {
     const body = relayDraft.trim();
     if (!body || relaySending || !window.openScoutDesktop) {
       return;
     }
 
+    const previousDraft = relayDraft;
+    const previousReplyTarget = relayReplyTarget;
+    const clientMessageId = generateClientMessageId();
+    const optimisticMessage = buildOptimisticRelayMessage({
+      relayState,
+      appSettings,
+      destinationKind: selectedRelayKind,
+      destinationId: selectedRelayId,
+      body,
+      replyToMessageId: relayReplyTarget?.messageId ?? null,
+      clientMessageId,
+    });
     setRelaySending(true);
     setRelayFeedback('Sending…');
+    setPendingRelayMessages((current) => [...current, { clientMessageId, message: optimisticMessage }]);
+    setRelayDraft('');
+    setRelayReplyTarget(null);
     try {
       const nextState = await window.openScoutDesktop.sendRelayMessage({
         destinationKind: selectedRelayKind,
         destinationId: selectedRelayId,
         body,
         replyToMessageId: relayReplyTarget?.messageId ?? null,
+        clientMessageId,
       });
       setShellState(nextState);
-      setRelayDraft('');
-      setRelayReplyTarget(null);
+      setPendingRelayMessages((current) => current.map((entry) => (
+        entry.clientMessageId === clientMessageId
+          ? {
+              ...entry,
+              message: {
+                ...entry.message,
+                receipt: entry.message.receipt
+                  ? { ...entry.message.receipt, label: 'Sent', detail: null }
+                  : { state: 'sent', label: 'Sent', detail: null },
+              },
+            }
+          : entry
+      )));
       setRelayFeedback('Sent.');
     } catch (error) {
+      setPendingRelayMessages((current) => current.filter((entry) => entry.clientMessageId !== clientMessageId));
+      setRelayDraft(previousDraft);
+      setRelayReplyTarget(previousReplyTarget);
       setRelayFeedback(asErrorMessage(error));
     } finally {
       setRelaySending(false);
@@ -2906,6 +3030,13 @@ export default function App() {
                     <button
                       className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
                       style={{ color: C.ink }}
+                      onClick={() => handlePeekAgentSession()}
+                    >
+                      Peek
+                    </button>
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
                       onClick={() => openAgentSettings(selectedInterAgent.id, selectedInterAgent.profileKind === 'project')}
                     >
                       {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Open Settings'}
@@ -2929,43 +3060,7 @@ export default function App() {
                   <div className="grid grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] gap-4">
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-start gap-3">
-                          <div className="relative shrink-0">
-                            <div
-                              className={`w-10 h-10 rounded text-white flex items-center justify-center text-[13px] font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
-                              style={{ backgroundColor: colorForIdentity(selectedInterAgent.id) }}
-                            >
-                              {selectedInterAgent.title.charAt(0).toUpperCase()}
-                            </div>
-                            <div
-                              className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(selectedInterAgent.state)}`}
-                              style={{ border: `1px solid ${C.bg}` }}
-                            ></div>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="text-[15px] font-semibold tracking-tight" style={s.inkText}>{selectedInterAgent.title}</div>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {interAgentProfileKindLabel(selectedInterAgent.profileKind)}
-                              </span>
-                            </div>
-                            {normalizeLegacyAgentCopy(selectedInterAgent.role) ? (
-                              <div className="text-[11px] mt-1" style={s.inkText}>{normalizeLegacyAgentCopy(selectedInterAgent.role)}</div>
-                            ) : null}
-                            {normalizeLegacyAgentCopy(selectedInterAgent.summary) ? (
-                              <div className="text-[12px] leading-[1.55] mt-2" style={s.mutedText}>{normalizeLegacyAgentCopy(selectedInterAgent.summary)}</div>
-                            ) : null}
-                            <div className="mt-3 flex items-center gap-2 flex-wrap text-[10px]" style={s.mutedText}>
-                              <span>{selectedInterAgent.lastChatLabel ? `Last chat ${selectedInterAgent.lastChatLabel}` : 'No direct chat yet.'}</span>
-                              {selectedInterAgent.lastSessionLabel ? (
-                                <>
-                                  <span className="w-1 h-1 rounded-full" style={{ backgroundColor: C.border }}></span>
-                                  <span>Last session {selectedInterAgent.lastSessionLabel}</span>
-                                </>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
+                        <AgentIdentityCard agent={selectedInterAgent} variant="hero" />
                       </section>
 
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
@@ -2973,7 +3068,9 @@ export default function App() {
                             <div>
                             <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Live Session</div>
                             <div className="text-[11px] mt-1" style={s.mutedText}>
-                              {visibleAgentSession?.mode === 'tmux'
+                              {agentSessionPending
+                                ? 'Checking tmux pane and runtime logs for the selected agent.'
+                                : visibleAgentSession?.mode === 'tmux'
                                 ? 'Live tmux pane capture for the selected agent.'
                                 : visibleAgentSession?.mode === 'logs'
                                   ? 'Canonical runtime session logs for the selected agent.'
@@ -3004,21 +3101,21 @@ export default function App() {
 
                         <div className="flex items-center gap-2 flex-wrap text-[10px] mb-3" style={s.mutedText}>
                           <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
-                            {visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+                            {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
                           </span>
-                          {visibleAgentSession?.harness ? (
+                          {(visibleAgentSession?.harness ?? selectedInterAgent?.harness) ? (
                             <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession.harness}
+                              {visibleAgentSession?.harness ?? selectedInterAgent?.harness}
                             </span>
                           ) : null}
-                          {visibleAgentSession?.transport ? (
+                          {(visibleAgentSession?.transport ?? selectedInterAgent?.transport) ? (
                             <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession.transport}
+                              {visibleAgentSession?.transport ?? selectedInterAgent?.transport}
                             </span>
                           ) : null}
-                          {visibleAgentSession?.sessionId ? (
+                          {(visibleAgentSession?.sessionId ?? selectedInterAgent?.sessionId) ? (
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession.sessionId}
+                              {visibleAgentSession?.sessionId ?? selectedInterAgent?.sessionId}
                             </span>
                           ) : null}
                           {visibleAgentSession?.updatedAtLabel ? (
@@ -3047,14 +3144,16 @@ export default function App() {
                             </pre>
                           ) : (
                             <div className="px-3 py-6 text-[11px] leading-[1.6]" style={s.mutedText}>
-                              {visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                              {agentSessionPending
+                                ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                                : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
                             </div>
                           )}
                         </div>
 
                         <div className="flex items-center justify-between gap-3 mt-3 text-[10px]" style={s.mutedText}>
                           <div className="truncate min-w-0">
-                            {visibleAgentSession?.pathLabel ?? 'No stable session path yet.'}
+                            {visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.'}
                           </div>
                           {agentSessionFeedback ? (
                             <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
@@ -3589,6 +3688,16 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {selectedRelayDirectThread ? (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentProfile(selectedRelayDirectThread.id)}
+                    >
+                      <Bot size={11} />
+                      <span>Agent</span>
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => setShowAnnotations(!showAnnotations)}
                     className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
@@ -4067,6 +4176,16 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {selectedRelayDirectThread ? (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentProfile(selectedRelayDirectThread.id)}
+                    >
+                      <Bot size={11} />
+                      <span>Agent</span>
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => setShowAnnotations(!showAnnotations)}
                     className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
@@ -4213,6 +4332,118 @@ export default function App() {
         )}
       </div>
 
+      {isAgentSessionPeekOpen && selectedInterAgent ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-6"
+          style={{ backgroundColor: 'rgba(244, 240, 232, 0.72)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setIsAgentSessionPeekOpen(false)}
+        >
+          <div
+            className="w-full max-w-5xl h-[78vh] border rounded-2xl overflow-hidden flex flex-col"
+            style={{
+              backgroundColor: C.surface,
+              borderColor: C.border,
+              boxShadow: '0 24px 72px rgba(15, 23, 42, 0.16)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="px-4 h-14 border-b flex items-center justify-between gap-3 shrink-0" style={{ borderBottomColor: C.border }}>
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold tracking-tight truncate" style={s.inkText}>
+                  Peek · {selectedInterAgent.title}
+                </div>
+                <div className="text-[11px] truncate mt-0.5" style={s.mutedText}>
+                  {agentSessionPending
+                    ? 'Checking tmux pane and runtime logs for the selected agent.'
+                    : visibleAgentSession?.subtitle ?? 'No live session output available yet.'}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {visibleAgentSession?.commandLabel ? (
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={{ color: C.ink }}
+                    onClick={() => void handleCopyAgentSessionCommand()}
+                  >
+                    {agentSessionCopied ? 'Copied' : 'Copy Attach'}
+                  </button>
+                ) : null}
+                {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={{ color: C.ink }}
+                    onClick={() => void handleOpenAgentSession()}
+                  >
+                    {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                  </button>
+                ) : null}
+                <button
+                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                  style={{ color: C.ink }}
+                  onClick={() => setIsAgentSessionPeekOpen(false)}
+                >
+                  <X size={12} />
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px] shrink-0" style={{ borderBottomColor: C.border, color: C.muted }}>
+              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
+                {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+              </span>
+              {(visibleAgentSession?.harness ?? selectedInterAgent.harness) ? (
+                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                  {visibleAgentSession?.harness ?? selectedInterAgent.harness}
+                </span>
+              ) : null}
+              {(visibleAgentSession?.transport ?? selectedInterAgent.transport) ? (
+                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                  {visibleAgentSession?.transport ?? selectedInterAgent.transport}
+                </span>
+              ) : null}
+              {(visibleAgentSession?.sessionId ?? selectedInterAgent.sessionId) ? (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                  {visibleAgentSession?.sessionId ?? selectedInterAgent.sessionId}
+                </span>
+              ) : null}
+              {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
+              {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? <span>{visibleAgentSession.lineCount} lines</span> : null}
+              {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
+              <span>Refreshing live while open</span>
+            </div>
+
+            <div className="flex-1 overflow-hidden" style={{ backgroundColor: C.bg }}>
+              {agentSessionLoading && !visibleAgentSession ? (
+                <div className="px-4 py-8 text-[12px]" style={s.mutedText}>
+                  Loading live session…
+                </div>
+              ) : visibleAgentSession?.body ? (
+                <pre
+                  className="h-full px-4 py-4 text-[11px] leading-[1.58] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words"
+                  style={{ color: C.ink, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                >
+                  {visibleAgentSession.body}
+                </pre>
+              ) : (
+                <div className="px-4 py-8 text-[12px] leading-[1.65]" style={s.mutedText}>
+                  {agentSessionPending
+                    ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                    : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 h-10 border-t flex items-center justify-between gap-3 shrink-0 text-[10px]" style={{ borderTopColor: C.border, color: C.muted }}>
+              <div className="truncate min-w-0">
+                {visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent.cwd ?? selectedInterAgent.projectRoot) ?? 'No stable session path yet.'}
+              </div>
+              {agentSessionFeedback ? <div style={s.inkText}>{agentSessionFeedback}</div> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Global Bottom Bar */}
       <div className="h-6 border-t flex items-center justify-between px-3 shrink-0 text-[9px] font-mono uppercase tracking-widest" style={{ backgroundColor: C.bg, borderTopColor: C.border, color: C.muted }}>
         <div className="flex items-center gap-4">
@@ -4286,7 +4517,7 @@ function RelayThinkingIndicator({
       <div className="flex-1 min-w-0 pt-1">
         <div className="inline-flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: C.accent }}>
           <TypingDots className="text-[var(--os-accent)]" />
-          <span>{cleanDisplayTitle(thread.title)} is working</span>
+          <span>Working</span>
           {thread.activeTask ? (
             <span className="normal-case tracking-normal" style={mutedStyle}>
               · {thread.activeTask}
@@ -4349,6 +4580,15 @@ function RelayTimeline({
     () => new Map(timelineMessages.map((message) => [message.id, message])),
     [timelineMessages],
   );
+  const latestDirectReceiptMessageId = useMemo(() => {
+    let latestMessageId: string | null = null;
+    for (const message of timelineMessages) {
+      if (message.isOperator && message.isDirectConversation && message.receipt) {
+        latestMessageId = message.id;
+      }
+    }
+    return latestMessageId;
+  }, [timelineMessages]);
 
   useEffect(() => {
     if (!copiedMessageId) {
@@ -4542,6 +4782,14 @@ function RelayTimeline({
           <div className="flex flex-col gap-2 mt-0.5">
             {grouped.map((entry) => {
               const replyTarget = entry.replyToMessageId ? messageById.get(entry.replyToMessageId) ?? null : null;
+              const showReceipt = Boolean(
+                entry.receipt && (
+                  !entry.isOperator
+                  || !entry.isDirectConversation
+                  || latestDirectReceiptMessageId === entry.id
+                )
+              );
+              const renderReceiptInline = showReceipt && canInlineRelayReceipt(entry.body);
               return (
                 <div
                   key={entry.id}
@@ -4564,10 +4812,21 @@ function RelayTimeline({
                       />
                     )
                   ) : null}
-                  <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
-                  {entry.receipt ? (
-                    <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} />
-                  ) : null}
+                  {renderReceiptInline && entry.receipt ? (
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="min-w-0 max-w-full whitespace-pre-wrap break-words" style={inkStyle}>
+                        {entry.body}
+                      </span>
+                      <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} inline />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
+                      {showReceipt && entry.receipt ? (
+                        <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} />
+                      ) : null}
+                    </>
+                  )}
                   {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       {entry.routingSummary ? (
@@ -4703,6 +4962,94 @@ function AgentIdentityInline({
   );
 }
 
+function AgentIdentityCard({
+  agent,
+  directThread = null,
+  variant = 'hero',
+  mutedStyle = { color: C.muted },
+  borderColor = C.bg,
+  actions = null,
+}: {
+  agent: InterAgentAgent;
+  directThread?: RelayDirectThread | null;
+  variant?: 'hero' | 'hover';
+  mutedStyle?: React.CSSProperties;
+  borderColor?: string;
+  actions?: React.ReactNode;
+}) {
+  const compact = variant === 'hover';
+  const role = normalizeLegacyAgentCopy(agent.role);
+  const summary = normalizeLegacyAgentCopy(agent.summary);
+  const detail = directThread?.statusDetail ?? agent.statusDetail ?? summary ?? 'Available as a local relay channel.';
+
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <div className="relative shrink-0">
+          <div
+            className={`${compact ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-[13px]'} rounded text-white flex items-center justify-center font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+            style={{ backgroundColor: colorForIdentity(agent.id) }}
+          >
+            {agent.title.charAt(0).toUpperCase()}
+          </div>
+          <div
+            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(agent.state)}`}
+            style={{ border: `1px solid ${borderColor}` }}
+          ></div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className={compact ? 'text-[12px] font-semibold truncate' : 'text-[15px] font-semibold tracking-tight'} style={{ color: C.ink }}>
+              {agent.title}
+            </div>
+            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
+              {interAgentProfileKindLabel(agent.profileKind)}
+            </span>
+          </div>
+          {compact ? (
+            <div className="text-[10px] mt-1" style={mutedStyle}>
+              {detail}
+            </div>
+          ) : (
+            <>
+              {role ? (
+                <div className="text-[11px] mt-1" style={{ color: C.ink }}>{role}</div>
+              ) : null}
+              {summary ? (
+                <div className="text-[12px] leading-[1.55] mt-2" style={{ color: C.muted }}>{summary}</div>
+              ) : null}
+            </>
+          )}
+          <div className={`text-[10px] ${compact ? 'mt-2 flex flex-wrap gap-x-3 gap-y-1' : 'mt-3 flex items-center gap-2 flex-wrap'}`} style={mutedStyle}>
+            {compact ? (
+              <>
+                <span>{agent.harness ?? 'runtime'}</span>
+                <span>{compactHomePath(agent.projectRoot ?? agent.cwd) ?? 'no path'}</span>
+                {agent.lastChatLabel ? <span>last chat {agent.lastChatLabel}</span> : null}
+              </>
+            ) : (
+              <>
+                <span>{agent.lastChatLabel ? `Last chat ${agent.lastChatLabel}` : 'No direct chat yet.'}</span>
+                {agent.lastSessionLabel ? (
+                  <>
+                    <span className="w-1 h-1 rounded-full" style={{ backgroundColor: C.border }}></span>
+                    <span>Last session {agent.lastSessionLabel}</span>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      {actions ? (
+        <div className="mt-3 flex items-center gap-2">
+          {actions}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function AgentHoverCard({
   agent,
   directThread,
@@ -4718,63 +5065,42 @@ function AgentHoverCard({
 }) {
   return (
     <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border p-3 shadow-lg opacity-0 pointer-events-none translate-y-1 transition-all duration-150 group-hover/agent:opacity-100 group-hover/agent:pointer-events-auto group-hover/agent:translate-y-0 group-focus-within/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:translate-y-0" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-      <div className="flex items-start gap-3">
-        <div className="relative shrink-0">
-          <div
-            className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-            style={{ backgroundColor: colorForIdentity(agent.id) }}
-          >
-            {agent.title.charAt(0).toUpperCase()}
-          </div>
-          <div
-            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(agent.state)}`}
-            style={{ border: `1px solid ${C.surface}` }}
-          ></div>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="text-[12px] font-semibold truncate" style={{ color: C.ink }}>{agent.title}</div>
-            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
-              {interAgentProfileKindLabel(agent.profileKind)}
-            </span>
-          </div>
-          <div className="text-[10px] mt-1" style={mutedStyle}>
-            {directThread?.statusDetail ?? agent.statusDetail ?? agent.summary ?? 'Available as a local relay channel.'}
-          </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] mt-2" style={mutedStyle}>
-            <span>{agent.harness ?? 'runtime'}</span>
-            <span>{compactHomePath(agent.projectRoot ?? agent.cwd) ?? 'no path'}</span>
-            {agent.lastChatLabel ? <span>last chat {agent.lastChatLabel}</span> : null}
-          </div>
-        </div>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-          style={{ color: C.ink }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenChat(agent.id);
-          }}
-        >
-          Message
-        </button>
-        <button
-          type="button"
-          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-          style={{ color: C.ink }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenProfile(agent.id);
-          }}
-        >
-          Overview
-        </button>
-        <span className="ml-auto text-[9px] font-mono" style={mutedStyle}>Cmd-click to DM</span>
-      </div>
+      <AgentIdentityCard
+        agent={agent}
+        directThread={directThread}
+        variant="hover"
+        mutedStyle={mutedStyle}
+        borderColor={C.surface}
+        actions={(
+          <>
+            <button
+              type="button"
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+              style={{ color: C.ink }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenChat(agent.id);
+              }}
+            >
+              Message
+            </button>
+            <button
+              type="button"
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+              style={{ color: C.ink }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenProfile(agent.id);
+              }}
+            >
+              Overview
+            </button>
+            <span className="ml-auto text-[9px] font-mono" style={mutedStyle}>Cmd-click to DM</span>
+          </>
+        )}
+      />
     </div>
   );
 }
@@ -4820,14 +5146,16 @@ function ReplyReferenceLine({
 function RelayReceiptInline({
   receipt,
   mutedStyle,
+  inline = false,
 }: {
   receipt: NonNullable<RelayMessage['receipt']>;
   mutedStyle: React.CSSProperties;
+  inline?: boolean;
 }) {
   const tone = relayReceiptTone(receipt.state);
   return (
     <div
-      className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] leading-none"
+      className={`${inline ? '' : 'mt-1.5 '}inline-flex items-center gap-1.5 text-[10px] leading-none shrink-0`}
       style={{ ...mutedStyle, color: tone.color }}
       title={receipt.detail ?? receipt.label}
     >
@@ -4844,6 +5172,8 @@ function RelayReceiptIcon({ state }: { state: NonNullable<RelayMessage['receipt'
   switch (state) {
     case 'replied':
       return <Reply size={11} />;
+    case 'working':
+      return <TypingDots className="text-[var(--os-accent)]" />;
     case 'seen':
       return <CheckCheck size={11} />;
     case 'delivered':
@@ -4908,6 +5238,8 @@ function relayReceiptTone(state: NonNullable<RelayMessage['receipt']>['state']) 
   switch (state) {
     case 'replied':
       return { color: '#059669' };
+    case 'working':
+      return { color: 'var(--os-accent)' };
     case 'seen':
       return { color: 'var(--os-accent)' };
     case 'delivered':
@@ -4916,6 +5248,19 @@ function relayReceiptTone(state: NonNullable<RelayMessage['receipt']>['state']) 
     default:
       return { color: 'var(--os-muted)' };
   }
+}
+
+function canInlineRelayReceipt(body: string) {
+  const trimmed = body.trim();
+  if (!trimmed || trimmed.includes('\n')) {
+    return false;
+  }
+
+  if (/```|`|\[[^\]]+\]\([^)]+\)|^>\s|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\|/.test(trimmed)) {
+    return false;
+  }
+
+  return true;
 }
 
 function firstInterAgentThreadIdForAgent(threads: InterAgentThread[], agentId: string) {
@@ -5302,6 +5647,25 @@ function cleanDisplayTitle(title: string) {
   return title.replace(/^[@#]\s*/, '');
 }
 
+function normalizeRelayTimestamp(value: number) {
+  return value > 10_000_000_000 ? value : value * 1000;
+}
+
+function formatRelayTimestamp(value: number) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(normalizeRelayTimestamp(value)));
+}
+
+function formatRelayDayLabel(value: number) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(normalizeRelayTimestamp(value))).toUpperCase();
+}
+
 function formatFooterTime(date: Date) {
   return new Intl.DateTimeFormat([], {
     hour: 'numeric',
@@ -5316,6 +5680,116 @@ function colorForIdentity(identity: string) {
     seed += character.charCodeAt(0);
   }
   return palette[seed % palette.length];
+}
+
+function generateClientMessageId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `client-${crypto.randomUUID()}`;
+  }
+
+  return `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveOperatorDisplayName(
+  relayState: DesktopShellState['relay'] | null,
+  appSettings: AppSettingsState | null,
+) {
+  const configuredName = appSettings?.operatorName?.trim();
+  if (configuredName) {
+    return configuredName;
+  }
+
+  const operatorId = relayState?.operatorId ?? 'operator';
+  const messages = relayState?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.authorId === operatorId && message.authorName.trim()) {
+      return message.authorName.trim();
+    }
+  }
+
+  return appSettings?.operatorNameDefault ?? 'Arach';
+}
+
+function relayMessageMentionRecipients(body: string) {
+  const matches = body.match(/@[a-z0-9][\w.-]*(?:@[a-z0-9][\w.-]*)?(?:#[a-z0-9][\w.-]*)?/gi) ?? [];
+  return Array.from(new Set(matches.map((match) => match.slice(1))));
+}
+
+function optimisticRelayConversationId(kind: RelayDestinationKind, id: string) {
+  if (kind === 'direct') {
+    return `dm.operator.${id}`;
+  }
+  if (kind === 'channel' && id === 'voice') {
+    return 'channel.voice';
+  }
+  if (kind === 'channel' && id === 'system') {
+    return 'channel.system';
+  }
+  return 'channel.shared';
+}
+
+function buildOptimisticRelayMessage({
+  relayState,
+  appSettings,
+  destinationKind,
+  destinationId,
+  body,
+  replyToMessageId,
+  clientMessageId,
+}: {
+  relayState: DesktopShellState['relay'] | null;
+  appSettings: AppSettingsState | null;
+  destinationKind: RelayDestinationKind;
+  destinationId: string;
+  body: string;
+  replyToMessageId: string | null;
+  clientMessageId: string;
+}): RelayMessage {
+  const createdAt = Date.now();
+  const operatorId = relayState?.operatorId ?? 'operator';
+  const operatorName = resolveOperatorDisplayName(relayState, appSettings);
+  const recipients = destinationKind === 'direct'
+    ? Array.from(new Set([destinationId, ...relayMessageMentionRecipients(body)]))
+    : relayMessageMentionRecipients(body);
+  const normalizedChannel = destinationKind === 'channel'
+    ? destinationId
+    : destinationKind === 'direct'
+      ? null
+      : 'shared';
+  const isVoice = destinationKind === 'channel' && destinationId === 'voice';
+  const isSystem = destinationKind === 'channel' && destinationId === 'system';
+
+  return {
+    id: `pending-${clientMessageId}`,
+    clientMessageId,
+    conversationId: optimisticRelayConversationId(destinationKind, destinationId),
+    createdAt,
+    replyToMessageId,
+    authorId: operatorId,
+    authorName: operatorName,
+    authorRole: null,
+    body,
+    timestampLabel: formatRelayTimestamp(createdAt),
+    dayLabel: formatRelayDayLabel(createdAt),
+    normalizedChannel,
+    recipients,
+    isDirectConversation: destinationKind === 'direct',
+    isSystem,
+    isVoice,
+    messageClass: isSystem ? 'system' : 'agent',
+    routingSummary: recipients.length > 0 ? `Targets ${recipients.join(', ')}` : null,
+    provenanceSummary: 'via electron · sending',
+    provenanceDetail: null,
+    isOperator: true,
+    avatarLabel: operatorName.slice(0, 1).toUpperCase() || 'A',
+    avatarColor: colorForIdentity(operatorId),
+    receipt: {
+      state: 'sent',
+      label: 'Sending…',
+      detail: null,
+    },
+  };
 }
 
 function renderMessageBody(

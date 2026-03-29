@@ -6,7 +6,11 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 
 import {
   formatAgentSelector,
+  parseAgentSelector,
   normalizeAgentSelectorSegment,
+  resolveAgentSelector,
+  type AgentSelector,
+  type AgentSelectorCandidate,
   type AgentCapability,
   type AgentHarness,
 } from "@openscout/protocol";
@@ -402,17 +406,6 @@ async function readLegacyRelayAgentsRegistry(): Promise<Record<string, LegacyRel
 }
 
 export async function detectPreferredHarness(projectRoot: string, fallback: AgentHarness = "claude"): Promise<AgentHarness> {
-  const codexMarkers = [
-    "AGENTS.md",
-    ".agents",
-    ".codex",
-  ];
-  for (const marker of codexMarkers) {
-    if (await pathExists(join(projectRoot, marker))) {
-      return "codex";
-    }
-  }
-
   const claudeMarkers = [
     "CLAUDE.md",
     ".claude",
@@ -780,34 +773,100 @@ function mergeResolvedAgentConfig(
     return base;
   }
 
+  const manifestBeatsLegacyImport = base.source === "manifest" && override.source === "legacy-import";
+  const overrideLaunchArgs = normalizeLaunchArgs(override.launchArgs);
+  const overrideCapabilities = normalizeCapabilities(override.capabilities);
+
   return {
     ...base,
-    definitionId: override.agentId || base.definitionId,
-    displayName: override.displayName?.trim() || base.displayName,
-    projectName: override.projectName?.trim() || base.projectName,
-    projectRoot: override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot,
-    projectConfigPath: override.projectConfigPath ?? base.projectConfigPath,
-    source: override.source ?? base.source,
+    definitionId: manifestBeatsLegacyImport ? base.definitionId : (override.agentId || base.definitionId),
+    displayName: manifestBeatsLegacyImport ? base.displayName : (override.displayName?.trim() || base.displayName),
+    projectName: manifestBeatsLegacyImport ? base.projectName : (override.projectName?.trim() || base.projectName),
+    projectRoot: manifestBeatsLegacyImport
+      ? base.projectRoot
+      : (override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot),
+    projectConfigPath: manifestBeatsLegacyImport ? base.projectConfigPath : (override.projectConfigPath ?? base.projectConfigPath),
+    source: manifestBeatsLegacyImport ? base.source : (override.source ?? base.source),
     registrationKind: isConfiguredRelayAgentOverride(base.agentId, override, settings)
       ? "configured"
       : base.registrationKind,
     startedAt: Number.isFinite(override.startedAt) && override.startedAt ? Math.floor(override.startedAt) : base.startedAt,
-    systemPrompt: override.systemPrompt?.trim() || base.systemPrompt,
-    launchArgs: normalizeLaunchArgs(override.launchArgs).length > 0 ? normalizeLaunchArgs(override.launchArgs) : base.launchArgs,
-    capabilities: normalizeCapabilities(override.capabilities).length > 0 ? normalizeCapabilities(override.capabilities) : base.capabilities,
-    instance: buildRelayAgentInstance(base.agentId, override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot),
+    systemPrompt: manifestBeatsLegacyImport
+      ? (base.systemPrompt || override.systemPrompt?.trim() || undefined)
+      : (override.systemPrompt?.trim() || base.systemPrompt),
+    launchArgs: manifestBeatsLegacyImport
+      ? (base.launchArgs.length > 0 ? base.launchArgs : overrideLaunchArgs)
+      : (overrideLaunchArgs.length > 0 ? overrideLaunchArgs : base.launchArgs),
+    capabilities: manifestBeatsLegacyImport
+      ? (base.capabilities.length > 0 ? base.capabilities : overrideCapabilities)
+      : (overrideCapabilities.length > 0 ? overrideCapabilities : base.capabilities),
+    instance: buildRelayAgentInstance(
+      base.agentId,
+      manifestBeatsLegacyImport
+        ? base.projectRoot
+        : (override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot),
+    ),
     runtime: {
-      cwd: override.runtime?.cwd ? normalizePath(override.runtime.cwd) : base.runtime.cwd,
-      harness: normalizeHarness(override.runtime?.harness, base.runtime.harness),
+      cwd: manifestBeatsLegacyImport ? base.runtime.cwd : (override.runtime?.cwd ? normalizePath(override.runtime.cwd) : base.runtime.cwd),
+      harness: manifestBeatsLegacyImport
+        ? base.runtime.harness
+        : normalizeHarness(override.runtime?.harness, base.runtime.harness),
       transport: DEFAULT_TRANSPORT,
-      sessionId: normalizeTmuxSessionName(
-        override.runtime?.sessionId,
-        base.agentId,
-        settings.agents.sessionPrefix,
-      ),
+      sessionId: manifestBeatsLegacyImport
+        ? base.runtime.sessionId
+        : normalizeTmuxSessionName(
+          override.runtime?.sessionId,
+          base.agentId,
+          settings.agents.sessionPrefix,
+        ),
       wakePolicy: "on_demand",
     },
   };
+}
+
+function relayAgentOverrideFromResolvedConfig(config: ResolvedRelayAgentConfig): RelayAgentOverride {
+  return {
+    agentId: config.agentId,
+    displayName: config.displayName,
+    projectName: config.projectName,
+    projectRoot: config.projectRoot,
+    projectConfigPath: config.projectConfigPath,
+    source: config.source === "manifest" ? "manifest" : config.source,
+    startedAt: config.startedAt,
+    systemPrompt: config.systemPrompt,
+    launchArgs: config.launchArgs,
+    capabilities: config.capabilities,
+    runtime: {
+      cwd: config.runtime.cwd,
+      harness: config.runtime.harness,
+      transport: config.runtime.transport,
+      sessionId: config.runtime.sessionId,
+      wakePolicy: config.runtime.wakePolicy,
+    },
+  };
+}
+
+function selectorCandidateFromResolvedAgent(config: ResolvedRelayAgentConfig): AgentSelectorCandidate {
+  return {
+    agentId: config.agentId,
+    definitionId: config.definitionId,
+    nodeQualifier: config.instance.nodeQualifier,
+    workspaceQualifier: config.instance.workspaceQualifier,
+    aliases: [config.instance.selector, config.instance.defaultSelector],
+  };
+}
+
+function selectorFromInput(value: string | AgentSelector): AgentSelector | null {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return parseAgentSelector(trimmed.startsWith("@") ? trimmed : `@${trimmed}`);
 }
 
 async function resolveManifestBackedAgent(
@@ -1071,25 +1130,7 @@ export async function loadResolvedRelayAgents(options: {
   const nextOverrides = Object.fromEntries(
     configuredAgents.map((agent) => [
       agent.agentId,
-      {
-        agentId: agent.agentId,
-        displayName: agent.displayName,
-        projectName: agent.projectName,
-        projectRoot: agent.projectRoot,
-        projectConfigPath: agent.projectConfigPath,
-        source: agent.source === "manifest" ? "manifest" : agent.source,
-        startedAt: agent.startedAt,
-        systemPrompt: agent.systemPrompt,
-        launchArgs: agent.launchArgs,
-        capabilities: agent.capabilities,
-        runtime: {
-          cwd: agent.runtime.cwd,
-          harness: agent.runtime.harness,
-          transport: agent.runtime.transport,
-          sessionId: agent.runtime.sessionId,
-          wakePolicy: agent.runtime.wakePolicy,
-        },
-      } satisfies RelayAgentOverride,
+      relayAgentOverrideFromResolvedConfig(agent),
     ]),
   );
 
@@ -1112,6 +1153,68 @@ export async function loadResolvedRelayAgents(options: {
     settings,
     agents: configuredAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
     discoveredAgents: resolvedAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
+  };
+}
+
+export async function resolveRelayAgentConfig(
+  value: string | AgentSelector,
+  options: {
+    currentDirectory?: string;
+    ensureCurrentProjectConfig?: boolean;
+  } = {},
+): Promise<ResolvedRelayAgentConfig | null> {
+  const selector = selectorFromInput(value);
+  if (!selector) {
+    return null;
+  }
+
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory: options.currentDirectory,
+    ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
+  });
+  const match = resolveAgentSelector(
+    selector,
+    setup.discoveredAgents.map(selectorCandidateFromResolvedAgent),
+  );
+  if (!match) {
+    return null;
+  }
+
+  return setup.discoveredAgents.find((agent) => agent.agentId === match.agentId) ?? null;
+}
+
+export async function ensureRelayAgentConfigured(
+  value: string | AgentSelector,
+  options: {
+    currentDirectory?: string;
+    ensureCurrentProjectConfig?: boolean;
+    syncLegacyMirror?: boolean;
+  } = {},
+): Promise<ResolvedRelayAgentConfig | null> {
+  const candidate = await resolveRelayAgentConfig(value, {
+    currentDirectory: options.currentDirectory,
+    ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
+  });
+  if (!candidate) {
+    return null;
+  }
+
+  if (candidate.registrationKind === "configured") {
+    return candidate;
+  }
+
+  const overrides = await readRelayAgentOverrides();
+  overrides[candidate.agentId] = relayAgentOverrideFromResolvedConfig(candidate);
+  await writeRelayAgentOverrides(overrides);
+
+  await loadResolvedRelayAgents({
+    currentDirectory: options.currentDirectory,
+    syncLegacyMirror: options.syncLegacyMirror ?? true,
+  });
+
+  return {
+    ...candidate,
+    registrationKind: "configured",
   };
 }
 

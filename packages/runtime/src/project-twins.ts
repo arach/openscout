@@ -1,6 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,7 @@ import type {
 
 import {
   buildRelayAgentInstance,
+  ensureRelayAgentConfigured,
   loadResolvedRelayAgents,
   readRelayAgentOverrides,
   writeRelayAgentOverrides,
@@ -479,6 +480,23 @@ function projectTwinRecordFromResolvedConfig(config: ResolvedRelayAgentConfig): 
   });
 }
 
+function projectTwinRecordFromRelayAgentOverride(
+  twinId: string,
+  override: RelayAgentOverride,
+): ProjectTwinRecord {
+  return normalizeProjectTwinRecord(twinId, {
+    project: override.projectName ?? basename(override.projectRoot || override.runtime?.cwd || twinId),
+    tmuxSession: override.runtime?.sessionId ?? `relay-${twinId}`,
+    cwd: override.runtime?.cwd ?? override.projectRoot,
+    startedAt: override.startedAt ?? nowSeconds(),
+    systemPrompt: override.systemPrompt,
+    harness: override.runtime?.harness,
+    transport: "tmux",
+    capabilities: override.capabilities,
+    launchArgs: override.launchArgs,
+  });
+}
+
 function relayAgentOverrideFromProjectTwinRecord(
   twinId: string,
   record: ProjectTwinRecord,
@@ -536,6 +554,12 @@ async function assertDirectoryExists(directory: string): Promise<void> {
 }
 
 export async function getProjectTwinConfig(twinId: string): Promise<ProjectTwinConfigState | null> {
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[twinId];
+  if (override) {
+    return buildProjectTwinConfigState(twinId, projectTwinRecordFromRelayAgentOverride(twinId, override));
+  }
+
   const registry = await readTwinsRegistry();
   const record = registry[twinId];
   if (!record) {
@@ -639,7 +663,13 @@ export function stripTwinReplyMetadata(body: string, flightId: string, asker: st
     .trim();
 }
 
-async function sendTwinPrompt(record: ProjectTwinRecord, prompt: string): Promise<void> {
+async function sendTwinPrompt(twinName: string, record: ProjectTwinRecord, prompt: string): Promise<void> {
+  if (normalizeTwinHarness(record.harness) === "codex") {
+    const promptPipe = join(relayAgentRuntimeDirectory(twinName), "prompt.pipe");
+    await writeFile(promptPipe, prompt.trim() + "\0");
+    return;
+  }
+
   execFileSync("tmux", ["send-keys", "-t", record.tmuxSession, prompt, "Enter"], { stdio: "pipe" });
 }
 
@@ -647,17 +677,7 @@ function shellQuoteArguments(args: string[]): string {
   return args.map((arg) => JSON.stringify(arg)).join(" ");
 }
 
-function buildTwinBootstrapPrompt(harness: AgentHarness, systemPrompt: string, initialMessage: string): string {
-  if (harness === "codex") {
-    return [
-      "Adopt the following standing session instructions for the rest of this conversation.",
-      "",
-      systemPrompt,
-      "",
-      initialMessage,
-    ].join("\n");
-  }
-
+function buildTwinBootstrapPrompt(_harness: AgentHarness, _systemPrompt: string, initialMessage: string): string {
   return initialMessage;
 }
 
@@ -666,20 +686,11 @@ function buildTwinLaunchCommand(
   record: ProjectTwinRecord,
   projectPath: string,
   promptFile: string,
+  workerScript?: string,
 ): string {
   const extraArgs = shellQuoteArguments(normalizeTwinLaunchArgs(record.launchArgs));
   if (normalizeTwinHarness(record.harness) === "codex") {
-    return [
-      "codex",
-      "-a never",
-      "-s workspace-write",
-      "--no-alt-screen",
-      "-C",
-      JSON.stringify(projectPath),
-      extraArgs,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    return `exec bash ${JSON.stringify(workerScript ?? join(relayAgentRuntimeDirectory(twinName), "codex-worker.sh"))}`;
   }
 
   return [
@@ -691,6 +702,119 @@ function buildTwinLaunchCommand(
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function buildCodexExecCommand(
+  record: ProjectTwinRecord,
+  projectPath: string,
+  promptFileExpression: string,
+  options: { resumeSessionIdExpression?: string | null } = {},
+): string {
+  const extraArgs = shellQuoteArguments(normalizeTwinLaunchArgs(record.launchArgs));
+  const sharedArgs = [
+    "--skip-git-repo-check",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--color",
+    "never",
+    "-c",
+    "check_for_update_on_startup=false",
+    extraArgs,
+  ].filter(Boolean).join(" ");
+
+  if (options.resumeSessionIdExpression) {
+    return [
+      "codex exec resume",
+      options.resumeSessionIdExpression,
+      sharedArgs,
+      "-",
+      `< ${promptFileExpression}`,
+    ].filter(Boolean).join(" ");
+  }
+
+  return [
+    "codex exec",
+    sharedArgs,
+    "-C",
+    JSON.stringify(projectPath),
+    "-",
+    `< ${promptFileExpression}`,
+  ].filter(Boolean).join(" ");
+}
+
+function buildCodexWorkerScript(
+  twinName: string,
+  record: ProjectTwinRecord,
+  projectPath: string,
+  promptFile: string,
+  queueDirectory: string,
+  processingDirectory: string,
+  processedDirectory: string,
+  sessionIdFile: string,
+): string {
+  const bootstrapInputFile = join(processingDirectory, "bootstrap-input.txt");
+  const resumeIdExpression = '"$(cat "$SESSION_ID_FILE")"';
+  const firstRunCommand = buildCodexExecCommand(record, projectPath, '"$ACTIVE_INPUT_FILE"');
+  const resumeCommand = buildCodexExecCommand(record, projectPath, '"$ACTIVE_INPUT_FILE"', {
+    resumeSessionIdExpression: resumeIdExpression,
+  });
+
+  return [
+    "#!/bin/bash",
+    "set -uo pipefail",
+    `TWIN_NAME=${JSON.stringify(twinName)}`,
+    `PROJECT_PATH=${JSON.stringify(projectPath)}`,
+    `PROMPT_FILE=${JSON.stringify(promptFile)}`,
+    `QUEUE_DIR=${JSON.stringify(queueDirectory)}`,
+    `PROCESSING_DIR=${JSON.stringify(processingDirectory)}`,
+    `PROCESSED_DIR=${JSON.stringify(processedDirectory)}`,
+    `SESSION_ID_FILE=${JSON.stringify(sessionIdFile)}`,
+    `BOOTSTRAP_INPUT_FILE=${JSON.stringify(bootstrapInputFile)}`,
+    "",
+    "mkdir -p \"$QUEUE_DIR\" \"$PROCESSING_DIR\" \"$PROCESSED_DIR\"",
+    "echo \"[openscout] codex relay worker ready for ${TWIN_NAME}\"",
+    "",
+    "while true; do",
+    "  set -- \"$QUEUE_DIR\"/*.prompt",
+    "  if [ ! -e \"$1\" ]; then",
+    "    sleep 0.2",
+    "    continue",
+    "  fi",
+    "",
+    "  current_file=\"$1\"",
+    "  prompt_name=\"$(basename \"$current_file\")\"",
+    "  working_file=\"$PROCESSING_DIR/$prompt_name\"",
+    "  mv \"$current_file\" \"$working_file\" || continue",
+    "",
+    "  run_output=\"$PROCESSED_DIR/${prompt_name%.prompt}.output.log\"",
+    "  active_input_file=\"$working_file\"",
+    "  if [ ! -s \"$SESSION_ID_FILE\" ]; then",
+    "    cat \"$PROMPT_FILE\" > \"$BOOTSTRAP_INPUT_FILE\"",
+    "    printf '\\n\\n' >> \"$BOOTSTRAP_INPUT_FILE\"",
+    "    cat \"$working_file\" >> \"$BOOTSTRAP_INPUT_FILE\"",
+    "    active_input_file=\"$BOOTSTRAP_INPUT_FILE\"",
+    "  fi",
+    "",
+    "  export ACTIVE_INPUT_FILE=\"$active_input_file\"",
+    "  printf '\\n[openscout] codex prompt %s\\n' \"$prompt_name\"",
+    "  if [ -s \"$SESSION_ID_FILE\" ]; then",
+    `    ${resumeCommand} 2>&1 | tee \"$run_output\"`,
+    "  else",
+    `    ${firstRunCommand} 2>&1 | tee \"$run_output\"`,
+    "  fi",
+    "  exit_code=${PIPESTATUS[0]}",
+    "",
+    "  if [ ! -s \"$SESSION_ID_FILE\" ] && [ \"$exit_code\" -eq 0 ]; then",
+    "    session_id=\"$(sed -n 's/^session id: //p' \"$run_output\" | head -n 1 | tr -d '\\r')\"",
+    "    if [ -n \"$session_id\" ]; then",
+    "      printf '%s\\n' \"$session_id\" > \"$SESSION_ID_FILE\"",
+    "    fi",
+    "  fi",
+    "",
+    "  printf '[openscout] codex exit %s for %s\\n' \"$exit_code\" \"$prompt_name\"",
+    "  mv \"$working_file\" \"$PROCESSED_DIR/$prompt_name\"",
+    "done",
+    "",
+  ].join("\n");
 }
 
 function killTwinSession(sessionName: string): void {
@@ -719,12 +843,17 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
 
   const twinDir = relayAgentRuntimeDirectory(twinName);
   const logsDir = relayAgentLogsDirectory(twinName);
+  const queueDirectory = join(twinDir, "queue");
+  const processingDirectory = join(queueDirectory, "processing");
+  const processedDirectory = join(queueDirectory, "processed");
   await mkdir(twinDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
   const promptFile = join(twinDir, "prompt.txt");
   const initialFile = join(twinDir, "initial.txt");
   const launchScript = join(twinDir, "launch.sh");
+  const workerScript = join(twinDir, "codex-worker.sh");
+  const codexSessionIdFile = join(twinDir, "codex-session-id.txt");
   const stateFile = join(twinDir, "state.json");
   const stdoutLogFile = join(logsDir, "stdout.log");
   const stderrLogFile = join(logsDir, "stderr.log");
@@ -732,8 +861,29 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
   await writeFile(promptFile, systemPrompt);
   await writeFile(initialFile, bootstrapPrompt);
   await writeFile(stderrLogFile, "");
+  await rm(queueDirectory, { recursive: true, force: true });
+  await mkdir(processingDirectory, { recursive: true });
+  await mkdir(processedDirectory, { recursive: true });
+  await writeFile(codexSessionIdFile, "");
+  if (normalizeTwinHarness(normalizedRecord.harness) === "codex") {
+    await writeFile(
+      workerScript,
+      buildCodexWorkerScript(
+        twinName,
+        normalizedRecord,
+        projectPath,
+        promptFile,
+        queueDirectory,
+        processingDirectory,
+        processedDirectory,
+        codexSessionIdFile,
+      ) + "\n",
+    );
+    execFileSync("chmod", ["755", workerScript], { stdio: "pipe" });
+    await writeFile(join(queueDirectory, `0000-bootstrap-${Date.now()}.prompt`), bootstrapPrompt.trim() + "\n");
+  }
   const bootstrapLine = normalizeTwinHarness(normalizedRecord.harness) === "codex"
-    ? `(sleep 5 && tmux send-keys -t ${JSON.stringify(normalizedRecord.tmuxSession)} "$(cat ${JSON.stringify(initialFile)})" Enter) &`
+    ? null
     : null;
 
   await writeFile(
@@ -744,7 +894,7 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
       `mkdir -p ${JSON.stringify(logsDir)}`,
       `cd ${JSON.stringify(projectPath)}`,
       bootstrapLine,
-      buildTwinLaunchCommand(twinName, normalizedRecord, projectPath, promptFile),
+      buildTwinLaunchCommand(twinName, normalizedRecord, projectPath, promptFile, workerScript),
     ].filter(Boolean).join("\n") + "\n",
   );
   execFileSync("chmod", ["755", launchScript], { stdio: "pipe" });
@@ -786,6 +936,9 @@ async function ensureTwinOnline(twinName: string, record: ProjectTwinRecord): Pr
       promptFile,
       initialFile,
       launchScript,
+      workerScript: normalizeTwinHarness(normalizedRecord.harness) === "codex" ? workerScript : null,
+      queueDirectory: normalizeTwinHarness(normalizedRecord.harness) === "codex" ? queueDirectory : null,
+      codexSessionIdFile: normalizeTwinHarness(normalizedRecord.harness) === "codex" ? codexSessionIdFile : null,
       stdoutLogFile,
       stderrLogFile,
       updatedAt: new Date().toISOString(),
@@ -980,16 +1133,26 @@ export async function inferProjectTwinBinding(agentId: string, nodeId: string): 
 export async function ensureProjectTwinBindingOnline(
   agentId: string,
   nodeId: string,
-  options: { includeDiscovered?: boolean } = {},
+  options: {
+    includeDiscovered?: boolean;
+    currentDirectory?: string;
+    ensureCurrentProjectConfig?: boolean;
+  } = {},
 ): Promise<ProjectTwinBinding | null> {
   if (!agentId || BUILT_IN_LOCAL_AGENT_IDS.has(agentId)) {
     return null;
   }
 
-  const setup = await loadResolvedRelayAgents();
-  const candidate =
-    setup.agents.find((entry) => entry.agentId === agentId)
-    ?? (options.includeDiscovered ? setup.discoveredAgents.find((entry) => entry.agentId === agentId) : undefined);
+  const candidate = options.includeDiscovered
+    ? await ensureRelayAgentConfigured(agentId, {
+      currentDirectory: options.currentDirectory,
+      ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
+      syncLegacyMirror: true,
+    })
+    : (await loadResolvedRelayAgents({
+      currentDirectory: options.currentDirectory,
+      ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
+    })).agents.find((entry) => entry.agentId === agentId);
 
   if (!candidate) {
     return null;
@@ -1046,7 +1209,7 @@ export async function invokeProjectTwinEndpoint(
   const flightId = createTwinFlightId();
   const askedAt = nowSeconds();
   const timeoutSeconds = invocation.timeoutMs ? Math.max(30, Math.floor(invocation.timeoutMs / 1000)) : 300;
-  await sendTwinPrompt(onlineRecord, buildTwinNudge(twinName, invocation, flightId));
+  await sendTwinPrompt(twinName, onlineRecord, buildTwinNudge(twinName, invocation, flightId));
 
   const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() <= deadline) {

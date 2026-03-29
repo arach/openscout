@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   extractAgentSelectors,
   resolveAgentSelector,
+  type AgentHarness,
   type AgentSelectorCandidate,
 } from "@openscout/protocol";
 
@@ -18,6 +19,7 @@ import {
 } from "../../runtime/src/broker-service.js";
 import {
   buildTwinSystemPrompt,
+  ensureProjectTwinBindingOnline,
   getProjectTwinConfig,
   loadRegisteredProjectTwinBindings,
   restartProjectTwin,
@@ -28,6 +30,7 @@ import {
   initializeOpenScoutSetup,
   loadResolvedRelayAgents,
   readOpenScoutSettings,
+  resolveRelayAgentConfig,
   writeOpenScoutSettings,
 } from "../../runtime/src/setup.js";
 import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "../../runtime/src/support-paths.js";
@@ -392,16 +395,18 @@ function visibleRelayAgentIds(
     }
 
     for (const message of messages) {
-      if (normalizeTimestamp(message.createdAt) < cutoff || !isKnownAgent(snapshot, message.actorId)) {
+      if (normalizeTimestamp(message.createdAt) < cutoff || !isKnownCounterpart(snapshot, message.actorId)) {
         continue;
       }
       const recipients = inferRecipients(message, conversation)
         .filter((recipientId) => recipientId !== OPERATOR_ID && recipientId !== message.actorId)
-        .filter((recipientId) => isKnownAgent(snapshot, recipientId));
+        .filter((recipientId) => isKnownCounterpart(snapshot, recipientId));
       const participantIds = interAgentParticipantIds(snapshot, [message.actorId, ...recipients]);
       if (participantIds.length >= 2 && participantIds.length <= 3) {
         for (const participantId of participantIds) {
-          visible.add(participantId);
+          if (isKnownVisibleAgent(snapshot, participantId)) {
+            visible.add(participantId);
+          }
         }
       }
     }
@@ -1338,19 +1343,23 @@ function buildDirectAgentActivity(
             normalizeTimestamp(lhs.startedAt ?? lhs.completedAt ?? 0),
         )[0] ?? null;
 
-    const activeTask =
+    const activeTaskSummary =
       sanitizeRelayBody(
         activeFlight?.summary?.trim()
         || flightMetadataString(activeFlight, "task")
         || "Working on your latest message.",
       ) || null;
+    const activeTask =
+      activeTaskSummary && /is working\.?$/i.test(activeTaskSummary)
+        ? null
+        : activeTaskSummary;
 
     if (activeFlight) {
       activity.set(agent.id, {
         state: "working",
         reachable: true,
         statusLabel: "Working",
-        statusDetail: activeTask,
+        statusDetail: activeTask ?? null,
         activeTask,
         lastMessageAt,
       });
@@ -1812,6 +1821,7 @@ function buildRelayMessages(snapshot: RuntimeRegistrySnapshot): RelayMessage[] {
 
     return {
       id: message.id,
+      clientMessageId: typeof message.metadata?.clientMessageId === "string" ? String(message.metadata.clientMessageId) : null,
       conversationId: message.conversationId,
       createdAt: message.createdAt,
       replyToMessageId: message.replyToMessageId ?? null,
@@ -1958,6 +1968,17 @@ function attachRelayReceipts(
 
     const status = latestStatusByReplyTo.get(message.id);
     if (status && (!status.targetAgentId || status.targetAgentId === targetAgentId)) {
+      if (/is working\.?$/i.test(status.body)) {
+        return {
+          ...message,
+          receipt: {
+            state: "working",
+            label: "Working",
+            detail: null,
+          },
+        };
+      }
+
       return {
         ...message,
         receipt: {
@@ -1974,8 +1995,8 @@ function attachRelayReceipts(
       return {
         ...message,
         receipt: {
-          state: "seen",
-          label: "Seen",
+          state: "working",
+          label: "Working",
           detail: null,
         },
       };
@@ -2137,17 +2158,33 @@ function isInterAgentConversation(snapshot: RuntimeRegistrySnapshot, conversatio
   }
 
   return conversation.participantIds.every((participantId) =>
-    Boolean((snapshot.agents as Record<string, AgentRecord>)[participantId]),
+    isKnownCounterpart(snapshot, participantId),
   );
 }
 
-function isKnownAgent(
+function isKnownVisibleAgent(
   snapshot: RuntimeRegistrySnapshot,
   actorId: string,
   visibleAgentIds?: Set<string>,
 ) {
   return Boolean((snapshot.agents as Record<string, AgentRecord>)[actorId])
     && (!visibleAgentIds || visibleAgentIds.has(actorId));
+}
+
+function isKnownCounterpart(
+  snapshot: RuntimeRegistrySnapshot,
+  actorId: string,
+  visibleAgentIds?: Set<string>,
+) {
+  if (actorId === OPERATOR_ID) {
+    return false;
+  }
+
+  if (isKnownVisibleAgent(snapshot, actorId, visibleAgentIds)) {
+    return true;
+  }
+
+  return Boolean((snapshot.actors as Record<string, ActorRecord>)[actorId]);
 }
 
 function interAgentParticipantIds(
@@ -2157,7 +2194,7 @@ function interAgentParticipantIds(
 ) {
   return Array.from(
     new Set(
-      participantIds.filter((participantId) => participantId !== OPERATOR_ID && isKnownAgent(snapshot, participantId, visibleAgentIds)),
+      participantIds.filter((participantId) => participantId !== OPERATOR_ID && isKnownCounterpart(snapshot, participantId, visibleAgentIds)),
     ),
   ).sort();
 }
@@ -2295,13 +2332,13 @@ function buildInterAgentState(
     }
 
     for (const message of messages) {
-      if (!isKnownAgent(snapshot, message.actorId, visibleAgentIds)) {
+      if (!isKnownCounterpart(snapshot, message.actorId, visibleAgentIds)) {
         continue;
       }
 
       const recipients = inferRecipients(message, conversation)
         .filter((recipientId) => recipientId !== OPERATOR_ID && recipientId !== message.actorId)
-        .filter((recipientId) => isKnownAgent(snapshot, recipientId, visibleAgentIds));
+        .filter((recipientId) => isKnownCounterpart(snapshot, recipientId, visibleAgentIds));
 
       if (recipients.length === 0) {
         continue;
@@ -2309,6 +2346,9 @@ function buildInterAgentState(
 
       const projectedParticipantIds = interAgentParticipantIds(snapshot, [message.actorId, ...recipients], visibleAgentIds);
       if (projectedParticipantIds.length < 2 || projectedParticipantIds.length > 3) {
+        continue;
+      }
+      if (!projectedParticipantIds.some((participantId) => isKnownVisibleAgent(snapshot, participantId, visibleAgentIds))) {
         continue;
       }
 
@@ -2406,10 +2446,10 @@ function buildInterAgentState(
       const counterpartCount = entry.counterpartIds.size;
       const subtitle =
         entry.threadCount === 0
-          ? "No inter-agent traffic yet"
+          ? "No active channels yet"
           : counterpartCount === 1
-            ? "1 agent counterpart"
-            : `${counterpartCount} agent counterparts`;
+            ? "1 counterpart"
+            : `${counterpartCount} counterparts`;
 
       return {
         id: agent.id,
@@ -2640,10 +2680,37 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function parseMentionTargets(
+async function ensureProjectTwinBindingOnBroker(
+  baseUrl: string,
+  snapshot: RuntimeRegistrySnapshot,
+  nodeId: string,
+  agentId: string,
+): Promise<boolean> {
+  if (snapshot.agents[agentId]) {
+    return true;
+  }
+
+  const binding = await ensureProjectTwinBindingOnline(agentId, nodeId, {
+    includeDiscovered: true,
+    currentDirectory: desktopCurrentDirectory(),
+  });
+  if (!binding) {
+    return false;
+  }
+
+  await brokerPost(baseUrl, "/v1/actors", binding.actor);
+  await brokerPost(baseUrl, "/v1/agents", binding.agent);
+  await brokerPost(baseUrl, "/v1/endpoints", binding.endpoint);
+  snapshot.actors[binding.actor.id] = binding.actor;
+  snapshot.agents[binding.agent.id] = binding.agent;
+  snapshot.endpoints[binding.endpoint.id] = binding.endpoint;
+  return true;
+}
+
+async function parseMentionTargets(
   body: string,
   snapshot: RuntimeRegistrySnapshot,
-): { actorIds: string[]; labels: Record<string, string> } {
+): Promise<{ actorIds: string[]; labels: Record<string, string> }> {
   const validAgents = new Set(Object.keys(snapshot.agents));
   const endpointBackedAgents = unique(
     Object.values(snapshot.endpoints as Record<string, EndpointRecord>).map((endpoint) => endpoint.agentId),
@@ -2656,16 +2723,33 @@ function parseMentionTargets(
     return { actorIds: [], labels };
   }
 
-  const candidates: AgentSelectorCandidate[] = Object.values(snapshot.agents).map((agent) => ({
-    agentId: agent.id,
-    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
-    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
-    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
-    aliases: [
-      metadataString(agent.metadata, "selector"),
-      metadataString(agent.metadata, "defaultSelector"),
-    ].filter(Boolean) as string[],
-  }));
+  const setup = await loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() });
+  const candidateMap = new Map<string, AgentSelectorCandidate>();
+  for (const agent of Object.values(snapshot.agents)) {
+    candidateMap.set(agent.id, {
+      agentId: agent.id,
+      definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
+      nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
+      workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+      aliases: [
+        metadataString(agent.metadata, "selector"),
+        metadataString(agent.metadata, "defaultSelector"),
+      ].filter(Boolean) as string[],
+    });
+  }
+  for (const agent of setup.discoveredAgents) {
+    if (candidateMap.has(agent.agentId)) {
+      continue;
+    }
+    candidateMap.set(agent.agentId, {
+      agentId: agent.agentId,
+      definitionId: agent.definitionId,
+      nodeQualifier: agent.instance.nodeQualifier,
+      workspaceQualifier: agent.instance.workspaceQualifier,
+      aliases: [agent.instance.selector, agent.instance.defaultSelector],
+    });
+  }
+  const candidates = Array.from(candidateMap.values());
 
   for (const selector of selectors) {
     if (selector.definitionId === "all") {
@@ -2677,9 +2761,20 @@ function parseMentionTargets(
     }
 
     const match = resolveAgentSelector(selector, candidates);
-    if (match && validAgents.has(match.agentId)) {
+    if (match) {
       targets.add(match.agentId);
       labels[match.agentId] = selector.label;
+      if (validAgents.has(match.agentId)) {
+        continue;
+      }
+
+      const fallback = await resolveRelayAgentConfig(selector, {
+        currentDirectory: desktopCurrentDirectory(),
+      });
+      if (fallback) {
+        targets.add(fallback.agentId);
+        labels[fallback.agentId] = selector.label;
+      }
     }
   }
 
@@ -2707,8 +2802,16 @@ async function postMessageAndInvocations(
   await ensureCoreConversation(status.brokerUrl, snapshot, node.id, SYSTEM_CHANNEL_ID);
 
   const directTarget = input.destinationKind === "direct" ? input.destinationId : null;
-  const mentionTargets = parseMentionTargets(input.body, snapshot);
-  const invokeTargets = unique([...(directTarget ? [directTarget] : []), ...mentionTargets.actorIds]);
+  if (directTarget) {
+    await ensureProjectTwinBindingOnBroker(status.brokerUrl, snapshot, node.id, directTarget);
+  }
+
+  const mentionTargets = await parseMentionTargets(input.body, snapshot);
+  for (const targetAgentId of mentionTargets.actorIds) {
+    await ensureProjectTwinBindingOnBroker(status.brokerUrl, snapshot, node.id, targetAgentId);
+  }
+  const invokeTargets = unique([...(directTarget ? [directTarget] : []), ...mentionTargets.actorIds])
+    .filter((targetAgentId) => Boolean(snapshot.agents[targetAgentId]));
 
   let conversationId = SHARED_CHANNEL_ID;
   let visibility = "workspace";
@@ -2752,6 +2855,7 @@ async function postMessageAndInvocations(
       source: "electron-app",
       destinationKind: input.destinationKind,
       destinationId: input.destinationId,
+      clientMessageId: input.clientMessageId ?? null,
     },
   });
 
@@ -2949,17 +3053,52 @@ export async function readLogSource(input: ReadLogSourceInput): Promise<DesktopL
 }
 
 export async function getAgentSession(agentId: string): Promise<AgentSessionInspector> {
+  const twinConfig = await getProjectTwinConfig(agentId);
+  const configuredTitle = twinConfig?.twinId ?? agentId;
+  const configuredHarness = twinConfig?.runtime.harness ?? null;
+  const configuredTransport = twinConfig?.runtime.transport ?? null;
+  const configuredSessionId = twinConfig?.runtime.sessionId ?? null;
+  const configuredDirectoryPath = twinConfig?.runtime.cwd ?? null;
+  const configuredCwd = compactHomePath(configuredDirectoryPath ?? "") || null;
+
+  // Most relay agents are local tmux-backed sessions. Check the canonical local config first
+  // so the UI can render immediately instead of waiting on broker status and snapshot fetches.
+  if (configuredTransport === "tmux" && configuredSessionId) {
+    const tmuxCapture = captureTmuxPane(configuredSessionId, 180);
+    if (!tmuxCapture.missing) {
+      return {
+        agentId,
+        title: configuredTitle,
+        subtitle: configuredCwd ? `Live tmux pane capture · ${configuredCwd}` : "Live tmux pane capture",
+        mode: "tmux",
+        harness: configuredHarness,
+        transport: configuredTransport,
+        sessionId: configuredSessionId,
+        commandLabel: `tmux attach -t ${configuredSessionId}`,
+        pathLabel: configuredCwd ? `${configuredCwd} · tmux:${configuredSessionId}` : `tmux:${configuredSessionId}`,
+        directoryPath: configuredDirectoryPath,
+        body: tmuxCapture.body,
+        updatedAtLabel: null,
+        lineCount: tmuxCapture.lineCount,
+        truncated: tmuxCapture.truncated,
+        missing: false,
+      };
+    }
+  }
+
+  const logCapture = await readAgentSessionLogs(agentId, 180);
+
   const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
   const snapshot = liveBroker.snapshot;
   const agent = snapshot?.agents?.[agentId] as AgentRecord | undefined;
   const endpoint = snapshot ? activeEndpoint(snapshot, agentId) : null;
-  const twinConfig = await getProjectTwinConfig(agentId);
 
-  const title = agent?.displayName ?? twinConfig?.twinId ?? agentId;
-  const harness = endpoint?.harness ?? twinConfig?.runtime.harness ?? null;
-  const transport = endpoint?.transport ?? twinConfig?.runtime.transport ?? null;
-  const sessionId = endpoint?.sessionId ?? twinConfig?.runtime.sessionId ?? null;
-  const cwd = compactHomePath(endpoint?.cwd ?? twinConfig?.runtime.cwd ?? "") || null;
+  const title = agent?.displayName ?? configuredTitle;
+  const harness = endpoint?.harness ?? configuredHarness;
+  const transport = endpoint?.transport ?? configuredTransport;
+  const sessionId = endpoint?.sessionId ?? configuredSessionId;
+  const directoryPath = endpoint?.cwd ?? configuredDirectoryPath;
+  const cwd = compactHomePath(directoryPath ?? "") || null;
 
   if (transport === "tmux" && sessionId) {
     const tmuxCapture = captureTmuxPane(sessionId, 180);
@@ -2969,22 +3108,21 @@ export async function getAgentSession(agentId: string): Promise<AgentSessionInsp
         title,
         subtitle: cwd ? `Live tmux pane capture · ${cwd}` : "Live tmux pane capture",
         mode: "tmux",
-      harness,
-      transport,
-      sessionId,
-      commandLabel: `tmux attach -t ${sessionId}`,
-      pathLabel: cwd ? `${cwd} · tmux:${sessionId}` : `tmux:${sessionId}`,
-      directoryPath: endpoint?.cwd ?? twinConfig?.runtime.cwd ?? null,
-      body: tmuxCapture.body,
-      updatedAtLabel: null,
-      lineCount: tmuxCapture.lineCount,
-      truncated: tmuxCapture.truncated,
-      missing: false,
+        harness,
+        transport,
+        sessionId,
+        commandLabel: `tmux attach -t ${sessionId}`,
+        pathLabel: cwd ? `${cwd} · tmux:${sessionId}` : `tmux:${sessionId}`,
+        directoryPath,
+        body: tmuxCapture.body,
+        updatedAtLabel: null,
+        lineCount: tmuxCapture.lineCount,
+        truncated: tmuxCapture.truncated,
+        missing: false,
       };
     }
   }
 
-  const logCapture = await readAgentSessionLogs(agentId, 180);
   if (!logCapture.missing) {
     return {
       agentId,
@@ -3017,7 +3155,7 @@ export async function getAgentSession(agentId: string): Promise<AgentSessionInsp
     sessionId,
     commandLabel: sessionId && transport === "tmux" ? `tmux attach -t ${sessionId}` : null,
     pathLabel: cwd,
-    directoryPath: endpoint?.cwd ?? twinConfig?.runtime.cwd ?? null,
+    directoryPath,
     body: "",
     updatedAtLabel: null,
     lineCount: 0,
@@ -3028,6 +3166,9 @@ export async function getAgentSession(agentId: string): Promise<AgentSessionInsp
 
 export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<AppSettingsState> {
   const trimmedOperatorName = input.operatorName?.trim() ?? "";
+  const defaultHarness: AgentHarness = SUPPORTED_TWIN_HARNESSES.includes(input.defaultHarness as AgentHarness)
+    ? input.defaultHarness as AgentHarness
+    : "claude";
   await writeOpenScoutSettings({
     profile: {
       operatorName: trimmedOperatorName || DEFAULT_OPERATOR_DISPLAY_NAME,
@@ -3037,7 +3178,7 @@ export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<
       includeCurrentRepo: input.includeCurrentRepo,
     },
     agents: {
-      defaultHarness: input.defaultHarness === "codex" ? "codex" : "claude",
+      defaultHarness,
       defaultTransport: "tmux",
       defaultCapabilities: splitDelimitedTokens(input.defaultCapabilitiesText) as Array<"chat" | "invoke" | "deliver" | "speak" | "listen" | "bridge" | "summarize" | "review" | "execute">,
       sessionPrefix: input.sessionPrefix,

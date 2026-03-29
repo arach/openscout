@@ -40,7 +40,7 @@ export type RelayVoiceState = {
   speaking: boolean;
 };
 
-export type RelayMessageReceiptState = "sent" | "delivered" | "seen" | "replied";
+export type RelayMessageReceiptState = "sent" | "delivered" | "seen" | "working" | "replied";
 
 export type RelayMessageReceipt = {
   state: RelayMessageReceiptState;
@@ -51,6 +51,7 @@ export type RelayMessageReceipt = {
 export type RelayMessage = {
   receipt?: RelayMessageReceipt | null;
   id: string;
+  clientMessageId?: string | null;
   conversationId: string;
   createdAt: number;
   replyToMessageId: string | null;
@@ -409,6 +410,7 @@ export type SendRelayMessageInput = {
   destinationId: string;
   body: string;
   replyToMessageId?: string | null;
+  clientMessageId?: string | null;
 };
 
 export type BrokerControlAction = "start" | "stop" | "restart";

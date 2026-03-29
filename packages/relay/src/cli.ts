@@ -7,6 +7,14 @@ import {
   type AgentSelector,
   type AgentSelectorCandidate,
 } from "@openscout/protocol";
+import {
+  ensureRelayAgentConfigured,
+  resolveRelayAgentConfig,
+} from "@openscout/runtime/setup";
+import {
+  ensureProjectTwinBindingOnline,
+  inferProjectTwinBinding,
+} from "@openscout/runtime/project-twins";
 
 const VERSION = "0.2.0";
 const BRAND = "\x1b[32m◆\x1b[0m";
@@ -407,30 +415,47 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function resolveMentionTargets(
+async function resolveMentionTargets(
   snapshot: BrokerSnapshot,
   text: string,
-): { resolved: BrokerMentionTarget[]; unresolved: string[]; legacyTargets: string[] } {
+): Promise<{ resolved: BrokerMentionTarget[]; unresolved: string[]; legacyTargets: string[] }> {
   const selectors = extractAgentSelectors(text);
   const resolved = new Map<string, BrokerMentionTarget>();
   const unresolved: string[] = [];
   const legacyTargets = new Set<string>();
-  const candidates: AgentSelectorCandidate[] = Object.values(snapshot.agents).map((agent) => ({
-    agentId: agent.id,
-    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
-    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
-    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
-    aliases: [
-      metadataString(agent.metadata, "selector"),
-      metadataString(agent.metadata, "defaultSelector"),
-    ].filter(Boolean) as string[],
-  }));
+  const candidateMap = new Map<string, AgentSelectorCandidate>();
+  for (const agent of Object.values(snapshot.agents)) {
+    candidateMap.set(agent.id, {
+      agentId: agent.id,
+      definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
+      nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
+      workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+      aliases: [
+        metadataString(agent.metadata, "selector"),
+        metadataString(agent.metadata, "defaultSelector"),
+      ].filter(Boolean) as string[],
+    });
+  }
 
   for (const selector of selectors) {
     if (selector.definitionId === "system" || selector.definitionId === "all") {
       continue;
     }
 
+    const discovered = await resolveRelayAgentConfig(selector, {
+      currentDirectory: process.cwd(),
+    });
+    if (discovered && !candidateMap.has(discovered.agentId)) {
+      candidateMap.set(discovered.agentId, {
+        agentId: discovered.agentId,
+        definitionId: discovered.definitionId,
+        nodeQualifier: discovered.instance.nodeQualifier,
+        workspaceQualifier: discovered.instance.workspaceQualifier,
+        aliases: [discovered.instance.selector, discovered.instance.defaultSelector],
+      });
+    }
+
+    const candidates = Array.from(candidateMap.values());
     const match = resolveAgentSelector(selector, candidates);
     if (!match) {
       unresolved.push(selector.label);
@@ -563,6 +588,62 @@ async function ensureBrokerActor(
   snapshot.actors[actorId] = actor;
 }
 
+async function syncBrokerBinding(
+  baseUrl: string,
+  snapshot: BrokerSnapshot,
+  binding: Awaited<ReturnType<typeof inferProjectTwinBinding>>,
+): Promise<void> {
+  if (!binding) {
+    return;
+  }
+
+  await brokerPostJson(baseUrl, "/v1/actors", binding.actor);
+  await brokerPostJson(baseUrl, "/v1/agents", binding.agent);
+  await brokerPostJson(baseUrl, "/v1/endpoints", binding.endpoint);
+  snapshot.actors[binding.actor.id] = binding.actor;
+  snapshot.agents[binding.agent.id] = binding.agent;
+}
+
+async function ensureSenderRelayAgent(
+  baseUrl: string,
+  snapshot: BrokerSnapshot,
+  nodeId: string,
+  senderId: string,
+): Promise<void> {
+  if (snapshot.agents[senderId]) {
+    return;
+  }
+
+  const configured = await ensureRelayAgentConfigured(senderId, {
+    currentDirectory: process.cwd(),
+    ensureCurrentProjectConfig: true,
+    syncLegacyMirror: true,
+  });
+  if (!configured) {
+    return;
+  }
+
+  await syncBrokerBinding(baseUrl, snapshot, await inferProjectTwinBinding(configured.agentId, nodeId));
+}
+
+async function ensureTargetRelayAgent(
+  baseUrl: string,
+  snapshot: BrokerSnapshot,
+  nodeId: string,
+  agentId: string,
+): Promise<boolean> {
+  if (snapshot.agents[agentId]) {
+    return true;
+  }
+
+  const binding = await ensureProjectTwinBindingOnline(agentId, nodeId, {
+    includeDiscovered: true,
+    currentDirectory: process.cwd(),
+  });
+  await syncBrokerBinding(baseUrl, snapshot, binding);
+  return Boolean(binding);
+}
+
 function relayConversationDefinition(
   snapshot: BrokerSnapshot,
   nodeId: string,
@@ -691,18 +772,28 @@ async function postRelayMessageToBroker(input: {
     };
   }
 
+  await ensureSenderRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, input.senderId);
   await ensureBrokerActor(broker.baseUrl, broker.snapshot, input.senderId);
+  const availableTargets = (
+    await Promise.all(
+      input.mentionTargets.map(async (target) => (
+        await ensureTargetRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, target.agentId)
+          ? target
+          : null
+      )),
+    )
+  ).filter((target): target is BrokerMentionTarget => Boolean(target));
   const conversation = await ensureBrokerConversation(
     broker.baseUrl,
     broker.snapshot,
     broker.node.id,
     input.channel,
     input.senderId,
-    input.mentionTargets.map((target) => target.agentId),
+    availableTargets.map((target) => target.agentId),
   );
 
   const validTargets = unique(
-    input.mentionTargets
+    availableTargets
       .map((target) => target.agentId)
       .filter((target) => target !== input.senderId && Boolean(broker.snapshot.agents[target])),
   ).sort();
@@ -1519,7 +1610,7 @@ async function relaySend() {
   const tags = shouldSpeak ? ["speak"] : [];
   const broker = await loadBrokerRelayContext();
   const mentionResolution = broker
-    ? resolveMentionTargets(broker.snapshot, message)
+    ? await resolveMentionTargets(broker.snapshot, message)
     : { resolved: [] as BrokerMentionTarget[], unresolved: [] as string[], legacyTargets: [] as string[] };
   const legacyMentions = mentionResolution.legacyTargets;
 
@@ -1575,7 +1666,7 @@ async function relaySend() {
     }
   }
 
-  for (const label of mentionResolution.unresolved) {
+  for (const label of brokerResult.unresolvedTargets) {
     print(`  \x1b[2m○\x1b[0m ${label} is not currently routable — message queued in channel\x1b[0m`);
   }
 
@@ -1622,7 +1713,7 @@ async function relaySpeak() {
   const ts = Math.floor(Date.now() / 1000);
   const broker = await loadBrokerRelayContext();
   const mentionResolution = broker
-    ? resolveMentionTargets(broker.snapshot, message)
+    ? await resolveMentionTargets(broker.snapshot, message)
     : { resolved: [] as BrokerMentionTarget[], unresolved: [] as string[], legacyTargets: [] as string[] };
   const legacyMentions = mentionResolution.legacyTargets;
 
@@ -1668,7 +1759,7 @@ async function relaySpeak() {
     }
   }
 
-  for (const label of mentionResolution.unresolved) {
+  for (const label of brokerResult.unresolvedTargets) {
     print(`  \x1b[2m○\x1b[0m ${label} is not currently routable — message queued in channel\x1b[0m`);
   }
 
@@ -2820,6 +2911,7 @@ switch (command) {
   case "-v":
     print(VERSION);
     break;
+  case "help":
   case "--help":
   case "-h":
   case undefined:

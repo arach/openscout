@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
@@ -78,7 +78,39 @@ type LaunchctlStatus = {
 };
 
 function runtimePackageDir(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "..");
+  const explicit = process.env.OPENSCOUT_RUNTIME_PACKAGE_DIR?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidate = resolve(moduleDir, "..");
+  if (isRuntimePackageDir(candidate)) {
+    return candidate;
+  }
+
+  const fromCwd = findRuntimePackageDir(process.cwd());
+  return fromCwd ?? candidate;
+}
+
+function isRuntimePackageDir(candidate: string): boolean {
+  return existsSync(join(candidate, "package.json"))
+    && existsSync(join(candidate, "src", "broker-daemon.ts"));
+}
+
+function findRuntimePackageDir(startDir: string): string | null {
+  let current = resolve(startDir);
+  while (true) {
+    const candidate = join(current, "packages", "runtime");
+    if (isRuntimePackageDir(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
 }
 
 function resolveBunExecutable(): string {
@@ -166,6 +198,17 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
     HOME: homedir(),
     PATH: launchPath,
+    ...collectOptionalEnvVars([
+      "OPENSCOUT_MESH_ID",
+      "OPENSCOUT_MESH_SEEDS",
+      "OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS",
+      "OPENSCOUT_NODE_NAME",
+      "OPENSCOUT_NODE_ID",
+      "OPENSCOUT_NODE_QUALIFIER",
+      "OPENSCOUT_TAILSCALE_BIN",
+      "OPENSCOUT_TAILSCALE_STATUS_JSON",
+      "OPENSCOUT_SSE_KEEPALIVE_MS",
+    ]),
   };
 
   const envBlock = Object.entries(envEntries)
@@ -202,6 +245,19 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
 </dict>
 </plist>
 `;
+}
+
+function collectOptionalEnvVars(keys: string[]): Record<string, string> {
+  const entries: Record<string, string> = {};
+
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      entries[key] = value;
+    }
+  }
+
+  return entries;
 }
 
 function resolveLaunchAgentPATH(): string {

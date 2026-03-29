@@ -5,14 +5,19 @@
   "description": "Typed protocol for the OpenScout local control plane",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
   },
   "types": "./src/index.ts",
   "files": [
-    "src",
+    "dist",
     "README.md"
   ],
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

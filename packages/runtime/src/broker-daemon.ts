@@ -23,10 +23,16 @@ import type {
 import { createInMemoryControlRuntime } from "./broker.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
+  buildMeshCollaborationEventBundle,
+  buildMeshCollaborationRecordBundle,
   buildMeshInvocationBundle,
   buildMeshMessageBundle,
+  forwardMeshCollaborationEvent,
+  forwardMeshCollaborationRecord,
   forwardMeshInvocation,
   forwardMeshMessage,
+  type MeshCollaborationEventBundle,
+  type MeshCollaborationRecordBundle,
   type MeshInvocationBundle,
   type MeshMessageBundle,
 } from "./mesh-forwarding.js";
@@ -434,6 +440,8 @@ async function applyMeshBundle(bundle: {
   agents: AgentDefinition[];
   conversation?: ConversationDefinition;
   bindings?: ConversationBinding[];
+  collaborationRecord?: CollaborationRecord;
+  collaborationEvent?: CollaborationEvent;
 }): Promise<void> {
   await runtime.upsertNode(bundle.originNode);
   store.upsertNode(bundle.originNode);
@@ -458,6 +466,16 @@ async function applyMeshBundle(bundle: {
   for (const binding of bundle.bindings ?? []) {
     await runtime.upsertBinding(binding);
     store.upsertBinding(binding);
+  }
+
+  if (bundle.collaborationRecord) {
+    await runtime.upsertCollaboration(bundle.collaborationRecord);
+    store.recordCollaborationRecord(bundle.collaborationRecord);
+  }
+
+  if (bundle.collaborationEvent) {
+    await runtime.appendCollaborationEvent(bundle.collaborationEvent);
+    store.recordCollaborationEvent(bundle.collaborationEvent);
   }
 }
 
@@ -875,6 +893,117 @@ async function forwardPeerBrokerDeliveries(
   return { forwarded, failed };
 }
 
+function actorIdsForCollaboration(
+  record: CollaborationRecord,
+  conversation?: ConversationDefinition,
+): string[] {
+  const ids = new Set<string>();
+
+  ids.add(record.createdById);
+  if (record.ownerId) ids.add(record.ownerId);
+  if (record.nextMoveOwnerId) ids.add(record.nextMoveOwnerId);
+
+  if (record.kind === "question") {
+    if (record.askedById) ids.add(record.askedById);
+    if (record.askedOfId) ids.add(record.askedOfId);
+  } else {
+    if (record.requestedById) ids.add(record.requestedById);
+    if (record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
+      ids.add(record.waitingOn.targetId);
+    }
+  }
+
+  for (const participantId of conversation?.participantIds ?? []) {
+    ids.add(participantId);
+  }
+
+  return [...ids];
+}
+
+async function forwardPeerBrokerCollaborationRecord(
+  record: CollaborationRecord,
+): Promise<{ forwarded: string[]; failed: string[] }> {
+  const snapshot = runtime.snapshot();
+  const conversation = record.conversationId
+    ? snapshot.conversations[record.conversationId]
+    : undefined;
+  if (!conversation || conversation.shareMode === "local") {
+    return { forwarded: [], failed: [] };
+  }
+
+  const actorIds = actorIdsForCollaboration(record, conversation);
+  const targetNodeIds = [...new Set(
+    actorIds
+      .map((actorId) => snapshot.agents[actorId]?.authorityNodeId)
+      .filter((id): id is string => Boolean(id && id !== nodeId)),
+  )];
+  const originNode = currentLocalNode();
+  const forwarded: string[] = [];
+  const failed: string[] = [];
+
+  for (const targetNodeId of targetNodeIds) {
+    const targetNode = snapshot.nodes[targetNodeId];
+    if (!targetNode?.brokerUrl) {
+      failed.push(targetNodeId);
+      continue;
+    }
+
+    try {
+      const bundle = buildMeshCollaborationRecordBundle(snapshot, originNode, record);
+      await forwardMeshCollaborationRecord(targetNode.brokerUrl, bundle);
+      forwarded.push(targetNodeId);
+    } catch {
+      failed.push(targetNodeId);
+    }
+  }
+
+  return { forwarded, failed };
+}
+
+async function forwardPeerBrokerCollaborationEvent(
+  event: CollaborationEvent,
+): Promise<{ forwarded: string[]; failed: string[] }> {
+  const snapshot = runtime.snapshot();
+  const record = snapshot.collaborationRecords[event.recordId];
+  if (!record) {
+    return { forwarded: [], failed: [] };
+  }
+  const conversation = record.conversationId
+    ? snapshot.conversations[record.conversationId]
+    : undefined;
+  if (!conversation || conversation.shareMode === "local") {
+    return { forwarded: [], failed: [] };
+  }
+
+  const actorIds = actorIdsForCollaboration(record, conversation);
+  const targetNodeIds = [...new Set(
+    actorIds
+      .map((actorId) => snapshot.agents[actorId]?.authorityNodeId)
+      .filter((id): id is string => Boolean(id && id !== nodeId)),
+  )];
+  const originNode = currentLocalNode();
+  const forwarded: string[] = [];
+  const failed: string[] = [];
+
+  for (const targetNodeId of targetNodeIds) {
+    const targetNode = snapshot.nodes[targetNodeId];
+    if (!targetNode?.brokerUrl) {
+      failed.push(targetNodeId);
+      continue;
+    }
+
+    try {
+      const bundle = buildMeshCollaborationEventBundle(snapshot, originNode, event, record);
+      await forwardMeshCollaborationEvent(targetNode.brokerUrl, bundle);
+      forwarded.push(targetNodeId);
+    } catch {
+      failed.push(targetNodeId);
+    }
+  }
+
+  return { forwarded, failed };
+}
+
 async function maybeForwardInvocation(
   invocation: InvocationRequest,
 ): Promise<{ forwarded: boolean; flight?: { id: string; invocationId: string; requesterId: string; targetAgentId: string; state: string; startedAt?: number; completedAt?: number; summary?: string; output?: string; error?: string; metadata?: Record<string, unknown> } }> {
@@ -999,11 +1128,19 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
     case "collaboration.upsert":
       await runtime.upsertCollaboration(command.record);
       store.recordCollaborationRecord(command.record);
-      return { ok: true, recordId: command.record.id };
+      return {
+        ok: true,
+        recordId: command.record.id,
+        mesh: await forwardPeerBrokerCollaborationRecord(command.record),
+      };
     case "collaboration.event.append":
       await runtime.appendCollaborationEvent(command.event);
       store.recordCollaborationEvent(command.event);
-      return { ok: true, eventId: command.event.id };
+      return {
+        ok: true,
+        eventId: command.event.id,
+        mesh: await forwardPeerBrokerCollaborationEvent(command.event),
+      };
     case "conversation.post": {
       const deliveries = await runtime.postMessage(command.message);
       store.recordMessage(command.message);
@@ -1204,6 +1341,29 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       store.recordInvocation(bundle.invocation);
       store.recordFlight(flight);
       json(response, 200, { ok: true, flight });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/mesh/collaboration/records") {
+    try {
+      const bundle = await readRequestBody<MeshCollaborationRecordBundle>(request);
+      const existing = runtime.snapshot().collaborationRecords[bundle.record.id];
+      await applyMeshBundle(bundle);
+      json(response, 200, existing ? { ok: true, duplicate: true } : { ok: true });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/mesh/collaboration/events") {
+    try {
+      const bundle = await readRequestBody<MeshCollaborationEventBundle>(request);
+      await applyMeshBundle(bundle);
+      json(response, 200, { ok: true });
     } catch (error) {
       badRequest(response, error);
     }
