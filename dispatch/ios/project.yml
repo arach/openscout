@@ -14,7 +14,7 @@ settings:
     SWIFT_VERSION: "6.0"
     DEVELOPMENT_TEAM: 2U83JFPW66
 targets:
-  Dispatch:
+  DispatchApp:
     type: application
     platform: iOS
     sources:
@@ -30,6 +30,8 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSIncludesSubdomains: true
     settings:
+      PRODUCT_NAME: Dispatch
+      PRODUCT_MODULE_NAME: OpenScoutDispatch
       PRODUCT_BUNDLE_IDENTIFIER: com.openscout.dispatch
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Dispatch
@@ -51,4 +53,4 @@ targets:
     sources:
       - DispatchTests
     dependencies:
-      - target: Dispatch
+      - target: DispatchApp

@@ -9,7 +9,7 @@ DEVICE_ID="1E273304-29B6-5B10-BEC2-F4361F1CA25B"
 APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/Dispatch-gpuvzkpctdpavfhgvznqrmfozfka/Build/Products/Debug-iphoneos/Dispatch.app"
 
 echo "⠋ Building..."
-xcodebuild build -project Dispatch.xcodeproj -scheme Dispatch -destination "$XCODE_DEST" -quiet 2>&1 | grep "error:" && exit 1
+xcodebuild build -project Dispatch.xcodeproj -scheme DispatchApp -destination "$XCODE_DEST" -quiet 2>&1 | grep "error:" && exit 1
 
 echo "⠿ Installing..."
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH" 2>&1 | grep -q "installed" && echo "✓ Deployed" || { echo "✗ Install failed"; exit 1; }
