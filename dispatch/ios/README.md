@@ -1,12 +1,12 @@
 ## Dispatch iOS
 
-This directory contains the imported iOS donor app that previously lived in the
-Plexus repo.
+This directory contains the imported iOS donor app that previously lived in an
+external repo.
 
 Status:
 - imported intact first to preserve behavior
-- still contains many `Plexus` internal type and path names
-- being soft-rebranded toward `Dispatch` from the outside in
+- internal names are now Dispatch-aligned
+- additional product refactors will land in-place
 
 Expected migration order:
 1. user-facing copy and product identity
@@ -15,4 +15,4 @@ Expected migration order:
 
 Project notes:
 - XcodeGen project definition: [project.yml](/Users/arach/dev/openscout/dispatch/ios/project.yml)
-- donor source root: [Plexus](/Users/arach/dev/openscout/dispatch/ios/Plexus)
+- donor source root: [Dispatch](/Users/arach/dev/openscout/dispatch/ios/Dispatch)

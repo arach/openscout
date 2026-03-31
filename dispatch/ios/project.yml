@@ -18,11 +18,11 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Plexus
+      - Dispatch
     dependencies:
       - package: FluidAudio
     info:
-      path: Plexus/Info.plist
+      path: Dispatch/Info.plist
       properties:
         NSAppTransportSecurity:
           NSExceptionDomains:
@@ -49,6 +49,6 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - PlexusTests
+      - DispatchTests
     dependencies:
       - target: Dispatch
