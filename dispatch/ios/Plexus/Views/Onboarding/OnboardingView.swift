@@ -50,11 +50,11 @@ private struct WelcomePage: View {
                 }
 
                 VStack(spacing: PlexusSpacing.md) {
-                    Text("Plexus")
+                    Text("Dispatch")
                         .font(PlexusTypography.body(32, weight: .bold))
                         .foregroundStyle(PlexusColors.textPrimary)
 
-                    Text("Your AI coding sessions,\nright from your phone.")
+                    Text("Scout and your agents,\nright from your phone.")
                         .font(PlexusTypography.body(17))
                         .foregroundStyle(PlexusColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -118,7 +118,7 @@ private struct PermissionsPage: View {
                         .font(PlexusTypography.body(28, weight: .bold))
                         .foregroundStyle(PlexusColors.textPrimary)
 
-                    Text("Plexus needs microphone access for voice input and speech recognition for transcription.")
+                    Text("Dispatch needs microphone access for voice input and speech recognition for transcription.")
                         .font(PlexusTypography.body(15))
                         .foregroundStyle(PlexusColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -150,7 +150,7 @@ private struct PermissionsPage: View {
             Spacer()
 
             Button(action: onNext) {
-                Text(allGranted ? "Start Using Plexus" : "Skip for Now")
+                Text(allGranted ? "Start Using Dispatch" : "Skip for Now")
                     .font(PlexusTypography.body(17, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
@@ -222,7 +222,7 @@ private struct ModelPage: View {
                         .font(PlexusTypography.body(28, weight: .bold))
                         .foregroundStyle(PlexusColors.textPrimary)
 
-                    Text("Plexus uses on-device AI for private speech-to-text. No data leaves your phone.")
+                    Text("Dispatch uses on-device AI for private speech-to-text. No data leaves your phone.")
                         .font(PlexusTypography.body(15))
                         .foregroundStyle(PlexusColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -278,7 +278,7 @@ private struct ModelPage: View {
             VStack(spacing: PlexusSpacing.sm) {
                 #if canImport(FluidAudio)
                 if !parakeet.isReady {
-                    Text("Parakeet is loading in the background. You can start using Plexus now.")
+                    Text("Parakeet is loading in the background. You can start using Dispatch now.")
                         .font(PlexusTypography.caption(13))
                         .foregroundStyle(PlexusColors.textMuted)
                         .multilineTextAlignment(.center)

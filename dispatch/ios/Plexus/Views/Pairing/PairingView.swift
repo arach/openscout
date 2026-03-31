@@ -78,7 +78,7 @@ struct PairingView: View {
             }
 
             VStack(spacing: PlexusSpacing.sm) {
-                Text("Plexus")
+                Text("Dispatch")
                     .font(.system(size: 34, weight: .bold, design: .default))
                     .foregroundStyle(PlexusColors.textPrimary)
 
@@ -228,7 +228,7 @@ struct PairingView: View {
 
     private var instructions: some View {
         VStack(spacing: PlexusSpacing.sm) {
-            Text("On your computer, run:")
+            Text("On your computer, run the current pairing command:")
                 .font(PlexusTypography.caption(13))
                 .foregroundStyle(PlexusColors.textMuted)
 
@@ -241,7 +241,7 @@ struct PairingView: View {
                 .clipShape(RoundedRectangle(cornerRadius: PlexusRadius.sm, style: .continuous))
                 .textSelection(.enabled)
 
-            Text("Then scan the QR code it displays.")
+            Text("Then scan the QR code in Dispatch.")
                 .font(PlexusTypography.caption(13))
                 .foregroundStyle(PlexusColors.textMuted)
         }

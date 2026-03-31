@@ -15,7 +15,7 @@ import CryptoKit
 import Foundation
 import XCTest
 
-@testable import Plexus
+@testable import Dispatch
 
 final class NoiseProtocolTests: XCTestCase {
 

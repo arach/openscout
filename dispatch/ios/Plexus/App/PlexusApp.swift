@@ -18,7 +18,7 @@ struct PlexusApp: App {
 
     init() {
         CrashCatcher.install()
-        bootLogger.notice("Plexus app launching")
+        bootLogger.notice("Dispatch app launching")
         let store = SessionStore()
         let manager = ConnectionManager(sessionStore: store)
         bootLogger.notice("hasTrustedBridge=\(manager.hasTrustedBridge, privacy: .public), state=\(String(describing: manager.state), privacy: .public)")
