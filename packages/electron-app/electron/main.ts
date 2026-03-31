@@ -30,8 +30,11 @@ import type {
   SendRelayMessageInput,
   UpdateAgentConfigInput,
   UpdateAppSettingsInput,
+  UpdateDispatchConfigInput,
 } from "../src/lib/openscout-desktop.js";
+import { dispatchService } from "./dispatch-service.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
+import { telegramBridgeService } from "./telegram-bridge-service.js";
 
 const {
   BrowserWindow,
@@ -316,6 +319,22 @@ ipcMain.handle("openscout:read-log-source", async (_event, input: ReadLogSourceI
   readLogSource(input),
 );
 
+ipcMain.handle("openscout:get-dispatch-state", async () =>
+  dispatchService.getState(),
+);
+
+ipcMain.handle("openscout:refresh-dispatch-state", async () =>
+  dispatchService.refreshState(),
+);
+
+ipcMain.handle("openscout:control-dispatch-service", async (_event, action: "start" | "stop" | "restart") =>
+  dispatchService.control(action),
+);
+
+ipcMain.handle("openscout:update-dispatch-config", async (_event, input: UpdateDispatchConfigInput) =>
+  dispatchService.updateConfig(input),
+);
+
 ipcMain.handle("openscout:get-agent-session", async (_event, agentId: string) =>
   getAgentSession(agentId),
 );
@@ -347,7 +366,9 @@ ipcMain.handle("openscout:set-voice-replies-enabled", async (_event, enabled: bo
 
 app.whenReady().then(async () => {
   createAppMenu();
+  await dispatchService.refreshState();
   await createMainWindow();
+  await telegramBridgeService.refreshConfiguration();
 
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -359,12 +380,16 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", async () => {
   if (process.platform !== "darwin") {
     await appServer?.close();
+    await dispatchService.shutdown();
     await relayVoiceBridgeService.shutdown();
+    await telegramBridgeService.shutdown();
     app.quit();
   }
 });
 
 app.on("before-quit", async () => {
   await appServer?.close();
+  await dispatchService.shutdown();
   await relayVoiceBridgeService.shutdown();
+  await telegramBridgeService.shutdown();
 });

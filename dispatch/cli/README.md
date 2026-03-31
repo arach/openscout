@@ -8,7 +8,17 @@ This is distinct from:
 - OpenScout maintenance CLIs
 - harness-specific developer tools
 
-The intent here is a user-facing surface for Dispatch workflows such as:
+Current starter slice:
+- `bun run dispatch:status`
+  - reads the canonical Dispatch config and identity paths under `~/.dispatch`
+- `bun run dispatch:config`
+  - prints the current Dispatch config JSON
+- `bun run dispatch:pair`
+  - starts pair mode, emits a fresh QR payload, and keeps the relay room live
+
+This is the backend control layer for the Electron Dispatch tab.
+
+Near-term direction:
 - checking active asks
 - watching work state
 - jumping into partner or inbox contexts
