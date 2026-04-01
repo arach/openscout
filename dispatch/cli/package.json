@@ -1,0 +1,20 @@
+{
+  "name": "@openscout/dispatch-cli",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dispatch": "bun src/cli.ts",
+    "start": "bun src/main.ts start",
+    "pair": "bun src/main.ts pair",
+    "bridge": "bun src/bridge/main.ts",
+    "relay": "bun src/main.ts relay",
+    "config": "bun src/main.ts config",
+    "status": "bun src/main.ts status"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.1.1",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "uqr": "^0.1.2"
+  }
+}

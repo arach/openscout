@@ -2,7 +2,10 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
+  Activity,
+  AlertCircle,
   ArrowUpDown,
+  Copy,
   Bot,
   Check,
   CheckCheck,
@@ -12,15 +15,20 @@ import {
   LayoutGrid,
   FileText,
   Network,
+  ExternalLink,
+  Key,
   Palette,
   PenTool,
   MessageSquare,
   User,
+  Server,
   Settings,
+  Shield,
   Hash,
   RefreshCw,
   Search,
   Radar,
+  Terminal,
   X,
   FolderOpen,
   Clock,
@@ -39,16 +47,21 @@ import {
   Send,
   Sun,
   Moon,
+  Eye,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { renderSVG } from 'uqr';
 import MachinesView from "@/components/machines-view";
 import PlansView from "@/components/plans-view";
+import { Button } from "@/components/ui/button";
 import type {
   AgentSessionInspector,
   AgentConfigState,
   AppSettingsState,
+  BrokerControlAction,
   DesktopBrokerInspector,
+  DispatchState,
   DesktopLogCatalog,
   DesktopLogContent,
   DesktopLogSource,
@@ -60,6 +73,7 @@ import type {
   RelayMessage,
   RelayNavItem,
   SessionMetadata,
+  UpdateDispatchConfigInput,
 } from "@/lib/openscout-desktop";
 
 // Semantic CSS variable shortcuts as inline style helpers
@@ -71,6 +85,7 @@ const C = {
   muted:     'var(--os-muted)',
   accent:    'var(--os-accent)',
   accentBg:  'var(--os-accent-bg)',
+  accentBorder: 'var(--os-accent-border)',
   tagBg:     'var(--os-tag-bg)',
   logoBg:    'var(--os-logo-bg)',
   logoBorder:'var(--os-logo-border)',
@@ -82,17 +97,70 @@ const C = {
 
 type AgentRosterFilterMode = 'all' | 'active';
 type AgentRosterSortMode = 'chat' | 'code' | 'session' | 'alpha';
+type PendingRelayMessage = {
+  clientMessageId: string;
+  message: RelayMessage;
+};
+
+type ComposerRelayReference = {
+  messageId: string;
+  authorName: string;
+  preview: string;
+};
+
+function dispatchStatesMeaningfullyEqual(left: DispatchState | null, right: DispatchState | null) {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return left === right;
+  }
+
+  return left.status === right.status
+    && left.statusLabel === right.statusLabel
+    && left.statusDetail === right.statusDetail
+    && left.isRunning === right.isRunning
+    && left.commandLabel === right.commandLabel
+    && left.configPath === right.configPath
+    && left.identityPath === right.identityPath
+    && left.trustedPeersPath === right.trustedPeersPath
+    && left.logPath === right.logPath
+    && left.relay === right.relay
+    && left.configuredRelay === right.configuredRelay
+    && left.secure === right.secure
+    && left.workspaceRoot === right.workspaceRoot
+    && left.sessionCount === right.sessionCount
+    && left.identityFingerprint === right.identityFingerprint
+    && left.trustedPeerCount === right.trustedPeerCount
+    && left.logTail === right.logTail
+    && left.logUpdatedAtLabel === right.logUpdatedAtLabel
+    && left.logMissing === right.logMissing
+    && left.logTruncated === right.logTruncated
+    && left.pairing?.relay === right.pairing?.relay
+    && left.pairing?.room === right.pairing?.room
+    && left.pairing?.publicKey === right.pairing?.publicKey
+    && left.pairing?.expiresAt === right.pairing?.expiresAt
+    && left.pairing?.qrValue === right.pairing?.qrValue
+    && left.pairing?.qrArt === right.pairing?.qrArt;
+}
 
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeView, setActiveView] = useState<'overview' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings'>('overview');
+  const [productSurface, setProductSurface] = useState<'relay' | 'dispatch'>('relay');
+  const [activeView, setActiveView] = useState<'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionMetadata | null>(null);
   const [shellState, setShellState] = useState<DesktopShellState | null>(null);
   const [isLoadingShell, setIsLoadingShell] = useState(true);
   const [shellError, setShellError] = useState<string | null>(null);
+  const [dispatchState, setDispatchState] = useState<DispatchState | null>(null);
+  const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [dispatchControlPending, setDispatchControlPending] = useState(false);
+  const [dispatchConfigPending, setDispatchConfigPending] = useState(false);
+  const [dispatchConfigFeedback, setDispatchConfigFeedback] = useState<string | null>(null);
   const [selectedRelayKind, setSelectedRelayKind] = useState<RelayDestinationKind>('channel');
   const [selectedRelayId, setSelectedRelayId] = useState('shared');
   const [relayDraft, setRelayDraft] = useState('');
@@ -104,6 +172,8 @@ export default function App() {
     authorName: string;
     preview: string;
   } | null>(null);
+  const [relayContextMessageIds, setRelayContextMessageIds] = useState<string[]>([]);
+  const [pendingRelayMessages, setPendingRelayMessages] = useState<PendingRelayMessage[]>([]);
   const [pendingRelayComposerFocusTick, setPendingRelayComposerFocusTick] = useState(0);
   const [selectedInterAgentId, setSelectedInterAgentId] = useState<string | null>(null);
   const [selectedInterAgentThreadId, setSelectedInterAgentThreadId] = useState<string | null>(null);
@@ -123,6 +193,7 @@ export default function App() {
   const [agentSessionFeedback, setAgentSessionFeedback] = useState<string | null>(null);
   const [agentSessionCopied, setAgentSessionCopied] = useState(false);
   const [agentSessionRefreshTick, setAgentSessionRefreshTick] = useState(0);
+  const [isAgentSessionPeekOpen, setIsAgentSessionPeekOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettingsState | null>(null);
   const [appSettingsDraft, setAppSettingsDraft] = useState<AppSettingsState | null>(null);
   const [appSettingsLoading, setAppSettingsLoading] = useState(false);
@@ -134,6 +205,9 @@ export default function App() {
   const [selectedLogSourceId, setSelectedLogSourceId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState<DesktopLogContent | null>(null);
   const [brokerInspector, setBrokerInspector] = useState<DesktopBrokerInspector | null>(null);
+  const [brokerControlPending, setBrokerControlPending] = useState(false);
+  const [brokerControlFeedback, setBrokerControlFeedback] = useState<string | null>(null);
+  const [pendingBrokerInspectorFocus, setPendingBrokerInspectorFocus] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsFeedback, setLogsFeedback] = useState<string | null>(null);
   const [logSearchQuery, setLogSearchQuery] = useState('');
@@ -146,7 +220,16 @@ export default function App() {
   const agentRuntimePathRef = useRef<HTMLInputElement | null>(null);
   const agentSystemPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const agentSystemPromptViewRef = useRef<HTMLDivElement | null>(null);
+  const agentSessionInlineViewportRef = useRef<HTMLElement | null>(null);
+  const agentSessionPeekViewportRef = useRef<HTMLElement | null>(null);
+  const agentSessionInlineStickToBottomRef = useRef(true);
+  const agentSessionPeekStickToBottomRef = useRef(true);
   const settingsOperatorNameRef = useRef<HTMLInputElement | null>(null);
+  const relayServiceInspectorRef = useRef<HTMLElement | null>(null);
+  const shellStateLoadInFlightRef = useRef(false);
+  const commitDispatchState = React.useCallback((nextState: DispatchState) => {
+    setDispatchState((current) => dispatchStatesMeaningfullyEqual(current, nextState) ? current : nextState);
+  }, []);
 
   const sessions = shellState?.sessions ?? [];
   const machinesState = shellState?.machines ?? null;
@@ -162,10 +245,15 @@ export default function App() {
       return;
     }
 
+    if (shellStateLoadInFlightRef.current) {
+      return;
+    }
+
     if (withSpinner) {
       setIsLoadingShell(true);
     }
 
+    shellStateLoadInFlightRef.current = true;
     try {
       const nextState = await window.openScoutDesktop.getShellState();
       setShellState(nextState);
@@ -173,6 +261,7 @@ export default function App() {
     } catch (error) {
       setShellError(asErrorMessage(error));
     } finally {
+      shellStateLoadInFlightRef.current = false;
       setIsLoadingShell(false);
     }
   }, []);
@@ -334,6 +423,61 @@ export default function App() {
   }, [selectedInterAgentId]);
 
   useEffect(() => {
+    if (activeView !== 'agents') {
+      setIsAgentSessionPeekOpen(false);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    if (activeView !== 'agents' || !isAgentSessionPeekOpen || !selectedInterAgentId) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setAgentSessionRefreshTick((current) => current + 1);
+    }, 1600);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeView, isAgentSessionPeekOpen, selectedInterAgentId]);
+
+  useEffect(() => {
+    if (!isAgentSessionPeekOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsAgentSessionPeekOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAgentSessionPeekOpen]);
+
+  const agentSessionShouldStickToBottom = React.useCallback((element: HTMLElement | null) => {
+    if (!element) {
+      return true;
+    }
+
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+    return remaining <= 48;
+  }, []);
+
+  const scrollAgentSessionToBottom = React.useCallback((element: HTMLElement | null) => {
+    if (!element) {
+      return;
+    }
+
+    element.scrollTop = element.scrollHeight;
+  }, []);
+
+  useEffect(() => {
+    agentSessionInlineStickToBottomRef.current = true;
+    agentSessionPeekStickToBottomRef.current = true;
+  }, [selectedInterAgentId, isAgentSessionPeekOpen]);
+
+  useEffect(() => {
     if (activeView !== 'settings' || !window.openScoutDesktop?.getAppSettings) {
       return;
     }
@@ -420,6 +564,46 @@ export default function App() {
   }, [activeView, selectedLogSourceId, logsRefreshTick]);
 
   useEffect(() => {
+    if (productSurface !== 'dispatch' || !window.openScoutDesktop?.getDispatchState) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadDispatchState = async (options?: { showLoading?: boolean }) => {
+      if (options?.showLoading) {
+        setDispatchLoading(true);
+      }
+      try {
+        const nextState = await window.openScoutDesktop!.getDispatchState();
+        if (cancelled) {
+          return;
+        }
+        commitDispatchState(nextState);
+        setDispatchError(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setDispatchError(asErrorMessage(error));
+      } finally {
+        if (!cancelled) {
+          setDispatchLoading(false);
+        }
+      }
+    };
+
+    void loadDispatchState({ showLoading: !dispatchState });
+    const intervalId = window.setInterval(() => {
+      void loadDispatchState();
+    }, 5_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [commitDispatchState, dispatchState, productSurface]);
+
+  useEffect(() => {
     if (activeView !== 'settings' || settingsSection !== 'communication' || !window.openScoutDesktop?.getBrokerInspector) {
       return;
     }
@@ -443,6 +627,21 @@ export default function App() {
       cancelled = true;
     };
   }, [activeView, settingsSection, logsRefreshTick]);
+
+  useEffect(() => {
+    if (!pendingBrokerInspectorFocus || activeView !== 'settings' || settingsSection !== 'communication') {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      relayServiceInspectorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setPendingBrokerInspectorFocus(false);
+    }, 40);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeView, pendingBrokerInspectorFocus, settingsSection, brokerInspector]);
 
   useEffect(() => {
     if (activeView !== 'logs') {
@@ -590,6 +789,23 @@ export default function App() {
     setPendingConfigFocusAgentId(null);
   }, [activeView, isAgentConfigEditing]);
 
+  useEffect(() => {
+    if (!relayState?.messages.length) {
+      return;
+    }
+
+    const confirmedClientIds = new Set(
+      relayState.messages
+        .map((message) => message.clientMessageId)
+        .filter((messageId): messageId is string => Boolean(messageId)),
+    );
+    if (!confirmedClientIds.size) {
+      return;
+    }
+
+    setPendingRelayMessages((current) => current.filter((entry) => !confirmedClientIds.has(entry.clientMessageId)));
+  }, [relayState]);
+
   // Get unique projects
   const projects = useMemo(() => {
     const projectMap = new Map<string, { count: number; lastModified: string }>();
@@ -649,14 +865,58 @@ export default function App() {
   const selectedRelayDirectThread = relayState && selectedRelayKind === 'direct'
     ? relayState.directs.find((item) => item.id === selectedRelayId) ?? null
     : null;
-  const visibleRelayMessages = relayState
-    ? filterRelayMessages(relayState.messages, selectedRelayKind, selectedRelayId)
-    : [];
+  const mergedRelayMessages = useMemo(
+    () => {
+      const brokerMessages = relayState?.messages ?? [];
+      if (!pendingRelayMessages.length) {
+        return brokerMessages;
+      }
+
+      const confirmedClientIds = new Set(
+        brokerMessages
+          .map((message) => message.clientMessageId)
+          .filter((messageId): messageId is string => Boolean(messageId)),
+      );
+      const pendingMessages = pendingRelayMessages
+        .filter((entry) => !confirmedClientIds.has(entry.clientMessageId))
+        .map((entry) => entry.message);
+
+      if (!pendingMessages.length) {
+        return brokerMessages;
+      }
+
+      return [...brokerMessages, ...pendingMessages].sort(
+        (lhs, rhs) => lhs.createdAt - rhs.createdAt || lhs.id.localeCompare(rhs.id),
+      );
+    },
+    [pendingRelayMessages, relayState],
+  );
+  const visibleRelayMessages = useMemo(
+    () => filterRelayMessages(mergedRelayMessages, selectedRelayKind, selectedRelayId),
+    [mergedRelayMessages, selectedRelayKind, selectedRelayId],
+  );
+  const relayMessageLookup = useMemo(
+    () => new Map(mergedRelayMessages.map((message) => [message.id, message])),
+    [mergedRelayMessages],
+  );
+  const relayContextReferences = useMemo(
+    () => relayContextMessageIds
+      .map((messageId) => relayMessageLookup.get(messageId))
+      .filter((message): message is RelayMessage => Boolean(message))
+      .map((message) => ({
+        messageId: message.id,
+        authorName: message.authorName,
+        preview: messagePreviewSnippet(message.body, 96),
+      })),
+    [relayContextMessageIds, relayMessageLookup],
+  );
   const relayThreadTitle = cleanDisplayTitle(relayCurrentDestination?.title ?? '# shared-channel');
-  const relayThreadSubtitle = selectedRelayDirectThread?.statusDetail
-    ?? selectedRelayDirectThread?.subtitle
-    ?? relayCurrentDestination?.subtitle
-    ?? null;
+  const relayThreadSubtitle = selectedRelayDirectThread?.state === 'working'
+    ? null
+    : selectedRelayDirectThread?.statusDetail
+      ?? selectedRelayDirectThread?.subtitle
+      ?? relayCurrentDestination?.subtitle
+      ?? null;
   const relaySelectionIsFeed = relayFeedItems.some(
     (item) => item.kind === selectedRelayKind && item.id === selectedRelayId,
   );
@@ -703,6 +963,40 @@ export default function App() {
     },
     [relayState, selectedInterAgentThread],
   );
+  const selectedInterAgentActivityMessages = useMemo(
+    () => {
+      if (!selectedInterAgent) {
+        return [];
+      }
+
+      const relatedThreadMessageIds = new Set(
+        visibleInterAgentThreads.flatMap((thread) => thread.messageIds),
+      );
+
+      return mergedRelayMessages
+        .filter((message) => (
+          relatedThreadMessageIds.has(message.id)
+          || message.authorId === selectedInterAgent.id
+          || message.recipients.includes(selectedInterAgent.id)
+        ))
+        .slice(-60);
+    },
+    [mergedRelayMessages, selectedInterAgent, visibleInterAgentThreads],
+  );
+  const selectedInterAgentInboundTasks = useMemo(
+    () => plansState?.tasks.filter((task) => task.targetAgentId === selectedInterAgentId) ?? [],
+    [plansState, selectedInterAgentId],
+  );
+  const selectedInterAgentFindings = useMemo(
+    () => plansState?.findings.filter((finding) => (
+      finding.targetAgentId === selectedInterAgentId || finding.requesterId === selectedInterAgentId
+    )) ?? [],
+    [plansState, selectedInterAgentId],
+  );
+  const selectedInterAgentOutboundFindings = useMemo(
+    () => selectedInterAgentFindings.filter((finding) => finding.requesterId === selectedInterAgentId),
+    [selectedInterAgentFindings, selectedInterAgentId],
+  );
   const interAgentThreadTitle = selectedInterAgentThread
     ? interAgentThreadTitleForAgent(selectedInterAgentThread, selectedInterAgentId)
     : selectedInterAgent
@@ -729,6 +1023,29 @@ export default function App() {
     ? 'Open Chat'
     : 'Start Chat';
   const visibleAgentSession = agentSession?.agentId === selectedInterAgent?.id ? agentSession : null;
+  const agentSessionPending = agentSessionLoading && !visibleAgentSession;
+  useEffect(() => {
+    if (!visibleAgentSession?.body) {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      if (agentSessionInlineStickToBottomRef.current) {
+        scrollAgentSessionToBottom(agentSessionInlineViewportRef.current);
+      }
+      if (isAgentSessionPeekOpen && agentSessionPeekStickToBottomRef.current) {
+        scrollAgentSessionToBottom(agentSessionPeekViewportRef.current);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [
+    isAgentSessionPeekOpen,
+    scrollAgentSessionToBottom,
+    visibleAgentSession?.agentId,
+    visibleAgentSession?.body,
+    visibleAgentSession?.updatedAtLabel,
+  ]);
   const selectedAgentDirectLinePreview = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
     ? relaySecondaryText(selectedInterAgentDirectThread)
     : selectedInterAgent
@@ -739,7 +1056,9 @@ export default function App() {
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
     [appSettingsDraft, appSettings],
   );
-  const visibleAgentConfig = agentConfigDraft ?? agentConfig;
+  const visibleAgentConfig = selectedInterAgentId && (agentConfigDraft ?? agentConfig)?.agentId === selectedInterAgentId
+    ? (agentConfigDraft ?? agentConfig)
+    : null;
   const hasEditableAgentConfig = Boolean(agentConfig?.editable && visibleAgentConfig);
   const logSources = logCatalog?.sources ?? [];
   const filteredLogSources = useMemo(
@@ -795,6 +1114,51 @@ export default function App() {
     () => (relayState?.directs ?? []).filter((thread) => thread.reachable),
     [relayState],
   );
+  const activityTasks = useMemo(
+    () => [...(plansState?.tasks ?? [])]
+      .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt)
+      .slice(0, 18),
+    [plansState],
+  );
+  const activityFindings = useMemo(
+    () => [...(plansState?.findings ?? [])].slice(0, 10),
+    [plansState],
+  );
+  const activityEndpoints = useMemo(
+    () => (machinesState?.machines ?? [])
+      .flatMap((machine) => machine.endpoints.map((endpoint) => ({
+        machineId: machine.id,
+        machineTitle: machine.title,
+        machineStatus: machine.status,
+        endpoint,
+      })))
+      .sort((lhs, rhs) => {
+        const rank = (state: string) => {
+          switch (state) {
+            case 'running':
+              return 0;
+            case 'waiting':
+              return 1;
+            case 'idle':
+              return 2;
+            default:
+              return 3;
+          }
+        };
+        return rank(lhs.endpoint.state) - rank(rhs.endpoint.state)
+          || lhs.endpoint.agentName.localeCompare(rhs.endpoint.agentName);
+      })
+      .slice(0, 14),
+    [machinesState],
+  );
+  const activityRecentMessages = useMemo(
+    () => [...mergedRelayMessages]
+      .filter((message) => !message.isVoice)
+      .slice(-18)
+      .reverse(),
+    [mergedRelayMessages],
+  );
+  const activityLeadTask = activityTasks.find((task) => task.status === 'running') ?? activityTasks[0] ?? null;
   const logsAttentionLevel = useMemo<'error' | 'warning' | null>(() => {
     if (shellError || relayState?.voice.captureState === 'error') {
       return 'error';
@@ -873,6 +1237,13 @@ export default function App() {
   const handleRefreshShell = async () => {
     setRelayFeedback('Refreshing…');
     try {
+      if (productSurface === 'dispatch' && window.openScoutDesktop?.refreshDispatchState) {
+        const nextDispatchState = await window.openScoutDesktop.refreshDispatchState();
+        commitDispatchState(nextDispatchState);
+        setDispatchError(null);
+        setRelayFeedback('Dispatch refreshed.');
+        return;
+      }
       if (window.openScoutDesktop?.refreshShellState) {
         const nextState = await window.openScoutDesktop.refreshShellState();
         setShellState(nextState);
@@ -885,6 +1256,77 @@ export default function App() {
       setRelayFeedback(asErrorMessage(error));
     }
   };
+
+  const handleDispatchControl = React.useCallback(async (action: 'start' | 'stop' | 'restart') => {
+    if (!window.openScoutDesktop?.controlDispatchService) {
+      return;
+    }
+
+    setDispatchControlPending(true);
+    try {
+      const nextState = await window.openScoutDesktop.controlDispatchService(action);
+      commitDispatchState(nextState);
+      setDispatchError(null);
+      setRelayFeedback(action === 'start' ? 'Dispatch started.' : action === 'stop' ? 'Dispatch stopped.' : 'Dispatch restarted.');
+    } catch (error) {
+      setDispatchError(asErrorMessage(error));
+    } finally {
+      setDispatchControlPending(false);
+    }
+  }, [commitDispatchState]);
+
+  const handleUpdateDispatchConfig = React.useCallback(async (input: UpdateDispatchConfigInput) => {
+    if (!window.openScoutDesktop?.updateDispatchConfig) {
+      return;
+    }
+
+    setDispatchConfigPending(true);
+    setDispatchConfigFeedback(null);
+    try {
+      const nextState = await window.openScoutDesktop.updateDispatchConfig(input);
+      commitDispatchState(nextState);
+      setDispatchError(null);
+      setDispatchConfigFeedback('Dispatch settings saved.');
+    } catch (error) {
+      const message = asErrorMessage(error);
+      setDispatchConfigFeedback(message);
+      throw error;
+    } finally {
+      setDispatchConfigPending(false);
+    }
+  }, [commitDispatchState]);
+
+  const handleBrokerControl = React.useCallback(async (action: BrokerControlAction) => {
+    if (!window.openScoutDesktop?.controlBroker) {
+      return;
+    }
+
+    setBrokerControlPending(true);
+    setBrokerControlFeedback(null);
+    try {
+      const nextState = await window.openScoutDesktop.controlBroker(action);
+      setShellState(nextState);
+      setShellError(null);
+      if (window.openScoutDesktop.getBrokerInspector) {
+        const nextInspector = await window.openScoutDesktop.getBrokerInspector();
+        setBrokerInspector(nextInspector);
+      }
+      setBrokerControlFeedback(
+        action === 'start' ? 'Relay started.' : action === 'stop' ? 'Relay stopped.' : 'Relay restarted.',
+      );
+    } catch (error) {
+      setBrokerControlFeedback(asErrorMessage(error));
+    } finally {
+      setBrokerControlPending(false);
+    }
+  }, []);
+
+  const openRelayDiagnostics = React.useCallback(() => {
+    setProductSurface('relay');
+    setActiveView('settings');
+    setSettingsSection('communication');
+    setPendingBrokerInspectorFocus(true);
+  }, []);
 
   const handleStartAppSettingsEdit = React.useCallback(() => {
     setAppSettingsDraft(appSettings);
@@ -912,6 +1354,16 @@ export default function App() {
         defaultHarness: appSettingsDraft.defaultHarness,
         defaultCapabilitiesText: appSettingsDraft.defaultCapabilities.join('\n'),
         sessionPrefix: appSettingsDraft.sessionPrefix,
+        telegram: {
+          enabled: appSettingsDraft.telegram.enabled,
+          mode: appSettingsDraft.telegram.mode,
+          botToken: appSettingsDraft.telegram.botToken,
+          secretToken: appSettingsDraft.telegram.secretToken,
+          apiBaseUrl: appSettingsDraft.telegram.apiBaseUrl,
+          userName: appSettingsDraft.telegram.userName,
+          defaultConversationId: appSettingsDraft.telegram.defaultConversationId,
+          ownerNodeId: appSettingsDraft.telegram.ownerNodeId,
+        },
       });
       setAppSettings(nextSettings);
       setAppSettingsDraft(nextSettings);
@@ -1091,26 +1543,67 @@ export default function App() {
     }
   }, [agentSession]);
 
+  const handlePeekAgentSession = React.useCallback(() => {
+    setAgentSessionFeedback(null);
+    setIsAgentSessionPeekOpen(true);
+    setAgentSessionRefreshTick((current) => current + 1);
+  }, []);
+
   const handleRelaySend = async () => {
     const body = relayDraft.trim();
     if (!body || relaySending || !window.openScoutDesktop) {
       return;
     }
 
+    const previousDraft = relayDraft;
+    const previousReplyTarget = relayReplyTarget;
+    const previousContextMessageIds = relayContextMessageIds;
+    const clientMessageId = generateClientMessageId();
+    const effectiveReplyToMessageId = relayReplyTarget?.messageId ?? relayContextMessageIds[0] ?? null;
+    const optimisticMessage = buildOptimisticRelayMessage({
+      relayState,
+      appSettings,
+      destinationKind: selectedRelayKind,
+      destinationId: selectedRelayId,
+      body,
+      replyToMessageId: effectiveReplyToMessageId,
+      clientMessageId,
+    });
     setRelaySending(true);
     setRelayFeedback('Sending…');
+    setPendingRelayMessages((current) => [...current, { clientMessageId, message: optimisticMessage }]);
+    setRelayDraft('');
+    setRelayReplyTarget(null);
+    setRelayContextMessageIds([]);
     try {
       const nextState = await window.openScoutDesktop.sendRelayMessage({
         destinationKind: selectedRelayKind,
         destinationId: selectedRelayId,
         body,
-        replyToMessageId: relayReplyTarget?.messageId ?? null,
+        replyToMessageId: effectiveReplyToMessageId,
+        referenceMessageIds: relayContextMessageIds,
+        clientMessageId,
       });
       setShellState(nextState);
-      setRelayDraft('');
-      setRelayReplyTarget(null);
+      setPendingRelayMessages((current) => current.map((entry) => (
+        entry.clientMessageId === clientMessageId
+          ? {
+              ...entry,
+              message: {
+                ...entry.message,
+                receipt: entry.message.receipt
+                  ? { ...entry.message.receipt, label: 'Sent', detail: null }
+                  : { state: 'sent', label: 'Sent', detail: null },
+              },
+            }
+          : entry
+      )));
       setRelayFeedback('Sent.');
     } catch (error) {
+      setPendingRelayMessages((current) => current.filter((entry) => entry.clientMessageId !== clientMessageId));
+      setRelayDraft(previousDraft);
+      setRelayReplyTarget(previousReplyTarget);
+      setRelayContextMessageIds(previousContextMessageIds);
       setRelayFeedback(asErrorMessage(error));
     } finally {
       setRelaySending(false);
@@ -1140,6 +1633,7 @@ export default function App() {
     setSelectedRelayKind('direct');
     setSelectedRelayId(agentId);
     setActiveView('relay');
+    setRelayContextMessageIds([]);
     setRelayReplyTarget(options?.replyToMessage ? {
       messageId: options.replyToMessage.id,
       authorId: options.replyToMessage.authorId,
@@ -1212,22 +1706,41 @@ export default function App() {
             <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
             <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
           </div>
-          <div
-            className="flex items-center gap-2 ml-2 border rounded px-2 py-1"
-            style={{ backgroundColor: C.logoBg, borderColor: C.logoBorder }}
-          >
-            <div className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-mono font-bold" style={{ backgroundColor: C.ink }}>
-              {'>_'}
-            </div>
-            <span className="font-semibold text-[13px] tracking-tight" style={s.inkText}>OpenScout</span>
+          <div className="flex items-center gap-1.5 ml-2">
+            {([
+              ['relay', 'Relay'],
+              ['dispatch', 'Dispatch'],
+            ] as const).map(([surface, label]) => {
+              const active = productSurface === surface;
+              return (
+                <button
+                  key={surface}
+                  type="button"
+                  onClick={() => setProductSurface(surface)}
+                  className="flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[12px] font-semibold tracking-tight transition-colors"
+                  style={active
+                    ? { backgroundColor: C.surface, borderColor: C.border, color: C.ink, boxShadow: `0 1px 0 rgba(0,0,0,0.04)` }
+                    : { backgroundColor: C.bg, borderColor: C.border, color: C.muted }}
+                >
+                  <ProductSurfaceLogo surface={surface} active={active} />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-3 font-mono text-[9px] uppercase tracking-wider" style={s.mutedText}>
-            <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={openRelayDiagnostics}
+              className="flex items-center gap-1.5 rounded-full border px-2 py-1 transition-opacity hover:opacity-80"
+              style={{ borderColor: C.border }}
+              title={runtime?.brokerReachable ? 'Open Relay diagnostics' : 'Relay is offline. Open diagnostics.'}
+            >
               <div className={`w-1.5 h-1.5 rounded-full ${runtime?.brokerReachable ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
               Relay <span className="font-medium" style={s.inkText}>{runtime?.brokerReachable ? 'Running' : 'Offline'}</span>
-            </div>
+            </button>
             <div className="flex items-center gap-1.5">
               Agents <span className="font-medium" style={s.inkText}>{runtime?.agentCount ?? 0}</span>
             </div>
@@ -1250,12 +1763,15 @@ export default function App() {
         </div>
       </div>
 
+      {productSurface === 'relay' ? (
+      <>
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar Nav (Leftmost) */}
         <div className="w-12 border-r flex flex-col items-center py-2 gap-3 shrink-0 z-10" style={s.navBar}>
           <div className="flex flex-col gap-1 w-full px-2 mt-2" style={s.mutedText}>
             {([
               ['overview', <LayoutGrid size={16} strokeWidth={1.5} />, 'Overview'],
+              ['activity', <Radio size={16} strokeWidth={1.5} />, 'Activity Monitor'],
               ['machines', <Network size={16} strokeWidth={1.5} />, 'Machines'],
               ['plans', <FileText size={16} strokeWidth={1.5} />, 'Plans'],
               ['sessions', <Radar size={16} strokeWidth={1.5} />, 'Session History'],
@@ -1276,7 +1792,7 @@ export default function App() {
             ))}
           </div>
           <div className="mt-auto flex flex-col gap-1 items-center w-full px-2">
-            {(activeView === 'machines' || activeView === 'plans' || activeView === 'sessions' || activeView === 'relay' || activeView === 'search' || activeView === 'inter-agent' || activeView === 'agents' || activeView === 'logs') && (
+            {(activeView === 'activity' || activeView === 'machines' || activeView === 'plans' || activeView === 'sessions' || activeView === 'relay' || activeView === 'search' || activeView === 'inter-agent' || activeView === 'agents' || activeView === 'logs') && (
               <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-1.5 rounded flex items-center justify-center transition-opacity hover:opacity-70"
@@ -1390,7 +1906,7 @@ export default function App() {
                     {
                       icon: <FileText size={20} />,
                       title: 'Plans',
-                      desc: 'Track recent asks and load Markdown plans from registered twin workspaces.',
+                      desc: 'Track recent asks and load Markdown plans from registered agent workspaces.',
                       action: () => setActiveView('plans'),
                       accent: false,
                     },
@@ -1526,6 +2042,406 @@ export default function App() {
             </div>
           </div>
 
+        /* --- ACTIVITY --- */
+        ) : activeView === 'activity' ? (
+          <>
+            {!isCollapsed && (
+              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
+                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
+                <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                  <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Activity Monitor</div>
+                  <div className="text-[13px] font-semibold tracking-tight mt-1" style={s.inkText}>System-wide watch</div>
+                  <div className="text-[11px] leading-[1.5] mt-1" style={s.mutedText}>
+                    Asks, blockers, runtime signals, and recent coordination across OpenScout.
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                    <div className="text-[9px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Right Now</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Running', value: `${plansState?.runningTaskCount ?? 0}` },
+                        { label: 'Watchlist', value: `${plansState?.findingCount ?? 0}` },
+                        { label: 'Agents', value: `${runtime?.agentCount ?? 0}` },
+                        { label: 'Nodes', value: `${machinesState?.onlineCount ?? 0}` },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
+                          <div className="text-[18px] font-semibold mt-1" style={s.inkText}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                    <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Lead Task</div>
+                    {activityLeadTask ? (
+                      <>
+                        <div className="text-[12px] font-medium leading-[1.5]" style={s.inkText}>{activityLeadTask.title}</div>
+                        <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                          {activityLeadTask.targetAgentName} · {activityLeadTask.statusLabel} · {activityLeadTask.ageLabel ?? activityLeadTask.updatedAtLabel ?? 'now'}
+                        </div>
+                        {activityLeadTask.statusDetail ? (
+                          <div className="text-[11px] mt-2 leading-[1.55]" style={s.mutedText}>
+                            {activityLeadTask.statusDetail}
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => openAgentProfile(activityLeadTask.targetAgentId)}
+                          className="mt-3 text-[10px] font-medium hover:opacity-80"
+                          style={{ color: C.accent }}
+                        >
+                          Open {activityLeadTask.targetAgentName}
+                        </button>
+                      </>
+                    ) : (
+                      <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                        No active asks are visible yet.
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                    <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>View Model</div>
+                    <div className="space-y-2 text-[11px] leading-[1.5]" style={s.mutedText}>
+                      <div>Task-first rows, not micro chat.</div>
+                      <div>Watchlist surfaces blockers and stale work.</div>
+                      <div>Runtime stays visible without becoming the main story.</div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 flex flex-col min-w-0" style={s.surface}>
+              <div className="border-b shrink-0 px-6 py-5" style={{ borderBottomColor: C.border }}>
+                <div className="flex items-start justify-between gap-6">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Activity Monitor</div>
+                    <h1 className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+                      Everything OpenScout Is Coordinating
+                    </h1>
+                    <p className="text-[13px] mt-2 max-w-3xl leading-[1.65]" style={s.mutedText}>
+                      A system-wide operational picture of asks, handoffs, runtime signals, human interventions, and recent coordination.
+                      This is the control-room view, not just the mesh view.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleRefreshShell()}
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                    >
+                      <RefreshCw size={14} />
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('plans')}
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                    >
+                      <FileText size={14} />
+                      Open Plans
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('relay')}
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                    >
+                      <MessageSquare size={14} />
+                      Open Relay
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-3 mt-5">
+                  {[
+                    { label: 'Work In Flight', value: `${plansState?.runningTaskCount ?? 0}`, detail: `${plansState?.taskCount ?? 0} total asks` },
+                    { label: 'Watchlist', value: `${plansState?.findingCount ?? 0}`, detail: `${plansState?.errorCount ?? 0} errors · ${plansState?.warningCount ?? 0} warnings` },
+                    { label: 'Live Runtime', value: `${activityEndpoints.filter((entry) => entry.endpoint.state === 'running').length}`, detail: `${runtime?.tmuxSessionCount ?? 0} sessions visible` },
+                    { label: 'Recent Coordination', value: `${activityRecentMessages.length}`, detail: `${runtime?.messageCount ?? 0} broker messages captured` },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-xl border px-4 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                      <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
+                      <div className="text-[24px] font-semibold mt-2" style={s.inkText}>{item.value}</div>
+                      <div className="text-[11px] mt-1" style={s.mutedText}>{item.detail}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] gap-4">
+                  <div className="space-y-4 min-w-0">
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                        <div>
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Work Feed</div>
+                          <div className="text-[11px] mt-1" style={s.mutedText}>Task-level asks and routed work, newest first.</div>
+                        </div>
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
+                          {activityTasks.length} rows
+                        </span>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {activityTasks.length > 0 ? activityTasks.map((task) => (
+                          <div key={task.id} className="px-4 py-4" style={{ backgroundColor: C.surface }}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
+                                    style={
+                                      task.status === 'running'
+                                        ? s.activePill
+                                        : task.status === 'failed'
+                                          ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
+                                          : task.status === 'completed'
+                                            ? { backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#166534' }
+                                            : s.tagBadge
+                                    }
+                                  >
+                                    {task.statusLabel}
+                                  </span>
+                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                    {task.targetAgentName}
+                                  </span>
+                                  {task.project ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {task.project}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="text-[13px] font-medium mt-2 leading-[1.5]" style={s.inkText}>
+                                  {task.title}
+                                </div>
+                                {task.statusDetail ? (
+                                  <div className="text-[11px] mt-1 leading-[1.6]" style={s.mutedText}>
+                                    {task.statusDetail}
+                                  </div>
+                                ) : null}
+                                {task.replyPreview ? (
+                                  <div className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.bg, color: C.muted }}>
+                                    {task.replyPreview}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex flex-col items-end gap-2 shrink-0">
+                                <span className="text-[10px] font-mono" style={s.mutedText}>
+                                  {task.ageLabel ?? task.updatedAtLabel ?? task.createdAtLabel}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => openAgentProfile(task.targetAgentId)}
+                                  className="text-[10px] font-medium hover:opacity-80"
+                                  style={{ color: C.accent }}
+                                >
+                                  Open
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
+                            No task-level activity has been indexed yet.
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                        <div>
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Recent Coordination</div>
+                          <div className="text-[11px] mt-1" style={s.mutedText}>The latest human, bridge, and agent interactions crossing the system.</div>
+                        </div>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {activityRecentMessages.length > 0 ? activityRecentMessages.map((message) => {
+                          const agent = interAgentAgentLookup.get(message.authorId) ?? null;
+                          const counterparts = message.recipients.filter((recipient) => recipient !== message.authorId).slice(0, 2).join(', ');
+                          return (
+                            <div key={message.id} className="px-4 py-3 flex items-start gap-3" style={{ backgroundColor: C.surface }}>
+                              <div
+                                className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-[10px] font-bold shrink-0"
+                                style={{ backgroundColor: message.avatarColor }}
+                              >
+                                {message.avatarLabel}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[12px] font-medium" style={s.inkText}>{message.authorName}</span>
+                                  {message.messageClass ? (
+                                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={message.messageClass === 'status' ? s.activePill : s.tagBadge}>
+                                      {message.messageClass}
+                                    </span>
+                                  ) : null}
+                                  {counterparts ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      to {counterparts}
+                                    </span>
+                                  ) : null}
+                                  <span className="text-[9px] font-mono" style={s.mutedText}>{message.timestampLabel}</span>
+                                </div>
+                                <div className="text-[11px] mt-1 leading-[1.6]" style={s.mutedText}>
+                                  {messagePreviewSnippet(message.body, 220)}
+                                </div>
+                              </div>
+                              {agent ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openAgentProfile(agent.id)}
+                                  className="text-[10px] font-medium shrink-0 hover:opacity-80"
+                                  style={{ color: C.accent }}
+                                >
+                                  Open
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        }) : (
+                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
+                            No coordination events yet.
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+
+                  <div className="space-y-4 min-w-0">
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                        <div>
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Watchlist</div>
+                          <div className="text-[11px] mt-1" style={s.mutedText}>Blocked, stale, or otherwise suspicious coordination.</div>
+                        </div>
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={activityFindings.length > 0 ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' } : s.tagBadge}>
+                          {activityFindings.length}
+                        </span>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {activityFindings.length > 0 ? activityFindings.map((finding) => (
+                          <div key={finding.id} className="px-4 py-3" style={{ backgroundColor: C.surface }}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-[12px] font-medium" style={s.inkText}>{finding.title}</div>
+                              <span
+                                className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded shrink-0"
+                                style={finding.severity === 'error'
+                                  ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
+                                  : { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' }}
+                              >
+                                {finding.severity}
+                              </span>
+                            </div>
+                            <div className="text-[11px] mt-1 leading-[1.55]" style={s.mutedText}>{finding.summary}</div>
+                            {finding.detail ? (
+                              <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>{finding.detail}</div>
+                            ) : null}
+                          </div>
+                        )) : (
+                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
+                            No blockers are visible right now.
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Runtime Signals</div>
+                        <div className="text-[11px] mt-1" style={s.mutedText}>Active and waiting endpoints across the current mesh.</div>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {activityEndpoints.length > 0 ? activityEndpoints.map((entry) => (
+                          <div key={entry.endpoint.id} className="px-4 py-3 flex items-start justify-between gap-3" style={{ backgroundColor: C.surface }}>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[12px] font-medium" style={s.inkText}>{entry.endpoint.agentName}</span>
+                                <span
+                                  className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
+                                  style={
+                                    entry.endpoint.state === 'running'
+                                      ? s.activePill
+                                      : entry.endpoint.state === 'waiting'
+                                        ? { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' }
+                                        : s.tagBadge
+                                  }
+                                >
+                                  {entry.endpoint.stateLabel}
+                                </span>
+                              </div>
+                              <div className="text-[10px] mt-1" style={s.mutedText}>
+                                {entry.machineTitle} · {entry.endpoint.transport ?? 'runtime'} · {entry.endpoint.project ?? 'no project'}
+                              </div>
+                              {entry.endpoint.activeTask ? (
+                                <div className="text-[11px] mt-2 leading-[1.55]" style={s.mutedText}>
+                                  {entry.endpoint.activeTask}
+                                </div>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openAgentProfile(entry.endpoint.agentId)}
+                              className="text-[10px] font-medium shrink-0 hover:opacity-80"
+                              style={{ color: C.accent }}
+                            >
+                              Open
+                            </button>
+                          </div>
+                        )) : (
+                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
+                            No runtime endpoints are visible yet.
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Recent Sessions</div>
+                        <div className="text-[11px] mt-1" style={s.mutedText}>Fresh session history from local workspaces and harnesses.</div>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {overviewSessions.length > 0 ? overviewSessions.map((session) => (
+                          <button
+                            key={session.id}
+                            type="button"
+                            onClick={() => openSessionDetail(session)}
+                            className="w-full text-left px-4 py-3 transition-opacity hover:opacity-90"
+                            style={{ backgroundColor: C.surface }}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-[12px] font-medium truncate" style={s.inkText}>{session.title}</div>
+                                <div className="text-[10px] mt-1" style={s.mutedText}>{session.project} · {session.agent}</div>
+                              </div>
+                              <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>{formatDate(session.lastModified)}</span>
+                            </div>
+                          </button>
+                        )) : (
+                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
+                            No session history is available yet.
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
+                <span className="text-[9px] font-mono" style={s.mutedText}>
+                  System-wide activity view: tasks first, watchlist second, runtime and coordination side by side
+                </span>
+              </div>
+            </div>
+          </>
+
         /* --- MACHINES --- */
         ) : activeView === 'machines' ? (
           <MachinesView
@@ -1559,10 +2475,14 @@ export default function App() {
               runningTaskCount: 0,
               failedTaskCount: 0,
               completedTaskCount: 0,
+              findingCount: 0,
+              warningCount: 0,
+              errorCount: 0,
               planCount: 0,
               workspaceCount: 0,
               lastUpdatedLabel: null,
               tasks: [],
+              findings: [],
               plans: [],
             }}
             C={C}
@@ -1843,13 +2763,43 @@ export default function App() {
                           </button>
                         </>
                       ) : (
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => handleStartAppSettingsEdit()}
+                            disabled={appSettingsLoading || !visibleAppSettings}
+                          >
+                          Edit Setup
+                        </button>
+                      )
+                    ) : settingsSection === 'communication' ? (
+                      isAppSettingsEditing ? (
+                        <>
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => handleCancelAppSettingsEdit()}
+                            disabled={appSettingsSaving}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => void handleSaveAppSettings()}
+                            disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
+                          >
+                            {appSettingsSaving ? 'Saving…' : 'Save Telegram'}
+                          </button>
+                        </>
+                      ) : (
                         <button
                           className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
                           style={{ color: C.ink }}
                           onClick={() => handleStartAppSettingsEdit()}
                           disabled={appSettingsLoading || !visibleAppSettings}
                         >
-                          Edit Setup
+                          Edit Telegram
                         </button>
                       )
                     ) : settingsSection === 'agents' ? (
@@ -1902,23 +2852,6 @@ export default function App() {
                             {agentConfigRestarting ? 'Restarting…' : agentRestartActionLabel}
                           </button>
                         ) : null}
-                      </>
-                    ) : settingsSection === 'communication' ? (
-                      <>
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => setActiveView('relay')}
-                        >
-                          Open Relay
-                        </button>
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => void handleRefreshShell()}
-                        >
-                          Refresh
-                        </button>
                       </>
                     ) : settingsSection === 'database' ? (
                       <button
@@ -2479,31 +3412,304 @@ export default function App() {
                   </div>
                 ) : settingsSection === 'communication' ? (
                   <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] gap-4">
-                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Runtime</div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                        {[
-                          ['Relay', runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'],
-                          ['Relay URL', runtime?.brokerUrl ?? 'Not reported'],
-                          ['Node ID', runtime?.nodeId ?? 'Not reported'],
-                          ['Agents', `${runtime?.agentCount ?? 0}`],
-                          ['Conversations', `${runtime?.conversationCount ?? 0}`],
-                          ['Flights', `${runtime?.flightCount ?? 0}`],
-                          ['Latest Relay', runtime?.latestRelayLabel ?? 'Not reported'],
-                          ['Updated', runtime?.updatedAtLabel ?? 'Not reported'],
-                        ].map(([label, value]) => (
-                          <div key={label} className="min-w-0">
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                            <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-start gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
+                            <Radio size={18} style={{ color: C.accent }} />
                           </div>
-                        ))}
-                      </div>
-                    </section>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Telegram Bridge</div>
+                            <div className="text-[13px] font-medium mt-1" style={s.inkText}>ChatSDK-backed Telegram delivery and ingest</div>
+                            <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
+                              The desktop bridge uses ChatSDK in-process and should normally run in polling mode. Polling is the safe default for a long-running local app because Telegram webhooks require a public endpoint that this desktop app does not host.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <label className="flex items-center gap-2 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                            <input
+                              type="checkbox"
+                              checked={visibleAppSettings?.telegram.enabled ?? false}
+                              disabled={!isAppSettingsEditing || appSettingsSaving}
+                              onChange={(event) => {
+                                setAppSettingsDraft((current) => current ? {
+                                  ...current,
+                                  telegram: {
+                                    ...current.telegram,
+                                    enabled: event.target.checked,
+                                  },
+                                } : current);
+                                setAppSettingsFeedback(null);
+                              }}
+                            />
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium" style={s.inkText}>Enable Telegram bridge</div>
+                              <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                                Starts the desktop Telegram bridge on launch and routes inbound/outbound Telegram traffic through the broker.
+                              </div>
+                            </div>
+                          </label>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Mode</div>
+                              {isAppSettingsEditing ? (
+                                <select
+                                  value={visibleAppSettings?.telegram.mode ?? 'polling'}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      telegram: {
+                                        ...current.telegram,
+                                        mode: event.target.value as 'auto' | 'webhook' | 'polling',
+                                      },
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  disabled={appSettingsSaving}
+                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                >
+                                  <option value="polling">polling</option>
+                                  <option value="auto">auto</option>
+                                  <option value="webhook">webhook</option>
+                                </select>
+                              ) : (
+                                <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.telegram.mode ?? 'polling'}</div>
+                              )}
+                            </div>
+
+                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Telegram Target</div>
+                              {isAppSettingsEditing ? (
+                                <input
+                                  value={visibleAppSettings?.telegram.defaultConversationId ?? 'dm.scout.primary'}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      telegram: {
+                                        ...current.telegram,
+                                        defaultConversationId: event.target.value,
+                                      },
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.telegram.defaultConversationId ?? 'dm.scout.primary'}</div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Owner Node</div>
+                            {isAppSettingsEditing ? (
+                              <input
+                                value={visibleAppSettings?.telegram.ownerNodeId ?? ''}
+                                onChange={(event) => {
+                                  setAppSettingsDraft((current) => current ? {
+                                    ...current,
+                                    telegram: {
+                                      ...current.telegram,
+                                      ownerNodeId: event.target.value,
+                                    },
+                                  } : current);
+                                  setAppSettingsFeedback(null);
+                                }}
+                                readOnly={appSettingsSaving}
+                                placeholder="Leave blank for automatic mesh owner election"
+                                className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                style={{ borderColor: C.border, color: C.ink }}
+                              />
+                            ) : (
+                              <div className="text-[13px] font-medium break-words" style={s.inkText}>
+                                {visibleAppSettings?.telegram.ownerNodeId || 'Automatic mesh owner'}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Bot Username</div>
+                              {isAppSettingsEditing ? (
+                                <input
+                                  value={visibleAppSettings?.telegram.userName ?? ''}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      telegram: {
+                                        ...current.telegram,
+                                        userName: event.target.value,
+                                      },
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="text-[13px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.userName || 'Not set'}</div>
+                              )}
+                            </div>
+
+                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>API Base URL</div>
+                              {isAppSettingsEditing ? (
+                                <input
+                                  value={visibleAppSettings?.telegram.apiBaseUrl ?? ''}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      telegram: {
+                                        ...current.telegram,
+                                        apiBaseUrl: event.target.value,
+                                      },
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="text-[13px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.apiBaseUrl || 'Default Telegram API'}</div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Bot Token</div>
+                            {isAppSettingsEditing ? (
+                              <input
+                                type="password"
+                                value={visibleAppSettings?.telegram.botToken ?? ''}
+                                onChange={(event) => {
+                                  setAppSettingsDraft((current) => current ? {
+                                    ...current,
+                                    telegram: {
+                                      ...current.telegram,
+                                      botToken: event.target.value,
+                                    },
+                                  } : current);
+                                  setAppSettingsFeedback(null);
+                                }}
+                                readOnly={appSettingsSaving}
+                                placeholder="Telegram bot token"
+                                className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                style={{ borderColor: C.border, color: C.ink }}
+                              />
+                            ) : (
+                              <div className="text-[12px]" style={s.inkText}>
+                                {visibleAppSettings?.telegram.botToken ? 'Configured' : 'Not set'}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Webhook Secret</div>
+                            {isAppSettingsEditing ? (
+                              <input
+                                type="password"
+                                value={visibleAppSettings?.telegram.secretToken ?? ''}
+                                onChange={(event) => {
+                                  setAppSettingsDraft((current) => current ? {
+                                    ...current,
+                                    telegram: {
+                                      ...current.telegram,
+                                      secretToken: event.target.value,
+                                    },
+                                  } : current);
+                                  setAppSettingsFeedback(null);
+                                }}
+                                readOnly={appSettingsSaving}
+                                placeholder="Optional webhook secret"
+                                className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                style={{ borderColor: C.border, color: C.ink }}
+                              />
+                            ) : (
+                              <div className="text-[12px]" style={s.inkText}>
+                                {visibleAppSettings?.telegram.secretToken ? 'Configured' : 'Not set'}
+                              </div>
+                            )}
+                          </div>
+
+                          {appSettingsFeedback ? (
+                            <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
+                          ) : null}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Runtime</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {[
+                            ['Relay', runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'],
+                            ['Relay URL', runtime?.brokerUrl ?? 'Not reported'],
+                            ['Node ID', runtime?.nodeId ?? 'Not reported'],
+                            ['Agents', `${runtime?.agentCount ?? 0}`],
+                            ['Conversations', `${runtime?.conversationCount ?? 0}`],
+                            ['Flights', `${runtime?.flightCount ?? 0}`],
+                            ['Latest Relay', runtime?.latestRelayLabel ?? 'Not reported'],
+                            ['Updated', runtime?.updatedAtLabel ?? 'Not reported'],
+                          ].map(([label, value]) => (
+                            <div key={label} className="min-w-0">
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
 
                     <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Telegram Status</div>
+                            <div className="text-[11px] mt-1" style={s.mutedText}>
+                              {visibleAppSettings?.telegram.detail ?? 'Telegram bridge status is not reported yet.'}
+                            </div>
+                          </div>
+                          <span
+                            className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
+                            style={visibleAppSettings?.telegram.running ? s.activePill : s.tagBadge}
+                          >
+                            {visibleAppSettings?.telegram.running ? 'Running' : visibleAppSettings?.telegram.enabled ? 'Stopped' : 'Disabled'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {[
+                            ['Configured', visibleAppSettings?.telegram.configured ? 'Yes' : 'No'],
+                            ['Enabled', visibleAppSettings?.telegram.enabled ? 'Yes' : 'No'],
+                            ['Requested Mode', visibleAppSettings?.telegram.mode ?? 'polling'],
+                            ['Runtime Mode', visibleAppSettings?.telegram.runtimeMode ?? 'Not running'],
+                            ['Owner Node', visibleAppSettings?.telegram.ownerNodeId || 'Automatic'],
+                            ['Bindings', `${visibleAppSettings?.telegram.bindingCount ?? 0}`],
+                            ['Pending Deliveries', `${visibleAppSettings?.telegram.pendingDeliveries ?? 0}`],
+                          ].map(([label, value]) => (
+                            <div key={label} className="min-w-0">
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {visibleAppSettings?.telegram.lastError ? (
+                          <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Error</div>
+                            <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{visibleAppSettings.telegram.lastError}</div>
+                          </div>
+                        ) : null}
+                      </section>
+
                       {brokerInspector ? (
                         <>
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                          <section ref={relayServiceInspectorRef} className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="flex items-start justify-between gap-3 mb-3">
                               <div>
                                 <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Relay Service</div>
@@ -2511,9 +3717,29 @@ export default function App() {
                                   {brokerInspector.statusDetail ?? 'Relay service profile and runtime state.'}
                                 </div>
                               </div>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
-                                {brokerInspector.statusLabel}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
+                                  {brokerInspector.statusLabel}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant={brokerInspector.reachable ? 'outline' : 'default'}
+                                  size="sm"
+                                  onClick={() => void handleBrokerControl(brokerInspector.reachable ? 'restart' : 'start')}
+                                  disabled={brokerControlPending}
+                                >
+                                  {brokerInspector.reachable ? 'Restart' : 'Start'}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleBrokerControl('stop')}
+                                  disabled={brokerControlPending || !brokerInspector.loaded}
+                                >
+                                  Stop
+                                </Button>
+                              </div>
                             </div>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                               {[
@@ -2540,6 +3766,11 @@ export default function App() {
                               <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
                                 <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Process</div>
                                 <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{brokerInspector.processCommand}</div>
+                              </div>
+                            ) : null}
+                            {brokerControlFeedback ? (
+                              <div className="mt-3 pt-3 border-t text-[11px] leading-[1.45]" style={{ borderTopColor: C.border, color: C.ink }}>
+                                {brokerControlFeedback}
                               </div>
                             ) : null}
                           </section>
@@ -2871,47 +4102,109 @@ export default function App() {
             )}
 
             <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="border-b flex items-center justify-between px-4 h-14 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <Bot size={14} style={s.mutedText} />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
-                      {selectedInterAgent ? selectedInterAgent.title : 'Agents'}
-                    </div>
-                    <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
-                      {selectedInterAgent
-                        ? `${interAgentProfileKindLabel(selectedInterAgent.profileKind)} · ${selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Operational snapshot and recent thread activity.'}`
-                        : 'Select an agent to inspect its operational snapshot and recent threads.'}
-                    </div>
-                  </div>
-                </div>
+              <div className="border-b px-4 py-4 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
                 {selectedInterAgent ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                      onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
-                    >
-                      {selectedInterAgentChatActionLabel}
-                    </button>
-                    {visibleInterAgentThreads.length > 0 ? (
-                      <button
-                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                        style={{ color: C.ink }}
-                        onClick={() => setActiveView('inter-agent')}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div className="relative shrink-0">
+                        <div
+                          className={`w-11 h-11 rounded-2xl text-[15px] text-white flex items-center justify-center font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
+                          style={{ backgroundColor: colorForIdentity(selectedInterAgent.id) }}
+                        >
+                          {selectedInterAgent.title.charAt(0).toUpperCase()}
+                        </div>
+                        <div
+                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${relayPresenceDotClass(selectedInterAgent.state)}`}
+                          style={{ border: `1px solid ${C.surface}` }}
+                        ></div>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="text-[16px] font-semibold tracking-tight truncate" style={s.inkText}>
+                            {selectedInterAgent.title}
+                          </div>
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
+                            {interAgentProfileKindLabel(selectedInterAgent.profileKind)}
+                          </span>
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={selectedInterAgent.state === 'working' ? s.activePill : s.tagBadge}>
+                            {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
+                          </span>
+                        </div>
+                        {normalizeLegacyAgentCopy(selectedInterAgent.role) ? (
+                          <div className="text-[11px] mt-1.5" style={s.inkText}>
+                            {normalizeLegacyAgentCopy(selectedInterAgent.role)}
+                          </div>
+                        ) : null}
+                        <div className="text-[11px] leading-[1.55] mt-1 max-w-3xl" style={s.mutedText}>
+                          {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Operational snapshot and recent thread activity.'}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2 flex-wrap text-[10px]" style={s.mutedText}>
+                          {selectedInterAgent.lastChatLabel ? (
+                            <span className="rounded-full px-2 py-1" style={{ backgroundColor: C.bg }}>
+                              Last chat {selectedInterAgent.lastChatLabel}
+                            </span>
+                          ) : null}
+                          {selectedInterAgent.lastSessionLabel ? (
+                            <span className="rounded-full px-2 py-1" style={{ backgroundColor: C.bg }}>
+                              Last session {selectedInterAgent.lastSessionLabel}
+                            </span>
+                          ) : null}
+                          {selectedInterAgent.harness ? (
+                            <span className="rounded-full px-2 py-1 font-mono uppercase" style={{ backgroundColor: C.bg }}>
+                              {selectedInterAgent.harness}
+                            </span>
+                          ) : null}
+                          {selectedInterAgent.transport ? (
+                            <span className="rounded-full px-2 py-1 font-mono uppercase" style={{ backgroundColor: C.bg }}>
+                              {selectedInterAgent.transport}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                      <AgentActionButton
+                        icon={<MessageSquare size={14} />}
+                        tone={selectedInterAgentDirectThread ? 'primary' : 'neutral'}
+                        onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
                       >
-                        Open Threads
-                      </button>
-                    ) : null}
-                    <button
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                      onClick={() => openAgentSettings(selectedInterAgent.id, selectedInterAgent.profileKind === 'project')}
-                    >
-                      {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Open Settings'}
-                    </button>
+                        {selectedInterAgentChatActionLabel}
+                      </AgentActionButton>
+                      {visibleInterAgentThreads.length > 0 ? (
+                        <AgentActionButton
+                          icon={<Network size={14} />}
+                          onClick={() => setActiveView('inter-agent')}
+                        >
+                          Open Threads
+                        </AgentActionButton>
+                      ) : null}
+                      <AgentActionButton
+                        icon={<Eye size={14} />}
+                        onClick={() => handlePeekAgentSession()}
+                      >
+                        Peek
+                      </AgentActionButton>
+                      <AgentActionButton
+                        icon={<Settings size={14} />}
+                        onClick={() => openAgentSettings(selectedInterAgent.id, selectedInterAgent.profileKind === 'project')}
+                      >
+                        {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Open Settings'}
+                      </AgentActionButton>
+                    </div>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Bot size={14} style={s.mutedText} />
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
+                        Agents
+                      </div>
+                      <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
+                        Select an agent to inspect its operational snapshot and recent threads.
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -2926,139 +4219,85 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] gap-4">
+                  <div className="grid grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] gap-4">
                     <div className="space-y-4 min-w-0">
-                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-start gap-3">
-                          <div className="relative shrink-0">
-                            <div
-                              className={`w-10 h-10 rounded text-white flex items-center justify-center text-[13px] font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
-                              style={{ backgroundColor: colorForIdentity(selectedInterAgent.id) }}
-                            >
-                              {selectedInterAgent.title.charAt(0).toUpperCase()}
-                            </div>
-                            <div
-                              className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(selectedInterAgent.state)}`}
-                              style={{ border: `1px solid ${C.bg}` }}
-                            ></div>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="text-[15px] font-semibold tracking-tight" style={s.inkText}>{selectedInterAgent.title}</div>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {interAgentProfileKindLabel(selectedInterAgent.profileKind)}
-                              </span>
-                            </div>
-                            {normalizeLegacyAgentCopy(selectedInterAgent.role) ? (
-                              <div className="text-[11px] mt-1" style={s.inkText}>{normalizeLegacyAgentCopy(selectedInterAgent.role)}</div>
-                            ) : null}
-                            {normalizeLegacyAgentCopy(selectedInterAgent.summary) ? (
-                              <div className="text-[12px] leading-[1.55] mt-2" style={s.mutedText}>{normalizeLegacyAgentCopy(selectedInterAgent.summary)}</div>
-                            ) : null}
-                            <div className="mt-3 flex items-center gap-2 flex-wrap text-[10px]" style={s.mutedText}>
-                              <span>{selectedInterAgent.lastChatLabel ? `Last chat ${selectedInterAgent.lastChatLabel}` : 'No direct chat yet.'}</span>
-                              {selectedInterAgent.lastSessionLabel ? (
-                                <>
-                                  <span className="w-1 h-1 rounded-full" style={{ backgroundColor: C.border }}></span>
-                                  <span>Last session {selectedInterAgent.lastSessionLabel}</span>
-                                </>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      </section>
-
-                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-center justify-between gap-3 mb-3">
-                            <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Live Session</div>
+                      <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border, backgroundColor: C.surface }}>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Activity Tail</div>
                             <div className="text-[11px] mt-1" style={s.mutedText}>
-                              {visibleAgentSession?.mode === 'tmux'
-                                ? 'Live tmux pane capture for the selected agent.'
-                                : visibleAgentSession?.mode === 'logs'
-                                  ? 'Canonical runtime session logs for the selected agent.'
-                                  : 'No live tmux pane or predictable runtime logs are available yet.'}
+                              Broker-native asks, replies, and status signals touching {selectedInterAgent.title}. This is the operational trail behind Scout&apos;s routing work.
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {visibleAgentSession?.commandLabel ? (
-                              <button
-                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                style={{ color: C.ink }}
-                                onClick={() => void handleCopyAgentSessionCommand()}
-                              >
-                                {agentSessionCopied ? 'Copied' : 'Copy Attach'}
-                              </button>
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {selectedInterAgentActivityMessages.length} events
+                            </span>
+                            {selectedInterAgentInboundTasks.length > 0 ? (
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
+                                {selectedInterAgentInboundTasks.length} asks
+                              </span>
                             ) : null}
-                            {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
-                              <button
-                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                style={{ color: C.ink }}
-                                onClick={() => void handleOpenAgentSession()}
+                            {selectedInterAgentOutboundFindings.length > 0 ? (
+                              <span
+                                className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
+                                style={{
+                                  backgroundColor: 'rgba(248, 113, 113, 0.14)',
+                                  color: '#b91c1c',
+                                }}
                               >
-                                {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
-                              </button>
+                                {selectedInterAgentOutboundFindings.length} waiting
+                              </span>
                             ) : null}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 flex-wrap text-[10px] mb-3" style={s.mutedText}>
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
-                            {visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
-                          </span>
-                          {visibleAgentSession?.harness ? (
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession.harness}
-                            </span>
-                          ) : null}
-                          {visibleAgentSession?.transport ? (
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession.transport}
-                            </span>
-                          ) : null}
-                          {visibleAgentSession?.sessionId ? (
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession.sessionId}
-                            </span>
-                          ) : null}
-                          {visibleAgentSession?.updatedAtLabel ? (
-                            <span>Updated {visibleAgentSession.updatedAtLabel}</span>
-                          ) : null}
-                          {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? (
-                            <span>{visibleAgentSession.lineCount} lines</span>
-                          ) : null}
-                          {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
-                        </div>
+                        {selectedInterAgentFindings.length > 0 ? (
+                          <div className="px-4 py-3 border-b flex flex-col gap-2" style={{ borderBottomColor: C.border, backgroundColor: C.bg }}>
+                            {selectedInterAgentFindings.slice(0, 2).map((finding) => (
+                              <div
+                                key={finding.id}
+                                className="rounded-lg border px-3 py-2"
+                                style={{
+                                  borderColor: finding.severity === 'error' ? 'rgba(248, 113, 113, 0.28)' : 'rgba(245, 158, 11, 0.28)',
+                                  backgroundColor: finding.severity === 'error' ? 'rgba(248, 113, 113, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                                }}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-[11px] font-medium" style={s.inkText}>{finding.title}</div>
+                                  <span className="text-[9px] font-mono uppercase" style={s.mutedText}>
+                                    {finding.ageLabel ?? finding.updatedAtLabel ?? 'Open'}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] mt-1" style={s.mutedText}>
+                                  {finding.summary}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
 
-                        <div
-                          className="border rounded-lg overflow-hidden"
-                          style={{ borderColor: C.border, backgroundColor: C.bg }}
-                        >
-                          {agentSessionLoading && !visibleAgentSession ? (
-                            <div className="px-3 py-6 text-[11px]" style={s.mutedText}>
-                              Loading live session…
-                            </div>
-                          ) : visibleAgentSession?.body ? (
-                            <pre
-                              className="px-3 py-3 text-[11px] leading-[1.55] overflow-x-auto whitespace-pre-wrap break-words min-h-[220px] max-h-[420px] overflow-y-auto"
-                              style={{ color: C.ink, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-                            >
-                              {visibleAgentSession.body}
-                            </pre>
+                        <div className="px-4 py-4 max-h-[420px] overflow-y-auto" style={{ backgroundColor: C.bg }}>
+                          {selectedInterAgentActivityMessages.length > 0 ? (
+                            <RelayTimeline
+                              messages={selectedInterAgentActivityMessages}
+                              showAnnotations={true}
+                              showStatusMessages={true}
+                              inkStyle={s.inkText}
+                              mutedStyle={s.mutedText}
+                              tagStyle={s.tagBadge}
+                              annotStyle={s.annotBadge}
+                              agentLookup={interAgentAgentLookup}
+                              directThreadLookup={relayDirectLookup}
+                              onOpenAgentProfile={openAgentProfile}
+                              onOpenAgentChat={(agentId, draft) => openRelayAgentThread(agentId, { draft, focusComposer: true })}
+                              onNudgeMessage={handleNudgeMessage}
+                            />
                           ) : (
-                            <div className="px-3 py-6 text-[11px] leading-[1.6]" style={s.mutedText}>
-                              {visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                            <div className="text-[11px] leading-[1.6]" style={s.mutedText}>
+                              No broker-visible activity for this agent yet.
                             </div>
                           )}
-                        </div>
-
-                        <div className="flex items-center justify-between gap-3 mt-3 text-[10px]" style={s.mutedText}>
-                          <div className="truncate min-w-0">
-                            {visibleAgentSession?.pathLabel ?? 'No stable session path yet.'}
-                          </div>
-                          {agentSessionFeedback ? (
-                            <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
-                          ) : null}
                         </div>
                       </section>
 
@@ -3183,6 +4422,117 @@ export default function App() {
                     </div>
 
                     <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                        <div
+                          className="px-4 py-3 border-b flex items-center justify-between gap-3"
+                          style={{ backgroundColor: C.surface, borderBottomColor: C.border }}
+                        >
+                          <div className="min-w-0 flex items-center gap-3">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#f97316' }}></span>
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#facc15' }}></span>
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#22c55e' }}></span>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Live Session</div>
+                              <div className="text-[11px] mt-1 truncate" style={s.mutedText}>
+                                {agentSessionPending
+                                  ? 'Checking tmux pane and runtime logs for the selected agent.'
+                                  : visibleAgentSession?.mode === 'tmux'
+                                  ? 'Live tmux pane capture for the selected agent.'
+                                  : visibleAgentSession?.mode === 'logs'
+                                    ? 'Canonical runtime session logs for the selected agent.'
+                                    : 'No live tmux pane or predictable runtime logs are available yet.'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {visibleAgentSession?.commandLabel ? (
+                              <AgentActionButton
+                                icon={<Copy size={13} />}
+                                onClick={() => void handleCopyAgentSessionCommand()}
+                              >
+                                {agentSessionCopied ? 'Copied' : 'Copy'}
+                              </AgentActionButton>
+                            ) : null}
+                            {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
+                              <AgentActionButton
+                                icon={<FolderOpen size={13} />}
+                                onClick={() => void handleOpenAgentSession()}
+                              >
+                                {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                              </AgentActionButton>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div
+                          className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px]"
+                          style={{ backgroundColor: C.bg, borderBottomColor: C.border, color: C.muted }}
+                        >
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
+                            {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+                          </span>
+                          {(visibleAgentSession?.harness ?? selectedInterAgent?.harness) ? (
+                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {visibleAgentSession?.harness ?? selectedInterAgent?.harness}
+                            </span>
+                          ) : null}
+                          {(visibleAgentSession?.transport ?? selectedInterAgent?.transport) ? (
+                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {visibleAgentSession?.transport ?? selectedInterAgent?.transport}
+                            </span>
+                          ) : null}
+                          {(visibleAgentSession?.sessionId ?? selectedInterAgent?.sessionId) ? (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                              {visibleAgentSession?.sessionId ?? selectedInterAgent?.sessionId}
+                            </span>
+                          ) : null}
+                          {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
+                          {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? <span>{visibleAgentSession.lineCount} lines</span> : null}
+                          {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
+                        </div>
+
+                        <div style={{ backgroundColor: C.termBg }}>
+                          {agentSessionLoading && !visibleAgentSession ? (
+                            <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
+                              Loading live session…
+                            </div>
+                          ) : visibleAgentSession?.body ? (
+                            <pre
+                              ref={(element) => {
+                                agentSessionInlineViewportRef.current = element;
+                              }}
+                              onScroll={(event) => {
+                                agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
+                              }}
+                              className="px-4 py-4 text-[11px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words min-h-[320px] max-h-[520px] overflow-y-auto"
+                              style={{ color: C.termFg, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                            >
+                              {visibleAgentSession.body}
+                            </pre>
+                          ) : (
+                            <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
+                              {agentSessionPending
+                                ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                                : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                            </div>
+                          )}
+                        </div>
+
+                        <div
+                          className="px-4 h-10 border-t flex items-center justify-between gap-3 text-[10px]"
+                          style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
+                        >
+                          <div className="truncate min-w-0 font-mono">
+                            {visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.'}
+                          </div>
+                          {agentSessionFeedback ? (
+                            <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
+                          ) : null}
+                        </div>
+                      </section>
+
                       <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Operational Snapshot</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -3589,6 +4939,16 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {selectedRelayDirectThread ? (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentProfile(selectedRelayDirectThread.id)}
+                    >
+                      <Bot size={11} />
+                      <span>Agent</span>
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => setShowAnnotations(!showAnnotations)}
                     className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
@@ -4067,6 +5427,16 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {selectedRelayDirectThread ? (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                      onClick={() => openAgentProfile(selectedRelayDirectThread.id)}
+                    >
+                      <Bot size={11} />
+                      <span>Agent</span>
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => setShowAnnotations(!showAnnotations)}
                     className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
@@ -4105,7 +5475,7 @@ export default function App() {
                     </div>
                     <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No relay traffic yet</h3>
                     <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      Send a message into this lane to wake a twin or start a broker-backed conversation.
+                      Send a message into this lane to wake an agent or start a broker-backed conversation.
                     </p>
                   </div>
                 ) : (
@@ -4155,6 +5525,33 @@ export default function App() {
                     </button>
                   </div>
                 ) : null}
+                {relayContextReferences.length > 0 ? (
+                  <div className="mb-2 space-y-2">
+                    {relayContextReferences.map((reference) => (
+                      <div
+                        key={reference.messageId}
+                        className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                        style={{ borderColor: C.border, backgroundColor: C.bg }}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                            Context · {reference.authorName} · {shortMessageRef(reference.messageId)}
+                          </div>
+                          <div className="text-[11px] truncate mt-1" style={s.mutedText}>{reference.preview}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setRelayContextMessageIds((current) => current.filter((messageId) => messageId !== reference.messageId))}
+                          className="shrink-0 rounded p-1 transition-opacity hover:opacity-70"
+                          style={s.mutedText}
+                          title="Clear referenced context"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="border rounded flex items-center px-2 py-1 transition-all focus-within:ring-1" style={{ backgroundColor: C.bg, borderColor: C.border }}>
                   <textarea
                     ref={relayComposerRef}
@@ -4163,7 +5560,17 @@ export default function App() {
                     placeholder={placeholderForDestination(selectedRelayKind, selectedRelayId)}
                     rows={1}
                     value={relayDraft}
-                    onChange={(event) => setRelayDraft(event.currentTarget.value)}
+                    onChange={(event) => {
+                      const nextDraft = ingestRelayMessageRefs(
+                        event.currentTarget.value,
+                        mergedRelayMessages,
+                        relayContextMessageIds,
+                      );
+                      setRelayDraft(nextDraft.body);
+                      if (nextDraft.nextReferenceMessageIds !== relayContextMessageIds) {
+                        setRelayContextMessageIds(nextDraft.nextReferenceMessageIds);
+                      }
+                    }}
                     onKeyDown={(event) => {
                       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                         event.preventDefault();
@@ -4213,16 +5620,166 @@ export default function App() {
         )}
       </div>
 
+      {isAgentSessionPeekOpen && selectedInterAgent ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-6"
+          style={{ backgroundColor: 'rgba(244, 240, 232, 0.72)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setIsAgentSessionPeekOpen(false)}
+        >
+          <div
+            className="w-full max-w-5xl h-[78vh] border rounded-2xl overflow-hidden flex flex-col"
+            style={{
+              backgroundColor: C.surface,
+              borderColor: C.border,
+              boxShadow: '0 24px 72px rgba(15, 23, 42, 0.16)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="px-4 h-14 border-b flex items-center justify-between gap-3 shrink-0" style={{ borderBottomColor: C.border }}>
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold tracking-tight truncate" style={s.inkText}>
+                  Peek · {selectedInterAgent.title}
+                </div>
+                <div className="text-[11px] truncate mt-0.5" style={s.mutedText}>
+                  {agentSessionPending
+                    ? 'Checking tmux pane and runtime logs for the selected agent.'
+                    : visibleAgentSession?.subtitle ?? 'No live session output available yet.'}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {visibleAgentSession?.commandLabel ? (
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={{ color: C.ink }}
+                    onClick={() => void handleCopyAgentSessionCommand()}
+                  >
+                    {agentSessionCopied ? 'Copied' : 'Copy Attach'}
+                  </button>
+                ) : null}
+                {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                    style={{ color: C.ink }}
+                    onClick={() => void handleOpenAgentSession()}
+                  >
+                    {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                  </button>
+                ) : null}
+                <button
+                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                  style={{ color: C.ink }}
+                  onClick={() => setIsAgentSessionPeekOpen(false)}
+                >
+                  <X size={12} />
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px] shrink-0" style={{ borderBottomColor: C.border, color: C.muted }}>
+              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
+                {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+              </span>
+              {(visibleAgentSession?.harness ?? selectedInterAgent.harness) ? (
+                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                  {visibleAgentSession?.harness ?? selectedInterAgent.harness}
+                </span>
+              ) : null}
+              {(visibleAgentSession?.transport ?? selectedInterAgent.transport) ? (
+                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                  {visibleAgentSession?.transport ?? selectedInterAgent.transport}
+                </span>
+              ) : null}
+              {(visibleAgentSession?.sessionId ?? selectedInterAgent.sessionId) ? (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                  {visibleAgentSession?.sessionId ?? selectedInterAgent.sessionId}
+                </span>
+              ) : null}
+              {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
+              {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? <span>{visibleAgentSession.lineCount} lines</span> : null}
+              {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
+              <span>Refreshing live while open</span>
+            </div>
+
+            <div className="flex-1 overflow-hidden" style={{ backgroundColor: C.bg }}>
+              {agentSessionLoading && !visibleAgentSession ? (
+                <div className="px-4 py-8 text-[12px]" style={s.mutedText}>
+                  Loading live session…
+                </div>
+              ) : visibleAgentSession?.body ? (
+                <pre
+                  ref={(element) => {
+                    agentSessionPeekViewportRef.current = element;
+                  }}
+                  onScroll={(event) => {
+                    agentSessionPeekStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
+                  }}
+                  className="h-full px-4 py-4 text-[11px] leading-[1.58] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words"
+                  style={{ color: C.ink, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                >
+                  {visibleAgentSession.body}
+                </pre>
+              ) : (
+                <div className="px-4 py-8 text-[12px] leading-[1.65]" style={s.mutedText}>
+                  {agentSessionPending
+                    ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                    : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 h-10 border-t flex items-center justify-between gap-3 shrink-0 text-[10px]" style={{ borderTopColor: C.border, color: C.muted }}>
+              <div className="truncate min-w-0">
+                {visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent.cwd ?? selectedInterAgent.projectRoot) ?? 'No stable session path yet.'}
+              </div>
+              {agentSessionFeedback ? <div style={s.inkText}>{agentSessionFeedback}</div> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      </>
+      ) : (
+        <DispatchSurfacePlaceholder
+          dispatchControlPending={dispatchControlPending}
+          dispatchConfigFeedback={dispatchConfigFeedback}
+          dispatchConfigPending={dispatchConfigPending}
+          dispatchError={dispatchError}
+          dispatchLoading={dispatchLoading}
+          dispatchState={dispatchState}
+          onControlDispatch={handleDispatchControl}
+          onOpenLogs={() => {
+            setProductSurface('relay');
+            setActiveView('logs');
+          }}
+          onOpenSettings={() => {
+            // The Dispatch settings card is inline, so jump there when setup is missing.
+            document.getElementById('dispatch-settings-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
+          onUpdateConfig={handleUpdateDispatchConfig}
+          onRefresh={() => void handleRefreshShell()}
+        />
+      )}
+
       {/* Global Bottom Bar */}
       <div className="h-6 border-t flex items-center justify-between px-3 shrink-0 text-[9px] font-mono uppercase tracking-widest" style={{ backgroundColor: C.bg, borderTopColor: C.border, color: C.muted }}>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 hover:opacity-70 cursor-pointer transition-opacity">
+          <button
+            type="button"
+            onClick={() => {
+              setProductSurface('relay');
+              setActiveView('overview');
+            }}
+            className="flex items-center gap-1 hover:opacity-70 cursor-pointer transition-opacity"
+          >
             <LayoutGrid size={9} /> Home
-          </div>
+          </button>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setActiveView('logs')}
+            onClick={() => {
+              setProductSurface('relay');
+              setActiveView('logs');
+            }}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:opacity-80"
             style={activeView === 'logs' ? s.activePill : s.mutedText}
             title={logsButtonTitle}
@@ -4241,6 +5798,577 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function DispatchSurfacePlaceholder({
+  dispatchControlPending,
+  dispatchConfigFeedback,
+  dispatchConfigPending,
+  dispatchError,
+  dispatchLoading,
+  dispatchState,
+  onControlDispatch,
+  onOpenLogs,
+  onOpenSettings,
+  onUpdateConfig,
+  onRefresh,
+}: {
+  dispatchControlPending: boolean;
+  dispatchConfigFeedback: string | null;
+  dispatchConfigPending: boolean;
+  dispatchError: string | null;
+  dispatchLoading: boolean;
+  dispatchState: DispatchState | null;
+  onControlDispatch: (action: 'start' | 'stop' | 'restart') => void;
+  onOpenLogs: () => void;
+  onOpenSettings: () => void;
+  onUpdateConfig: (input: UpdateDispatchConfigInput) => Promise<void>;
+  onRefresh: () => void;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const [relayDraft, setRelayDraft] = useState('');
+  const [workspaceDraft, setWorkspaceDraft] = useState('');
+  const [configDirty, setConfigDirty] = useState(false);
+  const logsRef = useRef<HTMLDivElement | null>(null);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
+  const dispatchPairingSvg = useMemo(() => {
+    const qrValue = dispatchState?.pairing?.qrValue;
+    if (!qrValue) {
+      return null;
+    }
+    return renderSVG(qrValue, {
+      border: 2,
+      ecc: 'M',
+      pixelSize: 6,
+      blackColor: '#111111',
+      whiteColor: '#ffffff',
+    });
+  }, [dispatchState?.pairing?.qrValue]);
+  const expiresIn = dispatchState?.pairing
+    ? Math.max(0, Math.floor((dispatchState.pairing.expiresAt - Date.now()) / 1000))
+    : null;
+  const serviceIsRunning = Boolean(dispatchState?.isRunning);
+  const activeRelay = dispatchState?.pairing?.relay ?? dispatchState?.relay ?? null;
+  const dashboardTone = dispatchState?.status === 'paired' || dispatchState?.status === 'connected' || dispatchState?.status === 'connecting'
+    ? { label: 'Relay Active', backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
+    : dispatchState?.status === 'error' || dispatchState?.status === 'closed'
+      ? { label: 'Attention', backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#be123c' }
+      : { label: 'Ready', backgroundColor: '#eff6ff', borderColor: '#bfdbfe', color: '#1d4ed8' };
+  const connectionTone = dispatchState?.status === 'paired'
+    ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
+    : dispatchState?.status === 'error' || dispatchState?.status === 'closed'
+      ? { backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#be123c' }
+      : { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', color: '#1d4ed8' };
+  const cardStyle = {
+    backgroundColor: '#ffffff',
+    borderColor: 'rgba(15, 23, 42, 0.08)',
+    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+  } as const;
+  const subtlePanelStyle = {
+    backgroundColor: '#f7f8fb',
+    borderColor: 'rgba(15, 23, 42, 0.08)',
+  } as const;
+  const pairCommand = dispatchState?.commandLabel ?? 'bun dispatch/cli/src/main.ts start';
+  const connectionLabel = dispatchState?.pairing
+    ? 'Pairing Ready'
+    : dispatchState?.status === 'error' || dispatchState?.status === 'closed'
+      ? dispatchState.statusLabel
+      : serviceIsRunning
+        ? dispatchState?.statusLabel ?? 'Running'
+        : 'Ready to Start';
+  const connectionDetail = dispatchError
+    ?? dispatchState?.statusDetail
+    ?? 'Start Dispatch to launch a local pairing relay, generate a fresh QR code, and wait for your phone to connect.';
+  const runtimeRows = [
+    ['Workspace', dispatchState?.workspaceRoot ?? 'Not set'],
+    ['Secure Mode', dispatchState?.secure ? 'Yes' : 'No'],
+    ['Active Sessions', `${dispatchState?.sessionCount ?? 0}`],
+    ['Trusted Peers', `${dispatchState?.trustedPeerCount ?? 0}`],
+    ['Last Updated', dispatchState?.lastUpdatedLabel ?? '—'],
+  ] as const;
+  const pairingMetaRows = [
+    ['Relay', activeRelay ?? 'Not set'],
+    ['Room', dispatchState?.pairing?.room ?? 'Pending'],
+    ['Expires In', expiresIn !== null ? formatDurationShort(expiresIn) : '—'],
+    ['Identity', dispatchState?.identityFingerprint ?? 'Not created'],
+  ] as const;
+  const topActions = (
+    <>
+      <span
+        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-medium"
+        style={dashboardTone}
+      >
+        <span className={`block h-1.5 w-1.5 rounded-full ${serviceIsRunning ? 'bg-emerald-500' : dispatchState?.status === 'error' ? 'bg-rose-500' : 'bg-zinc-400'}`} />
+        {dashboardTone.label}
+      </span>
+      <button
+        type="button"
+        onClick={() => logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        className="text-[12px] font-medium transition-opacity hover:opacity-70"
+        style={{ color: C.muted }}
+      >
+        Logs
+      </button>
+      <button
+        type="button"
+        onClick={() => settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        className="text-[12px] font-medium transition-opacity hover:opacity-70"
+        style={{ color: C.muted }}
+      >
+        Advanced
+      </button>
+    </>
+  );
+
+  const handleCopy = React.useCallback(async (label: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      window.setTimeout(() => {
+        setCopied((current) => current === label ? null : current);
+      }, 1_200);
+    } catch {
+      setCopied(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (configDirty) {
+      return;
+    }
+
+    setRelayDraft(dispatchState?.configuredRelay ?? '');
+    setWorkspaceDraft(dispatchState?.workspaceRoot ?? '');
+  }, [configDirty, dispatchState?.configuredRelay, dispatchState?.workspaceRoot]);
+
+  return (
+    <div className="flex flex-1 overflow-hidden" style={{ backgroundColor: C.bg }}>
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-8 py-10" style={{ backgroundColor: '#FAFAFA' }}>
+          <div className="mx-auto flex max-w-[980px] flex-col gap-8">
+            <div className="sticky top-0 z-10 -mx-8 flex items-center justify-between gap-6 border-b px-8 py-4 backdrop-blur" style={{ borderBottomColor: C.border, backgroundColor: 'rgba(250,250,250,0.92)' }}>
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-lg"
+                  style={{ backgroundColor: '#4f46e5', color: '#ffffff' }}
+                >
+                  <Activity size={15} strokeWidth={1.6} />
+                </div>
+                <div className="text-[18px] font-medium tracking-tight" style={{ color: C.ink }}>
+                  Dispatch Relay
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                {topActions}
+              </div>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_320px] items-start">
+              <div className="flex flex-col gap-5">
+                <div className="pt-2">
+                  <h1 className="text-[32px] font-medium tracking-tight leading-tight" style={{ color: C.ink }}>
+                    Start Dispatch, then scan.
+                  </h1>
+                  <p className="mt-3 text-[15px] leading-[1.75] font-light max-w-3xl" style={{ color: C.muted }}>
+                    This is the UI for the old `plexus start` flow. Launch a local pairing relay, generate a fresh QR
+                    code for your phone, and keep the live bridge output visible without dropping into the terminal.
+                  </p>
+                </div>
+
+                <section className="rounded-[20px] border p-5" style={cardStyle}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-2 text-[17px] font-medium tracking-tight" style={{ color: C.ink }}>
+                        <Server size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
+                        Dispatch Status
+                      </span>
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-normal uppercase tracking-wide"
+                        style={connectionTone}
+                      >
+                        {!serviceIsRunning && (dispatchState?.status === 'error' || dispatchState?.status === 'closed') ? <AlertCircle size={13} strokeWidth={1.5} /> : null}
+                        {connectionLabel}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-[15px] leading-[1.75] font-light" style={{ color: C.muted }}>
+                      {connectionDetail}
+                    </p>
+                    {dispatchState?.statusDetail && (dispatchState.status === 'error' || dispatchState.status === 'closed') ? (
+                      <div
+                        className="mt-4 rounded-2xl border px-4 py-3 text-[12px] leading-[1.7] font-mono whitespace-pre-wrap break-words"
+                        style={{ backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#9f1239' }}
+                      >
+                        {dispatchState.statusDetail}
+                      </div>
+                    ) : null}
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={dispatchControlPending || dispatchLoading}>
+                    <RefreshCw size={14} />
+                    Refresh
+                  </Button>
+                </div>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
+                      Current Relay
+                    </div>
+                    <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
+                      {activeRelay ?? 'Starts when Dispatch starts'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
+                      Client ID
+                    </div>
+                    <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
+                      {dispatchState?.identityFingerprint ?? 'Not created yet'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
+                      Workspace
+                    </div>
+                    <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
+                      {dispatchState?.workspaceRoot ?? 'Not set'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => onControlDispatch(serviceIsRunning ? 'stop' : 'start')}
+                    disabled={dispatchControlPending}
+                  >
+                    {serviceIsRunning ? 'Stop Dispatch' : 'Start Dispatch'}
+                  </Button>
+                  {serviceIsRunning ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onControlDispatch('restart')}
+                      disabled={dispatchControlPending}
+                    >
+                      Restart
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenLogs}
+                  >
+                    <Terminal size={14} />
+                    Logs
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenSettings}
+                  >
+                    <Settings size={14} />
+                    Advanced
+                  </Button>
+                </div>
+                </section>
+              </div>
+
+              {dispatchPairingSvg ? (
+                <section className="rounded-[20px] border p-5" style={cardStyle}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Scan QR Code</div>
+                      <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                        Point Dispatch on your phone at this code.
+                      </div>
+                    </div>
+                    <span
+                      className="rounded-full border px-2.5 py-1 text-[10px] font-medium"
+                      style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
+                    >
+                      Ready to Pair
+                    </span>
+                  </div>
+                  <div className="mt-5 rounded-[22px] border p-4" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
+                    <div
+                      aria-label="Dispatch pairing QR code"
+                      className="mx-auto w-full max-w-[248px]"
+                      dangerouslySetInnerHTML={{ __html: dispatchPairingSvg }}
+                    />
+                  </div>
+                  <div className="mt-4 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
+                    <div>Room: <span style={{ color: C.ink }}>{dispatchState?.pairing?.room ?? 'Pending'}</span></div>
+                    <div className="mt-1">Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span></div>
+                  </div>
+                </section>
+              ) : (
+                <section className="rounded-[20px] border bg-[rgba(250,250,250,0.65)] p-5" style={cardStyle}>
+                  <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-3" style={{ color: C.muted }}>
+                    CLI Equivalent
+                  </div>
+                  <div className="rounded-2xl border px-3 py-3 flex items-center gap-3" style={subtlePanelStyle}>
+                    <code className="min-w-0 flex-1 truncate text-[11px]" style={{ color: C.ink }}>
+                      {pairCommand}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={() => void handleCopy('command', pairCommand)}
+                    >
+                      {copied === 'command' ? <Check size={14} /> : <Copy size={14} />}
+                    </Button>
+                  </div>
+                  <div className="mt-4 text-[11px] leading-[1.6] font-light" style={{ color: C.muted }}>
+                    <div className="inline-flex items-center gap-1.5">
+                      <Key size={13} strokeWidth={1.5} />
+                      Same backend as the command line, but kept alive here with QR rotation and log access.
+                    </div>
+                  </div>
+                </section>
+              )}
+            </div>
+
+            {dispatchPairingSvg ? (
+              <section className="rounded-[20px] border p-5" style={cardStyle}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Pairing Details</div>
+                    <p className="mt-2 text-[14px] leading-[1.75] font-light" style={{ color: C.muted }}>
+                      The live relay details stay here while the QR remains visible above.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {pairingMetaRows.map(([label, value]) => (
+                      <div key={label} className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
+                        <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
+                          {label}
+                        </div>
+                        <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
+                          {value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {dispatchState?.pairing?.qrArt ? (
+                    <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
+                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
+                        Terminal QR
+                      </div>
+                      <pre className="max-h-[260px] overflow-auto whitespace-pre text-[9px] leading-[1.05] font-mono" style={{ color: C.ink }}>
+                        {dispatchState.pairing.qrArt}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
+                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
+                        CLI Equivalent
+                      </div>
+                      <div className="flex items-center gap-3 rounded-xl border px-3 py-3" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
+                        <code className="min-w-0 flex-1 truncate text-[11px]" style={{ color: C.ink }}>
+                          {pairCommand}
+                        </code>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={() => void handleCopy('command', pairCommand)}
+                        >
+                          {copied === 'command' ? <Check size={14} /> : <Copy size={14} />}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            ) : null}
+
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_320px] items-start">
+              <section ref={logsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
+                <div className="px-5 py-4 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                  <div>
+                    <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
+                      <Terminal size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
+                      Live Bridge Output
+                    </div>
+                    <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                      {dispatchState?.logUpdatedAtLabel ? `Updated ${dispatchState.logUpdatedAtLabel}` : 'Waiting for bridge output.'}
+                    </div>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={onOpenLogs} className="text-[13px] font-normal text-blue-600 hover:text-blue-700">
+                    View Full Logs
+                    <ExternalLink size={13} strokeWidth={1.5} />
+                  </Button>
+                </div>
+                <div className="bg-[#f7f8fb] px-5 py-4">
+                  <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words text-[13px] leading-[1.7] font-mono font-light" style={{ color: '#475569' }}>
+                    {dispatchState?.logTail || (dispatchState?.logMissing ? 'Log file has not been created yet.' : 'Waiting for Dispatch bridge output.')}
+                  </pre>
+                </div>
+              </section>
+
+              <section id="dispatch-settings-card" ref={settingsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
+                <div className="px-5 py-4 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                  <div>
+                    <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
+                      <Settings size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
+                      Advanced Settings
+                    </div>
+                    <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                      You usually do not need these. Dispatch can auto-launch a local relay for pairing.
+                    </div>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy('config', dispatchState?.configPath ?? '')} disabled={!dispatchState?.configPath}>
+                    {copied === 'config' ? <Check size={14} /> : <Copy size={14} />}
+                    Config Path
+                  </Button>
+                </div>
+                <div className="divide-y" style={{ borderColor: C.border }}>
+                  <div className="px-5 py-4 space-y-3">
+                    {runtimeRows.map(([label, value]) => (
+                      <div key={label} className="flex items-center justify-between gap-3 text-[12px]">
+                        <span className="font-light" style={{ color: C.muted }}>
+                          {label === 'Secure Mode' ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Shield size={13} strokeWidth={1.5} />
+                              {label}
+                            </span>
+                          ) : label === 'Last Updated' ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Clock size={13} strokeWidth={1.5} />
+                              {label}
+                            </span>
+                          ) : label}
+                        </span>
+                        <span className="text-right break-words font-normal" style={{ color: C.ink }}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-5 py-4 space-y-4">
+                    <label className="block">
+                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
+                        Custom Pairing Relay URL
+                      </div>
+                      <input
+                        type="text"
+                        value={relayDraft}
+                        onChange={(event) => {
+                          setRelayDraft(event.target.value);
+                          setConfigDirty(true);
+                        }}
+                        placeholder="Leave blank to auto-select a local relay"
+                        className="w-full rounded-xl border px-3 py-2 text-[13px] bg-transparent outline-none"
+                        style={{ borderColor: C.border, color: C.ink }}
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
+                        Workspace Root
+                      </div>
+                      <input
+                        type="text"
+                        value={workspaceDraft}
+                        onChange={(event) => {
+                          setWorkspaceDraft(event.target.value);
+                          setConfigDirty(true);
+                        }}
+                        placeholder="/Users/arach/dev/openscout"
+                        className="w-full rounded-xl border px-3 py-2 text-[13px] bg-transparent outline-none"
+                        style={{ borderColor: C.border, color: C.ink }}
+                      />
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          void (async () => {
+                            try {
+                              await onUpdateConfig({
+                                relay: relayDraft,
+                                workspaceRoot: workspaceDraft || null,
+                              });
+                              setConfigDirty(false);
+                            } catch {
+                              // Feedback is surfaced via dispatchConfigFeedback.
+                            }
+                          })();
+                        }}
+                        disabled={dispatchConfigPending}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                    {dispatchConfigFeedback ? (
+                      <div className="text-[11px] leading-[1.6]" style={{ color: C.ink }}>
+                        {dispatchConfigFeedback}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductSurfaceLogo({
+  active,
+  surface,
+}: {
+  active: boolean;
+  surface: 'relay' | 'dispatch';
+}) {
+  if (surface === 'relay') {
+    return (
+      <div
+        className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-mono font-bold"
+        style={active
+          ? { backgroundColor: C.ink, color: '#fff' }
+          : { backgroundColor: C.surface, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.border}` }}
+      >
+        {'>_'}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-5 h-5 rounded-full flex items-center justify-center"
+      style={active
+        ? { backgroundColor: C.accentBg, boxShadow: `inset 0 0 0 1px ${C.accentBorder}` }
+        : { backgroundColor: C.tagBg, boxShadow: `inset 0 0 0 1px ${C.border}` }}
+    >
+      <span
+        className="block w-1.5 h-1.5 rounded-full"
+        style={{ backgroundColor: active ? C.accent : C.muted }}
+      />
+    </div>
+  );
+}
+
+function formatDurationShort(totalSeconds: number) {
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
@@ -4286,7 +6414,7 @@ function RelayThinkingIndicator({
       <div className="flex-1 min-w-0 pt-1">
         <div className="inline-flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: C.accent }}>
           <TypingDots className="text-[var(--os-accent)]" />
-          <span>{cleanDisplayTitle(thread.title)} is working</span>
+          <span>Working</span>
           {thread.activeTask ? (
             <span className="normal-case tracking-normal" style={mutedStyle}>
               · {thread.activeTask}
@@ -4349,6 +6477,15 @@ function RelayTimeline({
     () => new Map(timelineMessages.map((message) => [message.id, message])),
     [timelineMessages],
   );
+  const latestDirectReceiptMessageId = useMemo(() => {
+    let latestMessageId: string | null = null;
+    for (const message of timelineMessages) {
+      if (message.isOperator && message.isDirectConversation && message.receipt) {
+        latestMessageId = message.id;
+      }
+    }
+    return latestMessageId;
+  }, [timelineMessages]);
 
   useEffect(() => {
     if (!copiedMessageId) {
@@ -4388,7 +6525,7 @@ function RelayTimeline({
 
   const handleCopyMessageRef = React.useCallback(async (messageId: string) => {
     try {
-      await copyTextToClipboard(stableMessageRef(messageId));
+      await copyTextToClipboard(shortMessageRef(messageId));
       setCopiedMessageId(messageId);
     } catch {
       setCopiedMessageId(null);
@@ -4542,6 +6679,14 @@ function RelayTimeline({
           <div className="flex flex-col gap-2 mt-0.5">
             {grouped.map((entry) => {
               const replyTarget = entry.replyToMessageId ? messageById.get(entry.replyToMessageId) ?? null : null;
+              const showReceipt = Boolean(
+                entry.receipt && (
+                  !entry.isOperator
+                  || !entry.isDirectConversation
+                  || latestDirectReceiptMessageId === entry.id
+                )
+              );
+              const renderReceiptInline = showReceipt && canInlineRelayReceipt(entry.body);
               return (
                 <div
                   key={entry.id}
@@ -4564,10 +6709,21 @@ function RelayTimeline({
                       />
                     )
                   ) : null}
-                  <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
-                  {entry.receipt ? (
-                    <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} />
-                  ) : null}
+                  {renderReceiptInline && entry.receipt ? (
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="min-w-0 max-w-full whitespace-pre-wrap break-words" style={inkStyle}>
+                        {entry.body}
+                      </span>
+                      <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} inline />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
+                      {showReceipt && entry.receipt ? (
+                        <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} />
+                      ) : null}
+                    </>
+                  )}
                   {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       {entry.routingSummary ? (
@@ -4703,6 +6859,128 @@ function AgentIdentityInline({
   );
 }
 
+function AgentIdentityCard({
+  agent,
+  directThread = null,
+  variant = 'hero',
+  mutedStyle = { color: C.muted },
+  borderColor = C.bg,
+  actions = null,
+}: {
+  agent: InterAgentAgent;
+  directThread?: RelayDirectThread | null;
+  variant?: 'hero' | 'hover';
+  mutedStyle?: React.CSSProperties;
+  borderColor?: string;
+  actions?: React.ReactNode;
+}) {
+  const compact = variant === 'hover';
+  const role = normalizeLegacyAgentCopy(agent.role);
+  const summary = normalizeLegacyAgentCopy(agent.summary);
+  const detail = directThread?.statusDetail ?? agent.statusDetail ?? summary ?? 'Available as a local relay channel.';
+
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <div className="relative shrink-0">
+          <div
+            className={`${compact ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-[13px]'} rounded text-white flex items-center justify-center font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+            style={{ backgroundColor: colorForIdentity(agent.id) }}
+          >
+            {agent.title.charAt(0).toUpperCase()}
+          </div>
+          <div
+            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(agent.state)}`}
+            style={{ border: `1px solid ${borderColor}` }}
+          ></div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className={compact ? 'text-[12px] font-semibold truncate' : 'text-[15px] font-semibold tracking-tight'} style={{ color: C.ink }}>
+              {agent.title}
+            </div>
+            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
+              {interAgentProfileKindLabel(agent.profileKind)}
+            </span>
+          </div>
+          {compact ? (
+            <div className="text-[10px] mt-1" style={mutedStyle}>
+              {detail}
+            </div>
+          ) : (
+            <>
+              {role ? (
+                <div className="text-[11px] mt-1" style={{ color: C.ink }}>{role}</div>
+              ) : null}
+              {summary ? (
+                <div className="text-[12px] leading-[1.55] mt-2" style={{ color: C.muted }}>{summary}</div>
+              ) : null}
+            </>
+          )}
+          <div className={`text-[10px] ${compact ? 'mt-2 flex flex-wrap gap-x-3 gap-y-1' : 'mt-3 flex items-center gap-2 flex-wrap'}`} style={mutedStyle}>
+            {compact ? (
+              <>
+                <span>{agent.harness ?? 'runtime'}</span>
+                <span>{compactHomePath(agent.projectRoot ?? agent.cwd) ?? 'no path'}</span>
+                {agent.lastChatLabel ? <span>last chat {agent.lastChatLabel}</span> : null}
+              </>
+            ) : (
+              <>
+                <span>{agent.lastChatLabel ? `Last chat ${agent.lastChatLabel}` : 'No direct chat yet.'}</span>
+                {agent.lastSessionLabel ? (
+                  <>
+                    <span className="w-1 h-1 rounded-full" style={{ backgroundColor: C.border }}></span>
+                    <span>Last session {agent.lastSessionLabel}</span>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      {actions ? (
+        <div className="mt-3 flex items-center gap-2">
+          {actions}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function AgentActionButton({
+  children,
+  icon,
+  tone = 'neutral',
+  ...props
+}: React.ComponentProps<typeof Button> & {
+  icon?: React.ReactNode;
+  tone?: 'neutral' | 'primary';
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 rounded-xl px-3 text-[10px] font-medium shadow-none"
+      style={tone === 'primary'
+        ? {
+            backgroundColor: C.accentBg,
+            borderColor: C.accentBorder,
+            color: C.accent,
+          }
+        : {
+            backgroundColor: C.surface,
+            borderColor: C.border,
+            color: C.ink,
+          }}
+      {...props}
+    >
+      {icon}
+      {children}
+    </Button>
+  );
+}
+
 function AgentHoverCard({
   agent,
   directThread,
@@ -4718,63 +6996,42 @@ function AgentHoverCard({
 }) {
   return (
     <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border p-3 shadow-lg opacity-0 pointer-events-none translate-y-1 transition-all duration-150 group-hover/agent:opacity-100 group-hover/agent:pointer-events-auto group-hover/agent:translate-y-0 group-focus-within/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:translate-y-0" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-      <div className="flex items-start gap-3">
-        <div className="relative shrink-0">
-          <div
-            className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-            style={{ backgroundColor: colorForIdentity(agent.id) }}
-          >
-            {agent.title.charAt(0).toUpperCase()}
-          </div>
-          <div
-            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(agent.state)}`}
-            style={{ border: `1px solid ${C.surface}` }}
-          ></div>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="text-[12px] font-semibold truncate" style={{ color: C.ink }}>{agent.title}</div>
-            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
-              {interAgentProfileKindLabel(agent.profileKind)}
-            </span>
-          </div>
-          <div className="text-[10px] mt-1" style={mutedStyle}>
-            {directThread?.statusDetail ?? agent.statusDetail ?? agent.summary ?? 'Available as a local relay channel.'}
-          </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] mt-2" style={mutedStyle}>
-            <span>{agent.harness ?? 'runtime'}</span>
-            <span>{compactHomePath(agent.projectRoot ?? agent.cwd) ?? 'no path'}</span>
-            {agent.lastChatLabel ? <span>last chat {agent.lastChatLabel}</span> : null}
-          </div>
-        </div>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-          style={{ color: C.ink }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenChat(agent.id);
-          }}
-        >
-          Message
-        </button>
-        <button
-          type="button"
-          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-          style={{ color: C.ink }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenProfile(agent.id);
-          }}
-        >
-          Overview
-        </button>
-        <span className="ml-auto text-[9px] font-mono" style={mutedStyle}>Cmd-click to DM</span>
-      </div>
+      <AgentIdentityCard
+        agent={agent}
+        directThread={directThread}
+        variant="hover"
+        mutedStyle={mutedStyle}
+        borderColor={C.surface}
+        actions={(
+          <>
+            <button
+              type="button"
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+              style={{ color: C.ink }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenChat(agent.id);
+              }}
+            >
+              Message
+            </button>
+            <button
+              type="button"
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+              style={{ color: C.ink }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenProfile(agent.id);
+              }}
+            >
+              Overview
+            </button>
+            <span className="ml-auto text-[9px] font-mono" style={mutedStyle}>Cmd-click to DM</span>
+          </>
+        )}
+      />
     </div>
   );
 }
@@ -4820,14 +7077,16 @@ function ReplyReferenceLine({
 function RelayReceiptInline({
   receipt,
   mutedStyle,
+  inline = false,
 }: {
   receipt: NonNullable<RelayMessage['receipt']>;
   mutedStyle: React.CSSProperties;
+  inline?: boolean;
 }) {
   const tone = relayReceiptTone(receipt.state);
   return (
     <div
-      className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] leading-none"
+      className={`${inline ? '' : 'mt-1.5 '}inline-flex items-center gap-1.5 text-[10px] leading-none shrink-0`}
       style={{ ...mutedStyle, color: tone.color }}
       title={receipt.detail ?? receipt.label}
     >
@@ -4844,6 +7103,8 @@ function RelayReceiptIcon({ state }: { state: NonNullable<RelayMessage['receipt'
   switch (state) {
     case 'replied':
       return <Reply size={11} />;
+    case 'working':
+      return <TypingDots className="text-[var(--os-accent)]" />;
     case 'seen':
       return <CheckCheck size={11} />;
     case 'delivered':
@@ -4908,6 +7169,8 @@ function relayReceiptTone(state: NonNullable<RelayMessage['receipt']>['state']) 
   switch (state) {
     case 'replied':
       return { color: '#059669' };
+    case 'working':
+      return { color: 'var(--os-accent)' };
     case 'seen':
       return { color: 'var(--os-accent)' };
     case 'delivered':
@@ -4916,6 +7179,19 @@ function relayReceiptTone(state: NonNullable<RelayMessage['receipt']>['state']) 
     default:
       return { color: 'var(--os-muted)' };
   }
+}
+
+function canInlineRelayReceipt(body: string) {
+  const trimmed = body.trim();
+  if (!trimmed || trimmed.includes('\n')) {
+    return false;
+  }
+
+  if (/```|`|\[[^\]]+\]\([^)]+\)|^>\s|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\|/.test(trimmed)) {
+    return false;
+  }
+
+  return true;
 }
 
 function firstInterAgentThreadIdForAgent(threads: InterAgentThread[], agentId: string) {
@@ -5053,6 +7329,16 @@ function serializeAppSettings(settings: AppSettingsState | null) {
     defaultHarness: settings.defaultHarness,
     defaultCapabilities: settings.defaultCapabilities.map((entry) => normalizeDraftText(entry)),
     sessionPrefix: normalizeDraftText(settings.sessionPrefix),
+    telegram: {
+      enabled: settings.telegram.enabled,
+      mode: settings.telegram.mode,
+      botToken: normalizeDraftText(settings.telegram.botToken),
+      secretToken: normalizeDraftText(settings.telegram.secretToken),
+      apiBaseUrl: normalizeDraftText(settings.telegram.apiBaseUrl),
+      userName: normalizeDraftText(settings.telegram.userName),
+      defaultConversationId: normalizeDraftText(settings.telegram.defaultConversationId),
+      ownerNodeId: normalizeDraftText(settings.telegram.ownerNodeId),
+    },
   });
 }
 
@@ -5072,9 +7358,7 @@ function normalizeLegacyAgentCopy(value: string | null | undefined) {
     return null;
   }
 
-  return value.replace(/\bproject twin\b/gi, (match) => (
-    match[0] === match[0].toUpperCase() ? 'Relay Agent' : 'relay agent'
-  ));
+  return value;
 }
 
 function compactHomePath(value: string | null | undefined) {
@@ -5302,6 +7586,25 @@ function cleanDisplayTitle(title: string) {
   return title.replace(/^[@#]\s*/, '');
 }
 
+function normalizeRelayTimestamp(value: number) {
+  return value > 10_000_000_000 ? value : value * 1000;
+}
+
+function formatRelayTimestamp(value: number) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(normalizeRelayTimestamp(value)));
+}
+
+function formatRelayDayLabel(value: number) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(normalizeRelayTimestamp(value))).toUpperCase();
+}
+
 function formatFooterTime(date: Date) {
   return new Intl.DateTimeFormat([], {
     hour: 'numeric',
@@ -5316,6 +7619,219 @@ function colorForIdentity(identity: string) {
     seed += character.charCodeAt(0);
   }
   return palette[seed % palette.length];
+}
+
+function generateClientMessageId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `client-${crypto.randomUUID()}`;
+  }
+
+  return `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveOperatorDisplayName(
+  relayState: DesktopShellState['relay'] | null,
+  appSettings: AppSettingsState | null,
+) {
+  const configuredName = appSettings?.operatorName?.trim();
+  if (configuredName) {
+    return configuredName;
+  }
+
+  const operatorId = relayState?.operatorId ?? 'operator';
+  const messages = relayState?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.authorId === operatorId && message.authorName.trim()) {
+      return message.authorName.trim();
+    }
+  }
+
+  return appSettings?.operatorNameDefault ?? 'Arach';
+}
+
+function relayMessageMentionRecipients(body: string) {
+  const matches = body.match(/@[a-z0-9][\w.-]*(?:@[a-z0-9][\w.-]*)?(?:#[a-z0-9][\w.-]*)?/gi) ?? [];
+  return Array.from(new Set(matches.map((match) => match.slice(1))));
+}
+
+function optimisticRelayConversationId(kind: RelayDestinationKind, id: string) {
+  if (kind === 'direct') {
+    if (id === 'scout') {
+      return 'dm.scout.primary';
+    }
+    return `dm.operator.${id}`;
+  }
+  if (kind === 'channel' && id === 'voice') {
+    return 'channel.voice';
+  }
+  if (kind === 'channel' && id === 'system') {
+    return 'channel.system';
+  }
+  return 'channel.shared';
+}
+
+function normalizedMessageRefKey(messageId: string) {
+  return messageId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+}
+
+function messageRefTokenPattern() {
+  return /\b(?:message:[a-zA-Z0-9._:-]+|m:[a-z0-9]{4,12})\b/gi;
+}
+
+function arraysEqual(values: string[], other: string[]) {
+  if (values.length !== other.length) {
+    return false;
+  }
+
+  return values.every((value, index) => value === other[index]);
+}
+
+function resolveRelayMessageRefToken(token: string, messages: RelayMessage[]) {
+  const normalizedToken = token.trim().toLowerCase();
+  if (!normalizedToken) {
+    return null;
+  }
+
+  if (normalizedToken.startsWith('message:')) {
+    const messageId = token.slice(token.indexOf(':') + 1).trim();
+    return messages.find((message) => message.id === messageId) ?? null;
+  }
+
+  if (!normalizedToken.startsWith('m:')) {
+    return null;
+  }
+
+  const suffix = normalizedToken.slice(2);
+  if (!suffix) {
+    return null;
+  }
+
+  const matches = messages.filter((message) => normalizedMessageRefKey(message.id).endsWith(suffix));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function stripResolvedRelayRefTokens(body: string, resolvedTokens: string[]) {
+  if (resolvedTokens.length === 0) {
+    return body;
+  }
+
+  const tokenSet = new Set(resolvedTokens.map((token) => token.toLowerCase()));
+  const withoutTokens = body.replace(messageRefTokenPattern(), (match) => (
+    tokenSet.has(match.toLowerCase()) ? ' ' : match
+  ));
+
+  return withoutTokens
+    .split(/\r?\n/g)
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trim())
+    .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
+    .join('\n')
+    .trim();
+}
+
+function ingestRelayMessageRefs(
+  body: string,
+  messages: RelayMessage[],
+  currentReferenceMessageIds: string[],
+) {
+  const tokens = body.match(messageRefTokenPattern()) ?? [];
+  if (tokens.length === 0) {
+    return {
+      body,
+      nextReferenceMessageIds: currentReferenceMessageIds,
+    };
+  }
+
+  const nextReferenceMessageIds = [...currentReferenceMessageIds];
+  const resolvedTokens: string[] = [];
+  for (const token of tokens) {
+    const match = resolveRelayMessageRefToken(token, messages);
+    if (!match) {
+      continue;
+    }
+    resolvedTokens.push(token);
+    if (!nextReferenceMessageIds.includes(match.id)) {
+      nextReferenceMessageIds.push(match.id);
+    }
+  }
+
+  if (resolvedTokens.length === 0) {
+    return {
+      body,
+      nextReferenceMessageIds: currentReferenceMessageIds,
+    };
+  }
+
+  const cleanedBody = stripResolvedRelayRefTokens(body, resolvedTokens);
+  return {
+    body: cleanedBody,
+    nextReferenceMessageIds: arraysEqual(nextReferenceMessageIds, currentReferenceMessageIds)
+      ? currentReferenceMessageIds
+      : nextReferenceMessageIds,
+  };
+}
+
+function buildOptimisticRelayMessage({
+  relayState,
+  appSettings,
+  destinationKind,
+  destinationId,
+  body,
+  replyToMessageId,
+  clientMessageId,
+}: {
+  relayState: DesktopShellState['relay'] | null;
+  appSettings: AppSettingsState | null;
+  destinationKind: RelayDestinationKind;
+  destinationId: string;
+  body: string;
+  replyToMessageId: string | null;
+  clientMessageId: string;
+}): RelayMessage {
+  const createdAt = Date.now();
+  const operatorId = relayState?.operatorId ?? 'operator';
+  const operatorName = resolveOperatorDisplayName(relayState, appSettings);
+  const recipients = destinationKind === 'direct'
+    ? Array.from(new Set([destinationId, ...relayMessageMentionRecipients(body)]))
+    : relayMessageMentionRecipients(body);
+  const normalizedChannel = destinationKind === 'channel'
+    ? destinationId
+    : destinationKind === 'direct'
+      ? null
+      : 'shared';
+  const isVoice = destinationKind === 'channel' && destinationId === 'voice';
+  const isSystem = destinationKind === 'channel' && destinationId === 'system';
+
+  return {
+    id: `pending-${clientMessageId}`,
+    clientMessageId,
+    conversationId: optimisticRelayConversationId(destinationKind, destinationId),
+    createdAt,
+    replyToMessageId,
+    authorId: operatorId,
+    authorName: operatorName,
+    authorRole: null,
+    body,
+    timestampLabel: formatRelayTimestamp(createdAt),
+    dayLabel: formatRelayDayLabel(createdAt),
+    normalizedChannel,
+    recipients,
+    isDirectConversation: destinationKind === 'direct',
+    isSystem,
+    isVoice,
+    messageClass: isSystem ? 'system' : 'agent',
+    routingSummary: recipients.length > 0 ? `Targets ${recipients.join(', ')}` : null,
+    provenanceSummary: 'via electron · sending',
+    provenanceDetail: null,
+    isOperator: true,
+    avatarLabel: operatorName.slice(0, 1).toUpperCase() || 'A',
+    avatarColor: colorForIdentity(operatorId),
+    receipt: {
+      state: 'sent',
+      label: 'Sending…',
+      detail: null,
+    },
+  };
 }
 
 function renderMessageBody(

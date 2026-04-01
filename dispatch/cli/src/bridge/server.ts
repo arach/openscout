@@ -1,0 +1,726 @@
+// Bridge WebSocket server.
+//
+// Exposes the bridge over a local WebSocket so the relay (or a direct LAN
+// connection from the phone) can send prompts and receive Dispatch events.
+//
+// Supports two modes:
+//   - Plaintext (default): backward-compatible, no encryption
+//   - Secure: wraps each connection in a Noise-encrypted SecureTransport
+//
+// Wire protocol: newline-delimited JSON.
+//   Inbound (phone -> bridge):  JSON-RPC requests
+//   Outbound (bridge -> phone): Dispatch events + JSON-RPC responses (wrapped as { seq, event })
+
+import { log } from "./log.ts";
+import { readdirSync, readFileSync, realpathSync, statSync } from "fs";
+import { execSync } from "child_process";
+import { basename, isAbsolute, join, relative } from "path";
+import { homedir } from "os";
+import type { Bridge } from "./bridge.ts";
+import type { Prompt } from "../protocol/index.ts";
+import { resolveConfig } from "./config.ts";
+import {
+  SecureTransport,
+  type SocketLike,
+  type KeyPair,
+  isTrustedPeer,
+  bytesToHex,
+} from "../security/index.ts";
+import type { ServerWebSocket } from "bun";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface RPCRequest {
+  id: string;
+  method: string;
+  params?: unknown;
+}
+
+interface RPCResponse {
+  id: string;
+  result?: unknown;
+  error?: { code: number; message: string };
+}
+
+export interface BridgeServerOptions {
+  /** Enable Noise encryption on all connections. Default: false. */
+  secure?: boolean;
+  /** Bridge's static key pair (required when secure=true). */
+  identity?: KeyPair;
+}
+
+interface SocketState {
+  unsub?: () => void;
+  transport?: SecureTransport;
+}
+
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+
+export function startBridgeServer(
+  bridge: Bridge,
+  port: number,
+  options: BridgeServerOptions = {},
+): { stop: () => void } {
+  const { secure = false, identity } = options;
+
+  if (secure && !identity) {
+    throw new Error("[bridge] secure mode requires an identity (key pair)");
+  }
+
+  // Per-socket state, keyed by the raw ServerWebSocket reference.
+  const socketState = new WeakMap<ServerWebSocket<unknown>, SocketState>();
+
+  const server = Bun.serve({
+    port,
+    fetch(req, server) {
+      const upgraded = server.upgrade(req);
+      if (!upgraded) {
+        return new Response("Dispatch bridge. Connect via WebSocket.", { status: 200 });
+      }
+    },
+    websocket: {
+      open(ws) {
+        console.log("[bridge] client connected");
+
+        const state: SocketState = {};
+        socketState.set(ws, state);
+
+        if (secure && identity) {
+          // Wrap in SecureTransport. The bridge is always the responder —
+          // the phone (or relay-forwarded phone) initiates the handshake.
+          const socketAdapter: SocketLike = { send: (data) => ws.send(data) };
+
+          const transport = new SecureTransport(
+            socketAdapter,
+            "responder",
+            identity,
+            {
+              onReady: (remotePublicKey) => {
+                const pubHex = bytesToHex(remotePublicKey);
+                const trusted = isTrustedPeer(pubHex);
+                console.log(
+                  `[bridge] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${trusted})`,
+                );
+
+                // Push existing sessions through the encrypted channel.
+                for (const session of bridge.listSessions()) {
+                  transport.send(JSON.stringify({
+                    seq: 0,
+                    event: { event: "session:update", session },
+                  }));
+                }
+
+                // Subscribe to future events — forwarded encrypted with seq.
+                state.unsub = bridge.onEvent((sequenced) => {
+                  transport.send(JSON.stringify({
+                    seq: sequenced.seq,
+                    event: sequenced.event,
+                  }));
+                });
+              },
+
+              onMessage: (message) => {
+                // Decrypted JSON-RPC message from the phone.
+                let req: RPCRequest;
+                try {
+                  req = JSON.parse(message);
+                } catch {
+                  transport.send(
+                    JSON.stringify({ id: null, error: { code: -32700, message: "Parse error" } }),
+                  );
+                  return;
+                }
+
+                handleRPC(bridge, req).then((res) => {
+                  transport.send(JSON.stringify(res));
+                });
+              },
+
+              onError: (err) => {
+                console.error("[bridge] secure transport error:", err.message);
+              },
+
+              onClose: () => {
+                state.unsub?.();
+              },
+            },
+          );
+
+          state.transport = transport;
+        } else {
+          // Plaintext mode — push existing sessions with seq wrapper.
+          for (const session of bridge.listSessions()) {
+            ws.send(JSON.stringify({
+              seq: 0,
+              event: { event: "session:update", session },
+            }));
+          }
+
+          // Subscribe to all future events, wrapped with seq.
+          state.unsub = bridge.onEvent((sequenced) => {
+            ws.send(JSON.stringify({
+              seq: sequenced.seq,
+              event: sequenced.event,
+            }));
+          });
+        }
+      },
+
+      message(ws, raw) {
+        const state = socketState.get(ws);
+
+        if (secure && state?.transport) {
+          // Feed raw bytes into the SecureTransport (handshake or encrypted data).
+          const data = typeof raw === "string" ? raw : new Uint8Array(raw);
+          state.transport.receive(data);
+        } else {
+          // Plaintext mode — handle JSON-RPC directly.
+          const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
+          let req: RPCRequest;
+          try {
+            req = JSON.parse(text);
+          } catch {
+            ws.send(JSON.stringify({ id: null, error: { code: -32700, message: "Parse error" } }));
+            return;
+          }
+
+          handleRPC(bridge, req).then((res) => {
+            ws.send(JSON.stringify(res));
+          });
+        }
+      },
+
+      close(ws) {
+        console.log("[bridge] client disconnected");
+        const state = socketState.get(ws);
+        state?.unsub?.();
+      },
+    },
+  });
+
+  const mode = secure ? "secure (Noise)" : "plaintext";
+  console.log(`[bridge] listening on ws://localhost:${port} (${mode})`);
+
+  return {
+    stop() {
+      server.stop();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// RPC handler — also used by relay-client.ts for relayed connections
+// ---------------------------------------------------------------------------
+
+export async function handleRPC(bridge: Bridge, req: RPCRequest): Promise<RPCResponse> {
+  log.info("rpc", req.method, req.params);
+  try {
+    switch (req.method) {
+      case "session/create": {
+        const p = req.params as { adapterType: string; name?: string; cwd?: string; options?: Record<string, unknown> };
+        const session = await bridge.createSession(p.adapterType, {
+          name: p.name,
+          cwd: p.cwd,
+          options: p.options,
+        });
+        return { id: req.id, result: session };
+      }
+
+      case "session/list": {
+        return { id: req.id, result: bridge.listSessions() };
+      }
+
+      case "session/close": {
+        const p = req.params as { sessionId: string };
+        await bridge.closeSession(p.sessionId);
+        return { id: req.id, result: { ok: true } };
+      }
+
+      case "prompt/send": {
+        const prompt = req.params as Prompt;
+        log.info("prompt", `sending to session ${prompt.sessionId}`, { text: prompt.text?.slice(0, 80) });
+        bridge.send(prompt);
+        log.info("prompt", "send() returned — adapter should be streaming");
+        return { id: req.id, result: { ok: true } };
+      }
+
+      case "turn/interrupt": {
+        const p = req.params as { sessionId: string };
+        bridge.interrupt(p.sessionId);
+        return { id: req.id, result: { ok: true } };
+      }
+
+      // -- Reconnect / buffer ------------------------------------------------
+
+      case "sync/replay": {
+        const p = req.params as { lastSeq: number };
+        const events = bridge.replay(p.lastSeq);
+        return { id: req.id, result: { events } };
+      }
+
+      case "sync/status": {
+        return {
+          id: req.id,
+          result: {
+            currentSeq: bridge.currentSeq(),
+            oldestBufferedSeq: bridge.oldestBufferedSeq(),
+            sessionCount: bridge.listSessions().length,
+          },
+        };
+      }
+
+      // -- Snapshot / status -------------------------------------------------
+
+      case "session/snapshot": {
+        const p = req.params as { sessionId: string };
+        const snapshot = bridge.getSessionSnapshot(p.sessionId);
+        if (!snapshot) {
+          return { id: req.id, error: { code: -32001, message: `No session: ${p.sessionId}` } };
+        }
+        return { id: req.id, result: snapshot };
+      }
+
+      case "bridge/status": {
+        const sessions = bridge.getSessionSummaries();
+        return { id: req.id, result: { sessions } };
+      }
+
+      // -- Approval -----------------------------------------------------------
+
+      case "action/decide": {
+        const p = req.params as {
+          sessionId: string;
+          turnId: string;
+          blockId: string;
+          version: number;
+          decision: "approve" | "deny";
+          reason?: string;
+        };
+
+        // Look up the block's current approval state for version validation.
+        const snapshot = bridge.getSessionSnapshot(p.sessionId);
+        if (!snapshot) {
+          return { id: req.id, error: { code: -32001, message: `No session: ${p.sessionId}` } };
+        }
+
+        const turn = snapshot.turns.find((t) => t.id === p.turnId);
+        if (!turn) {
+          return { id: req.id, error: { code: -32001, message: `No turn: ${p.turnId}` } };
+        }
+
+        const blockState = turn.blocks.find((b) => b.block.id === p.blockId);
+        if (!blockState || blockState.block.type !== "action") {
+          return { id: req.id, error: { code: -32001, message: `No action block: ${p.blockId}` } };
+        }
+
+        const action = (blockState.block as import("../protocol/index.ts").ActionBlock).action;
+        if (!action.approval || action.approval.version !== p.version) {
+          return { id: req.id, error: { code: -32010, message: "Stale approval version" } };
+        }
+
+        bridge.decide(p.sessionId, p.blockId, p.decision, p.reason);
+        return { id: req.id, result: { ok: true } };
+      }
+
+      // -- Session resume ------------------------------------------------------
+
+      case "session/resume": {
+        const p = req.params as {
+          sessionPath: string;
+          adapterType?: string;
+          name?: string;
+        };
+
+        const sessionFilename = basename(p.sessionPath, ".jsonl");
+        const parentDir = p.sessionPath.substring(0, p.sessionPath.lastIndexOf("/"));
+        const dirName = basename(parentDir);
+
+        // Reconstruct CWD from Claude Code's path encoding: -Users-foo-dev-bar → /Users/foo/dev/bar
+        let cwd: string;
+        if (dirName.startsWith("-")) {
+          const candidate = "/" + dirName.slice(1).replace(/-/g, "/");
+          try {
+            statSync(candidate);
+            cwd = candidate;
+          } catch {
+            // Fallback: use workspace root or process cwd
+            const config = resolveConfig();
+            cwd = config.workspace?.root
+              ? resolveWorkspaceRoot(config.workspace.root)
+              : process.cwd();
+          }
+        } else {
+          cwd = process.cwd();
+        }
+
+        const adapterType = p.adapterType ?? "claude-code";
+        const name = p.name ?? extractProjectName(p.sessionPath);
+
+        const session = await bridge.createSession(adapterType, {
+          name,
+          cwd,
+          options: { resume: sessionFilename },
+        });
+        return { id: req.id, result: session };
+      }
+
+      // -- Workspace discovery ------------------------------------------------
+
+      case "workspace/info": {
+        const config = resolveConfig();
+        const configuredRoot = config.workspace?.root;
+        if (!configuredRoot) {
+          return { id: req.id, result: { configured: false } };
+        }
+        try {
+          const root = resolveWorkspaceRoot(configuredRoot);
+          return { id: req.id, result: { configured: true, root } };
+        } catch (err: any) {
+          return { id: req.id, error: { code: -32002, message: err.message } };
+        }
+      }
+
+      case "workspace/list": {
+        const p0 = req.params as { path?: string } | undefined;
+        const config = resolveConfig();
+        const configuredRoot = config.workspace?.root;
+        if (!configuredRoot) {
+          return { id: req.id, error: { code: -32002, message: "No workspace root configured" } };
+        }
+
+        const p = req.params as { path?: string } | undefined;
+
+        try {
+          const root = resolveWorkspaceRoot(configuredRoot);
+          const browsePath = resolveWorkspacePath(root, p?.path);
+          const entries = listDirectories(browsePath);
+          return { id: req.id, result: { root, path: browsePath, entries } };
+        } catch (err: any) {
+          return { id: req.id, error: { code: -32000, message: err.message } };
+        }
+      }
+
+      case "workspace/open": {
+        const p = req.params as { path: string; adapter?: string; name?: string };
+        const config = resolveConfig();
+        const configuredRoot = config.workspace?.root;
+
+        if (!configuredRoot) {
+          return { id: req.id, error: { code: -32002, message: "No workspace root configured" } };
+        }
+
+        const root = resolveWorkspaceRoot(configuredRoot);
+        const projectPath = resolveWorkspacePath(root, p.path);
+        const stat = statSync(projectPath);
+        if (!stat.isDirectory()) {
+          return { id: req.id, error: { code: -32000, message: "Workspace target is not a directory" } };
+        }
+
+        const adapterType = p.adapter ?? "claude-code";
+        const name = p.name ?? basename(projectPath);
+
+        const session = await bridge.createSession(adapterType, {
+          name,
+          cwd: projectPath,
+        });
+        return { id: req.id, result: session };
+      }
+
+      // -- Session History Discovery ------------------------------------------
+
+      case "history/discover": {
+        const p = req.params as { maxAge?: number; limit?: number; project?: string } | null;
+        const maxAgeDays = p?.maxAge ?? 14;
+        const limit = p?.limit ?? 100;
+        const projectFilter = p?.project;
+
+        let sessions = await discoverSessionFiles(maxAgeDays, limit);
+        if (projectFilter) {
+          const filter = projectFilter.toLowerCase();
+          sessions = sessions.filter((s) => s.project.toLowerCase().includes(filter));
+        }
+        return { id: req.id, result: { sessions } };
+      }
+
+      case "history/search": {
+        const p = req.params as { query: string; maxAge?: number; limit?: number };
+
+        const maxAge = p.maxAge ?? 14;
+        const limit = p.limit ?? 20;
+
+        // Search across all discovered JSONL files using grep
+        const sessions = await discoverSessionFiles(maxAge, 200);
+        const matches: Array<{
+          path: string;
+          project: string;
+          agent: string;
+          matchCount: number;
+          preview: string[];
+        }> = [];
+
+        for (const session of sessions) {
+          try {
+            const cmd = `grep -i -c "${p.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
+            const countStr = execSync(cmd, { encoding: "utf-8", timeout: 2000 }).trim();
+            const count = parseInt(countStr, 10);
+            if (count > 0) {
+              // Get a few matching lines for preview
+              const previewCmd = `grep -i -m 3 "${p.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
+              const previewLines = execSync(previewCmd, { encoding: "utf-8", timeout: 2000 })
+                .trim()
+                .split("\n")
+                .slice(0, 3);
+
+              matches.push({
+                path: session.path,
+                project: session.project,
+                agent: session.agent,
+                matchCount: count,
+                preview: previewLines,
+              });
+            }
+          } catch {}
+        }
+
+        matches.sort((a, b) => b.matchCount - a.matchCount);
+        return { id: req.id, result: { query: p.query, matches: matches.slice(0, limit) } };
+      }
+
+      case "history/read": {
+        const p = req.params as { path: string };
+
+        // Safety: only allow reading .jsonl files
+        if (!p.path.endsWith(".jsonl")) {
+          return { id: req.id, error: { code: -32000, message: "Only .jsonl files can be read" } };
+        }
+
+        try {
+          const content = readFileSync(p.path, "utf-8");
+          const lines = content.split("\n").filter((l) => l.trim().length > 0);
+          // Return raw lines (phone parses them) — limit to last 500 lines for large files
+          const trimmed = lines.length > 500 ? lines.slice(-500) : lines;
+          return { id: req.id, result: { path: p.path, lineCount: lines.length, lines: trimmed } };
+        } catch (err: any) {
+          return { id: req.id, error: { code: -32000, message: `Cannot read file: ${err.message}` } };
+        }
+      }
+
+      default:
+        return { id: req.id, error: { code: -32601, message: `Unknown method: ${req.method}` } };
+    }
+  } catch (err: any) {
+    return { id: req.id, error: { code: -32000, message: err.message ?? "Internal error" } };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Workspace helpers
+// ---------------------------------------------------------------------------
+
+interface DirectoryEntry {
+  name: string;
+  path: string;
+  markers: string[];
+}
+
+function resolveWorkspaceRoot(root: string): string {
+  const expandedRoot = root.replace(/^~/, homedir());
+  return realpathSync(expandedRoot);
+}
+
+export function resolveWorkspacePath(root: string, requestedPath?: string): string {
+  const normalizedRoot = resolveWorkspaceRoot(root);
+  const expandedPath = requestedPath?.replace(/^~/, homedir());
+  const candidate = expandedPath
+    ? isAbsolute(expandedPath)
+      ? expandedPath
+      : join(normalizedRoot, expandedPath)
+    : normalizedRoot;
+  const resolvedCandidate = realpathSync(candidate);
+  const rel = relative(normalizedRoot, resolvedCandidate);
+
+  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+    return resolvedCandidate;
+  }
+
+  throw new Error("Path escapes workspace root");
+}
+
+const MARKER_FILES: [string, string][] = [
+  [".git",            "git"],
+  ["package.json",    "node"],
+  ["Package.swift",   "swift"],
+  ["Cargo.toml",      "rust"],
+  ["go.mod",          "go"],
+  ["pyproject.toml",  "python"],
+  ["setup.py",        "python"],
+  ["Gemfile",         "ruby"],
+  ["build.gradle",    "java"],
+  ["pom.xml",         "java"],
+  ["CMakeLists.txt",  "cpp"],
+  ["Makefile",        "make"],
+  [".xcodeproj",      "xcode"],
+];
+
+function listDirectories(dirPath: string): DirectoryEntry[] {
+  const entries: DirectoryEntry[] = [];
+
+  for (const name of readdirSync(dirPath)) {
+    if (name.startsWith(".")) continue;
+    if (name === "node_modules" || name === ".build" || name === "target") continue;
+
+    const fullPath = join(dirPath, name);
+    try {
+      const stat = statSync(fullPath);
+      if (!stat.isDirectory()) continue;
+
+      const children = new Set(readdirSync(fullPath));
+      const markers: string[] = [];
+      const seen = new Set<string>();
+
+      for (const [file, marker] of MARKER_FILES) {
+        // Handle both exact matches and suffix matches (e.g. .xcodeproj)
+        const found = file.startsWith(".")
+          ? [...children].some(c => c.endsWith(file))
+          : children.has(file);
+
+        if (found && !seen.has(marker)) {
+          markers.push(marker);
+          seen.add(marker);
+        }
+      }
+
+      entries.push({ name, path: fullPath, markers });
+    } catch {
+      continue;
+    }
+  }
+
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---------------------------------------------------------------------------
+// Session history discovery
+// ---------------------------------------------------------------------------
+
+interface DiscoveredSession {
+  path: string;
+  project: string;
+  agent: string;       // "claude-code" | "codex" | "aider" | "unknown"
+  modifiedAt: number;  // epoch ms
+  sizeBytes: number;
+  lineCount: number;   // approximate, from wc -l
+}
+
+/**
+ * Discover JSONL session files across known agent log locations.
+ * Uses fast POSIX commands (find + stat) — no deep parsing.
+ */
+async function discoverSessionFiles(maxAgeDays: number, limit: number): Promise<DiscoveredSession[]> {
+  const home = homedir();
+  const results: DiscoveredSession[] = [];
+
+  // Known locations for agent session logs
+  const searchPaths = [
+    // Claude Code: ~/.claude/projects/*/*.jsonl
+    { pattern: `${home}/.claude/projects`, agent: "claude-code" },
+    // Codex: check common locations
+    { pattern: `${home}/.codex`, agent: "codex" },
+    { pattern: `${home}/.openai-codex`, agent: "codex" },
+  ];
+
+  for (const { pattern, agent } of searchPaths) {
+    try {
+      statSync(pattern); // Check dir exists
+    } catch {
+      continue;
+    }
+
+    try {
+      // Find .jsonl files, skip subagent dirs, batch stat in one exec
+      const cmd = `find "${pattern}" -name subagents -prune -o -name "*.jsonl" -mtime -${maxAgeDays} -type f -print0 2>/dev/null | xargs -0 stat -f "%m %z %N" 2>/dev/null | sort -rn | head -${limit}`;
+      const output = execSync(cmd, { encoding: "utf-8", timeout: 5000 }).trim();
+      if (!output) continue;
+
+      for (const line of output.split("\n")) {
+        if (!line.trim()) continue;
+        const firstSpace = line.indexOf(" ");
+        const secondSpace = line.indexOf(" ", firstSpace + 1);
+        if (firstSpace === -1 || secondSpace === -1) continue;
+
+        const modifiedAt = parseInt(line.slice(0, firstSpace), 10) * 1000;
+        const sizeBytes = parseInt(line.slice(firstSpace + 1, secondSpace), 10);
+        const filePath = line.slice(secondSpace + 1);
+
+        results.push({
+          path: filePath,
+          project: extractProjectName(filePath),
+          agent,
+          modifiedAt,
+          sizeBytes,
+          lineCount: 0,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // Also scan workspace root for any .jsonl files in project dirs
+  const config = resolveConfig();
+  if (config.workspace?.root) {
+    const existingPaths = new Set(results.map(r => r.path));
+    try {
+      const root = resolveWorkspaceRoot(config.workspace.root);
+      const cmd = `find "${root}" -maxdepth 4 -name "*.jsonl" -mtime -${maxAgeDays} -type f -exec stat -f "%m %z %N" {} + 2>/dev/null`;
+      const output = execSync(cmd, { encoding: "utf-8", timeout: 10000 }).trim();
+      if (output) {
+        for (const line of output.split("\n")) {
+          if (!line.trim()) continue;
+          const firstSpace = line.indexOf(" ");
+          const secondSpace = line.indexOf(" ", firstSpace + 1);
+          if (firstSpace === -1 || secondSpace === -1) continue;
+          const modifiedAt = parseInt(line.slice(0, firstSpace), 10) * 1000;
+          const sizeBytes = parseInt(line.slice(firstSpace + 1, secondSpace), 10);
+          const filePath = line.slice(secondSpace + 1);
+          if (existingPaths.has(filePath)) continue;
+          results.push({
+            path: filePath,
+            project: extractProjectName(filePath),
+            agent: detectAgent(filePath),
+            modifiedAt,
+            sizeBytes,
+            lineCount: 0,
+          });
+        }
+      }
+    } catch {}
+  }
+
+  // Sort by most recently modified, limit
+  results.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  return results.slice(0, limit);
+}
+
+function extractProjectName(filePath: string): string {
+  // Claude Code pattern: ~/.claude/projects/-Users-arach-dev-PROJECT/...
+  const claudeMatch = filePath.match(/\.claude\/projects\/[^/]*-dev-([^/]+)/);
+  if (claudeMatch?.[1]) return claudeMatch[1];
+
+  // Generic: use parent directory name
+  const parts = filePath.split("/");
+  return parts[parts.length - 2] || "unknown";
+}
+
+function detectAgent(filePath: string): string {
+  if (filePath.includes(".claude")) return "claude-code";
+  if (filePath.includes(".codex") || filePath.includes("codex")) return "codex";
+  if (filePath.includes(".aider") || filePath.includes("aider")) return "aider";
+  return "unknown";
+}
+
+// HTTP file serving has moved to fileserver.ts — independent start/stop lifecycle.

@@ -40,7 +40,7 @@ export type RelayVoiceState = {
   speaking: boolean;
 };
 
-export type RelayMessageReceiptState = "sent" | "delivered" | "seen" | "replied";
+export type RelayMessageReceiptState = "sent" | "delivered" | "seen" | "working" | "replied";
 
 export type RelayMessageReceipt = {
   state: RelayMessageReceiptState;
@@ -51,6 +51,7 @@ export type RelayMessageReceipt = {
 export type RelayMessage = {
   receipt?: RelayMessageReceipt | null;
   id: string;
+  clientMessageId?: string | null;
   conversationId: string;
   createdAt: number;
   replyToMessageId: string | null;
@@ -163,6 +164,40 @@ export type SessionMetadata = {
   preview: string;
 };
 
+export type DispatchPairingSnapshot = {
+  relay: string;
+  room: string;
+  publicKey: string;
+  expiresAt: number;
+  qrArt: string;
+  qrValue: string;
+};
+
+export type DispatchState = {
+  status: "unconfigured" | "stopped" | "starting" | "connecting" | "connected" | "paired" | "closed" | "error";
+  statusLabel: string;
+  statusDetail: string | null;
+  isRunning: boolean;
+  commandLabel: string;
+  configPath: string;
+  identityPath: string;
+  trustedPeersPath: string;
+  logPath: string;
+  relay: string | null;
+  configuredRelay: string | null;
+  secure: boolean;
+  workspaceRoot: string | null;
+  sessionCount: number;
+  identityFingerprint: string | null;
+  trustedPeerCount: number;
+  pairing: DispatchPairingSnapshot | null;
+  logTail: string;
+  logUpdatedAtLabel: string | null;
+  logMissing: boolean;
+  logTruncated: boolean;
+  lastUpdatedLabel: string | null;
+};
+
 export type DesktopRuntimeState = {
   helperRunning: boolean;
   helperDetail: string | null;
@@ -261,6 +296,32 @@ export type DesktopTask = {
   ageLabel: string | null;
 };
 
+export type DesktopReconciliationFindingSeverity = "warning" | "error";
+
+export type DesktopReconciliationFindingKind =
+  | "agent_offline"
+  | "no_follow_up"
+  | "stale_working"
+  | "waiting_on_record";
+
+export type DesktopReconciliationFinding = {
+  id: string;
+  kind: DesktopReconciliationFindingKind;
+  severity: DesktopReconciliationFindingSeverity;
+  title: string;
+  summary: string;
+  detail: string | null;
+  requesterId: string | null;
+  requesterName: string | null;
+  targetAgentId: string | null;
+  targetAgentName: string | null;
+  conversationId: string | null;
+  messageId: string | null;
+  recordId: string | null;
+  ageLabel: string | null;
+  updatedAtLabel: string | null;
+};
+
 export type DesktopPlanStatus =
   | "awaiting-review"
   | "in-progress"
@@ -277,7 +338,7 @@ export type DesktopPlan = {
   stepsTotal: number;
   progressPercent: number;
   tags: string[];
-  twinId: string;
+  agentId: string;
   agent: string;
   workspaceName: string;
   workspacePath: string;
@@ -293,10 +354,14 @@ export type DesktopPlansState = {
   runningTaskCount: number;
   failedTaskCount: number;
   completedTaskCount: number;
+  findingCount: number;
+  warningCount: number;
+  errorCount: number;
   planCount: number;
   workspaceCount: number;
   lastUpdatedLabel: string | null;
   tasks: DesktopTask[];
+  findings: DesktopReconciliationFinding[];
   plans: DesktopPlan[];
 };
 
@@ -338,6 +403,23 @@ export type AppSettingsState = {
   defaultTransport: string;
   defaultCapabilities: string[];
   sessionPrefix: string;
+  telegram: {
+    enabled: boolean;
+    mode: "auto" | "webhook" | "polling";
+    botToken: string;
+    secretToken: string;
+    apiBaseUrl: string;
+    userName: string;
+    defaultConversationId: string;
+    ownerNodeId: string;
+    configured: boolean;
+    running: boolean;
+    runtimeMode: "webhook" | "polling" | null;
+    detail: string;
+    lastError: string | null;
+    bindingCount: number;
+    pendingDeliveries: number;
+  };
   discoveredAgents: SetupAgentSummary[];
   broker: {
     label: string;
@@ -358,6 +440,16 @@ export type UpdateAppSettingsInput = {
   defaultHarness: string;
   defaultCapabilitiesText: string;
   sessionPrefix: string;
+  telegram: {
+    enabled: boolean;
+    mode: "auto" | "webhook" | "polling";
+    botToken: string;
+    secretToken: string;
+    apiBaseUrl: string;
+    userName: string;
+    defaultConversationId: string;
+    ownerNodeId: string;
+  };
 };
 
 export type AgentConfigState = {
@@ -409,9 +501,16 @@ export type SendRelayMessageInput = {
   destinationId: string;
   body: string;
   replyToMessageId?: string | null;
+  referenceMessageIds?: string[];
+  clientMessageId?: string | null;
 };
 
 export type BrokerControlAction = "start" | "stop" | "restart";
+
+export type UpdateDispatchConfigInput = {
+  relay: string;
+  workspaceRoot?: string | null;
+};
 
 export type DesktopLogGroup = "runtime" | "app" | "agents";
 
@@ -512,6 +611,10 @@ declare global {
       getLogCatalog: () => Promise<DesktopLogCatalog>;
       getBrokerInspector: () => Promise<DesktopBrokerInspector>;
       readLogSource: (input: ReadLogSourceInput) => Promise<DesktopLogContent>;
+      getDispatchState: () => Promise<DispatchState>;
+      refreshDispatchState: () => Promise<DispatchState>;
+      controlDispatchService: (action: "start" | "stop" | "restart") => Promise<DispatchState>;
+      updateDispatchConfig: (input: UpdateDispatchConfigInput) => Promise<DispatchState>;
       getAgentSession: (agentId: string) => Promise<AgentSessionInspector>;
       openAgentSession: (agentId: string) => Promise<boolean>;
       toggleVoiceCapture: () => Promise<DesktopShellState>;

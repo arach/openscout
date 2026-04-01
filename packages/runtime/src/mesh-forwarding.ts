@@ -1,6 +1,8 @@
 import type {
   ActorIdentity,
   AgentDefinition,
+  CollaborationEvent,
+  CollaborationRecord,
   ConversationBinding,
   ConversationDefinition,
   FlightRecord,
@@ -28,6 +30,23 @@ export interface MeshInvocationBundle {
   invocation: InvocationRequest;
 }
 
+export interface MeshCollaborationRecordBundle {
+  originNode: NodeDefinition;
+  actors: ActorIdentity[];
+  agents: AgentDefinition[];
+  conversation?: ConversationDefinition;
+  record: CollaborationRecord;
+}
+
+export interface MeshCollaborationEventBundle {
+  originNode: NodeDefinition;
+  actors: ActorIdentity[];
+  agents: AgentDefinition[];
+  conversation?: ConversationDefinition;
+  record?: CollaborationRecord;
+  event: CollaborationEvent;
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -47,6 +66,34 @@ function actorIdsForInvocation(snapshot: RuntimeRegistrySnapshot, invocation: In
     invocation.requesterId,
     invocation.targetAgentId,
   ]).filter((id) => Boolean(snapshot.actors[id] || snapshot.agents[id]));
+}
+
+function actorIdsForCollaboration(
+  snapshot: RuntimeRegistrySnapshot,
+  record: CollaborationRecord,
+  conversation?: ConversationDefinition,
+): string[] {
+  const ids = new Set<string>();
+
+  ids.add(record.createdById);
+  if (record.ownerId) ids.add(record.ownerId);
+  if (record.nextMoveOwnerId) ids.add(record.nextMoveOwnerId);
+
+  if (record.kind === "question") {
+    if (record.askedById) ids.add(record.askedById);
+    if (record.askedOfId) ids.add(record.askedOfId);
+  } else {
+    if (record.requestedById) ids.add(record.requestedById);
+    if (record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
+      ids.add(record.waitingOn.targetId);
+    }
+  }
+
+  for (const participantId of conversation?.participantIds ?? []) {
+    ids.add(participantId);
+  }
+
+  return [...ids].filter((id) => Boolean(snapshot.actors[id] || snapshot.agents[id]));
 }
 
 export function buildMeshMessageBundle(
@@ -96,6 +143,57 @@ export function buildMeshInvocationBundle(
   };
 }
 
+export function buildMeshCollaborationRecordBundle(
+  snapshot: RuntimeRegistrySnapshot,
+  originNode: NodeDefinition,
+  record: CollaborationRecord,
+): MeshCollaborationRecordBundle {
+  const conversation = record.conversationId
+    ? snapshot.conversations[record.conversationId]
+    : undefined;
+  const actorIds = actorIdsForCollaboration(snapshot, record, conversation);
+
+  return {
+    originNode,
+    conversation,
+    actors: actorIds
+      .map((id) => snapshot.actors[id])
+      .filter((entry): entry is ActorIdentity => Boolean(entry)),
+    agents: actorIds
+      .map((id) => snapshot.agents[id])
+      .filter((entry): entry is AgentDefinition => Boolean(entry)),
+    record,
+  };
+}
+
+export function buildMeshCollaborationEventBundle(
+  snapshot: RuntimeRegistrySnapshot,
+  originNode: NodeDefinition,
+  event: CollaborationEvent,
+  record?: CollaborationRecord,
+): MeshCollaborationEventBundle {
+  const resolvedRecord = record ?? snapshot.collaborationRecords[event.recordId];
+  const conversation = resolvedRecord?.conversationId
+    ? snapshot.conversations[resolvedRecord.conversationId]
+    : undefined;
+  const actorIds = resolvedRecord
+    ? actorIdsForCollaboration(snapshot, resolvedRecord, conversation)
+    : [event.actorId];
+
+  return {
+    originNode,
+    conversation,
+    actors: actorIds
+      .map((id) => snapshot.actors[id])
+      .filter((entry): entry is ActorIdentity => Boolean(entry)),
+    agents: actorIds
+      .map((id) => snapshot.agents[id])
+      .filter((entry): entry is AgentDefinition => Boolean(entry)),
+    record: resolvedRecord,
+    event,
+  };
+}
+
 async function postJson<TResponse>(url: string, payload: unknown): Promise<TResponse> {
   const response = await fetch(url, {
     method: "POST",
@@ -125,4 +223,18 @@ export async function forwardMeshInvocation(
   bundle: MeshInvocationBundle,
 ): Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }> {
   return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/invocations`, bundle);
+}
+
+export async function forwardMeshCollaborationRecord(
+  brokerUrl: string,
+  bundle: MeshCollaborationRecordBundle,
+): Promise<{ ok: true; duplicate?: boolean }> {
+  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/records`, bundle);
+}
+
+export async function forwardMeshCollaborationEvent(
+  brokerUrl: string,
+  bundle: MeshCollaborationEventBundle,
+): Promise<{ ok: true; duplicate?: boolean }> {
+  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/events`, bundle);
 }
