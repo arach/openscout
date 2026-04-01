@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -53,31 +53,97 @@ type SurfaceShot = {
 };
 
 const navLinks = [
-  { label: "How It Works", href: "#mesh" },
+  { label: "Problem", href: "#mesh" },
   { label: "Capabilities", href: "#capabilities" },
   { label: "Surfaces", href: "#surfaces" },
   { label: "Get Started", href: "#get-started" },
 ] as const;
 
 
-const generalMeshPrinciples: IconCard[] = [
+type ProblemVariant = {
+  meshTitle: string;
+  meshDescription: string;
+  cards: IconCard[];
+};
+
+const problemVariants: ProblemVariant[] = [
+  // ── Variation A: Structural gap ──
   {
-    icon: Network,
-    title: "Connected agents",
-    description:
-      "Your assistants, automations, and tools can find each other through one local system instead of becoming isolated tabs.",
+    meshTitle: "Your agents are siloed.",
+    meshDescription:
+      "To date, every multi-agent feature — swarms, orchestration, teams — has been scoped to a single project with a rigid hierarchy. But your agents span projects, tools, and runtimes. Nothing connects them across that boundary.",
+    cards: [
+      {
+        icon: Network,
+        title: "No discovery",
+        description:
+          "An agent has no way to know what other agents exist on your machine, what they're working on, or how to reach them.",
+      },
+      {
+        icon: Layers,
+        title: "No communication",
+        description:
+          "You can't say \"ask the agent on the iOS side.\" There's no channel between them. You are the channel.",
+      },
+      {
+        icon: Shield,
+        title: "No presence",
+        description:
+          "Nothing announces itself. Nothing is findable. An agent running in the next terminal might as well not exist.",
+      },
+    ],
   },
+  // ── Variation B: First-person agent perspective ──
   {
-    icon: Layers,
-    title: "Durable shared history",
-    description:
-      "Messages, tasks, and work state stay visible after restarts so you can understand what happened and pick up where you left off.",
+    meshTitle: "\"I have no idea who else is running right now.\"",
+    meshDescription:
+      "That's what every agent on your machine would tell you. They can't see who's around, can't ask for help, and can't be asked. You end up being the only one who knows the full picture.",
+    cards: [
+      {
+        icon: Network,
+        title: "I can't see who's around",
+        description:
+          "Right now I know about this repo because I was told. I have no idea what other agents are running on this machine, or what they know.",
+      },
+      {
+        icon: Layers,
+        title: "I can't ask for help",
+        description:
+          "If another agent already solved the problem I'm hitting, I have no way to find that out. I'll rediscover it from scratch or you'll have to tell me.",
+      },
+      {
+        icon: Shield,
+        title: "I can't be found",
+        description:
+          "If another agent needs what I know, it can't reach me. There's no way to look me up, no way to hand off, no way to refer.",
+      },
+    ],
   },
+  // ── Variation C: Concrete scenario ──
   {
-    icon: Shield,
-    title: "Runs on your machines",
-    description:
-      "Projects, device identity, and runtime health stay local, inspectable, and recoverable instead of disappearing behind a hosted black box.",
+    meshTitle: "You're the router between agents that can't find each other.",
+    meshDescription:
+      "You have agents everywhere but none of them know about the others. You end up being the one who connects them — copying context, pointing one at another's output, and bridging gaps that shouldn't exist.",
+    cards: [
+      {
+        icon: Network,
+        title: "\"Ask the agent working on the iOS side\"",
+        description:
+          "You can't say this. There's no way to point one agent at another. So you copy the answer yourself and paste it into the other terminal.",
+      },
+      {
+        icon: Layers,
+        title: "\"What are all my active agents right now?\"",
+        description:
+          "You don't know. Nobody knows. There's no inventory of what's running, what's idle, and what each one is working on.",
+      },
+      {
+        icon: Shield,
+        title: "\"We already figured this out yesterday\"",
+        description:
+          "An agent solved this exact problem in another session. But today's agent starts fresh. The knowledge exists on your machine — it's just locked in a dead session.",
+      },
+    ],
   },
 ];
 
@@ -319,11 +385,11 @@ const audienceContent = {
     heroDescription:
       "OpenScout keeps your agents, tools, and companion surfaces connected on one local system. Conversations, tasks, and runtime state stay visible instead of disappearing into tabs, terminals, and background services.",
     heroCommand: "bun add -g @openscout/cli",
-    heroFootnote: "Open source. Local-first. Broker-backed.",
-    meshEyebrow: "Why It Works",
-    meshTitle: "Your local agent system stays connected, visible, and recoverable.",
+    heroFootnote: "Open source. Local-first.",
+    meshEyebrow: "The Problem",
+    meshTitle: "You're the router between agents that can't find each other.",
     meshDescription:
-      "OpenScout gives your assistants and operator surfaces one local system to talk through, so work does not vanish when an app closes or a machine restarts.",
+      "You have agents everywhere but none of them know about the others. You end up being the one who connects them — copying context, pointing one at another's output, and bridging gaps that shouldn't exist.",
     capabilitiesTitle: "Messaging, pairing, and runtime state stay aligned.",
     capabilitiesDescription:
       "Every surface sits on top of the same local system, so the product feels coherent instead of stitched together.",
@@ -340,9 +406,9 @@ const audienceContent = {
   technical: {
     heroEyebrow: "Broker-Backed Runtime",
     heroTitleTop: "The local broker",
-    heroTitleBottom: "for your agents.",
+    heroTitleBottom: "for your AI agents.",
     heroDescription:
-      "Broker-backed local communication and execution for Claude, Codex, tmux, bridges, and companion surfaces. Durable conversations, explicit invocations, tracked flights, and runtime state you can inspect without scraping terminal scrollback.",
+      "Broker-backed local communication and execution for Claude, Codex, tmux, bridges, and companion surfaces. Persistent conversations, explicit invocations, tracked agent flights, and inspectable runtime state — all without digging through terminal scrollback.",
     heroCommand: "openscout relay tui",
     heroFootnote: "Broker-backed. Durable. Inspectable.",
     meshEyebrow: "The Mesh",
@@ -434,13 +500,29 @@ function AudienceToggle({
 
 export default function Home() {
   const [audience, setAudience] = useState<AudienceMode>("general");
-  const scrollRef = useScrollReveal<HTMLElement>();
+  const [problemVariant, setProblemVariant] = useState(0);
+  const scrollRef = useScrollReveal<HTMLElement>(`${problemVariant}-${audience}`);
+
+  // Keyboard toggle: 1/2/3 to switch problem variations
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "1") setProblemVariant(0);
+      if (e.key === "2") setProblemVariant(1);
+      if (e.key === "3") setProblemVariant(2);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const humanMode: "general" | "technical" =
     audience === "technical" ? "technical" : "general";
   const copy = audienceContent[humanMode];
+  const currentProblem = problemVariants[problemVariant];
   const meshPrinciples =
-    humanMode === "technical" ? technicalMeshPrinciples : generalMeshPrinciples;
+    humanMode === "technical"
+      ? technicalMeshPrinciples
+      : currentProblem.cards;
   const capabilities =
     humanMode === "technical" ? technicalCapabilities : generalCapabilities;
   const surfaceGallery = surfaceGalleryByAudience[humanMode];
@@ -526,7 +608,7 @@ export default function Home() {
                   </h1>
 
                   <p
-                    className="hero-animate mt-6 min-h-[5.5rem] max-w-lg text-[17px] leading-relaxed text-[#65635d]"
+                    className="hero-animate mt-6 min-h-[5.5rem] max-w-lg text-[17px] leading-relaxed text-[#4a4843]"
                     style={{ animationDelay: "0.1s" }}
                   >
                     {copy.heroDescription}
@@ -560,7 +642,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ── How It Works ── */}
+            {/* ── Problem ── */}
             <section
               id="mesh"
               className="relative border-y border-[#eae6dd] bg-white py-28"
@@ -568,14 +650,43 @@ export default function Home() {
               <div className="mx-auto max-w-[90rem] px-6">
                 <div className="reveal mx-auto max-w-3xl text-center">
                   <div className="landing-label text-[#2a57cb]">
-                    {copy.meshEyebrow}
+                    {humanMode === "technical"
+                      ? copy.meshEyebrow
+                      : "The Problem"}
                   </div>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
-                    {copy.meshTitle}
+                  <h2 className="mt-4 min-h-[3.5rem] text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
+                    {humanMode === "technical"
+                      ? copy.meshTitle
+                      : currentProblem.meshTitle}
                   </h2>
-                  <p className="mt-4 text-lg leading-relaxed text-[#66645d]">
-                    {copy.meshDescription}
+                  <p className="mt-4 min-h-[3.5rem] text-lg leading-relaxed text-[#4d4b45]">
+                    {humanMode === "technical"
+                      ? copy.meshDescription
+                      : currentProblem.meshDescription}
                   </p>
+
+                  {/* Variant indicator — only in general mode */}
+                  {humanMode === "general" && (
+                    <div className="mt-6 inline-flex items-center gap-1.5">
+                      {problemVariants.map((_, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setProblemVariant(i)}
+                          className={`flex h-7 w-7 items-center justify-center rounded-md font-[family-name:var(--font-geist-mono)] text-[11px] font-medium transition-colors ${
+                            problemVariant === i
+                              ? "bg-[#111110] text-[#f5f4ef]"
+                              : "text-[#9a978f] hover:bg-[#eae6dd]"
+                          }`}
+                        >
+                          {i + 1}
+                        </button>
+                      ))}
+                      <span className="ml-2 font-[family-name:var(--font-geist-mono)] text-[11px] text-[#b5b1a8]">
+                        press 1 / 2 / 3
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="reveal-stagger mt-16 grid gap-5 md:grid-cols-3">
@@ -595,7 +706,7 @@ export default function Home() {
                         <h3 className="mt-5 text-lg font-semibold tracking-tight text-[#111110]">
                           {title}
                         </h3>
-                        <p className="mt-2 text-[15px] leading-relaxed text-[#6b6862]">
+                        <p className="mt-2 text-[15px] leading-relaxed text-[#504d47]">
                           {description}
                         </p>
                       </div>
@@ -615,7 +726,7 @@ export default function Home() {
                   <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110]">
                     {copy.capabilitiesTitle}
                   </h2>
-                  <p className="mt-4 text-[15px] leading-relaxed text-[#66645d]">
+                  <p className="mt-4 text-[15px] leading-relaxed text-[#4d4b45]">
                     {copy.capabilitiesDescription}
                   </p>
                   <Link
@@ -647,7 +758,7 @@ export default function Home() {
                         <h3 className="mt-4 text-base font-semibold tracking-tight text-[#111110]">
                           {title}
                         </h3>
-                        <p className="mt-2 text-[14px] leading-relaxed text-[#6b6862]">
+                        <p className="mt-2 text-[14px] leading-relaxed text-[#504d47]">
                           {description}
                         </p>
                       </div>
@@ -669,7 +780,7 @@ export default function Home() {
                   <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
                     {copy.surfacesTitle}
                   </h2>
-                  <p className="mt-4 text-[15px] leading-relaxed text-[#66645d]">
+                  <p className="mt-4 text-[15px] leading-relaxed text-[#4d4b45]">
                     {copy.surfacesDescription}
                   </p>
 
@@ -677,7 +788,7 @@ export default function Home() {
                     <div className="landing-label text-[#9a978f]">
                       {copy.surfacesNoteTitle}
                     </div>
-                    <p className="mt-2 text-sm leading-relaxed text-[#6b6862]">
+                    <p className="mt-2 text-sm leading-relaxed text-[#504d47]">
                       {copy.surfacesNoteDescription}
                     </p>
                   </div>
@@ -707,7 +818,7 @@ export default function Home() {
                         <h3 className="mt-1.5 text-base font-semibold tracking-tight text-[#111110]">
                           {shot.title}
                         </h3>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-[#6b6862]">
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-[#504d47]">
                           {shot.description}
                         </p>
                       </figcaption>
@@ -729,7 +840,7 @@ export default function Home() {
                       <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
                         {copy.getStartedTitle}
                       </h2>
-                      <p className="mt-4 text-[15px] leading-relaxed text-[#66645d]">
+                      <p className="mt-4 text-[15px] leading-relaxed text-[#4d4b45]">
                         {copy.getStartedDescription}
                       </p>
 
@@ -737,7 +848,7 @@ export default function Home() {
                         <div className="landing-label text-[#9a978f]">
                           Repo Dev Mode
                         </div>
-                        <p className="mt-2 text-sm leading-relaxed text-[#6b6862]">
+                        <p className="mt-2 text-sm leading-relaxed text-[#504d47]">
                           Want the full desktop shell? Clone the repo and
                           relaunch the local app wrapper from source.
                         </p>
@@ -778,71 +889,68 @@ export default function Home() {
           </main>
 
           {/* ── Footer ── */}
-          <footer className="border-t border-[#eae6dd] bg-white">
-            <div className="mx-auto max-w-[90rem] px-6 py-12">
-              <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
-                <div className="flex items-start gap-4">
-                  <LogoMark size="md" />
-                  <div>
-                    <div className="text-base font-semibold tracking-tight text-[#111110]">
-                      OpenScout
-                    </div>
-                    <p className="mt-1 max-w-xs text-sm leading-relaxed text-[#75726b]">
-                      Local broker for connected agents. Open source and
-                      local-first.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-6 text-sm text-[#6b6862]">
-                  <Link
+          <footer className="px-6 pb-20">
+            <div className="mx-auto max-w-[90rem] border-t border-[#eae6dd]">
+              <div className="flex items-center justify-between py-4">
+                <span className="font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
+                  OpenScout
+                </span>
+                <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
+                  <a
                     href="/docs/relay"
                     className="transition-colors hover:text-[#111110]"
                   >
-                    Documentation
-                  </Link>
+                    Docs
+                  </a>
                   <a
                     href="https://github.com/arach/openscout"
+                    className="transition-colors hover:text-[#111110]"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="transition-colors hover:text-[#111110]"
                   >
                     GitHub
                   </a>
                   <a
                     href="https://x.com/arabornia"
+                    className="transition-colors hover:text-[#111110]"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="transition-colors hover:text-[#111110]"
                   >
                     Twitter
                   </a>
                 </div>
-              </div>
-
-              <div className="mt-10 border-t border-[#eae6dd] pt-6">
-                <p className="text-xs text-[#a19e96]">
-                  Built by{" "}
-                  <a
-                    href="https://x.com/arabornia"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#7b7871] transition-colors hover:text-[#111110]"
-                  >
-                    Arach
-                  </a>
-                </p>
               </div>
             </div>
           </footer>
         </>
       )}
 
-      {/* ── Floating agent pill (bottom-right) ── */}
-      <div
-        className="fixed bottom-3 right-3 z-[60] animate-in"
-        style={{ animationDelay: "0.5s" }}
-      >
+      {/* ── Floating bottom nav ── */}
+      <nav className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 animate-in" style={{ animationDelay: "0.4s" }}>
+        <div className="flex items-center gap-0.5 rounded-full border border-[#2a2a28] bg-[#111110]/92 p-1 shadow-lg backdrop-blur-xl">
+          {[
+            ["Problem", "#mesh"],
+            ["Capabilities", "#capabilities"],
+            ["Surfaces", "#surfaces"],
+            ["Get Started", "#get-started"],
+            ["Docs", "/docs/relay"],
+            ["GitHub", "https://github.com/arach/openscout"],
+          ].map(([label, href]) => (
+            <a
+              key={label}
+              href={href}
+              {...(href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className="rounded-full px-3.5 py-1.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.08em] text-[#8b887f] transition-colors hover:bg-[#2a2a28] hover:text-[#f5f4ef]"
+            >
+              {label}
+            </a>
+          ))}
+
+        </div>
+      </nav>
+
+      {/* ── Agent pill (bottom-right) ── */}
+      <div className="fixed bottom-5 right-5 z-[60] animate-in" style={{ animationDelay: "0.5s" }}>
         <button
           type="button"
           onClick={() =>

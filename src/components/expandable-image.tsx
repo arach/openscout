@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { Expand, X } from "lucide-react";
 
@@ -73,7 +74,7 @@ export function ExpandableImage({
         </button>
       </div>
 
-      {open ? (
+      {open ? createPortal(
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/78 p-4 backdrop-blur-sm sm:p-6"
           role="dialog"
@@ -107,7 +108,7 @@ export function ExpandableImage({
             </div>
           </div>
         </div>
-      ) : null}
+      , document.body) : null}
     </>
   );
 }
