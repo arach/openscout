@@ -8,6 +8,21 @@ import SwiftUI
 struct SessionHistoryView: View {
     @State private var cachedSessions: [SessionCache.CachedSessionInfo] = []
     @State private var selectedSessionId: String?
+    @State private var searchText = ""
+
+    private var filteredSessions: [SessionCache.CachedSessionInfo] {
+        let tokens = searchText.searchTokens
+        guard !tokens.isEmpty else { return cachedSessions }
+
+        return cachedSessions.filter { info in
+            tokens.allSatisfy { token in
+                info.name.localizedCaseInsensitiveContains(token)
+                    || info.adapterType.localizedCaseInsensitiveContains(token)
+                    || AdapterIcon.displayName(for: info.adapterType).localizedCaseInsensitiveContains(token)
+                    || info.id.localizedCaseInsensitiveContains(token)
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,11 +34,12 @@ struct SessionHistoryView: View {
                 }
             }
             .background(DispatchColors.backgroundAdaptive)
-            .navigationTitle("History")
+            .navigationTitle("Saved")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(item: $selectedSessionId) { sessionId in
                 CachedSessionView(sessionId: sessionId)
             }
+            .searchable(text: $searchText, prompt: "Search saved sessions")
         }
         .task {
             cachedSessions = SessionCache.shared.loadIndex()
@@ -32,47 +48,56 @@ struct SessionHistoryView: View {
 
     private var sessionList: some View {
         List {
-            ForEach(cachedSessions, id: \.id) { info in
-                Button {
-                    selectedSessionId = info.id
-                } label: {
-                    HStack(spacing: DispatchSpacing.md) {
-                        Image(systemName: AdapterIcon.systemName(for: info.adapterType))
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(DispatchColors.accent)
-                            .frame(width: 32)
+            if filteredSessions.isEmpty {
+                Text("No cached sessions match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”.")
+                    .font(DispatchTypography.body(14))
+                    .foregroundStyle(DispatchColors.textSecondary)
+                    .padding(.vertical, DispatchSpacing.md)
+                    .listRowBackground(DispatchColors.backgroundAdaptive)
+            } else {
+                ForEach(filteredSessions, id: \.id) { info in
+                    Button {
+                        selectedSessionId = info.id
+                    } label: {
+                        HStack(spacing: DispatchSpacing.md) {
+                            Image(systemName: AdapterIcon.systemName(for: info.adapterType))
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(DispatchColors.accent)
+                                .frame(width: 32)
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(info.name)
-                                .font(DispatchTypography.body(15, weight: .medium))
-                                .foregroundStyle(DispatchColors.textPrimary)
-                            HStack(spacing: DispatchSpacing.sm) {
-                                Text(AdapterIcon.displayName(for: info.adapterType))
-                                    .font(DispatchTypography.caption(12))
-                                    .foregroundStyle(DispatchColors.textMuted)
-                                Text("\(info.turnCount) turns")
-                                    .font(DispatchTypography.caption(12))
-                                    .foregroundStyle(DispatchColors.textMuted)
-                                Text(RelativeTime.string(from: info.cachedAt))
-                                    .font(DispatchTypography.caption(12))
-                                    .foregroundStyle(DispatchColors.textMuted)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(info.name)
+                                    .font(DispatchTypography.body(15, weight: .medium))
+                                    .foregroundStyle(DispatchColors.textPrimary)
+                                HStack(spacing: DispatchSpacing.sm) {
+                                    Text(AdapterIcon.displayName(for: info.adapterType))
+                                        .font(DispatchTypography.caption(12))
+                                        .foregroundStyle(DispatchColors.textMuted)
+                                    Text("\(info.turnCount) turns")
+                                        .font(DispatchTypography.caption(12))
+                                        .foregroundStyle(DispatchColors.textMuted)
+                                    Text(RelativeTime.string(from: info.cachedAt))
+                                        .font(DispatchTypography.caption(12))
+                                        .foregroundStyle(DispatchColors.textMuted)
+                                }
                             }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(DispatchColors.textMuted)
                         }
-
-                        Spacer()
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(DispatchColors.textMuted)
+                    }
+                    .listRowBackground(DispatchColors.backgroundAdaptive)
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        let filtered = filteredSessions
+                        SessionCache.shared.delete(sessionId: filtered[index].id)
+                        cachedSessions.removeAll { $0.id == filtered[index].id }
                     }
                 }
-                .listRowBackground(DispatchColors.backgroundAdaptive)
-            }
-            .onDelete { indexSet in
-                for index in indexSet {
-                    SessionCache.shared.delete(sessionId: cachedSessions[index].id)
-                }
-                cachedSessions.remove(atOffsets: indexSet)
             }
         }
         .listStyle(.plain)
@@ -84,13 +109,9 @@ struct SessionHistoryView: View {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 36))
                 .foregroundStyle(DispatchColors.textMuted)
-            Text("No cached sessions")
+            Text("Nothing saved")
                 .font(DispatchTypography.body(16, weight: .medium))
                 .foregroundStyle(DispatchColors.textSecondary)
-            Text("Sessions are cached locally as you use them.\nView them here anytime, even offline.")
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textMuted)
-                .multilineTextAlignment(.center)
             Spacer()
         }
         .padding(.horizontal, DispatchSpacing.xxl)
@@ -127,7 +148,9 @@ struct CachedSessionView: View {
                 sessionId: sessionId,
                 status: turnStatus,
                 startedAt: formatter.string(from: startedAtDate),
-                blocks: blocks
+                endedAt: turnState.endedAt.map { formatter.string(from: Date(timeIntervalSince1970: Double($0) / 1000.0)) },
+                blocks: blocks,
+                turnHash: turnState.turnHash
             )
         }
     }
@@ -143,7 +166,7 @@ struct CachedSessionView: View {
                         HStack(spacing: DispatchSpacing.sm) {
                             Image(systemName: "internaldrive")
                                 .font(.system(size: 12))
-                            Text("Cached locally — read only")
+                            Text("Read only")
                                 .font(DispatchTypography.caption(12, weight: .medium))
                         }
                         .foregroundStyle(DispatchColors.textMuted)
@@ -208,11 +231,10 @@ struct CachedSessionView: View {
                         }
                     }
 
-                    Text("This session was saved but had no conversation turns.\nIt may have just been created.")
-                        .font(DispatchTypography.body(14))
-                        .foregroundStyle(DispatchColors.textMuted)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, DispatchSpacing.xxs)
+                        Text("No messages yet.")
+                            .font(DispatchTypography.body(14))
+                            .foregroundStyle(DispatchColors.textMuted)
+                            .padding(.top, DispatchSpacing.xxs)
                 }
 
                 // Fetch from bridge button
@@ -251,7 +273,7 @@ struct CachedSessionView: View {
                         Circle()
                             .fill(DispatchColors.statusIdle)
                             .frame(width: 6, height: 6)
-                        Text("Connect to bridge to fetch session data")
+                        Text("Connect to fetch")
                             .font(DispatchTypography.caption(12))
                             .foregroundStyle(DispatchColors.textMuted)
                     }

@@ -9,7 +9,7 @@ import Foundation
 final class SessionCache: Sendable {
     static let shared = SessionCache()
 
-    private let maxTurnsPerSession = 100
+    private let maxTurnsPerSession = 400
     private let cacheDir: URL
 
     private init() {
@@ -98,14 +98,14 @@ final class SessionCache: Sendable {
         )
         index.insert(info, at: 0)
 
-        // Keep last 50 sessions in index
-        if index.count > 50 {
-            let removed = index.suffix(from: 50)
+        // Keep a deeper local history so prior work is still reviewable after leaving the app.
+        if index.count > 100 {
+            let removed = index.suffix(from: 100)
             for entry in removed {
                 let url = fileURL(for: entry.id)
                 try? FileManager.default.removeItem(at: url)
             }
-            index = Array(index.prefix(50))
+            index = Array(index.prefix(100))
         }
 
         let url = cacheDir.appendingPathComponent("index.json")

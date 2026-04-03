@@ -31,6 +31,8 @@ export type DispatchPaths = {
   identityPath: string;
   trustedPeersPath: string;
   logPath: string;
+  runtimeStatePath: string;
+  runtimePidPath: string;
 };
 
 export const DISPATCH_QR_TTL_MS = 5 * 60 * 1000;
@@ -43,6 +45,8 @@ export function dispatchPaths(): DispatchPaths {
     identityPath: path.join(rootDir, "identity.json"),
     trustedPeersPath: path.join(rootDir, "trusted-peers.json"),
     logPath: path.join(rootDir, "bridge.log"),
+    runtimeStatePath: path.join(rootDir, "runtime.json"),
+    runtimePidPath: path.join(rootDir, "runtime.pid"),
   };
 }
 

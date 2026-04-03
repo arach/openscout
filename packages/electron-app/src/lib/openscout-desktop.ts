@@ -375,6 +375,12 @@ export type DesktopShellState = {
   interAgent: InterAgentState;
 };
 
+export type PhonePreparationState = {
+  favorites: string[];
+  quickHits: string[];
+  preparedAt: number | null;
+};
+
 export type SetupAgentSummary = {
   id: string;
   title: string;
@@ -384,6 +390,68 @@ export type SetupAgentSummary = {
   harness: string;
   sessionId: string;
   projectConfigPath: string | null;
+};
+
+export type SetupProjectHarnessSummary = {
+  harness: string;
+  source: "manifest" | "marker" | "default";
+  detail: string;
+  readinessState: "ready" | "configured" | "installed" | "missing" | null;
+  readinessDetail: string | null;
+};
+
+export type SetupProjectSummary = {
+  id: string;
+  definitionId: string;
+  title: string;
+  projectName: string;
+  root: string;
+  sourceRoot: string;
+  relativePath: string;
+  source: string;
+  registrationKind: "configured" | "discovered";
+  defaultHarness: string;
+  projectConfigPath: string | null;
+  harnesses: SetupProjectHarnessSummary[];
+};
+
+export type SetupRuntimeSummary = {
+  name: string;
+  label: string;
+  readinessState: "ready" | "configured" | "installed" | "missing";
+  readinessDetail: string;
+};
+
+export type SetupOnboardingStep = {
+  id: string;
+  title: string;
+  detail: string;
+  complete: boolean;
+};
+
+export type SetupOnboardingState = {
+  needed: boolean;
+  title: string;
+  detail: string;
+  commands: string[];
+  steps: SetupOnboardingStep[];
+};
+
+export type OnboardingCommandName = "init" | "doctor" | "runtimes";
+
+export type RunOnboardingCommandInput = {
+  command: OnboardingCommandName;
+  sourceRoots?: string[];
+};
+
+export type OnboardingCommandResult = {
+  command: OnboardingCommandName;
+  commandLine: string;
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  output: string;
 };
 
 export type AppSettingsState = {
@@ -421,6 +489,9 @@ export type AppSettingsState = {
     pendingDeliveries: number;
   };
   discoveredAgents: SetupAgentSummary[];
+  projectInventory: SetupProjectSummary[];
+  runtimeCatalog: SetupRuntimeSummary[];
+  onboarding: SetupOnboardingState;
   broker: {
     label: string;
     url: string;
@@ -450,6 +521,12 @@ export type UpdateAppSettingsInput = {
     defaultConversationId: string;
     ownerNodeId: string;
   };
+};
+
+export type UpdatePhonePreparationInput = {
+  favorites: string[];
+  quickHits: string[];
+  preparedAt: number | null;
 };
 
 export type AgentConfigState = {
@@ -500,6 +577,7 @@ export type SendRelayMessageInput = {
   destinationKind: RelayDestinationKind;
   destinationId: string;
   body: string;
+  harness?: string | null;
   replyToMessageId?: string | null;
   referenceMessageIds?: string[];
   clientMessageId?: string | null;
@@ -603,6 +681,10 @@ declare global {
       refreshShellState: () => Promise<DesktopShellState>;
       getAppSettings: () => Promise<AppSettingsState>;
       updateAppSettings: (input: UpdateAppSettingsInput) => Promise<AppSettingsState>;
+      runOnboardingCommand: (input: RunOnboardingCommandInput) => Promise<OnboardingCommandResult>;
+      skipOnboarding: () => Promise<AppSettingsState>;
+      getPhonePreparation: () => Promise<PhonePreparationState>;
+      updatePhonePreparation: (input: UpdatePhonePreparationInput) => Promise<PhonePreparationState>;
       getAgentConfig: (agentId: string) => Promise<AgentConfigState>;
       updateAgentConfig: (input: UpdateAgentConfigInput) => Promise<AgentConfigState>;
       restartAgent: (input: RestartAgentInput) => Promise<DesktopShellState>;

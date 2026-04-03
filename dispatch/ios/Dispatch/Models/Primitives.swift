@@ -44,6 +44,7 @@ struct Turn: Codable, Identifiable, Sendable {
     var endedAt: String?
     var blocks: [Block]
     var isUserTurn: Bool?
+    var turnHash: String? = nil
 }
 
 // MARK: - Block
@@ -164,6 +165,7 @@ struct TurnState: Codable, Sendable {
     let startedAt: Int
     var endedAt: Int?
     var isUserTurn: Bool?
+    var turnHash: String? = nil
 }
 
 enum SnapshotBlockStatus: String, Codable, Sendable {
@@ -185,6 +187,9 @@ struct SessionSummary: Codable, Identifiable, Sendable {
     var currentTurnStatus: String?
     let startedAt: Int
     var lastActivityAt: Int
+    var project: String? = nil
+    var model: String? = nil
+    var isCachedOnly: Bool = false
 
     var id: String { sessionId }
 }
@@ -239,5 +244,62 @@ struct AnyCodable: Codable, @unchecked Sendable {
         default:
             try container.encodeNil()
         }
+    }
+}
+
+// MARK: - Typed helpers
+
+extension AnyCodable {
+    var stringValue: String? {
+        value as? String
+    }
+}
+
+extension Session {
+    var currentBranch: String? {
+        for key in ["branch", "gitBranch", "currentBranch", "workspaceQualifier"] {
+            if let branch = providerMeta?[key]?.stringValue?.trimmedNonEmpty {
+                return branch
+            }
+        }
+
+        if let selector = providerMeta?["selector"]?.stringValue?.trimmedNonEmpty,
+           let suffix = selector.split(separator: "/").last,
+           !suffix.isEmpty {
+            return String(suffix)
+        }
+
+        return nil
+    }
+
+    var inferredProjectName: String? {
+        if let explicitProject = providerMeta?["project"]?.stringValue?.trimmedNonEmpty {
+            return explicitProject
+        }
+
+        if let cwd = cwd?.trimmedNonEmpty {
+            let lastComponent = URL(fileURLWithPath: cwd).lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !lastComponent.isEmpty && lastComponent != "/" {
+                return lastComponent
+            }
+        }
+
+        for separator in [" — ", " – ", " · "] {
+            let parts = name.components(separatedBy: separator)
+            if let suffix = parts.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !suffix.isEmpty,
+               suffix != name {
+                return suffix
+            }
+        }
+
+        return nil
+    }
+}
+
+extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

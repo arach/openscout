@@ -29,20 +29,6 @@ struct Harness: Identifiable, Hashable {
             description: "OpenAI's coding agent",
             color: Color(red: 0.3, green: 0.85, blue: 0.5)
         ),
-        Harness(
-            id: "aider",
-            name: "Aider",
-            icon: "arrow.triangle.branch",
-            description: "AI pair programming in your terminal",
-            color: Color(red: 1.0, green: 0.6, blue: 0.2)
-        ),
-        Harness(
-            id: "openai-compat",
-            name: "OpenAI Compatible",
-            icon: "brain",
-            description: "GPT, Groq, Together, LM Studio, Ollama",
-            color: Color(red: 0.7, green: 0.5, blue: 1.0)
-        ),
     ]
 }
 
@@ -51,21 +37,22 @@ struct Harness: Identifiable, Hashable {
 /// Configuration for launching a session — harness + optional overrides.
 struct HarnessConfig {
     let harness: Harness
-    var checkout: String?
     var model: String?
-    var extensions: [String] = []
 }
 
 struct HarnessPickerView: View {
     let projectName: String
     let projectPath: String
-    let onSelect: (Harness) -> Void
+    let onSelect: (HarnessConfig) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedHarness: Harness?
-    @State private var checkout = ""
-    @State private var model = ""
+    @State private var selectedModel = ""
+
+    private var launchModelOptions: [String] {
+        DispatchModelCatalog.launchOptions(for: selectedHarness?.id)
+    }
 
     var body: some View {
         NavigationStack {
@@ -107,6 +94,7 @@ struct HarnessPickerView: View {
                                 ) {
                                     withAnimation(.easeInOut(duration: 0.15)) {
                                         selectedHarness = harness
+                                        selectedModel = ""
                                     }
                                 }
                             }
@@ -119,17 +107,9 @@ struct HarnessPickerView: View {
                                     .font(DispatchTypography.caption(13, weight: .medium))
                                     .foregroundStyle(DispatchColors.textMuted)
 
-                                ConfigField(
-                                    icon: "arrow.triangle.branch",
-                                    placeholder: "Branch or checkout (default: current)",
-                                    text: $checkout
-                                )
-
-                                ConfigField(
-                                    icon: "cpu",
-                                    placeholder: "Model override (default: agent's default)",
-                                    text: $model
-                                )
+                                if !launchModelOptions.isEmpty {
+                                    modelPickerField
+                                }
                             }
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
@@ -142,7 +122,12 @@ struct HarnessPickerView: View {
                     VStack(spacing: 0) {
                         Divider().background(DispatchColors.divider)
                         Button {
-                            onSelect(harness)
+                            onSelect(
+                                HarnessConfig(
+                                    harness: harness,
+                                    model: selectedModel.trimmedNonEmpty
+                                )
+                            )
                             dismiss()
                         } label: {
                             HStack(spacing: DispatchSpacing.sm) {
@@ -180,30 +165,60 @@ struct HarnessPickerView: View {
 
 // MARK: - Config Field
 
-private struct ConfigField: View {
-    let icon: String
-    let placeholder: String
-    @Binding var text: String
+private extension HarnessPickerView {
+    var modelPickerField: some View {
+        Menu {
+            Button {
+                selectedModel = ""
+            } label: {
+                if selectedModel.isEmpty {
+                    Label("Default", systemImage: "checkmark")
+                } else {
+                    Text("Default")
+                }
+            }
 
-    var body: some View {
-        HStack(spacing: DispatchSpacing.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(DispatchColors.textMuted)
-                .frame(width: 24)
+            ForEach(launchModelOptions, id: \.self) { model in
+                Button {
+                    selectedModel = model
+                } label: {
+                    if selectedModel == model {
+                        Label(DispatchModelLabel.displayText(for: model, fallback: model), systemImage: "checkmark")
+                    } else {
+                        Text(DispatchModelLabel.displayText(for: model, fallback: model))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: DispatchSpacing.sm) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(DispatchColors.textMuted)
+                    .frame(width: 24)
 
-            TextField(placeholder, text: $text)
-                .font(DispatchTypography.code(14))
-                .foregroundStyle(DispatchColors.textPrimary)
-                .textFieldStyle(.plain)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Model")
+                        .font(DispatchTypography.caption(11, weight: .semibold))
+                        .foregroundStyle(DispatchColors.textMuted)
+                    Text(selectedModel.isEmpty ? "Default" : DispatchModelLabel.displayText(for: selectedModel, fallback: selectedModel))
+                        .font(DispatchTypography.code(14))
+                        .foregroundStyle(DispatchColors.textPrimary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DispatchColors.textMuted)
+            }
+            .padding(DispatchSpacing.md)
+            .background(DispatchColors.surfaceAdaptive)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(DispatchColors.border, lineWidth: 0.5)
+            )
         }
-        .padding(DispatchSpacing.md)
-        .background(DispatchColors.surfaceAdaptive)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(DispatchColors.border, lineWidth: 0.5)
-        )
     }
 }
 

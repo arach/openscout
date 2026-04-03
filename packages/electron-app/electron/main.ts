@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { execFile as execFileCallback } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -15,22 +16,28 @@ import {
   getAppSettings,
   getBrokerInspector,
   getLogCatalog,
+  getPhonePreparation,
   readLogSource,
   restartAgent,
+  runOnboardingCommand,
+  skipOnboarding,
   sendRelayMessage,
   setVoiceRepliesEnabled,
   toggleVoiceCapture,
   updateAgentConfig,
   updateAppSettings,
+  updatePhonePreparation,
 } from "./openscout-runtime.js";
 import type {
   BrokerControlAction,
+  RunOnboardingCommandInput,
   ReadLogSourceInput,
   RestartAgentInput,
   SendRelayMessageInput,
   UpdateAgentConfigInput,
   UpdateAppSettingsInput,
   UpdateDispatchConfigInput,
+  UpdatePhonePreparationInput,
 } from "../src/lib/openscout-desktop.js";
 import { dispatchService } from "./dispatch-service.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
@@ -41,6 +48,7 @@ const {
   Menu,
   app,
   ipcMain,
+  nativeImage,
   shell,
 } = electron;
 
@@ -104,6 +112,28 @@ function resolveProductName() {
   return process.env.OPENSCOUT_PRODUCT_NAME?.trim() || app.getName() || "OpenScout";
 }
 
+function resolveDesktopAssetPath(filename: string) {
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, filename),
+        path.join(process.resourcesPath, "app", "dist", "client", filename),
+      ]
+    : [path.resolve(__dirname, "..", "..", "public", filename)];
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function applyApplicationIcon() {
+  if (process.platform !== "darwin" || !app.dock) {
+    return;
+  }
+
+  const dockIcon = nativeImage.createFromPath(resolveDesktopAssetPath("openscout-icon.png"));
+  if (!dockIcon.isEmpty()) {
+    app.dock.setIcon(dockIcon);
+  }
+}
+
 function getStartUrl(port?: number) {
   const explicitUrl = process.env.ELECTRON_START_URL?.trim();
   if (explicitUrl) {
@@ -149,6 +179,7 @@ async function createMainWindow() {
     minWidth: 1100,
     minHeight: 760,
     title: resolveProductName(),
+    icon: resolveDesktopAssetPath("openscout-icon.png"),
     backgroundColor: "#F9F9F8",
     frame: !isMac,
     titleBarStyle: isMac ? "hidden" : "default",
@@ -263,6 +294,22 @@ ipcMain.handle("openscout:update-app-settings", async (_event, input: UpdateAppS
   updateAppSettings(input),
 );
 
+ipcMain.handle("openscout:run-onboarding-command", async (_event, input: RunOnboardingCommandInput) =>
+  runOnboardingCommand(input),
+);
+
+ipcMain.handle("openscout:skip-onboarding", async () =>
+  skipOnboarding(),
+);
+
+ipcMain.handle("openscout:get-phone-preparation", async () =>
+  getPhonePreparation(),
+);
+
+ipcMain.handle("openscout:update-phone-preparation", async (_event, input: UpdatePhonePreparationInput) =>
+  updatePhonePreparation(input),
+);
+
 ipcMain.handle("openscout:get-agent-config", async (_event, agentId: string) =>
   getAgentConfig(agentId),
 );
@@ -365,6 +412,7 @@ ipcMain.handle("openscout:set-voice-replies-enabled", async (_event, enabled: bo
 );
 
 app.whenReady().then(async () => {
+  applyApplicationIcon();
   createAppMenu();
   await dispatchService.refreshState();
   await createMainWindow();

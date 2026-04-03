@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveOpenScoutSupportPaths } from "./support-paths.js";
+import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 
 export type BrokerServiceMode = "dev" | "prod" | "custom";
 
@@ -77,6 +77,9 @@ type LaunchctlStatus = {
   raw: string;
 };
 
+const BROKER_SERVICE_POLL_INTERVAL_MS = 100;
+const DEFAULT_BROKER_START_TIMEOUT_MS = 15_000;
+
 function runtimePackageDir(): string {
   const explicit = process.env.OPENSCOUT_RUNTIME_PACKAGE_DIR?.trim();
   if (explicit) {
@@ -119,8 +122,21 @@ function resolveBunExecutable(): string {
     return explicit;
   }
 
-  if (basename(process.execPath).startsWith("bun")) {
+  if (basename(process.execPath).startsWith("bun") && existsSync(process.execPath)) {
     return process.execPath;
+  }
+
+  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
+  for (const entry of pathEntries) {
+    const candidate = join(entry, "bun");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  const homeBun = join(homedir(), ".bun", "bin", "bun");
+  if (existsSync(homeBun)) {
+    return homeBun;
   }
 
   return "bun";
@@ -135,6 +151,14 @@ function resolveBrokerServiceMode(): BrokerServiceMode {
     return "custom";
   }
   return "dev";
+}
+
+function resolveBrokerStartTimeoutMs(): number {
+  const explicit = Number.parseInt(process.env.OPENSCOUT_BROKER_START_TIMEOUT_MS ?? "", 10);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return Math.max(explicit, BROKER_SERVICE_POLL_INTERVAL_MS);
+  }
+  return DEFAULT_BROKER_START_TIMEOUT_MS;
 }
 
 function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
@@ -234,7 +258,10 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>StandardOutPath</key>
   <string>${xmlEscape(config.stdoutLogPath)}</string>
   <key>StandardErrorPath</key>
@@ -289,6 +316,7 @@ function ensureParentDirectory(filePath: string): void {
 }
 
 function ensureServiceDirectories(config: BrokerServiceConfig): void {
+  ensureOpenScoutCleanSlateSync();
   mkdirSync(config.supportDirectory, { recursive: true });
   mkdirSync(config.logsDirectory, { recursive: true });
   mkdirSync(config.controlHome, { recursive: true });
@@ -324,22 +352,51 @@ function launchctlPath(): string {
   return "/bin/launchctl";
 }
 
+function readLogLines(path: string): string[] {
+  if (!existsSync(path)) {
+    return [];
+  }
+
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function isBunRunBanner(line: string): boolean {
+  return /^\$\s*bun run\b/.test(line);
+}
+
+export function selectLastRelevantLogLine(lines: string[]): string | null {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!isBunRunBanner(line)) {
+      return line;
+    }
+  }
+  return lines.at(-1) ?? null;
+}
+
 function readLastLogLine(paths: string[]): string | null {
+  let fallback: string | null = null;
+
   for (const path of paths) {
-    if (!existsSync(path)) {
+    const lines = readLogLines(path);
+    if (lines.length === 0) {
       continue;
     }
 
-    const lines = readFileSync(path, "utf8")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (lines.length > 0) {
-      return lines.at(-1) ?? null;
+    const relevantLine = selectLastRelevantLogLine(lines);
+    if (!relevantLine) {
+      continue;
     }
+    if (!isBunRunBanner(relevantLine)) {
+      return relevantLine;
+    }
+    fallback ??= relevantLine;
   }
 
-  return null;
+  return fallback;
 }
 
 export function parseLaunchctlPrint(output: string): Omit<LaunchctlStatus, "loaded" | "raw"> {
@@ -414,7 +471,9 @@ export async function brokerServiceStatus(config: BrokerServiceConfig = resolveB
   const launchctl = inspectLaunchctl(config);
   const health = await fetchHealthSnapshot(config);
   const installed = existsSync(config.launchAgentPath);
-  const lastLogLine = readLastLogLine([config.stderrLogPath, config.stdoutLogPath]);
+  const lastLogLine = health.reachable
+    ? readLastLogLine([config.stdoutLogPath, config.stderrLogPath])
+    : readLastLogLine([config.stderrLogPath, config.stdoutLogPath]);
 
   return {
     label: config.label,
@@ -448,12 +507,13 @@ export async function startBrokerService(config: BrokerServiceConfig = resolveBr
   runCommand(launchctlPath(), ["bootstrap", config.domainTarget, config.launchAgentPath], { allowFailure: true });
   runCommand(launchctlPath(), ["kickstart", "-k", config.serviceTarget], { allowFailure: true });
 
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  const attempts = Math.ceil(resolveBrokerStartTimeoutMs() / BROKER_SERVICE_POLL_INTERVAL_MS);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const status = await brokerServiceStatus(config);
     if (status.health.reachable) {
       return status;
     }
-    await sleep(100);
+    await sleep(BROKER_SERVICE_POLL_INTERVAL_MS);
   }
 
   const status = await brokerServiceStatus(config);
@@ -471,7 +531,7 @@ export async function stopBrokerService(config: BrokerServiceConfig = resolveBro
     if (!status.health.reachable) {
       return status;
     }
-    await sleep(100);
+    await sleep(BROKER_SERVICE_POLL_INTERVAL_MS);
   }
   return brokerServiceStatus(config);
 }

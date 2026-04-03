@@ -1,9 +1,9 @@
-export type TwinHarnessId = "relay-native" | "pi";
-export type TwinSessionAdapterId = "tmux" | "host" | "daemon";
-export type TwinAgentEngineId = "claude" | "codex" | "unknown";
+export type LocalAgentHarnessId = "relay-native" | "pi";
+export type LocalAgentSessionAdapterId = "tmux" | "host" | "daemon";
+export type LocalAgentEngineId = "claude" | "codex" | "unknown";
 
-export interface TwinRuntimeDescriptor {
-  harness: TwinHarnessId;
-  sessionAdapter: TwinSessionAdapterId;
-  agentEngine: TwinAgentEngineId;
+export interface LocalAgentRuntimeDescriptor {
+  harness: LocalAgentHarnessId;
+  sessionAdapter: LocalAgentSessionAdapterId;
+  agentEngine: LocalAgentEngineId;
 }

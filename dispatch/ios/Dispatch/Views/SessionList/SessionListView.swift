@@ -5,19 +5,50 @@
 
 import SwiftUI
 
+private enum SessionSortOrder: String, CaseIterable, Identifiable {
+    case recent
+    case oldest
+    case name
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .recent: "Recent"
+        case .oldest: "Oldest"
+        case .name: "Name"
+        }
+    }
+}
+
 struct SessionListView: View {
     @Environment(SessionStore.self) private var store
     @Environment(ConnectionManager.self) private var connection
 
     @State private var showingNewSession = false
     @State private var showingSettings = false
-    @State private var showingHistory = false
-    @State private var showingDiscovery = false
+    @State private var showingSavedSessions = false
+    @State private var showingSearch = false
     @State private var isRefreshing = false
     @State private var navigateToSession: String?
+    @State private var sortOrder: SessionSortOrder = .recent
 
-    private var sortedSummaries: [SessionSummary] {
-        store.summaries.sorted { $0.lastActivityAt > $1.lastActivityAt }
+    private var visibleSummaries: [SessionSummary] {
+        switch sortOrder {
+        case .recent:
+            return store.summaries.sorted { $0.lastActivityAt > $1.lastActivityAt }
+        case .oldest:
+            return store.summaries.sorted { $0.lastActivityAt < $1.lastActivityAt }
+        case .name:
+            return store.summaries.sorted {
+                let lhs = $0.name.localizedLowercase
+                let rhs = $1.name.localizedLowercase
+                if lhs == rhs {
+                    return $0.lastActivityAt > $1.lastActivityAt
+                }
+                return lhs < rhs
+            }
+        }
     }
 
     private var isConnected: Bool {
@@ -27,7 +58,7 @@ struct SessionListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if sortedSummaries.isEmpty {
+                if visibleSummaries.isEmpty {
                     emptyState
                 } else {
                     sessionList
@@ -37,24 +68,23 @@ struct SessionListView: View {
             .navigationTitle("Sessions")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    connectionStatusButton
+                    overflowMenu
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    discoveryButton
-                    historyButton
-                    settingsButton
+                    searchButton
+                    sortButton
                     newSessionButton
                 }
             }
-            .sheet(isPresented: $showingDiscovery) {
+            .sheet(isPresented: $showingSearch) {
                 SessionDiscoveryView(onResumed: { sessionId in
-                    showingDiscovery = false
+                    showingSearch = false
                     navigateToSession = sessionId
                 })
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $showingHistory) {
+            .sheet(isPresented: $showingSavedSessions) {
                 SessionHistoryView()
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
@@ -75,13 +105,18 @@ struct SessionListView: View {
                 TimelineView(sessionId: sessionId)
             }
         }
+        .task {
+            if !isConnected && store.summaries.isEmpty {
+                await refreshSessions()
+            }
+        }
     }
 
     // MARK: - Session List
 
     private var sessionList: some View {
         List {
-            ForEach(sortedSummaries) { summary in
+            ForEach(visibleSummaries) { summary in
                 NavigationLink(value: summary.sessionId) {
                     SessionRowView(summary: summary)
                 }
@@ -116,12 +151,12 @@ struct SessionListView: View {
                 }
 
                 VStack(spacing: DispatchSpacing.sm) {
-                    Text("No active sessions")
+                    Text("No sessions")
                         .font(DispatchTypography.body(20, weight: .semibold))
                         .foregroundStyle(DispatchColors.textPrimary)
 
                     if isConnected {
-                        Text("Create a session to start working with an AI agent.")
+                        Text("Start a session or search older work.")
                             .font(DispatchTypography.body(15))
                             .foregroundStyle(DispatchColors.textSecondary)
                             .multilineTextAlignment(.center)
@@ -135,60 +170,44 @@ struct SessionListView: View {
             }
 
             if isConnected {
-                Button {
-                    showingNewSession = true
-                } label: {
-                    HStack(spacing: DispatchSpacing.sm) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("New Session")
-                            .font(DispatchTypography.body(15, weight: .semibold))
+                HStack(spacing: DispatchSpacing.md) {
+                    Button {
+                        showingSearch = true
+                    } label: {
+                        HStack(spacing: DispatchSpacing.sm) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("Search")
+                                .font(DispatchTypography.body(15, weight: .semibold))
+                        }
+                        .padding(.horizontal, DispatchSpacing.xl)
+                        .padding(.vertical, DispatchSpacing.md)
+                        .background(DispatchColors.surfaceRaisedAdaptive)
+                        .foregroundStyle(DispatchColors.textPrimary)
+                        .clipShape(Capsule())
                     }
-                    .padding(.horizontal, DispatchSpacing.xl)
-                    .padding(.vertical, DispatchSpacing.md)
-                    .background(DispatchColors.accent)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
+
+                    Button {
+                        showingNewSession = true
+                    } label: {
+                        HStack(spacing: DispatchSpacing.sm) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("New Session")
+                                .font(DispatchTypography.body(15, weight: .semibold))
+                        }
+                        .padding(.horizontal, DispatchSpacing.xl)
+                        .padding(.vertical, DispatchSpacing.md)
+                        .background(DispatchColors.accent)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                    }
                 }
             }
 
             Spacer()
         }
         .padding(.horizontal, DispatchSpacing.xxl)
-    }
-
-    // MARK: - Connection Status
-
-    private var connectionStatusButton: some View {
-        HStack(spacing: DispatchSpacing.xs) {
-            connectionDot
-            Text(connectionLabel)
-                .font(DispatchTypography.caption(12, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Connection: \(connectionLabel)")
-    }
-
-    @ViewBuilder
-    private var connectionDot: some View {
-        switch connection.state {
-        case .connected:
-            Circle()
-                .fill(DispatchColors.statusActive)
-                .frame(width: 7, height: 7)
-        case .connecting, .handshaking, .reconnecting:
-            ProgressView()
-                .controlSize(.mini)
-        case .disconnected:
-            Circle()
-                .fill(DispatchColors.statusIdle)
-                .frame(width: 7, height: 7)
-        case .failed:
-            Circle()
-                .fill(DispatchColors.statusError)
-                .frame(width: 7, height: 7)
-        }
     }
 
     private var connectionLabel: String {
@@ -202,44 +221,71 @@ struct SessionListView: View {
         }
     }
 
-    // MARK: - Discovery
+    private var connectionSymbol: String {
+        switch connection.state {
+        case .connected: "dot.radiowaves.left.and.right"
+        case .connecting, .handshaking, .reconnecting: "arrow.triangle.2.circlepath"
+        case .disconnected: "wifi.slash"
+        case .failed: "exclamationmark.triangle"
+        }
+    }
 
-    private var discoveryButton: some View {
-        Button {
-            showingDiscovery = true
+    private var overflowMenu: some View {
+        Menu {
+            Button {
+                showingSavedSessions = true
+            } label: {
+                Label("Saved Sessions", systemImage: "internaldrive")
+            }
+
+            Button {
+                showingSettings = true
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+
+            Divider()
+
+            Label(connectionLabel, systemImage: connectionSymbol)
         } label: {
-            Image(systemName: "sparkle.magnifyingglass")
-                .font(.system(size: 16))
-                .foregroundStyle(isConnected ? DispatchColors.accent : DispatchColors.textMuted)
+            Image(systemName: "line.3.horizontal.circle")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(DispatchColors.textSecondary)
+        }
+        .accessibilityLabel("More")
+    }
+
+    private var searchButton: some View {
+        Button {
+            showingSearch = true
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(isConnected ? DispatchColors.textPrimary : DispatchColors.textMuted)
         }
         .disabled(!isConnected)
-        .accessibilityLabel("Browse past sessions")
+        .accessibilityLabel("Search sessions")
     }
 
-    // MARK: - History
-
-    private var historyButton: some View {
-        Button {
-            showingHistory = true
+    private var sortButton: some View {
+        Menu {
+            ForEach(SessionSortOrder.allCases) { order in
+                Button {
+                    sortOrder = order
+                } label: {
+                    if sortOrder == order {
+                        Label(order.label, systemImage: "checkmark")
+                    } else {
+                        Text(order.label)
+                    }
+                }
+            }
         } label: {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 16))
+            Image(systemName: "arrow.up.arrow.down.circle")
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(DispatchColors.textSecondary)
         }
-        .accessibilityLabel("Session history")
-    }
-
-    // MARK: - Settings
-
-    private var settingsButton: some View {
-        Button {
-            showingSettings = true
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 17))
-                .foregroundStyle(DispatchColors.textSecondary)
-        }
-        .accessibilityLabel("Settings")
+        .accessibilityLabel("Sort sessions")
     }
 
     // MARK: - New Session
@@ -282,11 +328,7 @@ struct NewSessionSheet: View {
 
     private let adapters: [(id: String, name: String, icon: String)] = [
         ("claude-code", "Claude Code", "terminal"),
-        ("openai", "OpenAI", "brain"),
-        ("anthropic", "Anthropic", "sparkles"),
-        ("groq", "Groq", "bolt.fill"),
-        ("together", "Together", "square.stack.3d.up"),
-        ("lm-studio", "LM Studio", "desktopcomputer"),
+        ("codex", "Codex", "brain"),
     ]
 
     var body: some View {
@@ -376,4 +418,13 @@ struct NewSessionSheet: View {
         .environment(SessionStore.preview)
         .environment(ConnectionManager.preview())
         .preferredColorScheme(.dark)
+}
+
+extension String {
+    var searchTokens: [String] {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+    }
 }

@@ -1,18 +1,18 @@
 import { spawn } from "node:child_process";
 
-import type { HostTwinActionAdapter } from "../protocol.js";
-import type { TwinActionRequest, TwinActionResult } from "../../twin-actions/protocol.js";
-import { buildTwinActionCommand, parseTwinActionResult } from "../shared/twin-action-command.js";
+import type { HostAgentActionAdapter } from "../protocol.js";
+import type { AgentActionRequest, AgentActionResult } from "../../agent-actions/protocol.js";
+import { buildAgentActionCommand, parseAgentActionResult } from "../shared/agent-action-command.js";
 
-interface ClaudeExploreTwinActionOptions {
-  request: TwinActionRequest;
+interface ClaudeExploreAgentActionOptions {
+  request: AgentActionRequest;
   cwd?: string;
   claudeBinary?: string;
 }
 
 function buildClaudeExplorePrompt(command: string): string {
   return [
-    "You are a thin twin invocation wrapper.",
+    "You are a thin agent invocation wrapper.",
     "Do not answer from your own knowledge.",
     "Run exactly one Bash command and return only the command's JSON output as your final response.",
     "",
@@ -20,12 +20,12 @@ function buildClaudeExplorePrompt(command: string): string {
   ].join("\n");
 }
 
-export async function invokeClaudeExploreTwinAction(
-  options: ClaudeExploreTwinActionOptions,
-): Promise<TwinActionResult> {
+export async function invokeClaudeExploreAgentAction(
+  options: ClaudeExploreAgentActionOptions,
+): Promise<AgentActionResult> {
   const claudeBinary = options.claudeBinary ?? "claude";
   const cwd = options.cwd ?? process.cwd();
-  const command = buildTwinActionCommand(options.request);
+  const command = buildAgentActionCommand(options.request);
   const prompt = buildClaudeExplorePrompt(command);
 
   const args = [
@@ -44,7 +44,7 @@ export async function invokeClaudeExploreTwinAction(
     prompt,
   ];
 
-  return new Promise<TwinActionResult>((resolvePromise, reject) => {
+  return new Promise<AgentActionResult>((resolvePromise, reject) => {
     const child = spawn(claudeBinary, args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -73,11 +73,11 @@ export async function invokeClaudeExploreTwinAction(
       }
 
       try {
-        resolvePromise(parseTwinActionResult(stdout));
+        resolvePromise(parseAgentActionResult(stdout));
       } catch (error) {
         reject(
           new Error(
-            `failed to parse Claude twin action output: ${
+            `failed to parse Claude agent action output: ${
               error instanceof Error ? error.message : String(error)
             }\n${stdout.trim()}`,
           ),
@@ -87,13 +87,13 @@ export async function invokeClaudeExploreTwinAction(
   });
 }
 
-export function createClaudeExploreTwinActionAdapter(
+export function createClaudeExploreAgentActionAdapter(
   cwd?: string,
-): HostTwinActionAdapter {
+): HostAgentActionAdapter {
   return {
     host: "claude",
-    invokeTwinAction(request: TwinActionRequest): Promise<TwinActionResult> {
-      return invokeClaudeExploreTwinAction({ request, cwd });
+    invokeAgentAction(request: AgentActionRequest): Promise<AgentActionResult> {
+      return invokeClaudeExploreAgentAction({ request, cwd });
     },
   };
 }

@@ -1,7 +1,8 @@
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { sendTmuxPrompt } from "@openscout/runtime/local-agents";
 
 import { readProjectedRelayAgentSessions } from "../core/projections/agents.js";
-import { createTmuxClaudeProjectTwinRuntime } from "../core/twins/tmux-claude-runtime.js";
+import { createTmuxClaudeLocalAgentRuntime } from "../core/local-agents/tmux-claude-local-agent-runtime.js";
 
 export type RelayTargetDeliveryStatus = "delivered" | "nudged" | "queued";
 
@@ -13,7 +14,7 @@ export async function deliverRelayMessageToTarget(
   channel?: string,
   messageId?: string,
 ): Promise<RelayTargetDeliveryStatus> {
-  const twinRuntime = createTmuxClaudeProjectTwinRuntime(hub);
+  const localAgentRuntime = createTmuxClaudeLocalAgentRuntime(hub);
 
   try {
     const agents = await readProjectedRelayAgentSessions(hub);
@@ -33,22 +34,19 @@ export async function deliverRelayMessageToTarget(
 
     if (agent?.pane) {
       const preview = message.length > 80 ? `${message.slice(0, 80)}…` : message;
-      execSync(
-        `tmux send-keys -t ${JSON.stringify(agent.pane)} ${JSON.stringify(`[relay] ${from}: ${preview}`)} Enter`,
-        { stdio: "ignore" },
-      );
+      sendTmuxPrompt(agent.pane, `[relay] ${from}: ${preview}`);
       return "delivered";
     }
   } catch {
-    // fall through to twin tick
+    // fall through to localAgent tick
   }
 
   const idRef = messageId ? ` (message: ${messageId})` : "";
-  const twinTicked = await twinRuntime.tickProjectTwin(
+  const agentTicked = await localAgentRuntime.tickLocalAgent(
     name,
     `new relay message from ${from}${idRef}`,
   );
-  if (twinTicked) {
+  if (agentTicked) {
     return "nudged";
   }
 

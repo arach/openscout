@@ -107,9 +107,12 @@ async function seedBasicConversation(harness: BrokerHarness) {
   await postJson(harness.baseUrl, "/v1/agents", {
     id: "fabric",
     kind: "agent",
+    definitionId: "fabric",
     displayName: "Fabric",
     handle: "fabric",
     labels: ["test"],
+    selector: "@fabric",
+    defaultSelector: "@fabric",
     metadata: { source: "test" },
     agentClass: "general",
     capabilities: ["chat", "invoke"],
@@ -185,9 +188,12 @@ describe("broker daemon comms layer", () => {
     await postJson(harness.baseUrl, "/v1/agents", {
       id: "ghost",
       kind: "agent",
+      definitionId: "ghost",
       displayName: "Ghost",
       handle: "ghost",
       labels: ["test"],
+      selector: "@ghost",
+      defaultSelector: "@ghost",
       metadata: { source: "test" },
       agentClass: "general",
       capabilities: ["chat", "invoke"],
@@ -217,8 +223,8 @@ describe("broker daemon comms layer", () => {
 
     expect(response.ok).toBe(true);
     expect(response.flight.targetAgentId).toBe("ghost");
-    expect(response.flight.state).toBe("failed");
-    expect(response.flight.error).toContain("No runnable endpoint");
+    expect(response.flight.state).toBe("waking");
+    expect(response.flight.error).toBeUndefined();
 
     const events = await getJson<Array<{ kind: string; payload: { invocation?: { id: string }; flight?: { targetAgentId: string; state: string } } }>>(
       harness.baseUrl,
@@ -227,7 +233,190 @@ describe("broker daemon comms layer", () => {
 
     expect(events.some((event) => event.kind === "invocation.requested" && event.payload.invocation?.id === "inv-test-1")).toBe(true);
     expect(
-      events.some((event) => event.kind === "flight.updated" && event.payload.flight?.targetAgentId === "ghost" && event.payload.flight?.state === "failed"),
+      events.some((event) => event.kind === "flight.updated" && event.payload.flight?.targetAgentId === "ghost" && event.payload.flight?.state === "waking"),
     ).toBe(true);
+  });
+
+  test("persists valid collaboration records and emits collaboration events", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const now = Date.now();
+    const response = await postJson<{ ok: boolean; recordId: string }>(
+      harness.baseUrl,
+      "/v1/collaboration/records",
+      {
+        id: "work-test-1",
+        kind: "work_item",
+        state: "working",
+        acceptanceState: "none",
+        title: "Investigate relay drift",
+        summary: "Check runtime and relay state alignment.",
+        createdById: "operator",
+        ownerId: "fabric",
+        nextMoveOwnerId: "fabric",
+        conversationId: "channel.shared",
+        createdAt: now,
+        updatedAt: now,
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.recordId).toBe("work-test-1");
+
+    const snapshot = await getJson<{
+      collaborationRecords: Record<string, { id: string; ownerId?: string; nextMoveOwnerId?: string; state: string }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+
+    expect(snapshot.collaborationRecords["work-test-1"]).toBeDefined();
+    expect(snapshot.collaborationRecords["work-test-1"]?.ownerId).toBe("fabric");
+    expect(snapshot.collaborationRecords["work-test-1"]?.nextMoveOwnerId).toBe("fabric");
+    expect(snapshot.collaborationRecords["work-test-1"]?.state).toBe("working");
+
+    const events = await getJson<Array<{ kind: string; payload: { record?: { id: string } } }>>(
+      harness.baseUrl,
+      "/v1/events?limit=20",
+    );
+
+    expect(events.some((event) => event.kind === "collaboration.upserted" && event.payload.record?.id === "work-test-1")).toBe(true);
+  });
+
+  test("rejects invalid waiting work items without required ownership metadata", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const response = await fetch(`${harness.baseUrl}/v1/collaboration/records`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        id: "work-invalid-1",
+        kind: "work_item",
+        state: "waiting",
+        acceptanceState: "none",
+        title: "Wait for review",
+        createdById: "operator",
+        ownerId: "fabric",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    const payload = await response.json() as { detail: string };
+    expect(payload.detail).toContain("nextMoveOwnerId");
+    expect(payload.detail).toContain("waitingOn");
+  });
+
+  test("rejects collaboration events that do not match the target record kind", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const now = Date.now();
+    await postJson(harness.baseUrl, "/v1/collaboration/records", {
+      id: "question-test-1",
+      kind: "question",
+      state: "open",
+      acceptanceState: "none",
+      title: "Who owns the next change?",
+      createdById: "operator",
+      nextMoveOwnerId: "fabric",
+      askedById: "operator",
+      askedOfId: "fabric",
+      conversationId: "channel.shared",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await fetch(`${harness.baseUrl}/v1/collaboration/events`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        id: "evt-question-invalid-1",
+        recordId: "question-test-1",
+        recordKind: "question",
+        kind: "review_requested",
+        actorId: "fabric",
+        at: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    const payload = await response.json() as { detail: string };
+    expect(payload.detail).toContain("review_requested");
+  });
+
+  test("builds collaboration-aware invocations from the broker wake endpoint", async () => {
+    const harness = await startBroker();
+    await seedBasicConversation(harness);
+
+    const now = Date.now();
+    await postJson(harness.baseUrl, "/v1/collaboration/records", {
+      id: "work-wake-1",
+      kind: "work_item",
+      state: "waiting",
+      acceptanceState: "none",
+      title: "Resolve review dependency",
+      summary: "Fabric needs to answer the outstanding review request.",
+      createdById: "operator",
+      ownerId: "fabric",
+      nextMoveOwnerId: "fabric",
+      requestedById: "operator",
+      waitingOn: {
+        kind: "actor",
+        label: "review response",
+        targetId: "fabric",
+      },
+      conversationId: "channel.shared",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await postJson<{
+      ok: boolean;
+      recordId: string;
+      targetAgentId: string;
+      wakeReason: string;
+      invocation: {
+        targetAgentId: string;
+        context?: {
+          collaboration?: {
+            recordId?: string;
+            nextMoveOwnerId?: string;
+            wakeReason?: string;
+            waitingOn?: { targetId?: string };
+          };
+        };
+        metadata?: {
+          collaborationRecordId?: string;
+          wakeReason?: string;
+        };
+      };
+      flight: {
+        targetAgentId: string;
+        state: string;
+      };
+    }>(harness.baseUrl, "/v1/collaboration/records/work-wake-1/invoke", {
+      requesterId: "operator",
+    });
+
+    expect(response.ok).toBe(true);
+    expect(response.recordId).toBe("work-wake-1");
+    expect(response.targetAgentId).toBe("fabric");
+    expect(response.wakeReason).toBe("next_move_owner");
+    expect(response.invocation.targetAgentId).toBe("fabric");
+    expect(response.invocation.context?.collaboration?.recordId).toBe("work-wake-1");
+    expect(response.invocation.context?.collaboration?.nextMoveOwnerId).toBe("fabric");
+    expect(response.invocation.context?.collaboration?.wakeReason).toBe("next_move_owner");
+    expect(response.invocation.context?.collaboration?.waitingOn?.targetId).toBe("fabric");
+    expect(response.invocation.metadata?.collaborationRecordId).toBe("work-wake-1");
+    expect(response.invocation.metadata?.wakeReason).toBe("next_move_owner");
+    expect(response.flight.targetAgentId).toBe("fabric");
+    expect(response.flight.state).toBe("waking");
   });
 });

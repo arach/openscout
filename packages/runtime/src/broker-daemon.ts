@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +20,7 @@ import type {
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
+import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
   buildMeshCollaborationEventBundle,
@@ -37,13 +37,15 @@ import {
   type MeshMessageBundle,
 } from "./mesh-forwarding.js";
 import {
-  ensureProjectTwinBindingOnline,
-  isProjectTwinSessionAlive,
-  invokeProjectTwinEndpoint,
-  loadRegisteredProjectTwinBindings,
+  ensureLocalAgentBindingOnline,
+  isLocalAgentEndpointAlive,
+  isLocalAgentSessionAlive,
+  invokeLocalAgentEndpoint,
+  loadRegisteredLocalAgentBindings,
   shouldDisableGeneratedCodexEndpoint,
-} from "./project-twins.js";
+} from "./local-agents.js";
 import { SQLiteControlPlaneStore } from "./sqlite-store.js";
+import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -106,13 +108,13 @@ const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
 const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "0", 10);
 const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 
+ensureOpenScoutCleanSlateSync();
+
 const store = new SQLiteControlPlaneStore(dbPath);
 const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId: nodeId });
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
-const legacyRelayHub = join(process.env.HOME ?? process.cwd(), ".openscout", "relay");
-const legacyRelayChannelPath = join(legacyRelayHub, "channel.jsonl");
 const operatorActorId = "operator";
 
 type LegacyRelayMessage = {
@@ -184,233 +186,9 @@ const systemActor: ActorIdentity = {
 await runtime.upsertActor(systemActor);
 store.upsertActor(systemActor);
 
-async function bootstrapRegisteredProjectTwins(): Promise<void> {
-  await syncRegisteredProjectTwins();
-  await importLegacyRelayBacklog();
-  await ensureCoreProjectTwinsOnline();
-}
-
-function titleCaseIdentity(value: string): string {
-  return value
-    .split(/[-_.\s]+/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
-}
-
-function importedRelayConversationDefinition(
-  senderId: string,
-  mentionTargets: string[],
-  entry: LegacyRelayMessage,
-): ConversationDefinition {
-  const normalizedChannel = entry.channel?.trim() || (entry.type === "SYS" ? "system" : "shared");
-  const participants = Array.from(new Set([
-    operatorActorId,
-    senderId,
-    ...mentionTargets,
-  ])).sort();
-
-  if (normalizedChannel === "system") {
-    return {
-      id: "channel.system",
-      kind: "system",
-      title: "system",
-      visibility: "system",
-      shareMode: "local",
-      authorityNodeId: nodeId,
-      participantIds: participants,
-      metadata: {
-        surface: "relay-import",
-        channel: "system",
-        legacyRelay: true,
-      },
-    };
-  }
-
-  if (normalizedChannel === "voice") {
-    return {
-      id: "channel.voice",
-      kind: "channel",
-      title: "voice",
-      visibility: "workspace",
-      shareMode: "local",
-      authorityNodeId: nodeId,
-      participantIds: participants,
-      metadata: {
-        surface: "relay-import",
-        channel: "voice",
-        legacyRelay: true,
-      },
-    };
-  }
-
-  if (normalizedChannel === "shared") {
-    return {
-      id: "channel.shared",
-      kind: "channel",
-      title: "shared-channel",
-      visibility: "workspace",
-      shareMode: "shared",
-      authorityNodeId: nodeId,
-      participantIds: participants,
-      metadata: {
-        surface: "relay-import",
-        channel: "shared",
-        legacyRelay: true,
-      },
-    };
-  }
-
-  return {
-    id: `channel.${normalizedChannel.toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared"}`,
-    kind: "channel",
-    title: normalizedChannel,
-    visibility: "workspace",
-    shareMode: "local",
-    authorityNodeId: nodeId,
-    participantIds: participants,
-    metadata: {
-      surface: "relay-import",
-      channel: normalizedChannel,
-      legacyRelay: true,
-    },
-  };
-}
-
-async function ensureImportedRelayActor(actorId: string): Promise<void> {
-  const snapshot = runtime.snapshot();
-  if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
-    return;
-  }
-
-  const actor: ActorIdentity = {
-    id: actorId,
-    kind: actorId === operatorActorId ? "person" : "agent",
-    displayName: titleCaseIdentity(actorId),
-    handle: actorId,
-    labels: ["relay", "imported"],
-    metadata: {
-      source: "relay-legacy-import",
-    },
-  };
-
-  await handleCommand({ kind: "actor.upsert", actor });
-}
-
-async function ensureImportedRelayConversation(conversation: ConversationDefinition): Promise<ConversationDefinition> {
-  const existing = runtime.snapshot().conversations[conversation.id];
-  if (!existing) {
-    await handleCommand({ kind: "conversation.upsert", conversation });
-    return conversation;
-  }
-
-  const participantIds = Array.from(new Set([
-    ...existing.participantIds,
-    ...conversation.participantIds,
-  ])).sort();
-
-  if (participantIds.length === existing.participantIds.length) {
-    return existing;
-  }
-
-  const nextConversation: ConversationDefinition = {
-    ...existing,
-    participantIds,
-    metadata: {
-      ...(existing.metadata ?? {}),
-      legacyRelay: true,
-    },
-  };
-  await handleCommand({ kind: "conversation.upsert", conversation: nextConversation });
-  return nextConversation;
-}
-
-async function importLegacyRelayBacklog(): Promise<void> {
-  let raw: string;
-  try {
-    raw = await readFile(legacyRelayChannelPath, "utf8");
-  } catch {
-    return;
-  }
-
-  const entries = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line) as LegacyRelayMessage;
-      } catch {
-        return null;
-      }
-    })
-    .filter((entry): entry is LegacyRelayMessage => Boolean(entry?.id && entry?.from && entry?.type));
-
-  if (entries.length === 0) {
-    return;
-  }
-
-  const snapshot = runtime.snapshot();
-  const existingMessageIds = new Set(Object.keys(snapshot.messages));
-  const latestBrokerCreatedAt = Object.values(snapshot.messages).reduce(
-    (latest, message) => Math.max(latest, message.createdAt),
-    0,
-  );
-  const pending = entries.filter((entry) => (
-    !existingMessageIds.has(entry.id)
-    && entry.ts * 1000 > latestBrokerCreatedAt
-  ));
-
-  if (pending.length === 0) {
-    return;
-  }
-
-  console.log(
-    `[openscout-runtime] importing ${pending.length} legacy relay message${pending.length === 1 ? "" : "s"} into broker`,
-  );
-
-  for (const entry of pending.sort((lhs, rhs) => lhs.ts - rhs.ts)) {
-    const mentionTargets = Array.from(new Set([
-      ...(entry.to ?? []),
-      ...Array.from(entry.body.matchAll(/@([\w.-]+)/g)).map((match) => match[1]).filter(Boolean),
-    ])).filter((actorId) => actorId !== entry.from);
-
-    await ensureImportedRelayActor(entry.from);
-    for (const actorId of mentionTargets) {
-      await ensureImportedRelayActor(actorId);
-    }
-
-    const conversation = await ensureImportedRelayConversation(
-      importedRelayConversationDefinition(entry.from, mentionTargets, entry),
-    );
-
-    await handleCommand({
-      kind: "conversation.post",
-      message: {
-        id: entry.id,
-        conversationId: conversation.id,
-        actorId: entry.from,
-        originNodeId: nodeId,
-        class: entry.type === "SYS" ? "system" : "agent",
-        body: entry.body,
-        mentions: mentionTargets.map((actorId) => ({ actorId, label: `@${actorId}` })),
-        speech: entry.tags?.includes("speak")
-          ? {
-            text: entry.body.replace(/@[\w.-]+\s*/g, "").trim(),
-          }
-          : undefined,
-        visibility: messageVisibilityForConversation(conversation),
-        policy: "durable",
-        createdAt: entry.ts * 1000,
-        metadata: {
-          source: "relay-legacy-import",
-          relayChannel: entry.channel ?? (entry.type === "SYS" ? "system" : "shared"),
-          legacyRelayMessageId: entry.id,
-          legacyRelay: true,
-        },
-      },
-    });
-  }
+async function bootstrapRegisteredLocalAgents(): Promise<void> {
+  await syncRegisteredLocalAgents();
+  await ensureCoreLocalAgentsOnline();
 }
 
 async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
@@ -489,10 +267,10 @@ async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
   store.upsertEndpoint(endpoint);
 }
 
-async function syncRegisteredProjectTwins(): Promise<void> {
-  const bindings = await loadRegisteredProjectTwinBindings(nodeId);
+async function syncRegisteredLocalAgents(): Promise<void> {
+  const bindings = await loadRegisteredLocalAgentBindings(nodeId);
   console.log(
-    `[openscout-runtime] project twin sync found ${bindings.length} registered twin${bindings.length === 1 ? "" : "s"}`,
+    `[openscout-runtime] local agent sync found ${bindings.length} registered agent${bindings.length === 1 ? "" : "s"}`,
   );
 
   for (const binding of bindings) {
@@ -502,7 +280,7 @@ async function syncRegisteredProjectTwins(): Promise<void> {
     store.upsertAgent(binding.agent);
     await persistEndpoint(binding.endpoint);
     console.log(
-      `[openscout-runtime] project twin ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
+      `[openscout-runtime] local agent ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
     );
   }
 
@@ -512,7 +290,7 @@ async function syncRegisteredProjectTwins(): Promise<void> {
       const sessionId =
         endpoint.sessionId
         ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
-      const sessionAlive = sessionId ? isProjectTwinSessionAlive(sessionId) : false;
+      const sessionAlive = sessionId ? isLocalAgentSessionAlive(sessionId) : false;
       if (!sessionAlive) {
         if (endpoint.state !== "offline") {
           await persistEndpoint({
@@ -550,19 +328,19 @@ async function syncRegisteredProjectTwins(): Promise<void> {
   }
 }
 
-async function ensureCoreProjectTwinsOnline(): Promise<void> {
-  const coreBindings = await loadRegisteredProjectTwinBindings(nodeId, {
+async function ensureCoreLocalAgentsOnline(): Promise<void> {
+  const coreBindings = await loadRegisteredLocalAgentBindings(nodeId, {
     ensureOnline: true,
     agentIds: configuredCoreAgentIds.length > 0 ? configuredCoreAgentIds : undefined,
   });
 
   if (coreBindings.length === 0) {
-    console.log("[openscout-runtime] no configured core twins to warm");
+    console.log("[openscout-runtime] no configured core local agents to warm");
     return;
   }
 
   console.log(
-    `[openscout-runtime] warming ${coreBindings.length} core twin${coreBindings.length === 1 ? "" : "s"}`,
+    `[openscout-runtime] warming ${coreBindings.length} core local agent${coreBindings.length === 1 ? "" : "s"}`,
   );
 
   for (const binding of coreBindings) {
@@ -572,7 +350,7 @@ async function ensureCoreProjectTwinsOnline(): Promise<void> {
     store.upsertAgent(binding.agent);
     await persistEndpoint(binding.endpoint);
     console.log(
-      `[openscout-runtime] core twin ready ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
+      `[openscout-runtime] core local agent ready ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
     );
   }
 }
@@ -644,23 +422,19 @@ async function postInvocationStatusMessage(
   });
 }
 
-function activeLocalEndpointForAgent(agentId: string): AgentEndpoint | undefined {
+function activeLocalEndpointForAgent(agentId: string, harness?: string): AgentEndpoint | undefined {
   const candidates = Object.values(runtime.snapshot().endpoints).filter((endpoint) => (
     endpoint.agentId === agentId
     && endpoint.nodeId === nodeId
     && endpoint.state !== "offline"
-    && endpoint.transport === "tmux"
+    && (!harness || endpoint.harness === harness)
   ));
-  return candidates.find((endpoint) => {
-    const sessionId =
-      endpoint.sessionId
-      ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
-    return sessionId ? isProjectTwinSessionAlive(sessionId) : false;
-  });
+  return candidates.find((endpoint) => isLocalAgentEndpointAlive(endpoint));
 }
 
 async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
-  const existing = activeLocalEndpointForAgent(invocation.targetAgentId);
+  const requestedHarness = invocation.execution?.harness;
+  const existing = activeLocalEndpointForAgent(invocation.targetAgentId, requestedHarness);
   if (existing) {
     return existing;
   }
@@ -668,8 +442,8 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   const staleEndpoints = Object.values(runtime.snapshot().endpoints).filter((endpoint) => (
     endpoint.agentId === invocation.targetAgentId
     && endpoint.nodeId === nodeId
-    && endpoint.transport === "tmux"
     && endpoint.state !== "offline"
+    && (!requestedHarness || endpoint.harness === requestedHarness)
   ));
 
   for (const endpoint of staleEndpoints) {
@@ -678,7 +452,9 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
       state: "offline",
       metadata: {
         ...(endpoint.metadata ?? {}),
-        lastError: `tmux session missing: ${endpoint.sessionId ?? endpoint.id}`,
+        lastError: endpoint.transport === "tmux"
+          ? `tmux session missing: ${endpoint.sessionId ?? endpoint.id}`
+          : `${endpoint.transport} session unavailable: ${endpoint.sessionId ?? endpoint.id}`,
         lastFailedAt: Date.now(),
       },
     });
@@ -688,8 +464,9 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     return undefined;
   }
 
-  const binding = await ensureProjectTwinBindingOnline(invocation.targetAgentId, nodeId, {
+  const binding = await ensureLocalAgentBindingOnline(invocation.targetAgentId, nodeId, {
     includeDiscovered: true,
+    harness: requestedHarness,
   });
   if (!binding) {
     return undefined;
@@ -724,12 +501,16 @@ async function executeLocalInvocation(
     return;
   }
 
-  if (endpoint.transport !== "tmux") {
+  if (
+    endpoint.transport !== "tmux"
+    && endpoint.transport !== "codex_app_server"
+    && endpoint.transport !== "claude_stream_json"
+  ) {
     const failedFlight = {
       ...initialFlight,
       state: "failed" as const,
-      summary: `${agent.displayName} has no supported twin executor.`,
-      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through tmux-backed twins right now.`,
+      summary: `${agent.displayName} has no supported local executor.`,
+      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through direct local session adapters.`,
       completedAt: Date.now(),
     };
     await persistFlight(failedFlight);
@@ -759,7 +540,7 @@ async function executeLocalInvocation(
   await postInvocationStatusMessage(invocation, runningFlight);
 
   try {
-    const result = await invokeProjectTwinEndpoint(runningEndpoint, invocation);
+    const result = await invokeLocalAgentEndpoint(runningEndpoint, invocation);
 
     const completedFlight = {
       ...runningFlight,
@@ -805,7 +586,7 @@ async function executeLocalInvocation(
             responderSessionId: runningEndpoint.sessionId ?? "",
             responderCwd: runningEndpoint.cwd ?? "",
             responderProjectRoot: runningEndpoint.projectRoot ?? "",
-            responderTwinName: String(runningEndpoint.metadata?.twinName ?? agent.id),
+            responderAgentName: String(runningEndpoint.metadata?.agentName ?? agent.id),
             responderStartedAt: String(runningEndpoint.metadata?.startedAt ?? ""),
             responderNodeId: runningEndpoint.nodeId,
           },
@@ -1036,6 +817,14 @@ function parseLimit(url: URL): number {
   return Math.min(limit, 500);
 }
 
+function parseSince(url: URL): number | null {
+  const since = Number.parseInt(url.searchParams.get("since") ?? "", 10);
+  if (!Number.isFinite(since) || since <= 0) {
+    return null;
+  }
+  return since;
+}
+
 function isAddressInUse(error: unknown): boolean {
   return Boolean(
     error
@@ -1187,6 +976,9 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
 async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+  const collaborationInvokeMatch = method === "POST"
+    ? url.pathname.match(/^\/v1\/collaboration\/records\/([^/]+)\/invoke$/)
+    : null;
 
   if (method === "GET" && url.pathname === "/health") {
     const snapshot = runtime.snapshot();
@@ -1217,8 +1009,36 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "GET" && url.pathname === "/v1/messages") {
+    const snapshot = runtime.snapshot();
+    const conversationId = url.searchParams.get("conversationId")?.trim();
+    const since = parseSince(url);
+    const limit = parseLimit(url);
+    const messages = Object.values(snapshot.messages)
+      .filter((message) => !conversationId || message.conversationId === conversationId)
+      .filter((message) => since === null || message.createdAt >= since)
+      .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt)
+      .slice(0, limit)
+      .reverse();
+    json(response, 200, messages);
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/v1/events") {
     json(response, 200, store.recentEvents(parseLimit(url)));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/activity") {
+    const agentId = url.searchParams.get("agentId") ?? undefined;
+    const actorId = url.searchParams.get("actorId") ?? undefined;
+    const conversationId = url.searchParams.get("conversationId") ?? undefined;
+    json(response, 200, store.listActivityItems({
+      limit: parseLimit(url),
+      agentId,
+      actorId,
+      conversationId,
+    }));
     return;
   }
 
@@ -1245,6 +1065,27 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       recordId: recordId ?? undefined,
     });
     json(response, 200, events);
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/deliveries") {
+    const transport = url.searchParams.get("transport") ?? undefined;
+    const statusFilter = url.searchParams.get("status") ?? undefined;
+    json(response, 200, store.listDeliveries({
+      limit: parseLimit(url),
+      transport: transport as DeliveryIntent["transport"] | undefined,
+      status: statusFilter as DeliveryIntent["status"] | undefined,
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/delivery-attempts") {
+    const deliveryId = url.searchParams.get("deliveryId")?.trim();
+    if (!deliveryId) {
+      badRequest(response, new Error("deliveryId is required"));
+      return;
+    }
+    json(response, 200, store.listDeliveryAttempts(deliveryId));
     return;
   }
 
@@ -1458,6 +1299,107 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (collaborationInvokeMatch) {
+    try {
+      const recordId = decodeURIComponent(collaborationInvokeMatch[1] ?? "");
+      const record = runtime.snapshot().collaborationRecords[recordId];
+      if (!record) {
+        throw new Error(`unknown collaboration record: ${recordId}`);
+      }
+
+      const body = await readRequestBody<{
+        requesterId?: string;
+        requesterNodeId?: string;
+        targetAgentId?: string;
+        action?: InvocationRequest["action"];
+        task?: string;
+        messageId?: string;
+        ensureAwake?: boolean;
+        stream?: boolean;
+        timeoutMs?: number;
+        metadata?: Record<string, unknown>;
+      }>(request);
+
+      const invocation = buildCollaborationInvocation(record, {
+        requesterId: body.requesterId?.trim() || operatorActorId,
+        requesterNodeId: body.requesterNodeId?.trim() || nodeId,
+        targetAgentId: body.targetAgentId?.trim() || undefined,
+        action: body.action,
+        task: body.task,
+        messageId: body.messageId,
+        ensureAwake: body.ensureAwake,
+        stream: body.stream,
+        timeoutMs: body.timeoutMs,
+        metadata: body.metadata,
+      });
+
+      const result = await handleCommand({
+        kind: "agent.invoke",
+        invocation,
+      });
+      json(response, 200, {
+        ...(result as Record<string, unknown>),
+        recordId,
+        targetAgentId: invocation.targetAgentId,
+        wakeReason: invocation.wakeReason,
+        invocation,
+      });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/delivery-attempts") {
+    try {
+      const attempt = await readRequestBody<{
+        id: string;
+        deliveryId: string;
+        attempt: number;
+        status: "sent" | "acknowledged" | "failed";
+        error?: string;
+        externalRef?: string;
+        createdAt: number;
+        metadata?: Record<string, unknown>;
+      }>(request);
+      store.recordDeliveryAttempt({
+        id: attempt.id,
+        deliveryId: attempt.deliveryId,
+        attempt: attempt.attempt,
+        status: attempt.status,
+        error: attempt.error,
+        externalRef: attempt.externalRef,
+        createdAt: attempt.createdAt,
+        metadata: attempt.metadata,
+      });
+      json(response, 200, { ok: true, deliveryId: attempt.deliveryId, attemptId: attempt.id });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/deliveries/status") {
+    try {
+      const body = await readRequestBody<{
+        deliveryId: string;
+        status: DeliveryIntent["status"];
+        metadata?: Record<string, unknown>;
+        leaseOwner?: string | null;
+        leaseExpiresAt?: number | null;
+      }>(request);
+      store.updateDeliveryStatus(body.deliveryId, body.status, {
+        metadata: body.metadata,
+        leaseOwner: body.leaseOwner,
+        leaseExpiresAt: body.leaseExpiresAt,
+      });
+      json(response, 200, { ok: true, deliveryId: body.deliveryId, status: body.status });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
   if (method === "POST" && url.pathname === "/v1/messages") {
     try {
       const message = await readRequestBody<MessageRecord>(request);
@@ -1514,8 +1456,8 @@ try {
 }
 
 setTimeout(() => {
-  bootstrapRegisteredProjectTwins().catch((error) => {
-    console.error("[openscout-runtime] project twin bootstrap failed:", error);
+  bootstrapRegisteredLocalAgents().catch((error) => {
+    console.error("[openscout-runtime] local agent bootstrap failed:", error);
   });
 }, 0).unref();
 

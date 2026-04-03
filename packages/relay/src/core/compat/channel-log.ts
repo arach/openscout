@@ -8,8 +8,12 @@ export function decorateRelayMessageBody(message: Pick<RelayStoredMessage, "body
   return `${formatTagPrefix(message.tags)}${message.body}`;
 }
 
+function sanitizeRelayLogBody(body: string): string {
+  return body.replace(/\r\n?/g, "\n").replace(/\n/g, "\\n");
+}
+
 export function formatRelayLogLine(message: RelayStoredMessage): string {
-  return `${message.ts} ${message.from} ${message.type} ${decorateRelayMessageBody(message)}\n`;
+  return `${message.ts} ${message.from} ${message.type} ${formatTagPrefix(message.tags)}${sanitizeRelayLogBody(message.body)}\n`;
 }
 
 export function parseRelayLogLine(line: string, sequence: number): RelayStoredMessage | null {

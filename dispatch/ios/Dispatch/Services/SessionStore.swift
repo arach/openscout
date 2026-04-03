@@ -20,6 +20,9 @@ final class SessionStore: @unchecked Sendable {
     /// Lightweight summaries for the home screen session list.
     private(set) var summaries: [SessionSummary] = []
 
+    /// Session IDs restored from local cache but not known to be live on the bridge.
+    private(set) var cachedOnlySessionIds: Set<String> = []
+
     /// Mirrors ConnectionManager's state for UI binding convenience.
     var connectionState: ConnectionState = .disconnected
 
@@ -39,9 +42,7 @@ final class SessionStore: @unchecked Sendable {
     // MARK: - Init
 
     init() {
-        // Don't load cached sessions into the active list — the bridge is
-        // the authority on what's active. Cache is used by TimelineView to
-        // show past turns when navigating into a session.
+        hydrateFromCache()
     }
 
     // MARK: - Bridge identity binding
@@ -84,22 +85,52 @@ final class SessionStore: @unchecked Sendable {
 
     /// Replace entire session state from a snapshot (recovery path).
     func applySnapshot(_ snapshot: SessionState) {
+        mergeSnapshot(snapshot, source: .live)
+    }
+
+    /// Restore cached turns without claiming the session is live on the bridge.
+    func restoreCachedSnapshot(_ snapshot: SessionState) {
+        mergeSnapshot(snapshot, source: .cache)
+    }
+
+    private enum SnapshotSource {
+        case live
+        case cache
+    }
+
+    private func mergeSnapshot(_ snapshot: SessionState, source: SnapshotSource) {
+        let normalizedSnapshot = TurnHash.normalize(snapshot)
+
         lock.lock()
-        sessions[snapshot.session.id] = snapshot
+        sessions[normalizedSnapshot.session.id] = normalizedSnapshot
+        switch source {
+        case .live:
+            cachedOnlySessionIds.remove(normalizedSnapshot.session.id)
+        case .cache:
+            cachedOnlySessionIds.insert(normalizedSnapshot.session.id)
+        }
         lock.unlock()
 
         rebuildSummaries()
-        SessionCache.shared.save(snapshot)
-        Self.logger.notice("Applied snapshot for session \(snapshot.session.id)")
+        SessionCache.shared.save(normalizedSnapshot)
+        Self.logger.notice(
+            "Applied \(source == .live ? "live" : "cached") snapshot for session \(normalizedSnapshot.session.id)"
+        )
     }
 
     /// Reconcile local state against the bridge's authoritative active session set.
     /// Sessions not present in `keeping` are removed; provided snapshots replace local copies.
     func reconcileSnapshots(_ snapshots: [SessionState], keeping sessionIds: Set<String>) {
         lock.lock()
-        sessions = sessions.filter { sessionIds.contains($0.key) }
+        sessions = sessions.filter { sessionIds.contains($0.key) || cachedOnlySessionIds.contains($0.key) }
+        cachedOnlySessionIds.subtract(sessionIds)
         for snapshot in snapshots {
-            sessions[snapshot.session.id] = snapshot
+            let normalizedSnapshot = TurnHash.normalize(snapshot)
+            sessions[normalizedSnapshot.session.id] = normalizedSnapshot
+            cachedOnlySessionIds.remove(normalizedSnapshot.session.id)
+        }
+        for sessionId in sessions.keys where !sessionIds.contains(sessionId) {
+            cachedOnlySessionIds.insert(sessionId)
         }
         lock.unlock()
 
@@ -114,6 +145,7 @@ final class SessionStore: @unchecked Sendable {
         lock.lock()
         sessions.removeAll()
         summaries.removeAll()
+        cachedOnlySessionIds.removeAll()
         lastAppliedSeq = 0
         bridgeIdentityKey = nil
         lock.unlock()
@@ -137,9 +169,11 @@ final class SessionStore: @unchecked Sendable {
             lock.unlock()
             return
         }
-        state.turns.append(turn)
+        state.turns.append(TurnHash.normalize(turn))
         sessions[sessionId] = state
         lock.unlock()
+
+        SessionCache.shared.save(state)
     }
 
     // MARK: - Computed properties
@@ -147,7 +181,7 @@ final class SessionStore: @unchecked Sendable {
     /// All non-closed sessions, sorted by last activity.
     var activeSessions: [SessionState] {
         sessions.values
-            .filter { $0.session.status != .closed }
+            .filter { $0.session.status != .closed && !cachedOnlySessionIds.contains($0.session.id) }
             .sorted { a, b in
                 let aTime = a.turns.last?.endedAt ?? a.turns.last?.startedAt ?? 0
                 let bTime = b.turns.last?.endedAt ?? b.turns.last?.startedAt ?? 0
@@ -211,30 +245,48 @@ final class SessionStore: @unchecked Sendable {
     // MARK: - Private: Session lifecycle handlers
 
     private func handleSessionUpdate(_ session: Session) {
+        var stateToPersist: SessionState?
+
         lock.lock()
         if var state = sessions[session.id] {
             state.session = session
             sessions[session.id] = state
+            stateToPersist = state
         } else {
             // First time seeing this session — create fresh state.
-            sessions[session.id] = SessionState(
+            let freshState = SessionState(
                 session: session,
                 turns: [],
                 currentTurnId: nil
             )
+            sessions[session.id] = freshState
+            stateToPersist = freshState
         }
+        cachedOnlySessionIds.remove(session.id)
         lock.unlock()
+
+        if let stateToPersist {
+            SessionCache.shared.save(stateToPersist)
+        }
     }
 
     private func handleSessionClosed(_ sessionId: String) {
+        var stateToPersist: SessionState?
+
         lock.lock()
         if var state = sessions[sessionId] {
             var session = state.session
             session.status = .closed
             state.session = session
             sessions[sessionId] = state
+            cachedOnlySessionIds.insert(sessionId)
+            stateToPersist = state
         }
         lock.unlock()
+
+        if let stateToPersist {
+            SessionCache.shared.save(stateToPersist)
+        }
     }
 
     // MARK: - Private: Turn lifecycle handlers
@@ -254,7 +306,7 @@ final class SessionStore: @unchecked Sendable {
             startedAt: Int(Date().timeIntervalSince1970 * 1000),
             endedAt: nil
         )
-        state.turns.append(turnState)
+        state.turns.append(TurnHash.normalize(turnState))
         state.currentTurnId = turn.id
         sessions[sessionId] = state
         lock.unlock()
@@ -285,6 +337,7 @@ final class SessionStore: @unchecked Sendable {
 
         state.turns[turnIndex].status = snapshotStatus
         state.turns[turnIndex].endedAt = Int(Date().timeIntervalSince1970 * 1000)
+        state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
 
         if state.currentTurnId == turnId {
             state.currentTurnId = nil
@@ -299,6 +352,8 @@ final class SessionStore: @unchecked Sendable {
     }
 
     private func handleTurnError(sessionId: String, turnId: String, message: String) {
+        var stateToPersist: SessionState?
+
         lock.lock()
         guard var state = sessions[sessionId],
               let turnIndex = state.turns.firstIndex(where: { $0.id == turnId }) else {
@@ -309,14 +364,19 @@ final class SessionStore: @unchecked Sendable {
 
         state.turns[turnIndex].status = .error
         state.turns[turnIndex].endedAt = Int(Date().timeIntervalSince1970 * 1000)
+        state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
 
         if state.currentTurnId == turnId {
             state.currentTurnId = nil
         }
 
         sessions[sessionId] = state
+        stateToPersist = state
         lock.unlock()
 
+        if let stateToPersist {
+            SessionCache.shared.save(stateToPersist)
+        }
         Self.logger.error("Turn error in \(sessionId)/\(turnId): \(message)")
     }
 
@@ -334,6 +394,7 @@ final class SessionStore: @unchecked Sendable {
         let blockStatus: SnapshotBlockStatus = block.status == .completed ? .completed : .streaming
         let blockState = BlockState(block: block, status: blockStatus)
         state.turns[turnIndex].blocks.append(blockState)
+        state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
         sessions[sessionId] = state
         lock.unlock()
     }
@@ -353,6 +414,7 @@ final class SessionStore: @unchecked Sendable {
             state.turns[turnIndex].blocks[blockIndex].block.text = existing + text
         }
 
+        state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
         sessions[sessionId] = state
         lock.unlock()
     }
@@ -370,6 +432,7 @@ final class SessionStore: @unchecked Sendable {
            var action = state.turns[turnIndex].blocks[blockIndex].block.action {
             action.output += output
             state.turns[turnIndex].blocks[blockIndex].block.action = action
+            state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
             sessions[sessionId] = state
         }
 
@@ -395,6 +458,7 @@ final class SessionStore: @unchecked Sendable {
            var action = state.turns[turnIndex].blocks[blockIndex].block.action {
             action.status = status
             state.turns[turnIndex].blocks[blockIndex].block.action = action
+            state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
             sessions[sessionId] = state
         }
 
@@ -412,6 +476,7 @@ final class SessionStore: @unchecked Sendable {
 
         state.turns[turnIndex].blocks[blockIndex].status = .completed
         state.turns[turnIndex].blocks[blockIndex].block.status = status
+        state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
         sessions[sessionId] = state
         lock.unlock()
     }
@@ -442,9 +507,27 @@ final class SessionStore: @unchecked Sendable {
                 turnCount: state.turns.count,
                 currentTurnStatus: currentTurn?.status.rawValue,
                 startedAt: startedAt,
-                lastActivityAt: lastActivity
+                lastActivityAt: lastActivity,
+                project: state.session.inferredProjectName,
+                model: state.session.model,
+                isCachedOnly: cachedOnlySessionIds.contains(state.session.id)
             )
         }.sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
+    private func hydrateFromCache() {
+        let cachedStates = SessionCache.shared.loadAll().map(TurnHash.normalize)
+        guard !cachedStates.isEmpty else { return }
+
+        lock.lock()
+        for cachedState in cachedStates {
+            sessions[cachedState.session.id] = cachedState
+            cachedOnlySessionIds.insert(cachedState.session.id)
+        }
+        lock.unlock()
+
+        rebuildSummaries()
+        Self.logger.notice("Hydrated \(cachedStates.count) cached sessions at launch")
     }
 
     // MARK: - Private: Seq persistence
@@ -467,6 +550,7 @@ final class SessionStore: @unchecked Sendable {
 extension SessionStore {
     static let preview: SessionStore = {
         let store = SessionStore()
+        store.clearAll()
         store.connectionState = .connected
         store.summaries = [
             SessionSummary(
@@ -474,20 +558,26 @@ extension SessionStore {
                 adapterType: "claude-code", status: "active",
                 turnCount: 8, currentTurnStatus: "streaming",
                 startedAt: Int(Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000),
-                lastActivityAt: Int(Date().addingTimeInterval(-15).timeIntervalSince1970 * 1000)
+                lastActivityAt: Int(Date().addingTimeInterval(-15).timeIntervalSince1970 * 1000),
+                project: "openscout",
+                model: "claude-sonnet-4-20250514"
             ),
             SessionSummary(
                 sessionId: "s2", name: "Write API docs",
                 adapterType: "openai", status: "idle",
                 turnCount: 3, currentTurnStatus: nil,
                 startedAt: Int(Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000),
-                lastActivityAt: Int(Date().addingTimeInterval(-300).timeIntervalSince1970 * 1000)
+                lastActivityAt: Int(Date().addingTimeInterval(-300).timeIntervalSince1970 * 1000),
+                project: "dispatch",
+                model: "gpt-5.4-mini"
             ),
         ]
         store.sessions["s1"] = SessionState(
             session: Session(
                 id: "s1", name: "Refactor auth",
-                adapterType: "claude-code", status: .active
+                adapterType: "claude-code", status: .active,
+                cwd: "/Users/arach/dev/openscout",
+                model: "claude-sonnet-4-20250514"
             ),
             turns: [
                 TurnState(

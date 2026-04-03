@@ -262,7 +262,7 @@ Examples of projections:
 
 - current conversation view
 - current flight status
-- current twin registry
+- current project agent inventory
 - outbound delivery queue
 
 These projections can be rebuilt from canonical durable state.

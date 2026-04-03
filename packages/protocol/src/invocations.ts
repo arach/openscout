@@ -1,3 +1,4 @@
+import type { AgentHarness } from "./actors.js";
 import type { MetadataMap, ScoutId } from "./common.js";
 
 export type InvocationAction =
@@ -16,6 +17,10 @@ export type FlightState =
   | "failed"
   | "cancelled";
 
+export interface InvocationExecutionPreference {
+  harness?: AgentHarness;
+}
+
 export interface InvocationRequest {
   id: ScoutId;
   requesterId: ScoutId;
@@ -27,6 +32,7 @@ export interface InvocationRequest {
   conversationId?: ScoutId;
   messageId?: ScoutId;
   context?: MetadataMap;
+  execution?: InvocationExecutionPreference;
   ensureAwake: boolean;
   stream: boolean;
   timeoutMs?: number;

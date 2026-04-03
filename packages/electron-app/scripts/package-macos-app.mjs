@@ -13,7 +13,11 @@ const runtimePackages = [
 ];
 
 const projectRoot = process.cwd();
-const electronAppSource = path.join(projectRoot, "node_modules", "electron", "dist", "Electron.app");
+const electronAppSourceCandidates = [
+  path.join(projectRoot, "node_modules", "electron", "dist", "Electron.app"),
+  path.join(projectRoot, "..", "..", "node_modules", "electron", "dist", "Electron.app"),
+];
+const electronAppSource = electronAppSourceCandidates.find((candidate) => existsSync(candidate));
 const outputRoot = path.join(projectRoot, "dist", "macos");
 const rootPackage = JSON.parse(
   await fs.readFile(path.join(projectRoot, "package.json"), "utf8"),
@@ -21,6 +25,10 @@ const rootPackage = JSON.parse(
 
 const productName = rootPackage.productName || "OpenScout";
 const bundleId = rootPackage.bundleId || "com.openscout.desktop";
+const bundleIconSource = path.join(projectRoot, "public", "openscout.icns");
+const windowIconSource = path.join(projectRoot, "public", "openscout-icon.png");
+const bundleIconFile = "openscout.icns";
+const windowIconFile = "openscout-icon.png";
 const appBundlePath = path.join(outputRoot, `${productName}.app`);
 const appContentsPath = path.join(appBundlePath, "Contents");
 const appResourcesPath = path.join(appContentsPath, "Resources");
@@ -39,6 +47,14 @@ async function copyIntoBundle(source, destination) {
   await fs.cp(source, destination, { recursive: true });
 }
 
+async function copyFileIntoBundle(source, destination) {
+  if (!existsSync(source)) {
+    throw new Error(`Expected bundle resource at ${source}`);
+  }
+
+  await fs.copyFile(source, destination);
+}
+
 function setPlistValue(key, value) {
   try {
     execFileSync("/usr/libexec/PlistBuddy", ["-c", `Set :${key} ${value}`, plistPath], {
@@ -51,8 +67,8 @@ function setPlistValue(key, value) {
   }
 }
 
-if (!existsSync(electronAppSource)) {
-  throw new Error(`Electron.app not found at ${electronAppSource}`);
+if (!electronAppSource) {
+  throw new Error(`Electron.app not found in any expected location: ${electronAppSourceCandidates.join(", ")}`);
 }
 
 await fs.mkdir(outputRoot, { recursive: true });
@@ -68,6 +84,10 @@ setPlistValue("CFBundleDisplayName", productName);
 setPlistValue("CFBundleName", productName);
 setPlistValue("CFBundleExecutable", productName);
 setPlistValue("CFBundleIdentifier", bundleId);
+setPlistValue("CFBundleIconFile", path.basename(bundleIconFile, ".icns"));
+
+await copyFileIntoBundle(bundleIconSource, path.join(appResourcesPath, bundleIconFile));
+await copyFileIntoBundle(windowIconSource, path.join(appResourcesPath, windowIconFile));
 
 await fs.mkdir(appRuntimePath, { recursive: true });
 await fs.mkdir(path.join(appRuntimePath, "dist"), { recursive: true });

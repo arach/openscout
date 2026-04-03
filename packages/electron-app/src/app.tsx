@@ -45,6 +45,8 @@ import {
   Mic,
   Reply,
   Send,
+  Smartphone,
+  Star,
   Sun,
   Moon,
   Eye,
@@ -68,6 +70,9 @@ import type {
   DesktopShellState,
   InterAgentAgent,
   InterAgentThread,
+  OnboardingCommandName,
+  OnboardingCommandResult,
+  PhonePreparationState,
   RelayDirectThread,
   RelayDestinationKind,
   RelayMessage,
@@ -102,11 +107,24 @@ type PendingRelayMessage = {
   message: RelayMessage;
 };
 
+type OnboardingWizardStepId = 'source-roots' | 'harness' | 'confirm' | 'init' | 'doctor' | 'runtimes';
+
 type ComposerRelayReference = {
   messageId: string;
   authorName: string;
   preview: string;
 };
+
+const ONBOARDING_WIZARD_STEP_ORDER: OnboardingWizardStepId[] = [
+  'source-roots',
+  'harness',
+  'confirm',
+  'init',
+  'doctor',
+  'runtimes',
+];
+
+const SOURCE_ROOT_PATH_SUGGESTIONS = ['~/dev', '~/src', '~/code'];
 
 function dispatchStatesMeaningfullyEqual(left: DispatchState | null, right: DispatchState | null) {
   if (left === right) {
@@ -152,6 +170,12 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionMetadata | null>(null);
+  const [phonePreparation, setPhonePreparation] = useState<PhonePreparationState | null>(null);
+  const [phonePreparationLoading, setPhonePreparationLoading] = useState(false);
+  const [phonePreparationSaving, setPhonePreparationSaving] = useState(false);
+  const [phonePreparationFeedback, setPhonePreparationFeedback] = useState<string | null>(null);
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
+  const [draggedPhoneSection, setDraggedPhoneSection] = useState<'favorites' | 'quickHits' | null>(null);
   const [shellState, setShellState] = useState<DesktopShellState | null>(null);
   const [isLoadingShell, setIsLoadingShell] = useState(true);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -200,6 +224,10 @@ export default function App() {
   const [appSettingsSaving, setAppSettingsSaving] = useState(false);
   const [appSettingsFeedback, setAppSettingsFeedback] = useState<string | null>(null);
   const [isAppSettingsEditing, setIsAppSettingsEditing] = useState(false);
+  const [onboardingWizardStep, setOnboardingWizardStep] = useState<OnboardingWizardStepId>('source-roots');
+  const [onboardingCommandPending, setOnboardingCommandPending] = useState<OnboardingCommandName | null>(null);
+  const [onboardingCommandResult, setOnboardingCommandResult] = useState<OnboardingCommandResult | null>(null);
+  const [startupOnboardingState, setStartupOnboardingState] = useState<'checking' | 'active' | 'done'>('checking');
   const [settingsSection, setSettingsSection] = useState<'profile' | 'agents' | 'communication' | 'database' | 'appearance'>('profile');
   const [logCatalog, setLogCatalog] = useState<DesktopLogCatalog | null>(null);
   const [selectedLogSourceId, setSelectedLogSourceId] = useState<string | null>(null);
@@ -227,6 +255,7 @@ export default function App() {
   const settingsOperatorNameRef = useRef<HTMLInputElement | null>(null);
   const relayServiceInspectorRef = useRef<HTMLElement | null>(null);
   const shellStateLoadInFlightRef = useRef(false);
+  const startupOnboardingCheckedRef = useRef(false);
   const commitDispatchState = React.useCallback((nextState: DispatchState) => {
     setDispatchState((current) => dispatchStatesMeaningfullyEqual(current, nextState) ? current : nextState);
   }, []);
@@ -492,8 +521,17 @@ export default function App() {
         }
         setAppSettings(nextSettings);
         setAppSettingsDraft(nextSettings);
-        setAppSettingsFeedback(null);
-        setIsAppSettingsEditing(false);
+        if (startupOnboardingState === 'active' && nextSettings.onboarding.needed) {
+          setAppSettingsFeedback('OpenScout needs a quick first-run setup. Answer the wizard one step at a time, save the inputs, then run init, doctor, and runtimes from this screen.');
+          setIsAppSettingsEditing(true);
+          setOnboardingWizardStep((current) => current || 'source-roots');
+        } else {
+          setAppSettingsFeedback(null);
+          setIsAppSettingsEditing(false);
+        }
+        if (startupOnboardingState === 'active' && !nextSettings.onboarding.needed) {
+          setStartupOnboardingState('done');
+        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -502,6 +540,9 @@ export default function App() {
         setAppSettingsDraft(null);
         setAppSettingsFeedback(asErrorMessage(error));
         setIsAppSettingsEditing(false);
+        if (startupOnboardingState === 'checking') {
+          setStartupOnboardingState('done');
+        }
       } finally {
         if (!cancelled) {
           setAppSettingsLoading(false);
@@ -510,6 +551,85 @@ export default function App() {
     };
 
     void loadAppSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, startupOnboardingState]);
+
+  useEffect(() => {
+    if (startupOnboardingCheckedRef.current) {
+      return;
+    }
+
+    startupOnboardingCheckedRef.current = true;
+    let cancelled = false;
+
+    if (!window.openScoutDesktop?.getAppSettings) {
+      setStartupOnboardingState('done');
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const checkOnboarding = async () => {
+      try {
+        const nextSettings = await window.openScoutDesktop!.getAppSettings();
+        if (cancelled) {
+          return;
+        }
+        setAppSettings((current) => current ?? nextSettings);
+        setAppSettingsDraft((current) => current ?? nextSettings);
+        if (nextSettings.onboarding.needed) {
+          setAppSettingsFeedback('OpenScout needs a quick first-run setup. Answer the wizard one step at a time, save the inputs, then run init, doctor, and runtimes from this screen.');
+          setIsAppSettingsEditing(true);
+          setOnboardingWizardStep('source-roots');
+          setStartupOnboardingState('active');
+        } else {
+          setStartupOnboardingState('done');
+        }
+      } catch {
+        // Startup onboarding should not block the rest of the shell if settings cannot be read yet.
+        if (!cancelled) {
+          setStartupOnboardingState('done');
+        }
+      }
+    };
+
+    void checkOnboarding();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeView !== 'sessions' || !window.openScoutDesktop?.getPhonePreparation) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadPhonePreparation = async () => {
+      setPhonePreparationLoading(true);
+      try {
+        const nextState = await window.openScoutDesktop!.getPhonePreparation();
+        if (cancelled) {
+          return;
+        }
+        setPhonePreparation(nextState);
+        setPhonePreparationFeedback(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setPhonePreparation(null);
+        setPhonePreparationFeedback(asErrorMessage(error));
+      } finally {
+        if (!cancelled) {
+          setPhonePreparationLoading(false);
+        }
+      }
+    };
+
+    void loadPhonePreparation();
     return () => {
       cancelled = true;
     };
@@ -844,6 +964,42 @@ export default function App() {
     );
   }, [sessions, searchQuery, selectedProject]);
 
+  const phonePreparationState = phonePreparation ?? {
+    favorites: [],
+    quickHits: [],
+    preparedAt: null,
+  };
+
+  const sessionsById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+
+  const preparedPhoneCandidates = useMemo(
+    () => [...sessions]
+      .sort((left, right) =>
+        new Date(right.lastModified).getTime() - new Date(left.lastModified).getTime()
+        || right.messageCount - left.messageCount
+        || left.title.localeCompare(right.title),
+      ),
+    [sessions],
+  );
+
+  const favoritePhoneSessions = useMemo(
+    () => phonePreparationState.favorites
+      .map((sessionId) => sessionsById.get(sessionId))
+      .filter((session): session is SessionMetadata => Boolean(session)),
+    [phonePreparationState.favorites, sessionsById],
+  );
+
+  const quickHitPhoneSessions = useMemo(
+    () => phonePreparationState.quickHits
+      .filter((sessionId) => !phonePreparationState.favorites.includes(sessionId))
+      .map((sessionId) => sessionsById.get(sessionId))
+      .filter((session): session is SessionMetadata => Boolean(session)),
+    [phonePreparationState.favorites, phonePreparationState.quickHits, sessionsById],
+  );
+
   // Stats
   const stats = useMemo(() => ({
     totalSessions: sessions.length,
@@ -851,6 +1007,133 @@ export default function App() {
     totalTokens: sessions.reduce((sum, s) => sum + (s.tokens || 0), 0),
     projects: projects.length,
   }), [sessions, projects]);
+
+  const persistPhonePreparation = React.useCallback(async (
+    nextState: PhonePreparationState,
+    successMessage?: string | null,
+  ) => {
+    if (!window.openScoutDesktop?.updatePhonePreparation) {
+      setPhonePreparationFeedback('Phone preparation is unavailable in this build.');
+      return;
+    }
+
+    const previous = phonePreparation;
+    setPhonePreparation(nextState);
+    setPhonePreparationSaving(true);
+    try {
+      const saved = await window.openScoutDesktop.updatePhonePreparation(nextState);
+      setPhonePreparation(saved);
+      if (successMessage) {
+        setPhonePreparationFeedback(successMessage);
+      } else if (successMessage === null) {
+        setPhonePreparationFeedback(null);
+      }
+    } catch (error) {
+      setPhonePreparation(previous);
+      setPhonePreparationFeedback(asErrorMessage(error));
+    } finally {
+      setPhonePreparationSaving(false);
+      setDraggedSessionId(null);
+      setDraggedPhoneSection(null);
+    }
+  }, [phonePreparation]);
+
+  const updatePhonePreparation = React.useCallback((
+    mutator: (current: PhonePreparationState) => PhonePreparationState,
+    successMessage?: string | null,
+  ) => {
+    const nextState = mutator(phonePreparationState);
+    void persistPhonePreparation(nextState, successMessage);
+  }, [persistPhonePreparation, phonePreparationState]);
+
+  const handlePreparePhone = React.useCallback(() => {
+    const favorites = phonePreparationState.favorites.filter((sessionId) => sessionsById.has(sessionId));
+    const quickHits = preparedPhoneCandidates
+      .map((session) => session.id)
+      .filter((sessionId) => !favorites.includes(sessionId))
+      .slice(0, 8);
+
+    void persistPhonePreparation({
+      favorites,
+      quickHits,
+      preparedAt: Date.now(),
+    }, `Prepared ${favorites.length + quickHits.length} phone picks.`);
+  }, [persistPhonePreparation, phonePreparationState.favorites, preparedPhoneCandidates, sessionsById]);
+
+  const handleClearPhoneQuickHits = React.useCallback(() => {
+    updatePhonePreparation((current) => ({
+      ...current,
+      quickHits: [],
+      preparedAt: Date.now(),
+    }), 'Cleared My List. Favorites stayed pinned.');
+  }, [updatePhonePreparation]);
+
+  const handleAddSessionToPhoneSection = React.useCallback((sessionId: string, section: 'favorites' | 'quickHits') => {
+    updatePhonePreparation((current) => {
+      if (section === 'favorites') {
+        return {
+          favorites: current.favorites.includes(sessionId) ? current.favorites : [...current.favorites, sessionId],
+          quickHits: current.quickHits.filter((id) => id !== sessionId),
+          preparedAt: Date.now(),
+        };
+      }
+
+      if (current.favorites.includes(sessionId) || current.quickHits.includes(sessionId)) {
+        return {
+          ...current,
+          preparedAt: Date.now(),
+        };
+      }
+
+      return {
+        ...current,
+        quickHits: [...current.quickHits, sessionId],
+        preparedAt: Date.now(),
+      };
+    }, section === 'favorites' ? 'Pinned for phone.' : 'Added to My List.');
+  }, [updatePhonePreparation]);
+
+  const handleRemoveSessionFromPhoneSection = React.useCallback((sessionId: string, section: 'favorites' | 'quickHits') => {
+    updatePhonePreparation((current) => ({
+      favorites: section === 'favorites' ? current.favorites.filter((id) => id !== sessionId) : current.favorites,
+      quickHits: section === 'quickHits' ? current.quickHits.filter((id) => id !== sessionId) : current.quickHits,
+      preparedAt: Date.now(),
+    }), section === 'favorites' ? 'Removed from phone favorites.' : 'Removed from My List.');
+  }, [updatePhonePreparation]);
+
+  const handleDropIntoFavorites = React.useCallback(() => {
+    if (!draggedSessionId) {
+      return;
+    }
+    handleAddSessionToPhoneSection(draggedSessionId, 'favorites');
+  }, [draggedSessionId, handleAddSessionToPhoneSection]);
+
+  const handleDropIntoQuickHits = React.useCallback((targetIndex?: number) => {
+    if (!draggedSessionId) {
+      return;
+    }
+
+    updatePhonePreparation((current) => {
+      if (current.favorites.includes(draggedSessionId)) {
+        return {
+          ...current,
+          preparedAt: Date.now(),
+        };
+      }
+
+      const nextQuickHits = current.quickHits.filter((id) => id !== draggedSessionId);
+      const normalizedTargetIndex = typeof targetIndex === 'number'
+        ? Math.max(0, Math.min(targetIndex, nextQuickHits.length))
+        : nextQuickHits.length;
+      nextQuickHits.splice(normalizedTargetIndex, 0, draggedSessionId);
+
+      return {
+        ...current,
+        quickHits: nextQuickHits,
+        preparedAt: Date.now(),
+      };
+    }, draggedPhoneSection === 'quickHits' ? 'Reordered My List.' : 'Added to My List.');
+  }, [draggedPhoneSection, draggedSessionId, updatePhonePreparation]);
 
   const availableAgentNames = useMemo(
     () => Array.from(new Set(sessions.map((session) => session.agent))).sort(),
@@ -1056,6 +1339,65 @@ export default function App() {
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
     [appSettingsDraft, appSettings],
   );
+  const onboardingHasProjectConfig = Boolean(visibleAppSettings?.currentProjectConfigPath);
+  const onboardingRuntimeMatch = (visibleAppSettings?.runtimeCatalog ?? []).find((entry) => entry.name === visibleAppSettings?.defaultHarness) ?? null;
+  const onboardingStepCompletion = useMemo(
+    () => new Map((visibleAppSettings?.onboarding.steps ?? []).map((step) => [step.id, step.complete])),
+    [visibleAppSettings?.onboarding.steps],
+  );
+  const onboardingWizardSteps = useMemo(() => ([
+    {
+      id: 'source-roots' as const,
+      number: '01',
+      title: 'Choose a source root',
+      detail: 'Pick the parent folder that contains your repos so OpenScout can discover projects automatically.',
+      complete: onboardingStepCompletion.get('source-roots') ?? false,
+    },
+    {
+      id: 'harness' as const,
+      number: '02',
+      title: 'Choose a default harness',
+      detail: 'This is the assistant family OpenScout should prefer when a project does not pin one of its own.',
+      complete: onboardingStepCompletion.get('harness') ?? false,
+    },
+    {
+      id: 'confirm' as const,
+      number: '03',
+      title: 'Confirm and save inputs',
+      detail: 'Review the onboarding inputs, then save them before running the command-backed setup steps.',
+      complete: onboardingStepCompletion.get('confirm') ?? false,
+    },
+    {
+      id: 'init' as const,
+      number: '04',
+      title: 'Run init',
+      detail: 'See how the current repo becomes a local project manifest and how that feeds discovery.',
+      complete: onboardingStepCompletion.get('init') ?? false,
+    },
+    {
+      id: 'doctor' as const,
+      number: '05',
+      title: 'Run doctor',
+      detail: 'See how OpenScout combines broker health, source roots, and project manifests into one inventory view.',
+      complete: onboardingStepCompletion.get('doctor') ?? false,
+    },
+    {
+      id: 'runtimes' as const,
+      number: '06',
+      title: 'Run runtimes',
+      detail: 'Check whether Claude or Codex is installed, signed in, and ready for broker-owned sessions.',
+      complete: onboardingStepCompletion.get('runtimes') ?? false,
+    },
+  ]), [onboardingStepCompletion]);
+  const onboardingWizardIndex = Math.max(
+    0,
+    ONBOARDING_WIZARD_STEP_ORDER.indexOf(onboardingWizardStep),
+  );
+  const activeOnboardingStep = onboardingWizardSteps[onboardingWizardIndex] ?? onboardingWizardSteps[0];
+  const canGoToPreviousOnboardingStep = onboardingWizardIndex > 0;
+  const canGoToNextOnboardingStep = onboardingWizardIndex < onboardingWizardSteps.length - 1;
+  const startupOnboardingVisible = startupOnboardingState === 'active' && Boolean(visibleAppSettings?.onboarding);
+  const startupOnboardingBlocking = startupOnboardingState !== 'done';
   const visibleAgentConfig = selectedInterAgentId && (agentConfigDraft ?? agentConfig)?.agentId === selectedInterAgentId
     ? (agentConfigDraft ?? agentConfig)
     : null;
@@ -1178,13 +1520,13 @@ export default function App() {
     {
       id: 'profile' as const,
       label: 'Getting Started',
-      description: 'Identity, workspace roots, starter relay-agent defaults, and discovered projects.',
+      description: 'Identity, source roots, runtime readiness, and project inventory.',
       icon: <FolderOpen size={15} />,
     },
     {
       id: 'agents' as const,
       label: 'Agents',
-      description: 'Relay agent configuration, runtime definitions, prompts, and restart controls.',
+      description: 'Agent configuration, runtime definitions, prompts, and restart controls.',
       icon: <Bot size={15} />,
     },
     {
@@ -1332,6 +1674,9 @@ export default function App() {
     setAppSettingsDraft(appSettings);
     setAppSettingsFeedback(null);
     setIsAppSettingsEditing(true);
+    if (appSettings?.onboarding.needed) {
+      setOnboardingWizardStep('source-roots');
+    }
   }, [appSettings]);
 
   const handleCancelAppSettingsEdit = React.useCallback(() => {
@@ -1340,9 +1685,9 @@ export default function App() {
     setIsAppSettingsEditing(false);
   }, [appSettings]);
 
-  const handleSaveAppSettings = async () => {
+  const handleSaveAppSettings = async (): Promise<boolean> => {
     if (!appSettingsDraft || !window.openScoutDesktop?.updateAppSettings) {
-      return;
+      return false;
     }
 
     setAppSettingsSaving(true);
@@ -1368,14 +1713,110 @@ export default function App() {
       setAppSettings(nextSettings);
       setAppSettingsDraft(nextSettings);
       setAppSettingsFeedback('Settings saved.');
-      setIsAppSettingsEditing(false);
+      setIsAppSettingsEditing(nextSettings.onboarding.needed);
+      setStartupOnboardingState((current) => current === 'active'
+        ? (nextSettings.onboarding.needed ? 'active' : 'done')
+        : current);
       await loadShellState(false);
+      return true;
     } catch (error) {
       setAppSettingsFeedback(asErrorMessage(error));
+      return false;
     } finally {
       setAppSettingsSaving(false);
     }
   };
+
+  const handleRunOnboardingCommand = React.useCallback(async (command: OnboardingCommandName): Promise<OnboardingCommandResult | null> => {
+    if (!window.openScoutDesktop?.runOnboardingCommand) {
+      return null;
+    }
+
+    setOnboardingCommandPending(command);
+    setAppSettingsFeedback(null);
+    try {
+      const sourceRoots = (appSettingsDraft ?? appSettings)?.workspaceRoots ?? [];
+      const result = await window.openScoutDesktop.runOnboardingCommand({
+        command,
+        sourceRoots: command === 'init' ? sourceRoots : undefined,
+      });
+      setOnboardingCommandResult(result);
+
+      if (window.openScoutDesktop.getAppSettings) {
+        const nextSettings = await window.openScoutDesktop.getAppSettings();
+        setAppSettings(nextSettings);
+        setAppSettingsDraft(nextSettings);
+        setIsAppSettingsEditing(nextSettings.onboarding.needed);
+        setStartupOnboardingState((current) => current === 'active'
+          ? (nextSettings.onboarding.needed ? 'active' : 'done')
+          : current);
+      }
+
+      await loadShellState(false);
+      return result;
+    } catch (error) {
+      setAppSettingsFeedback(asErrorMessage(error));
+      return null;
+    } finally {
+      setOnboardingCommandPending(null);
+    }
+  }, [appSettings, appSettingsDraft, loadShellState]);
+
+  const handleAddSourceRootSuggestion = React.useCallback((root: string) => {
+    setAppSettingsDraft((current) => {
+      const base = current ?? appSettings;
+      if (!base) {
+        return current;
+      }
+
+      const nextRoots = Array.from(new Set([...base.workspaceRoots, root]));
+      return {
+        ...base,
+        workspaceRoots: nextRoots,
+      };
+    });
+    setAppSettingsFeedback(null);
+    setIsAppSettingsEditing(true);
+  }, [appSettings]);
+
+  const moveOnboardingWizard = React.useCallback((direction: -1 | 1) => {
+    setOnboardingWizardStep((current) => {
+      const currentIndex = ONBOARDING_WIZARD_STEP_ORDER.indexOf(current);
+      if (currentIndex < 0) {
+        return ONBOARDING_WIZARD_STEP_ORDER[0];
+      }
+      const nextIndex = Math.min(
+        ONBOARDING_WIZARD_STEP_ORDER.length - 1,
+        Math.max(0, currentIndex + direction),
+      );
+      return ONBOARDING_WIZARD_STEP_ORDER[nextIndex];
+    });
+  }, []);
+
+  const dismissStartupOnboarding = React.useCallback(() => {
+    void (async () => {
+      try {
+        if (window.openScoutDesktop?.skipOnboarding) {
+          const nextSettings = await window.openScoutDesktop.skipOnboarding();
+          setAppSettings(nextSettings);
+          setAppSettingsDraft(nextSettings);
+        }
+        setStartupOnboardingState('done');
+        setAppSettingsFeedback('Onboarding skipped. You can revisit it from Settings.');
+        setIsAppSettingsEditing(false);
+      } catch (error) {
+        setAppSettingsFeedback(asErrorMessage(error));
+      }
+    })();
+  }, []);
+
+  const skipCurrentOnboardingStep = React.useCallback(() => {
+    if (canGoToNextOnboardingStep) {
+      moveOnboardingWizard(1);
+      return;
+    }
+    dismissStartupOnboarding();
+  }, [canGoToNextOnboardingStep, dismissStartupOnboarding, moveOnboardingWizard]);
 
   const openAgentProfile = React.useCallback((agentId: string) => {
     setSelectedInterAgentId(agentId);
@@ -1692,6 +2133,480 @@ export default function App() {
     hoverBg:     'hover:bg-[var(--os-hover)]',
     annotBadge:  { backgroundColor: C.tagBg, borderColor: C.border, color: C.muted },
   };
+
+  const renderImmersiveOnboardingStep = () => {
+    if (!visibleAppSettings) {
+      return null;
+    }
+
+    if (activeOnboardingStep.id === 'source-roots') {
+      return (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+              Where should OpenScout look for projects?
+            </div>
+            <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+              Pick the parent folder that contains your repos. A source root is usually something like `~/dev`, `~/src`, or `~/code`, not one individual repo.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+            <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Source Roots</div>
+            <textarea
+              value={(visibleAppSettings.workspaceRoots ?? []).join('\n')}
+              onChange={(event) => {
+                setAppSettingsDraft((current) => current ? {
+                  ...current,
+                  workspaceRoots: event.target.value.split(/\r?\n/g).map((entry) => entry.trim()).filter(Boolean),
+                } : current);
+                setAppSettingsFeedback(null);
+              }}
+              readOnly={appSettingsSaving}
+              rows={6}
+              className="w-full rounded-xl border px-4 py-3 text-[15px] leading-[1.6] bg-transparent outline-none resize-none"
+              style={{ borderColor: C.border, color: C.ink }}
+              placeholder="~/dev"
+            />
+            <div className="text-[13px] mt-3 leading-[1.6]" style={s.mutedText}>
+              If you do not already have one, create a folder like `~/dev` and start there.
+            </div>
+            <div className="flex flex-wrap gap-2 mt-4">
+              {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
+                <button
+                  key={root}
+                  className="os-toolbar-button text-[12px] font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                  style={{ color: C.ink }}
+                  onClick={() => handleAddSourceRootSuggestion(root)}
+                  disabled={appSettingsSaving}
+                >
+                  Use {root}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeOnboardingStep.id === 'harness') {
+      return (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+              Which harness should new projects prefer?
+            </div>
+            <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+              A harness is the assistant family that answers a turn. A runtime is the installed local program or session OpenScout uses to launch that harness.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(['claude', 'codex'] as const).map((harness) => {
+              const runtimeEntry = (visibleAppSettings.runtimeCatalog ?? []).find((entry) => entry.name === harness) ?? null;
+              const selected = visibleAppSettings.defaultHarness === harness;
+              return (
+                <button
+                  key={harness}
+                  className="text-left rounded-2xl border px-5 py-5 transition-opacity hover:opacity-90 disabled:opacity-60"
+                  style={{ borderColor: C.border, backgroundColor: selected ? C.bg : C.surface }}
+                  disabled={appSettingsSaving}
+                  onClick={() => {
+                    setAppSettingsDraft((current) => current ? {
+                      ...current,
+                      defaultHarness: harness,
+                    } : current);
+                    setAppSettingsFeedback(null);
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[18px] font-semibold capitalize tracking-tight" style={s.inkText}>{harness}</div>
+                      <div className="text-[13px] mt-2 leading-[1.6]" style={s.mutedText}>
+                        {harness === 'claude'
+                          ? 'Use Claude as the default responder when a project has not chosen a harness of its own.'
+                          : 'Use Codex as the default responder when a project has not chosen a harness of its own.'}
+                      </div>
+                      <div className="text-[12px] mt-4 leading-[1.6]" style={s.mutedText}>
+                        Runtime: {runtimeEntry?.label ?? harness} · {runtimeEntry?.readinessDetail ?? 'Not reported yet.'}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={selected ? s.activePill : s.tagBadge}>
+                      {selected ? 'selected' : 'available'}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeOnboardingStep.id === 'confirm') {
+      return (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+              Confirm your local setup inputs
+            </div>
+            <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+              Saving here writes your local desktop preferences. It does not start agents yet. The next steps run the actual `scout` commands.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {[
+                ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
+                ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
+                ['Current repo', visibleAppSettings.includeCurrentRepo ? 'Included' : 'Not included'],
+                ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <div className="text-[11px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>{label}</div>
+                  <div className="text-[16px] leading-[1.5]" style={s.inkText}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
+              style={{ color: C.ink }}
+              onClick={() => {
+                void (async () => {
+                  const saved = await handleSaveAppSettings();
+                  if (saved) {
+                    setOnboardingWizardStep('init');
+                  }
+                })();
+              }}
+              disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
+            >
+              {appSettingsSaving ? 'Saving…' : 'Save Inputs'}
+            </button>
+            {appSettingsDirty ? (
+              <div className="text-[13px] self-center" style={s.mutedText}>
+                Save first, then OpenScout will run the command steps.
+              </div>
+            ) : (
+              <div className="text-[13px] self-center" style={s.mutedText}>
+                Inputs are saved. Continue when you are ready.
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeOnboardingStep.id === 'init') {
+      const initCommandLine = `scout init${(visibleAppSettings.workspaceRoots ?? []).map((root) => ` --source-root ${root}`).join('')}`;
+      const initRunning = onboardingCommandPending === 'init';
+      return (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+              Create the local project manifest
+            </div>
+            <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+              This runs `scout init` for the repo you launched from and uses the source roots you just saved.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Command</div>
+                <div className="text-[15px] font-mono break-all" style={s.inkText}>
+                  {initCommandLine}
+                </div>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={initRunning ? s.activePill : s.tagBadge}>
+                {initRunning ? 'running' : 'ready'}
+              </span>
+            </div>
+            {initRunning ? (
+              <div className="text-[13px] mt-4 leading-[1.6]" style={s.inkText}>
+                Running now: <span className="font-mono">{initCommandLine}</span>
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+              {[
+                ['1. Current repo', 'OpenScout looks at the repo you launched from.'],
+                ['2. Local manifest', 'It writes `.openscout/project.json` locally and keeps it out of git.'],
+                ['3. Discovery input', 'That manifest becomes one of the durable sources used for inventory and routing.'],
+              ].map(([label, detail]) => (
+                <div key={label} className="rounded-xl border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                  <div className="text-[11px] font-medium" style={s.inkText}>{label}</div>
+                  <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-[13px] mt-5 leading-[1.6]" style={s.mutedText}>
+              `init` does not wake agents. It prepares the repo so the rest of OpenScout can reason about it consistently.
+            </div>
+            <div className="text-[13px] mt-4 leading-[1.6]" style={s.mutedText}>
+              Current project config: {visibleAppSettings.currentProjectConfigPath ?? 'Not created yet.'}
+            </div>
+          </div>
+
+          <button
+            className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
+            style={{ color: C.ink }}
+            onClick={() => {
+              void (async () => {
+                const result = await handleRunOnboardingCommand('init');
+                if (result?.exitCode === 0) {
+                  setOnboardingWizardStep('doctor');
+                }
+              })();
+            }}
+            disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsDirty}
+          >
+            {initRunning ? initCommandLine : 'Run Init'}
+          </button>
+        </div>
+      );
+    }
+
+    if (activeOnboardingStep.id === 'doctor') {
+      const doctorCommandLine = 'scout doctor';
+      const doctorRunning = onboardingCommandPending === 'doctor';
+      return (
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+              Review what OpenScout discovered
+            </div>
+            <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+              `scout doctor` checks broker health, source roots, and the current project inventory.
+            </div>
+          </div>
+
+          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Command</div>
+                <div className="text-[15px] font-mono break-all" style={s.inkText}>
+                  {doctorCommandLine}
+                </div>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={doctorRunning ? s.activePill : s.tagBadge}>
+                {doctorRunning ? 'running' : 'ready'}
+              </span>
+            </div>
+            {doctorRunning ? (
+              <div className="text-[13px] mt-4 leading-[1.6]" style={s.inkText}>
+                Running now: <span className="font-mono">{doctorCommandLine}</span>
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+              {[
+                ['1. Broker', 'Doctor checks whether the broker is installed, reachable, and healthy.'],
+                ['2. Discovery', 'It reads your saved source roots and scans the project manifests and harness evidence they expose.'],
+                ['3. Inventory', 'It merges those inputs into the project inventory that the UI and CLI both use.'],
+              ].map(([label, detail]) => (
+                <div key={label} className="rounded-xl border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                  <div className="text-[11px] font-medium" style={s.inkText}>{label}</div>
+                  <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
+              {[
+                ['Projects', `${visibleAppSettings.projectInventory.length}`],
+                ['Broker', visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'],
+                ['Current repo', visibleAppSettings.currentProjectConfigPath ?? 'Not created'],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <div className="text-[11px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>{label}</div>
+                  <div className="text-[16px] leading-[1.5] break-words" style={s.inkText}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button
+            className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
+            style={{ color: C.ink }}
+            onClick={() => {
+              void (async () => {
+                const result = await handleRunOnboardingCommand('doctor');
+                if (result?.exitCode === 0) {
+                  setOnboardingWizardStep('runtimes');
+                }
+              })();
+            }}
+            disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
+          >
+            {doctorRunning ? doctorCommandLine : 'Run Doctor'}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+            Check runtime readiness
+          </div>
+          <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+            `scout runtimes` checks the local programs behind each harness and tells you whether they are ready to serve turns.
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3">
+          {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
+            <div key={runtimeEntry.name} className="rounded-2xl border px-5 py-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[16px] font-semibold tracking-tight" style={s.inkText}>{runtimeEntry.label}</div>
+                  <div className="text-[13px] mt-2 leading-[1.6]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                  {runtimeEntry.readinessState}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
+          style={{ color: C.ink }}
+          onClick={() => void handleRunOnboardingCommand('runtimes')}
+          disabled={Boolean(onboardingCommandPending) || appSettingsLoading}
+        >
+          {onboardingCommandPending === 'runtimes' ? 'Running Runtimes…' : 'Run Runtimes'}
+        </button>
+      </div>
+    );
+  };
+
+  if (startupOnboardingBlocking) {
+    return (
+      <div
+        className={`min-h-screen w-full font-sans${dark ? ' dark' : ''}`}
+        style={{
+          background:
+            'radial-gradient(circle at top, rgba(236,245,241,0.96) 0%, rgba(250,247,240,0.98) 42%, rgba(245,242,234,1) 100%)',
+          color: C.ink,
+        }}
+      >
+        <div className="min-h-screen flex items-center justify-center px-6 py-10">
+          {startupOnboardingVisible && visibleAppSettings ? (
+            <div className="w-full max-w-[820px]">
+              <div className="rounded-[32px] border shadow-[0_24px_80px_rgba(15,23,42,0.08)] overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.10)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
+                <div className="px-8 pt-8 pb-6 border-b" style={{ borderBottomColor: 'rgba(15, 23, 42, 0.08)' }}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>OpenScout Setup</div>
+                    <button
+                      className="text-[12px] transition-opacity hover:opacity-70"
+                      style={s.mutedText}
+                      onClick={dismissStartupOnboarding}
+                    >
+                      Skip onboarding
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 mt-5">
+                    {onboardingWizardSteps.map((step) => (
+                      <div
+                        key={step.id}
+                        className="h-1.5 flex-1 rounded-full transition-all"
+                        style={{
+                          backgroundColor: ONBOARDING_WIZARD_STEP_ORDER.indexOf(step.id) <= onboardingWizardIndex
+                            ? 'rgba(15, 118, 110, 0.85)'
+                            : 'rgba(15, 23, 42, 0.08)',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="text-[12px] mt-4" style={s.mutedText}>
+                    Step {activeOnboardingStep.number} of {onboardingWizardSteps.length}
+                  </div>
+                </div>
+
+                <div className="px-8 py-8">
+                  {renderImmersiveOnboardingStep()}
+
+                  {appSettingsFeedback ? (
+                    <div className="text-[13px] mt-6 leading-[1.6]" style={s.inkText}>{appSettingsFeedback}</div>
+                  ) : null}
+
+                  {onboardingCommandResult ? (
+                    <div className="rounded-2xl border px-5 py-4 mt-6" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Command</div>
+                          <div className="text-[13px] font-mono break-all" style={s.inkText}>{onboardingCommandResult.commandLine}</div>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={onboardingCommandResult.exitCode === 0 ? s.activePill : s.tagBadge}>
+                          exit {onboardingCommandResult.exitCode}
+                        </span>
+                      </div>
+                      <pre
+                        className="mt-4 text-[12px] leading-[1.55] whitespace-pre-wrap break-words overflow-x-auto"
+                        style={{ color: C.ink }}
+                      >
+                        {onboardingCommandResult.output}
+                      </pre>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="px-8 py-5 border-t flex items-center justify-between gap-4" style={{ borderTopColor: 'rgba(15, 23, 42, 0.08)', backgroundColor: 'rgba(250, 247, 240, 0.72)' }}>
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[12px] font-medium px-3 py-2 rounded disabled:opacity-50"
+                    style={{ color: C.ink }}
+                    onClick={() => moveOnboardingWizard(-1)}
+                    disabled={!canGoToPreviousOnboardingStep}
+                  >
+                    Back
+                  </button>
+                  <div className="text-[12px] text-center" style={s.mutedText}>
+                    {activeOnboardingStep.id === 'confirm'
+                      ? 'Save inputs before running commands.'
+                      : activeOnboardingStep.id === 'runtimes'
+                      ? 'When runtime checks pass, OpenScout will open automatically.'
+                        : 'Continue when this question is answered.'}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[12px] font-medium px-3 py-2 rounded"
+                      style={{ color: C.ink }}
+                      onClick={skipCurrentOnboardingStep}
+                    >
+                      {canGoToNextOnboardingStep ? 'Skip step' : 'Finish later'}
+                    </button>
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[12px] font-medium px-3 py-2 rounded disabled:opacity-50"
+                      style={{ color: C.ink }}
+                      onClick={() => moveOnboardingWizard(1)}
+                      disabled={!canGoToNextOnboardingStep}
+                    >
+                      Continue
+                      <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full max-w-[560px] rounded-[28px] border px-8 py-10 text-center shadow-[0_24px_80px_rgba(15,23,42,0.08)]" style={{ borderColor: 'rgba(15, 23, 42, 0.10)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
+              <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>OpenScout Setup</div>
+              <div className="text-[30px] font-semibold tracking-tight mt-4" style={s.inkText}>Preparing your first-run flow…</div>
+              <div className="text-[15px] mt-3 leading-[1.7]" style={s.mutedText}>
+                OpenScout is checking whether setup is needed before the shell appears.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -2759,7 +3674,7 @@ export default function App() {
                             onClick={() => void handleSaveAppSettings()}
                             disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
                           >
-                            {appSettingsSaving ? 'Saving…' : 'Save Setup'}
+                            {appSettingsSaving ? 'Saving…' : 'Save Inputs'}
                           </button>
                         </>
                       ) : (
@@ -2769,7 +3684,7 @@ export default function App() {
                             onClick={() => handleStartAppSettingsEdit()}
                             disabled={appSettingsLoading || !visibleAppSettings}
                           >
-                          Edit Setup
+                          Edit Inputs
                         </button>
                       )
                     ) : settingsSection === 'communication' ? (
@@ -2868,16 +3783,438 @@ export default function App() {
                 {settingsSection === 'profile' ? (
                   <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)] gap-4">
                     <div className="space-y-4 min-w-0">
+                      {visibleAppSettings?.onboarding ? (
+                        <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Onboarding</div>
+                              <div className="text-[13px] font-medium mt-1" style={s.inkText}>{visibleAppSettings.onboarding.title}</div>
+                              <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                {visibleAppSettings.onboarding.detail}
+                              </div>
+                            </div>
+                            <span
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                              style={visibleAppSettings.onboarding.needed ? s.tagBadge : s.activePill}
+                            >
+                              {visibleAppSettings.onboarding.needed ? 'needs setup' : 'ready'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 xl:grid-cols-[220px_minmax(0,1fr)] gap-4 mt-4">
+                            <div className="space-y-2">
+                              {onboardingWizardSteps.map((step) => {
+                                const isActive = step.id === activeOnboardingStep.id;
+                                return (
+                                  <button
+                                    key={step.id}
+                                    className="w-full text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90"
+                                    style={{ borderColor: C.border, backgroundColor: isActive ? C.bg : C.surface }}
+                                    onClick={() => setOnboardingWizardStep(step.id)}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <span
+                                        className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                                        style={step.complete ? s.activePill : (isActive ? s.tagBadge : s.mutedText)}
+                                      >
+                                        {step.number}
+                                      </span>
+                                      <div className="min-w-0">
+                                        <div className="text-[12px] font-medium" style={s.inkText}>{step.title}</div>
+                                        <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{step.detail}</div>
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <div className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                                    Step {activeOnboardingStep.number} of {onboardingWizardSteps.length}
+                                  </div>
+                                  <div className="text-[16px] font-semibold mt-1 tracking-tight" style={s.inkText}>{activeOnboardingStep.title}</div>
+                                  <div className="text-[11px] mt-2 leading-[1.6]" style={s.mutedText}>{activeOnboardingStep.detail}</div>
+                                </div>
+                                <span
+                                  className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                                  style={activeOnboardingStep.complete ? s.activePill : s.tagBadge}
+                                >
+                                  {activeOnboardingStep.complete ? 'done' : 'focus'}
+                                </span>
+                              </div>
+
+                              {!visibleAppSettings.onboarding.needed ? (
+                                <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                  <div className="text-[12px] font-medium" style={s.inkText}>OpenScout is ready.</div>
+                                  <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                    You can revisit this wizard any time, but the current repo, inventory, and runtime checks are already in place.
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 mt-3">
+                                    <button
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+                                      style={{ color: C.ink }}
+                                      onClick={() => setActiveView('overview')}
+                                    >
+                                      Open Overview
+                                    </button>
+                                    <button
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+                                      style={{ color: C.ink }}
+                                      onClick={() => setActiveView('agents')}
+                                    >
+                                      Open Agents
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : activeOnboardingStep.id === 'source-roots' ? (
+                                <div className="mt-4 space-y-4">
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="flex items-center gap-2">
+                                      <Folder size={14} style={{ color: C.accent }} />
+                                      <div className="text-[12px] font-medium" style={s.inkText}>Where do your repos live?</div>
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      A source root is the parent folder that holds many repos, not the repo itself. Common examples are `~/dev`, `~/src`, or `~/code`.
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      If you do not already have one, create a folder like `~/dev` first and point OpenScout there.
+                                    </div>
+                                  </div>
+
+                                  {isAppSettingsEditing ? (
+                                    <textarea
+                                      value={(visibleAppSettings.workspaceRoots ?? []).join('\n')}
+                                      onChange={(event) => {
+                                        setAppSettingsDraft((current) => current ? {
+                                          ...current,
+                                          workspaceRoots: event.target.value.split(/\r?\n/g).map((entry) => entry.trim()).filter(Boolean),
+                                        } : current);
+                                        setAppSettingsFeedback(null);
+                                      }}
+                                      readOnly={appSettingsSaving}
+                                      rows={5}
+                                      className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none resize-none"
+                                      style={{ borderColor: C.border, color: C.ink }}
+                                    />
+                                  ) : (
+                                    <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                      <div className="flex flex-wrap gap-2">
+                                        {(visibleAppSettings.workspaceRoots ?? []).length > 0 ? visibleAppSettings.workspaceRoots.map((root) => (
+                                          <span key={root} className="text-[10px] font-mono px-2 py-1 rounded" style={s.tagBadge}>{root}</span>
+                                        )) : (
+                                          <span className="text-[11px]" style={s.mutedText}>No source roots configured yet.</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div>
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Quick Picks</div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
+                                        <button
+                                          key={root}
+                                          className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                          style={{ color: C.ink }}
+                                          onClick={() => handleAddSourceRootSuggestion(root)}
+                                          disabled={appSettingsSaving}
+                                        >
+                                          Add {root}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : activeOnboardingStep.id === 'harness' ? (
+                                <div className="mt-4 space-y-4">
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="flex items-center gap-2">
+                                      <Key size={14} style={{ color: C.accent }} />
+                                      <div className="text-[12px] font-medium" style={s.inkText}>Harness vs runtime</div>
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      A harness is the assistant family that answers a turn. A runtime is the local program or long-running session OpenScout uses to launch that harness.
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {(['claude', 'codex'] as const).map((harness) => {
+                                      const runtimeEntry = (visibleAppSettings.runtimeCatalog ?? []).find((entry) => entry.name === harness) ?? null;
+                                      const selected = visibleAppSettings.defaultHarness === harness;
+                                      return (
+                                        <button
+                                          key={harness}
+                                          className="text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90 disabled:opacity-60"
+                                          style={{ borderColor: C.border, backgroundColor: selected ? C.bg : C.surface }}
+                                          disabled={!isAppSettingsEditing || appSettingsSaving}
+                                          onClick={() => {
+                                            setAppSettingsDraft((current) => current ? {
+                                              ...current,
+                                              defaultHarness: harness,
+                                            } : current);
+                                            setAppSettingsFeedback(null);
+                                          }}
+                                        >
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <div className="text-[12px] font-medium capitalize" style={s.inkText}>{harness}</div>
+                                              <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                                {harness === 'claude'
+                                                  ? 'Use Claude as the default responder for new project agents.'
+                                                  : 'Use Codex as the default responder for new project agents.'}
+                                              </div>
+                                              <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                                Runtime: {runtimeEntry?.label ?? harness} · {runtimeEntry?.readinessDetail ?? 'Not reported yet.'}
+                                              </div>
+                                            </div>
+                                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={selected ? s.activePill : s.tagBadge}>
+                                              {selected ? 'selected' : 'available'}
+                                            </span>
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : activeOnboardingStep.id === 'confirm' ? (
+                                <div className="mt-4 space-y-4">
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="text-[12px] font-medium" style={s.inkText}>Confirmation</div>
+                                    <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                      Saving inputs writes your local desktop preferences. It does not start agents yet. The next steps run the actual `scout` commands.
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                                      {[
+                                        ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
+                                        ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
+                                        ['Current repo', visibleAppSettings.includeCurrentRepo ? 'Included' : 'Not included'],
+                                        ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
+                                      ].map(([label, value]) => (
+                                        <div key={label}>
+                                          <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                          <div className="text-[11px] leading-[1.45]" style={s.inkText}>{value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    {!isAppSettingsEditing ? (
+                                      <button
+                                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
+                                        style={{ color: C.ink }}
+                                        onClick={handleStartAppSettingsEdit}
+                                        disabled={appSettingsLoading || appSettingsSaving}
+                                      >
+                                        Edit Inputs
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                      style={{ color: C.ink }}
+                                      onClick={() => {
+                                        void (async () => {
+                                          const saved = await handleSaveAppSettings();
+                                          if (saved) {
+                                            setOnboardingWizardStep('init');
+                                          }
+                                        })();
+                                      }}
+                                      disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
+                                    >
+                                      {appSettingsSaving ? 'Saving…' : 'Save Inputs'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : activeOnboardingStep.id === 'init' ? (
+                                <div className="mt-4 space-y-4">
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="flex items-center gap-2">
+                                      <FileJson size={14} style={{ color: C.accent }} />
+                                      <div className="text-[12px] font-medium" style={s.inkText}>Create the local project manifest</div>
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      This runs `scout init` for the repo you launched from and uses your current source roots as repeated `--source-root` flags.
+                                    </div>
+                                    <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>
+                                      scout init{(visibleAppSettings.workspaceRoots ?? []).map((root) => ` --source-root ${root}`).join('')}
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      Current project config: {visibleAppSettings.currentProjectConfigPath ?? 'Not created yet.'}
+                                    </div>
+                                  </div>
+                                  <button
+                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                    style={{ color: C.ink }}
+                                    onClick={() => {
+                                      void (async () => {
+                                        const result = await handleRunOnboardingCommand('init');
+                                        if (result?.exitCode === 0) {
+                                          setOnboardingWizardStep('doctor');
+                                        }
+                                      })();
+                                    }}
+                                    disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsDirty}
+                                  >
+                                    {onboardingCommandPending === 'init' ? 'Running Init…' : 'Run Init'}
+                                  </button>
+                                </div>
+                              ) : activeOnboardingStep.id === 'doctor' ? (
+                                <div className="mt-4 space-y-4">
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="flex items-center gap-2">
+                                      <Shield size={14} style={{ color: C.accent }} />
+                                      <div className="text-[12px] font-medium" style={s.inkText}>Review the current inventory</div>
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      `scout doctor` reports the broker, your source roots, and the projects that were discovered from them.
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 mt-3">
+                                      <div>
+                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Projects</div>
+                                        <div className="text-[12px] font-medium" style={s.inkText}>{visibleAppSettings.projectInventory.length}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Broker</div>
+                                        <div className="text-[12px] font-medium" style={s.inkText}>{visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'}</div>
+                                      </div>
+                                    </div>
+                                    <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>scout doctor</div>
+                                  </div>
+                                  <button
+                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                    style={{ color: C.ink }}
+                                    onClick={() => {
+                                      void (async () => {
+                                        const result = await handleRunOnboardingCommand('doctor');
+                                        if (result?.exitCode === 0) {
+                                          setOnboardingWizardStep('runtimes');
+                                        }
+                                      })();
+                                    }}
+                                    disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
+                                  >
+                                    {onboardingCommandPending === 'doctor' ? 'Running Doctor…' : 'Run Doctor'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="mt-4 space-y-4">
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="flex items-center gap-2">
+                                      <Terminal size={14} style={{ color: C.accent }} />
+                                      <div className="text-[12px] font-medium" style={s.inkText}>Check runtime readiness</div>
+                                    </div>
+                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                      `scout runtimes` checks the local programs behind each harness and tells you whether they are ready to serve turns.
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2 mt-3">
+                                      {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
+                                        <div key={runtimeEntry.name} className="rounded-lg border px-3 py-2.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <div className="text-[11px] font-medium" style={s.inkText}>{runtimeEntry.label}</div>
+                                              <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
+                                            </div>
+                                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                                              {runtimeEntry.readinessState}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="text-[10px] mt-3 leading-[1.5]" style={s.mutedText}>
+                                      Default harness: {visibleAppSettings.defaultHarness}. {onboardingRuntimeMatch ? `${onboardingRuntimeMatch.label} currently reports ${onboardingRuntimeMatch.readinessState}.` : 'No matching runtime is reported yet.'}
+                                    </div>
+                                    <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>scout runtimes</div>
+                                  </div>
+                                  <button
+                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                    style={{ color: C.ink }}
+                                    onClick={() => void handleRunOnboardingCommand('runtimes')}
+                                    disabled={Boolean(onboardingCommandPending) || appSettingsLoading}
+                                  >
+                                    {onboardingCommandPending === 'runtimes' ? 'Running Runtimes…' : 'Run Runtimes'}
+                                  </button>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t" style={{ borderColor: C.border }}>
+                                <button
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                  style={{ color: C.ink }}
+                                  onClick={() => moveOnboardingWizard(-1)}
+                                  disabled={!canGoToPreviousOnboardingStep}
+                                >
+                                  Back
+                                </button>
+                                <button
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                  style={{ color: C.ink }}
+                                  onClick={() => moveOnboardingWizard(1)}
+                                  disabled={!canGoToNextOnboardingStep}
+                                >
+                                  Next
+                                  <ChevronRight size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>CLI Equivalent</div>
+                            <div className="space-y-1">
+                              {visibleAppSettings.onboarding.commands.map((command) => (
+                                <div key={command} className="text-[11px] font-mono break-all" style={s.inkText}>{command}</div>
+                              ))}
+                            </div>
+                            <div className="text-[10px] mt-3 leading-[1.5]" style={s.mutedText}>
+                              The buttons in this wizard run these exact commands. The UI only helps you answer the inputs one decision at a time.
+                            </div>
+                          </div>
+
+                          {appSettingsFeedback ? (
+                            <div className="text-[11px] mt-3 leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
+                          ) : null}
+
+                          {onboardingCommandResult ? (
+                            <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Command</div>
+                                  <div className="text-[11px] font-mono break-all" style={s.inkText}>{onboardingCommandResult.commandLine}</div>
+                                  <div className="text-[10px] mt-1" style={s.mutedText}>cwd: {onboardingCommandResult.cwd}</div>
+                                </div>
+                                <span
+                                  className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                                  style={onboardingCommandResult.exitCode === 0 ? s.activePill : s.tagBadge}
+                                >
+                                  exit {onboardingCommandResult.exitCode}
+                                </span>
+                              </div>
+                              <pre
+                                className="mt-3 text-[10px] leading-[1.45] whitespace-pre-wrap break-words overflow-x-auto"
+                                style={{ color: C.ink }}
+                              >
+                                {onboardingCommandResult.output}
+                              </pre>
+                            </div>
+                          ) : null}
+                        </section>
+                      ) : null}
+
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start gap-3 mb-4">
                           <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
                             <FolderOpen size={18} style={{ color: C.accent }} />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Setup</div>
-                            <div className="text-[13px] font-medium mt-1" style={s.inkText}>Identity, workspace roots, and starter defaults</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Additional Inputs</div>
+                            <div className="text-[13px] font-medium mt-1" style={s.inkText}>Everything the wizard does not need to ask first</div>
                             <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
-                              This is the canonical onboarding surface for OpenScout. The desktop app and `scout init` both use the same underlying setup state.
+                              These settings are still local and still important, but they are secondary to the source root, harness, and command-backed onboarding flow above.
                             </div>
                           </div>
                         </div>
@@ -2916,64 +4253,7 @@ export default function App() {
                               )}
                             </div>
 
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Workspace Roots</div>
-                              {isAppSettingsEditing ? (
-                                <textarea
-                                  value={(visibleAppSettings?.workspaceRoots ?? []).join('\n')}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      workspaceRoots: event.target.value.split(/\r?\n/g).map((entry) => entry.trim()).filter(Boolean),
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  rows={4}
-                                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none resize-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                  <div className="flex flex-wrap gap-2">
-                                    {(visibleAppSettings?.workspaceRoots ?? []).length > 0 ? (visibleAppSettings?.workspaceRoots ?? []).map((root) => (
-                                      <span key={root} className="text-[10px] font-mono px-2 py-1 rounded" style={s.tagBadge}>{root}</span>
-                                    )) : (
-                                      <span className="text-[11px]" style={s.mutedText}>No workspace roots configured yet.</span>
-                                    )}
-                                  </div>
-                                  <div className="text-[11px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                    {visibleAppSettings?.workspaceRootsNote ?? 'OpenScout scans each configured root shallowly for repos and project manifests.'}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
                             <div className="grid grid-cols-2 gap-3">
-                              <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Default Harness</div>
-                                {isAppSettingsEditing ? (
-                                  <select
-                                    value={visibleAppSettings?.defaultHarness ?? 'claude'}
-                                    onChange={(event) => {
-                                      setAppSettingsDraft((current) => current ? {
-                                        ...current,
-                                        defaultHarness: event.target.value,
-                                      } : current);
-                                      setAppSettingsFeedback(null);
-                                    }}
-                                    disabled={appSettingsSaving}
-                                    className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
-                                    style={{ borderColor: C.border, color: C.ink }}
-                                  >
-                                    <option value="claude">claude</option>
-                                    <option value="codex">codex</option>
-                                  </select>
-                                ) : (
-                                  <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.defaultHarness ?? 'claude'}</div>
-                                )}
-                              </div>
-
                               <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                                 <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Session Prefix</div>
                                 {isAppSettingsEditing ? (
@@ -3040,14 +4320,11 @@ export default function App() {
                               <div className="min-w-0">
                                 <div className="text-[12px] font-medium" style={s.inkText}>Include the current repo</div>
                                 <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                  Create or honor `.openscout/project.json` in the repo you launched from and keep it in discovery.
+                                  Create a local `.openscout/project.json` in the repo you launched from and keep that repo in discovery.
                                 </div>
                               </div>
                             </label>
 
-                            {appSettingsFeedback ? (
-                              <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
-                            ) : null}
                           </div>
                         )}
                       </section>
@@ -3055,14 +4332,30 @@ export default function App() {
 
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Discovered Projects</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Vocabulary</div>
+                        <div className="space-y-3">
+                          {[
+                            ['Source Root', 'The parent folder that contains many repos. Point OpenScout at `~/dev`, `~/src`, or whichever folder you actually keep your projects in.'],
+                            ['Harness', 'The assistant family a project should prefer by default. Today that is `claude` or `codex`.'],
+                            ['Runtime', 'The local installed program or long-running session OpenScout uses to launch a harness and keep it available for work.'],
+                          ].map(([label, detail]) => (
+                            <div key={label} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[11px] font-medium" style={s.inkText}>{label}</div>
+                              <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>{detail}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Project Inventory</div>
                         <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-                          {(visibleAppSettings?.discoveredAgents ?? []).length > 0 ? (visibleAppSettings?.discoveredAgents ?? []).map((agent) => (
+                          {(visibleAppSettings?.projectInventory ?? []).length > 0 ? (visibleAppSettings?.projectInventory ?? []).map((project) => (
                             <button
-                              key={agent.id}
+                              key={project.id}
                               onClick={() => {
-                                if (agent.registrationKind === 'configured') {
-                                  openAgentProfile(agent.id);
+                                if (project.registrationKind === 'configured') {
+                                  openAgentProfile(project.id);
                                 }
                               }}
                               className="w-full text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90"
@@ -3070,18 +4363,35 @@ export default function App() {
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                  <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
-                                  <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{agent.root}</div>
+                                  <div className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</div>
+                                  <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
+                                    {project.relativePath === '.' ? project.root : `${project.relativePath} · ${project.root}`}
+                                  </div>
                                   <div className="text-[10px] mt-1" style={s.mutedText}>
-                                    {agent.registrationKind === 'configured' ? 'relay agent' : 'candidate'} · {agent.source} · {agent.harness}
+                                    {project.registrationKind === 'configured' ? 'configured agent' : 'discovered project'} · default {project.defaultHarness}
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {project.harnesses.map((harness) => (
+                                      <span
+                                        key={`${project.id}:${harness.harness}`}
+                                        className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                                        style={harness.readinessState === 'ready' ? s.activePill : s.tagBadge}
+                                        title={harness.readinessDetail ?? undefined}
+                                      >
+                                        {harness.harness} · {harness.detail}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="text-[10px] mt-2" style={s.mutedText}>
+                                    Source root: {project.sourceRoot}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  {agent.projectConfigPath ? (
+                                  {project.projectConfigPath ? (
                                     <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>manifest</span>
                                   ) : null}
-                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={agent.registrationKind === 'configured' ? s.activePill : s.tagBadge}>
-                                    {agent.registrationKind === 'configured' ? 'agent' : 'candidate'}
+                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={project.registrationKind === 'configured' ? s.activePill : s.tagBadge}>
+                                    {project.registrationKind === 'configured' ? 'agent' : 'project'}
                                   </span>
                                 </div>
                               </div>
@@ -3093,12 +4403,33 @@ export default function App() {
                       </section>
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Runtime Readiness</div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {(visibleAppSettings?.runtimeCatalog ?? []).length > 0 ? (visibleAppSettings?.runtimeCatalog ?? []).map((runtimeEntry) => (
+                            <div key={runtimeEntry.name} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[12px] font-medium" style={s.inkText}>{runtimeEntry.label}</div>
+                                  <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
+                                </div>
+                                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                                  {runtimeEntry.readinessState}
+                                </span>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="text-[11px]" style={s.mutedText}>No runtimes reported yet.</div>
+                          )}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Canonical Paths</div>
                         <div className="grid grid-cols-1 gap-3">
                           {[
                             ['Settings', visibleAppSettings?.settingsPath ?? 'Not reported'],
-                            ['Relay Agents', visibleAppSettings?.relayAgentsPath ?? 'Not reported'],
-                            ['Relay Hub', visibleAppSettings?.relayHubPath ?? 'Not reported'],
+                            ['Support Directory', visibleAppSettings?.supportDirectory ?? 'Not reported'],
+                            ['Agent Registry', visibleAppSettings?.relayAgentsPath ?? 'Not reported'],
                             ['Current Project', visibleAppSettings?.currentProjectConfigPath ?? 'Not created'],
                           ].map(([label, value]) => (
                             <div key={label}>
@@ -3110,14 +4441,14 @@ export default function App() {
                       </section>
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Service</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Broker Service</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           {[
                             ['Label', visibleAppSettings?.broker.label ?? 'Not reported'],
                             ['Reachable', visibleAppSettings?.broker.reachable ? 'Yes' : 'No'],
                             ['Installed', visibleAppSettings?.broker.installed ? 'Yes' : 'No'],
                             ['Loaded', visibleAppSettings?.broker.loaded ? 'Yes' : 'No'],
-                            ['Relay URL', visibleAppSettings?.broker.url ?? 'Not reported'],
+                            ['Broker URL', visibleAppSettings?.broker.url ?? 'Not reported'],
                             ['LaunchAgent', visibleAppSettings?.broker.launchAgentPath ?? 'Not reported'],
                             ['Stdout Log', visibleAppSettings?.broker.stdoutLogPath ?? 'Not reported'],
                             ['Stderr Log', visibleAppSettings?.broker.stderrLogPath ?? 'Not reported'],
@@ -5110,7 +6441,20 @@ export default function App() {
                     <button onClick={() => setSearchQuery('')} className="hover:opacity-70" style={s.mutedText}><X size={14} /></button>
                   )}
                 </div>
-                <div className="text-[10px] font-mono" style={s.mutedText}>{filteredSessions.length} results</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {phonePreparationSaving && <Loader2 size={12} className="animate-spin" style={s.mutedText} />}
+                  <button
+                    type="button"
+                    onClick={handlePreparePhone}
+                    disabled={phonePreparationSaving || phonePreparationLoading || sessions.length === 0}
+                    className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ backgroundColor: C.accentBg, color: C.accent }}
+                  >
+                    <Smartphone size={11} />
+                    Prepare Phone
+                  </button>
+                  <div className="text-[10px] font-mono" style={s.mutedText}>{filteredSessions.length} results</div>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto">
@@ -5137,6 +6481,15 @@ export default function App() {
                       <button
                         key={session.id}
                         onClick={() => setSelectedSession(session)}
+                        draggable
+                        onDragStart={() => {
+                          setDraggedSessionId(session.id);
+                          setDraggedPhoneSection(null);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedSessionId(null);
+                          setDraggedPhoneSection(null);
+                        }}
                         className="w-full text-left px-4 py-3 transition-opacity hover:opacity-90"
                         style={selectedSession?.id === session.id ? { backgroundColor: C.bg } : undefined}
                       >
@@ -5149,6 +6502,18 @@ export default function App() {
                               {session.agent.charAt(0)}
                             </div>
                             <span className="text-[13px] font-medium line-clamp-1" style={s.inkText}>{session.title}</span>
+                            {phonePreparationState.favorites.includes(session.id) && (
+                              <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ backgroundColor: C.accentBg, color: C.accent }}>
+                                <Star size={9} />
+                                Fav
+                              </span>
+                            )}
+                            {!phonePreparationState.favorites.includes(session.id) && phonePreparationState.quickHits.includes(session.id) && (
+                              <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ backgroundColor: C.tagBg, color: C.ink }}>
+                                <Smartphone size={9} />
+                                My List
+                              </span>
+                            )}
                           </div>
                           <span className="text-[10px] font-mono shrink-0 ml-2" style={s.mutedText}>{formatDate(session.lastModified)}</span>
                         </div>
@@ -5179,69 +6544,222 @@ export default function App() {
               </div>
 
               <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Click session to view details</span>
+                <span className="text-[9px] font-mono" style={s.mutedText}>Drag sessions into My List or click one for quick actions.</span>
                 <span className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Index Ready</span>
               </div>
             </div>
 
-            {/* Session Detail Panel */}
-            {selectedSession && (
-              <div className="w-80 border-l shrink-0 overflow-y-auto flex flex-col" style={{ ...s.surface, borderLeftColor: C.border }}>
-                <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderBottomColor: C.border }}>
-                  <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Session Details</div>
-                  <button onClick={() => setSelectedSession(null)} className="hover:opacity-70" style={s.mutedText}><X size={14} /></button>
-                </div>
-                <div className="p-4 flex-1">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div
-                      className="w-8 h-8 rounded text-white flex items-center justify-center text-[12px] font-bold"
-                      style={{ backgroundColor: colorForIdentity(selectedSession.agent) }}
-                    >
-                      {selectedSession.agent.charAt(0)}
+            <div className="w-80 border-l shrink-0 overflow-y-auto flex flex-col" style={{ ...s.surface, borderLeftColor: C.border }}>
+              <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Smartphone size={13} style={{ color: C.accent }} />
+                      <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>My List</div>
                     </div>
-                    <div>
-                      <div className="text-[11px] font-medium" style={s.inkText}>{selectedSession.agent}</div>
-                      <div className="text-[10px] font-mono" style={s.mutedText}>{selectedSession.model}</div>
+                    <div className="text-[12px] font-medium" style={s.inkText}>My List first, then browse and search.</div>
+                    <div className="text-[10px] mt-1" style={s.mutedText}>
+                      {phonePreparationState.preparedAt
+                        ? `Prepared ${new Date(phonePreparationState.preparedAt).toLocaleString()}`
+                        : 'Not prepared yet'}
                     </div>
                   </div>
-                  <h3 className="text-[14px] font-semibold mb-3" style={s.inkText}>{selectedSession.title}</h3>
-                  <div className="space-y-3 mb-4">
-                    {[
-                      [<Folder size={12} />, 'Project', selectedSession.project],
-                      [<MessageSquare size={12} />, 'Messages', selectedSession.messageCount],
-                      [<Hash size={12} />, 'Tokens', selectedSession.tokens],
-                      [<Calendar size={12} />, 'Created', formatDate(selectedSession.createdAt)],
-                      [<Clock size={12} />, 'Modified', formatDate(selectedSession.lastModified)],
-                    ].map(([icon, label, value]) => (
-                      <div key={label as string} className="flex items-center gap-2 text-[11px]">
-                        <span style={s.mutedText}>{icon as React.ReactNode}</span>
-                        <span style={s.mutedText}>{label as string}:</span>
-                        <span className="font-medium" style={s.inkText}>{String(value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {selectedSession.tags && selectedSession.tags.length > 0 && (
-                    <div className="mb-4">
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Tags</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedSession.tags.map(tag => (
-                          <span key={tag} className="text-[10px] font-mono border px-2 py-1 rounded" style={s.tagBadge}>{tag}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Preview</div>
-                    <p className="text-[12px] leading-relaxed" style={s.mutedText}>{selectedSession.preview}</p>
-                  </div>
-                </div>
-                <div className="px-4 py-3 border-t" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                  <button className="w-full text-white px-4 py-2 rounded text-[12px] font-medium transition-opacity hover:opacity-80" style={{ backgroundColor: C.ink }}>
-                    Open Session
+                  <button
+                    type="button"
+                    onClick={handleClearPhoneQuickHits}
+                    disabled={phonePreparationSaving || phonePreparationState.quickHits.length === 0}
+                    className="rounded px-2 py-1 text-[10px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ backgroundColor: C.bg, color: C.ink, border: `1px solid ${C.border}` }}
+                  >
+                    Clear
                   </button>
                 </div>
               </div>
-            )}
+
+              <div className="p-4 flex-1 flex flex-col gap-4">
+                {phonePreparationLoading ? (
+                  <div className="flex items-center gap-2 text-[12px]" style={s.mutedText}>
+                    <Loader2 size={12} className="animate-spin" />
+                    Loading My List…
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{ borderColor: C.border, backgroundColor: C.bg }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleDropIntoFavorites();
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <Star size={12} style={{ color: C.accent }} />
+                          <div className="text-[11px] font-semibold" style={s.inkText}>Favorites</div>
+                        </div>
+                        <div className="text-[10px] font-mono" style={s.mutedText}>{favoritePhoneSessions.length}</div>
+                      </div>
+                      {favoritePhoneSessions.length === 0 ? (
+                        <div className="rounded border border-dashed px-3 py-4 text-[11px]" style={{ borderColor: C.border, color: C.muted }}>
+                          Drop sessions here to keep them pinned on the phone.
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {favoritePhoneSessions.map((session) => (
+                            <div
+                              key={`favorite-${session.id}`}
+                              draggable
+                              onDragStart={() => {
+                                setDraggedSessionId(session.id);
+                                setDraggedPhoneSection('favorites');
+                              }}
+                              onDragEnd={() => {
+                                setDraggedSessionId(null);
+                                setDraggedPhoneSection(null);
+                              }}
+                              className="rounded border px-3 py-2"
+                              style={{ borderColor: C.border, backgroundColor: C.surface }}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[12px] font-medium line-clamp-1" style={s.inkText}>{session.title}</div>
+                                  <div className="text-[10px] mt-1" style={s.mutedText}>{session.project} · {formatDate(session.lastModified)}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSessionFromPhoneSection(session.id, 'favorites')}
+                                  className="text-[10px] hover:opacity-70"
+                                  style={s.mutedText}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{ borderColor: C.border, backgroundColor: C.bg }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleDropIntoQuickHits();
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <Smartphone size={12} style={{ color: C.accent }} />
+                          <div className="text-[11px] font-semibold" style={s.inkText}>My List</div>
+                        </div>
+                        <div className="text-[10px] font-mono" style={s.mutedText}>{quickHitPhoneSessions.length}</div>
+                      </div>
+                      {quickHitPhoneSessions.length === 0 ? (
+                        <div className="rounded border border-dashed px-3 py-4 text-[11px]" style={{ borderColor: C.border, color: C.muted }}>
+                          Prepare the phone for a fresh list, or drag sessions here and order them yourself.
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {quickHitPhoneSessions.map((session, index) => (
+                            <div
+                              key={`quick-hit-${session.id}`}
+                              draggable
+                              onDragStart={() => {
+                                setDraggedSessionId(session.id);
+                                setDraggedPhoneSection('quickHits');
+                              }}
+                              onDragEnd={() => {
+                                setDraggedSessionId(null);
+                                setDraggedPhoneSection(null);
+                              }}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                handleDropIntoQuickHits(index);
+                              }}
+                              className="rounded border px-3 py-2"
+                              style={{ borderColor: C.border, backgroundColor: C.surface }}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-mono mb-1" style={s.mutedText}>#{index + 1}</div>
+                                  <div className="text-[12px] font-medium line-clamp-1" style={s.inkText}>{session.title}</div>
+                                  <div className="text-[10px] mt-1" style={s.mutedText}>{session.project} · {formatDate(session.lastModified)}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSessionFromPhoneSection(session.id, 'quickHits')}
+                                  className="text-[10px] hover:opacity-70"
+                                  style={s.mutedText}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {phonePreparationFeedback && (
+                      <div className="rounded border px-3 py-2 text-[11px]" style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}>
+                        {phonePreparationFeedback}
+                      </div>
+                    )}
+
+                    <div className="rounded-lg border p-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Selected Session</div>
+                      {selectedSession ? (
+                        <>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div
+                              className="w-8 h-8 rounded text-white flex items-center justify-center text-[12px] font-bold"
+                              style={{ backgroundColor: colorForIdentity(selectedSession.agent) }}
+                            >
+                              {selectedSession.agent.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium line-clamp-1" style={s.inkText}>{selectedSession.title}</div>
+                              <div className="text-[10px]" style={s.mutedText}>{selectedSession.project} · {selectedSession.messageCount} messages</div>
+                            </div>
+                          </div>
+                          <p className="text-[11px] leading-relaxed mb-3" style={s.mutedText}>{selectedSession.preview}</p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleAddSessionToPhoneSection(selectedSession.id, 'favorites')}
+                              disabled={phonePreparationSaving || phonePreparationState.favorites.includes(selectedSession.id)}
+                              className="flex-1 rounded px-3 py-2 text-[11px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                              style={{ backgroundColor: C.accentBg, color: C.accent }}
+                            >
+                              {phonePreparationState.favorites.includes(selectedSession.id) ? 'Pinned' : 'Add to Favorites'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAddSessionToPhoneSection(selectedSession.id, 'quickHits')}
+                              disabled={phonePreparationSaving || phonePreparationState.quickHits.includes(selectedSession.id) || phonePreparationState.favorites.includes(selectedSession.id)}
+                              className="flex-1 rounded px-3 py-2 text-[11px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                              style={{ backgroundColor: C.surface, color: C.ink, border: `1px solid ${C.border}` }}
+                            >
+                              {phonePreparationState.quickHits.includes(selectedSession.id) || phonePreparationState.favorites.includes(selectedSession.id)
+                                ? 'Already Added'
+                                : 'Add to My List'}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-[11px]" style={s.mutedText}>
+                          Select a session to pin it or add it to My List.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </>
 
         /* --- RELAY --- */
@@ -5748,12 +7266,7 @@ export default function App() {
           dispatchState={dispatchState}
           onControlDispatch={handleDispatchControl}
           onOpenLogs={() => {
-            setProductSurface('relay');
-            setActiveView('logs');
-          }}
-          onOpenSettings={() => {
-            // The Dispatch settings card is inline, so jump there when setup is missing.
-            document.getElementById('dispatch-settings-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            document.getElementById('dispatch-live-logs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }}
           onUpdateConfig={handleUpdateDispatchConfig}
           onRefresh={() => void handleRefreshShell()}
@@ -5809,7 +7322,6 @@ function DispatchSurfacePlaceholder({
   dispatchState,
   onControlDispatch,
   onOpenLogs,
-  onOpenSettings,
   onUpdateConfig,
   onRefresh,
 }: {
@@ -5821,14 +7333,17 @@ function DispatchSurfacePlaceholder({
   dispatchState: DispatchState | null;
   onControlDispatch: (action: 'start' | 'stop' | 'restart') => void;
   onOpenLogs: () => void;
-  onOpenSettings: () => void;
   onUpdateConfig: (input: UpdateDispatchConfigInput) => Promise<void>;
   onRefresh: () => void;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [relayDraft, setRelayDraft] = useState('');
   const [workspaceDraft, setWorkspaceDraft] = useState('');
+  const [workspaceEditing, setWorkspaceEditing] = useState(false);
   const [configDirty, setConfigDirty] = useState(false);
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [qrExpanded, setQrExpanded] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const logsRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const dispatchPairingSvg = useMemo(() => {
@@ -5839,13 +7354,13 @@ function DispatchSurfacePlaceholder({
     return renderSVG(qrValue, {
       border: 2,
       ecc: 'M',
-      pixelSize: 6,
+      pixelSize: qrExpanded ? 8 : 6,
       blackColor: '#111111',
       whiteColor: '#ffffff',
     });
-  }, [dispatchState?.pairing?.qrValue]);
+  }, [dispatchState?.pairing?.qrValue, qrExpanded]);
   const expiresIn = dispatchState?.pairing
-    ? Math.max(0, Math.floor((dispatchState.pairing.expiresAt - Date.now()) / 1000))
+    ? Math.max(0, Math.floor((dispatchState.pairing.expiresAt - countdownNow) / 1000))
     : null;
   const serviceIsRunning = Boolean(dispatchState?.isRunning);
   const activeRelay = dispatchState?.pairing?.relay ?? dispatchState?.relay ?? null;
@@ -5868,6 +7383,10 @@ function DispatchSurfacePlaceholder({
     backgroundColor: '#f7f8fb',
     borderColor: 'rgba(15, 23, 42, 0.08)',
   } as const;
+  const simpleTableStyle = {
+    backgroundColor: '#fbfbfd',
+    borderColor: 'rgba(15, 23, 42, 0.06)',
+  } as const;
   const pairCommand = dispatchState?.commandLabel ?? 'bun dispatch/cli/src/main.ts start';
   const connectionLabel = dispatchState?.pairing
     ? 'Pairing Ready'
@@ -5880,17 +7399,16 @@ function DispatchSurfacePlaceholder({
     ?? dispatchState?.statusDetail
     ?? 'Start Dispatch to launch a local pairing relay, generate a fresh QR code, and wait for your phone to connect.';
   const runtimeRows = [
-    ['Workspace', dispatchState?.workspaceRoot ?? 'Not set'],
+    ['Expires In', expiresIn !== null ? formatDurationShort(expiresIn) : '—'],
     ['Secure Mode', dispatchState?.secure ? 'Yes' : 'No'],
     ['Active Sessions', `${dispatchState?.sessionCount ?? 0}`],
     ['Trusted Peers', `${dispatchState?.trustedPeerCount ?? 0}`],
     ['Last Updated', dispatchState?.lastUpdatedLabel ?? '—'],
   ] as const;
-  const pairingMetaRows = [
+  const statusRows = [
     ['Relay', activeRelay ?? 'Not set'],
+    ['Client ID', dispatchState?.identityFingerprint ?? 'Not created'],
     ['Room', dispatchState?.pairing?.room ?? 'Pending'],
-    ['Expires In', expiresIn !== null ? formatDurationShort(expiresIn) : '—'],
-    ['Identity', dispatchState?.identityFingerprint ?? 'Not created'],
   ] as const;
   const topActions = (
     <>
@@ -5911,7 +7429,12 @@ function DispatchSurfacePlaceholder({
       </button>
       <button
         type="button"
-        onClick={() => settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        onClick={() => {
+          setShowAdvancedSettings(true);
+          window.setTimeout(() => {
+            settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 0);
+        }}
         className="text-[12px] font-medium transition-opacity hover:opacity-70"
         style={{ color: C.muted }}
       >
@@ -5932,6 +7455,19 @@ function DispatchSurfacePlaceholder({
     }
   }, []);
 
+  const saveDispatchConfig = React.useCallback(async () => {
+    try {
+      await onUpdateConfig({
+        relay: relayDraft,
+        workspaceRoot: workspaceDraft || null,
+      });
+      setConfigDirty(false);
+      setWorkspaceEditing(false);
+    } catch {
+      // Feedback is surfaced via dispatchConfigFeedback.
+    }
+  }, [onUpdateConfig, relayDraft, workspaceDraft]);
+
   useEffect(() => {
     if (configDirty) {
       return;
@@ -5940,6 +7476,21 @@ function DispatchSurfacePlaceholder({
     setRelayDraft(dispatchState?.configuredRelay ?? '');
     setWorkspaceDraft(dispatchState?.workspaceRoot ?? '');
   }, [configDirty, dispatchState?.configuredRelay, dispatchState?.workspaceRoot]);
+
+  useEffect(() => {
+    if (!dispatchState?.pairing?.expiresAt) {
+      return;
+    }
+
+    setCountdownNow(Date.now());
+    const intervalId = window.setInterval(() => {
+      setCountdownNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [dispatchState?.pairing?.expiresAt]);
 
   return (
     <div className="flex flex-1 overflow-hidden" style={{ backgroundColor: C.bg }}>
@@ -5965,16 +7516,6 @@ function DispatchSurfacePlaceholder({
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_320px] items-start">
               <div className="flex flex-col gap-5">
-                <div className="pt-2">
-                  <h1 className="text-[32px] font-medium tracking-tight leading-tight" style={{ color: C.ink }}>
-                    Start Dispatch, then scan.
-                  </h1>
-                  <p className="mt-3 text-[15px] leading-[1.75] font-light max-w-3xl" style={{ color: C.muted }}>
-                    This is the UI for the old `plexus start` flow. Launch a local pairing relay, generate a fresh QR
-                    code for your phone, and keep the live bridge output visible without dropping into the terminal.
-                  </p>
-                </div>
-
                 <section className="rounded-[20px] border p-5" style={cardStyle}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -6009,31 +7550,95 @@ function DispatchSurfacePlaceholder({
                   </Button>
                 </div>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
-                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
-                      Current Relay
+                <div className="mt-4 overflow-hidden rounded-xl border" style={simpleTableStyle}>
+                  {statusRows.map(([label, value], index) => (
+                    <div
+                      key={label}
+                      className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)] md:items-start"
+                      style={index === 0 ? undefined : { borderTop: `1px solid ${C.border}` }}
+                    >
+                      <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
+                        {label}:
+                      </div>
+                      <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
+                        {value}
+                      </div>
                     </div>
-                    <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
-                      {activeRelay ?? 'Starts when Dispatch starts'}
+                  ))}
+                  <div
+                    className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)_auto] md:items-center"
+                    style={{ borderTop: `1px solid ${C.border}` }}
+                  >
+                    <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
+                      Workspace:
+                    </div>
+                    {workspaceEditing ? (
+                      <input
+                        type="text"
+                        value={workspaceDraft}
+                        onChange={(event) => {
+                          setWorkspaceDraft(event.target.value);
+                          setConfigDirty(true);
+                        }}
+                        placeholder="/Users/arach/dev/openscout"
+                        className="w-full rounded-lg border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
+                        style={{ borderColor: C.border, color: C.ink }}
+                      />
+                    ) : (
+                      <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
+                        {dispatchState?.workspaceRoot || 'Not set'}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 md:justify-end">
+                      {workspaceEditing ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              void saveDispatchConfig();
+                            }}
+                            disabled={dispatchConfigPending}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setWorkspaceDraft(dispatchState?.workspaceRoot ?? '');
+                              setConfigDirty(false);
+                              setWorkspaceEditing(false);
+                            }}
+                            disabled={dispatchConfigPending}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWorkspaceDraft(dispatchState?.workspaceRoot ?? '');
+                            setWorkspaceEditing(true);
+                          }}
+                          className="text-[12px] font-medium transition-opacity hover:opacity-70"
+                          style={{ color: C.muted }}
+                        >
+                          [edit]
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
-                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
-                      Client ID
+                  {dispatchConfigFeedback ? (
+                    <div
+                      className="px-4 py-3 text-[11px] leading-[1.6]"
+                      style={{ borderTop: `1px solid ${C.border}`, color: C.ink }}
+                    >
+                      {dispatchConfigFeedback}
                     </div>
-                    <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
-                      {dispatchState?.identityFingerprint ?? 'Not created yet'}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
-                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
-                      Workspace
-                    </div>
-                    <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
-                      {dispatchState?.workspaceRoot ?? 'Not set'}
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -6069,7 +7674,12 @@ function DispatchSurfacePlaceholder({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={onOpenSettings}
+                    onClick={() => {
+                      setShowAdvancedSettings(true);
+                      window.setTimeout(() => {
+                        settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 0);
+                    }}
                   >
                     <Settings size={14} />
                     Advanced
@@ -6088,7 +7698,7 @@ function DispatchSurfacePlaceholder({
                       </div>
                     </div>
                     <span
-                      className="rounded-full border px-2.5 py-1 text-[10px] font-medium"
+                      className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
                       style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
                     >
                       Ready to Pair
@@ -6097,13 +7707,22 @@ function DispatchSurfacePlaceholder({
                   <div className="mt-5 rounded-[22px] border p-4" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
                     <div
                       aria-label="Dispatch pairing QR code"
-                      className="mx-auto w-full max-w-[248px]"
+                      className={`mx-auto w-full ${qrExpanded ? 'max-w-[320px]' : 'max-w-[248px]'}`}
                       dangerouslySetInnerHTML={{ __html: dispatchPairingSvg }}
                     />
                   </div>
-                  <div className="mt-4 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
-                    <div>Room: <span style={{ color: C.ink }}>{dispatchState?.pairing?.room ?? 'Pending'}</span></div>
-                    <div className="mt-1">Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span></div>
+                  <div className="mt-4 flex items-center justify-between gap-3 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
+                    <div>
+                      Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setQrExpanded((current) => !current)}
+                    >
+                      {qrExpanded ? 'Compact QR' : 'Larger QR'}
+                    </Button>
                   </div>
                 </section>
               ) : (
@@ -6127,85 +7746,25 @@ function DispatchSurfacePlaceholder({
                   <div className="mt-4 text-[11px] leading-[1.6] font-light" style={{ color: C.muted }}>
                     <div className="inline-flex items-center gap-1.5">
                       <Key size={13} strokeWidth={1.5} />
-                      Same backend as the command line, but kept alive here with QR rotation and log access.
+                      Same backend as the command line, with QR rotation and log access.
                     </div>
                   </div>
                 </section>
               )}
             </div>
 
-            {dispatchPairingSvg ? (
-              <section className="rounded-[20px] border p-5" style={cardStyle}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Pairing Details</div>
-                    <p className="mt-2 text-[14px] leading-[1.75] font-light" style={{ color: C.muted }}>
-                      The live relay details stay here while the QR remains visible above.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {pairingMetaRows.map(([label, value]) => (
-                      <div key={label} className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
-                        <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-1" style={{ color: C.muted }}>
-                          {label}
-                        </div>
-                        <div className="text-[13px] leading-[1.6] break-words" style={{ color: C.ink }}>
-                          {value}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {dispatchState?.pairing?.qrArt ? (
-                    <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
-                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
-                        Terminal QR
-                      </div>
-                      <pre className="max-h-[260px] overflow-auto whitespace-pre text-[9px] leading-[1.05] font-mono" style={{ color: C.ink }}>
-                        {dispatchState.pairing.qrArt}
-                      </pre>
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border px-4 py-3" style={subtlePanelStyle}>
-                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
-                        CLI Equivalent
-                      </div>
-                      <div className="flex items-center gap-3 rounded-xl border px-3 py-3" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
-                        <code className="min-w-0 flex-1 truncate text-[11px]" style={{ color: C.ink }}>
-                          {pairCommand}
-                        </code>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          onClick={() => void handleCopy('command', pairCommand)}
-                        >
-                          {copied === 'command' ? <Check size={14} /> : <Copy size={14} />}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
-            ) : null}
-
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_320px] items-start">
-              <section ref={logsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
+            <div className={`grid gap-5 items-start ${showAdvancedSettings ? 'lg:grid-cols-[minmax(0,1.5fr)_320px]' : 'lg:grid-cols-1'}`}>
+              <section id="dispatch-live-logs" ref={logsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
                 <div className="px-5 py-4 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
                   <div>
                     <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
                       <Terminal size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
-                      Live Bridge Output
+                      Logs
                     </div>
                     <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                      {dispatchState?.logUpdatedAtLabel ? `Updated ${dispatchState.logUpdatedAtLabel}` : 'Waiting for bridge output.'}
+                      {dispatchState?.logUpdatedAtLabel ? `Updated ${dispatchState.logUpdatedAtLabel}` : 'Waiting for log output.'}
                     </div>
                   </div>
-                  <Button type="button" variant="ghost" size="sm" onClick={onOpenLogs} className="text-[13px] font-normal text-blue-600 hover:text-blue-700">
-                    View Full Logs
-                    <ExternalLink size={13} strokeWidth={1.5} />
-                  </Button>
                 </div>
                 <div className="bg-[#f7f8fb] px-5 py-4">
                   <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words text-[13px] leading-[1.7] font-mono font-light" style={{ color: '#475569' }}>
@@ -6214,6 +7773,7 @@ function DispatchSurfacePlaceholder({
                 </div>
               </section>
 
+              {showAdvancedSettings ? (
               <section id="dispatch-settings-card" ref={settingsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
                 <div className="px-5 py-4 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
                   <div>
@@ -6289,17 +7849,7 @@ function DispatchSurfacePlaceholder({
                         type="button"
                         size="sm"
                         onClick={() => {
-                          void (async () => {
-                            try {
-                              await onUpdateConfig({
-                                relay: relayDraft,
-                                workspaceRoot: workspaceDraft || null,
-                              });
-                              setConfigDirty(false);
-                            } catch {
-                              // Feedback is surfaced via dispatchConfigFeedback.
-                            }
-                          })();
+                          void saveDispatchConfig();
                         }}
                         disabled={dispatchConfigPending}
                       >
@@ -6314,6 +7864,7 @@ function DispatchSurfacePlaceholder({
                   </div>
                 </div>
               </section>
+              ) : null}
             </div>
           </div>
         </div>

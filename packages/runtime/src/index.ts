@@ -1,4 +1,5 @@
 export * from "./registry.js";
+export * from "./harness-catalog.js";
 export * from "./planner.js";
 export * from "./schema.js";
 export * from "./service.js";
@@ -8,6 +9,7 @@ export * from "./mesh-discovery.js";
 export * from "./mesh-forwarding.js";
 export * from "./tailscale.js";
 export * from "./broker-service.js";
-export * from "./project-twins.js";
+export * from "./local-agents.js";
+export * from "./codex-app-server.js";
 export * from "./setup.js";
 export * from "./support-paths.js";

@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   Circle,
@@ -15,7 +16,7 @@ import {
   Target,
 } from "lucide-react";
 
-import type { DesktopPlan, DesktopPlansState, DesktopTask } from "@/lib/openscout-desktop";
+import type { DesktopPlan, DesktopPlansState, DesktopReconciliationFinding, DesktopTask } from "@/lib/openscout-desktop";
 
 type ThemePalette = Record<string, string>;
 type ThemeStyles = {
@@ -79,6 +80,14 @@ function planStatusStyle(plan: DesktopPlan, C: ThemePalette): React.CSSPropertie
   }
 }
 
+function findingSeverityStyle(finding: DesktopReconciliationFinding, C: ThemePalette): React.CSSProperties {
+  if (finding.severity === "error") {
+    return { backgroundColor: "rgba(239, 68, 68, 0.12)", color: "#dc2626" };
+  }
+
+  return { backgroundColor: "rgba(245, 158, 11, 0.14)", color: "#d97706" };
+}
+
 export default function PlansView({
   plansState,
   C,
@@ -108,7 +117,7 @@ export default function PlansView({
   const filteredPlans = useMemo(
     () => selectedAgent === "all"
       ? plansState.plans
-      : plansState.plans.filter((plan) => plan.agent === selectedAgent || plan.twinId === selectedAgent.toLowerCase()),
+      : plansState.plans.filter((plan) => plan.agent === selectedAgent || plan.agentId === selectedAgent.toLowerCase()),
     [plansState.plans, selectedAgent],
   );
 
@@ -132,7 +141,7 @@ export default function PlansView({
             {[
               { label: "Running", value: plansState.runningTaskCount },
               { label: "Plans", value: plansState.planCount },
-              { label: "Failed", value: plansState.failedTaskCount },
+              { label: "Findings", value: plansState.findingCount },
               { label: "Workspaces", value: plansState.workspaceCount },
             ].map((stat) => (
               <div key={stat.label} className="p-2 rounded" style={{ backgroundColor: C.surface }}>
@@ -219,7 +228,7 @@ export default function PlansView({
               <div className="text-[13px] leading-[1.7] max-w-2xl" style={s.mutedText}>
                 {mode === "tasks"
                   ? "These are the operator asks currently flowing through Relay, resolved against live reply and status signals."
-                  : "Plan files are loaded from registered twin workspaces under plans/ or .openscout/plans/ so each project can keep its own roadmap."}
+                  : "Plan files are loaded from registered agent workspaces under plans/ or .openscout/plans/ so each project can keep its own roadmap."}
               </div>
             </div>
             <button
@@ -236,7 +245,7 @@ export default function PlansView({
             {[
               { label: "Running", value: plansState.runningTaskCount, icon: Loader2 },
               { label: "Completed", value: plansState.completedTaskCount, icon: CheckCircle2 },
-              { label: "Failed", value: plansState.failedTaskCount, icon: AlertCircle },
+              { label: "Findings", value: plansState.findingCount, icon: AlertTriangle },
               { label: "Plans", value: plansState.planCount, icon: Target },
             ].map((stat) => (
               <div key={stat.label} className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
@@ -251,6 +260,61 @@ export default function PlansView({
 
           {mode === "tasks" ? (
             <div className="space-y-4">
+              {plansState.findings.length > 0 ? (
+                <div className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Reconciliation</div>
+                      <div className="text-[13px] leading-[1.7]" style={s.mutedText}>
+                        Open expectations that look stale, blocked, or otherwise at risk of being dropped.
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] font-mono shrink-0">
+                      <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(239, 68, 68, 0.12)", color: "#dc2626" }}>
+                        {plansState.errorCount} errors
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(245, 158, 11, 0.14)", color: "#d97706" }}>
+                        {plansState.warningCount} warnings
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {plansState.findings.map((finding) => (
+                      <div key={finding.id} className="border rounded-lg p-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <div className="text-[14px] font-semibold" style={s.inkText}>{finding.title}</div>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={findingSeverityStyle(finding, C)}>
+                                {finding.severity}
+                              </span>
+                            </div>
+                            <div className="text-[12px] leading-[1.7]" style={s.mutedText}>{finding.summary}</div>
+                            {finding.detail ? (
+                              <div className="mt-2 text-[11px] leading-[1.6]" style={s.mutedText}>{finding.detail}</div>
+                            ) : null}
+                            <div className="mt-3 flex items-center gap-3 text-[10px] flex-wrap" style={s.mutedText}>
+                              {finding.requesterName ? <span>{finding.requesterName}</span> : null}
+                              {finding.targetAgentName ? <span>{finding.targetAgentName}</span> : null}
+                              {finding.ageLabel ? <span>{finding.ageLabel}</span> : null}
+                              {finding.updatedAtLabel ? <span>Updated {finding.updatedAtLabel}</span> : null}
+                            </div>
+                          </div>
+                          {finding.targetAgentId ? (
+                            <button
+                              onClick={() => onOpenRelayAgent(finding.targetAgentId as string)}
+                              className="text-[11px] font-medium flex items-center gap-1 shrink-0"
+                              style={{ color: C.accent }}
+                            >
+                              Open Relay <ChevronRight size={12} />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {filteredTasks.length > 0 ? filteredTasks.map((task) => {
                 const meta = taskStatusMeta(task, C);
                 const StatusIcon = meta.icon;
@@ -323,7 +387,7 @@ export default function PlansView({
                       <div className="text-[11px] flex items-center gap-2 flex-wrap" style={s.mutedText}>
                         <span className="flex items-center gap-1">
                           <GitBranch size={10} />
-                          {plan.twinId}
+                          {plan.agentId}
                         </span>
                         <span>{plan.workspaceName}</span>
                       </div>
@@ -368,7 +432,7 @@ export default function PlansView({
                 <div className="col-span-2 border rounded-xl p-8 text-center" style={{ ...s.surface, borderColor: C.border, color: C.muted }}>
                   <div className="text-[14px] font-medium mb-2" style={s.inkText}>No plan files found</div>
                   <div className="text-[12px] leading-[1.7]">
-                    Add Markdown plans under <span className="font-mono">plans/</span> or <span className="font-mono">.openscout/plans/</span> in a registered twin workspace and they will appear here.
+                    Add Markdown plans under <span className="font-mono">plans/</span> or <span className="font-mono">.openscout/plans/</span> in a registered agent workspace and they will appear here.
                   </div>
                 </div>
               )}

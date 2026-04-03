@@ -960,7 +960,7 @@ final class ScoutShellViewModel {
                 snapshot.endpoints.values.compactMap { endpoint in
                     guard endpoint.transport == "tmux",
                           endpoint.state != "offline",
-                          endpoint.metadata?["source"] == "relay-twin-registry" else {
+                          endpoint.metadata?["source"] == "relay-agent-registry" else {
                         return nil
                     }
 
@@ -1121,7 +1121,7 @@ final class ScoutShellViewModel {
         )
     }
 
-    private func upsertProjectTwinEndpointIfAvailable(
+    private func upsertLocalAgentEndpointIfAvailable(
         agentID: String,
         displayName: String,
         role: String,
@@ -1148,7 +1148,7 @@ final class ScoutShellViewModel {
                 "role": role,
                 "summary": summary,
                 "source": "project-inferred",
-                "twinName": agentID,
+                "agentName": agentID,
                 "tmuxSession": "relay-\(agentID)",
                 "projectRoot": projectRoot,
             ]
@@ -1609,9 +1609,9 @@ final class ScoutShellViewModel {
         let session = firstNonEmpty(
             metadata["responderSessionId"],
             endpoint?.sessionID,
-            metadata["responderTwinName"],
+            metadata["responderAgentName"],
             endpoint?.metadata?["tmuxSession"],
-            endpoint?.metadata?["twinName"]
+            endpoint?.metadata?["agentName"]
         )
         let harness = firstNonEmpty(metadata["responderHarness"], endpoint?.harness)
         let transport = firstNonEmpty(metadata["responderTransport"], endpoint?.transport)
@@ -1647,8 +1647,8 @@ final class ScoutShellViewModel {
         let metadata = message.metadata ?? [:]
         var parts: [String] = []
 
-        if let responderTwin = firstNonEmpty(metadata["responderTwinName"], endpoint?.metadata?["twinName"]) {
-            parts.append("actor \(responderTwin)")
+        if let responderAgent = firstNonEmpty(metadata["responderAgentName"], endpoint?.metadata?["agentName"]) {
+            parts.append("actor \(responderAgent)")
         }
 
         if let session = firstNonEmpty(metadata["responderSessionId"], endpoint?.sessionID, endpoint?.metadata?["tmuxSession"]) {
@@ -1802,7 +1802,7 @@ final class ScoutShellViewModel {
             let registryBacked = snapshot.endpoints.values.compactMap { endpoint -> String? in
                 guard endpoint.transport == "tmux",
                       endpoint.state != "offline",
-                      endpoint.metadata?["source"] == "relay-twin-registry" else {
+                      endpoint.metadata?["source"] == "relay-agent-registry" else {
                     return nil
                 }
 
@@ -1926,7 +1926,7 @@ final class ScoutShellViewModel {
 
             if let profile = agentProfiles.first(where: { $0.id == normalized }) {
                 try await upsertControlPlaneAgent(profile, nodeID: nodeID)
-                _ = try await upsertProjectTwinEndpointIfAvailable(
+                _ = try await upsertLocalAgentEndpointIfAvailable(
                     agentID: normalized,
                     displayName: profile.name,
                     role: profile.role,
@@ -1952,10 +1952,10 @@ final class ScoutShellViewModel {
                 ownerID: nil
             )
 
-            _ = try await upsertProjectTwinEndpointIfAvailable(
+            _ = try await upsertLocalAgentEndpointIfAvailable(
                 agentID: normalized,
                 displayName: inferredRelayDisplayName(for: normalized),
-                role: "Project twin",
+                role: "Project agent",
                 summary: "Project-backed agent inferred from the local developer workspace.",
                 nodeID: nodeID
             )
@@ -2038,7 +2038,7 @@ final class ScoutShellViewModel {
             mergedByID[agent.id] = ScoutAgentProfile(
                 id: agent.id,
                 name: agent.displayName,
-                role: metadata["role"] ?? existing?.role ?? "Project twin",
+                role: metadata["role"] ?? existing?.role ?? "Project agent",
                 summary: metadata["summary"] ?? existing?.summary ?? "Project-backed agent reachable through the local broker.",
                 systemImage: metadata["systemImage"] ?? existing?.systemImage ?? "shippingbox"
             )

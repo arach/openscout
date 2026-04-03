@@ -11,27 +11,47 @@ struct ContentView: View {
     @Environment(ConnectionManager.self) private var connectionManager
     @State private var reconnectTriggered = false
 
+    private var hasLocalSessionHistory: Bool {
+        !sessionStore.summaries.isEmpty
+    }
+
     var body: some View {
         Group {
             switch connectionManager.state {
             case .disconnected:
                 if connectionManager.hasTrustedBridge {
-                    reconnectingView(attempt: 0)
+                    if hasLocalSessionHistory {
+                        SessionListView()
+                    } else {
+                        reconnectingView(attempt: 0)
+                    }
                 } else {
                     PairingView()
                 }
 
             case .connecting, .handshaking:
-                connectingView
+                if hasLocalSessionHistory {
+                    SessionListView()
+                } else {
+                    connectingView
+                }
 
             case .connected:
                 SessionListView()
 
             case .reconnecting(let attempt):
-                reconnectingView(attempt: attempt)
+                if hasLocalSessionHistory {
+                    SessionListView()
+                } else {
+                    reconnectingView(attempt: attempt)
+                }
 
             case .failed(let error):
-                failedView(error: error)
+                if hasLocalSessionHistory {
+                    SessionListView()
+                } else {
+                    failedView(error: error)
+                }
             }
         }
         .animation(.default, value: connectionManager.state)

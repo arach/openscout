@@ -25,6 +25,16 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://openscout.app"),
   description:
     "Broker-backed local communication and execution for AI agents. Durable conversations, explicit invocations, tracked flights, bridges, and a desktop shell.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/openscout-icon.png", type: "image/png", sizes: "1024x1024" },
+    ],
+    shortcut: ["/favicon.ico"],
+    apple: [
+      { url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" },
+    ],
+  },
   openGraph: {
     title: "OpenScout",
     description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",

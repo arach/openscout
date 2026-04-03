@@ -1,31 +1,38 @@
-// SessionDiscoveryView — Browse past sessions from the bridge's history/discover RPC.
+// SessionDiscoveryView — Deep search and browsing for past bridge sessions.
 //
-// Groups discovered JSONL sessions by project, sorted by recency.
-// Tapping a session opens it in SpectatorView (WKWebView).
-// Shows live scanning status with skeleton shimmer during load.
-// Optionally filters to a specific project (e.g., current session context).
+// Default mode browses discovered session files grouped by project.
+// Typing into search switches to transcript + session search across older work.
 
 import SwiftUI
 
 struct SessionDiscoveryView: View {
-    /// Optional project filter — when set, only shows sessions for this project.
     var projectFilter: String? = nil
-    /// Called with the new session ID when a session is resumed from spectator.
     var onResumed: ((String) -> Void)?
 
     @Environment(ConnectionManager.self) private var connection
     @Environment(\.dismiss) private var dismiss
 
     @State private var sessions: [DiscoveredSession] = []
+    @State private var transcriptMatches: [SearchMatch] = []
     @State private var isLoading = true
+    @State private var isSearching = false
     @State private var error: String?
-    @State private var scanStatus: String = "Connecting to bridge..."
+    @State private var searchText = ""
     @State private var selectedSession: DiscoveredSession?
+    @State private var selectedMatch: SearchMatch?
+
+    private var query: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearchMode: Bool {
+        !query.isEmpty
+    }
 
     private var groupedByProject: [(project: String, sessions: [DiscoveredSession])] {
         let grouped = Dictionary(grouping: sessions) { $0.project }
         return grouped
-            .map { (project: $0.key, sessions: $0.value) }
+            .map { (project: $0.key, sessions: $0.value.sorted { $0.modifiedAt > $1.modifiedAt }) }
             .sorted { lhs, rhs in
                 let lhsLatest = lhs.sessions.map(\.modifiedAt).max() ?? 0
                 let rhsLatest = rhs.sessions.map(\.modifiedAt).max() ?? 0
@@ -33,21 +40,41 @@ struct SessionDiscoveryView: View {
             }
     }
 
+    private var matchingSessions: [DiscoveredSession] {
+        guard isSearchMode else { return sessions }
+        let tokens = query.searchTokens
+        return sessions.filter { session in
+            let haystacks = [
+                session.project,
+                session.path,
+                sessionDisplayName(session.path),
+                AdapterIcon.displayName(for: session.agent),
+                session.agent,
+            ]
+
+            return tokens.allSatisfy { token in
+                haystacks.contains { $0.localizedCaseInsensitiveContains(token) }
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
+                if isLoading && sessions.isEmpty {
                     loadingState
-                } else if let error {
+                } else if let error, sessions.isEmpty {
                     errorState(error)
+                } else if isSearchMode {
+                    searchResults
                 } else if sessions.isEmpty {
                     emptyState
                 } else {
-                    sessionList
+                    browseResults
                 }
             }
             .background(DispatchColors.backgroundAdaptive)
-            .navigationTitle(projectFilter ?? "Sessions")
+            .navigationTitle(projectFilter ?? "Search")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -59,6 +86,7 @@ struct SessionDiscoveryView: View {
                     }
                 }
             }
+            .searchable(text: $searchText, prompt: "Search transcript, project, or session")
             .fullScreenCover(item: $selectedSession) { session in
                 SpectatorView(
                     sessionPath: session.path,
@@ -70,51 +98,105 @@ struct SessionDiscoveryView: View {
                     onResumed?(newSessionId)
                 }
             }
+            .fullScreenCover(item: $selectedMatch) { match in
+                SpectatorView(
+                    sessionPath: match.path,
+                    sessionName: match.project,
+                    agentType: match.agent
+                ) { newSessionId in
+                    selectedMatch = nil
+                    dismiss()
+                    onResumed?(newSessionId)
+                }
+            }
         }
         .task {
             await loadSessions()
         }
+        .task(id: query) {
+            await searchHistoryIfNeeded()
+        }
     }
 
-    // MARK: - Session List
-
-    private var sessionList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(groupedByProject, id: \.project) { group in
-                    projectSection(group.project, sessions: group.sessions)
+    private var browseResults: some View {
+        List {
+            ForEach(groupedByProject, id: \.project) { group in
+                Section {
+                    ForEach(group.sessions) { session in
+                        discoveredSessionRow(session)
+                    }
+                } header: {
+                    HStack(spacing: DispatchSpacing.sm) {
+                        Image(systemName: agentIcon(for: group.sessions.first?.agent ?? "unknown"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(DispatchColors.accent)
+                        Text(group.project)
+                            .font(DispatchTypography.caption(12, weight: .semibold))
+                            .foregroundStyle(DispatchColors.textSecondary)
+                        Spacer()
+                        Text("\(group.sessions.count)")
+                            .font(DispatchTypography.caption(11, weight: .medium))
+                            .foregroundStyle(DispatchColors.textMuted)
+                    }
                 }
             }
-            .padding(.top, DispatchSpacing.sm)
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await loadSessions()
         }
     }
 
-    private func projectSection(_ project: String, sessions: [DiscoveredSession]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: DispatchSpacing.sm) {
-                Image(systemName: agentIcon(for: sessions.first?.agent ?? "unknown"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(DispatchColors.accent)
-                Text(project)
-                    .font(DispatchTypography.caption(13, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textSecondary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Spacer()
-                Text("\(sessions.count)")
-                    .font(DispatchTypography.caption(12, weight: .medium))
-                    .foregroundStyle(DispatchColors.textMuted)
-            }
-            .padding(.horizontal, DispatchSpacing.lg)
-            .padding(.vertical, DispatchSpacing.md)
+    private var searchResults: some View {
+        List {
+            if isSearching {
+                HStack(spacing: DispatchSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Searching...")
+                        .font(DispatchTypography.body(14))
+                        .foregroundStyle(DispatchColors.textSecondary)
+                }
+                .padding(.vertical, DispatchSpacing.sm)
+                .listRowBackground(DispatchColors.backgroundAdaptive)
+            } else {
+                if !transcriptMatches.isEmpty {
+                    Section("Transcript") {
+                        ForEach(transcriptMatches) { match in
+                            transcriptMatchRow(match)
+                                .listRowBackground(DispatchColors.backgroundAdaptive)
+                        }
+                    }
+                }
 
-            ForEach(sessions) { session in
-                sessionRow(session)
+                if !matchingSessions.isEmpty {
+                    Section("Sessions") {
+                        ForEach(matchingSessions) { session in
+                            discoveredSessionRow(session)
+                                .listRowBackground(DispatchColors.backgroundAdaptive)
+                        }
+                    }
+                }
+
+                if transcriptMatches.isEmpty && matchingSessions.isEmpty {
+                    VStack(spacing: DispatchSpacing.sm) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(DispatchColors.textMuted)
+                        Text("No results")
+                            .font(DispatchTypography.body(15, weight: .semibold))
+                            .foregroundStyle(DispatchColors.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DispatchSpacing.xl)
+                    .listRowBackground(DispatchColors.backgroundAdaptive)
+                }
             }
         }
+        .listStyle(.plain)
     }
 
-    private func sessionRow(_ session: DiscoveredSession) -> some View {
+    private func discoveredSessionRow(_ session: DiscoveredSession) -> some View {
         Button {
             selectedSession = session
         } label: {
@@ -133,9 +215,6 @@ struct SessionDiscoveryView: View {
                         Label(AdapterIcon.displayName(for: session.agent), systemImage: agentIcon(for: session.agent))
                             .font(DispatchTypography.caption(11))
                             .foregroundStyle(DispatchColors.textMuted)
-                        Text("\(session.lineCount) lines")
-                            .font(DispatchTypography.caption(11))
-                            .foregroundStyle(DispatchColors.textMuted)
                         Text(RelativeTime.string(from: session.modifiedDate))
                             .font(DispatchTypography.caption(11))
                             .foregroundStyle(DispatchColors.textMuted)
@@ -148,79 +227,65 @@ struct SessionDiscoveryView: View {
                     .font(.system(size: 20, weight: .light))
                     .foregroundStyle(DispatchColors.accent.opacity(0.6))
             }
-            .padding(.horizontal, DispatchSpacing.lg)
-            .padding(.vertical, DispatchSpacing.md)
+            .padding(.vertical, DispatchSpacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - Loading State (skeleton + live status)
+    private func transcriptMatchRow(_ match: SearchMatch) -> some View {
+        Button {
+            selectedMatch = match
+        } label: {
+            VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
+                HStack(spacing: DispatchSpacing.sm) {
+                    Image(systemName: AdapterIcon.systemName(for: match.agent))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(DispatchColors.accent)
+
+                    Text(match.project)
+                        .font(DispatchTypography.body(14, weight: .semibold))
+                        .foregroundStyle(DispatchColors.textPrimary)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Text("\(match.matchCount)")
+                        .font(DispatchTypography.caption(11, weight: .semibold))
+                        .foregroundStyle(DispatchColors.textSecondary)
+                        .padding(.horizontal, DispatchSpacing.sm)
+                        .padding(.vertical, DispatchSpacing.xxs)
+                        .background(DispatchColors.surfaceAdaptive)
+                        .clipShape(Capsule())
+                }
+
+                Text((match.path as NSString).lastPathComponent)
+                    .font(DispatchTypography.code(11))
+                    .foregroundStyle(DispatchColors.textMuted)
+                    .lineLimit(1)
+
+                ForEach(Array(match.preview.enumerated()), id: \.offset) { previewLine in
+                    Text(previewLine.element.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(DispatchTypography.body(12))
+                        .foregroundStyle(DispatchColors.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.vertical, DispatchSpacing.xs)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
     private var loadingState: some View {
-        VStack(spacing: 0) {
-            // Live status bar
-            HStack(spacing: DispatchSpacing.sm) {
-                BrailleSpinner()
-                Text(scanStatus)
-                    .font(DispatchTypography.code(12, weight: .medium))
-                    .foregroundStyle(DispatchColors.accent)
-                    .lineLimit(1)
-                Spacer()
-            }
-            .padding(.horizontal, DispatchSpacing.lg)
-            .padding(.vertical, DispatchSpacing.md)
-            .background(DispatchColors.accent.opacity(0.06))
-
-            // Skeleton rows with shimmer
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(0..<3, id: \.self) { _ in skeletonSection }
-                }
-                .padding(.top, DispatchSpacing.sm)
-            }
-            .allowsHitTesting(false)
+        VStack(spacing: DispatchSpacing.lg) {
+            ProgressView()
+            Text("Loading...")
+                .font(DispatchTypography.body(15))
+                .foregroundStyle(DispatchColors.textSecondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
-    private var skeletonSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: DispatchSpacing.sm) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(DispatchColors.textMuted.opacity(0.15))
-                    .frame(width: 14, height: 14)
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(DispatchColors.textMuted.opacity(0.12))
-                    .frame(width: 80, height: 12)
-                Spacer()
-            }
-            .padding(.horizontal, DispatchSpacing.lg)
-            .padding(.vertical, DispatchSpacing.md)
-
-            ForEach(0..<3, id: \.self) { idx in
-                HStack(spacing: DispatchSpacing.md) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(DispatchColors.accent.opacity(0.08))
-                        .frame(width: 4, height: 32)
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(DispatchColors.textMuted.opacity(0.12))
-                            .frame(width: [140, 160, 120][idx], height: 12)
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(DispatchColors.textMuted.opacity(0.08))
-                            .frame(width: [180, 200, 170][idx], height: 10)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, DispatchSpacing.lg)
-                .padding(.vertical, DispatchSpacing.md)
-            }
-        }
-        .shimmering()
-    }
-
-    // MARK: - Error / Empty States
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: DispatchSpacing.lg) {
@@ -248,74 +313,54 @@ struct SessionDiscoveryView: View {
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 36))
                 .foregroundStyle(DispatchColors.textMuted)
-            Text("No sessions found")
+            Text("No sessions")
                 .font(DispatchTypography.body(16, weight: .medium))
                 .foregroundStyle(DispatchColors.textSecondary)
-            Text(projectFilter != nil
-                 ? "No JSONL sessions found for \(projectFilter!) in the last 14 days."
-                 : "No JSONL session files found in the last 14 days.")
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textMuted)
-                .multilineTextAlignment(.center)
             Spacer()
         }
         .padding(.horizontal, DispatchSpacing.xxl)
     }
 
-    // MARK: - Data Loading
-
-    /// Scan known locations, updating status as we go.
     private func loadSessions() async {
         isLoading = true
         error = nil
-        sessions = []
 
-        let scanDirs = [
-            ("~/.claude/projects", "claude-code"),
-            ("~/.codex", "codex"),
-            ("~/.openai-codex", "codex"),
-        ]
-
-        var allSessions: [DiscoveredSession] = []
-
-        for (dir, _) in scanDirs {
-            scanStatus = "Scanning \(dir)..."
-
-            do {
-                let response = try await connection.historyDiscover(
-                    maxAge: 14, limit: 50, project: projectFilter
-                )
-
-                let existingPaths = Set(allSessions.map(\.path))
-                let newSessions = response.sessions.filter { !existingPaths.contains($0.path) }
-                allSessions.append(contentsOf: newSessions)
-                allSessions.sort { $0.modifiedAt > $1.modifiedAt }
-                sessions = allSessions
-
-                if !newSessions.isEmpty {
-                    let projects = Set(allSessions.map(\.project))
-                    scanStatus = "Found \(allSessions.count) sessions across \(projects.count) projects"
-                }
-
-                // Bridge scans all roots in one call for now — break after first success
-                break
-            } catch {
-                self.error = "Failed to discover sessions: \(error.localizedDescription)"
-                break
-            }
-        }
-
-        if allSessions.isEmpty && error == nil {
-            scanStatus = "No sessions found"
-        } else if !allSessions.isEmpty {
-            let projects = Set(allSessions.map(\.project))
-            scanStatus = "⠿ \(allSessions.count) sessions · \(projects.count) projects"
+        do {
+            let response = try await connection.historyDiscover(
+                maxAge: 3650,
+                limit: 500,
+                project: projectFilter
+            )
+            sessions = response.sessions.sorted { $0.modifiedAt > $1.modifiedAt }
+        } catch {
+            self.error = "Failed to load sessions: \(error.localizedDescription)"
         }
 
         isLoading = false
     }
 
-    // MARK: - Helpers
+    @MainActor
+    private func searchHistoryIfNeeded() async {
+        guard query.count >= 2 else {
+            transcriptMatches = []
+            isSearching = false
+            return
+        }
+
+        isSearching = true
+
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+            let response = try await connection.historySearch(query: query, maxAge: 3650, limit: 100)
+            transcriptMatches = response.matches
+        } catch is CancellationError {
+            return
+        } catch {
+            transcriptMatches = []
+        }
+
+        isSearching = false
+    }
 
     private func sessionDisplayName(_ path: String) -> String {
         let filename = (path as NSString).lastPathComponent
@@ -335,64 +380,6 @@ struct SessionDiscoveryView: View {
         }
     }
 }
-
-// MARK: - Braille spinner
-
-struct BrailleSpinner: View {
-    private static let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    @State private var index = 0
-    @State private var timer: Timer?
-
-    var body: some View {
-        Text(Self.frames[index])
-            .font(DispatchTypography.code(14, weight: .bold))
-            .foregroundStyle(DispatchColors.accent)
-            .onAppear {
-                timer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [self] _ in
-                    Task { @MainActor in
-                        index = (index + 1) % Self.frames.count
-                    }
-                }
-            }
-            .onDisappear {
-                timer?.invalidate()
-                timer = nil
-            }
-    }
-}
-
-// MARK: - Shimmer effect for skeleton loading
-
-struct ShimmerModifier: ViewModifier {
-    @State private var phase: CGFloat = -1
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                LinearGradient(
-                    colors: [.clear, .white.opacity(0.08), .white.opacity(0.14), .white.opacity(0.08), .clear],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .offset(x: phase * 350)
-                .allowsHitTesting(false)
-            }
-            .clipped()
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false)) {
-                    phase = 1
-                }
-            }
-    }
-}
-
-extension View {
-    func shimmering() -> some View {
-        modifier(ShimmerModifier())
-    }
-}
-
-// MARK: - Preview
 
 #Preview {
     SessionDiscoveryView()

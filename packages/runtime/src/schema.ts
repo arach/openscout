@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS actors (
 
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY REFERENCES actors(id) ON DELETE CASCADE,
+  definition_id TEXT NOT NULL,
+  node_qualifier TEXT,
+  workspace_qualifier TEXT,
+  selector TEXT,
+  default_selector TEXT,
   agent_class TEXT NOT NULL,
   capabilities_json TEXT NOT NULL,
   wake_policy TEXT NOT NULL,
@@ -123,6 +128,7 @@ CREATE TABLE IF NOT EXISTS invocations (
   conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
   message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   context_json TEXT,
+  execution_json TEXT,
   ensure_awake INTEGER NOT NULL DEFAULT 1,
   stream INTEGER NOT NULL DEFAULT 1,
   timeout_ms INTEGER,
@@ -223,6 +229,25 @@ CREATE TABLE IF NOT EXISTS events (
   payload_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS activity_items (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+  message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+  invocation_id TEXT REFERENCES invocations(id) ON DELETE CASCADE,
+  flight_id TEXT REFERENCES flights(id) ON DELETE CASCADE,
+  record_id TEXT REFERENCES collaboration_records(id) ON DELETE CASCADE,
+  actor_id TEXT REFERENCES actors(id) ON DELETE SET NULL,
+  counterpart_id TEXT REFERENCES actors(id) ON DELETE SET NULL,
+  agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  workspace_root TEXT,
+  session_id TEXT,
+  title TEXT,
+  summary TEXT,
+  payload_json TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
   ON nodes (mesh_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
@@ -241,4 +266,16 @@ CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
   ON collaboration_events (record_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_kind_ts
   ON events (kind, ts);
+CREATE INDEX IF NOT EXISTS idx_activity_items_agent_ts
+  ON activity_items (agent_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_items_actor_ts
+  ON activity_items (actor_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_items_conversation_ts
+  ON activity_items (conversation_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_items_workspace_ts
+  ON activity_items (workspace_root, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_items_kind_ts
+  ON activity_items (kind, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_items_session_ts
+  ON activity_items (session_id, ts DESC);
 `;

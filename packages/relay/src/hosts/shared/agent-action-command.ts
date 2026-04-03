@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import type { TwinActionRequest, TwinActionResult } from "../../twin-actions/protocol.js";
+import type { AgentActionRequest, AgentActionResult } from "../../agent-actions/protocol.js";
 
 function encodeBase64(value: string): string {
   return Buffer.from(value, "utf8").toString("base64");
@@ -19,16 +19,16 @@ function shellQuote(value: string): string {
   return JSON.stringify(value);
 }
 
-export function buildTwinActionCommand(request: TwinActionRequest): string {
+export function buildAgentActionCommand(request: AgentActionRequest): string {
   const parts = [
     "bun",
     "run",
     shellQuote(getRelayCliPath()),
     "relay",
-    "twin-action",
+    "agent-action",
     "--json",
-    "--twin",
-    shellQuote(request.twinId),
+    "--agent",
+    shellQuote(request.agentId),
     "--action",
     shellQuote(request.action),
     "--mode",
@@ -55,7 +55,7 @@ export function buildTwinActionCommand(request: TwinActionRequest): string {
   return parts.join(" ");
 }
 
-export function parseTwinActionResult(output: string): TwinActionResult {
+export function parseAgentActionResult(output: string): AgentActionResult {
   const trimmed = output.trim();
   const jsonStart = trimmed.indexOf("{");
   const jsonEnd = trimmed.lastIndexOf("}");
@@ -63,5 +63,5 @@ export function parseTwinActionResult(output: string): TwinActionResult {
     ? trimmed.slice(jsonStart, jsonEnd + 1)
     : trimmed;
 
-  return JSON.parse(candidate) as TwinActionResult;
+  return JSON.parse(candidate) as AgentActionResult;
 }
