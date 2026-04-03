@@ -95,6 +95,8 @@ await fs.mkdir(path.join(appRuntimePath, "dist"), { recursive: true });
 await copyIntoBundle(path.join(projectRoot, "dist", "client"), path.join(appRuntimePath, "dist", "client"));
 await copyIntoBundle(path.join(projectRoot, "dist", "electron"), path.join(appRuntimePath, "dist", "electron"));
 await copyIntoBundle(path.join(projectRoot, "dist", "server"), path.join(appRuntimePath, "dist", "server"));
+await copyIntoBundle(path.join(projectRoot, "..", "cli", "bin"), path.join(appRuntimePath, "cli", "bin"));
+await copyIntoBundle(path.join(projectRoot, "..", "cli", "dist"), path.join(appRuntimePath, "cli", "dist"));
 await fs.copyFile(
   path.join(projectRoot, "dist", "index.js"),
   path.join(appRuntimePath, "dist", "index.js"),
@@ -143,10 +145,31 @@ if (shouldCodesign) {
   }
 }
 
+const dmgPath = path.join(outputRoot, `${productName}.dmg`);
+await fs.rm(dmgPath, { force: true });
+
+const createDmgArgs = [
+  "--volname", productName,
+  "--window-pos", "200", "120",
+  "--window-size", "600", "400",
+  "--icon-size", "100",
+  "--icon", `${productName}.app`, "150", "190",
+  "--app-drop-link", "450", "190",
+];
+
+if (existsSync(bundleIconSource)) {
+  createDmgArgs.push("--volicon", bundleIconSource);
+}
+
+createDmgArgs.push(dmgPath, appBundlePath);
+
+execFileSync("create-dmg", createDmgArgs, { stdio: "inherit" });
+
 console.log(
   JSON.stringify(
     {
       appBundle: appBundlePath,
+      dmg: dmgPath,
       executable: path.join(appContentsPath, "MacOS", productName),
       appRuntime: appRuntimePath,
       codesigned: shouldCodesign,

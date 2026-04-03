@@ -29,6 +29,7 @@
     "electron:diff-v0": "bun run --cwd packages/electron-app diff:v0",
     "electron:apply-v0": "bun run --cwd packages/electron-app apply:v0",
     "electron:package": "bun run --cwd packages/electron-app package:macos",
+    "release": "node scripts/release.mjs",
     "electron:web": "bun run --cwd packages/electron-app electron:web",
     "openscout:build": "./scripts/openscout-dev build",
     "openscout:launch": "./scripts/openscout-dev launch",

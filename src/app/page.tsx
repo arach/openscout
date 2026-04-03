@@ -8,6 +8,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   Bot,
+  Download,
   Layers,
   MessageSquare,
   Monitor,
@@ -621,6 +622,13 @@ export default function Home() {
                     style={{ animationDelay: "0.16s" }}
                   >
                     <CopyCommand command={copy.heroCommand} />
+                    <a
+                      href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
+                      className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Download for macOS</span>
+                    </a>
                     <Link
                       href="#get-started"
                       className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
@@ -856,21 +864,21 @@ export default function Home() {
                         </p>
                         <div className="mt-4 flex flex-wrap items-center gap-3">
                           <a
+                            href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
+                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            <span>Download for macOS</span>
+                          </a>
+                          <a
                             href="https://github.com/arach/openscout"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] transition-colors hover:bg-[#faf9f4]"
                           >
                             <span>Open on GitHub</span>
                             <ArrowUpRight className="h-3.5 w-3.5" />
                           </a>
-                          <Link
-                            href="/docs/relay"
-                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] transition-colors hover:bg-[#faf9f4]"
-                          >
-                            <span>Read setup docs</span>
-                            <ArrowRight className="h-3.5 w-3.5" />
-                          </Link>
                         </div>
                       </div>
                     </div>
