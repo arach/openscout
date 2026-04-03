@@ -30,6 +30,7 @@ const openScoutDesktop = {
   openAgentSession: (agentId) => ipcRenderer.invoke("openscout:open-agent-session", agentId),
   toggleVoiceCapture: () => ipcRenderer.invoke("openscout:toggle-voice-capture"),
   setVoiceRepliesEnabled: (enabled) => ipcRenderer.invoke("openscout:set-voice-replies-enabled", enabled),
+  revealPath: (filePath) => ipcRenderer.invoke("openscout:reveal-path", filePath),
 };
 
 contextBridge.exposeInMainWorld("openScoutDesktop", openScoutDesktop);

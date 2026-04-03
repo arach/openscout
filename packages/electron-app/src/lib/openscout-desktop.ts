@@ -484,6 +484,7 @@ export type AppSettingsState = {
   relayAgentsPath: string;
   relayHubPath: string;
   supportDirectory: string;
+  controlPlaneSqlitePath: string;
   onboardingContextRoot: string;
   currentProjectConfigPath: string | null;
   workspaceRoots: string[];
@@ -709,6 +710,7 @@ declare global {
       restartOnboarding: () => Promise<AppSettingsState>;
       pickDirectory: () => Promise<string | null>;
       quitApp: () => Promise<boolean>;
+      revealPath: (filePath: string) => Promise<boolean>;
       getPhonePreparation: () => Promise<PhonePreparationState>;
       updatePhonePreparation: (input: UpdatePhonePreparationInput) => Promise<PhonePreparationState>;
       getAgentConfig: (agentId: string) => Promise<AgentConfigState>;

@@ -3454,6 +3454,7 @@ export async function getAppSettings(): Promise<AppSettingsState> {
     relayAgentsPath: setup.relayAgentsPath,
     relayHubPath: setup.relayHubPath,
     supportDirectory: setup.supportDirectory,
+    controlPlaneSqlitePath: path.join(resolveOpenScoutSupportPaths().controlHome, "control-plane.sqlite"),
     onboardingContextRoot: compactHomePath(onboardingContextRoot) ?? onboardingContextRoot,
     currentProjectConfigPath: setup.currentProjectConfigPath,
     workspaceRoots: setup.settings.discovery.workspaceRoots.map((root) => compactHomePath(root) ?? root),

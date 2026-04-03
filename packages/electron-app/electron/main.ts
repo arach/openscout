@@ -348,6 +348,11 @@ ipcMain.handle("openscout:quit-app", async () => {
   return true;
 });
 
+ipcMain.handle("openscout:reveal-path", async (_event, filePath: string) => {
+  shell.showItemInFolder(filePath);
+  return true;
+});
+
 ipcMain.handle("openscout:get-phone-preparation", async () =>
   getPhonePreparation(),
 );

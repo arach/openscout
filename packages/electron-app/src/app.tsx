@@ -5877,22 +5877,16 @@ export default function App() {
                       </section>
                       ) : null}
 
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Surfaces</div>
-                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                          Relay remains the live operator-facing communication surface. Inter-Agent gives you passive visibility into private agent traffic without mixing it back into your own threads, and Logs stays focused on raw tails rather than service configuration.
-                        </div>
-                      </section>
                     </div>
                   </div>
                 ) : settingsSection === 'database' ? (
-                  <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.85fr)] gap-4">
+                  <div className="space-y-4">
                     <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                       <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Session Index</div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                      <div className="grid grid-cols-3 gap-x-4 gap-y-4">
                         {[
-                          ['Sessions Indexed', `${stats.totalSessions}`],
-                          ['Messages Indexed', `${stats.totalMessages}`],
+                          ['Sessions', `${stats.totalSessions}`],
+                          ['Messages', `${stats.totalMessages}`],
                           ['Projects', `${stats.projects}`],
                           ['Tokens', `${Math.round(stats.totalTokens / 1000)}k`],
                           ['Runtime Messages', `${runtime?.messageCount ?? 0}`],
@@ -5906,21 +5900,59 @@ export default function App() {
                       </div>
                     </section>
 
-                    <div className="space-y-4 min-w-0">
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Current Backing</div>
-                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                          The desktop shell currently combines indexed session history with the live broker snapshot. The richer database controls from the v0 PR are useful directionally, but they are not wired in this Electron runtime yet.
-                        </div>
-                      </section>
-
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Next Step</div>
-                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                          If we want this section to become editable, the root fix is a real persisted storage config model in the runtime first, rather than adding disconnected form controls in the shell.
-                        </div>
-                      </section>
-                    </div>
+                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Storage</div>
+                      <div className="space-y-3">
+                        {visibleAppSettings?.controlPlaneSqlitePath ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium" style={s.inkText}>Control plane database</div>
+                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>{visibleAppSettings.controlPlaneSqlitePath}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="os-toolbar-button text-[11px] font-medium px-3 py-1.5 rounded-lg border shrink-0"
+                              style={{ color: C.ink, borderColor: C.border }}
+                              onClick={() => window.openScoutDesktop?.revealPath(visibleAppSettings.controlPlaneSqlitePath)}
+                            >
+                              Reveal in Finder
+                            </button>
+                          </div>
+                        ) : null}
+                        {visibleAppSettings?.settingsPath ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium" style={s.inkText}>Settings</div>
+                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>{visibleAppSettings.settingsPath}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="os-toolbar-button text-[11px] font-medium px-3 py-1.5 rounded-lg border shrink-0"
+                              style={{ color: C.ink, borderColor: C.border }}
+                              onClick={() => window.openScoutDesktop?.revealPath(visibleAppSettings.settingsPath)}
+                            >
+                              Reveal in Finder
+                            </button>
+                          </div>
+                        ) : null}
+                        {visibleAppSettings?.supportDirectory ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium" style={s.inkText}>Support directory</div>
+                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>{visibleAppSettings.supportDirectory}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="os-toolbar-button text-[11px] font-medium px-3 py-1.5 rounded-lg border shrink-0"
+                              style={{ color: C.ink, borderColor: C.border }}
+                              onClick={() => window.openScoutDesktop?.revealPath(visibleAppSettings.supportDirectory)}
+                            >
+                              Reveal in Finder
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
                   </div>
                 ) : (
                   <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(320px,0.85fr)] gap-4">
