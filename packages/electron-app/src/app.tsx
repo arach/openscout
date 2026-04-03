@@ -2171,7 +2171,7 @@ export default function App() {
     commandLine: string,
     running: boolean,
   ) => (
-    <div className="rounded-[24px] border overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.12)', backgroundColor: C.termBg }}>
+    <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.12)', backgroundColor: C.termBg }}>
       <div
         className="flex items-center justify-between gap-3 px-4 py-3 border-b"
         style={{ borderBottomColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.04)' }}
@@ -2238,7 +2238,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+          <div className="rounded-xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
             <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Source Roots</div>
             <textarea
               value={(visibleAppSettings.workspaceRoots ?? []).join('\n')}
@@ -2251,7 +2251,7 @@ export default function App() {
               }}
               readOnly={appSettingsSaving}
               rows={6}
-              className="w-full rounded-xl border px-4 py-3 text-[15px] font-mono leading-[1.6] bg-transparent outline-none resize-none transition-colors focus:border-[var(--os-accent)]"
+              className="w-full rounded-lg border px-4 py-3 text-[15px] font-mono leading-[1.6] bg-transparent outline-none resize-none transition-colors focus:border-[var(--os-accent)]"
               style={{ borderColor: C.border, color: C.ink }}
               placeholder="~/dev"
             />
@@ -2295,7 +2295,7 @@ export default function App() {
               return (
                 <button
                   key={harness}
-                  className="os-card text-left rounded-2xl border px-5 py-5 disabled:opacity-60"
+                  className="os-card text-left rounded-xl border px-5 py-5 disabled:opacity-60"
                   style={{ borderColor: selected ? C.accent : C.border, backgroundColor: selected ? C.accentBg : C.surface, boxShadow: selected ? `0 0 0 1px ${C.accent}` : 'none' }}
                   disabled={appSettingsSaving}
                   onClick={() => {
@@ -2342,7 +2342,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+          <div className="rounded-xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {[
                 ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
@@ -2350,7 +2350,7 @@ export default function App() {
                 ['Relay context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
                 ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-xl px-4 py-3" style={{ backgroundColor: C.bg }}>
+                <div key={label} className="rounded-lg px-4 py-3" style={{ backgroundColor: C.bg }}>
                   <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
                   <div className="text-[15px] font-medium leading-[1.5]" style={s.inkText}>{value}</div>
                 </div>
@@ -2360,7 +2360,7 @@ export default function App() {
 
           <div className="flex flex-wrap gap-3">
             <button
-              className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+              className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
               style={{ backgroundColor: C.accent, color: '#fff' }}
               onClick={() => {
                 void (async () => {
@@ -2406,14 +2406,14 @@ export default function App() {
 
           {renderOnboardingCommandShell('init', initCommandLine, initRunning)}
 
-          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+          <div className="rounded-xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 ['1. Relay context root', visibleAppSettings.onboardingContextRoot || 'Choose a directory first so OpenScout knows where to root this context.'],
                 ['2. Local manifest', 'It writes `.openscout/project.json` at that root and keeps it out of git.'],
                 ['3. Discovery input', 'That manifest becomes one of the durable sources used for inventory and routing.'],
               ].map(([label, detail]) => (
-                <div key={label} className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                <div key={label} className="rounded-lg border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                   <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
                   <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
                 </div>
@@ -2428,7 +2428,7 @@ export default function App() {
           </div>
 
           <button
-            className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+            className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
             style={{ backgroundColor: C.accent, color: '#fff' }}
             onClick={() => {
               void (async () => {
@@ -2462,14 +2462,14 @@ export default function App() {
 
           {renderOnboardingCommandShell('doctor', doctorCommandLine, doctorRunning)}
 
-          <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+          <div className="rounded-xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 ['1. Broker', 'Doctor checks whether the broker is installed, reachable, and healthy.'],
                 ['2. Discovery', 'It reads your saved source roots and scans the project manifests and harness evidence they expose.'],
                 ['3. Inventory', 'It merges those inputs into the project inventory that the UI and CLI both use.'],
               ].map(([label, detail]) => (
-                <div key={label} className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                <div key={label} className="rounded-lg border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                   <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
                   <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
                 </div>
@@ -2481,7 +2481,7 @@ export default function App() {
                 ['Broker', visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'],
                 ['Relay context root', visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot || 'Not created')],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-xl px-4 py-3" style={{ backgroundColor: C.bg }}>
+                <div key={label} className="rounded-lg px-4 py-3" style={{ backgroundColor: C.bg }}>
                   <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
                   <div className="text-[15px] font-medium leading-[1.5] break-words" style={s.inkText}>{value}</div>
                 </div>
@@ -2490,7 +2490,7 @@ export default function App() {
           </div>
 
           <button
-            className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+            className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
             style={{ backgroundColor: C.accent, color: '#fff' }}
             onClick={() => {
               void (async () => {
@@ -2524,7 +2524,7 @@ export default function App() {
 
         <div className="grid grid-cols-1 gap-3">
           {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
-            <div key={runtimeEntry.name} className="os-card rounded-2xl border px-5 py-4" style={{ borderColor: runtimeEntry.readinessState === 'ready' ? C.accent : C.border, backgroundColor: C.surface }}>
+            <div key={runtimeEntry.name} className="os-card rounded-xl border px-5 py-4" style={{ borderColor: runtimeEntry.readinessState === 'ready' ? C.accent : C.border, backgroundColor: C.surface }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center mt-0.5" style={{ backgroundColor: runtimeEntry.readinessState === 'ready' ? C.accentBg : C.bg }}>
@@ -2544,7 +2544,7 @@ export default function App() {
         </div>
 
         <button
-          className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+          className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
           style={{ backgroundColor: C.accent, color: '#fff' }}
           onClick={() => void handleRunOnboardingCommand('runtimes')}
           disabled={Boolean(onboardingCommandPending) || appSettingsLoading}
@@ -2564,7 +2564,7 @@ export default function App() {
         <div className="min-h-screen flex items-center justify-center px-6 py-10">
           {startupOnboardingVisible && visibleAppSettings ? (
             <div className="w-full max-w-[820px] os-scale-in">
-              <div className="rounded-[32px] border overflow-hidden" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
+              <div className="rounded-2xl border overflow-hidden" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
                 <div
                   className="px-8 pt-8 pb-6 border-b cursor-grab active:cursor-grabbing"
                   style={{ borderBottomColor: C.border, WebkitAppRegion: 'drag' } as React.CSSProperties}
@@ -2625,7 +2625,7 @@ export default function App() {
                   ) : null}
 
                   {onboardingCommandResult ? (
-                    <div className="rounded-2xl border px-5 py-4 mt-6 os-fade-up" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                    <div className="rounded-xl border px-5 py-4 mt-6 os-fade-up" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-[11px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Command</div>
@@ -2636,7 +2636,7 @@ export default function App() {
                         </span>
                       </div>
                       <pre
-                        className="mt-4 text-[12px] leading-[1.55] whitespace-pre-wrap break-words overflow-x-auto font-mono rounded-xl p-3"
+                        className="mt-4 text-[12px] leading-[1.55] whitespace-pre-wrap break-words overflow-x-auto font-mono rounded-lg p-3"
                         style={{ color: C.termFg, backgroundColor: C.termBg }}
                       >
                         {onboardingCommandResult.output}
@@ -2647,7 +2647,7 @@ export default function App() {
 
                 <div className="px-8 py-5 border-t flex items-center justify-between gap-4" style={{ borderTopColor: C.border, backgroundColor: C.bg }}>
                   <button
-                    className="os-btn flex items-center gap-1 text-[12px] font-medium px-4 py-2.5 rounded-xl border disabled:opacity-40 transition-all"
+                    className="os-btn flex items-center gap-1 text-[12px] font-medium px-4 py-2.5 rounded-lg border disabled:opacity-40 transition-all"
                     style={{ color: C.muted, borderColor: C.border, backgroundColor: 'transparent' }}
                     onClick={() => moveOnboardingWizard(-1)}
                     disabled={!canGoToPreviousOnboardingStep}
@@ -2663,14 +2663,14 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      className="os-btn flex items-center gap-1 text-[12px] font-medium px-4 py-2.5 rounded-xl transition-all"
+                      className="os-btn flex items-center gap-1 text-[12px] font-medium px-4 py-2.5 rounded-lg transition-all"
                       style={{ color: C.muted }}
                       onClick={skipCurrentOnboardingStep}
                     >
                       {canGoToNextOnboardingStep ? 'Skip step' : 'Finish later'}
                     </button>
                     <button
-                      className="os-btn-primary flex items-center gap-1 text-[12px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+                      className="os-btn-primary flex items-center gap-1 text-[12px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
                       style={{ backgroundColor: C.accent, color: '#fff' }}
                       onClick={() => moveOnboardingWizard(1)}
                       disabled={!canGoToNextOnboardingStep}
@@ -2683,7 +2683,7 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div className="w-full max-w-[560px] rounded-[28px] border px-8 py-10 text-center os-scale-in" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
+            <div className="w-full max-w-[560px] rounded-2xl border px-8 py-10 text-center os-scale-in" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
               <div className="flex justify-start mb-4">
                 <button
                   type="button"
@@ -2695,7 +2695,7 @@ export default function App() {
                   Quit
                 </button>
               </div>
-              <div className="w-10 h-10 rounded-xl mx-auto mb-5 flex items-center justify-center" style={{ backgroundColor: C.accentBg }}>
+              <div className="w-10 h-10 rounded-lg mx-auto mb-5 flex items-center justify-center" style={{ backgroundColor: C.accentBg }}>
                 <span className="text-[18px]" style={{ color: C.accent }}>&#9670;</span>
               </div>
               <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>OpenScout Setup</div>
