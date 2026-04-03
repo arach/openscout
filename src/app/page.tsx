@@ -809,7 +809,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="reveal-stagger grid gap-6 lg:grid-cols-3 md:grid-cols-2">
+                <div className="reveal-stagger grid gap-6 sm:grid-cols-2">
                   {surfaceGallery.map((shot, i) => (
                     <figure
                       key={shot.src}
