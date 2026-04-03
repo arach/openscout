@@ -622,20 +622,22 @@ export default function Home() {
                     style={{ animationDelay: "0.16s" }}
                   >
                     <CopyCommand command={copy.heroCommand} />
-                    <a
-                      href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
-                      className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span>Download for macOS</span>
-                    </a>
-                    <Link
-                      href="#get-started"
-                      className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
-                    >
-                      <span>Get started</span>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <a
+                        href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
+                        className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span>Download for macOS</span>
+                      </a>
+                      <Link
+                        href="#get-started"
+                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
+                      >
+                        <span>Get started</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </div>
                   </div>
 
                   <p
