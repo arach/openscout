@@ -135,7 +135,7 @@ const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
   machines: false,
   plans: false,
   sessions: false,
-  search: false,
+  search: true,
   phonePreparation: false,
   telegram: false,
   voice: false,
@@ -228,6 +228,7 @@ export default function App() {
   const [pendingRelayComposerFocusTick, setPendingRelayComposerFocusTick] = useState(0);
   const [selectedInterAgentId, setSelectedInterAgentId] = useState<string | null>(null);
   const [selectedInterAgentThreadId, setSelectedInterAgentThreadId] = useState<string | null>(null);
+  const [selectedAgentableProjectId, setSelectedAgentableProjectId] = useState<string | null>(null);
   const [agentRosterFilter, setAgentRosterFilter] = useState<AgentRosterFilterMode>('all');
   const [agentRosterSort, setAgentRosterSort] = useState<AgentRosterSortMode>('chat');
   const [agentRosterMenu, setAgentRosterMenu] = useState<null | 'filter' | 'sort'>(null);
@@ -294,6 +295,7 @@ export default function App() {
   const runtime = shellState?.runtime ?? null;
   const relayState = shellState?.relay ?? null;
   const interAgentState = shellState?.interAgent ?? null;
+  const desktopFeatures = shellState?.appInfo.features ?? DEFAULT_DESKTOP_FEATURES;
 
   const loadShellState = React.useCallback(async (withSpinner = false) => {
     if (!window.openScoutDesktop) {
@@ -569,7 +571,7 @@ export default function App() {
         setAppSettings(nextSettings);
         setAppSettingsDraft(nextSettings);
         if (startupOnboardingState === 'active' && nextSettings.onboarding.needed) {
-          setAppSettingsFeedback('OpenScout needs a quick first-run setup. Answer the wizard one step at a time, save the inputs, then run init, doctor, and runtimes from this screen.');
+          setAppSettingsFeedback(null);
           setIsAppSettingsEditing(true);
           setOnboardingWizardStep((current) => current || 'welcome');
         } else {
@@ -628,7 +630,7 @@ export default function App() {
         setAppSettings((current) => current ?? nextSettings);
         setAppSettingsDraft((current) => current ?? nextSettings);
         if (nextSettings.onboarding.needed) {
-          setAppSettingsFeedback('OpenScout needs a quick first-run setup. Answer the wizard one step at a time, save the inputs, then run init, doctor, and runtimes from this screen.');
+          setAppSettingsFeedback(null);
           setIsAppSettingsEditing(true);
           setOnboardingWizardStep('welcome');
           setStartupOnboardingState('active');
@@ -1386,10 +1388,17 @@ export default function App() {
       ? `${selectedInterAgent.title} is ready for a direct message.`
       : 'Direct line available.';
   const visibleAppSettings = isAppSettingsEditing ? (appSettingsDraft ?? appSettings) : appSettings;
+  const agentableProjects = visibleAppSettings?.projectInventory ?? [];
   const appSettingsDirty = useMemo(
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
     [appSettingsDraft, appSettings],
   );
+  const selectedAgentableProject = agentableProjects.find((project) => project.id === selectedAgentableProjectId) ?? null;
+  const selectedProjectAgent = selectedAgentableProject
+    ? interAgentAgents.find((agent) => (
+      agent.id === selectedAgentableProject.id || agent.id === selectedAgentableProject.definitionId
+    )) ?? null
+    : null;
   const onboardingContextRoot = visibleAppSettings?.onboardingContextRoot
     ?? visibleAppSettings?.workspaceRoots?.[0]
     ?? null;
@@ -1410,8 +1419,8 @@ export default function App() {
     {
       id: 'source-roots' as const,
       number: '02',
-      title: 'Choose a source root',
-      detail: 'Pick the parent folder that contains your repos so OpenScout can discover projects automatically.',
+      title: 'Choose folders to scan',
+      detail: 'Pick the parent folders OpenScout should scan for repos, then choose where this OpenScout context should live.',
       complete: onboardingStepCompletion.get('source-roots') ?? false,
     },
     {
@@ -1424,22 +1433,22 @@ export default function App() {
     {
       id: 'confirm' as const,
       number: '04',
-      title: 'Confirm your local setup',
-      detail: 'Review the onboarding choices before OpenScout saves them locally and moves into the command steps.',
+      title: 'Confirm this context',
+      detail: 'Review which folders OpenScout will scan and where it will save this context before moving into the command steps.',
       complete: onboardingStepCompletion.get('confirm') ?? false,
     },
     {
       id: 'init' as const,
       number: '05',
       title: 'Run init',
-      detail: 'See how your chosen Relay context root becomes a local project manifest and how that feeds discovery.',
+      detail: 'See how OpenScout writes `.openscout/project.json` at your chosen context root and uses it as this context anchor.',
       complete: onboardingStepCompletion.get('init') ?? false,
     },
     {
       id: 'doctor' as const,
       number: '06',
       title: 'Run doctor',
-      detail: 'See how OpenScout combines broker health, source roots, and project manifests into one inventory view.',
+      detail: 'See how OpenScout combines broker health, scanned folders, and context manifests into one inventory view.',
       complete: onboardingStepCompletion.get('doctor') ?? false,
     },
     {
@@ -1592,26 +1601,23 @@ export default function App() {
       ? 'Logs · check runtime warnings'
       : 'Logs';
   const footerTimeLabel = formatFooterTime(new Date());
-  const desktopFeatures = shellState?.appInfo.features ?? DEFAULT_DESKTOP_FEATURES;
-  const navViews = [
-    desktopFeatures.overview ? { id: 'overview' as const, icon: <LayoutGrid size={16} strokeWidth={1.5} />, title: 'Overview' } : null,
-    desktopFeatures.interAgent ? { id: 'inter-agent' as const, icon: <InterAgentIcon size={16} />, title: 'Inter-Agent' } : null,
-    desktopFeatures.relay ? { id: 'relay' as const, icon: <MessageSquare size={16} strokeWidth={1.5} />, title: 'Relay' } : null,
-    desktopFeatures.dispatch ? null : null,
-    desktopFeatures.agents ? { id: 'agents' as const, icon: <Bot size={16} strokeWidth={1.5} />, title: 'Agents' } : null,
-    desktopFeatures.activity ? { id: 'activity' as const, icon: <Radio size={16} strokeWidth={1.5} />, title: 'Activity Monitor' } : null,
-    desktopFeatures.machines ? { id: 'machines' as const, icon: <Network size={16} strokeWidth={1.5} />, title: 'Machines' } : null,
-    desktopFeatures.plans ? { id: 'plans' as const, icon: <FileText size={16} strokeWidth={1.5} />, title: 'Plans' } : null,
-    desktopFeatures.sessions ? { id: 'sessions' as const, icon: <Radar size={16} strokeWidth={1.5} />, title: 'Session History' } : null,
-    desktopFeatures.search ? { id: 'search' as const, icon: <Search size={16} strokeWidth={1.5} />, title: 'Search' } : null,
-  ].filter((value): value is { id: AppView; icon: React.ReactNode; title: string } => Boolean(value));
-  const collapsibleViews = new Set<AppView>(
-    navViews
-      .map((item) => item.id)
-      .filter((view) => view !== 'overview')
-      .concat(desktopFeatures.logs ? ['logs'] : []),
-  );
-  const settingsSections = [
+  const navViews: NavViewItem[] = [];
+  if (desktopFeatures.overview) navViews.push({ id: 'overview', icon: <LayoutGrid size={16} strokeWidth={1.5} />, title: 'Overview' });
+  if (desktopFeatures.interAgent) navViews.push({ id: 'inter-agent', icon: <InterAgentIcon size={16} />, title: 'Inter-Agent' });
+  if (desktopFeatures.relay) navViews.push({ id: 'relay', icon: <MessageSquare size={16} strokeWidth={1.5} />, title: 'Relay' });
+  if (desktopFeatures.agents) navViews.push({ id: 'agents', icon: <Bot size={16} strokeWidth={1.5} />, title: 'Agents' });
+  if (desktopFeatures.activity) navViews.push({ id: 'activity', icon: <Radio size={16} strokeWidth={1.5} />, title: 'Activity Monitor' });
+  if (desktopFeatures.machines) navViews.push({ id: 'machines', icon: <Network size={16} strokeWidth={1.5} />, title: 'Machines' });
+  if (desktopFeatures.plans) navViews.push({ id: 'plans', icon: <FileText size={16} strokeWidth={1.5} />, title: 'Plans' });
+  if (desktopFeatures.sessions) navViews.push({ id: 'sessions', icon: <Radar size={16} strokeWidth={1.5} />, title: 'Session History' });
+  if (desktopFeatures.search) navViews.push({ id: 'search', icon: <Search size={16} strokeWidth={1.5} />, title: 'Search' });
+
+  const collapsibleViews = new Set<AppView>(navViews.map((item) => item.id).filter((view) => view !== 'overview'));
+  if (desktopFeatures.logs) {
+    collapsibleViews.add('logs');
+  }
+
+  const settingsSections: SettingsSectionMeta[] = [
     {
       id: 'profile' as const,
       label: 'Getting Started',
@@ -1630,24 +1636,23 @@ export default function App() {
       description: 'Broker, relay delivery, and live operator-facing runtime status.',
       icon: <Radio size={15} />,
     },
-    desktopFeatures.sessions ? {
-      id: 'database' as const,
+  ];
+  if (desktopFeatures.sessions) {
+    settingsSections.push({
+      id: 'database',
       label: 'Database',
       description: 'Session indexing and storage surfaces that back the desktop shell.',
       icon: <Database size={15} />,
-    } : null,
-    desktopFeatures.enableAll ? {
-      id: 'appearance' as const,
+    });
+  }
+  if (desktopFeatures.enableAll) {
+    settingsSections.push({
+      id: 'appearance',
       label: 'Appearance',
       description: 'Visual preferences for the shell and operator-focused overlays.',
       icon: <Palette size={15} />,
-    } : null,
-  ].filter((value): value is {
-    id: SettingsSectionId;
-    label: string;
-    description: string;
-    icon: React.ReactNode;
-  } => Boolean(value));
+    });
+  }
   const activeSettingsMeta = settingsSections.find((section) => section.id === settingsSection) ?? settingsSections[0];
 
   useEffect(() => {
@@ -2098,7 +2103,7 @@ export default function App() {
           setAppSettingsDraft(nextSettings);
         }
         setStartupOnboardingState('done');
-        setAppSettingsFeedback('Onboarding skipped. You can revisit it from Settings.');
+        setAppSettingsFeedback(null);
         setIsAppSettingsEditing(false);
       } catch (error) {
         setAppSettingsFeedback(asErrorMessage(error));
@@ -2567,10 +2572,10 @@ export default function App() {
         <div className="space-y-6">
           <div className="space-y-3">
             <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
-              Source roots
+              Scan folders and context root
             </div>
             <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
-              Point OpenScout at the parent folder that contains your repos.
+              Choose the parent folders OpenScout should scan for repos, then choose the one directory where this OpenScout context should live.
             </div>
           </div>
 
@@ -2587,6 +2592,9 @@ export default function App() {
                 <span className="text-[14px] leading-none">+</span>
                 Add path
               </button>
+            </div>
+            <div className="text-[12px] mb-3 leading-[1.6]" style={s.mutedText}>
+              These are scan inputs. OpenScout looks through the repos underneath them, but listing a folder here does not make it the place where OpenScout saves this context.
             </div>
             <div className="space-y-3">
               {((visibleAppSettings.workspaceRoots ?? []).length > 0 ? visibleAppSettings.workspaceRoots : ['']).map((root, index) => (
@@ -2624,7 +2632,7 @@ export default function App() {
             <div className="mt-5 pt-5 border-t" style={{ borderTopColor: C.border }}>
               <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Relay Context Root</div>
               <div className="text-[12px] leading-[1.6] mb-3" style={s.mutedText}>
-                This is the directory where OpenScout will save local context by writing <code className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ backgroundColor: C.bg }}>.openscout/project.json</code>.
+                This is different from the scan folders above. OpenScout will save this context here by writing <code className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ backgroundColor: C.bg }}>.openscout/project.json</code> inside this directory.
               </div>
               <div className="flex items-center gap-2">
                 <input
@@ -2726,10 +2734,10 @@ export default function App() {
         <div className="space-y-6">
           <div className="space-y-3">
             <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
-              Confirm
+              Confirm this context
             </div>
             <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
-              Review your choices before continuing.
+              Review which folders OpenScout will scan and where it will save this context before continuing.
             </div>
           </div>
 
@@ -2778,8 +2786,8 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 ['1. Context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
-                ['2. Manifest', 'Writes .openscout/project.json at the root.'],
-                ['3. Discovery', 'Feeds the project inventory and routing.'],
+                ['2. Manifest', 'Writes `.openscout/project.json` at that root to anchor this context.'],
+                ['3. Discovery', 'Uses that context plus scanned folders to build inventory and routing.'],
               ].map(([label, detail]) => (
                 <div key={label} className="rounded-lg border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                   <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
@@ -2814,7 +2822,7 @@ export default function App() {
               Doctor
             </div>
             <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
-              Check broker health, source roots, and project inventory.
+              Check broker health, scanned folders, and the resulting project inventory.
             </div>
           </div>
 
@@ -2824,8 +2832,8 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 ['1. Broker', 'Checks the broker is installed and reachable.'],
-                ['2. Discovery', 'Scans source roots for project manifests.'],
-                ['3. Inventory', 'Merges inputs into the shared project inventory.'],
+                ['2. Discovery', 'Scans the chosen folders for repos and local manifests.'],
+                ['3. Inventory', 'Merges scanned repos and context inputs into one inventory.'],
               ].map(([label, detail]) => (
                 <div key={label} className="rounded-lg border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                   <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
@@ -3221,56 +3229,63 @@ export default function App() {
               <div className="px-12 py-10">
                 <div className="text-[10px] font-mono tracking-widest uppercase mb-6" style={s.mutedText}>Capabilities</div>
                 <div className="grid grid-cols-3 gap-5 mb-12">
-                  {[
-                    {
-                      icon: <MessageSquare size={20} />,
-                      title: 'Relay',
-                      desc: 'Real-time communication hub. Agent-to-agent, human-to-agent, all in one stream.',
-                      action: () => setActiveView('relay'),
-                      accent: true,
-                    },
-                    desktopFeatures.interAgent ? {
-                      icon: <InterAgentIcon size={20} />,
-                      title: 'Inter-Agent',
-                      desc: 'Read private agent-to-agent threads and inspect who Fabric, Builder, and others are talking to.',
-                      action: () => setActiveView('inter-agent'),
-                      accent: false,
-                    } : null,
-                    desktopFeatures.sessions ? {
-                      icon: <Radar size={20} />,
-                      title: 'Sessions',
-                      desc: 'Browse and organize session histories by project. Every conversation, searchable.',
-                      action: () => setActiveView('sessions'),
-                      accent: false,
-                    } : null,
-                    desktopFeatures.machines ? {
-                      icon: <Network size={20} />,
-                      title: 'Machines',
-                      desc: 'Inspect servers and computers on the mesh, including runtime endpoints and active projects.',
-                      action: () => setActiveView('machines'),
-                      accent: false,
-                    } : null,
-                    desktopFeatures.plans ? {
-                      icon: <FileText size={20} />,
-                      title: 'Plans',
-                      desc: 'Track recent asks and load Markdown plans from registered agent workspaces.',
-                      action: () => setActiveView('plans'),
-                      accent: false,
-                    } : null,
-                    desktopFeatures.search ? {
-                      icon: <Search size={20} />,
-                      title: 'Search',
-                      desc: 'Full-text search across all sessions, messages, and metadata. Find anything instantly.',
-                      action: () => setActiveView('search'),
-                      accent: false,
-                    } : null,
-                  ].filter((card): card is {
-                    icon: React.ReactNode;
-                    title: string;
-                    desc: string;
-                    action: () => void;
-                    accent: boolean;
-                  } => Boolean(card)).map((card, i) => (
+                  {(() => {
+                    const capabilityCards: CapabilityCard[] = [
+                      {
+                        icon: <MessageSquare size={20} />,
+                        title: 'Relay',
+                        desc: 'Real-time communication hub. Agent-to-agent, human-to-agent, all in one stream.',
+                        action: () => setActiveView('relay'),
+                        accent: true,
+                      },
+                    ];
+                    if (desktopFeatures.interAgent) {
+                      capabilityCards.push({
+                        icon: <InterAgentIcon size={20} />,
+                        title: 'Inter-Agent',
+                        desc: 'Read private agent-to-agent threads and inspect who Fabric, Builder, and others are talking to.',
+                        action: () => setActiveView('inter-agent'),
+                        accent: false,
+                      });
+                    }
+                    if (desktopFeatures.sessions) {
+                      capabilityCards.push({
+                        icon: <Radar size={20} />,
+                        title: 'Sessions',
+                        desc: 'Browse and organize session histories by project. Every conversation, searchable.',
+                        action: () => setActiveView('sessions'),
+                        accent: false,
+                      });
+                    }
+                    if (desktopFeatures.machines) {
+                      capabilityCards.push({
+                        icon: <Network size={20} />,
+                        title: 'Machines',
+                        desc: 'Inspect servers and computers on the mesh, including runtime endpoints and active projects.',
+                        action: () => setActiveView('machines'),
+                        accent: false,
+                      });
+                    }
+                    if (desktopFeatures.plans) {
+                      capabilityCards.push({
+                        icon: <FileText size={20} />,
+                        title: 'Plans',
+                        desc: 'Track recent asks and load Markdown plans from registered agent workspaces.',
+                        action: () => setActiveView('plans'),
+                        accent: false,
+                      });
+                    }
+                    if (desktopFeatures.search) {
+                      capabilityCards.push({
+                        icon: <Search size={20} />,
+                        title: 'Search',
+                        desc: 'Full-text search across all sessions, messages, and metadata. Find anything instantly.',
+                        action: () => setActiveView('search'),
+                        accent: false,
+                      });
+                    }
+                    return capabilityCards;
+                  })().map((card, i) => (
                     <button
                       key={card.title}
                       onClick={card.action}
@@ -4361,13 +4376,13 @@ export default function App() {
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
                                     <div className="flex items-center gap-2">
                                       <Folder size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>Where do your repos live?</div>
+                                      <div className="text-[12px] font-medium" style={s.inkText}>Which folders should OpenScout scan?</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      OpenScout can scan all the projects inside one folder, so it works best if you point it at a parent directory like `~/dev`, `~/src`, or `~/code` and let it discover the repos underneath.
+                                      These folders are scan inputs. OpenScout can walk the repos inside a parent folder like `~/dev`, `~/src`, or `~/code` and discover what is underneath.
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      This is safe: OpenScout only inspects what is there and does not add files to that parent folder. If you do not already have one, create a folder like `~/dev` first and point OpenScout there.
+                                      This is safe: OpenScout only inspects what is there. It does not write context data into these scan folders unless you explicitly choose one as the context root below.
                                     </div>
                                   </div>
 
@@ -4446,6 +4461,9 @@ export default function App() {
 
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
                                     <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Relay Context Root</div>
+                                    <div className="text-[10px] mb-2 leading-[1.5]" style={s.mutedText}>
+                                      This is where OpenScout will save `.openscout/project.json` for this context.
+                                    </div>
                                     {isAppSettingsEditing ? (
                                       <>
                                         <div className="flex items-center gap-2">
@@ -4532,9 +4550,9 @@ export default function App() {
                               ) : activeOnboardingStep.id === 'confirm' ? (
                                 <div className="mt-4 space-y-4">
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="text-[12px] font-medium" style={s.inkText}>Confirmation</div>
+                                    <div className="text-[12px] font-medium" style={s.inkText}>Confirm this context</div>
                                     <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                      Review the choices below. Confirming saves them locally and then moves into the command steps.
+                                      Review which folders OpenScout will scan and where it will save this context. Confirming saves those choices locally and then moves into the command steps.
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                                       {[
@@ -4992,63 +5010,178 @@ export default function App() {
                   </div>
                 ) : settingsSection === 'agents' ? (
                   <div className="grid grid-cols-[minmax(280px,0.58fr)_minmax(0,1.42fr)] gap-4">
-                    <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Configured Agents</div>
-                      <div className="flex flex-col gap-2 max-h-[780px] overflow-y-auto pr-1">
-                        {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => (
-                          <button
-                            key={agent.id}
-                            onClick={() => {
-                              setSelectedInterAgentId(agent.id);
-                              setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
-                              setIsAgentConfigEditing(false);
-                              setAgentConfigFeedback(null);
-                            }}
-                            className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
-                            style={{ borderColor: C.border, backgroundColor: selectedInterAgentId === agent.id ? C.bg : C.surface }}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 flex items-start gap-3">
-                                <div
-                                  className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold shrink-0 ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-                                  style={{ backgroundColor: colorForIdentity(agent.id) }}
-                                >
-                                  {agent.title.charAt(0).toUpperCase()}
+                    <div className="space-y-4 min-w-0">
+                      <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Configured Agents</div>
+                        <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto pr-1">
+                          {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => (
+                            <button
+                              key={agent.id}
+                              onClick={() => {
+                                setSelectedInterAgentId(agent.id);
+                                setSelectedAgentableProjectId(null);
+                                setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
+                                setIsAgentConfigEditing(false);
+                                setAgentConfigFeedback(null);
+                              }}
+                              className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
+                              style={{ borderColor: C.border, backgroundColor: selectedInterAgentId === agent.id ? C.bg : C.surface }}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex items-start gap-3">
+                                  <div
+                                    className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold shrink-0 ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
+                                    style={{ backgroundColor: colorForIdentity(agent.id) }}
+                                  >
+                                    {agent.title.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
+                                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                        {interAgentProfileKindLabel(agent.profileKind)}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
+                                      {agent.summary ?? agent.subtitle}
+                                    </div>
+                                    <div className="text-[10px] mt-1" style={s.mutedText}>
+                                      {agent.harness ?? 'runtime'} · {agent.transport ?? 'transport'} · {agent.threadCount} threads
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
-                                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {interAgentProfileKindLabel(agent.profileKind)}
-                                    </span>
-                                  </div>
-                                  <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
-                                    {agent.summary ?? agent.subtitle}
-                                  </div>
-                                  <div className="text-[10px] mt-1" style={s.mutedText}>
-                                    {agent.harness ?? 'runtime'} · {agent.transport ?? 'transport'} · {agent.threadCount} threads
-                                  </div>
-                                </div>
+                                <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                                  {agent.timestampLabel ?? ''}
+                                </span>
                               </div>
-                              <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                                {agent.timestampLabel ?? ''}
-                              </span>
-                            </div>
-                          </button>
-                        )) : (
-                          <div className="text-[11px]" style={s.mutedText}>No registered agents found.</div>
-                        )}
-                      </div>
-                    </section>
+                            </button>
+                          )) : (
+                            <div className="text-[11px]" style={s.mutedText}>No registered agents found.</div>
+                          )}
+                        </div>
+                      </section>
+
+                      <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Agentable Projects</div>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                            {agentableProjects.length}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                          {agentableProjects.length > 0 ? agentableProjects.map((project) => {
+                            const linkedAgent = interAgentAgents.find((agent) => agent.id === project.id || agent.id === project.definitionId) ?? null;
+                            const active = selectedAgentableProjectId === project.id;
+                            return (
+                              <button
+                                key={project.id}
+                                onClick={() => {
+                                  setSelectedAgentableProjectId(project.id);
+                                  setSelectedInterAgentId(linkedAgent?.id ?? null);
+                                  setSelectedInterAgentThreadId(linkedAgent ? firstInterAgentThreadIdForAgent(interAgentThreads, linkedAgent.id) : null);
+                                  setIsAgentConfigEditing(false);
+                                  setAgentConfigFeedback(null);
+                                }}
+                                className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
+                                style={{ borderColor: C.border, backgroundColor: active ? C.bg : C.surface }}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <div className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</div>
+                                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={project.registrationKind === 'configured' ? s.activePill : s.tagBadge}>
+                                        {project.registrationKind === 'configured' ? 'configured' : 'project'}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
+                                      {project.relativePath} · {project.defaultHarness}
+                                    </div>
+                                    <div className="text-[10px] mt-1" style={s.mutedText}>
+                                      {project.harnesses.map((entry) => entry.harness).join(' · ') || 'No harness evidence'}
+                                    </div>
+                                  </div>
+                                  {linkedAgent ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.activePill}>
+                                      agent
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </button>
+                            );
+                          }) : (
+                            <div className="text-[11px]" style={s.mutedText}>No agentable projects discovered yet.</div>
+                          )}
+                        </div>
+                      </section>
+                    </div>
 
                     <div className="space-y-4 min-w-0">
-                      {!selectedInterAgent ? (
+                      {!selectedInterAgent && !selectedAgentableProject ? (
                         <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="text-[13px] font-medium mb-1" style={s.inkText}>No agent selected</div>
+                          <div className="text-[13px] font-medium mb-1" style={s.inkText}>Nothing selected</div>
                           <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                            Pick a relay agent from the left to edit its runtime, system prompt, tool use, and capabilities.
+                            Pick a configured agent or an agentable project from the left to inspect it.
                           </div>
                         </section>
+                      ) : !selectedInterAgent && selectedAgentableProject ? (
+                        <>
+                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Selected Project</div>
+                                <div className="text-[20px] font-semibold tracking-tight mt-2" style={s.inkText}>{selectedAgentableProject.title}</div>
+                                <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
+                                  Agentable project discovered from your scan folders. This project does not have a live configured agent record yet.
+                                </div>
+                              </div>
+                            </div>
+                          </section>
+
+                          <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
+                            <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Project Summary</div>
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                                {[
+                                  ['Project', selectedAgentableProject.projectName],
+                                  ['Agent ID', selectedAgentableProject.definitionId],
+                                  ['Root', compactHomePath(selectedAgentableProject.root) ?? selectedAgentableProject.root],
+                                  ['Source Root', compactHomePath(selectedAgentableProject.sourceRoot) ?? selectedAgentableProject.sourceRoot],
+                                  ['Relative Path', selectedAgentableProject.relativePath],
+                                  ['Default Harness', selectedAgentableProject.defaultHarness],
+                                  ['Registration', selectedAgentableProject.registrationKind],
+                                  ['Manifest', selectedAgentableProject.projectConfigPath ?? 'Not created'],
+                                ].map(([label, value]) => (
+                                  <div key={label} className="min-w-0">
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                    <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+
+                            <div className="space-y-4 min-w-0">
+                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Harness Evidence</div>
+                                <div className="space-y-2">
+                                  {selectedAgentableProject.harnesses.map((entry) => (
+                                    <div key={`${entry.harness}-${entry.source}`} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="text-[12px] font-medium" style={s.inkText}>{entry.harness}</div>
+                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={entry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                                          {entry.source}
+                                        </span>
+                                      </div>
+                                      <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>{entry.detail}</div>
+                                      {entry.readinessDetail ? (
+                                        <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>{entry.readinessDetail}</div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              </section>
+                            </div>
+                          </div>
+                        </>
                       ) : (
                         <>
                           <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
