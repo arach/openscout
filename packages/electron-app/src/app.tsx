@@ -63,6 +63,7 @@ import type {
   AppSettingsState,
   BrokerControlAction,
   DesktopBrokerInspector,
+  DesktopFeatureFlags,
   DispatchState,
   DesktopLogCatalog,
   DesktopLogContent,
@@ -113,6 +114,28 @@ type ComposerRelayReference = {
   messageId: string;
   authorName: string;
   preview: string;
+};
+
+type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings';
+type SettingsSectionId = 'profile' | 'agents' | 'communication' | 'database' | 'appearance';
+
+const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
+  enableAll: false,
+  overview: true,
+  relay: true,
+  dispatch: true,
+  interAgent: true,
+  agents: true,
+  settings: true,
+  logs: true,
+  activity: false,
+  machines: false,
+  plans: false,
+  sessions: false,
+  search: false,
+  phonePreparation: false,
+  telegram: false,
+  voice: false,
 };
 
 const ONBOARDING_WIZARD_STEP_ORDER: OnboardingWizardStepId[] = [
@@ -167,7 +190,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [productSurface, setProductSurface] = useState<'relay' | 'dispatch'>('relay');
-  const [activeView, setActiveView] = useState<'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings'>('overview');
+  const [activeView, setActiveView] = useState<AppView>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionMetadata | null>(null);
@@ -230,7 +253,7 @@ export default function App() {
   const [onboardingCommandResult, setOnboardingCommandResult] = useState<OnboardingCommandResult | null>(null);
   const [onboardingCopiedCommand, setOnboardingCopiedCommand] = useState<OnboardingCommandName | null>(null);
   const [startupOnboardingState, setStartupOnboardingState] = useState<'checking' | 'active' | 'done'>('checking');
-  const [settingsSection, setSettingsSection] = useState<'profile' | 'agents' | 'communication' | 'database' | 'appearance'>('profile');
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('profile');
   const [logCatalog, setLogCatalog] = useState<DesktopLogCatalog | null>(null);
   const [selectedLogSourceId, setSelectedLogSourceId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState<DesktopLogContent | null>(null);
@@ -1162,7 +1185,10 @@ export default function App() {
     [sessions],
   );
 
-  const relayFeedItems = useMemo(() => buildRelayFeedItems(relayState), [relayState]);
+  const relayFeedItems = useMemo(
+    () => buildRelayFeedItems(relayState).filter((item) => desktopFeatures.voice || !(item.kind === 'channel' && item.id === 'voice')),
+    [desktopFeatures.voice, relayState],
+  );
   const relayConversationItems = useMemo(() => buildRelayConversationItems(relayState), [relayState]);
   const relayCurrentDestination = relayState
     ? resolveRelayDestination(relayState, relayFeedItems, selectedRelayKind, selectedRelayId)
@@ -1563,6 +1589,25 @@ export default function App() {
       ? 'Logs · check runtime warnings'
       : 'Logs';
   const footerTimeLabel = formatFooterTime(new Date());
+  const desktopFeatures = shellState?.appInfo.features ?? DEFAULT_DESKTOP_FEATURES;
+  const navViews = [
+    desktopFeatures.overview ? { id: 'overview' as const, icon: <LayoutGrid size={16} strokeWidth={1.5} />, title: 'Overview' } : null,
+    desktopFeatures.interAgent ? { id: 'inter-agent' as const, icon: <InterAgentIcon size={16} />, title: 'Inter-Agent' } : null,
+    desktopFeatures.relay ? { id: 'relay' as const, icon: <MessageSquare size={16} strokeWidth={1.5} />, title: 'Relay' } : null,
+    desktopFeatures.dispatch ? null : null,
+    desktopFeatures.agents ? { id: 'agents' as const, icon: <Bot size={16} strokeWidth={1.5} />, title: 'Agents' } : null,
+    desktopFeatures.activity ? { id: 'activity' as const, icon: <Radio size={16} strokeWidth={1.5} />, title: 'Activity Monitor' } : null,
+    desktopFeatures.machines ? { id: 'machines' as const, icon: <Network size={16} strokeWidth={1.5} />, title: 'Machines' } : null,
+    desktopFeatures.plans ? { id: 'plans' as const, icon: <FileText size={16} strokeWidth={1.5} />, title: 'Plans' } : null,
+    desktopFeatures.sessions ? { id: 'sessions' as const, icon: <Radar size={16} strokeWidth={1.5} />, title: 'Session History' } : null,
+    desktopFeatures.search ? { id: 'search' as const, icon: <Search size={16} strokeWidth={1.5} />, title: 'Search' } : null,
+  ].filter((value): value is { id: AppView; icon: React.ReactNode; title: string } => Boolean(value));
+  const collapsibleViews = new Set<AppView>(
+    navViews
+      .map((item) => item.id)
+      .filter((view) => view !== 'overview')
+      .concat(desktopFeatures.logs ? ['logs'] : []),
+  );
   const settingsSections = [
     {
       id: 'profile' as const,
@@ -1582,20 +1627,47 @@ export default function App() {
       description: 'Broker, relay delivery, and live operator-facing runtime status.',
       icon: <Radio size={15} />,
     },
-    {
+    desktopFeatures.sessions ? {
       id: 'database' as const,
       label: 'Database',
       description: 'Session indexing and storage surfaces that back the desktop shell.',
       icon: <Database size={15} />,
-    },
-    {
+    } : null,
+    desktopFeatures.enableAll ? {
       id: 'appearance' as const,
       label: 'Appearance',
       description: 'Visual preferences for the shell and operator-focused overlays.',
       icon: <Palette size={15} />,
-    },
-  ];
+    } : null,
+  ].filter((value): value is {
+    id: SettingsSectionId;
+    label: string;
+    description: string;
+    icon: React.ReactNode;
+  } => Boolean(value));
   const activeSettingsMeta = settingsSections.find((section) => section.id === settingsSection) ?? settingsSections[0];
+
+  useEffect(() => {
+    if (productSurface !== 'relay') {
+      return;
+    }
+
+    const enabledViews = new Set<AppView>([
+      ...navViews.map((item) => item.id),
+      ...(desktopFeatures.settings ? ['settings' as const] : []),
+      ...(desktopFeatures.logs ? ['logs' as const] : []),
+    ]);
+
+    if (!enabledViews.has(activeView)) {
+      setActiveView(desktopFeatures.interAgent ? 'inter-agent' : desktopFeatures.relay ? 'relay' : 'overview');
+    }
+  }, [activeView, desktopFeatures.interAgent, desktopFeatures.logs, desktopFeatures.relay, desktopFeatures.settings, navViews, productSurface]);
+
+  useEffect(() => {
+    if (!settingsSections.some((section) => section.id === settingsSection)) {
+      setSettingsSection('profile');
+    }
+  }, [settingsSection, settingsSections]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1790,6 +1862,11 @@ export default function App() {
         sourceRoots: command === 'init' ? sourceRoots : undefined,
       });
       setOnboardingCommandResult(result);
+      setAppSettingsFeedback(
+        result.exitCode === 0
+          ? `${command} finished. Review the output below, then continue when you are ready.`
+          : `${command} exited with status ${result.exitCode}. Review the output below before continuing.`,
+      );
 
       if (window.openScoutDesktop.getAppSettings) {
         const nextSettings = await window.openScoutDesktop.getAppSettings();
@@ -2370,16 +2447,16 @@ export default function App() {
     return (
       <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.12)', backgroundColor: C.termBg }}>
         <div
-          className="flex items-center justify-between gap-3 px-4 py-3 border-b"
-          style={{ borderBottomColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.04)' }}
+          className="flex items-center justify-between gap-3 px-3.5 py-2 border-b"
+          style={{ borderBottomColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.03)' }}
         >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-[5px]">
+              <span className="w-[7px] h-[7px] rounded-full bg-[#ff5f57]" />
+              <span className="w-[7px] h-[7px] rounded-full bg-[#febc2e]" />
+              <span className="w-[7px] h-[7px] rounded-full bg-[#28c840]" />
             </div>
-            <div className="text-[11px] font-mono uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.38)' }}>
               Terminal
             </div>
           </div>
@@ -2409,12 +2486,12 @@ export default function App() {
             </button>
           </div>
         </div>
-        <div className="px-5 py-5">
-          <div className="text-[14px] leading-[1.8] font-mono break-all" style={{ color: C.termFg }}>
-            <span style={{ color: 'rgba(153, 246, 228, 0.88)' }}>$</span> {commandLine}
+        <div className="px-4 py-3">
+          <div className="text-[13px] leading-[1.7] font-mono break-all" style={{ color: C.termFg }}>
+            <span style={{ color: 'rgba(153, 246, 228, 0.80)' }}>$</span> {commandLine}
           </div>
         </div>
-        <div className="border-t px-5 py-4" style={{ borderTopColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(0,0,0,0.10)' }}>
+        <div className="border-t px-4 py-3" style={{ borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(0,0,0,0.08)' }}>
           <div className="flex items-center justify-between gap-3">
             <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.48)' }}>
               Output
@@ -2423,6 +2500,11 @@ export default function App() {
               cwd: {commandResult?.cwd ?? (onboardingContextRoot || 'pending')}
             </div>
           </div>
+          {!running && commandResult ? (
+            <div className="text-[10px] mt-2" style={{ color: commandResult.exitCode === 0 ? '#99f6e4' : '#fecaca' }}>
+              Review this result, then use Continue for the next onboarding step.
+            </div>
+          ) : null}
           <pre
             className="mt-3 text-[12px] leading-[1.6] whitespace-pre-wrap break-words overflow-x-auto font-mono"
             style={{ color: running ? 'rgba(255,255,255,0.68)' : C.termFg, minHeight: '5.5rem' }}
@@ -2535,6 +2617,31 @@ export default function App() {
                   </button>
                 </div>
               ))}
+            </div>
+            <div className="mt-5 pt-5 border-t" style={{ borderTopColor: C.border }}>
+              <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Relay Context Root</div>
+              <div className="text-[12px] leading-[1.6] mb-3" style={s.mutedText}>
+                This is the directory where OpenScout will save local context by writing <code className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ backgroundColor: C.bg }}>.openscout/project.json</code>.
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={visibleAppSettings.onboardingContextRoot ?? ''}
+                  onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
+                  readOnly={appSettingsSaving}
+                  className="flex-1 rounded-lg border px-4 py-3 text-[15px] font-mono leading-[1.5] bg-transparent outline-none transition-colors focus:border-[var(--os-accent)]"
+                  style={{ borderColor: C.border, color: C.ink }}
+                  placeholder="Choose where .openscout should live"
+                />
+                <button
+                  type="button"
+                  className="os-toolbar-button text-[12px] font-medium px-3 py-3 rounded-lg border disabled:opacity-50 shrink-0"
+                  style={{ color: C.ink, borderColor: C.border }}
+                  onClick={handleBrowseForOnboardingContextRoot}
+                  disabled={appSettingsSaving}
+                >
+                  Finder
+                </button>
+              </div>
             </div>
             <div className="text-[12px] mt-3 leading-[1.6]" style={s.mutedText}>
               Usually something like <code className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ backgroundColor: C.bg }}>~/dev</code> or <code className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ backgroundColor: C.bg }}>~/src</code>.
@@ -2685,14 +2792,7 @@ export default function App() {
           <button
             className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
             style={{ backgroundColor: C.accent, color: '#fff' }}
-            onClick={() => {
-              void (async () => {
-                const result = await handleRunOnboardingCommand('init');
-                if (result?.exitCode === 0) {
-                  setOnboardingWizardStep('doctor');
-                }
-              })();
-            }}
+            onClick={() => { void handleRunOnboardingCommand('init'); }}
             disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsDirty}
           >
             {initRunning ? 'Running Init…' : 'Run Init'}
@@ -2747,14 +2847,7 @@ export default function App() {
           <button
             className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
             style={{ backgroundColor: C.accent, color: '#fff' }}
-            onClick={() => {
-              void (async () => {
-                const result = await handleRunOnboardingCommand('doctor');
-                if (result?.exitCode === 0) {
-                  setOnboardingWizardStep('runtimes');
-                }
-              })();
-            }}
+            onClick={() => { void handleRunOnboardingCommand('doctor'); }}
             disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
           >
             {doctorRunning ? 'Running Doctor…' : 'Run Doctor'}
@@ -2945,16 +3038,18 @@ export default function App() {
       {/* Global Top Bar */}
       <div className="scout-window-bar h-10 border-b flex items-center justify-between px-3 shrink-0 z-10" style={s.topBar}>
         <div className="flex items-center gap-3">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
-            <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
-            <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
+          <div className="flex gap-[6px]">
+            <div className="w-[10px] h-[10px] rounded-full bg-[#FF5F56]"></div>
+            <div className="w-[10px] h-[10px] rounded-full bg-[#FFBD2E]"></div>
+            <div className="w-[10px] h-[10px] rounded-full bg-[#27C93F]"></div>
           </div>
           <div className="flex items-center gap-1.5 ml-2">
             {([
-              ['relay', 'Relay'],
-              ['dispatch', 'Dispatch'],
-            ] as const).map(([surface, label]) => {
+              ['relay', 'Relay', desktopFeatures.relay],
+              ['dispatch', 'Dispatch', desktopFeatures.dispatch],
+            ] as const)
+              .filter(([, , enabled]) => enabled)
+              .map(([surface, label]) => {
               const active = productSurface === surface;
               return (
                 <button
@@ -3013,30 +3108,20 @@ export default function App() {
         {/* Sidebar Nav (Leftmost) */}
         <div className="w-12 border-r flex flex-col items-center py-2 gap-3 shrink-0 z-10" style={s.navBar}>
           <div className="flex flex-col gap-1 w-full px-2 mt-2" style={s.mutedText}>
-            {([
-              ['overview', <LayoutGrid size={16} strokeWidth={1.5} />, 'Overview'],
-              ['activity', <Radio size={16} strokeWidth={1.5} />, 'Activity Monitor'],
-              ['machines', <Network size={16} strokeWidth={1.5} />, 'Machines'],
-              ['plans', <FileText size={16} strokeWidth={1.5} />, 'Plans'],
-              ['sessions', <Radar size={16} strokeWidth={1.5} />, 'Session History'],
-              ['search',   <Search size={16} strokeWidth={1.5} />, 'Search'],
-              ['agents', <Bot size={16} strokeWidth={1.5} />, 'Agents'],
-              ['inter-agent', <InterAgentIcon size={16} />, 'Inter-Agent'],
-              ['relay',    <MessageSquare size={16} strokeWidth={1.5} />, 'Relay'],
-            ] as [string, React.ReactNode, string][]).map(([view, icon, title]) => (
+            {navViews.map(({ id, icon, title }) => (
               <button
-                key={view}
-                onClick={() => setActiveView(view as typeof activeView)}
+                key={id}
+                onClick={() => setActiveView(id)}
                 title={title}
                 className="p-1.5 rounded flex items-center justify-center transition-colors"
-                style={activeView === view ? s.activePill : undefined}
+                style={activeView === id ? s.activePill : undefined}
               >
                 {icon}
               </button>
             ))}
           </div>
           <div className="mt-auto flex flex-col gap-1 items-center w-full px-2">
-            {(activeView === 'activity' || activeView === 'machines' || activeView === 'plans' || activeView === 'sessions' || activeView === 'relay' || activeView === 'search' || activeView === 'inter-agent' || activeView === 'agents' || activeView === 'logs') && (
+            {collapsibleViews.has(activeView) && (
               <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-1.5 rounded flex items-center justify-center transition-opacity hover:opacity-70"
@@ -3046,14 +3131,16 @@ export default function App() {
                 {isCollapsed ? <PanelLeftOpen size={16} strokeWidth={1.5} /> : <PanelLeftClose size={16} strokeWidth={1.5} />}
               </button>
             )}
-            <button
-              className="p-1.5 rounded flex items-center justify-center transition-colors"
-              style={activeView === 'settings' ? s.activePill : s.mutedText}
-              title="Settings"
-              onClick={() => setActiveView('settings')}
-            >
-              <Settings size={16} strokeWidth={1.5} />
-            </button>
+            {desktopFeatures.settings ? (
+              <button
+                className="p-1.5 rounded flex items-center justify-center transition-colors"
+                style={activeView === 'settings' ? s.activePill : s.mutedText}
+                title="Settings"
+                onClick={() => setActiveView('settings')}
+              >
+                <Settings size={16} strokeWidth={1.5} />
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -3073,22 +3160,35 @@ export default function App() {
                     OpenScout gives you and your agents a shared control plane to communicate, collaborate, and coordinate.
                   </p>
                   <div className="os-fade-up os-stagger-2 flex items-center gap-3">
-                    <button
-                      onClick={() => setActiveView('relay')}
-                      className="os-btn-primary text-white px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-md flex items-center gap-2"
-                      style={{ backgroundColor: C.accent }}
-                    >
-                      <MessageSquare size={16} />
-                      Open Relay
-                    </button>
-                    <button
-                      onClick={() => setActiveView('sessions')}
-                      className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
-                      style={{ ...s.surface, borderColor: C.border, color: C.ink }}
-                    >
-                      <Radar size={16} />
-                      Browse Sessions
-                    </button>
+                    {desktopFeatures.relay ? (
+                      <button
+                        onClick={() => setActiveView('relay')}
+                        className="os-btn-primary text-white px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-md flex items-center gap-2"
+                        style={{ backgroundColor: C.accent }}
+                      >
+                        <MessageSquare size={16} />
+                        Open Relay
+                      </button>
+                    ) : null}
+                    {desktopFeatures.interAgent ? (
+                      <button
+                        onClick={() => setActiveView('inter-agent')}
+                        className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
+                        style={{ ...s.surface, borderColor: C.border, color: C.ink }}
+                      >
+                        <InterAgentIcon size={16} />
+                        Open Inter-Agent
+                      </button>
+                    ) : desktopFeatures.sessions ? (
+                      <button
+                        onClick={() => setActiveView('sessions')}
+                        className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
+                        style={{ ...s.surface, borderColor: C.border, color: C.ink }}
+                      >
+                        <Radar size={16} />
+                        Browse Sessions
+                      </button>
+                    ) : null}
                     <button
                       onClick={() => void handleRefreshShell()}
                       className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
@@ -3105,9 +3205,9 @@ export default function App() {
                 {[
                   { value: stats.totalSessions, label: 'Sessions indexed' },
                   { value: runtime?.messageCount ?? stats.totalMessages, label: 'Messages captured' },
-                  { value: machinesState?.onlineCount ?? 0, label: 'Live nodes' },
-                  { value: plansState?.planCount ?? 0, label: 'Plans tracked' },
-                ].map((stat, i) => (
+                  desktopFeatures.machines ? { value: machinesState?.onlineCount ?? 0, label: 'Live nodes' } : null,
+                  desktopFeatures.plans ? { value: plansState?.planCount ?? 0, label: 'Plans tracked' } : null,
+                ].filter((stat): stat is { value: number; label: string } => Boolean(stat)).map((stat, i) => (
                   <div key={stat.label} className={`os-fade-in os-stagger-${i + 1} flex items-baseline gap-2`}>
                     <span className="text-2xl font-bold" style={s.inkText}>{stat.value}</span>
                     <span className="text-[12px]" style={s.mutedText}>{stat.label}</span>
@@ -3126,42 +3226,48 @@ export default function App() {
                       action: () => setActiveView('relay'),
                       accent: true,
                     },
-                    {
-                      icon: <Radar size={20} />,
-                      title: 'Sessions',
-                      desc: 'Browse and organize session histories by project. Every conversation, searchable.',
-                      action: () => setActiveView('sessions'),
-                      accent: false,
-                    },
-                    {
+                    desktopFeatures.interAgent ? {
                       icon: <InterAgentIcon size={20} />,
                       title: 'Inter-Agent',
                       desc: 'Read private agent-to-agent threads and inspect who Fabric, Builder, and others are talking to.',
                       action: () => setActiveView('inter-agent'),
                       accent: false,
-                    },
-                    {
+                    } : null,
+                    desktopFeatures.sessions ? {
+                      icon: <Radar size={20} />,
+                      title: 'Sessions',
+                      desc: 'Browse and organize session histories by project. Every conversation, searchable.',
+                      action: () => setActiveView('sessions'),
+                      accent: false,
+                    } : null,
+                    desktopFeatures.machines ? {
                       icon: <Network size={20} />,
                       title: 'Machines',
                       desc: 'Inspect servers and computers on the mesh, including runtime endpoints and active projects.',
                       action: () => setActiveView('machines'),
                       accent: false,
-                    },
-                    {
+                    } : null,
+                    desktopFeatures.plans ? {
                       icon: <FileText size={20} />,
                       title: 'Plans',
                       desc: 'Track recent asks and load Markdown plans from registered agent workspaces.',
                       action: () => setActiveView('plans'),
                       accent: false,
-                    },
-                    {
+                    } : null,
+                    desktopFeatures.search ? {
                       icon: <Search size={20} />,
                       title: 'Search',
                       desc: 'Full-text search across all sessions, messages, and metadata. Find anything instantly.',
                       action: () => setActiveView('search'),
                       accent: false,
-                    },
-                  ].map((card, i) => (
+                    } : null,
+                  ].filter((card): card is {
+                    icon: React.ReactNode;
+                    title: string;
+                    desc: string;
+                    action: () => void;
+                    accent: boolean;
+                  } => Boolean(card)).map((card, i) => (
                     <button
                       key={card.title}
                       onClick={card.action}
@@ -3184,6 +3290,7 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-8">
+                  {desktopFeatures.sessions ? (
                   <div>
                     <div className="text-[10px] font-mono tracking-widest uppercase mb-4 flex items-center justify-between" style={s.mutedText}>
                       <span>Recent Activity</span>
@@ -3221,6 +3328,7 @@ export default function App() {
                       )}
                     </div>
                   </div>
+                  ) : null}
 
                   <div>
                     <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Agents Online</div>
@@ -4332,6 +4440,40 @@ export default function App() {
                                       ))}
                                     </div>
                                   </div>
+
+                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Relay Context Root</div>
+                                    {isAppSettingsEditing ? (
+                                      <>
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            value={visibleAppSettings.onboardingContextRoot ?? ''}
+                                            onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
+                                            readOnly={appSettingsSaving}
+                                            className="flex-1 rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
+                                            style={{ borderColor: C.border, color: C.ink }}
+                                            placeholder="Choose where .openscout should live"
+                                          />
+                                          <button
+                                            type="button"
+                                            className="os-toolbar-button text-[10px] font-medium px-2 py-2 rounded"
+                                            style={{ color: C.ink }}
+                                            onClick={handleBrowseForOnboardingContextRoot}
+                                            disabled={appSettingsSaving}
+                                          >
+                                            Finder
+                                          </button>
+                                        </div>
+                                        <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                          OpenScout will save `.openscout/project.json` inside this directory.
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="text-[11px] leading-[1.45]" style={s.inkText}>
+                                        {visibleAppSettings.onboardingContextRoot || 'Not set'}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               ) : activeOnboardingStep.id === 'harness' ? (
                                 <div className="mt-4 space-y-4">
@@ -4444,14 +4586,7 @@ export default function App() {
                                   <button
                                     className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
                                     style={{ color: C.ink }}
-                                    onClick={() => {
-                                      void (async () => {
-                                        const result = await handleRunOnboardingCommand('init');
-                                        if (result?.exitCode === 0) {
-                                          setOnboardingWizardStep('doctor');
-                                        }
-                                      })();
-                                    }}
+                                    onClick={() => { void handleRunOnboardingCommand('init'); }}
                                     disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsDirty}
                                   >
                                     {onboardingCommandPending === 'init' ? 'Running Init…' : 'Run Init'}
@@ -4482,14 +4617,7 @@ export default function App() {
                                   <button
                                     className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
                                     style={{ color: C.ink }}
-                                    onClick={() => {
-                                      void (async () => {
-                                        const result = await handleRunOnboardingCommand('doctor');
-                                        if (result?.exitCode === 0) {
-                                          setOnboardingWizardStep('runtimes');
-                                        }
-                                      })();
-                                    }}
+                                    onClick={() => { void handleRunOnboardingCommand('doctor'); }}
                                     disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
                                   >
                                     {onboardingCommandPending === 'doctor' ? 'Running Doctor…' : 'Run Doctor'}
@@ -9272,6 +9400,7 @@ function serializeAppSettings(settings: AppSettingsState | null) {
 
   return JSON.stringify({
     operatorName: normalizeDraftText(settings.operatorName),
+    onboardingContextRoot: normalizeDraftText(settings.onboardingContextRoot),
     workspaceRoots: settings.workspaceRoots.map((entry) => normalizeDraftText(entry)),
     includeCurrentRepo: settings.includeCurrentRepo,
     defaultHarness: settings.defaultHarness,
