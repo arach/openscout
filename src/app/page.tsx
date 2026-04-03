@@ -660,9 +660,9 @@ export default function Home() {
             {/* ── Problem ── */}
             <section
               id="mesh"
-              className="relative border-y border-[#eae6dd] bg-white py-28"
+              className="relative border-y border-[#eae6dd] bg-white py-24"
             >
-              <div className="mx-auto max-w-[90rem] px-6">
+              <div className="mx-auto max-w-6xl px-6">
                 <div className="reveal mx-auto max-w-3xl text-center">
                   <div className="landing-label text-[#2a57cb]">
                     {humanMode === "technical"
@@ -704,7 +704,7 @@ export default function Home() {
                   )}
                 </div>
 
-                <div className="reveal-stagger mt-16 grid gap-5 md:grid-cols-3">
+                <div className="reveal-stagger mt-16 grid gap-6 lg:grid-cols-3 md:grid-cols-2">
                   {meshPrinciples.map(
                     ({ icon: Icon, title, description }, i) => (
                       <div
@@ -732,8 +732,8 @@ export default function Home() {
             </section>
 
             {/* ── Capabilities ── */}
-            <section id="capabilities" className="py-28">
-              <div className="mx-auto grid max-w-[90rem] gap-12 px-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]">
+            <section id="capabilities" className="py-24">
+              <div className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
                   <div className="landing-label text-[#2a57cb]">
                     Capabilities
@@ -753,7 +753,7 @@ export default function Home() {
                   </Link>
                 </div>
 
-                <div className="reveal-stagger grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="reveal-stagger grid gap-6 lg:grid-cols-3 md:grid-cols-2">
                   {capabilities.map(
                     ({ icon: Icon, label, title, description }, i) => (
                       <div
@@ -786,10 +786,10 @@ export default function Home() {
             {/* ── Surfaces ── */}
             <section
               id="surfaces"
-              className="relative border-y border-[#eae6dd] bg-[#faf9f6] py-28"
+              className="relative border-y border-[#eae6dd] bg-[#faf9f6] py-24"
             >
               <div className="dot-grid pointer-events-none absolute inset-0" />
-              <div className="relative mx-auto grid max-w-[90rem] gap-12 px-6 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] lg:items-start">
+              <div className="relative mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] lg:items-start">
                 <div className="reveal max-w-xl">
                   <div className="landing-label text-[#2a57cb]">Surfaces</div>
                   <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
@@ -809,7 +809,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="reveal-stagger grid gap-4 sm:grid-cols-2">
+                <div className="reveal-stagger grid gap-6 lg:grid-cols-3 md:grid-cols-2">
                   {surfaceGallery.map((shot, i) => (
                     <figure
                       key={shot.src}
@@ -844,8 +844,8 @@ export default function Home() {
             </section>
 
             {/* ── Get Started ── */}
-            <section id="get-started" className="py-28">
-              <div className="mx-auto max-w-[90rem] px-6">
+            <section id="get-started" className="py-24">
+              <div className="mx-auto max-w-6xl px-6">
                 <div className="reveal landing-panel rounded-2xl p-8 sm:p-10 lg:p-12">
                   <div className="grid gap-12 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                     <div className="max-w-sm">
@@ -919,7 +919,7 @@ export default function Home() {
                     GitHub
                   </a>
                   <a
-                    href="https://x.com/arabornia"
+                    href="https://x.com/arach"
                     className="transition-colors hover:text-[#111110]"
                     target="_blank"
                     rel="noopener noreferrer"
