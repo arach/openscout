@@ -6,7 +6,7 @@ set -e
 
 XCODE_DEST="id=00008110-000610240E13801E"
 DEVICE_ID="1E273304-29B6-5B10-BEC2-F4361F1CA25B"
-APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/Dispatch-gpuvzkpctdpavfhgvznqrmfozfka/Build/Products/Debug-iphoneos/Dispatch.app"
+APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -name "Dispatch-*" -type d | head -1)/Build/Products/Debug-iphoneos/Dispatch.app
 
 echo "⠋ Building..."
 xcodebuild build -project Dispatch.xcodeproj -scheme DispatchApp -destination "$XCODE_DEST" -quiet 2>&1 | grep "error:" && exit 1

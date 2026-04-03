@@ -15,10 +15,10 @@
       "bun": "./src/setup.ts",
       "default": "./dist/setup.js"
     },
-    "./project-twins": {
-      "types": "./dist/project-twins.d.ts",
-      "bun": "./src/project-twins.ts",
-      "default": "./dist/project-twins.js"
+    "./local-agents": {
+      "types": "./dist/local-agents.d.ts",
+      "bun": "./src/local-agents.ts",
+      "default": "./dist/local-agents.js"
     }
   },
   "types": "./src/index.ts",

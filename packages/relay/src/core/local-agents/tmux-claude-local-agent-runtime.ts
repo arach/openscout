@@ -3,8 +3,9 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { hasTmuxSessionSync, killTmuxSessionSync } from "../compat/tmux-sessions.js";
 import { readProjectedRelayMessages } from "../projections/messages.js";
-import { readProjectedRelayTwins } from "../projections/twins.js";
+import { readProjectedRelayLocalAgents } from "../projections/local-agents.js";
 import {
   appendRelayEvent,
   appendRelayMessage,
@@ -12,30 +13,31 @@ import {
   getRelayEventsPath,
 } from "../store/jsonl-store.js";
 import type {
-  ProjectTwinInvokeOptions,
-  ProjectTwinInvokeResult,
-  ProjectTwinRecord,
-  ProjectTwinRuntime,
-  ProjectTwinRuntimeEntry,
-  ProjectTwinStartOptions,
-  ProjectTwinStartResult,
-  ProjectTwinStopResult,
-} from "../protocol/twins.js";
+  LocalAgentInvokeOptions,
+  LocalAgentInvokeResult,
+  LocalAgentRecord,
+  LocalAgentRuntime,
+  LocalAgentRuntimeEntry,
+  LocalAgentStartOptions,
+  LocalAgentStartResult,
+  LocalAgentStopResult,
+} from "../protocol/local-agents.js";
+import { sendTmuxPrompt } from "@openscout/runtime/local-agents";
 
-function normalizeTwinRecord(twinName: string, record: Partial<ProjectTwinRecord>): ProjectTwinRecord {
+function normalizeLocalAgentRecord(agentName: string, record: Partial<LocalAgentRecord>): LocalAgentRecord {
   const projectRoot = record.projectRoot ?? record.cwd ?? "";
 
   return {
-    twinId: record.twinId ?? twinName,
+    agentId: record.agentId ?? agentName,
     kind: "project",
     runtime: "tmux-claude",
     protocol: "relay",
     harness: "relay-native",
     sessionAdapter: "tmux",
     agentEngine: "claude",
-    project: record.project ?? twinName,
+    project: record.project ?? agentName,
     projectRoot,
-    tmuxSession: record.tmuxSession ?? `relay-${twinName}`,
+    tmuxSession: record.tmuxSession ?? `relay-${agentName}`,
     cwd: record.cwd ?? projectRoot,
     startedAt: record.startedAt ?? Math.floor(Date.now() / 1000),
     systemPrompt: record.systemPrompt,
@@ -49,9 +51,9 @@ function brokerRelayCommand(): string {
   return `bun run --cwd ${JSON.stringify(OPENSCOUT_REPO_ROOT)} packages/relay/src/cli.ts relay`;
 }
 
-function buildTwinSystemPrompt(
+function buildLocalAgentSystemPrompt(
   hub: string,
-  twinName: string,
+  agentName: string,
   projectName: string,
   projectPath: string,
   task?: string,
@@ -60,7 +62,7 @@ function buildTwinSystemPrompt(
   const relayCommand = brokerRelayCommand();
 
   return [
-    `You are "${twinName}", a project twin for the ${projectName} project.`,
+    `You are "${agentName}", a local agent for the ${projectName} project.`,
     ``,
     `You are the persistent, project-native runtime for this codebase.`,
     `A primary agent may call into you for context, execution, follow-through, and handoff.`,
@@ -69,13 +71,13 @@ function buildTwinSystemPrompt(
     `There is a structured relay event stream at ${relayEventsPath} shared by all agents.`,
     ``,
     `Your job:`,
-    `  - Respond to @${twinName} mentions from other agents`,
+    `  - Respond to @${agentName} mentions from other agents`,
     `  - Answer questions about this project's code, architecture, and status`,
     `  - Coordinate with other agents when they need project-native context`,
     `  - Maintain continuity for ongoing project work`,
     ``,
     `Relay commands:`,
-    `  ${relayCommand} send --as ${twinName} "your message"   — send a message`,
+    `  ${relayCommand} send --as ${agentName} "your message"   — send a message`,
     `  ${relayCommand} read                                   — check recent messages`,
     `  ${relayCommand} who                                    — see who's active`,
     ``,
@@ -90,15 +92,15 @@ function buildTwinSystemPrompt(
   ].filter(Boolean).join("\n");
 }
 
-function buildTwinInitialMessage(projectName: string, twinName: string, task?: string): string {
+function buildLocalAgentInitialMessage(projectName: string, agentName: string, task?: string): string {
   if (task) {
-    return `You are now online as the ${twinName} twin for ${projectName}. Your task: ${task}. Announce yourself on the relay and start working.`;
+    return `You are now online as the ${agentName} local agent for ${projectName}. Your task: ${task}. Announce yourself on the relay and start working.`;
   }
 
-  return `You are now online as the ${twinName} twin for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+  return `You are now online as the ${agentName} local agent for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${agentName} "local agent online — ready to assist with ${projectName}"`;
 }
 
-function createTwinFlightId(): string {
+function createLocalAgentFlightId(): string {
   return `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
@@ -106,27 +108,27 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function stripTwinReplyMetadata(body: string, flightId: string, asker: string): string {
+function stripLocalAgentReplyMetadata(body: string, flightId: string, asker: string): string {
   return body
     .replace(new RegExp(`\\[ask:${escapeRegExp(flightId)}\\]`, "g"), "")
     .replace(new RegExp(`@${escapeRegExp(asker)}`, "g"), "")
     .trim();
 }
 
-function buildTwinNudge(twinName: string, asker: string, flightId: string): string {
+function buildLocalAgentNudge(agentName: string, asker: string, flightId: string): string {
   const relayCommand = brokerRelayCommand();
   return [
     `New relay ask from ${asker}.`,
-    `Read it: ${relayCommand} read -n 5 --as ${twinName}.`,
-    `Reply with: ${relayCommand} send --as ${twinName} "[ask:${flightId}] @${asker} <your response>"`,
+    `Read it: ${relayCommand} read -n 5 --as ${agentName}.`,
+    `Reply with: ${relayCommand} send --as ${agentName} "[ask:${flightId}] @${asker} <your response>"`,
   ].join(" ");
 }
 
-function buildTwinTickMessage(twinName: string, reason: string): string {
+function buildLocalAgentTickMessage(agentName: string, reason: string): string {
   const relayCommand = brokerRelayCommand();
   return [
     `Relay tick: ${reason}.`,
-    `Check for new work with ${relayCommand} read -n 5 --as ${twinName}.`,
+    `Check for new work with ${relayCommand} read -n 5 --as ${agentName}.`,
     `Continue any pending project work and respond on relay if needed.`,
   ].join(" ");
 }
@@ -135,50 +137,42 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
+class TmuxClaudeLocalAgentRuntime implements LocalAgentRuntime {
   constructor(private readonly hub: string) {}
 
-  private get twinDir(): string {
-    return join(this.hub, "twins");
+  private get localAgentDirectory(): string {
+    return join(this.hub, "agents");
   }
 
-  async loadTwins(): Promise<Record<string, ProjectTwinRecord>> {
-    const twins = await readProjectedRelayTwins(this.hub);
+  async loadLocalAgents(): Promise<Record<string, LocalAgentRecord>> {
+    const localAgents = await readProjectedRelayLocalAgents(this.hub);
     return Object.fromEntries(
-      Object.entries(twins).map(([name, record]) => [name, normalizeTwinRecord(name, record)]),
+      Object.entries(localAgents).map(([name, record]) => [name, normalizeLocalAgentRecord(name, record)]),
     );
   }
 
   private async isSessionAlive(sessionName: string): Promise<boolean> {
-    try {
-      execSync(`tmux has-session -t ${sessionName}`, { stdio: "pipe" });
-      return true;
-    } catch {
-      return false;
-    }
+    return hasTmuxSessionSync(sessionName);
   }
 
-  private async sendTwinPrompt(record: ProjectTwinRecord, prompt: string): Promise<boolean> {
+  private async sendLocalAgentPrompt(record: LocalAgentRecord, prompt: string): Promise<boolean> {
     if (!await this.isSessionAlive(record.tmuxSession)) {
       return false;
     }
 
-    execSync(
-      `tmux send-keys -t ${JSON.stringify(record.tmuxSession)} ${JSON.stringify(prompt)} Enter`,
-      { stdio: "pipe" },
-    );
+    sendTmuxPrompt(record.tmuxSession, prompt);
     return true;
   }
 
-  async isTwinAlive(twinName: string): Promise<boolean> {
-    const twins = await this.loadTwins();
-    const record = twins[twinName];
+  async isLocalAgentAlive(agentName: string): Promise<boolean> {
+    const localAgents = await this.loadLocalAgents();
+    const record = localAgents[agentName];
     if (!record) return false;
     return this.isSessionAlive(record.tmuxSession);
   }
 
-  async startProjectTwin(options: ProjectTwinStartOptions): Promise<ProjectTwinStartResult> {
-    const { projectPath, twinName, task } = options;
+  async startLocalAgent(options: LocalAgentStartOptions): Promise<LocalAgentStartResult> {
+    const { projectPath, agentName, task } = options;
 
     const projectStats = await stat(projectPath);
     if (!projectStats.isDirectory()) {
@@ -186,24 +180,24 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
     }
 
     const projectName = basename(projectPath);
-    const tmuxSession = `relay-${twinName}`;
-    const currentTwins = await this.loadTwins();
+    const tmuxSession = `relay-${agentName}`;
+    const currentLocalAgents = await this.loadLocalAgents();
 
     if (await this.isSessionAlive(tmuxSession)) {
-      const existing = currentTwins[twinName] ?? normalizeTwinRecord(twinName, {
+      const existing = currentLocalAgents[agentName] ?? normalizeLocalAgentRecord(agentName, {
         project: projectName,
         projectRoot: projectPath,
         cwd: projectPath,
         tmuxSession,
       });
 
-      if (!currentTwins[twinName]) {
+      if (!currentLocalAgents[agentName]) {
         await appendRelayEvent(this.hub, {
-          id: createRelayEventId("twin"),
-          kind: "project_twin.started",
+          id: createRelayEventId("agent"),
+          kind: "local_agent.started",
           v: 1,
           ts: Math.floor(Date.now() / 1000),
-          actor: twinName,
+          actor: agentName,
           payload: {
             record: existing,
           },
@@ -216,14 +210,14 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
       };
     }
 
-    const systemPrompt = buildTwinSystemPrompt(this.hub, twinName, projectName, projectPath, task);
-    const initialMessage = buildTwinInitialMessage(projectName, twinName, task);
+    const systemPrompt = buildLocalAgentSystemPrompt(this.hub, agentName, projectName, projectPath, task);
+    const initialMessage = buildLocalAgentInitialMessage(projectName, agentName, task);
 
-    await mkdir(this.twinDir, { recursive: true });
+    await mkdir(this.localAgentDirectory, { recursive: true });
 
-    const promptFile = join(this.twinDir, `${twinName}.prompt.txt`);
-    const initialFile = join(this.twinDir, `${twinName}.initial.txt`);
-    const launchScript = join(this.twinDir, `${twinName}.launch.sh`);
+    const promptFile = join(this.localAgentDirectory, `${agentName}.prompt.txt`);
+    const initialFile = join(this.localAgentDirectory, `${agentName}.initial.txt`);
+    const launchScript = join(this.localAgentDirectory, `${agentName}.launch.sh`);
 
     await writeFile(promptFile, systemPrompt);
     await writeFile(initialFile, initialMessage);
@@ -232,14 +226,14 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
       [
         `#!/bin/bash`,
         `cd ${JSON.stringify(projectPath)}`,
-        `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-        `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+        `(sleep 5 && BUFFER_NAME="openscout-init-${agentName}-$$" && tmux load-buffer -b "$BUFFER_NAME" ${JSON.stringify(initialFile)} && tmux paste-buffer -d -b "$BUFFER_NAME" -t ${tmuxSession} && tmux send-keys -t ${tmuxSession} Enter) &`,
+        `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${agentName}-relay-agent"`,
       ].join("\n") + "\n",
     );
     execSync(`chmod 755 ${JSON.stringify(launchScript)}`);
     execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
 
-    const record = normalizeTwinRecord(twinName, {
+    const record = normalizeLocalAgentRecord(agentName, {
       project: projectName,
       projectRoot: projectPath,
       cwd: projectPath,
@@ -249,20 +243,20 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
     });
 
     await appendRelayEvent(this.hub, {
-      id: createRelayEventId("twin"),
-      kind: "project_twin.started",
+      id: createRelayEventId("agent"),
+      kind: "local_agent.started",
       v: 1,
       ts: Math.floor(Date.now() / 1000),
-      actor: twinName,
+      actor: agentName,
       payload: {
         record,
       },
     });
     await appendRelayMessage(this.hub, {
       ts: Math.floor(Date.now() / 1000),
-      from: twinName,
+      from: agentName,
       type: "SYS",
-      body: `twin spawned for ${projectName}`,
+      body: `local agent spawned for ${projectName}`,
     });
 
     return {
@@ -271,15 +265,15 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
     };
   }
 
-  async invokeProjectTwin(twinName: string, options: ProjectTwinInvokeOptions): Promise<ProjectTwinInvokeResult> {
-    const twins = await this.loadTwins();
-    const twin = twins[twinName];
+  async invokeLocalAgent(agentName: string, options: LocalAgentInvokeOptions): Promise<LocalAgentInvokeResult> {
+    const localAgents = await this.loadLocalAgents();
+    const localAgent = localAgents[agentName];
 
-    if (!twin || !await this.isSessionAlive(twin.tmuxSession)) {
-      throw new Error(`twin "${twinName}" is not running`);
+    if (!localAgent || !await this.isSessionAlive(localAgent.tmuxSession)) {
+      throw new Error(`local agent "${agentName}" is not running`);
     }
 
-    const flightId = createTwinFlightId();
+    const flightId = createLocalAgentFlightId();
     const askedAt = Math.floor(Date.now() / 1000);
     const timeoutSeconds = options.timeoutSeconds ?? 300;
     const contextBlock = options.context
@@ -290,12 +284,12 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
       ts: askedAt,
       from: options.asker,
       type: "MSG",
-      body: `[ask:${flightId}] @${twinName} ${options.task}${contextBlock}`,
-      to: [twinName],
+      body: `[ask:${flightId}] @${agentName} ${options.task}${contextBlock}`,
+      to: [agentName],
     });
 
-    const nudge = buildTwinNudge(twinName, options.asker, flightId);
-    await this.sendTwinPrompt(twin, nudge);
+    const nudge = buildLocalAgentNudge(agentName, options.asker, flightId);
+    await this.sendLocalAgentPrompt(localAgent, nudge);
 
     const deadline = Date.now() + timeoutSeconds * 1000;
     while (Date.now() <= deadline) {
@@ -304,13 +298,13 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
         if (message.type !== "MSG") continue;
-        if (message.from !== twinName) continue;
+        if (message.from !== agentName) continue;
         if (!message.rawBody.includes(`[ask:${flightId}]`)) continue;
 
         return {
-          twin,
+          localAgent,
           flightId,
-          response: stripTwinReplyMetadata(message.rawBody, flightId, options.asker),
+          response: stripLocalAgentReplyMetadata(message.rawBody, flightId, options.asker),
           respondedAt: message.timestamp,
         };
       }
@@ -318,87 +312,83 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
       await sleep(500);
     }
 
-    throw new Error(`timed out after ${timeoutSeconds}s waiting for ${twinName}`);
+    throw new Error(`timed out after ${timeoutSeconds}s waiting for ${agentName}`);
   }
 
-  async tickProjectTwin(twinName: string, reason: string): Promise<boolean> {
-    const twins = await this.loadTwins();
-    const twin = twins[twinName];
-    if (!twin) return false;
+  async tickLocalAgent(agentName: string, reason: string): Promise<boolean> {
+    const localAgents = await this.loadLocalAgents();
+    const localAgent = localAgents[agentName];
+    if (!localAgent) return false;
 
-    return this.sendTwinPrompt(twin, buildTwinTickMessage(twinName, reason));
+    return this.sendLocalAgentPrompt(localAgent, buildLocalAgentTickMessage(agentName, reason));
   }
 
-  async stopProjectTwin(twinName: string): Promise<ProjectTwinStopResult> {
-    const twins = await this.loadTwins();
-    const record = twins[twinName];
+  async stopLocalAgent(agentName: string): Promise<LocalAgentStopResult> {
+    const localAgents = await this.loadLocalAgents();
+    const record = localAgents[agentName];
 
     if (!record) {
       return {
         status: "not_found",
-        twinName,
+        agentName,
       };
     }
 
-    let status: ProjectTwinStopResult["status"] = "stopped";
-    try {
-      execSync(`tmux kill-session -t ${record.tmuxSession} 2>/dev/null`);
-    } catch {
+    let status: LocalAgentStopResult["status"] = "stopped";
+    if (!killTmuxSessionSync(record.tmuxSession)) {
       status = "already_stopped";
     }
 
     await appendRelayEvent(this.hub, {
-      id: createRelayEventId("twin"),
-      kind: "project_twin.stopped",
+      id: createRelayEventId("agent"),
+      kind: "local_agent.stopped",
       v: 1,
       ts: Math.floor(Date.now() / 1000),
-      actor: twinName,
+      actor: agentName,
       payload: {
-        twinId: twinName,
+        agentId: agentName,
       },
     });
     await appendRelayMessage(this.hub, {
       ts: Math.floor(Date.now() / 1000),
-      from: twinName,
+      from: agentName,
       type: "SYS",
-      body: "twin stopped",
+      body: "local agent stopped",
     });
 
     return {
       status,
-      twinName,
+      agentName,
       record,
     };
   }
 
-  async stopAllProjectTwins(): Promise<ProjectTwinStopResult[]> {
-    const twins = await this.loadTwins();
-    const names = Object.keys(twins);
-    const results: ProjectTwinStopResult[] = [];
+  async stopAllLocalAgents(): Promise<LocalAgentStopResult[]> {
+    const localAgents = await this.loadLocalAgents();
+    const names = Object.keys(localAgents);
+    const results: LocalAgentStopResult[] = [];
 
-    for (const twinName of names) {
-      const record = twins[twinName];
-      let status: ProjectTwinStopResult["status"] = "stopped";
-      try {
-        execSync(`tmux kill-session -t ${record.tmuxSession} 2>/dev/null`);
-      } catch {
+    for (const agentName of names) {
+      const record = localAgents[agentName];
+      let status: LocalAgentStopResult["status"] = "stopped";
+      if (!killTmuxSessionSync(record.tmuxSession)) {
         status = "already_stopped";
       }
 
       results.push({
         status,
-        twinName,
+        agentName,
         record,
       });
 
       await appendRelayEvent(this.hub, {
-        id: createRelayEventId("twin"),
-        kind: "project_twin.stopped",
+        id: createRelayEventId("agent"),
+        kind: "local_agent.stopped",
         v: 1,
         ts: Math.floor(Date.now() / 1000),
-        actor: twinName,
+        actor: agentName,
         payload: {
-          twinId: twinName,
+          agentId: agentName,
         },
       });
     }
@@ -408,19 +398,19 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
         ts: Math.floor(Date.now() / 1000),
         from: "system",
         type: "SYS",
-        body: "all twins stopped",
+        body: "all local agents stopped",
       });
     }
 
     return results;
   }
 
-  async listProjectTwins(): Promise<ProjectTwinRuntimeEntry[]> {
-    const twins = await this.loadTwins();
+  async listLocalAgents(): Promise<LocalAgentRuntimeEntry[]> {
+    const localAgents = await this.loadLocalAgents();
     const now = Math.floor(Date.now() / 1000);
 
     return Promise.all(
-      Object.entries(twins).map(async ([_, record]) => ({
+      Object.entries(localAgents).map(async ([_, record]) => ({
         ...record,
         alive: await this.isSessionAlive(record.tmuxSession),
         uptimeSeconds: now - record.startedAt,
@@ -428,21 +418,21 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
     );
   }
 
-  async cleanupDeadTwins(): Promise<string[]> {
-    const twins = await this.loadTwins();
+  async cleanupDeadLocalAgents(): Promise<string[]> {
+    const localAgents = await this.loadLocalAgents();
     const removed: string[] = [];
 
-    for (const [twinName, record] of Object.entries(twins)) {
+    for (const [agentName, record] of Object.entries(localAgents)) {
       if (!await this.isSessionAlive(record.tmuxSession)) {
-        removed.push(twinName);
+        removed.push(agentName);
         await appendRelayEvent(this.hub, {
-          id: createRelayEventId("twin"),
-          kind: "project_twin.stopped",
+          id: createRelayEventId("agent"),
+          kind: "local_agent.stopped",
           v: 1,
           ts: Math.floor(Date.now() / 1000),
-          actor: twinName,
+          actor: agentName,
           payload: {
-            twinId: twinName,
+            agentId: agentName,
           },
         });
       }
@@ -452,6 +442,6 @@ class TmuxClaudeProjectTwinRuntime implements ProjectTwinRuntime {
   }
 }
 
-export function createTmuxClaudeProjectTwinRuntime(hub: string): ProjectTwinRuntime {
-  return new TmuxClaudeProjectTwinRuntime(hub);
+export function createTmuxClaudeLocalAgentRuntime(hub: string): LocalAgentRuntime {
+  return new TmuxClaudeLocalAgentRuntime(hub);
 }

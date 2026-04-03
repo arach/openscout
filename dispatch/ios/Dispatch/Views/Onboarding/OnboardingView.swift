@@ -167,30 +167,19 @@ private struct PermissionsPage: View {
         }
         .task {
             // Check existing status
-            let micStatus = AVAudioApplication.shared.recordPermission
-            micGranted = micStatus == .granted
-
-            let speechStatus = SFSpeechRecognizer.authorizationStatus()
-            speechGranted = speechStatus == .authorized
+            micGranted = PermissionAuthorizations.microphoneGranted()
+            speechGranted = PermissionAuthorizations.speechGranted()
         }
     }
 
+    @MainActor
     private func requestMic() async {
-        let granted = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
-        micGranted = granted
+        micGranted = await PermissionAuthorizations.requestMicrophone()
     }
 
+    @MainActor
     private func requestSpeech() async {
-        let granted = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
-            }
-        }
-        speechGranted = granted
+        speechGranted = await PermissionAuthorizations.requestSpeechRecognition()
     }
 }
 

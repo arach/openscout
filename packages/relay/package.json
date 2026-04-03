@@ -1,6 +1,6 @@
 {
   "name": "@openscout/relay",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "File-based agent chat — the filesystem is the transport",
   "type": "module",
   "bin": {
@@ -12,7 +12,7 @@
     "src/tui"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "bun run --cwd ../runtime build && tsc",
     "dev": "tsc --watch",
     "tui": "bun run src/tui/index.tsx"
   },

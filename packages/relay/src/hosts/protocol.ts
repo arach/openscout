@@ -1,8 +1,8 @@
-import type { TwinActionRequest, TwinActionResult } from "../twin-actions/protocol.js";
+import type { AgentActionRequest, AgentActionResult } from "../agent-actions/protocol.js";
 
-export type TwinHostId = "claude" | "codex";
+export type AgentHostId = "claude" | "codex";
 
-export interface HostTwinActionAdapter {
-  host: TwinHostId;
-  invokeTwinAction(request: TwinActionRequest): Promise<TwinActionResult>;
+export interface HostAgentActionAdapter {
+  host: AgentHostId;
+  invokeAgentAction(request: AgentActionRequest): Promise<AgentActionResult>;
 }

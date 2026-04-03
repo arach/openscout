@@ -3,6 +3,7 @@
 // Dark-first palette, monospace code typography, consistent spacing.
 // All views reference these tokens instead of hard-coding values.
 
+import Foundation
 import SwiftUI
 
 // MARK: - Color Palette
@@ -217,7 +218,7 @@ enum AdapterIcon {
     static func systemName(for adapterType: String) -> String {
         switch adapterType.lowercased() {
         case "claude-code", "claude": "terminal"
-        case "openai", "gpt": "brain"
+        case "openai", "gpt", "codex": "brain"
         case "anthropic": "sparkles"
         case "groq": "bolt.fill"
         case "together": "square.stack.3d.up"
@@ -229,6 +230,7 @@ enum AdapterIcon {
     static func displayName(for adapterType: String) -> String {
         switch adapterType.lowercased() {
         case "claude-code": "Claude Code"
+        case "codex": "Codex"
         case "openai": "OpenAI"
         case "anthropic": "Anthropic"
         case "groq": "Groq"
@@ -236,6 +238,251 @@ enum AdapterIcon {
         case "lm-studio", "lmstudio": "LM Studio"
         default: adapterType
         }
+    }
+}
+
+// MARK: - Harness / Model Catalog
+
+enum DispatchModelCatalog {
+    static func launchOptions(for adapterType: String?) -> [String] {
+        switch normalizedAdapterType(adapterType) {
+        case "claude-code":
+            return ["sonnet", "opus", "haiku"]
+        default:
+            return []
+        }
+    }
+
+    static func composerOptions(for adapterType: String?) -> [String] {
+        switch normalizedAdapterType(adapterType) {
+        case "openai":
+            return ["gpt-5.4", "gpt-5.4-mini", "o4-mini"]
+        default:
+            return []
+        }
+    }
+
+    static func supportsComposerModelSelection(for adapterType: String?) -> Bool {
+        !composerOptions(for: adapterType).isEmpty
+    }
+
+    static func supportsComposerEffortSelection(for adapterType: String?) -> Bool {
+        switch normalizedAdapterType(adapterType) {
+        case "openai":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func normalizedAdapterType(_ adapterType: String?) -> String? {
+        guard let adapterType else { return nil }
+
+        switch adapterType.lowercased() {
+        case "claude", "claude-code":
+            return "claude-code"
+        case "openai", "openai-compat":
+            return "openai"
+        case "codex":
+            return "codex"
+        default:
+            return adapterType.lowercased()
+        }
+    }
+}
+
+// MARK: - Model Label Helper
+
+struct DispatchModelDescriptor: Sendable {
+    let raw: String
+    let title: String
+    let subtitle: String?
+    let detail: String?
+
+    var inlineLabel: String {
+        guard let detail, !detail.isEmpty else { return title }
+        return "\(title) · \(detail)"
+    }
+
+    var menuLabel: String {
+        guard let subtitle, !subtitle.isEmpty else { return title }
+        return "\(title) — \(subtitle)"
+    }
+}
+
+enum DispatchModelLabel {
+    static func describe(_ rawModel: String?) -> DispatchModelDescriptor? {
+        guard let raw = rawModel?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+
+        let normalized = raw.lowercased()
+        let snapshotDate = snapshotDate(in: normalized)
+        let cleaned = removingTrailingSnapshot(from: normalized)
+        let provider = providerName(for: cleaned)
+        let detailComponents = detailComponents(for: cleaned, snapshotDate: snapshotDate)
+        let detail = detailComponents.joined(separator: " · ")
+        var subtitleComponents: [String] = []
+        if let provider {
+            subtitleComponents.append(provider)
+        }
+        subtitleComponents.append(contentsOf: detailComponents)
+
+        return DispatchModelDescriptor(
+            raw: raw,
+            title: title(for: cleaned, fallback: raw),
+            subtitle: subtitleComponents.isEmpty ? nil : subtitleComponents.joined(separator: " · "),
+            detail: detail.isEmpty ? nil : detail
+        )
+    }
+
+    static func displayText(for rawModel: String?, fallback: String = "Default") -> String {
+        describe(rawModel)?.title ?? fallback
+    }
+
+    private static func detailComponents(for cleaned: String, snapshotDate: Date?) -> [String] {
+        var components: [String] = []
+
+        if cleaned.contains("opus") {
+            components.append("flagship")
+        } else if cleaned.contains("sonnet") {
+            components.append("balanced")
+        } else if cleaned.contains("haiku") {
+            components.append("fast")
+        }
+
+        if cleaned.contains("codex") {
+            components.append("coding")
+        } else if cleaned.range(of: #"^o\d"#, options: .regularExpression) != nil {
+            components.append("reasoning")
+        }
+
+        if cleaned.contains("mini") {
+            components.append("smaller/faster")
+        } else if cleaned.contains("nano") {
+            components.append("smallest")
+        } else if cleaned.contains("preview") {
+            components.append("preview")
+        }
+
+        if let snapshotDate {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "MMM yyyy"
+            components.append("snapshot \(formatter.string(from: snapshotDate))")
+        } else if cleaned.contains("latest") {
+            components.append("rolling")
+        }
+
+        var deduped: [String] = []
+        for component in components where !deduped.contains(component) {
+            deduped.append(component)
+        }
+        return deduped
+    }
+
+    private static func providerName(for cleaned: String) -> String? {
+        if cleaned.hasPrefix("claude") {
+            return "Anthropic"
+        }
+        if cleaned.hasPrefix("gpt")
+            || cleaned.range(of: #"^o\d"#, options: .regularExpression) != nil
+            || cleaned.contains("codex") {
+            return "OpenAI"
+        }
+        if cleaned.hasPrefix("gemini") {
+            return "Google"
+        }
+        if cleaned.hasPrefix("llama") {
+            return "Meta"
+        }
+        if cleaned.hasPrefix("qwen") {
+            return "Qwen"
+        }
+        return nil
+    }
+
+    private static func title(for cleaned: String, fallback: String) -> String {
+        let tokens = cleaned
+            .split(whereSeparator: { $0 == "-" || $0 == "_" })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard let first = tokens.first else {
+            return fallback
+        }
+
+        if first == "claude" {
+            let family = tokens.dropFirst().first.map(displayToken) ?? "Claude"
+            let version = versionString(from: Array(tokens.dropFirst(2)))
+            return ["Claude", family == "Claude" ? nil : family, version]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
+
+        if first == "gpt" {
+            let version = tokens.dropFirst().first.map(displayToken) ?? ""
+            let variants = tokens.dropFirst(2).map(displayToken)
+            return (["GPT", version] + variants)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+
+        if first.range(of: #"^o\d"#, options: .regularExpression) != nil {
+            let variants = tokens.dropFirst().map(displayToken)
+            return ([first] + variants)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+
+        return tokens.map(displayToken).joined(separator: " ")
+    }
+
+    private static func versionString(from tokens: [String]) -> String? {
+        let versionTokens = tokens.prefix { token in
+            token.range(of: #"^\d+(?:\.\d+)?$"#, options: .regularExpression) != nil
+        }
+        guard !versionTokens.isEmpty else { return nil }
+        if let first = versionTokens.first, versionTokens.count == 1 {
+            return first
+        }
+        return Array(versionTokens).joined(separator: ".")
+    }
+
+    private static func displayToken(_ token: String) -> String {
+        switch token.lowercased() {
+        case "gpt": return "GPT"
+        case "codex": return "Codex"
+        case "claude": return "Claude"
+        case "sonnet": return "Sonnet"
+        case "opus": return "Opus"
+        case "haiku": return "Haiku"
+        case "mini": return "Mini"
+        case "nano": return "Nano"
+        case "lm": return "LM"
+        default: return token.capitalized
+        }
+    }
+
+    private static func snapshotDate(in value: String) -> Date? {
+        guard let range = value.range(of: #"20\d{2}(?:[-_]?\d{2}){2}"#, options: .regularExpression) else {
+            return nil
+        }
+
+        let digits = value[range].filter(\.isNumber)
+        guard digits.count == 8 else { return nil }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd"
+        return formatter.date(from: String(digits))
+    }
+
+    private static func removingTrailingSnapshot(from value: String) -> String {
+        guard let range = value.range(of: #"(?:-|_)?20\d{2}(?:[-_]?\d{2}){2}$"#, options: .regularExpression) else {
+            return value
+        }
+
+        return String(value[..<range.lowerBound])
     }
 }
 

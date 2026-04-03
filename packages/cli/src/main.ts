@@ -8,9 +8,12 @@ import { fileURLToPath } from "node:url";
 import {
   brokerServiceStatus,
   initializeOpenScoutSetup,
+  loadHarnessCatalogSnapshot,
   loadResolvedRelayAgents,
   resolveOpenScoutSupportPaths,
   startBrokerService,
+  writeOpenScoutSettings,
+  type ProjectInventoryEntry,
 } from "@openscout/runtime";
 
 const VERSION = "0.1.0";
@@ -18,9 +21,11 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../../..");
 const supportPaths = resolveOpenScoutSupportPaths();
 const scoutDevScript = join(repoRoot, "scripts", "scout-dev");
+const setupCurrentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 
 const args = process.argv.slice(2);
 const [command = "help", subcommand, ...rest] = args;
+const commandArgs = [subcommand, ...rest].filter((value): value is string => Boolean(value));
 
 switch (command) {
   case "help":
@@ -37,7 +42,10 @@ switch (command) {
     await runDoctor();
     break;
   case "init":
-    await runInit(rest);
+    await runInit(commandArgs);
+    break;
+  case "runtimes":
+    await runRuntimes(commandArgs);
     break;
   case "dev":
     await runDevCommand(subcommand, rest);
@@ -61,7 +69,8 @@ Usage:
   scout help
   scout version
   scout doctor
-  scout init
+  scout init [--source-root <path>]...
+  scout runtimes
   scout dev help
   scout dev build app
   scout dev launch agent
@@ -77,8 +86,9 @@ Usage:
 Commands:
   help           Show this help text
   version        Print the CLI version
-  doctor         Show local OpenScout environment status
-  init           Set up OpenScout for the current repo and your workspace roots
+  doctor         Show broker health, source roots, runtimes, and project inventory
+  init           Set up OpenScout for the current repo and optional source roots
+  runtimes       Show the harness catalog and readiness state
   dev            Pass native developer commands through to scout-dev
   app            Run a scoped native app command through scout-dev
   agent          Run a scoped native agent command through scout-dev
@@ -87,26 +97,28 @@ Commands:
 
 async function runDoctor() {
   const broker = await brokerServiceStatus();
-  const setup = await loadResolvedRelayAgents({ currentDirectory: process.cwd() });
+  const setup = await loadResolvedRelayAgents({ currentDirectory: setupCurrentDirectory });
+  const catalog = await loadHarnessCatalogSnapshot();
 
   console.log(`OpenScout CLI: ${VERSION}`);
   console.log(`Repo root: ${repoRoot}`);
   console.log(`Support directory: ${setup.supportDirectory}`);
   console.log(`Settings: ${setup.settingsPath}`);
-  console.log(`Relay agents: ${setup.relayAgentsPath}`);
-  console.log(`Relay hub: ${setup.relayHubPath}`);
+  console.log(`Harness catalog: ${setup.harnessCatalogPath}`);
+  console.log(`Agent registry: ${setup.relayAgentsPath}`);
   console.log(`Current project config: ${setup.currentProjectConfigPath ?? "not found"}`);
   console.log("");
-  console.log("Workspace roots:");
+  console.log("Source roots:");
   for (const root of setup.settings.discovery.workspaceRoots) {
     console.log(`  - ${root}`);
   }
   console.log("");
   console.log("Agent defaults:");
   console.log(`  Harness: ${setup.settings.agents.defaultHarness}`);
-  console.log(`  Transport: ${setup.settings.agents.defaultTransport}`);
   console.log(`  Capabilities: ${setup.settings.agents.defaultCapabilities.join(", ")}`);
   console.log(`  Session prefix: ${setup.settings.agents.sessionPrefix}`);
+  console.log("");
+  printProjectInventory(setup.projectInventory);
   console.log("");
   console.log("Broker:");
   console.log(`  Label: ${broker.label}`);
@@ -118,34 +130,31 @@ async function runDoctor() {
   console.log(`  Broker stdout: ${broker.stdoutLogPath}`);
   console.log(`  Broker stderr: ${broker.stderrLogPath}`);
   console.log("");
-  console.log(`Configured relay agents: ${setup.agents.length}`);
-  for (const agent of setup.agents) {
-    const runtimeDir = join(supportPaths.relayAgentsDirectory, agent.agentId);
-    const logsDir = join(runtimeDir, "logs");
-    console.log(`  - ${agent.displayName} (${agent.agentId})`);
-    console.log(`    Root: ${agent.projectRoot}`);
-    console.log(`    Source: ${agent.source}`);
-    console.log(`    Harness: ${agent.runtime.harness}`);
-    console.log(`    Session: ${agent.runtime.sessionId}`);
-    console.log(`    Runtime dir: ${runtimeDir}`);
-    console.log(`    Logs: ${join(logsDir, "stdout.log")} | ${join(logsDir, "stderr.log")}`);
-  }
-  console.log("");
-  console.log(`Discovered project candidates: ${setup.discoveredAgents.length}`);
-  for (const agent of setup.discoveredAgents.filter((agent) => agent.registrationKind === "discovered")) {
-    console.log(`  - ${agent.displayName} (${agent.agentId})`);
-    console.log(`    Root: ${agent.projectRoot}`);
-    console.log(`    Source: ${agent.source}`);
-    console.log(`    Harness: ${agent.runtime.harness}`);
+  console.log(`Known runtimes: ${catalog.entries.length}`);
+  for (const entry of catalog.entries) {
+    console.log(`  - ${entry.label} (${entry.name})`);
+    console.log(`    State: ${entry.readinessReport.state}`);
+    console.log(`    Detail: ${entry.readinessReport.detail}`);
+    if (entry.readinessReport.missing.length > 0) {
+      console.log(`    Missing: ${entry.readinessReport.missing.join(" | ")}`);
+    }
   }
 }
 
 async function runInit(extraArgs: string[]) {
-  if (extraArgs.length > 0) {
-    fail(`unexpected arguments for init: ${extraArgs.join(" ")}`);
+  const parsed = parseInitArgs(extraArgs);
+  if (parsed.sourceRoots.length > 0) {
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: parsed.sourceRoots,
+      },
+    }, {
+      currentDirectory: setupCurrentDirectory,
+    });
   }
 
-  const setup = await initializeOpenScoutSetup({ currentDirectory: process.cwd() });
+  const setup = await initializeOpenScoutSetup({ currentDirectory: setupCurrentDirectory });
+  const catalog = await loadHarnessCatalogSnapshot();
   let broker = await brokerServiceStatus();
   let brokerWarning: string | null = null;
   try {
@@ -158,35 +167,17 @@ async function runInit(extraArgs: string[]) {
   console.log("OpenScout initialized.");
   console.log(`Support directory: ${setup.supportDirectory}`);
   console.log(`Settings: ${setup.settingsPath}`);
-  console.log(`Relay agents: ${setup.relayAgentsPath}`);
-  console.log(`Relay hub: ${setup.relayHubPath}`);
+  console.log(`Harness catalog: ${setup.harnessCatalogPath}`);
+  console.log(`Agent registry: ${setup.relayAgentsPath}`);
   console.log(`Current project config: ${setup.currentProjectConfigPath ?? "not created"}`);
   console.log(`Created project config: ${setup.createdProjectConfig ? "yes" : "no"}`);
   console.log("");
-  console.log("Workspace roots:");
+  console.log("Source roots:");
   for (const root of setup.settings.discovery.workspaceRoots) {
     console.log(`  - ${root}`);
   }
   console.log("");
-  console.log("Configured relay agents:");
-  for (const agent of setup.agents) {
-    console.log(`  - ${agent.displayName} (${agent.agentId})`);
-    console.log(`    Root: ${agent.projectRoot}`);
-    console.log(`    Source: ${agent.source}`);
-    console.log(`    Harness: ${agent.runtime.harness}`);
-    console.log(`    Session: ${agent.runtime.sessionId}`);
-  }
-  const discoveredOnly = setup.discoveredAgents.filter((agent) => agent.registrationKind === "discovered");
-  if (discoveredOnly.length > 0) {
-    console.log("");
-    console.log("Discovered project candidates:");
-    for (const agent of discoveredOnly) {
-      console.log(`  - ${agent.displayName} (${agent.agentId})`);
-      console.log(`    Root: ${agent.projectRoot}`);
-      console.log(`    Source: ${agent.source}`);
-      console.log(`    Harness: ${agent.runtime.harness}`);
-    }
-  }
+  printProjectInventory(setup.projectInventory);
   console.log("");
   console.log("Broker:");
   console.log(`  Label: ${broker.label}`);
@@ -196,6 +187,102 @@ async function runInit(extraArgs: string[]) {
   console.log(`  Logs: ${broker.stdoutLogPath} | ${broker.stderrLogPath}`);
   if (brokerWarning) {
     console.log(`  Warning: ${brokerWarning}`);
+  }
+  console.log("");
+  console.log("Harnesses:");
+  for (const entry of catalog.entries) {
+    console.log(`  - ${entry.label} (${entry.name})`);
+    console.log(`    State: ${entry.readinessReport.state}`);
+    console.log(`    Detail: ${entry.readinessReport.detail}`);
+  }
+  console.log("");
+  console.log("Vocabulary:");
+  console.log("  Source root: the parent folder that contains your repos, such as ~/dev");
+  console.log("  Harness: the assistant family a project prefers by default, such as claude or codex");
+  console.log("  Runtime: the local installed program or session OpenScout uses to launch that harness");
+  console.log("");
+  console.log("Next:");
+  console.log("  scout doctor");
+  console.log("  scout runtimes");
+}
+
+async function runRuntimes(extraArgs: string[]) {
+  if (extraArgs.length > 0) {
+    fail(`unexpected arguments for runtimes: ${extraArgs.join(" ")}`);
+  }
+
+  const snapshot = await loadHarnessCatalogSnapshot();
+
+  console.log(`Harness catalog: ${supportPaths.harnessCatalogPath}`);
+  console.log(`Known runtimes: ${snapshot.entries.length}`);
+  for (const entry of snapshot.entries) {
+    const support = Object.entries(entry.support)
+      .filter(([, enabled]) => enabled)
+      .map(([key]) => key)
+      .join(", ");
+
+    console.log(`  - ${entry.label} (${entry.name})`);
+    console.log(`    State: ${entry.readinessReport.state}`);
+    console.log(`    Detail: ${entry.readinessReport.detail}`);
+    console.log(`    Support: ${support || "none"}`);
+    if (entry.readinessReport.binaryPath) {
+      console.log(`    Binary: ${entry.readinessReport.binaryPath}`);
+    }
+    if (entry.readinessReport.missing.length > 0) {
+      console.log(`    Missing: ${entry.readinessReport.missing.join(" | ")}`);
+    }
+    if (entry.readinessReport.loginCommand) {
+      console.log(`    Login: ${entry.readinessReport.loginCommand}`);
+    }
+  }
+}
+
+function parseInitArgs(args: string[]): { sourceRoots: string[] } {
+  const sourceRoots: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index] ?? "";
+    if (current === "--source-root") {
+      const value = args[index + 1];
+      if (!value) {
+        fail("missing value for --source-root");
+      }
+      sourceRoots.push(resolve(value));
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--source-root=")) {
+      sourceRoots.push(resolve(current.slice("--source-root=".length)));
+      continue;
+    }
+    fail(`unexpected arguments for init: ${args.join(" ")}`);
+  }
+
+  return { sourceRoots };
+}
+
+function printProjectInventory(projects: ProjectInventoryEntry[]) {
+  console.log(`Project inventory: ${projects.length}`);
+  if (projects.length === 0) {
+    console.log("  No projects discovered yet.");
+    return;
+  }
+
+  for (const project of projects) {
+    const harnesses = project.harnesses
+      .map((entry) => `${entry.harness} (${entry.detail})`)
+      .join(" | ");
+
+    console.log(`  - ${project.displayName} (${project.agentId})`);
+    console.log(`    Root: ${project.projectRoot}`);
+    console.log(`    Source root: ${project.sourceRoot}`);
+    console.log(`    Relative path: ${project.relativePath}`);
+    console.log(`    State: ${project.registrationKind === "configured" ? "configured agent" : "discovered project"}`);
+    console.log(`    Default harness: ${project.defaultHarness}`);
+    console.log(`    Harnesses: ${harnesses}`);
+    if (project.projectConfigPath) {
+      console.log(`    Manifest: ${project.projectConfigPath}`);
+    }
   }
 }
 

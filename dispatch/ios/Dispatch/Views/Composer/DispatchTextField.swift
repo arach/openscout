@@ -21,7 +21,7 @@ struct DispatchTextField: UIViewRepresentable {
         textView.delegate = context.coordinator
         textView.font = UIFont.systemFont(ofSize: 15)
         textView.backgroundColor = .clear
-        textView.textContainerInset = UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
+        textView.textContainerInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.textContainer.lineBreakMode = .byWordWrapping
@@ -39,7 +39,7 @@ struct DispatchTextField: UIViewRepresentable {
         textView.addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
-            label.topAnchor.constraint(equalTo: textView.topAnchor, constant: 2),
+            label.topAnchor.constraint(equalTo: textView.topAnchor),
         ])
         context.coordinator.placeholderLabel = label
 

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   parseLaunchctlPrint,
   renderLaunchAgentPlist,
+  selectLastRelevantLogLine,
   type BrokerServiceConfig,
 } from "./broker-service";
 
@@ -36,6 +37,8 @@ describe("broker launch agent config", () => {
     expect(plist).toContain("<string>broker</string>");
     expect(plist).toContain("<key>RunAtLoad</key>");
     expect(plist).toContain("<key>KeepAlive</key>");
+    expect(plist).toContain("<key>SuccessfulExit</key>");
+    expect(plist).toContain("<false/>");
     expect(plist).toContain("<key>OPENSCOUT_BROKER_URL</key>");
     expect(plist).toContain("<string>http://127.0.0.1:65535</string>");
   });
@@ -61,5 +64,20 @@ system/com.example.job = {
     expect(parsed.pid).toBe(12345);
     expect(parsed.launchdState).toBe("running");
     expect(parsed.lastExitStatus).toBe(0);
+  });
+
+  test("prefers informative runtime log lines over bun script banners", () => {
+    expect(
+      selectLastRelevantLogLine([
+        "$ bun run src/broker-daemon.ts",
+        "[openscout-runtime] broker listening on http://127.0.0.1:65535",
+      ]),
+    ).toBe("[openscout-runtime] broker listening on http://127.0.0.1:65535");
+
+    expect(
+      selectLastRelevantLogLine([
+        "$ bun run src/broker-daemon.ts",
+      ]),
+    ).toBe("$ bun run src/broker-daemon.ts");
   });
 });

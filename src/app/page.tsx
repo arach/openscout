@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
   Activity,
@@ -22,6 +23,7 @@ import { LandingProductShowcase } from "@/components/landing-product-showcase";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 type AudienceMode = "general" | "technical" | "agent";
+type HumanAudienceMode = Exclude<AudienceMode, "agent">;
 
 type IconCard = {
   icon: LucideIcon;
@@ -258,7 +260,7 @@ const technicalCapabilities: CapabilityCard[] = [
   },
 ];
 
-const getStartedCommandsByAudience: Record<AudienceMode, CommandStep[]> = {
+const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   general: [
     {
       command: "bun add -g @openscout/cli",
@@ -303,7 +305,7 @@ const getStartedCommandsByAudience: Record<AudienceMode, CommandStep[]> = {
   ],
 };
 
-const surfaceGalleryByAudience: Record<AudienceMode, SurfaceShot[]> = {
+const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
   general: [
     {
       src: "/relay/sessions-index.png",
@@ -377,7 +379,28 @@ const surfaceGalleryByAudience: Record<AudienceMode, SurfaceShot[]> = {
   ],
 };
 
-const audienceContent = {
+const audienceContent: Record<
+  HumanAudienceMode,
+  {
+    heroEyebrow: string;
+    heroTitleTop: string;
+    heroTitleBottom: string;
+    heroDescription: string;
+    heroCommand: string;
+    heroFootnote: string;
+    meshEyebrow: string;
+    meshTitle: string;
+    meshDescription: string;
+    capabilitiesTitle: string;
+    capabilitiesDescription: string;
+    surfacesTitle: string;
+    surfacesDescription: string;
+    surfacesNoteTitle: string;
+    surfacesNoteDescription: string;
+    getStartedTitle: string;
+    getStartedDescription: string;
+  }
+> = {
   general: {
     heroEyebrow: "OpenScout System",
     heroTitleTop: "All your agents,",
@@ -428,37 +451,19 @@ const audienceContent = {
     getStartedDescription:
       "The operator flow should stay direct: install OpenScout, bootstrap the local mesh, open the Relay TUI, and keep a watcher running when you want direct agent traffic.",
   },
-} as const satisfies Record<
-  AudienceMode,
-  {
-    heroEyebrow: string;
-    heroTitleTop: string;
-    heroTitleBottom: string;
-    heroDescription: string;
-    heroCommand: string;
-    heroFootnote: string;
-    meshEyebrow: string;
-    meshTitle: string;
-    meshDescription: string;
-    capabilitiesTitle: string;
-    capabilitiesDescription: string;
-    surfacesTitle: string;
-    surfacesDescription: string;
-    surfacesNoteTitle: string;
-    surfacesNoteDescription: string;
-    getStartedTitle: string;
-    getStartedDescription: string;
-  }
->;
+};
 
 function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
-  const dims = size === "md" ? "h-10 w-10" : "h-8 w-8";
-  const inner = size === "md" ? "h-5 w-5" : "h-4 w-4";
+  const pixelSize = size === "md" ? 40 : 32;
   return (
-    <span
-      className={`flex ${dims} items-center justify-center rounded-lg border border-[#d9d6cc] bg-[#111110] text-[#f5f4ef]`}
-    >
-      <span className={`${inner} rounded-full border-2 border-current`} />
+    <span className="flex shrink-0 items-center justify-center">
+      <Image
+        src="/openscout-icon.png"
+        alt=""
+        width={pixelSize}
+        height={pixelSize}
+        className="rounded-[10px] shadow-[0_1px_0_rgba(255,255,255,0.3)_inset]"
+      />
     </span>
   );
 }
@@ -515,7 +520,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const humanMode: "general" | "technical" =
+  const humanMode: HumanAudienceMode =
     audience === "technical" ? "technical" : "general";
   const copy = audienceContent[humanMode];
   const currentProblem = problemVariants[problemVariant];
@@ -527,9 +532,6 @@ export default function Home() {
     humanMode === "technical" ? technicalCapabilities : generalCapabilities;
   const surfaceGallery = surfaceGalleryByAudience[humanMode];
   const getStartedCommands = getStartedCommandsByAudience[humanMode];
-  // Resolve audience for content — agent mode uses general content
-  const contentMode = audience === "agent" ? "general" : audience;
-
   return (
     <div className="min-h-screen bg-[#f5f4ef] text-[#111110]">
       {/* ── hero background layers ── */}
@@ -892,9 +894,10 @@ export default function Home() {
           <footer className="px-6 pb-20">
             <div className="mx-auto max-w-[90rem] border-t border-[#eae6dd]">
               <div className="flex items-center justify-between py-4">
-                <span className="font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
-                  OpenScout
-                </span>
+                <div className="flex items-center gap-2.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
+                  <LogoMark />
+                  <span>OpenScout</span>
+                </div>
                 <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
                   <a
                     href="/docs/relay"

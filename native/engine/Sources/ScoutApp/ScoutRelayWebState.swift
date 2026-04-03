@@ -136,7 +136,7 @@ extension ScoutShellViewModel {
             return ScoutRelayWebState.DirectThread(
                 id: agentID,
                 title: profile?.name ?? runtime?.displayName ?? relayWebDisplayName(for: agentID),
-                subtitle: profile?.role ?? runtime?.detail ?? "Project twin",
+                subtitle: profile?.role ?? runtime?.detail ?? "Project agent",
                 preview: latestMessage?.renderedBody,
                 timestampLabel: latestMessage.map { relayWebFormatTime(timestamp: $0.timestamp) },
                 state: runtime?.state ?? relayState(for: agentID),

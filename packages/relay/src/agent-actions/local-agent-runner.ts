@@ -1,11 +1,11 @@
-import type { ProjectTwinRuntime } from "../core/protocol/twins.js";
+import type { LocalAgentRuntime } from "../core/protocol/local-agents.js";
 import type {
-  TwinActionRequest,
-  TwinActionResult,
-  TwinActionRunner,
+  AgentActionRequest,
+  AgentActionResult,
+  AgentActionRunner,
 } from "./protocol.js";
 
-function buildTwinActionPrompt(request: TwinActionRequest): string {
+function buildAgentActionPrompt(request: AgentActionRequest): string {
   const input = request.input?.trim() ?? "";
 
   switch (request.action) {
@@ -32,111 +32,111 @@ function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-export function createProjectTwinActionRunner(
-  runtime: ProjectTwinRuntime,
-): TwinActionRunner {
+export function createLocalAgentActionRunner(
+  runtime: LocalAgentRuntime,
+): AgentActionRunner {
   return {
-    async invokeTwinAction(request: TwinActionRequest): Promise<TwinActionResult> {
+    async invokeAgentAction(request: AgentActionRequest): Promise<AgentActionResult> {
       const mode = request.mode ?? "persistent";
       try {
         const respondedAt = nowSeconds();
 
         if (mode !== "persistent") {
           return {
-            twinId: request.twinId,
+            agentId: request.agentId,
             action: request.action,
             mode,
             ok: false,
-            output: "ephemeral twin actions are not implemented yet",
+            output: "ephemeral local-agent actions are not implemented yet",
             respondedAt,
-            runner: "project-twin-runtime",
+            runner: "local-agent-runtime",
             transport: "relay",
           };
         }
 
         if (request.action === "status") {
-          const twins = await runtime.loadTwins();
-          const twin = twins[request.twinId];
-          if (!twin) {
+          const localAgents = await runtime.loadLocalAgents();
+          const localAgent = localAgents[request.agentId];
+          if (!localAgent) {
             return {
-              twinId: request.twinId,
+              agentId: request.agentId,
               action: request.action,
               mode,
               ok: false,
-              output: `twin "${request.twinId}" is not registered`,
+              output: `agent "${request.agentId}" is not registered`,
               respondedAt,
-              runner: "project-twin-runtime",
+              runner: "local-agent-runtime",
               transport: "relay",
             };
           }
 
-          const alive = await runtime.isTwinAlive(request.twinId);
+          const alive = await runtime.isLocalAgentAlive(request.agentId);
           return {
-            twinId: request.twinId,
+            agentId: request.agentId,
             action: request.action,
             mode,
             ok: true,
             output: alive
-              ? `${request.twinId} is running (${twin.runtime})`
-              : `${request.twinId} is registered but offline`,
+              ? `${request.agentId} is running (${localAgent.runtime})`
+              : `${request.agentId} is registered but offline`,
             respondedAt,
-            runner: "project-twin-runtime",
+            runner: "local-agent-runtime",
             transport: "relay",
             metadata: {
               alive,
-              project: twin.project,
-              projectRoot: twin.projectRoot,
-              runtime: twin.runtime,
-              protocol: twin.protocol,
-              tmuxSession: twin.tmuxSession,
+              project: localAgent.project,
+              projectRoot: localAgent.projectRoot,
+              runtime: localAgent.runtime,
+              protocol: localAgent.protocol,
+              tmuxSession: localAgent.tmuxSession,
             },
           };
         }
 
         if (request.action === "tick") {
           const reason = request.input?.trim() || "host tick";
-          const ok = await runtime.tickProjectTwin(request.twinId, reason);
+          const ok = await runtime.tickLocalAgent(request.agentId, reason);
           return {
-            twinId: request.twinId,
+            agentId: request.agentId,
             action: request.action,
             mode,
             ok,
             output: ok
-              ? `twin "${request.twinId}" ticked`
-              : `twin "${request.twinId}" could not be ticked`,
+              ? `agent "${request.agentId}" ticked`
+              : `agent "${request.agentId}" could not be ticked`,
             respondedAt,
-            runner: "project-twin-runtime",
+            runner: "local-agent-runtime",
             transport: "relay",
           };
         }
 
-        const result = await runtime.invokeProjectTwin(request.twinId, {
+        const result = await runtime.invokeLocalAgent(request.agentId, {
           asker: request.actor ?? "system",
-          task: buildTwinActionPrompt(request),
+          task: buildAgentActionPrompt(request),
           context: request.context,
           timeoutSeconds: request.timeoutSeconds,
         });
 
         return {
-          twinId: request.twinId,
+          agentId: request.agentId,
           action: request.action,
           mode,
           ok: true,
           output: result.response,
           respondedAt: result.respondedAt,
-          runner: "project-twin-runtime",
+          runner: "local-agent-runtime",
           transport: "relay",
           flightId: result.flightId,
         };
       } catch (error) {
         return {
-          twinId: request.twinId,
+          agentId: request.agentId,
           action: request.action,
           mode,
           ok: false,
           output: error instanceof Error ? error.message : String(error),
           respondedAt: nowSeconds(),
-          runner: "project-twin-runtime",
+          runner: "local-agent-runtime",
           transport: "relay",
         };
       }

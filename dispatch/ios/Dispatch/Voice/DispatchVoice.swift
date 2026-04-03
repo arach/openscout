@@ -183,11 +183,7 @@ final class DispatchVoice: ObservableObject {
     // MARK: - Permissions
 
     func requestMicrophonePermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
+        await PermissionAuthorizations.requestMicrophone()
     }
 
     // MARK: - Recording
@@ -413,11 +409,7 @@ final class DispatchVoice: ObservableObject {
         // Request speech recognition permission if needed
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
-            let granted = await withCheckedContinuation { continuation in
-                SFSpeechRecognizer.requestAuthorization { status in
-                    continuation.resume(returning: status == .authorized)
-                }
-            }
+            let granted = await PermissionAuthorizations.requestSpeechRecognition()
             guard granted else {
                 throw VoiceError.recordingFailed("Speech recognition permission denied")
             }

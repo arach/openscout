@@ -6,6 +6,9 @@ import { createRoot, useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { existsSync, readFileSync, appendFileSync, writeFileSync, unlinkSync, watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
 import { execSync, spawn } from "child_process";
+import { formatRelayLogLine } from "../core/compat/channel-log.js";
+import { hasTmuxSessionSync } from "../core/compat/tmux-sessions.js";
+import { readProjectedRelayMessagesSync } from "../core/projections/messages.js";
 
 
 // ── Flights (tracked requests with callbacks) ────────────────────────────────
@@ -293,59 +296,17 @@ function findRelayDir(): string | null {
   return null;
 }
 
-function parseLogLine(line: string, id: number): RelayMessage | null {
-  const parts = line.split(" ");
-  if (parts.length < 3) return null;
-  const [tsStr, from, type, ...rest] = parts;
-  const timestamp = Number(tsStr);
-  if (!Number.isFinite(timestamp)) return null;
-  return {
-    id,
-    timestamp,
-    from,
-    type: type as RelayMessage["type"],
-    body: rest.join(" "),
-  };
-}
-
-function parseJsonlLine(line: string, idx: number): RelayMessage | null {
-  try {
-    const entry = JSON.parse(line);
-    const tags = entry.tags?.length ? entry.tags.map((t: string) => `[${t}]`).join(" ") + " " : "";
-    return {
-      id: idx,
-      timestamp: entry.ts,
-      from: entry.from,
-      type: entry.type as RelayMessage["type"],
-      body: tags + entry.body,
-      messageId: entry.id,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function readAllMessages(logPath: string): RelayMessage[] {
-  // Prefer channel.jsonl (structured, handles multi-line messages)
-  const jsonlPath = logPath.replace("channel.log", "channel.jsonl");
-  if (existsSync(jsonlPath)) {
-    try {
-      return readFileSync(jsonlPath, "utf8")
-        .split("\n")
-        .filter(Boolean)
-        .map((line, i) => parseJsonlLine(line, i + 1))
-        .filter((m): m is RelayMessage => m !== null);
-    } catch { /* fall through to legacy */ }
-  }
-
-  // Legacy: plain text channel.log
-  if (!existsSync(logPath)) return [];
   try {
-    return readFileSync(logPath, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line, i) => parseLogLine(line, i + 1))
-      .filter((m): m is RelayMessage => m !== null);
+    const relayDir = logPath.replace(/\/channel\.log$/, "");
+    return readProjectedRelayMessagesSync(relayDir).map((message) => ({
+      id: message.id,
+      timestamp: message.timestamp,
+      from: message.from,
+      type: message.type,
+      body: message.body,
+      messageId: message.eventId,
+    }));
   } catch {
     return [];
   }
@@ -357,8 +318,7 @@ function writeToChannel(relayDir: string, from: string, type: "MSG" | "SYS", bod
   const id = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const entry = { id, ts, from, type, body, ...extra };
   appendFileSync(join(relayDir, "channel.jsonl"), JSON.stringify(entry) + "\n");
-  const tagStr = extra?.tags?.length ? extra.tags.map(t => `[${t}]`).join(" ") + " " : "";
-  appendFileSync(join(relayDir, "channel.log"), `${ts} ${from} ${type} ${tagStr}${body}\n`);
+  appendFileSync(join(relayDir, "channel.log"), formatRelayLogLine(entry));
   return entry;
 }
 
@@ -372,6 +332,7 @@ function buildAgentMap(messages: RelayMessage[]): AgentStatus[] {
   const now = Math.floor(Date.now() / 1000);
   const map = new Map<string, AgentStatus>();
   for (const msg of messages) {
+    if (!msg.from) continue;
     if (!map.has(msg.from)) {
       map.set(msg.from, { name: msg.from, messages: 0, lastSeen: msg.timestamp, online: false, status: "idle" });
     }
@@ -570,32 +531,27 @@ function ChatPanel({
   );
 }
 
-function loadTwinsSync(): Record<string, { tmuxSession: string; project: string }> {
+function loadLocalAgentsSync(): Record<string, { tmuxSession: string; project: string }> {
   const os = require("os");
-  const twinsPath = join(os.homedir(), ".openscout", "relay", "twins.json");
+  const agentsPath = join(os.homedir(), ".openscout", "relay", "agents.json");
   try {
-    return JSON.parse(readFileSync(twinsPath, "utf8"));
+    return JSON.parse(readFileSync(agentsPath, "utf8"));
   } catch {
     return {};
   }
 }
 
-function isTwinAlive(tmuxSession: string): boolean {
-  try {
-    execSync(`tmux has-session -t ${tmuxSession} 2>/dev/null`);
-    return true;
-  } catch {
-    return false;
-  }
+function isLocalAgentAlive(tmuxSession: string): boolean {
+  return hasTmuxSessionSync(tmuxSession);
 }
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[^[\]]/g, "").trim();
 }
 
-function captureTwinActivity(tmuxSession: string): string {
+function captureLocalAgentActivity(tmuxSession: string): string {
   try {
-    // Grab last few visible lines from the twin's pane
+    // Grab last few visible lines from the agentEndpoint's pane
     const raw = execSync(`tmux capture-pane -t ${tmuxSession} -p 2>/dev/null`, { encoding: "utf8", timeout: 500 });
     const lines = raw.split("\n").map(stripAnsi).filter((l) => l.length > 0);
     if (lines.length === 0) return "starting...";
@@ -625,10 +581,10 @@ function captureTwinActivity(tmuxSession: string): string {
   }
 }
 
-function AgentsPanel({ agents, selectedAgent, twins }: {
+function AgentsPanel({ agents, selectedAgent, agentEndpoints }: {
   agents: AgentStatus[];
   selectedAgent: number;
-  twins: Record<string, { tmuxSession: string; project: string }>;
+  agentEndpoints: Record<string, { tmuxSession: string; project: string }>;
 }) {
   const alive = agents.filter((a) => a.status !== "forgotten");
   const forgotten = agents.filter((a) => a.status === "forgotten");
@@ -638,8 +594,8 @@ function AgentsPanel({ agents, selectedAgent, twins }: {
   const statusColor = (s: AgentStatus["status"]) =>
     s === "online" ? C.accent : s === "idle" ? C.muted : C.dim;
   const statusLabel = (a: AgentStatus) => {
-    const twin = twins[a.name];
-    if (twin && isTwinAlive(twin.tmuxSession)) return "twin ⏵";
+    const agentEndpoint = agentEndpoints[a.name];
+    if (agentEndpoint && isLocalAgentAlive(agentEndpoint.tmuxSession)) return "endpoint ⏵";
     return a.status === "online" ? "online" : a.status === "idle" ? "idle" : "removed";
   };
 
@@ -653,9 +609,9 @@ function AgentsPanel({ agents, selectedAgent, twins }: {
             <text fg={C.dim}>{`   ${pad("agent", 14)}  ${pad("msgs", 6)}  ${pad("last seen", 12)}  ${pad("status", 10)}  activity`}</text>
             {alive.map((agent, i) => {
               const isSelected = i === selectedAgent;
-              const twin = twins[agent.name];
-              const hasTwin = twin && isTwinAlive(twin.tmuxSession);
-              const activity = hasTwin ? captureTwinActivity(twin.tmuxSession) : "";
+              const agentEndpoint = agentEndpoints[agent.name];
+              const hasAgentEndpoint = agentEndpoint && isLocalAgentAlive(agentEndpoint.tmuxSession);
+              const activity = hasAgentEndpoint ? captureLocalAgentActivity(agentEndpoint.tmuxSession) : "";
               const isWorking = activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...";
               const cleanAct = activity ? stripAnsi(activity).replace(/[^\x20-\x7e]/g, "").trim() : "";
               const truncAct = cleanAct.length > 36 ? cleanAct.slice(0, 35) + "…" : cleanAct;
@@ -855,7 +811,7 @@ function VoicePanel({
       <box border borderStyle="rounded" borderColor={C.border} padding={1} flexDirection="column" title="Tips">
         <text fg={C.dim}>v  toggle recording from any tab</text>
         <text fg={C.dim}>Responses from @mentioned agents appear here and are spoken</text>
-        <text fg={C.dim}>Say "@system up dewey" to spawn twins by voice</text>
+        <text fg={C.dim}>Say "@system up dewey" to spawn local agents by voice</text>
       </box>
     </box>
   );
@@ -871,8 +827,8 @@ function loadAgentStatesSync(relayDir: string): Record<string, string> {
   }
 }
 
-function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pendingCount, relayDir, width, recordingStart }: {
-  twins: Record<string, { tmuxSession: string; project: string }>;
+function AgentCockpit({ agentEndpoints, agents, voiceState, isSpeaking, partialText, pendingCount, relayDir, width, recordingStart }: {
+  agentEndpoints: Record<string, { tmuxSession: string; project: string }>;
   agents: AgentStatus[];
   voiceState: "idle" | "connecting" | "recording" | "processing" | "error";
   isSpeaking: boolean;
@@ -919,8 +875,8 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   // Build agent entries
   const entries: Array<{ name: string; activity: string; status: "working" | "idle" | "offline" }> = [];
 
-  for (const [name, twin] of Object.entries(twins)) {
-    const alive = isTwinAlive(twin.tmuxSession);
+  for (const [name, agentEndpoint] of Object.entries(agentEndpoints)) {
+    const alive = isLocalAgentAlive(agentEndpoint.tmuxSession);
     if (!alive) {
       entries.push({ name, activity: "offline", status: "offline" });
       continue;
@@ -931,15 +887,15 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
       entries.push({ name, activity: agentState, status: "working" });
       continue;
     }
-    const activity = captureTwinActivity(twin.tmuxSession);
+    const activity = captureLocalAgentActivity(agentEndpoint.tmuxSession);
     const isWorking = activity && activity !== "idle" && activity !== "unreachable" && activity !== "starting...";
     entries.push({ name, activity: activity || "idle", status: isWorking ? "working" : "idle" });
   }
 
-  // Show non-twin online agents, but skip the TUI operator (that's you)
+  // Show non-agentEndpoint online agents, but skip the TUI operator (that's you)
   const tuiName = require("os").userInfo().username;
   for (const agent of agents) {
-    if (twins[agent.name]) continue;
+    if (agentEndpoints[agent.name]) continue;
     if (agent.name === tuiName) continue;
     if (agent.name === "system") continue;
     if (agent.status === "online") {
@@ -948,7 +904,7 @@ function AgentCockpit({ twins, agents, voiceState, isSpeaking, partialText, pend
   }
 
   // Dev is always pinned at top; rest sorted by recency (most recent first)
-  // If dev is marked offline from twin check, but is online in the agents list, upgrade it
+  // If dev is marked offline from agentEndpoint check, but is online in the agents list, upgrade it
   let devEntry = entries.find((e) => e.name === "dev");
   if (!devEntry) {
     const devAgent = agents.find((a) => a.name === "dev" && a.status === "online");
@@ -1062,7 +1018,7 @@ function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(0);
   const [expandedMsg, setExpandedMsg] = useState<RelayMessage | null>(null);
-  const [twins, setTwins] = useState<Record<string, { tmuxSession: string; project: string }>>({});
+  const [agentEndpoints, setLocalAgents] = useState<Record<string, { tmuxSession: string; project: string }>>({});
   const [activeFlights, setActiveFlights] = useState<Flight[]>([]);
   const relayDirRef = useRef<string | null>(null);
   const filePosRef = useRef(0);
@@ -1087,9 +1043,9 @@ function App() {
     syncToDb(relayDir, allMessages);
     setDbEntries(allMessages.length);
 
-    // Load twins registry and compute live activity
-    const currentTwins = loadTwinsSync();
-    setTwins(currentTwins);
+    // Load agentEndpoints registry and compute live activity
+    const currentLocalAgents = loadLocalAgentsSync();
+    setLocalAgents(currentLocalAgents);
 
     // Auto-select newest message and reset scroll to bottom
     if (allMessages.length > 0) {
@@ -1166,14 +1122,14 @@ function App() {
       if (!ok) setVoiceState("error");
     });
 
-    // Heartbeat — keep TUI and dev twin showing as online
+    // Heartbeat — keep TUI and dev agentEndpoint showing as online
     const heartbeatIv = setInterval(() => {
       writeMsg(tuiName, "SYS", "heartbeat");
-      // Also heartbeat for dev if it has an active twin
+      // Also heartbeat for dev if it has an active agentEndpoint
       if (tuiName !== "dev") {
         try {
-          const tw = JSON.parse(readFileSync(join(relayDir, "twins.json"), "utf8"));
-          if (tw.dev && isTwinAlive(tw.dev.tmuxSession)) {
+          const tw = JSON.parse(readFileSync(join(relayDir, "agents.json"), "utf8"));
+          if (tw.dev && isLocalAgentAlive(tw.dev.tmuxSession)) {
             writeMsg("dev", "SYS", "heartbeat");
           }
         } catch { /* noop */ }
@@ -1257,7 +1213,7 @@ function App() {
     session.on("final", (event: any) => {
       let text = (event.text || "").trim();
       if (text) {
-        // If no @mention, route to default agent (dev twin)
+        // If no @mention, route to default agent (dev agentEndpoint)
         const hasMention = /@[\w.-]+/.test(text);
         if (!hasMention) {
           text = `@dev ${text}`;
@@ -1405,32 +1361,32 @@ function App() {
       if (key.name === "down") {
         setSelectedAgent((prev) => Math.min(alive.length - 1, prev + 1));
       }
-      // Enter → peek at twin's tmux session
+      // Enter → peek at agentEndpoint's tmux session
       if (key.name === "return") {
         const agent = alive[selectedAgent];
         if (agent) {
-          const twin = twins[agent.name];
-          if (twin && isTwinAlive(twin.tmuxSession)) {
+          const agentEndpoint = agentEndpoints[agent.name];
+          if (agentEndpoint && isLocalAgentAlive(agentEndpoint.tmuxSession)) {
             const inTmux = !!process.env.TMUX;
             if (inTmux) {
               // Floating popup — overlays on TUI, no resize, press q/Ctrl-c to dismiss
               try {
-                execSync(`tmux display-popup -w 80% -h 80% -E "tmux attach -t ${twin.tmuxSession}"`);
+                execSync(`tmux display-popup -w 80% -h 80% -E "tmux attach -t ${agentEndpoint.tmuxSession}"`);
               } catch {
                 // display-popup not available (tmux < 3.2), fall back to new window
                 try {
-                  execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${twin.tmuxSession}"`);
+                  execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${agentEndpoint.tmuxSession}"`);
                 } catch { /* noop */ }
               }
             } else {
               // Not in tmux — open in new iTerm tab
               try {
                 execSync(
-                  `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${twin.tmuxSession}"' 2>/dev/null`
+                  `osascript -e 'tell application "iTerm2" to tell current window to create tab with default profile command "tmux attach -t ${agentEndpoint.tmuxSession}"' 2>/dev/null`
                 );
               } catch {
                 try {
-                  execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${twin.tmuxSession}"`);
+                  execSync(`tmux new-window -n "${agent.name}" "tmux attach -t ${agentEndpoint.tmuxSession}"`);
                 } catch { /* noop */ }
               }
             }
@@ -1438,19 +1394,19 @@ function App() {
         }
       }
 
-      // u → bring up a twin (start it if it has a registered cwd)
+      // u → bring up a agentEndpoint (start it if it has a registered cwd)
       if (key.name === "u") {
         const agent = alive[selectedAgent];
         if (agent) {
-          const twin = twins[agent.name];
-          if (twin && !isTwinAlive(twin.tmuxSession)) {
-            // Twin is registered but offline — restart it
+          const agentEndpoint = agentEndpoints[agent.name];
+          if (agentEndpoint && !isLocalAgentAlive(agentEndpoint.tmuxSession)) {
+            // Local agent is registered but offline — restart it
             try {
-              execSync(`openscout relay up ${JSON.stringify(twin.cwd)} --name ${agent.name}`, { stdio: "ignore", timeout: 10000 });
+              execSync(`openscout relay up ${JSON.stringify(agentEndpoint.cwd)} --name ${agent.name}`, { stdio: "ignore", timeout: 10000 });
               refresh();
             } catch { /* noop */ }
-          } else if (!twin) {
-            // No twin registered — check if there's a known project path
+          } else if (!agentEndpoint) {
+            // No agentEndpoint registered — check if there's a known project path
             // For now, just nudge via relay if the agent is online
             try {
               writeToChannel(relayDirRef.current || "", agent.name, "SYS", "nudge");
@@ -1460,12 +1416,12 @@ function App() {
         }
       }
 
-      // d → bring down a twin
+      // d → bring down a agentEndpoint
       if (key.name === "d") {
         const agent = alive[selectedAgent];
         if (agent) {
-          const twin = twins[agent.name];
-          if (twin && isTwinAlive(twin.tmuxSession)) {
+          const agentEndpoint = agentEndpoints[agent.name];
+          if (agentEndpoint && isLocalAgentAlive(agentEndpoint.tmuxSession)) {
             try {
               execSync(`openscout relay down ${agent.name}`, { stdio: "ignore", timeout: 5000 });
               refresh();
@@ -1474,14 +1430,14 @@ function App() {
         }
       }
 
-      // n → nudge a twin (send empty Enter to wake it up)
+      // n → nudge a agentEndpoint (send empty Enter to wake it up)
       if (key.name === "n") {
         const agent = alive[selectedAgent];
         if (agent) {
-          const twin = twins[agent.name];
-          if (twin && isTwinAlive(twin.tmuxSession)) {
+          const agentEndpoint = agentEndpoints[agent.name];
+          if (agentEndpoint && isLocalAgentAlive(agentEndpoint.tmuxSession)) {
             try {
-              execSync(`tmux send-keys -t ${twin.tmuxSession} "" Enter`);
+              execSync(`tmux send-keys -t ${agentEndpoint.tmuxSession} "" Enter`);
               // Also write a heartbeat
               writeToChannel(relayDirRef.current || "", agent.name, "SYS", "heartbeat");
               refresh();
@@ -1507,7 +1463,7 @@ function App() {
     <box flexDirection="column" width={width} height={height} backgroundColor={C.bg}>
       <Header tab={tab} agentCount={agents.length} msgCount={messages.filter((m) => m.type === "MSG").length} voiceState={voiceState} isSpeaking={isSpeaking} flightsInFlight={activeFlights.length} />
 
-      <AgentCockpit twins={twins} agents={agents} voiceState={voiceState} isSpeaking={isSpeaking} partialText={partialText} pendingCount={activeFlights.length} relayDir={relayDirRef.current || ""} width={width} recordingStart={recordingStart} />
+      <AgentCockpit agentEndpoints={agentEndpoints} agents={agents} voiceState={voiceState} isSpeaking={isSpeaking} partialText={partialText} pendingCount={activeFlights.length} relayDir={relayDirRef.current || ""} width={width} recordingStart={recordingStart} />
 
       <box flexDirection="row" flexGrow={1}>
         <box flexDirection="column" flexGrow={1}>
@@ -1530,7 +1486,7 @@ function App() {
               <text fg={C.dim}>esc close · c copy</text>
             </box>
           )}
-          {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} twins={twins} />}
+          {tab === "agents" && <AgentsPanel agents={agents} selectedAgent={selectedAgent} agentEndpoints={agentEndpoints} />}
           {tab === "stats" && <StatsPanel messages={messages} agents={agents} dbEntries={dbEntries} />}
           {tab === "voice" && <VoicePanel voiceState={voiceState} partialText={partialText} thread={voiceThread} isSpeaking={isSpeaking} />}
         </box>

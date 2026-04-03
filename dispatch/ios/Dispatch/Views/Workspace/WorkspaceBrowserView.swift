@@ -21,6 +21,20 @@ struct WorkspaceBrowserView: View {
     @State private var error: String?
     @State private var workspaceConfigured = false
     @State private var selectedProject: DirectoryEntry?
+    @State private var searchText = ""
+
+    private var filteredEntries: [DirectoryEntry] {
+        let tokens = searchText.searchTokens
+        guard !tokens.isEmpty else { return entries }
+
+        return entries.filter { entry in
+            tokens.allSatisfy { token in
+                entry.name.localizedCaseInsensitiveContains(token)
+                    || entry.path.localizedCaseInsensitiveContains(token)
+                    || entry.markers.contains(where: { $0.localizedCaseInsensitiveContains(token) })
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -43,6 +57,7 @@ struct WorkspaceBrowserView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .searchable(text: $searchText, prompt: "Find projects or folders")
             .overlay {
                 if isOpening {
                     openingOverlay
@@ -52,8 +67,8 @@ struct WorkspaceBrowserView: View {
                 HarnessPickerView(
                     projectName: project.name,
                     projectPath: project.path
-                ) { harness in
-                    openProject(project, harness: harness)
+                ) { config in
+                    openProject(project, config: config)
                 }
             }
         }
@@ -72,10 +87,12 @@ struct WorkspaceBrowserView: View {
 
             if entries.isEmpty {
                 emptyDirectory
+            } else if filteredEntries.isEmpty {
+                emptySearchResults
             } else {
                 List {
-                    let projects = entries.filter(\.isProject)
-                    let dirs = entries.filter { !$0.isProject }
+                    let projects = filteredEntries.filter(\.isProject)
+                    let dirs = filteredEntries.filter { !$0.isProject }
 
                     if !projects.isEmpty {
                         Section {
@@ -240,6 +257,23 @@ struct WorkspaceBrowserView: View {
         }
     }
 
+    private var emptySearchResults: some View {
+        VStack(spacing: DispatchSpacing.lg) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(DispatchColors.textMuted)
+            Text("No projects match")
+                .font(DispatchTypography.body(15, weight: .semibold))
+                .foregroundStyle(DispatchColors.textPrimary)
+            Text("Try a broader search for the project or folder name.")
+                .font(DispatchTypography.body(13))
+                .foregroundStyle(DispatchColors.textSecondary)
+            Spacer()
+        }
+        .padding(.horizontal, DispatchSpacing.xxl)
+    }
+
     // MARK: - Actions
 
     private func loadWorkspace() async {
@@ -289,18 +323,17 @@ struct WorkspaceBrowserView: View {
         }
     }
 
-    private func openProject(_ entry: DirectoryEntry, harness: Harness? = nil) {
+    private func openProject(_ entry: DirectoryEntry, config: HarnessConfig) {
         guard !isOpening else { return }
         isOpening = true
 
-        let adapter = harness?.id ?? "claude-code"
-
         Task {
             do {
-                let session = try await connection.workspaceOpen(
-                    path: entry.path,
-                    adapter: adapter,
-                    name: entry.name
+                let session = try await connection.createSession(
+                    adapterType: config.harness.id,
+                    name: entry.name,
+                    cwd: entry.path,
+                    options: launchOptions(for: config)
                 )
                 dismiss()
                 try? await Task.sleep(for: .milliseconds(300))
@@ -310,6 +343,16 @@ struct WorkspaceBrowserView: View {
                 self.error = error.localizedDescription
             }
         }
+    }
+
+    private func launchOptions(for config: HarnessConfig) -> [String: AnyCodable]? {
+        var options: [String: AnyCodable] = [:]
+
+        if let model = config.model?.trimmedNonEmpty {
+            options["model"] = AnyCodable(model)
+        }
+
+        return options.isEmpty ? nil : options
     }
 }
 

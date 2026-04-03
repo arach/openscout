@@ -3,19 +3,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { HostTwinActionAdapter } from "../protocol.js";
-import type { TwinActionRequest, TwinActionResult } from "../../twin-actions/protocol.js";
-import { buildTwinActionCommand, parseTwinActionResult } from "../shared/twin-action-command.js";
+import type { HostAgentActionAdapter } from "../protocol.js";
+import type { AgentActionRequest, AgentActionResult } from "../../agent-actions/protocol.js";
+import { buildAgentActionCommand, parseAgentActionResult } from "../shared/agent-action-command.js";
 
-interface CodexExecTwinActionOptions {
-  request: TwinActionRequest;
+interface CodexExecAgentActionOptions {
+  request: AgentActionRequest;
   cwd?: string;
   codexBinary?: string;
 }
 
 function buildCodexPrompt(command: string): string {
   return [
-    "You are a thin twin invocation wrapper.",
+    "You are a thin agent invocation wrapper.",
     "Do not answer from your own knowledge.",
     "Run exactly one shell command and return only the command's JSON output as your final response.",
     "",
@@ -23,13 +23,13 @@ function buildCodexPrompt(command: string): string {
   ].join("\n");
 }
 
-export async function invokeCodexExecTwinAction(
-  options: CodexExecTwinActionOptions,
-): Promise<TwinActionResult> {
+export async function invokeCodexExecAgentAction(
+  options: CodexExecAgentActionOptions,
+): Promise<AgentActionResult> {
   const codexBinary = options.codexBinary ?? "codex";
   const cwd = options.cwd ?? process.cwd();
   const relayHome = join(homedir(), ".openscout");
-  const command = buildTwinActionCommand(options.request);
+  const command = buildAgentActionCommand(options.request);
   const prompt = buildCodexPrompt(command);
   const tempDir = await mkdtemp(join(tmpdir(), "relay-codex-"));
   const outputFile = join(tempDir, "last-message.txt");
@@ -53,7 +53,7 @@ export async function invokeCodexExecTwinAction(
   ];
 
   try {
-    return await new Promise<TwinActionResult>((resolvePromise, reject) => {
+    return await new Promise<AgentActionResult>((resolvePromise, reject) => {
       const child = spawn(codexBinary, args, {
         cwd,
         stdio: ["ignore", "pipe", "pipe"],
@@ -83,11 +83,11 @@ export async function invokeCodexExecTwinAction(
           }
 
           const output = await readFile(outputFile, "utf8");
-          resolvePromise(parseTwinActionResult(output));
+          resolvePromise(parseAgentActionResult(output));
         } catch (error) {
           reject(
             new Error(
-              `failed to parse Codex twin action output: ${
+              `failed to parse Codex agent action output: ${
                 error instanceof Error ? error.message : String(error)
               }\n${stdout.trim()}`,
             ),
@@ -100,13 +100,13 @@ export async function invokeCodexExecTwinAction(
   }
 }
 
-export function createCodexExecTwinActionAdapter(
+export function createCodexExecAgentActionAdapter(
   cwd?: string,
-): HostTwinActionAdapter {
+): HostAgentActionAdapter {
   return {
     host: "codex",
-    invokeTwinAction(request: TwinActionRequest): Promise<TwinActionResult> {
-      return invokeCodexExecTwinAction({ request, cwd });
+    invokeAgentAction(request: AgentActionRequest): Promise<AgentActionResult> {
+      return invokeCodexExecAgentAction({ request, cwd });
     },
   };
 }

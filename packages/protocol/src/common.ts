@@ -47,6 +47,8 @@ export type DeliveryTransport =
   | "email"
   | "tts"
   | "native_voice"
+  | "claude_stream_json"
+  | "codex_app_server"
   | "codex_exec"
   | "claude_resume"
   | "tmux";

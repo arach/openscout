@@ -435,7 +435,7 @@ export async function handleRPC(bridge: Bridge, req: RPCRequest): Promise<RPCRes
       case "history/discover": {
         const p = req.params as { maxAge?: number; limit?: number; project?: string } | null;
         const maxAgeDays = p?.maxAge ?? 14;
-        const limit = p?.limit ?? 100;
+        const limit = p?.limit ?? 250;
         const projectFilter = p?.project;
 
         let sessions = await discoverSessionFiles(maxAgeDays, limit);
@@ -450,10 +450,11 @@ export async function handleRPC(bridge: Bridge, req: RPCRequest): Promise<RPCRes
         const p = req.params as { query: string; maxAge?: number; limit?: number };
 
         const maxAge = p.maxAge ?? 14;
-        const limit = p.limit ?? 20;
+        const limit = p.limit ?? 50;
 
         // Search across all discovered JSONL files using grep
-        const sessions = await discoverSessionFiles(maxAge, 200);
+        const candidateLimit = Math.max(limit * 10, 1000);
+        const sessions = await discoverSessionFiles(maxAge, candidateLimit);
         const matches: Array<{
           path: string;
           project: string;

@@ -25,6 +25,7 @@
 /native/engine/.swiftpm
 
 # relay data (local state, not source)
+.openscout/project.json
 .openscout/relay/
 .openscout/relay.json
 
@@ -54,3 +55,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 packages/relay/relay-docs/dist/
+
+# iOS derived data / build artifacts
+dispatch/ios/.derived-iphone/
+dispatch/ios/.asc/artifacts/

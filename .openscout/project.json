@@ -2,25 +2,22 @@
   "version": 1,
   "project": {
     "id": "openscout",
-    "name": "OpenScout",
+    "name": "Openscout",
     "root": "."
   },
   "agent": {
     "id": "openscout",
-    "displayName": "OpenScout",
+    "displayName": "Openscout",
     "prompt": {},
     "runtime": {
-      "defaults": {
-        "cwd": ".",
-        "harness": "claude",
-        "transport": "tmux",
-        "sessionId": "relay-openscout",
-        "launchArgs": [],
-        "capabilities": [
-          "chat",
-          "invoke",
-          "deliver"
-        ]
+      "defaultHarness": "claude",
+      "profiles": {
+        "claude": {
+          "cwd": ".",
+          "transport": "claude_stream_json",
+          "sessionId": "relay-openscout-claude",
+          "launchArgs": []
+        }
       }
     }
   }

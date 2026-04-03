@@ -1,28 +1,31 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  buildTwinNudge,
-  buildTwinSystemPrompt,
-  buildTwinSystemPromptTemplate,
-  renderTwinSystemPromptTemplate,
-  stripTwinReplyMetadata,
-} from "./project-twins";
+  buildTmuxLaunchShellCommand,
+  buildLocalAgentNudge,
+  buildLocalAgentSystemPrompt,
+  buildLocalAgentSystemPromptTemplate,
+  renderLocalAgentSystemPromptTemplate,
+  stripLocalAgentReplyMetadata,
+} from "./local-agents";
 
-describe("project twin prompts", () => {
+describe("local agent prompts", () => {
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
     process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
     process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
 
-    const prompt = buildTwinSystemPrompt("shaper", "shaper", "/Users/arach/dev/shaper");
+    const prompt = buildLocalAgentSystemPrompt("shaper", "shaper", "/Users/arach/dev/shaper");
 
     expect(prompt).toContain('You are "shaper", a relay agent for the shaper project.');
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
     expect(prompt).toContain("packages/relay/src/cli.ts relay send --as shaper");
+    expect(prompt).toContain('packages/relay/src/cli.ts relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("packages/relay/src/cli.ts relay read --as shaper");
     expect(prompt).toContain("Relay protocol:");
-    expect(prompt).toContain("Do not read or write channel.log or channel.jsonl directly");
+    expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
+    expect(prompt).toContain("/Users/arach/.agents/skills/relay-agent-comms/SKILL.md");
   });
 
   test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
@@ -30,9 +33,9 @@ describe("project twin prompts", () => {
     process.env.OPENSCOUT_PROJECTS_ROOT = "/Users/arach/dev";
     process.env.OPENSCOUT_RELAY_HUB = "/Users/arach/.openscout/relay";
 
-    const prompt = renderTwinSystemPromptTemplate(
+    const prompt = renderLocalAgentSystemPromptTemplate(
       [
-        buildTwinSystemPromptTemplate(),
+        buildLocalAgentSystemPromptTemplate(),
         "",
         "Base path: {{base_path}}",
         "Workspace root: {{workspace_root}}",
@@ -41,7 +44,7 @@ describe("project twin prompts", () => {
         "Flag: {{env.OPENSCOUT_TEST_PROMPT_VAR}}",
       ].join("\n"),
       {
-        twinId: "shaper",
+        agentId: "shaper",
         displayName: "Shaper",
         projectName: "shaper",
         projectPath: "/Users/arach/dev/shaper",
@@ -50,6 +53,7 @@ describe("project twin prompts", () => {
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
         openscoutRoot: "/Users/arach/dev/openscout",
+        relayAgentCommsSkill: "/Users/arach/.agents/skills/relay-agent-comms/SKILL.md",
       },
     );
 
@@ -60,12 +64,14 @@ describe("project twin prompts", () => {
     expect(prompt).toContain("Workspace root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Broker URL: http://127.0.0.1:65535");
     expect(prompt).toContain("bun relay send --as shaper");
+    expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");
+    expect(prompt).toContain("/Users/arach/.agents/skills/relay-agent-comms/SKILL.md");
     expect(prompt).toContain("Flag: broker-ready");
   });
 
   test("nudge includes task, context, and relay reply instructions", () => {
-    const prompt = buildTwinNudge(
+    const prompt = buildLocalAgentNudge(
       "shaper",
       {
         id: "inv-1",
@@ -89,11 +95,16 @@ describe("project twin prompts", () => {
     expect(prompt).toContain("packages/relay/src/cli.ts relay read -n 20 --as shaper");
     expect(prompt).toContain('packages/relay/src/cli.ts relay send --as shaper "[ask:flt-1] @hudson <your response>"');
   });
+
+  test("tmux launch shell command quotes script paths with spaces", () => {
+    expect(buildTmuxLaunchShellCommand("/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"))
+      .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');
+  });
 });
 
-describe("project twin reply cleanup", () => {
+describe("local agent reply cleanup", () => {
   test("strips ask ids and asker mentions from replies", () => {
-    const cleaned = stripTwinReplyMetadata(
+    const cleaned = stripLocalAgentReplyMetadata(
       "[ask:flt-1] @hudson SHAPER_BROKER_OK",
       "flt-1",
       "hudson",

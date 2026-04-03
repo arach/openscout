@@ -4,19 +4,30 @@ import {
   extractAgentSelectors,
   normalizeAgentSelectorSegment,
   resolveAgentSelector,
+  type AgentHarness,
   type AgentSelector,
   type AgentSelectorCandidate,
+  type AgentState,
+  type ControlEvent,
+  type MessageRecord,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
+  loadResolvedRelayAgents,
   resolveRelayAgentConfig,
+  type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
 import {
-  ensureProjectTwinBindingOnline,
-  inferProjectTwinBinding,
-} from "@openscout/runtime/project-twins";
+  ensureLocalAgentBindingOnline,
+  inferLocalAgentBinding,
+  sendTmuxPrompt,
+  SUPPORTED_LOCAL_AGENT_HARNESSES,
+} from "@openscout/runtime/local-agents";
+import { formatRelayLogLine } from "./core/compat/channel-log.js";
+import { hasTmuxSessionSync, killTmuxSessionSync } from "./core/compat/tmux-sessions.js";
+import { readRelayMessages } from "./core/store/jsonl-store.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 const BRAND = "\x1b[32m◆\x1b[0m";
 
 const args = process.argv.slice(2);
@@ -40,7 +51,7 @@ function help() {
   print("    add <type>        Add an agent, tool, or workflow");
   print("    run               Run your agents");
   print("    list              List configured agents and tools");
-  print("    relay             File-based agent chat (relay --help)");
+  print("    relay             Broker-backed agent chat (relay --help)");
   print("    --help, -h        Show this help message");
   print("    --version, -v     Show version\n");
   print("  \x1b[1mExamples:\x1b[0m");
@@ -281,7 +292,7 @@ function getAgentName(): string {
   const asIdx = args.indexOf("--as");
   if (asIdx !== -1 && args[asIdx + 1]) return args[asIdx + 1];
   if (process.env.OPENSCOUT_AGENT) return process.env.OPENSCOUT_AGENT;
-  return `agent-${process.pid}`;
+  return OPERATOR_ID;
 }
 
 function formatTimestamp(ts: number): string {
@@ -347,6 +358,20 @@ interface BrokerAgentRecord extends BrokerActorRecord {
   authorityNodeId?: string;
 }
 
+interface BrokerEndpointRecord {
+  id: string;
+  agentId: string;
+  nodeId?: string;
+  harness?: string;
+  transport?: string;
+  state?: AgentState;
+  address?: string;
+  sessionId?: string;
+  cwd?: string;
+  projectRoot?: string;
+  metadata?: Record<string, unknown>;
+}
+
 interface BrokerConversationRecord {
   id: string;
   kind: string;
@@ -358,10 +383,14 @@ interface BrokerConversationRecord {
   metadata?: Record<string, unknown>;
 }
 
+type BrokerMessageRecord = MessageRecord;
+
 interface BrokerSnapshot {
   actors: Record<string, BrokerActorRecord>;
   agents: Record<string, BrokerAgentRecord>;
+  endpoints: Record<string, BrokerEndpointRecord>;
   conversations: Record<string, BrokerConversationRecord>;
+  messages: Record<string, BrokerMessageRecord>;
 }
 
 interface BrokerNodeRecord {
@@ -415,6 +444,108 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function normalizeUnixTimestamp(value: unknown): number | null {
+  const numeric = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number(value)
+      : Number.NaN;
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+  return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+}
+
+function maxDefined(values: Array<number | null | undefined>): number | null {
+  let maxValue: number | null = null;
+  for (const value of values) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      continue;
+    }
+    maxValue = maxValue === null ? value : Math.max(maxValue, value);
+  }
+  return maxValue;
+}
+
+type RelayWhoRegistrationKind = "broker" | "configured" | "discovered";
+
+type RelayWhoEntry = {
+  agentId: string;
+  state: AgentState | "discovered";
+  messages: number;
+  lastSeen: number | null;
+  registrationKind: RelayWhoRegistrationKind;
+};
+
+type RelayWhoLegacyStats = {
+  lastSeen: number;
+  messages: number;
+  forgotten: boolean;
+};
+
+function relayWhoStateRank(state: AgentState | "discovered"): number {
+  switch (state) {
+    case "active":
+      return 5;
+    case "waiting":
+      return 4;
+    case "degraded":
+      return 3;
+    case "idle":
+      return 2;
+    case "offline":
+      return 1;
+    case "discovered":
+    default:
+      return 0;
+  }
+}
+
+function relayWhoStatus(state: AgentState | "discovered"): string {
+  switch (state) {
+    case "active":
+      return "\x1b[32m●\x1b[0m";
+    case "waiting":
+      return "\x1b[33m●\x1b[0m";
+    case "degraded":
+      return "\x1b[33m●\x1b[0m";
+    case "idle":
+      return "\x1b[36m●\x1b[0m";
+    case "offline":
+      return "\x1b[2m○\x1b[0m";
+    case "discovered":
+    default:
+      return "\x1b[2m◇\x1b[0m";
+  }
+}
+
+function relayWhoStateLabel(state: AgentState | "discovered"): string {
+  return state === "discovered" ? "discovered" : state;
+}
+
+function relayWhoEndpointActivity(endpoint: BrokerEndpointRecord): number | null {
+  return maxDefined([
+    normalizeUnixTimestamp(endpoint.metadata?.lastCompletedAt),
+    normalizeUnixTimestamp(endpoint.metadata?.lastStartedAt),
+    normalizeUnixTimestamp(endpoint.metadata?.lastFailedAt),
+    normalizeUnixTimestamp(endpoint.metadata?.startedAt),
+  ]);
+}
+
+function relayWhoEntryState(
+  endpoints: BrokerEndpointRecord[],
+  registrationKind: RelayWhoRegistrationKind,
+): AgentState | "discovered" {
+  if (endpoints.length === 0) {
+    return registrationKind === "discovered" ? "discovered" : "offline";
+  }
+
+  return endpoints.reduce<AgentState>((bestState, endpoint) => {
+    const nextState = endpoint.state ?? "offline";
+    return relayWhoStateRank(nextState) > relayWhoStateRank(bestState) ? nextState : bestState;
+  }, "offline");
+}
+
 async function resolveMentionTargets(
   snapshot: BrokerSnapshot,
   text: string,
@@ -424,6 +555,11 @@ async function resolveMentionTargets(
   const unresolved: string[] = [];
   const legacyTargets = new Set<string>();
   const candidateMap = new Map<string, AgentSelectorCandidate>();
+  const endpointBackedAgentIds = unique(
+    Object.values(snapshot.endpoints)
+      .map((endpoint) => endpoint.agentId)
+      .filter((agentId) => agentId && agentId !== OPERATOR_ID),
+  );
   for (const agent of Object.values(snapshot.agents)) {
     candidateMap.set(agent.id, {
       agentId: agent.id,
@@ -438,7 +574,7 @@ async function resolveMentionTargets(
   }
 
   for (const selector of selectors) {
-    if (selector.definitionId === "system" || selector.definitionId === "all") {
+    if (selector.definitionId === "system") {
       continue;
     }
 
@@ -456,6 +592,21 @@ async function resolveMentionTargets(
     }
 
     const candidates = Array.from(candidateMap.values());
+    if (selector.definitionId === "all") {
+      const targetAgentIds = endpointBackedAgentIds.length > 0
+        ? endpointBackedAgentIds
+        : candidates.map((candidate) => candidate.agentId);
+      for (const agentId of targetAgentIds) {
+        resolved.set(agentId, {
+          agentId,
+          label: selector.label,
+          selector,
+        });
+        legacyTargets.add(agentId);
+      }
+      continue;
+    }
+
     const match = resolveAgentSelector(selector, candidates);
     if (!match) {
       unresolved.push(selector.label);
@@ -481,6 +632,23 @@ async function resolveMentionTargets(
       .filter(Boolean)
       .sort(),
   };
+}
+
+async function resolveSingleBrokerTarget(
+  snapshot: BrokerSnapshot,
+  label: string,
+): Promise<BrokerMentionTarget | null> {
+  const normalized = label.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const resolution = await resolveMentionTargets(
+    snapshot,
+    normalized.startsWith("@") ? normalized : `@${normalized}`,
+  );
+
+  return resolution.resolved[0] ?? null;
 }
 
 function resolveConversationShareMode(
@@ -566,6 +734,81 @@ async function loadBrokerRelayContext(): Promise<BrokerRelayContext | null> {
   }
 }
 
+function requestedHarnessFromArgs(): AgentHarness | undefined {
+  const harnessIdx = args.indexOf("--harness");
+  if (harnessIdx === -1) {
+    return undefined;
+  }
+
+  const rawHarness = args[harnessIdx + 1]?.trim();
+  if (!rawHarness) {
+    print(`\n  \x1b[31m✗\x1b[0m Missing harness value. Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}\n`);
+    process.exit(1);
+  }
+
+  if (SUPPORTED_LOCAL_AGENT_HARNESSES.includes(rawHarness as AgentHarness)) {
+    return rawHarness as AgentHarness;
+  }
+
+  print(`\n  \x1b[31m✗\x1b[0m Unsupported harness \x1b[1m${rawHarness}\x1b[0m. Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}\n`);
+  process.exit(1);
+}
+
+function relayConversationIdForChannel(channel?: string): string {
+  const normalizedChannel = channel?.trim() || "shared";
+  if (normalizedChannel === "voice") {
+    return BROKER_VOICE_CHANNEL_ID;
+  }
+  if (normalizedChannel === "system") {
+    return BROKER_SYSTEM_CHANNEL_ID;
+  }
+  if (normalizedChannel === "shared") {
+    return BROKER_SHARED_CHANNEL_ID;
+  }
+  return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
+}
+
+function relayViewTypeForMessage(message: BrokerMessageRecord): "MSG" | "SYS" {
+  return message.class === "system" || message.class === "status" ? "SYS" : "MSG";
+}
+
+function formatBrokerMessageLine(message: BrokerMessageRecord): string {
+  const ts = normalizeUnixTimestamp(message.createdAt) ?? Math.floor(Date.now() / 1000);
+  return formatLine(`${ts} ${message.actorId} ${relayViewTypeForMessage(message)} ${message.body}`);
+}
+
+async function loadBrokerMessages(
+  baseUrl: string,
+  options: {
+    conversationId?: string;
+    since?: number;
+    limit?: number;
+  } = {},
+): Promise<BrokerMessageRecord[]> {
+  const search = new URLSearchParams();
+  if (options.conversationId) {
+    search.set("conversationId", options.conversationId);
+  }
+  if (typeof options.since === "number" && Number.isFinite(options.since) && options.since > 0) {
+    search.set("since", String(options.since));
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit) && options.limit > 0) {
+    search.set("limit", String(options.limit));
+  }
+  const suffix = search.size > 0 ? `?${search.toString()}` : "";
+  return brokerReadJson<BrokerMessageRecord[]>(baseUrl, `/v1/messages${suffix}`);
+}
+
+async function requireBrokerRelayContext(): Promise<BrokerRelayContext> {
+  const broker = await loadBrokerRelayContext();
+  if (broker) {
+    return broker;
+  }
+
+  print("\n  \x1b[31m✗\x1b[0m Broker is not reachable. Start it with \x1b[1mopenscout relay init\x1b[0m.\n");
+  process.exit(1);
+}
+
 async function ensureBrokerActor(
   baseUrl: string,
   snapshot: BrokerSnapshot,
@@ -591,7 +834,7 @@ async function ensureBrokerActor(
 async function syncBrokerBinding(
   baseUrl: string,
   snapshot: BrokerSnapshot,
-  binding: Awaited<ReturnType<typeof inferProjectTwinBinding>>,
+  binding: Awaited<ReturnType<typeof inferLocalAgentBinding>>,
 ): Promise<void> {
   if (!binding) {
     return;
@@ -617,13 +860,12 @@ async function ensureSenderRelayAgent(
   const configured = await ensureRelayAgentConfigured(senderId, {
     currentDirectory: process.cwd(),
     ensureCurrentProjectConfig: true,
-    syncLegacyMirror: true,
   });
   if (!configured) {
     return;
   }
 
-  await syncBrokerBinding(baseUrl, snapshot, await inferProjectTwinBinding(configured.agentId, nodeId));
+  await syncBrokerBinding(baseUrl, snapshot, await inferLocalAgentBinding(configured.agentId, nodeId));
 }
 
 async function ensureTargetRelayAgent(
@@ -636,7 +878,7 @@ async function ensureTargetRelayAgent(
     return true;
   }
 
-  const binding = await ensureProjectTwinBindingOnline(agentId, nodeId, {
+  const binding = await ensureLocalAgentBindingOnline(agentId, nodeId, {
     includeDiscovered: true,
     currentDirectory: process.cwd(),
   });
@@ -754,6 +996,28 @@ type BrokerRelayPostResult = {
   unresolvedTargets: string[];
 };
 
+type BrokerFlightRecord = {
+  id: string;
+  invocationId: string;
+  requesterId: string;
+  targetAgentId: string;
+  state: string;
+  summary?: string;
+  output?: string;
+  error?: string;
+  startedAt?: number;
+  completedAt?: number;
+  metadata?: Record<string, unknown>;
+};
+
+type BrokerAskResult = {
+  usedBroker: boolean;
+  flight?: BrokerFlightRecord;
+  conversationId?: string;
+  messageId?: string;
+  unresolvedTarget?: string;
+};
+
 async function postRelayMessageToBroker(input: {
   senderId: string;
   body: string;
@@ -762,6 +1026,7 @@ async function postRelayMessageToBroker(input: {
   shouldSpeak?: boolean;
   mentionTargets: BrokerMentionTarget[];
   createdAtMs: number;
+  executionHarness?: AgentHarness;
 }): Promise<BrokerRelayPostResult> {
   const broker = await loadBrokerRelayContext();
   if (!broker) {
@@ -818,7 +1083,6 @@ async function postRelayMessageToBroker(input: {
     audience: validTargets.length > 0
       ? {
           notify: validTargets,
-          invoke: validTargets,
           reason: "mention",
         }
       : undefined,
@@ -842,6 +1106,11 @@ async function postRelayMessageToBroker(input: {
       task: input.body,
       conversationId: conversation.id,
       messageId: input.messageId,
+      execution: input.executionHarness
+        ? {
+            harness: input.executionHarness,
+          }
+        : undefined,
       ensureAwake: true,
       stream: false,
       createdAt: Date.now(),
@@ -859,6 +1128,171 @@ async function postRelayMessageToBroker(input: {
   };
 }
 
+async function postRelayAskToBroker(input: {
+  senderId: string;
+  targetLabel: string;
+  body: string;
+  channel?: string;
+  shouldSpeak?: boolean;
+  createdAtMs: number;
+  executionHarness?: AgentHarness;
+}): Promise<BrokerAskResult> {
+  const broker = await loadBrokerRelayContext();
+  if (!broker) {
+    return {
+      usedBroker: false,
+      unresolvedTarget: input.targetLabel,
+    };
+  }
+
+  await ensureBrokerActor(broker.baseUrl, broker.snapshot, input.senderId);
+  if (input.senderId !== OPERATOR_ID) {
+    await ensureSenderRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, input.senderId);
+  }
+
+  const target = await resolveSingleBrokerTarget(broker.snapshot, input.targetLabel);
+  if (!target) {
+    return {
+      usedBroker: true,
+      unresolvedTarget: input.targetLabel,
+    };
+  }
+
+  const targetReady = await ensureTargetRelayAgent(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    target.agentId,
+  );
+  if (!targetReady) {
+    return {
+      usedBroker: true,
+      unresolvedTarget: input.targetLabel,
+    };
+  }
+
+  const conversation = await ensureBrokerConversation(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.channel,
+    input.senderId,
+    [target.agentId],
+  );
+  const messageId = generateMessageId();
+  const messageBody = input.body.trim().startsWith(target.label)
+    ? input.body.trim()
+    : `${target.label} ${input.body.trim()}`;
+  const speechText = input.shouldSpeak ? stripAgentSelectorLabels(messageBody) : "";
+
+  await brokerPostJson(broker.baseUrl, "/v1/messages", {
+    id: messageId,
+    conversationId: conversation.id,
+    actorId: input.senderId,
+    originNodeId: broker.node.id,
+    class: conversation.kind === "system" ? "system" : "agent",
+    body: messageBody,
+    mentions: [{ actorId: target.agentId, label: target.label }],
+    speech: speechText ? { text: speechText } : undefined,
+    audience: {
+      notify: [target.agentId],
+      reason: "mention",
+    },
+    visibility: conversation.visibility,
+    policy: "durable",
+    createdAt: input.createdAtMs,
+    metadata: {
+      source: "relay-cli",
+      relayChannel: input.channel ?? "shared",
+      relayTarget: target.agentId,
+    },
+  });
+
+  const invocationId = `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const invocationResponse = await brokerPostJson<{
+    ok: boolean;
+    flight: BrokerFlightRecord;
+  }>(broker.baseUrl, "/v1/invocations", {
+    id: invocationId,
+    requesterId: input.senderId,
+    requesterNodeId: broker.node.id,
+    targetAgentId: target.agentId,
+    action: "consult",
+    task: messageBody,
+    conversationId: conversation.id,
+    messageId,
+    execution: input.executionHarness
+      ? {
+          harness: input.executionHarness,
+        }
+      : undefined,
+    ensureAwake: true,
+    stream: false,
+    createdAt: Date.now(),
+    metadata: {
+      source: "relay-cli",
+      relayChannel: input.channel ?? "shared",
+      relayTarget: target.agentId,
+    },
+  });
+
+  return {
+    usedBroker: true,
+    flight: invocationResponse.flight,
+    conversationId: conversation.id,
+    messageId,
+  };
+}
+
+async function loadBrokerFlight(baseUrl: string, flightId: string): Promise<BrokerFlightRecord | null> {
+  const snapshot = await brokerReadJson<{
+    flights?: Record<string, BrokerFlightRecord>;
+  }>(baseUrl, "/v1/snapshot");
+  return snapshot.flights?.[flightId] ?? null;
+}
+
+async function waitForBrokerFlight(
+  baseUrl: string,
+  flightId: string,
+  options: { timeoutSeconds?: number } = {},
+): Promise<BrokerFlightRecord> {
+  const deadline = typeof options.timeoutSeconds === "number" && options.timeoutSeconds > 0
+    ? Date.now() + options.timeoutSeconds * 1000
+    : null;
+  let lastState = "";
+  let lastSummary = "";
+
+  while (true) {
+    const flight = await loadBrokerFlight(baseUrl, flightId);
+    if (!flight) {
+      throw new Error(`Flight ${flightId} is no longer available.`);
+    }
+
+    if (flight.state !== lastState || (flight.summary ?? "") !== lastSummary) {
+      const detail = [flight.state, flight.summary].filter(Boolean).join(" — ");
+      if (detail) {
+        process.stderr.write(`${detail}\n`);
+      }
+      lastState = flight.state;
+      lastSummary = flight.summary ?? "";
+    }
+
+    if (flight.state === "completed") {
+      return flight;
+    }
+
+    if (flight.state === "failed" || flight.state === "cancelled") {
+      throw new Error(flight.error || flight.summary || `Flight ${flight.id} failed.`);
+    }
+
+    if (deadline !== null && Date.now() > deadline) {
+      throw new Error(`Timed out waiting for flight ${flight.id}.`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
 async function writeChannel(hub: string, msg: Omit<ChannelMessage, "id">): Promise<ChannelMessage> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
@@ -869,40 +1303,24 @@ async function writeChannel(hub: string, msg: Omit<ChannelMessage, "id">): Promi
   await fs.appendFile(path.join(hub, "channel.jsonl"), JSON.stringify(entry) + "\n");
 
   // Human-readable mirror
-  const tagStr = entry.tags?.length ? entry.tags.map(t => `[${t}]`).join(" ") + " " : "";
-  await fs.appendFile(path.join(hub, "channel.log"), `${entry.ts} ${entry.from} ${entry.type} ${tagStr}${entry.body}\n`);
+  await fs.appendFile(path.join(hub, "channel.log"), formatRelayLogLine(entry));
 
   return entry;
 }
 
 
 async function readChannel(hub: string, opts?: { since?: number; last?: number; id?: string }): Promise<ChannelMessage[]> {
-  const fs = await import("node:fs/promises");
-  const path = await import("node:path");
-
-  let content: string;
-  try {
-    content = await fs.readFile(path.join(hub, "channel.jsonl"), "utf-8");
-  } catch {
-    return [];
-  }
-
-  const lines = content.trim().split("\n").filter(Boolean);
-  let messages: ChannelMessage[] = lines.map(line => {
-    try { return JSON.parse(line); } catch { return null; }
-  }).filter(Boolean);
-
-  if (opts?.id) {
-    const idx = messages.findIndex(m => m.id === opts.id);
-    return idx >= 0 ? [messages[idx]] : [];
-  }
-  if (opts?.since) {
-    messages = messages.filter(m => m.ts > opts.since!);
-  }
-  if (opts?.last) {
-    messages = messages.slice(-opts.last);
-  }
-  return messages;
+  const messages = await readRelayMessages(hub, opts);
+  return messages.map((message) => ({
+    id: message.id,
+    ts: message.ts,
+    from: message.from,
+    type: message.type,
+    body: message.body,
+    tags: message.tags,
+    to: message.to,
+    channel: message.channel,
+  }));
 }
 
 async function getGlobalRelayDir(): Promise<string> {
@@ -968,7 +1386,7 @@ interface RelayConfig {
   projectRoot?: string;  // e.g. "~/dev" — where bare project names are resolved
   channels?: Record<string, ChannelConfig>;  // channel-level settings (e.g. "voice": { audio: true })
   defaultVoice?: string; // default TTS voice (default: "nova")
-  roster?: string[];     // project names to auto-start as twins (e.g. ["dev", "lattices", "arc"])
+  roster?: string[];     // project names to auto-start as local agents (e.g. ["dev", "lattices", "arc"])
   pronunciations?: Record<string, string>;  // e.g. { "arach": "ah-rahsh", "openscout": "open scout" }
   openaiApiKey?: string;  // fallback if OPENAI_API_KEY env var not set
 }
@@ -1012,63 +1430,29 @@ async function resolveProjectPath(target: string): Promise<string> {
 }
 
 async function relayInit() {
-  const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const os = await import("node:os");
-
-  // Create global relay hub
-  const hub = await getGlobalRelayDir();
-  await fs.mkdir(hub, { recursive: true });
-
-  const configPath = path.join(hub, "config.json");
-  const logPath = path.join(hub, "channel.log");
-
-  // Write config if it doesn't exist
-  try {
-    await fs.access(configPath);
-  } catch {
-    await fs.writeFile(
-      configPath,
-      JSON.stringify({
-        agents: [],
-        created: Date.now(),
-        channels: { voice: { audio: true } },
-      }, null, 2) + "\n"
-    );
-  }
-
-  // Create log if it doesn't exist
-  try {
-    await fs.access(logPath);
-  } catch {
-    await fs.writeFile(logPath, "");
-  }
-
-  // Create local link in current project (so agents in this dir find the hub)
-  const localDir = path.join(process.cwd(), ".openscout");
-  await fs.mkdir(localDir, { recursive: true });
-  const linkPath = path.join(localDir, "relay.json");
-  const hubShort = hub.replace(os.homedir(), "~");
-  await fs.writeFile(
-    linkPath,
-    JSON.stringify({ hub: hubShort, linkedAt: new Date().toISOString() }, null, 2) + "\n"
-  );
-
-  // Write a SYS init line
-  const cwd = process.cwd();
-  const projectName = cwd.split("/").pop() || "unknown";
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: projectName, type: "SYS", body: `${projectName} linked to the relay` });
+  const broker = await loadBrokerRelayContext();
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory: process.cwd(),
+    ensureCurrentProjectConfig: true,
+  });
+  const projectName = path.basename(process.cwd());
 
   printBrand();
-  print(`  \x1b[32m✓\x1b[0m Global relay hub: \x1b[1m${hubShort}/\x1b[0m`);
-  print(`  \x1b[32m✓\x1b[0m Local link: \x1b[1m.openscout/relay.json\x1b[0m → hub`);
-  print(`  \x1b[32m✓\x1b[0m Channel log: \x1b[1m${hubShort}/channel.log\x1b[0m\n`);
-  print("  \x1b[2mAll projects linked to the same hub share one channel.\x1b[0m");
-  print("  \x1b[2mRun this in each project directory to link it.\x1b[0m\n");
+  if (broker) {
+    print(`  \x1b[32m✓\x1b[0m Broker: \x1b[1m${broker.baseUrl}\x1b[0m`);
+  } else {
+    print(`  \x1b[33m○\x1b[0m Broker: \x1b[1m${resolveBrokerUrl()}\x1b[0m`);
+    print("  \x1b[2mBroker is not reachable yet.\x1b[0m");
+  }
+  if (setup.currentProjectConfigPath) {
+    print(`  \x1b[32m✓\x1b[0m Project config: \x1b[1m${setup.currentProjectConfigPath}\x1b[0m`);
+  }
+  print(`  \x1b[32m✓\x1b[0m Workspace ready: \x1b[1m${projectName}\x1b[0m\n`);
   print("  \x1b[1mUsage:\x1b[0m");
   print("    openscout relay send --as agent-a \"hello\"");
-  print("    openscout relay read");
-  print("    openscout relay watch --as agent-a\n");
+  print("    openscout relay read --channel shared");
+  print("    openscout relay watch --channel shared\n");
 }
 
 interface AgentRegistryEntry {
@@ -1281,21 +1665,21 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
   const hub = await getGlobalRelayDir();
 
   if (cmd === "ps") {
-    const twins = await loadTwins();
-    const names = Object.keys(twins);
-    if (names.length === 0) return "no twins running";
+    const localAgents = await loadLocalAgents();
+    const names = Object.keys(localAgents);
+    if (names.length === 0) return "no local agents running";
 
     const now = Math.floor(Date.now() / 1000);
     const lines: string[] = [];
     for (const name of names) {
-      const twin = twins[name];
-      const alive = await isTmuxSessionAlive(twin.tmuxSession);
-      const uptime = now - twin.startedAt;
+      const localAgent = localAgents[name];
+      const alive = await isTmuxSessionAlive(localAgent.tmuxSession);
+      const uptime = now - localAgent.startedAt;
       const uptimeStr = uptime < 60 ? `${uptime}s`
         : uptime < 3600 ? `${Math.floor(uptime / 60)}m`
         : `${Math.floor(uptime / 3600)}h`;
       const icon = alive ? "●" : "✗";
-      lines.push(`${icon} ${name} (${twin.project}, ${uptimeStr})`);
+      lines.push(`${icon} ${name} (${localAgent.project}, ${uptimeStr})`);
     }
     return lines.join(" | ");
   }
@@ -1324,10 +1708,10 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     // Show roster
     const roster = config.roster || [];
     if (roster.length === 0) return "roster is empty — add with: @system roster add <name>";
-    const twins = await loadTwins();
+    const localAgents = await loadLocalAgents();
     const status = await Promise.all(roster.map(async (name) => {
-      const twin = twins[name];
-      const alive = twin && await isTmuxSessionAlive(twin.tmuxSession);
+      const localAgent = localAgents[name];
+      const alive = localAgent && await isTmuxSessionAlive(localAgent.tmuxSession);
       return `${alive ? "●" : "○"} ${name}`;
     }));
     return status.join("  ");
@@ -1358,43 +1742,43 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
         } catch { results.push(`${name} (not found)`); continue; }
 
         const projectName = path.basename(projectPath);
-        const twinName = name;
+        const agentName = name;
         const hubShort = hub.replace(os.homedir(), "~");
         const systemPrompt = [
-          `You are "${twinName}", a relay twin for the ${projectName} project.`,
+          `You are "${agentName}", a relay agent for the ${projectName} project.`,
           `You have full access to the codebase at ${projectPath}.`,
           `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
-          `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
-          `Always reply via: openscout relay send --as ${twinName} "your message"`,
-          `Read context via: openscout relay read --as ${twinName}`,
-          `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
+          `Respond to @${agentName} mentions, answer questions about this project, coordinate with other agents.`,
+          `Always reply via: openscout relay send --as ${agentName} "your message"`,
+          `Read context via: openscout relay read --as ${agentName}`,
+          `To speak aloud to the human: openscout relay speak --as ${agentName} "your answer"`,
           `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
-          `Do not read or write channel.log or channel.jsonl directly.`,
+          `Do not use file-backed relay state directly.`,
           `Be specific with file paths. Keep messages under 200 chars.`,
         ].join("\n");
 
-        const twinDir = path.join(hub, "twins");
-        await fs.mkdir(twinDir, { recursive: true });
-        const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+        const agentDirectory = path.join(hub, "agents");
+        await fs.mkdir(agentDirectory, { recursive: true });
+        const promptFile = path.join(agentDirectory, `${agentName}.prompt.txt`);
         await fs.writeFile(promptFile, systemPrompt);
-        const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
-        const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+        const initialMsg = `You are now online as a relay agent for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
+        const initialFile = path.join(agentDirectory, `${agentName}.initial.txt`);
         await fs.writeFile(initialFile, initialMsg);
-        const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+        const launchScript = path.join(agentDirectory, `${agentName}.launch.sh`);
         await fs.writeFile(launchScript, [
           `#!/bin/bash`,
           `cd ${JSON.stringify(projectPath)}`,
-          `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-          `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+          `(sleep 5 && BUFFER_NAME="openscout-init-${agentName}-$$" && tmux load-buffer -b "$BUFFER_NAME" ${JSON.stringify(initialFile)} && tmux paste-buffer -d -b "$BUFFER_NAME" -t ${tmuxSession} && tmux send-keys -t ${tmuxSession} Enter) &`,
+          `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${agentName}-relay-agent"`,
         ].join("\n") + "\n");
         await fs.chmod(launchScript, 0o755);
         execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
 
-        const currentTwins = await loadTwins();
-        currentTwins[twinName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
-        await saveTwins(currentTwins);
+        const currentLocalAgents = await loadLocalAgents();
+        currentLocalAgents[agentName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
+        await saveLocalAgents(currentLocalAgents);
 
-        await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
+        await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agentName, type: "SYS", body: `agent spawned for ${projectName}` });
         results.push(`${name} (up)`);
       }
       return results.join(", ");
@@ -1412,48 +1796,48 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     }
 
     const projectName = path.basename(projectPath);
-    const twinName = parts[2] || projectName; // optional alias as 3rd arg
-    const tmuxSession = `relay-${tmuxSafe(twinName)}`;
+    const agentName = parts[2] || projectName; // optional alias as 3rd arg
+    const tmuxSession = `relay-${tmuxSafe(agentName)}`;
 
     // Check if already running
     if (await isTmuxSessionAlive(tmuxSession)) {
-      return `${twinName} is already running`;
+      return `${agentName} is already running`;
     }
 
     // Build system prompt
     const hubShort = hub.replace(os.homedir(), "~");
     const systemPrompt = [
-      `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
+      `You are "${agentName}", a relay agent — a headless agent that handles relay communication for the ${projectName} project.`,
       `You have full access to the codebase at ${projectPath}.`,
       `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
-      `Your job: respond to @${twinName} mentions, answer questions about this project's code, coordinate with other agents.`,
+      `Your job: respond to @${agentName} mentions, answer questions about this project's code, coordinate with other agents.`,
       `Relay commands:`,
-      `  openscout relay send --as ${twinName} "your message"`,
-      `  openscout relay speak --as ${twinName} "your message"  (speaks aloud to the human via TTS)`,
-      `  openscout relay read --as ${twinName}`,
+      `  openscout relay send --as ${agentName} "your message"`,
+      `  openscout relay speak --as ${agentName} "your message"  (speaks aloud to the human via TTS)`,
+      `  openscout relay read --as ${agentName}`,
       `  openscout relay who`,
       `Audio: the human may be in a voice conversation. Use 'relay speak' when you have a substantive`,
       `answer or result for the human. Do NOT speak acks, status updates, or agent-to-agent chatter.`,
       `Only speak the final, meaningful response directed at a human.`,
-      `Rules: always reply via relay send, do not read or write channel.log or channel.jsonl directly, be specific with file paths, keep messages under 200 chars.`,
+      `Rules: always reply via relay send, do not use file-backed relay state directly, be specific with file paths, keep messages under 200 chars.`,
     ].join("\n");
 
     // Write files
-    const twinDir = path.join(hub, "twins");
-    await fs.mkdir(twinDir, { recursive: true });
-    const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+    const agentDirectory = path.join(hub, "agents");
+    await fs.mkdir(agentDirectory, { recursive: true });
+    const promptFile = path.join(agentDirectory, `${agentName}.prompt.txt`);
     await fs.writeFile(promptFile, systemPrompt);
 
-    const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
-    const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+    const initialMsg = `You are now online as a relay agent for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
+    const initialFile = path.join(agentDirectory, `${agentName}.initial.txt`);
     await fs.writeFile(initialFile, initialMsg);
 
-    const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+    const launchScript = path.join(agentDirectory, `${agentName}.launch.sh`);
     await fs.writeFile(launchScript, [
       `#!/bin/bash`,
       `cd ${JSON.stringify(projectPath)}`,
-      `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+      `(sleep 5 && BUFFER_NAME="openscout-init-${agentName}-$$" && tmux load-buffer -b "$BUFFER_NAME" ${JSON.stringify(initialFile)} && tmux paste-buffer -d -b "$BUFFER_NAME" -t ${tmuxSession} && tmux send-keys -t ${tmuxSession} Enter) &`,
+      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${agentName}-relay-agent"`,
     ].join("\n") + "\n");
     await fs.chmod(launchScript, 0o755);
 
@@ -1461,58 +1845,55 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
     execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
 
     // Save registry
-    const twins = await loadTwins();
-    twins[twinName] = {
+    const localAgents = await loadLocalAgents();
+    localAgents[agentName] = {
       project: projectName,
       tmuxSession,
       cwd: projectPath,
       startedAt: Math.floor(Date.now() / 1000),
     };
-    await saveTwins(twins);
+    await saveLocalAgents(localAgents);
 
-    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
+    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agentName, type: "SYS", body: `agent spawned for ${projectName}` });
 
-    return `✓ spawned ${twinName} (tmux: ${tmuxSession})`;
+    return `✓ spawned ${agentName} (tmux: ${tmuxSession})`;
   }
 
   if (cmd === "down") {
     const target = parts[1];
     if (!target) return "usage: @system down <name> | @system down --all";
 
-    const twins = await loadTwins();
+    const localAgents = await loadLocalAgents();
 
     if (target === "--all") {
-      const names = Object.keys(twins);
-      if (names.length === 0) return "no twins to stop";
+      const names = Object.keys(localAgents);
+      if (names.length === 0) return "no local agents to stop";
       const results: string[] = [];
       for (const name of names) {
-        try {
-          execSync(`tmux kill-session -t ${twins[name].tmuxSession} 2>/dev/null`);
+        if (killTmuxSessionSync(localAgents[name].tmuxSession)) {
           results.push(`✓ ${name}`);
-        } catch {
+        } else {
           results.push(`○ ${name} (already stopped)`);
         }
       }
-      await saveTwins({});
-      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all twins stopped" });
+      await saveLocalAgents({});
+      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all local agents stopped" });
       return results.join(", ");
     }
 
-    const twin = twins[target];
-    if (!twin) {
-      const names = Object.keys(twins);
+    const localAgent = localAgents[target];
+    if (!localAgent) {
+      const names = Object.keys(localAgents);
       return names.length > 0
-        ? `no twin named ${target}. running: ${names.join(", ")}`
-        : `no twin named ${target}`;
+        ? `no local agent named ${target}. running: ${names.join(", ")}`
+        : `no local agent named ${target}`;
     }
 
-    try {
-      execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
-    } catch { /* already gone */ }
-    delete twins[target];
-    await saveTwins(twins);
+    killTmuxSessionSync(localAgent.tmuxSession);
+    delete localAgents[target];
+    await saveLocalAgents(localAgents);
 
-    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: target, type: "SYS", body: "twin stopped" });
+    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: target, type: "SYS", body: "agent stopped" });
     return `✓ stopped ${target}`;
   }
 
@@ -1571,14 +1952,12 @@ async function handleSystemCommand(from: string, message: string): Promise<strin
 }
 
 async function relaySend() {
-  const fs = await import("node:fs/promises");
-  const { hub, logPath } = await requireRelay();
-
   // Collect message: everything after "send" that isn't a flag
   const sendIdx = args.indexOf("send");
   const msgParts: string[] = [];
   let channel: string | undefined;
   let shouldSpeak = false;
+  const requestedHarness = requestedHarnessFromArgs();
   let i = sendIdx + 1;
   while (i < args.length) {
     if (args[i] === "--as") {
@@ -1595,6 +1974,10 @@ async function relaySend() {
       i++;
       continue;
     }
+    if (args[i] === "--harness") {
+      i += 2;
+      continue;
+    }
     msgParts.push(args[i]);
     i++;
   }
@@ -1606,96 +1989,61 @@ async function relaySend() {
   }
 
   const agent = getAgentName();
-  const ts = Math.floor(Date.now() / 1000);
-  const tags = shouldSpeak ? ["speak"] : [];
-  const broker = await loadBrokerRelayContext();
+  const createdAtMs = Date.now();
+  const ts = Math.floor(createdAtMs / 1000);
+  const broker = await requireBrokerRelayContext();
+  if (broker && msgParts.length > 1 && !msgParts[0]?.startsWith("@")) {
+    const positionalTarget = await resolveSingleBrokerTarget(broker.snapshot, msgParts[0] ?? "");
+    if (positionalTarget) {
+      print(`\n  \x1b[31m✗\x1b[0m Positional relay targets are deprecated.\n`);
+      print(`  Use \x1b[1mopenscout relay ask --to ${positionalTarget.agentId}${agent !== OPERATOR_ID ? ` --as ${agent}` : ""} ${JSON.stringify(msgParts.slice(1).join(" ").trim())}\x1b[0m\n`);
+      process.exit(1);
+    }
+  }
   const mentionResolution = broker
     ? await resolveMentionTargets(broker.snapshot, message)
     : { resolved: [] as BrokerMentionTarget[], unresolved: [] as string[], legacyTargets: [] as string[] };
-  const legacyMentions = mentionResolution.legacyTargets;
+  const brokerMessageId = generateMessageId();
 
-  const entry = await writeChannel(hub, {
-    ts, from: agent, type: "MSG", body: message,
-    tags: tags.length ? tags : undefined,
-    to: legacyMentions.length ? legacyMentions : undefined,
-    channel,
-  });
-
-  print(formatLine(`${ts} ${agent} MSG ${tags.map(t => `[${t}]`).join(" ")}${tags.length ? " " : ""}${message}`));
-
-  // Track the origin channel for audio responses
-  const config = await loadRelayConfig();
-  const audioEnabled = isAudioChannel(config, channel);
-
-  // Check for @system command
-  if (message.match(/@system\b/i)) {
-    const result = await handleSystemCommand(agent, message);
-    if (result) {
-      const replyTs = Math.floor(Date.now() / 1000);
-      await writeChannel(hub, { ts: replyTs, from: "system", type: "MSG", body: `@${agent} ${result}`, to: [agent] });
-      print(formatLine(`${replyTs} system MSG @${agent} ${result}`));
-
-      // Audio channel → speak the system response
-      if (audioEnabled) {
-        const voice = getVoiceForChannel(config, channel);
-        speak(result, voice);
-      }
-    }
-    return;
-  }
+  print(formatLine(`${ts} ${agent} MSG ${shouldSpeak ? "[speak] " : ""}${message}`));
 
   // Notify @mentioned agents
-  const brokerResult = broker
-    ? await postRelayMessageToBroker({
-        senderId: agent,
-        body: message,
-        messageId: entry.id,
-        channel,
-        shouldSpeak,
-        mentionTargets: mentionResolution.resolved,
-        createdAtMs: Date.now(),
-      })
-    : {
-        usedBroker: false,
-        invokedTargets: [] as string[],
-        unresolvedTargets: [...mentionResolution.unresolved, ...legacyMentions],
-      };
-  if (brokerResult.usedBroker) {
-    for (const target of brokerResult.invokedTargets) {
-      print(`  \x1b[32m✓\x1b[0m Routed to ${target} via broker invocation`);
-    }
+  const brokerResult = await postRelayMessageToBroker({
+    senderId: agent,
+    body: message,
+    messageId: brokerMessageId,
+    channel,
+    shouldSpeak,
+    mentionTargets: mentionResolution.resolved,
+    createdAtMs,
+    executionHarness: requestedHarness,
+  });
+  if (!brokerResult.usedBroker) {
+    print("\n  \x1b[31m✗\x1b[0m Broker is not reachable.\n");
+    process.exit(1);
+  }
+  for (const target of brokerResult.invokedTargets) {
+    const harnessLabel = requestedHarness ? ` (${requestedHarness})` : "";
+    print(`  \x1b[32m✓\x1b[0m Routed to ${target}${harnessLabel} via broker invocation`);
   }
 
   for (const label of brokerResult.unresolvedTargets) {
-    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable — message queued in channel\x1b[0m`);
-  }
-
-  const fallbackTargets = legacyMentions.filter((target) => !brokerResult.invokedTargets.includes(target));
-  if (fallbackTargets.length) {
-    for (const target of fallbackTargets) {
-      if (target === agent) continue; // don't deliver to yourself
-      const result = await deliverToAgent(target, agent, message, channel, entry.id);
-      if (result === "delivered") {
-        print(`  \x1b[32m✓\x1b[0m Delivered to ${target}'s session (resumed)`);
-      } else if (result === "nudged") {
-        print(`  \x1b[33m○\x1b[0m Nudged ${target} via tmux (session not found)`);
-      } else {
-        print(`  \x1b[2m○\x1b[0m ${target} not registered — message queued in channel\x1b[0m`);
-      }
-    }
+    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable\x1b[0m`);
   }
 }
 
 async function relaySpeak() {
-  const fs = await import("node:fs/promises");
-  const { hub, logPath } = await requireRelay();
-
   // Collect message — same flag parsing as send
   const speakIdx = args.indexOf("speak");
   const msgParts: string[] = [];
+  const requestedHarness = requestedHarnessFromArgs();
   let i = speakIdx + 1;
   while (i < args.length) {
     if (args[i] === "--as") {
+      i += 2;
+      continue;
+    }
+    if (args[i] === "--harness") {
       i += 2;
       continue;
     }
@@ -1710,18 +2058,12 @@ async function relaySpeak() {
   }
 
   const agent = getAgentName();
-  const ts = Math.floor(Date.now() / 1000);
-  const broker = await loadBrokerRelayContext();
+  const createdAtMs = Date.now();
+  const ts = Math.floor(createdAtMs / 1000);
+  const broker = await requireBrokerRelayContext();
   const mentionResolution = broker
     ? await resolveMentionTargets(broker.snapshot, message)
     : { resolved: [] as BrokerMentionTarget[], unresolved: [] as string[], legacyTargets: [] as string[] };
-  const legacyMentions = mentionResolution.legacyTargets;
-
-  const entry = await writeChannel(hub, {
-    ts, from: agent, type: "MSG", body: message,
-    tags: ["speak"],
-    to: legacyMentions.length ? legacyMentions : undefined,
-  });
   print(formatLine(`${ts} ${agent} MSG [speak] ${message}`));
 
   // Acquire on-air lock, speak, then release
@@ -1738,65 +2080,58 @@ async function relaySpeak() {
   await setAgentState(agent, "idle");
   await releaseOnAir();
 
-  const brokerResult = broker
-    ? await postRelayMessageToBroker({
-        senderId: agent,
-        body: message,
-        messageId: entry.id,
-        channel: "voice",
-        shouldSpeak: true,
-        mentionTargets: mentionResolution.resolved,
-        createdAtMs: Date.now(),
-      })
-    : {
-        usedBroker: false,
-        invokedTargets: [] as string[],
-        unresolvedTargets: [...mentionResolution.unresolved, ...legacyMentions],
-      };
-  if (brokerResult.usedBroker) {
-    for (const target of brokerResult.invokedTargets) {
-      print(`  \x1b[32m✓\x1b[0m Routed to ${target} via broker invocation`);
-    }
+  const brokerResult = await postRelayMessageToBroker({
+    senderId: agent,
+    body: message,
+    messageId: generateMessageId(),
+    channel: "voice",
+    shouldSpeak: true,
+    mentionTargets: mentionResolution.resolved,
+    createdAtMs,
+    executionHarness: requestedHarness,
+  });
+  if (!brokerResult.usedBroker) {
+    print("\n  \x1b[31m✗\x1b[0m Broker is not reachable.\n");
+    process.exit(1);
+  }
+  for (const target of brokerResult.invokedTargets) {
+    const harnessLabel = requestedHarness ? ` (${requestedHarness})` : "";
+    print(`  \x1b[32m✓\x1b[0m Routed to ${target}${harnessLabel} via broker invocation`);
   }
 
   for (const label of brokerResult.unresolvedTargets) {
-    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable — message queued in channel\x1b[0m`);
-  }
-
-  const fallbackTargets = legacyMentions.filter((target) => !brokerResult.invokedTargets.includes(target));
-  if (fallbackTargets.length) {
-    for (const target of fallbackTargets) {
-      if (target === agent) continue;
-      await deliverToAgent(target, agent, message, undefined, entry.id);
-    }
+    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable\x1b[0m`);
   }
 }
 
 // ── relay ask ─────────────────────────────────────────
 
 async function relayAsk() {
-  const fs = await import("node:fs");
-  const fsP = await import("node:fs/promises");
-  const path = await import("node:path");
-  const { hub, logPath } = await requireRelay();
-
-  // Parse --twin
-  const twinIdx = args.indexOf("--twin");
-  const twinName = twinIdx !== -1 ? args[twinIdx + 1] : null;
-  if (!twinName) {
-    process.stderr.write("error: --twin <name> is required\n");
+  const toIdx = args.indexOf("--to");
+  const targetLabel = toIdx !== -1 ? args[toIdx + 1] : null;
+  if (!targetLabel) {
+    process.stderr.write("error: --to <name> is required\n");
     process.exit(1);
   }
 
-  // Parse --timeout (default 300s)
+  const requestedHarness = requestedHarnessFromArgs();
   const timeoutIdx = args.indexOf("--timeout");
-  const timeout = timeoutIdx !== -1 ? parseInt(args[timeoutIdx + 1], 10) : 300;
-
-  // Collect question — everything after "ask" that isn't a flag
-  const skipFlags = new Set(["--twin", "--as", "--timeout"]);
+  const timeoutRaw = timeoutIdx !== -1 ? args[timeoutIdx + 1] : undefined;
+  const parsedTimeout = timeoutRaw ? parseInt(timeoutRaw, 10) : undefined;
+  const skipFlags = new Set(["--to", "--as", "--timeout", "--channel", "--harness"]);
   const msgParts: string[] = [];
+  let channel: string | undefined;
+
   for (let i = 2; i < args.length; i++) {
-    if (skipFlags.has(args[i])) { i++; continue; }
+    if (args[i] === "--channel") {
+      channel = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (skipFlags.has(args[i])) {
+      i += 1;
+      continue;
+    }
     msgParts.push(args[i]);
   }
   const question = msgParts.join(" ").trim();
@@ -1806,101 +2141,32 @@ async function relayAsk() {
   }
 
   const asker = getAgentName();
+  const broker = await requireBrokerRelayContext();
+  const result = await postRelayAskToBroker({
+    senderId: asker,
+    targetLabel,
+    body: question,
+    channel,
+    createdAtMs: Date.now(),
+    executionHarness: requestedHarness,
+  });
 
-  // Verify twin is alive
-  const twins = await loadTwins();
-  const twin = twins[twinName];
-  if (!twin || !await isTmuxSessionAlive(twin.tmuxSession)) {
-    process.stderr.write(`error: twin "${twinName}" is not running\n`);
+  if (!result.usedBroker) {
+    process.stderr.write("error: broker is not reachable\n");
+    process.exit(1);
+  }
+  if (!result.flight) {
+    process.stderr.write(`error: target ${targetLabel} is not currently routable\n`);
     process.exit(1);
   }
 
-  // Create flight
-  const flight = await createFlight(asker, twinName, question);
-  process.stderr.write(`asking ${twinName}... (flight ${flight.id})\n`);
-
-  // Write tagged message to channel
-  const taggedMessage = `[ask:${flight.id}] @${twinName} ${question}`;
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: asker, type: "MSG", body: taggedMessage });
-
-  // Deliver to twin inbox
-  await deliverToAgent(twinName, asker, taggedMessage);
-
-  // Watch channel.log for twin's response
-  const stat = fs.statSync(logPath);
-  let position = stat.size;
-
-  const deadline = Date.now() + timeout * 1000;
-
-  const checkNew = (): string | null => {
-    const current = fs.statSync(logPath);
-    if (current.size <= position) return null;
-
-    const fd = fs.openSync(logPath, "r");
-    const buf = Buffer.alloc(current.size - position);
-    fs.readSync(fd, buf, 0, buf.length, position);
-    fs.closeSync(fd);
-    position = current.size;
-
-    const lines = buf.toString("utf-8").trim().split("\n").filter(Boolean);
-    for (const line of lines) {
-      const parts = line.split(" ");
-      const from = parts[1];
-      const type = parts[2];
-      const body = parts.slice(3).join(" ");
-
-      // Match: MSG from the twin that @mentions the asker
-      if (type === "MSG" && from === twinName && body.includes(`@${asker}`)) {
-        // Clean the response: strip @mentions and ask tags
-        const clean = body
-          .replace(/@[\w.-]+/g, "")
-          .replace(/\[ask:[^\]]+\]/g, "")
-          .trim();
-        return clean;
-      }
-    }
-    return null;
-  };
-
-  return new Promise<void>(async (resolve) => {
-    let done = false;
-
-    const complete = async (response: string) => {
-      if (done) return;
-      done = true;
-      watcher.close();
-      clearTimeout(timer);
-
-      const flights = await loadFlights();
-      const f = flights.find((fl) => fl.id === flight.id);
-      if (f) {
-        f.status = "completed";
-        f.response = response;
-        f.respondedAt = Math.floor(Date.now() / 1000);
-        await saveFlights(flights);
-      }
-
-      process.stderr.write(`flight ${flight.id} completed\n`);
-      process.stdout.write(response + "\n");
-      resolve();
-    };
-
-    const watcher = fs.watch(logPath, () => {
-      const response = checkNew();
-      if (response !== null) complete(response);
-    });
-
-    const timer = setTimeout(() => {
-      if (done) return;
-      watcher.close();
-      process.stderr.write(`error: timed out after ${timeout}s waiting for ${twinName}\n`);
-      process.exit(1);
-    }, timeout * 1000);
-
-    // Initial check in case the response arrived before the watcher started
-    const immediate = checkNew();
-    if (immediate !== null) complete(immediate);
-  });
+  process.stderr.write(`asking ${result.flight.targetAgentId}... (flight ${result.flight.id})\n`);
+  const completed = await waitForBrokerFlight(
+    broker.baseUrl,
+    result.flight.id,
+    { timeoutSeconds: Number.isFinite(parsedTimeout) ? parsedTimeout : undefined },
+  );
+  process.stdout.write(`${completed.output ?? completed.summary ?? ""}\n`);
 }
 
 // ── Agent state ───────────────────────────────────────
@@ -1971,7 +2237,7 @@ async function relayState() {
 }
 
 async function relayRead() {
-  const { hub } = await requireRelay();
+  const broker = await requireBrokerRelayContext();
 
   // --since <timestamp> filter
   const sinceIdx = args.indexOf("--since");
@@ -1980,8 +2246,15 @@ async function relayRead() {
   // -n <count> or default 20
   const nIdx = args.indexOf("-n");
   const count = nIdx !== -1 ? Number(args[nIdx + 1]) : 20;
+  const channelIdx = args.indexOf("--channel");
+  const channel = channelIdx !== -1 ? args[channelIdx + 1] : undefined;
+  const conversationId = relayConversationIdForChannel(channel);
 
-  const messages = await readChannel(hub, since > 0 ? { since } : { last: count });
+  const messages = await loadBrokerMessages(broker.baseUrl, {
+    conversationId,
+    since: since > 0 ? since : undefined,
+    limit: count,
+  });
 
   if (messages.length === 0) {
     print("\n  \x1b[2mNo messages.\x1b[0m\n");
@@ -1990,94 +2263,130 @@ async function relayRead() {
 
   print("");
   for (const msg of messages) {
-    const tagStr = msg.tags?.length ? msg.tags.map(t => `[${t}]`).join(" ") + " " : "";
-    print(formatLine(`${msg.ts} ${msg.from} ${msg.type} ${tagStr}${msg.body}`));
+    print(formatBrokerMessageLine(msg));
   }
   print("");
 }
 
 async function relayWatch() {
-  const fs = await import("node:fs");
-  const { hub, logPath } = await requireRelay();
-  const { execSync } = await import("node:child_process");
-
+  const broker = await requireBrokerRelayContext();
   const agent = getAgentName();
-  const tmuxIdx = args.indexOf("--tmux");
-  const tmuxPane = tmuxIdx !== -1 ? args[tmuxIdx + 1] : null;
+  const channelIdx = args.indexOf("--channel");
+  const channel = channelIdx !== -1 ? args[channelIdx + 1] : undefined;
+  const conversationId = relayConversationIdForChannel(channel);
+  const channelLabel = channel?.trim() || "shared";
 
-  // Write join message
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} joined the relay` });
+  if (args.includes("--tmux")) {
+    print("\n  \x1b[31m✗\x1b[0m relay watch no longer supports tmux pane nudges.\n");
+    process.exit(1);
+  }
 
-  // Start reading from end of file
-  const stat = fs.statSync(logPath);
-  let position = stat.size;
+  const controller = new AbortController();
+  const onSigint = () => controller.abort();
+  process.on("SIGINT", onSigint);
 
   printBrand();
-  print(`  Watching as \x1b[1m${agent}\x1b[0m ${tmuxPane ? `(nudging tmux pane ${tmuxPane})` : ""}`);
+  print(`  Watching \x1b[1m${channelLabel}\x1b[0m as \x1b[1m${agent}\x1b[0m`);
   print("  \x1b[2mPress Ctrl+C to stop\x1b[0m\n");
 
-  const readNew = () => {
-    const current = fs.statSync(logPath);
-    if (current.size <= position) return;
+  try {
+    const response = await fetch(new URL("/v1/events/stream", broker.baseUrl), {
+      headers: {
+        accept: "text/event-stream",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`/v1/events/stream returned ${response.status}`);
+    }
 
-    const fd = fs.openSync(logPath, "r");
-    const buf = Buffer.alloc(current.size - position);
-    fs.readSync(fd, buf, 0, buf.length, position);
-    fs.closeSync(fd);
-    position = current.size;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    const newContent = buf.toString("utf-8");
-    const lines = newContent.trim().split("\n").filter(Boolean);
+    const handleBlock = (block: string) => {
+      const trimmed = block.trim();
+      if (!trimmed) {
+        return;
+      }
 
-    for (const line of lines) {
-      const parts = line.split(" ");
-      const from = parts[1];
-
-      // Don't echo our own messages back
-      if (from === agent) continue;
-
-      print(formatLine(line));
-
-      // Tmux nudge
-      if (tmuxPane) {
-        const type = parts[2];
-        const body = parts.slice(3).join(" ");
-        const preview = body.length > 80 ? body.slice(0, 80) + "…" : body;
-        const nudge = type === "SYS"
-          ? `[relay] ${body}`
-          : `[relay] ${from}: ${preview}`;
-        try {
-          execSync(`tmux send-keys -t ${tmuxPane} ${JSON.stringify(nudge)} Enter`);
-        } catch {
-          // tmux not available or pane doesn't exist — silently skip
+      let eventName = "";
+      const dataLines: string[] = [];
+      for (const line of trimmed.split("\n")) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice("event:".length).trim();
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          dataLines.push(line.slice("data:".length).trim());
         }
       }
+
+      if (eventName !== "message.posted" || dataLines.length === 0) {
+        return;
+      }
+
+      let event: ControlEvent;
+      try {
+        event = JSON.parse(dataLines.join("\n")) as ControlEvent;
+      } catch {
+        return;
+      }
+
+      const message = (event as Extract<ControlEvent, { kind: "message.posted" }>).payload?.message as BrokerMessageRecord | undefined;
+      if (!message || message.conversationId !== conversationId || message.actorId === agent) {
+        return;
+      }
+
+      print(formatBrokerMessageLine(message));
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      while (true) {
+        const delimiterIndex = buffer.indexOf("\n\n");
+        if (delimiterIndex === -1) {
+          break;
+        }
+        const block = buffer.slice(0, delimiterIndex);
+        buffer = buffer.slice(delimiterIndex + 2);
+        handleBlock(block);
+      }
     }
-  };
-
-  fs.watch(logPath, () => readNew());
-
-  // Keep process alive
-  process.on("SIGINT", () => {
-    writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} left the relay` }).finally(() => {
-      print(`\n  \x1b[2m${agent} left the relay\x1b[0m\n`);
-      process.exit(0);
-    });
-  });
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === "AbortError";
+    if (!isAbort) {
+      throw error;
+    }
+  } finally {
+    process.off("SIGINT", onSigint);
+    print("\n  \x1b[2mStopped watching.\x1b[0m\n");
+  }
 }
 
 async function relayWho() {
+  const broker = await requireBrokerRelayContext();
+  await relayWhoFromBroker(broker);
+}
+
+async function loadRelayWhoLegacyStats(): Promise<Map<string, RelayWhoLegacyStats>> {
   const fs = await import("node:fs/promises");
   const { channelPath } = await requireRelay();
 
-  const content = await fs.readFile(channelPath, "utf-8");
+  let content = "";
+  try {
+    content = await fs.readFile(channelPath, "utf-8");
+  } catch {
+    return new Map();
+  }
   const lines = content.trim().split("\n").filter(Boolean);
 
-  const now = Math.floor(Date.now() / 1000);
-  const ONLINE_THRESHOLD = 600; // 10 minutes
-
-  // Build agent map from structured JSONL
-  const agents = new Map<string, { lastSeen: number; messages: number; forgotten: boolean }>();
+  const agents = new Map<string, RelayWhoLegacyStats>();
 
   for (const line of lines) {
     let entry: { ts?: number; from?: string; type?: string; body?: string };
@@ -2095,8 +2404,14 @@ async function relayWho() {
     if (type === "SYS" && body?.includes("forgotten")) agent.forgotten = true;
   }
 
-  // Filter out forgotten agents
-  const visible = [...agents.entries()].filter(([_, info]) => !info.forgotten);
+  return agents;
+}
+
+async function relayWhoLegacy() {
+  const visible = [...(await loadRelayWhoLegacyStats()).entries()].filter(([_, info]) => !info.forgotten);
+
+  const now = Math.floor(Date.now() / 1000);
+  const ONLINE_THRESHOLD = 600; // 10 minutes
 
   if (visible.length === 0) {
     print("\n  \x1b[2mNo agents have used the relay yet.\x1b[0m\n");
@@ -2113,6 +2428,109 @@ async function relayWho() {
     const msgs = info.messages === 1 ? "1 message" : `${info.messages} messages`;
     print(`  ${status} \x1b[1m${name}\x1b[0m  \x1b[2m${msgs} · last seen ${time}\x1b[0m`);
   }
+  print("");
+}
+
+async function loadRelayWhoDiscoveryMap(): Promise<Map<string, ResolvedRelayAgentConfig>> {
+  try {
+    const setup = await loadResolvedRelayAgents({
+      currentDirectory: process.cwd(),
+    });
+    return new Map(setup.discoveredAgents.map((agent) => [agent.agentId, agent]));
+  } catch {
+    return new Map();
+  }
+}
+
+async function relayWhoFromBroker(broker: BrokerRelayContext) {
+  const discoveredAgents = await loadRelayWhoDiscoveryMap();
+  const endpointsByAgent = new Map<string, BrokerEndpointRecord[]>();
+  const messageStats = new Map<string, { messages: number; lastSeen: number | null }>();
+
+  for (const endpoint of Object.values(broker.snapshot.endpoints ?? {})) {
+    if (!endpoint.agentId || endpoint.agentId === OPERATOR_ID) {
+      continue;
+    }
+    const existing = endpointsByAgent.get(endpoint.agentId) ?? [];
+    existing.push(endpoint);
+    endpointsByAgent.set(endpoint.agentId, existing);
+  }
+
+  for (const message of Object.values(broker.snapshot.messages ?? {})) {
+    if (!message.actorId || message.actorId === OPERATOR_ID) {
+      continue;
+    }
+    const current = messageStats.get(message.actorId) ?? { messages: 0, lastSeen: null };
+    current.messages += 1;
+    current.lastSeen = maxDefined([
+      current.lastSeen,
+      normalizeUnixTimestamp(message.createdAt),
+    ]);
+    messageStats.set(message.actorId, current);
+  }
+
+  const agentIds = unique([
+    ...Object.keys(broker.snapshot.agents ?? {}),
+    ...Array.from(endpointsByAgent.keys()),
+    ...Array.from(messageStats.keys()),
+    ...Array.from(discoveredAgents.keys()),
+  ])
+    .filter((agentId) => agentId && agentId !== OPERATOR_ID)
+    .sort();
+
+  const entries = agentIds.map((agentId): RelayWhoEntry => {
+    const endpoints = endpointsByAgent.get(agentId) ?? [];
+    const brokerMessages = messageStats.get(agentId);
+    const registrationKind = discoveredAgents.get(agentId)?.registrationKind ?? "broker";
+    const state = relayWhoEntryState(endpoints, registrationKind);
+    const lastSeen = maxDefined([
+      brokerMessages?.lastSeen,
+      ...endpoints.map((endpoint) => relayWhoEndpointActivity(endpoint)),
+    ]);
+    const messages = brokerMessages?.messages ?? 0;
+
+    return {
+      agentId,
+      state,
+      messages,
+      lastSeen,
+      registrationKind,
+    };
+  }).sort((lhs, rhs) => {
+    const stateDelta = relayWhoStateRank(rhs.state) - relayWhoStateRank(lhs.state);
+    if (stateDelta !== 0) {
+      return stateDelta;
+    }
+
+    const lastSeenDelta = (rhs.lastSeen ?? -1) - (lhs.lastSeen ?? -1);
+    if (lastSeenDelta !== 0) {
+      return lastSeenDelta;
+    }
+
+    return lhs.agentId.localeCompare(rhs.agentId);
+  });
+
+  if (entries.length === 0) {
+    print("\n  \x1b[2mNo relay agents are known to the broker yet.\x1b[0m\n");
+    return;
+  }
+
+  printBrand();
+  print("  \x1b[1mAgents\x1b[0m\n");
+
+  for (const entry of entries) {
+    const msgs = entry.messages === 1 ? "1 message" : `${entry.messages} messages`;
+    const lastSeenText = entry.lastSeen ? `last seen ${formatTimestamp(entry.lastSeen)}` : "not seen yet";
+    const registrationText = entry.registrationKind === "discovered" ? "auto-discovered" : null;
+    const details = [
+      relayWhoStateLabel(entry.state),
+      msgs,
+      lastSeenText,
+      registrationText,
+    ].filter(Boolean).join(" · ");
+    print(`  ${relayWhoStatus(entry.state)} \x1b[1m${entry.agentId}\x1b[0m  \x1b[2m${details}\x1b[0m`);
+  }
+
   print("");
 }
 
@@ -2191,20 +2609,18 @@ async function relayEnroll() {
   // Write a SYS event
   await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agent, type: "SYS", body: `${agent} enrolled via relay enroll` });
 
-  print(`  \x1b[32m✓\x1b[0m Wrote enrollment event to channel.log\n`);
+  print(`  \x1b[32m✓\x1b[0m Recorded enrollment event in the broker-backed relay history\n`);
 }
 
 async function relayBroadcast() {
-  const fs = await import("node:fs/promises");
-  const { execSync } = await import("node:child_process");
-  const { hub } = await requireRelay();
-
   // Collect message
   const bcIdx = args.indexOf("broadcast");
   const msgParts: string[] = [];
+  const requestedHarness = requestedHarnessFromArgs();
   let i = bcIdx + 1;
   while (i < args.length) {
     if (args[i] === "--as") { i += 2; continue; }
+    if (args[i] === "--harness") { i += 2; continue; }
     msgParts.push(args[i]);
     i++;
   }
@@ -2216,75 +2632,54 @@ async function relayBroadcast() {
   }
 
   const agent = getAgentName();
-  const ts = Math.floor(Date.now() / 1000);
-  await writeChannel(hub, { ts, from: agent, type: "MSG", body: `📢 ${message}` });
-
-  print(formatLine(`${ts} ${agent} MSG 📢 ${message}`));
-
-  // Nudge all tmux panes
-  let nudged = 0;
-  try {
-    const panes = execSync("tmux list-panes -a -F '#{pane_id}'", { encoding: "utf-8" })
-      .trim().split("\n").filter(Boolean);
-
-    const preview = message.length > 60 ? message.slice(0, 60) + "…" : message;
-    for (const pane of panes) {
-      try {
-        execSync(`tmux send-keys -t ${pane} ${JSON.stringify(`[broadcast] ${agent}: ${preview}`)} Enter`);
-        nudged++;
-      } catch {
-        // pane may not accept input — skip
-      }
-    }
-  } catch {
-    // tmux not running — that's fine
+  const broker = await requireBrokerRelayContext();
+  const createdAtMs = Date.now();
+  const ts = Math.floor(createdAtMs / 1000);
+  const body = `@all ${message}`;
+  const mentionResolution = await resolveMentionTargets(broker.snapshot, body);
+  const brokerResult = await postRelayMessageToBroker({
+    senderId: agent,
+    body,
+    messageId: generateMessageId(),
+    mentionTargets: mentionResolution.resolved,
+    createdAtMs,
+    executionHarness: requestedHarness,
+  });
+  if (!brokerResult.usedBroker) {
+    print("\n  \x1b[31m✗\x1b[0m Broker is not reachable.\n");
+    process.exit(1);
   }
 
-  if (nudged > 0) {
-    print(`  \x1b[32m✓\x1b[0m Nudged ${nudged} tmux pane${nudged === 1 ? "" : "s"}`);
+  print(formatLine(`${ts} ${agent} MSG 📢 ${message}`));
+  if (brokerResult.invokedTargets.length > 0) {
+    const harnessLabel = requestedHarness ? ` (${requestedHarness})` : "";
+    print(`  \x1b[32m✓\x1b[0m Routed to ${brokerResult.invokedTargets.length} agents${harnessLabel}`);
+  }
+  for (const label of brokerResult.unresolvedTargets) {
+    print(`  \x1b[2m○\x1b[0m ${label} is not currently routable\x1b[0m`);
   }
   print("");
 }
 
 async function relayLink() {
-  const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const os = await import("node:os");
-
-  const hub = await getGlobalRelayDir();
-  const logPath = path.join(hub, "channel.log");
-
-  // Verify global hub exists
-  try {
-    await fs.access(logPath);
-  } catch {
-    print("\n  \x1b[31m✗\x1b[0m Global relay not initialized. Run \x1b[1mopenscout relay init\x1b[0m first.\n");
-    process.exit(1);
-  }
-
-  // Create local link
-  const localDir = path.join(process.cwd(), ".openscout");
-  await fs.mkdir(localDir, { recursive: true });
-  const linkPath = path.join(localDir, "relay.json");
-  const hubShort = hub.replace(os.homedir(), "~");
-  await fs.writeFile(
-    linkPath,
-    JSON.stringify({ hub: hubShort, linkedAt: new Date().toISOString() }, null, 2) + "\n"
-  );
-
-  const cwd = process.cwd();
-  const projectName = cwd.split("/").pop() || "unknown";
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: projectName, type: "SYS", body: `${projectName} linked to the relay` });
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory: process.cwd(),
+    ensureCurrentProjectConfig: true,
+  });
+  const projectName = path.basename(process.cwd());
 
   printBrand();
-  print(`  \x1b[32m✓\x1b[0m Linked \x1b[1m${projectName}\x1b[0m → \x1b[1m${hubShort}/\x1b[0m\n`);
-  print("  Agents in this directory now share the global relay channel.");
-  print("  Run \x1b[1mopenscout relay read\x1b[0m to see messages from all projects.\n");
+  if (setup.currentProjectConfigPath) {
+    print(`  \x1b[32m✓\x1b[0m Project config: \x1b[1m${setup.currentProjectConfigPath}\x1b[0m`);
+  }
+  print(`  \x1b[32m✓\x1b[0m Workspace ready: \x1b[1m${projectName}\x1b[0m\n`);
+  print("  Run \x1b[1mopenscout relay read --channel shared\x1b[0m to inspect broker-backed messages.\n");
 }
 
-// ── Twins ─────────────────────────────────────────────
+// ── Local Agents ─────────────────────────────────────────────
 
-interface TwinEntry {
+interface LocalAgentEntry {
   project: string;
   tmuxSession: string;
   cwd: string;
@@ -2292,25 +2687,25 @@ interface TwinEntry {
   systemPrompt?: string;
 }
 
-async function loadTwins(): Promise<Record<string, TwinEntry>> {
+async function loadLocalAgents(): Promise<Record<string, LocalAgentEntry>> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const hub = await getGlobalRelayDir();
-  const twinsPath = path.join(hub, "twins.json");
+  const agentsPath = path.join(hub, "agents.json");
   try {
-    const raw = await fs.readFile(twinsPath, "utf-8");
+    const raw = await fs.readFile(agentsPath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return {};
   }
 }
 
-async function saveTwins(twins: Record<string, TwinEntry>): Promise<void> {
+async function saveLocalAgents(localAgents: Record<string, LocalAgentEntry>): Promise<void> {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const hub = await getGlobalRelayDir();
-  const twinsPath = path.join(hub, "twins.json");
-  await fs.writeFile(twinsPath, JSON.stringify(twins, null, 2) + "\n");
+  const agentsPath = path.join(hub, "agents.json");
+  await fs.writeFile(agentsPath, JSON.stringify(localAgents, null, 2) + "\n");
 }
 
 function tmuxSafe(name: string): string {
@@ -2319,13 +2714,7 @@ function tmuxSafe(name: string): string {
 }
 
 async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
-  try {
-    const { execSync } = await import("node:child_process");
-    execSync(`tmux has-session -t ${sessionName}`, { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
+  return hasTmuxSessionSync(sessionName);
 }
 
 async function relayUp() {
@@ -2343,7 +2732,7 @@ async function relayUp() {
     print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay up <project-path> [--name <alias>] [--task <description>]\n");
     print("  \x1b[1mExamples:\x1b[0m");
     print("    openscout relay up ~/dev/lattices");
-    print("    openscout relay up ~/dev/arc --name arc-twin");
+    print("    openscout relay up ~/dev/arc --name arc");
     print("    openscout relay up . --task \"monitor tests\"\n");
     process.exit(1);
   }
@@ -2364,18 +2753,18 @@ async function relayUp() {
 
   // Parse optional name
   const nameIdx = args.indexOf("--name");
-  const twinName = nameIdx !== -1 ? args[nameIdx + 1] : projectName;
+  const agentName = nameIdx !== -1 ? args[nameIdx + 1] : projectName;
 
   // Parse optional task
   const taskIdx = args.indexOf("--task");
   const task = taskIdx !== -1 ? args.slice(taskIdx + 1).filter((a) => !a.startsWith("--")).join(" ") : "";
 
-  const tmuxSession = `relay-${tmuxSafe(twinName)}`;
+  const tmuxSession = `relay-${tmuxSafe(agentName)}`;
 
   // Check if already running
   if (await isTmuxSessionAlive(tmuxSession)) {
-    print(`\n  \x1b[33m!\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is already running (tmux: ${tmuxSession})`);
-    print(`  \x1b[2mUse: openscout relay down ${twinName}\x1b[0m\n`);
+    print(`\n  \x1b[33m!\x1b[0m Local agent \x1b[1m${agentName}\x1b[0m is already running (tmux: ${tmuxSession})`);
+    print(`  \x1b[2mUse: openscout relay down ${agentName}\x1b[0m\n`);
     process.exit(1);
   }
 
@@ -2383,25 +2772,25 @@ async function relayUp() {
   const hub = await getGlobalRelayDir();
   const hubShort = hub.replace(os.homedir(), "~");
   const systemPrompt = [
-    `You are "${twinName}", a relay twin — a headless agent that handles relay communication for the ${projectName} project.`,
+    `You are "${agentName}", a relay agent — a headless agent that handles relay communication for the ${projectName} project.`,
     ``,
     `You have full access to the codebase at ${projectPath}.`,
     `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
     ``,
     `Your job:`,
-    `  - Respond to @${twinName} mentions from other agents`,
+    `  - Respond to @${agentName} mentions from other agents`,
     `  - Answer questions about this project's code, architecture, and status`,
     `  - Coordinate with other agents when they need info from this project`,
     `  - Run commands, check code, and provide accurate answers`,
     ``,
     `Relay commands:`,
-    `  openscout relay send --as ${twinName} "your message"   — send a message`,
-    `  openscout relay read --as ${twinName}                  — check recent messages`,
+    `  openscout relay send --as ${agentName} "your message"   — send a message`,
+    `  openscout relay read --as ${agentName}                  — check recent messages`,
     `  openscout relay who                                    — see who's active`,
     ``,
     `Rules:`,
     `  - Always reply via relay send so other agents see your response`,
-    `  - Do not read or write channel.log or channel.jsonl directly`,
+    `  - Do not use file-backed relay state directly`,
     `  - Be specific: include file paths, line numbers, what you found`,
     `  - Keep messages under 200 chars unless detailed info was requested`,
     `  - Check relay read for context before responding`,
@@ -2410,59 +2799,59 @@ async function relayUp() {
 
   // Create the tmux session with claude
   printBrand();
-  print(`  Spawning twin \x1b[1m${twinName}\x1b[0m...\n`);
+  print(`  Spawning local agent \x1b[1m${agentName}\x1b[0m...\n`);
 
   // Write system prompt + launcher to files (avoids shell quoting hell)
-  const twinDir = path.join(hub, "twins");
-  await fs.mkdir(twinDir, { recursive: true });
-  const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+  const agentDirectory = path.join(hub, "agents");
+  await fs.mkdir(agentDirectory, { recursive: true });
+  const promptFile = path.join(agentDirectory, `${agentName}.prompt.txt`);
   await fs.writeFile(promptFile, systemPrompt);
 
   const initialMsg = task
-    ? `You are now online as a relay twin. Your task: ${task}. Announce yourself on the relay and start working.`
-    : `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
+    ? `You are now online as a relay agent. Your task: ${task}. Announce yourself on the relay and start working.`
+    : `You are now online as a relay agent for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
 
-  const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+  const initialFile = path.join(agentDirectory, `${agentName}.initial.txt`);
   await fs.writeFile(initialFile, initialMsg);
 
   // Launcher: starts Claude interactively, then sends initial message after startup
-  const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+  const launchScript = path.join(agentDirectory, `${agentName}.launch.sh`);
   await fs.writeFile(launchScript, [
     `#!/bin/bash`,
     `cd ${JSON.stringify(projectPath)}`,
     `# Send initial message after Claude starts (background)`,
-    `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-    `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+    `(sleep 5 && BUFFER_NAME="openscout-init-${agentName}-$$" && tmux load-buffer -b "$BUFFER_NAME" ${JSON.stringify(initialFile)} && tmux paste-buffer -d -b "$BUFFER_NAME" -t ${tmuxSession} && tmux send-keys -t ${tmuxSession} Enter) &`,
+    `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${agentName}-relay-agent"`,
   ].join("\n") + "\n");
   await fs.chmod(launchScript, 0o755);
 
   // Create detached tmux session running the launcher
   execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
 
-  // Save to twins registry
-  const twins = await loadTwins();
-  twins[twinName] = {
+  // Save to localAgents registry
+  const localAgents = await loadLocalAgents();
+  localAgents[agentName] = {
     project: projectName,
     tmuxSession,
     cwd: projectPath,
     startedAt: Math.floor(Date.now() / 1000),
     systemPrompt: task || undefined,
   };
-  await saveTwins(twins);
+  await saveLocalAgents(localAgents);
 
   // Log to channel
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agentName, type: "SYS", body: `agent spawned for ${projectName}` });
 
-  print(`  \x1b[32m✓\x1b[0m Twin \x1b[1m${twinName}\x1b[0m is alive`);
+  print(`  \x1b[32m✓\x1b[0m Local agent \x1b[1m${agentName}\x1b[0m is alive`);
   print(`  \x1b[2m  tmux: ${tmuxSession}\x1b[0m`);
   print(`  \x1b[2m  cwd:  ${projectPath}\x1b[0m`);
   if (task) print(`  \x1b[2m  task: ${task}\x1b[0m`);
   print("");
   print("  \x1b[1mUseful commands:\x1b[0m");
-  print(`    tmux attach -t ${tmuxSession}        \x1b[2m# peek at the twin\x1b[0m`);
-  print(`    openscout relay send "@${twinName} hey"  \x1b[2m# talk to it\x1b[0m`);
-  print(`    openscout relay ps                    \x1b[2m# check all twins\x1b[0m`);
-  print(`    openscout relay down ${twinName}          \x1b[2m# stop it\x1b[0m\n`);
+  print(`    tmux attach -t ${tmuxSession}        \x1b[2m# peek at the local agent\x1b[0m`);
+  print(`    openscout relay send "@${agentName} hey"  \x1b[2m# talk to it\x1b[0m`);
+  print(`    openscout relay ps                    \x1b[2m# check all local agents\x1b[0m`);
+  print(`    openscout relay down ${agentName}          \x1b[2m# stop it\x1b[0m\n`);
 }
 
 async function relayDown() {
@@ -2475,68 +2864,66 @@ async function relayDown() {
   const targetName = downIdx !== -1 ? args[downIdx + 1] : undefined;
 
   if (!targetName) {
-    print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay down <twin-name>\n");
+    print("\n  \x1b[31m✗\x1b[0m Usage: openscout relay down <agent-name>\n");
     process.exit(1);
   }
 
   // Check --all flag
   if (targetName === "--all") {
-    const twins = await loadTwins();
-    const names = Object.keys(twins);
+    const localAgents = await loadLocalAgents();
+    const names = Object.keys(localAgents);
     if (names.length === 0) {
-      print("\n  \x1b[2mNo twins to stop.\x1b[0m\n");
+      print("\n  \x1b[2mNo local agents to stop.\x1b[0m\n");
       return;
     }
 
     printBrand();
     for (const name of names) {
-      const twin = twins[name];
-      try {
-        execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
+      const localAgent = localAgents[name];
+      if (killTmuxSessionSync(localAgent.tmuxSession)) {
         print(`  \x1b[32m✓\x1b[0m Stopped \x1b[1m${name}\x1b[0m`);
-      } catch {
+      } else {
         print(`  \x1b[2m○\x1b[0m ${name} was already stopped`);
       }
     }
 
     // Clear registry
-    await saveTwins({});
+    await saveLocalAgents({});
 
     const hub = await getGlobalRelayDir();
-    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all twins stopped" });
+    await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: "system", type: "SYS", body: "all local agents stopped" });
 
     print("");
     return;
   }
 
-  const twins = await loadTwins();
-  const twin = twins[targetName];
+  const localAgents = await loadLocalAgents();
+  const localAgent = localAgents[targetName];
 
-  if (!twin) {
-    print(`\n  \x1b[31m✗\x1b[0m No twin named \x1b[1m${targetName}\x1b[0m.`);
-    const names = Object.keys(twins);
+  if (!localAgent) {
+    print(`\n  \x1b[31m✗\x1b[0m No local agent named \x1b[1m${targetName}\x1b[0m.`);
+    const names = Object.keys(localAgents);
     if (names.length > 0) {
-      print(`  \x1b[2mRunning twins: ${names.join(", ")}\x1b[0m`);
+      print(`  \x1b[2mRunning local agents: ${names.join(", ")}\x1b[0m`);
     }
     print("");
     process.exit(1);
   }
 
   // Kill tmux session
-  try {
-    execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
-    print(`\n  \x1b[32m✓\x1b[0m Stopped twin \x1b[1m${targetName}\x1b[0m (tmux: ${twin.tmuxSession})`);
-  } catch {
-    print(`\n  \x1b[2m○\x1b[0m Twin \x1b[1m${targetName}\x1b[0m tmux session was already gone.`);
+  if (killTmuxSessionSync(localAgent.tmuxSession)) {
+    print(`\n  \x1b[32m✓\x1b[0m Stopped local agent \x1b[1m${targetName}\x1b[0m (tmux: ${localAgent.tmuxSession})`);
+  } else {
+    print(`\n  \x1b[2m○\x1b[0m Local agent \x1b[1m${targetName}\x1b[0m tmux session was already gone.`);
   }
 
   // Remove from registry
-  delete twins[targetName];
-  await saveTwins(twins);
+  delete localAgents[targetName];
+  await saveLocalAgents(localAgents);
 
   // Log to channel
   const hub = await getGlobalRelayDir();
-  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: targetName, type: "SYS", body: "twin stopped" });
+  await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: targetName, type: "SYS", body: "agent stopped" });
 
   print("");
 }
@@ -2549,24 +2936,23 @@ async function relayRestart() {
   await requireRelay();
 
   printBrand();
-  print("  Restarting relay twins...\n");
+  print("  Restarting relay local agents...\n");
 
   // 0. Clear stale on-air lock
   await releaseOnAir();
 
-  // 1. Kill all stale twins from registry
-  const twins = await loadTwins();
-  const staleNames = Object.keys(twins);
+  // 1. Kill all stale local agents from registry
+  const localAgents = await loadLocalAgents();
+  const staleNames = Object.keys(localAgents);
   for (const name of staleNames) {
-    const twin = twins[name];
-    try {
-      execSync(`tmux kill-session -t ${twin.tmuxSession} 2>/dev/null`);
+    const localAgent = localAgents[name];
+    if (killTmuxSessionSync(localAgent.tmuxSession)) {
       print(`  \x1b[32m✓\x1b[0m Stopped \x1b[1m${name}\x1b[0m`);
-    } catch {
+    } else {
       print(`  \x1b[2m○\x1b[0m ${name} was already stopped`);
     }
   }
-  await saveTwins({});
+  await saveLocalAgents({});
 
   // 2. Respawn roster
   const config = await loadRelayConfig();
@@ -2597,42 +2983,42 @@ async function relayRestart() {
     } catch { print(`  \x1b[31m✗\x1b[0m ${name} — not found`); continue; }
 
     const projectName = path.basename(projectPath);
-    const twinName = name;
+    const agentName = name;
     const systemPrompt = [
-      `You are "${twinName}", a relay twin for the ${projectName} project.`,
+      `You are "${agentName}", a relay agent for the ${projectName} project.`,
       `You have full access to the codebase at ${projectPath}.`,
       `Use the relay commands below for agent communication. They prefer the broker and fall back to the local relay queue when needed.`,
-      `Respond to @${twinName} mentions, answer questions about this project, coordinate with other agents.`,
-      `Always reply via: openscout relay send --as ${twinName} "your message"`,
-      `Read context via: openscout relay read --as ${twinName}`,
-      `To speak aloud to the human: openscout relay speak --as ${twinName} "your answer"`,
+      `Respond to @${agentName} mentions, answer questions about this project, coordinate with other agents.`,
+      `Always reply via: openscout relay send --as ${agentName} "your message"`,
+      `Read context via: openscout relay read --as ${agentName}`,
+      `To speak aloud to the human: openscout relay speak --as ${agentName} "your answer"`,
       `Only use relay speak for final meaningful responses to humans, not acks or status updates.`,
-      `Do not read or write channel.log or channel.jsonl directly.`,
+      `Do not use file-backed relay state directly.`,
       `Be specific with file paths. Keep messages under 200 chars.`,
     ].join("\n");
 
-    const twinDir = path.join(hub, "twins");
-    await fs.mkdir(twinDir, { recursive: true });
-    const promptFile = path.join(twinDir, `${twinName}.prompt.txt`);
+    const agentDirectory = path.join(hub, "agents");
+    await fs.mkdir(agentDirectory, { recursive: true });
+    const promptFile = path.join(agentDirectory, `${agentName}.prompt.txt`);
     await fs.writeFile(promptFile, systemPrompt);
-    const initialMsg = `You are now online as a relay twin for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${twinName} "twin online — ready to assist with ${projectName}"`;
-    const initialFile = path.join(twinDir, `${twinName}.initial.txt`);
+    const initialMsg = `You are now online as a relay agent for ${projectName}. Announce yourself on the relay with: openscout relay send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
+    const initialFile = path.join(agentDirectory, `${agentName}.initial.txt`);
     await fs.writeFile(initialFile, initialMsg);
-    const launchScript = path.join(twinDir, `${twinName}.launch.sh`);
+    const launchScript = path.join(agentDirectory, `${agentName}.launch.sh`);
     await fs.writeFile(launchScript, [
       `#!/bin/bash`,
       `cd ${JSON.stringify(projectPath)}`,
-      `(sleep 5 && tmux send-keys -t ${tmuxSession} "$(cat ${JSON.stringify(initialFile)})" Enter) &`,
-      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${twinName}-twin"`,
+      `(sleep 5 && BUFFER_NAME="openscout-init-${agentName}-$$" && tmux load-buffer -b "$BUFFER_NAME" ${JSON.stringify(initialFile)} && tmux paste-buffer -d -b "$BUFFER_NAME" -t ${tmuxSession} && tmux send-keys -t ${tmuxSession} Enter) &`,
+      `exec claude --append-system-prompt "$(cat ${JSON.stringify(promptFile)})" --name "${agentName}-relay-agent"`,
     ].join("\n") + "\n");
     await fs.chmod(launchScript, 0o755);
 
     try {
       execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(projectPath)} ${JSON.stringify(launchScript)}`);
-      const currentTwins = await loadTwins();
-      currentTwins[twinName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
-      await saveTwins(currentTwins);
-      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: twinName, type: "SYS", body: `twin spawned for ${projectName}` });
+      const currentLocalAgents = await loadLocalAgents();
+      currentLocalAgents[agentName] = { project: projectName, tmuxSession, cwd: projectPath, startedAt: Math.floor(Date.now() / 1000) };
+      await saveLocalAgents(currentLocalAgents);
+      await writeChannel(hub, { ts: Math.floor(Date.now() / 1000), from: agentName, type: "SYS", body: `agent spawned for ${projectName}` });
       print(`  \x1b[32m✓\x1b[0m \x1b[1m${name}\x1b[0m is alive`);
     } catch (e) {
       print(`  \x1b[31m✗\x1b[0m ${name} — failed to spawn`);
@@ -2646,14 +3032,14 @@ async function relayPs() {
   const { execSync } = await import("node:child_process");
   await requireRelay();
 
-  const twins = await loadTwins();
-  const names = Object.keys(twins);
+  const localAgents = await loadLocalAgents();
+  const names = Object.keys(localAgents);
 
   printBrand();
-  print("  \x1b[1mTwins\x1b[0m\n");
+  print("  \x1b[1mLocal Agents\x1b[0m\n");
 
   if (names.length === 0) {
-    print("  \x1b[2m(no twins running)\x1b[0m");
+    print("  \x1b[2m(no local agents running)\x1b[0m");
     print("  \x1b[2mSpawn one: openscout relay up ~/dev/my-project\x1b[0m\n");
     return;
   }
@@ -2661,120 +3047,106 @@ async function relayPs() {
   const now = Math.floor(Date.now() / 1000);
 
   for (const name of names) {
-    const twin = twins[name];
-    const alive = await isTmuxSessionAlive(twin.tmuxSession);
+    const localAgent = localAgents[name];
+    const alive = await isTmuxSessionAlive(localAgent.tmuxSession);
     const status = alive ? "\x1b[32m●\x1b[0m" : "\x1b[31m✗\x1b[0m";
-    const uptime = now - twin.startedAt;
+    const uptime = now - localAgent.startedAt;
     const uptimeStr = uptime < 60
       ? `${uptime}s`
       : uptime < 3600
         ? `${Math.floor(uptime / 60)}m`
         : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
 
-    print(`  ${status} \x1b[1m${name}\x1b[0m  \x1b[2m${twin.project} · up ${uptimeStr} · tmux:${twin.tmuxSession}\x1b[0m`);
+    print(`  ${status} \x1b[1m${name}\x1b[0m  \x1b[2m${localAgent.project} · up ${uptimeStr} · tmux:${localAgent.tmuxSession}\x1b[0m`);
 
-    if (twin.systemPrompt) {
-      const taskPreview = twin.systemPrompt.length > 60 ? twin.systemPrompt.slice(0, 60) + "…" : twin.systemPrompt;
+    if (localAgent.systemPrompt) {
+      const taskPreview = localAgent.systemPrompt.length > 60 ? localAgent.systemPrompt.slice(0, 60) + "…" : localAgent.systemPrompt;
       print(`    \x1b[2mtask: ${taskPreview}\x1b[0m`);
     }
   }
   print("");
 
-  // Clean up dead twins
+  // Clean up dead local agents
   let cleaned = false;
   for (const name of names) {
-    if (!await isTmuxSessionAlive(twins[name].tmuxSession)) {
-      delete twins[name];
+    if (!await isTmuxSessionAlive(localAgents[name].tmuxSession)) {
+      delete localAgents[name];
       cleaned = true;
     }
   }
   if (cleaned) {
-    await saveTwins(twins);
-    print("  \x1b[2m(cleaned up dead twins from registry)\x1b[0m\n");
+    await saveLocalAgents(localAgents);
+    print("  \x1b[2m(cleaned up dead local agents from registry)\x1b[0m\n");
   }
 }
 
 async function relayStatus() {
-  const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const os = await import("node:os");
-
-  const hub = await getGlobalRelayDir();
-  const hubShort = hub.replace(os.homedir(), "~");
-  const logPath = path.join(hub, "channel.log");
+  const broker = await loadBrokerRelayContext();
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory: process.cwd(),
+  });
 
   printBrand();
-
-  // Check global hub
-  try {
-    await fs.access(logPath);
-    const content = await fs.readFile(logPath, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    const msgCount = lines.filter((l) => l.split(" ")[2] === "MSG").length;
-    print(`  \x1b[32m✓\x1b[0m Hub: \x1b[1m${hubShort}/\x1b[0m  \x1b[2m(${lines.length} lines, ${msgCount} messages)\x1b[0m`);
-  } catch {
-    print(`  \x1b[31m✗\x1b[0m Hub: \x1b[2mnot initialized\x1b[0m`);
-    print("\n  Run \x1b[1mopenscout relay init\x1b[0m to create the global hub.\n");
-    return;
+  if (broker) {
+    const counts = broker.snapshot;
+    const countSummary = `${Object.keys(counts.agents).length} agents · ${Object.keys(counts.conversations).length} conversations · ${Object.keys(counts.messages).length} messages`;
+    print(`  \x1b[32m✓\x1b[0m Broker: \x1b[1m${broker.baseUrl}\x1b[0m  \x1b[2m(${countSummary})\x1b[0m`);
+  } else {
+    print(`  \x1b[31m✗\x1b[0m Broker: \x1b[1m${resolveBrokerUrl()}\x1b[0m`);
+    print("  \x1b[2mBroker is not reachable.\x1b[0m");
   }
-
-  // Check local link
-  const localLink = path.join(process.cwd(), ".openscout", "relay.json");
-  try {
-    const raw = await fs.readFile(localLink, "utf-8");
-    const config = JSON.parse(raw);
-    const projectName = process.cwd().split("/").pop() || "unknown";
-    print(`  \x1b[32m✓\x1b[0m Link: \x1b[1m${projectName}\x1b[0m → ${config.hub}  \x1b[2m(${config.linkedAt?.slice(0, 10) || "?"})\x1b[0m`);
-  } catch {
-    const projectName = process.cwd().split("/").pop() || "unknown";
-    print(`  \x1b[33m○\x1b[0m Link: \x1b[1m${projectName}\x1b[0m \x1b[2m— not linked (run \x1b[0mopenscout relay link\x1b[2m)\x1b[0m`);
+  if (setup.currentProjectConfigPath) {
+    print(`  \x1b[32m✓\x1b[0m Project config: \x1b[1m${setup.currentProjectConfigPath}\x1b[0m`);
+  } else {
+    print(`  \x1b[33m○\x1b[0m Project config: \x1b[2m${path.join(process.cwd(), ".openscout", "project.json")} not created\x1b[0m`);
   }
-
-  // Show linked projects by scanning known locations
-  // (We can't enumerate all links, but we can show what the user might expect)
   print("");
 }
 
 function relayHelp() {
   printBrand();
-  print("  \x1b[1mRelay\x1b[0m — file-based agent chat\n");
-  print("  \x1b[2mGlobal hub at ~/.openscout/relay/ — all projects share one channel.\x1b[0m\n");
+  print("  \x1b[1mRelay\x1b[0m — broker-backed agent chat\n");
+  print("  \x1b[2mMessages are persisted in the broker and invocations are explicit.\x1b[0m\n");
   print("  \x1b[1mUsage:\x1b[0m");
   print("    openscout relay <command> [options]\n");
   print("  \x1b[1mCommands:\x1b[0m");
-  print("    init                           Create global hub + link this project");
-  print("    link                           Link this project to the global hub");
-  print("    status                         Show hub and link status");
-  print("    send <message>                 Append a message to the channel");
+  print("    init                           Ensure broker service and project config");
+  print("    link                           Ensure this workspace has project config");
+  print("    status                         Show broker and project status");
+  print("    send <message>                 Post a broker-backed message");
   print("    speak <message>                Send + speak aloud via TTS");
   print("    state [state]                  Set agent state (speaking, thinking, idle)");
-  print("    read                           Print recent messages (last 20)");
+  print("    read                           Print recent channel messages (last 20)");
   print("    read --since <timestamp>       Messages after a unix timestamp");
   print("    read -n <count>                Show last N messages");
-  print("    watch                          Stream new messages as they arrive");
-  print("    watch --tmux <pane>            Stream + nudge a tmux pane on new messages");
+  print("    read --channel <name>          Read one broker conversation (default: shared)");
+  print("    watch                          Stream new broker messages");
+  print("    watch --channel <name>         Stream one broker conversation");
   print("    who                            List agents and their last activity");
   print("    forget <name>                  Remove a stale agent from the list");
   print("    tui                            Open the relay monitor dashboard");
   print("    enroll --as <name>             Generate enrollment prompt for an agent");
-  print("    broadcast <message>            Send + nudge all tmux panes (alias: bc)\n");
-  print("  \x1b[1mTwins:\x1b[0m \x1b[2m(headless agents in detached tmux sessions)\x1b[0m");
-  print("    up <path> [--name n] [--task t]  Spawn a twin for a project");
-  print("    down <name>                      Stop a twin");
-  print("    down --all                       Stop all twins");
-  print("    restart                          Clean stale twins + respawn roster");
-  print("    ps                               List running twins");
-  print("    ask --twin <name> \"<question>\"   Ask a twin and wait for the answer\n");
+  print("    broadcast <message>            Send to all routable agents (alias: bc)\n");
+  print("  \x1b[1mLocal Agents:\x1b[0m \x1b[2m(runtime-managed sessions)\x1b[0m");
+  print("    up <path> [--name n] [--task t]  Spawn a local agent for a project");
+  print("    down <name>                      Stop a local agent");
+  print("    down --all                       Stop all local agents");
+  print("    restart                          Clean stale local agents + respawn roster");
+  print("    ps                               List running local agents");
+  print("    ask --to <name> \"<question>\"     Ask an agent via the broker and wait for the answer\n");
   print("  \x1b[1mIdentity:\x1b[0m");
   print("    --as <name>                    Set agent name for this command");
+  print("    --harness <claude|codex>       Force one harness for this invocation");
   print("    OPENSCOUT_AGENT=<name>         Set agent name via env var\n");
   print("  \x1b[1mExamples:\x1b[0m");
   print("    openscout relay init                              # first time");
-  print("    openscout relay up ~/dev/lattices                 # spawn a twin");
-  print("    openscout relay up ~/dev/arc --task \"run tests\"   # twin with a task");
-  print("    openscout relay ps                                # check twins");
-  print("    openscout relay send --as dev \"@lattices hey\"     # talk to a twin");
-  print("    openscout relay down lattices                     # stop a twin");
+  print("    openscout relay up ~/dev/lattices                 # spawn a local agent");
+  print("    openscout relay up ~/dev/arc --task \"run tests\"   # local agent with a task");
+  print("    openscout relay ps                                # check local agents");
+  print("    openscout relay ask --to lattices --harness codex \"hey\"  # ask via codex");
+  print("    openscout relay send --as dev \"@lattices hey\"            # post + invoke");
+  print("    openscout relay down lattices                     # stop a local agent");
   print("    openscout relay tui\n");
 }
 
@@ -2839,11 +3211,19 @@ async function relay() {
       const path = await import("node:path");
       const tuiPath = path.join(import.meta.dirname, "..", "src", "tui", "index.tsx");
       const tmuxSession = "relay-tui";
+      const forwardedTuiArgs = args
+        .slice(2)
+        .filter((arg) => arg !== "--no-tmux")
+        .map((arg) => JSON.stringify(arg))
+        .join(" ");
+      const tuiCommand = forwardedTuiArgs
+        ? `bun run ${JSON.stringify(tuiPath)} ${forwardedTuiArgs}`
+        : `bun run ${JSON.stringify(tuiPath)}`;
 
       // If already inside the relay-tui tmux session, just run the TUI
       if (process.env.TMUX && process.env.TMUX.includes(tmuxSession)) {
         try {
-          execSync(`bun run ${tuiPath}`, { stdio: "inherit", cwd: process.cwd() });
+          execSync(tuiCommand, { stdio: "inherit", cwd: process.cwd() });
         } catch { /* TUI exited — normal */ }
         break;
       }
@@ -2851,7 +3231,7 @@ async function relay() {
       // If --no-tmux flag, run directly
       if (args.includes("--no-tmux")) {
         try {
-          execSync(`bun run ${tuiPath}`, { stdio: "inherit", cwd: process.cwd() });
+          execSync(tuiCommand, { stdio: "inherit", cwd: process.cwd() });
         } catch { /* TUI exited — normal */ }
         break;
       }
@@ -2859,7 +3239,7 @@ async function relay() {
       // Otherwise, wrap in a tmux session for tiling support
       try {
         // Kill stale session if it exists
-        try { execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null`); } catch { /* noop */ }
+        killTmuxSessionSync(tmuxSession);
 
         // Create tmux session with settings optimized for TUI rendering
         execSync(`tmux new-session -d -s ${tmuxSession} -c ${JSON.stringify(process.cwd())} -x $(tput cols) -y $(tput lines)`);
@@ -2869,7 +3249,7 @@ async function relay() {
           execSync(`tmux set-option -t ${tmuxSession} escape-time 0 2>/dev/null`);
         } catch { /* noop */ }
         // Send the TUI command and attach
-        execSync(`tmux send-keys -t ${tmuxSession} ${JSON.stringify(`bun run ${tuiPath}`)} Enter`);
+        sendTmuxPrompt(tmuxSession, tuiCommand);
         execSync(`tmux attach -t ${tmuxSession}`, { stdio: "inherit" });
       } catch {
         // tmux not available or user quit — that's fine

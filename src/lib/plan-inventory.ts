@@ -12,6 +12,7 @@ export type PlanStatus =
 
 export interface PlanRecord {
   agent: string;
+  agentId: string;
   id: string;
   markdown: string;
   path: string;
@@ -22,7 +23,6 @@ export interface PlanRecord {
   summary: string;
   tags: string[];
   title: string;
-  twin: string;
   updatedAt: string;
 }
 
@@ -175,12 +175,8 @@ function parseTags(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function buildTwinName(attributes: Record<string, string>, agent: string): string {
-  if (attributes.twin) {
-    return attributes.twin;
-  }
-
-  return `${agent.toLowerCase()}-twin`;
+function buildAgentId(attributes: Record<string, string>, agent: string): string {
+  return attributes.agentid || attributes["agent-id"] || `${agent.toLowerCase()}-agent`;
 }
 
 function comparePlans(left: PlanRecord, right: PlanRecord): number {
@@ -212,7 +208,7 @@ export async function loadPlanInventory(): Promise<PlanRecord[]> {
         summary: extractSummary(attributes, body),
         tags: parseTags(attributes.tags),
         title: extractTitle(attributes, body, slug),
-        twin: buildTwinName(attributes, attributes.agent || "Scout"),
+        agentId: buildAgentId(attributes, attributes.agent || "Scout"),
         updatedAt: attributes.updated || new Date().toISOString(),
       } satisfies PlanRecord;
     })

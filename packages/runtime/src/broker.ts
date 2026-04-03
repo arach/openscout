@@ -17,6 +17,10 @@ import type {
   NodeDefinition,
   ScoutId,
 } from "@openscout/protocol";
+import {
+  assertValidCollaborationEvent,
+  assertValidCollaborationRecord,
+} from "@openscout/protocol";
 
 import { planMessageDeliveries, type DeliveryRoute } from "./planner.js";
 import {
@@ -62,12 +66,29 @@ function resolveParticipantRoutes(
   for (const participantId of participantIds) {
     const actor = registry.actors[participantId];
     const agent = registry.agents[participantId];
+    const targetIdentity = actor ?? agent;
     const endpoints = Object.values(registry.endpoints).filter((endpoint) => (
       endpoint.agentId === participantId && endpoint.state !== "offline"
     ));
     const endpoint = endpoints.sort((lhs, rhs) => {
-      const lhsRank = lhs.transport === "tmux" ? 0 : lhs.transport === "local_socket" ? 1 : 2;
-      const rhsRank = rhs.transport === "tmux" ? 0 : rhs.transport === "local_socket" ? 1 : 2;
+      const lhsRank = lhs.transport === "codex_app_server"
+        ? 0
+        : lhs.transport === "claude_stream_json"
+          ? 1
+          : lhs.transport === "tmux"
+            ? 2
+            : lhs.transport === "local_socket"
+              ? 3
+              : 4;
+      const rhsRank = rhs.transport === "codex_app_server"
+        ? 0
+        : rhs.transport === "claude_stream_json"
+          ? 1
+          : rhs.transport === "tmux"
+            ? 2
+            : rhs.transport === "local_socket"
+              ? 3
+              : 4;
       return lhsRank - rhsRank;
     })[0];
 
@@ -76,8 +97,16 @@ function resolveParticipantRoutes(
         routes.push({
           targetId: participantId,
           nodeId: agent.authorityNodeId,
-          targetKind: toTargetKind(actor),
-          transport: defaultTransportForActor(actor),
+          targetKind: toTargetKind(targetIdentity),
+          transport: defaultTransportForActor(targetIdentity),
+          speechEnabled: false,
+        });
+      } else if (agent) {
+        routes.push({
+          targetId: participantId,
+          nodeId: agent.authorityNodeId ?? localNodeId,
+          targetKind: toTargetKind(targetIdentity),
+          transport: defaultTransportForActor(targetIdentity),
           speechEnabled: false,
         });
       }
@@ -88,8 +117,8 @@ function resolveParticipantRoutes(
     routes.push({
       targetId: participantId,
       nodeId: endpoint?.nodeId ?? agent?.authorityNodeId,
-      targetKind: toTargetKind(actor),
-      transport: endpoint?.transport ?? defaultTransportForActor(actor),
+      targetKind: toTargetKind(targetIdentity),
+      transport: endpoint?.transport ?? defaultTransportForActor(targetIdentity),
       speechEnabled: Boolean(
         actor?.kind === "device" ||
         endpoints.some((candidate) => candidate.transport === "local_socket" || candidate.transport === "websocket"),
@@ -100,10 +129,49 @@ function resolveParticipantRoutes(
   return routes;
 }
 
+function shouldBridgeMessageToBinding(
+  binding: ConversationBinding,
+  message: MessageRecord,
+): boolean {
+  if (binding.platform !== "telegram") {
+    return true;
+  }
+
+  const source = typeof message.metadata?.source === "string"
+    ? String(message.metadata.source)
+    : "";
+  if (source === "telegram") {
+    return false;
+  }
+
+  const outboundMode = typeof binding.metadata?.outboundMode === "string"
+    ? String(binding.metadata.outboundMode)
+    : "operator_only";
+  const operatorId = typeof binding.metadata?.operatorId === "string"
+    ? String(binding.metadata.operatorId)
+    : "operator";
+  const allowedActorIds = Array.isArray(binding.metadata?.allowedActorIds)
+    ? binding.metadata.allowedActorIds.map((entry) => String(entry).trim()).filter(Boolean)
+    : [];
+
+  if (outboundMode === "all") {
+    return true;
+  }
+
+  if (outboundMode === "allowlist") {
+    return allowedActorIds.includes(message.actorId);
+  }
+
+  return message.actorId === operatorId;
+}
+
 function resolveBindingRoutes(
   bindings: ConversationBinding[],
+  message: MessageRecord,
 ): DeliveryRoute[] {
-  return bindings.map((binding) => ({
+  return bindings
+    .filter((binding) => shouldBridgeMessageToBinding(binding, message))
+    .map((binding) => ({
     targetId: binding.id,
     targetKind: "bridge",
     transport: binding.platform === "telegram"
@@ -112,18 +180,20 @@ function resolveBindingRoutes(
         ? "discord"
         : "webhook",
     bindingId: binding.id,
-  }));
+    }));
 }
 
 function activeEndpointsForAgent(
   registry: RuntimeRegistrySnapshot,
   agentId: ScoutId,
   nodeId?: ScoutId,
+  harness?: AgentEndpoint["harness"],
 ): AgentEndpoint[] {
   return Object.values(registry.endpoints).filter((endpoint) => {
     if (endpoint.agentId !== agentId) return false;
     if (endpoint.state === "offline") return false;
     if (nodeId && endpoint.nodeId !== nodeId) return false;
+    if (harness && endpoint.harness !== harness) return false;
     return true;
   });
 }
@@ -320,6 +390,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
   }
 
   async upsertCollaboration(record: CollaborationRecord): Promise<void> {
+    assertValidCollaborationRecord(record);
     this.registry.collaborationRecords[record.id] = record;
     this.emit({
       id: createRuntimeId("evt"),
@@ -332,6 +403,12 @@ export class InMemoryControlRuntime implements ControlRuntime {
   }
 
   async appendCollaborationEvent(event: CollaborationEvent): Promise<void> {
+    const record = this.registry.collaborationRecords[event.recordId];
+    if (!record) {
+      throw new Error(`unknown collaboration record: ${event.recordId}`);
+    }
+
+    assertValidCollaborationEvent(event, record);
     this.emit({
       id: createRuntimeId("evt"),
       kind: "collaboration.event.appended",
@@ -367,6 +444,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
 
     const bindingRoutes = resolveBindingRoutes(
       Object.values(this.registry.bindings).filter((binding) => binding.conversationId === conversation.id),
+      message,
     );
     const participantRoutes = options.localOnly
       ? resolveParticipantRoutes(this.registry, conversation.participantIds, this.localNodeId)
@@ -413,6 +491,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       this.registry,
       invocation.targetAgentId,
       targetAgent.authorityNodeId,
+      invocation.execution?.harness,
     );
     const isLocalAuthority = !this.localNodeId || targetAgent.authorityNodeId === this.localNodeId;
     const startedAt = Date.now();
@@ -423,11 +502,16 @@ export class InMemoryControlRuntime implements ControlRuntime {
     let completedAt: number | undefined;
 
     if (isLocalAuthority) {
-      if (targetEndpoints.length == 0) {
+      if (targetEndpoints.length == 0 && !invocation.ensureAwake) {
         state = "failed";
         summary = `${targetAgent.displayName} is not runnable yet.`;
         error = `No runnable endpoint is registered for agent ${targetAgent.id}. The broker can store the invocation, but nothing on this node can execute it yet.`;
         completedAt = startedAt;
+      } else if (targetEndpoints.length == 0) {
+        state = "waking";
+        summary = invocation.execution?.harness
+          ? `${targetAgent.displayName} waking on ${invocation.execution.harness}.`
+          : `${targetAgent.displayName} waking.`;
       } else {
         state = "queued";
         summary = `${targetAgent.displayName} queued for local execution.`;

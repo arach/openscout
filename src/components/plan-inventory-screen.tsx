@@ -123,7 +123,7 @@ function buildSearchText(plan: PlanRecord): string {
     plan.summary,
     plan.tags.join(" "),
     plan.title,
-    plan.twin,
+    plan.agentId,
   ]
     .join(" ")
     .toLowerCase();
@@ -704,7 +704,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                           </div>
                           <div className="min-w-0">
                             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
-                              @{selectedPlan.twin}
+                              @{selectedPlan.agentId}
                             </p>
                             <h2 className="truncate text-[1.8rem] font-semibold tracking-[-0.035em] text-[var(--shell-ink)]">
                               {selectedPlan.title}
@@ -719,8 +719,8 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge status={selectedPlan.status} />
                         <ToolbarAction
-                          command={`openscout relay send --as scout "@${selectedPlan.twin} Review ${selectedPlan.id} in ${selectedPlan.path} and answer follow-up questions."`}
-                          label="Ask Twin"
+                          command={`openscout relay send --as scout "@${selectedPlan.agentId} Review ${selectedPlan.id} in ${selectedPlan.path} and answer follow-up questions."`}
+                          label="Ask Agent"
                         />
                         <ToolbarAction
                           command={`$EDITOR ${selectedPlan.path}`}

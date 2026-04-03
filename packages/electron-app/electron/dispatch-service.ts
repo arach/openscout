@@ -1,50 +1,25 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
-import os from "node:os";
 import path, { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadDispatchConfig as readDispatchConfig, saveDispatchConfig, type DispatchConfig } from "../../../dispatch/cli/src/config.js";
+import {
+  dispatchPaths as readDispatchPaths,
+  loadDispatchConfig as readDispatchConfig,
+  saveDispatchConfig,
+  type DispatchConfig,
+} from "../../../dispatch/cli/src/config.js";
+import {
+  clearStaleDispatchRuntimeFiles,
+  isProcessRunning,
+  readDispatchRuntimePid,
+  readDispatchRuntimeSnapshot,
+} from "../../../dispatch/cli/src/runtime-state.js";
 import type { DispatchState, UpdateDispatchConfigInput } from "../src/lib/openscout-desktop.js";
 
 const DISPATCH_ROOT = resolveDispatchRoot();
 const DISPATCH_MAIN = path.join(DISPATCH_ROOT, "src", "main.ts");
-const PAIR_REFRESH_LEEWAY_MS = 30_000;
 const LOG_TAIL_LIMIT = 160;
-
-type PairingReadyEvent = {
-  type: "pairing_ready";
-  relay: string;
-  trustedPeerCount: number;
-  payload: {
-    v: number;
-    relay: string;
-    room: string;
-    publicKey: string;
-    expiresAt: number;
-  };
-  qrArt: string;
-  identityFingerprint: string;
-};
-
-type PairingStatusEvent = {
-  type: "status";
-  status: "connecting" | "connected" | "paired" | "closed" | "error";
-  detail: string | null;
-};
-
-type PairingEvent = PairingReadyEvent | PairingStatusEvent;
-
-function dispatchPaths() {
-  const root = path.join(os.homedir(), ".dispatch");
-  return {
-    root,
-    configPath: path.join(root, "config.json"),
-    identityPath: path.join(root, "identity.json"),
-    trustedPeersPath: path.join(root, "trusted-peers.json"),
-    logPath: path.join(root, "bridge.log"),
-  };
-}
 
 function resolveDispatchRoot() {
   const explicitRoot = process.env.OPENSCOUT_REPO_ROOT?.trim();
@@ -90,7 +65,7 @@ function searchUpwardsForDispatchRoot(startDirectory: string) {
 }
 
 function loadDispatchConfig() {
-  const { configPath } = dispatchPaths();
+  const { configPath } = readDispatchPaths();
   if (!existsSync(configPath)) {
     return {};
   }
@@ -199,9 +174,11 @@ function resolveBunExecutable(): string | null {
 }
 
 function baseState(): DispatchState {
-  const paths = dispatchPaths();
+  clearStaleDispatchRuntimeFiles();
+
+  const paths = readDispatchPaths();
   const rawConfig = loadDispatchConfig();
-  const relay = typeof rawConfig.relay === "string" && rawConfig.relay.trim().length > 0
+  const configuredRelay = typeof rawConfig.relay === "string" && rawConfig.relay.trim().length > 0
     ? rawConfig.relay.trim()
     : null;
   const workspaceRoot = typeof (rawConfig.workspace as { root?: string } | undefined)?.root === "string"
@@ -210,21 +187,53 @@ function baseState(): DispatchState {
   const secure = rawConfig.secure !== false;
   const sessions = Array.isArray(rawConfig.sessions) ? rawConfig.sessions : [];
   const log = readLogTail(paths.logPath);
+  const snapshot = readDispatchRuntimeSnapshot();
+  const runtimePid = readDispatchRuntimePid();
+  const runtimeAlive = isProcessRunning(runtimePid);
+
+  if (snapshot && runtimeAlive) {
+    return {
+      status: snapshot.status,
+      statusLabel: snapshot.statusLabel,
+      statusDetail: snapshot.statusDetail,
+      isRunning: true,
+      commandLabel: "bun run dispatch:start",
+      configPath: paths.configPath,
+      identityPath: paths.identityPath,
+      trustedPeersPath: paths.trustedPeersPath,
+      logPath: paths.logPath,
+      relay: snapshot.relay,
+      configuredRelay,
+      secure: snapshot.secure,
+      workspaceRoot: snapshot.workspaceRoot,
+      sessionCount: snapshot.sessionCount,
+      identityFingerprint: snapshot.identityFingerprint,
+      trustedPeerCount: snapshot.trustedPeerCount,
+      pairing: snapshot.pairing,
+      logTail: log.body,
+      logUpdatedAtLabel: log.updatedAtLabel,
+      logMissing: log.missing,
+      logTruncated: log.truncated,
+      lastUpdatedLabel: new Intl.DateTimeFormat("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(snapshot.updatedAt),
+    };
+  }
 
   return {
     status: "stopped",
     statusLabel: "Stopped",
-    statusDetail: relay
-      ? "Start Dispatch to launch the pairing relay and generate a fresh QR code."
-      : "Start Dispatch to launch the pairing relay and generate a fresh QR code.",
+    statusDetail: "Start Dispatch to launch the pairing relay and generate a fresh QR code.",
     isRunning: false,
     commandLabel: "bun run dispatch:start",
     configPath: paths.configPath,
     identityPath: paths.identityPath,
     trustedPeersPath: paths.trustedPeersPath,
     logPath: paths.logPath,
-    relay,
-    configuredRelay: relay,
+    relay: configuredRelay,
+    configuredRelay,
     secure,
     workspaceRoot,
     sessionCount: sessions.length,
@@ -245,12 +254,6 @@ function baseState(): DispatchState {
 
 class DispatchService {
   #state: DispatchState = baseState();
-  #child: ChildProcessWithoutNullStreams | null = null;
-  #stdoutBuffer = "";
-  #restartTimer: ReturnType<typeof setTimeout> | null = null;
-  #intentionalStop = false;
-  #launchFailed = false;
-  #fatalDetail: string | null = null;
 
   async getState(): Promise<DispatchState> {
     this.#refreshFileBackedState();
@@ -309,7 +312,7 @@ class DispatchService {
     }
 
     saveDispatchConfig(next);
-    const shouldRestart = Boolean(this.#child);
+    const shouldRestart = this.#isRuntimeRunning();
     this.#refreshFileBackedState();
 
     if (shouldRestart) {
@@ -321,58 +324,25 @@ class DispatchService {
   }
 
   async stop(): Promise<DispatchState> {
-    this.#intentionalStop = true;
-    this.#clearRestartTimer();
-    if (this.#child) {
-      this.#child.kill("SIGTERM");
-      this.#child = null;
+    const pid = readDispatchRuntimePid();
+    if (pid && isProcessRunning(pid)) {
+      process.kill(pid, "SIGTERM");
+      await waitForProcessExit(pid);
     }
-    this.#state = {
-      ...this.#state,
-      status: "stopped",
-      statusLabel: "Stopped",
-      statusDetail: "Dispatch service is stopped. Start it to generate a fresh QR code.",
-      isRunning: false,
-      pairing: null,
-      lastUpdatedLabel: this.#timeLabel(),
-    };
+    this.#refreshFileBackedState();
     return this.#state;
   }
 
   async shutdown(): Promise<void> {
-    await this.stop();
+    this.#refreshFileBackedState();
   }
 
   async #startIfNeeded() {
     this.#refreshFileBackedState();
 
-    if (this.#child) {
+    if (this.#isRuntimeRunning()) {
       return;
     }
-
-    this.#start();
-  }
-
-  async #restart() {
-    await this.stop();
-    this.#intentionalStop = false;
-    this.#start();
-  }
-
-  #start() {
-    this.#clearRestartTimer();
-    this.#stdoutBuffer = "";
-    this.#launchFailed = false;
-    this.#fatalDetail = null;
-    this.#state = {
-      ...this.#state,
-      status: "starting",
-      statusLabel: "Starting",
-      statusDetail: "Launching Dispatch pair mode.",
-      isRunning: true,
-      pairing: null,
-      lastUpdatedLabel: this.#timeLabel(),
-    };
 
     const bunExecutable = resolveBunExecutable();
     if (!bunExecutable) {
@@ -388,211 +358,40 @@ class DispatchService {
       return;
     }
 
-    const child = spawn(bunExecutable, [DISPATCH_MAIN, "start"], {
+    const child = spawn(bunExecutable, [DISPATCH_MAIN, "supervise"], {
       cwd: DISPATCH_ROOT,
       env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+      stdio: "ignore",
     });
-
-    this.#intentionalStop = false;
-    this.#child = child;
-
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      this.#stdoutBuffer += chunk;
-      this.#drainStdoutBuffer();
-    });
-
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      const detail = chunk.trim();
-      if (!detail) {
-        return;
-      }
-      this.#fatalDetail = simplifyDispatchFailure(detail);
-      this.#state = {
-        ...this.#state,
-        status: "error",
-        statusLabel: "Error",
-        statusDetail: this.#fatalDetail,
-        isRunning: false,
-        lastUpdatedLabel: this.#timeLabel(),
-      };
-    });
-
-    child.on("error", (error) => {
-      this.#launchFailed = true;
-      this.#child = null;
-      this.#state = {
-        ...this.#state,
-        status: "error",
-        statusLabel: "Error",
-        statusDetail: error.message,
-        isRunning: false,
-        pairing: null,
-        lastUpdatedLabel: this.#timeLabel(),
-      };
-    });
-
-    child.on("close", (code, signal) => {
-      const wasIntentional = this.#intentionalStop;
-      const launchFailed = this.#launchFailed;
-      this.#child = null;
-      if (wasIntentional) {
-        this.#intentionalStop = false;
-        this.#state = {
-          ...this.#state,
-          status: "stopped",
-          statusLabel: "Stopped",
-          statusDetail: "Dispatch service is stopped. Start it to generate a fresh QR code.",
-          isRunning: false,
-          pairing: null,
-          lastUpdatedLabel: this.#timeLabel(),
-        };
-        return;
-      }
-
-      if (launchFailed) {
-        this.#launchFailed = false;
-        return;
-      }
-
-      if (this.#fatalDetail) {
-        this.#state = {
-          ...this.#state,
-          status: "error",
-          statusLabel: "Error",
-          statusDetail: this.#fatalDetail,
-          isRunning: false,
-          pairing: null,
-          lastUpdatedLabel: this.#timeLabel(),
-        };
-        this.#fatalDetail = null;
-        return;
-      }
-
-      this.#state = {
-        ...this.#state,
-        status: "closed",
-        statusLabel: "Closed",
-        statusDetail: code === 0
-          ? "Dispatch pair mode stopped."
-          : signal
-            ? `Dispatch pair mode exited (${signal}).`
-            : `Dispatch pair mode exited (${code ?? "unknown"}).`,
-        isRunning: false,
-        lastUpdatedLabel: this.#timeLabel(),
-      };
-
-      this.#restartTimer = setTimeout(() => {
-        this.#restartTimer = null;
-        void this.#restart();
-      }, 2_000);
-    });
-  }
-
-  #drainStdoutBuffer() {
-    while (true) {
-      const newlineIndex = this.#stdoutBuffer.indexOf("\n");
-      if (newlineIndex === -1) {
-        break;
-      }
-
-      const line = this.#stdoutBuffer.slice(0, newlineIndex).trim();
-      this.#stdoutBuffer = this.#stdoutBuffer.slice(newlineIndex + 1);
-      if (!line.startsWith("{")) {
-        continue;
-      }
-
-      try {
-        this.#handlePairingEvent(JSON.parse(line) as PairingEvent);
-      } catch {
-        // Ignore malformed event lines.
-      }
-    }
-  }
-
-  #handlePairingEvent(event: PairingEvent) {
-    if (event.type === "pairing_ready") {
-      this.#state = {
-        ...this.#state,
-        relay: event.relay,
-        identityFingerprint: event.identityFingerprint,
-        trustedPeerCount: event.trustedPeerCount,
-        pairing: {
-          relay: event.payload.relay,
-          room: event.payload.room,
-          publicKey: event.payload.publicKey,
-          expiresAt: event.payload.expiresAt,
-          qrArt: event.qrArt,
-          qrValue: JSON.stringify(event.payload),
-        },
-        status: "connecting",
-        statusLabel: "Pairing Ready",
-        statusDetail: `Relay room ${event.payload.room} is waiting for Dispatch.`,
-        isRunning: true,
-        lastUpdatedLabel: this.#timeLabel(),
-      };
-      this.#scheduleExpiryRefresh(event.payload.expiresAt);
-      return;
-    }
-
-    const labelByStatus: Record<PairingStatusEvent["status"], string> = {
-      connecting: "Connecting",
-      connected: "Connected",
-      paired: "Paired",
-      closed: "Closed",
-      error: "Error",
-    };
+    child.unref();
 
     this.#state = {
       ...this.#state,
-      status: event.status,
-      statusLabel: labelByStatus[event.status],
-      statusDetail: event.detail,
-      isRunning: event.status !== "closed" && event.status !== "error",
+      status: "starting",
+      statusLabel: "Starting",
+      statusDetail: "Launching Dispatch pair mode.",
+      isRunning: true,
+      pairing: null,
       lastUpdatedLabel: this.#timeLabel(),
     };
+
+    await sleep(350);
+    this.#refreshFileBackedState();
   }
 
-  #scheduleExpiryRefresh(expiresAt: number) {
-    this.#clearRestartTimer();
-    const delay = Math.max(1_000, expiresAt - Date.now() - PAIR_REFRESH_LEEWAY_MS);
-    this.#restartTimer = setTimeout(() => {
-      this.#restartTimer = null;
-      void this.#restart();
-    }, delay);
+  async #restart() {
+    await this.stop();
+    await this.#startIfNeeded();
   }
 
-  #clearRestartTimer() {
-    if (this.#restartTimer) {
-      clearTimeout(this.#restartTimer);
-      this.#restartTimer = null;
-    }
+  #isRuntimeRunning() {
+    const pid = readDispatchRuntimePid();
+    return isProcessRunning(pid);
   }
 
   #refreshFileBackedState() {
-    const nextBase = baseState();
-    this.#state = {
-      ...this.#state,
-      commandLabel: nextBase.commandLabel,
-      configPath: nextBase.configPath,
-      identityPath: nextBase.identityPath,
-      trustedPeersPath: nextBase.trustedPeersPath,
-      logPath: nextBase.logPath,
-      relay: this.#child && this.#state.relay ? this.#state.relay : (nextBase.relay ?? this.#state.relay),
-      configuredRelay: nextBase.configuredRelay,
-      secure: nextBase.secure,
-      workspaceRoot: nextBase.workspaceRoot,
-      sessionCount: nextBase.sessionCount,
-      identityFingerprint: nextBase.identityFingerprint,
-      trustedPeerCount: nextBase.trustedPeerCount,
-      logTail: nextBase.logTail,
-      logUpdatedAtLabel: nextBase.logUpdatedAtLabel,
-      logMissing: nextBase.logMissing,
-      logTruncated: nextBase.logTruncated,
-      lastUpdatedLabel: this.#state.lastUpdatedLabel ?? nextBase.lastUpdatedLabel,
-    };
+    this.#state = baseState();
   }
 
   #timeLabel() {
@@ -606,9 +405,18 @@ class DispatchService {
 
 export const dispatchService = new DispatchService();
 
-function simplifyDispatchFailure(detail: string) {
-  if (/EADDRINUSE|address already in use/i.test(detail)) {
-    return "Dispatch could not start because the pairing relay port is already in use. Stop the other Dispatch process or restart the relay.";
+async function waitForProcessExit(pid: number, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!isProcessRunning(pid)) {
+      return;
+    }
+    await sleep(100);
   }
-  return detail;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

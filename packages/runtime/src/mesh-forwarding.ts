@@ -51,6 +51,41 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function invocationMetadataValue(
+  invocation: InvocationRequest,
+  key: string,
+): unknown {
+  const contextValue = invocation.context?.[key];
+  if (typeof contextValue !== "undefined") {
+    return contextValue;
+  }
+
+  const nestedContext = invocation.context?.collaboration;
+  if (nestedContext && typeof nestedContext === "object" && !Array.isArray(nestedContext) && key in nestedContext) {
+    return (nestedContext as Record<string, unknown>)[key];
+  }
+
+  const metadataValue = invocation.metadata?.[key];
+  if (typeof metadataValue !== "undefined") {
+    return metadataValue;
+  }
+
+  const nestedMetadata = invocation.metadata?.collaboration;
+  if (nestedMetadata && typeof nestedMetadata === "object" && !Array.isArray(nestedMetadata) && key in nestedMetadata) {
+    return (nestedMetadata as Record<string, unknown>)[key];
+  }
+
+  return undefined;
+}
+
+function invocationStringValue(
+  invocation: InvocationRequest,
+  key: string,
+): string | undefined {
+  const value = invocationMetadataValue(invocation, key);
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
 function actorIdsForMessage(snapshot: RuntimeRegistrySnapshot, conversation: ConversationDefinition, message: MessageRecord): string[] {
   return unique([
     ...conversation.participantIds,
@@ -65,7 +100,23 @@ function actorIdsForInvocation(snapshot: RuntimeRegistrySnapshot, invocation: In
   return unique([
     invocation.requesterId,
     invocation.targetAgentId,
-  ]).filter((id) => Boolean(snapshot.actors[id] || snapshot.agents[id]));
+    invocationStringValue(invocation, "ownerId"),
+    invocationStringValue(invocation, "nextMoveOwnerId"),
+    invocationStringValue(invocation, "requestedById"),
+    invocationStringValue(invocation, "askedById"),
+    invocationStringValue(invocation, "askedOfId"),
+    invocationStringValue(invocation, "targetAgentId"),
+    (() => {
+      const waitingOn = invocationMetadataValue(invocation, "waitingOn");
+      if (!waitingOn || typeof waitingOn !== "object" || Array.isArray(waitingOn)) {
+        return undefined;
+      }
+      return typeof (waitingOn as { targetId?: unknown }).targetId === "string"
+        ? String((waitingOn as { targetId: string }).targetId).trim()
+        : undefined;
+    })(),
+  ].filter((id): id is string => typeof id === "string" && id.trim().length > 0))
+    .filter((id) => Boolean(snapshot.actors[id] || snapshot.agents[id]));
 }
 
 function actorIdsForCollaboration(

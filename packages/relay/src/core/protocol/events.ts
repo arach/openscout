@@ -1,4 +1,4 @@
-import type { ProjectTwinRecord } from "./twins.js";
+import type { LocalAgentRecord } from "./local-agents.js";
 
 export type RelayMessageType = "MSG" | "SYS";
 export type RelayMessageClass = "agent" | "log" | "system" | "status";
@@ -54,12 +54,12 @@ export type RelayAgentSessionRegisteredEvent = RelayEventBase<"agent.session_reg
 export type RelayAgentSessionClearedEvent = RelayEventBase<"agent.session_cleared", {
 }>;
 
-export type RelayProjectTwinStartedEvent = RelayEventBase<"project_twin.started", {
-  record: ProjectTwinRecord;
+export type RelayLocalAgentStartedEvent = RelayEventBase<"local_agent.started", {
+  record: LocalAgentRecord;
 }>;
 
-export type RelayProjectTwinStoppedEvent = RelayEventBase<"project_twin.stopped", {
-  twinId: string;
+export type RelayLocalAgentStoppedEvent = RelayEventBase<"local_agent.stopped", {
+  agentId: string;
 }>;
 
 export type RelayFlightOpenedEvent = RelayEventBase<"flight.opened", {
@@ -97,8 +97,8 @@ export type RelayEvent =
   | RelayAgentStateSetEvent
   | RelayAgentSessionRegisteredEvent
   | RelayAgentSessionClearedEvent
-  | RelayProjectTwinStartedEvent
-  | RelayProjectTwinStoppedEvent
+  | RelayLocalAgentStartedEvent
+  | RelayLocalAgentStoppedEvent
   | RelayFlightOpenedEvent
   | RelayChannelBindingUpsertedEvent
   | RelayExternalDeliveryRequestedEvent
@@ -118,12 +118,12 @@ function isRelaySpeechInstruction(value: unknown): value is RelaySpeechInstructi
   return typeof candidate.text === "string";
 }
 
-function isProjectTwinRecord(value: unknown): value is ProjectTwinRecord {
+function isLocalAgentRecord(value: unknown): value is LocalAgentRecord {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<ProjectTwinRecord>;
+  const candidate = value as Partial<LocalAgentRecord>;
 
   return (
-    typeof candidate.twinId === "string" &&
+    typeof candidate.agentId === "string" &&
     candidate.kind === "project" &&
     typeof candidate.runtime === "string" &&
     candidate.protocol === "relay" &&
@@ -215,35 +215,35 @@ export function isRelayAgentSessionClearedEvent(value: unknown): value is RelayA
   );
 }
 
-export function isRelayProjectTwinStartedEvent(value: unknown): value is RelayProjectTwinStartedEvent {
+export function isRelayLocalAgentStartedEvent(value: unknown): value is RelayLocalAgentStartedEvent {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<RelayProjectTwinStartedEvent>;
+  const candidate = value as Partial<RelayLocalAgentStartedEvent>;
 
   return (
     typeof candidate.id === "string" &&
-    candidate.kind === "project_twin.started" &&
+    candidate.kind === "local_agent.started" &&
     candidate.v === 1 &&
     typeof candidate.ts === "number" &&
     typeof candidate.actor === "string" &&
     !!candidate.payload &&
     typeof candidate.payload === "object" &&
-    isProjectTwinRecord(candidate.payload.record)
+    isLocalAgentRecord(candidate.payload.record)
   );
 }
 
-export function isRelayProjectTwinStoppedEvent(value: unknown): value is RelayProjectTwinStoppedEvent {
+export function isRelayLocalAgentStoppedEvent(value: unknown): value is RelayLocalAgentStoppedEvent {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<RelayProjectTwinStoppedEvent>;
+  const candidate = value as Partial<RelayLocalAgentStoppedEvent>;
 
   return (
     typeof candidate.id === "string" &&
-    candidate.kind === "project_twin.stopped" &&
+    candidate.kind === "local_agent.stopped" &&
     candidate.v === 1 &&
     typeof candidate.ts === "number" &&
     typeof candidate.actor === "string" &&
     !!candidate.payload &&
     typeof candidate.payload === "object" &&
-    typeof candidate.payload.twinId === "string"
+    typeof candidate.payload.agentId === "string"
   );
 }
 
@@ -331,8 +331,8 @@ export function isRelayEvent(value: unknown): value is RelayEvent {
     isRelayAgentStateSetEvent(value) ||
     isRelayAgentSessionRegisteredEvent(value) ||
     isRelayAgentSessionClearedEvent(value) ||
-    isRelayProjectTwinStartedEvent(value) ||
-    isRelayProjectTwinStoppedEvent(value) ||
+    isRelayLocalAgentStartedEvent(value) ||
+    isRelayLocalAgentStoppedEvent(value) ||
     isRelayFlightOpenedEvent(value) ||
     isRelayChannelBindingUpsertedEvent(value) ||
     isRelayExternalDeliveryRequestedEvent(value) ||

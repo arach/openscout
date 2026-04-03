@@ -9,6 +9,11 @@ import type {
   InvocationRequest,
 } from "@openscout/protocol";
 
+import {
+  buildCollaborationContractPrompt,
+  buildInvocationCollaborationContextPrompt,
+} from "./collaboration-contract.js";
+
 interface LocalCodexInvocationOptions {
   agent: AgentDefinition;
   endpoint: AgentEndpoint;
@@ -92,6 +97,8 @@ function buildPrompt(agent: AgentDefinition, invocation: InvocationRequest): str
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`)
     .join("\n");
+  const collaborationContract = buildCollaborationContractPrompt(agent.id);
+  const collaborationContext = buildInvocationCollaborationContextPrompt(invocation);
   const actionRules = invocation.action === "execute"
     ? "You may inspect and modify the workspace when needed. End with a concise summary of what changed, what remains, and any blockers."
     : "Do not modify files. Read, inspect, and respond in text only.";
@@ -108,8 +115,10 @@ function buildPrompt(agent: AgentDefinition, invocation: InvocationRequest): str
     "",
     roleGuidance(agent),
     actionRules,
+    collaborationContract,
     "Return only the message that should appear back in the OpenScout conversation.",
     "",
+    collaborationContext,
     contextLines ? "Context:\n" + contextLines : undefined,
     "Task:",
     invocation.task,

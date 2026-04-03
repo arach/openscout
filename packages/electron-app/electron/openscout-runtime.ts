@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   extractAgentSelectors,
@@ -17,25 +18,29 @@ import {
   startBrokerService,
   stopBrokerService,
 } from "../../runtime/src/broker-service.js";
+import { loadHarnessCatalogSnapshot } from "../../runtime/src/harness-catalog.js";
 import {
-  buildTwinSystemPrompt,
-  ensureProjectTwinBindingOnline,
-  getProjectTwinConfig,
-  loadRegisteredProjectTwinBindings,
-  restartProjectTwin,
-  SUPPORTED_TWIN_HARNESSES,
-  updateProjectTwinConfig,
-} from "../../runtime/src/project-twins.js";
+  ensureLocalAgentBindingOnline,
+  getLocalAgentConfig,
+  loadRegisteredLocalAgentBindings,
+  restartLocalAgent,
+  SUPPORTED_LOCAL_AGENT_HARNESSES,
+  updateLocalAgentConfig,
+} from "../../runtime/src/local-agents.js";
 import {
-  initializeOpenScoutSetup,
+  ensureScoutRelayAgentConfigured,
   loadResolvedRelayAgents,
+  primaryDirectConversationIdForAgent,
   readOpenScoutSettings,
   resolveRelayAgentConfig,
+  SCOUT_AGENT_ID,
+  type SetupResult,
   writeOpenScoutSettings,
 } from "../../runtime/src/setup.js";
 import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "../../runtime/src/support-paths.js";
 import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
+import { telegramBridgeService } from "./telegram-bridge-service.js";
 
 import type {
   AgentSessionInspector,
@@ -52,11 +57,15 @@ import type {
   DesktopMachineEndpointState,
   DesktopMachinesState,
   DesktopPlan,
+  DesktopReconciliationFinding,
   DesktopPlansState,
   DesktopRuntimeState,
   DesktopShellState,
   DesktopTask,
   DesktopTaskStatus,
+  PhonePreparationState,
+  OnboardingCommandResult,
+  RunOnboardingCommandInput,
   RestartAgentInput,
   ReadLogSourceInput,
   RelayDirectThread,
@@ -67,6 +76,7 @@ import type {
   SessionMetadata,
   UpdateAgentConfigInput,
   UpdateAppSettingsInput,
+  UpdatePhonePreparationInput,
 } from "../src/lib/openscout-desktop.js";
 
 const OPERATOR_ID = "operator";
@@ -79,6 +89,12 @@ const PROJECT_GIT_ACTIVITY_CACHE_TTL_MS = 30_000;
 const RECENT_AGENT_ACTIVITY_WINDOW_SECONDS = 60 * 60 * 24 * 30;
 const LOG_TAIL_CHUNK_BYTES = 64 * 1024;
 const LOG_CATALOG_CACHE_TTL_MS = 1_500;
+const RESOLVED_RELAY_AGENTS_CACHE_TTL_MS = 30_000;
+const RECONCILE_OFFLINE_WAIT_SECONDS = 60 * 3;
+const RECONCILE_NO_FOLLOW_UP_SECONDS = 60 * 10;
+const RECONCILE_STALE_WORKING_SECONDS = 60 * 15;
+
+type LoadResolvedRelayAgentsOptions = NonNullable<Parameters<typeof loadResolvedRelayAgents>[0]>;
 
 type TmuxSession = {
   name: string;
@@ -99,6 +115,14 @@ type CachedLogCatalog = {
 };
 
 let cachedLogCatalog: CachedLogCatalog | null = null;
+
+type CachedResolvedRelayAgents = {
+  expiresAt: number;
+  promise: Promise<SetupResult> | null;
+  value?: SetupResult;
+};
+
+const cachedResolvedRelayAgents = new Map<string, CachedResolvedRelayAgents>();
 
 type ActorRecord = {
   id: string;
@@ -162,6 +186,16 @@ type MessageRecord = {
   metadata?: Record<string, unknown>;
 };
 
+type ReferencedMessageContext = {
+  id: string;
+  authorId: string;
+  authorName: string;
+  conversationId: string;
+  conversationTitle: string;
+  createdAt: number;
+  body: string;
+};
+
 type FlightRecord = {
   id: string;
   targetAgentId: string;
@@ -183,8 +217,8 @@ type DirectAgentActivity = {
   lastMessageAt: number | null;
 };
 
-type TwinWorkspaceRecord = {
-  twinId: string;
+type AgentWorkspaceRecord = {
+  agentId: string;
   project: string;
   cwd: string;
 };
@@ -534,13 +568,85 @@ function brokerFeedbackSummary(
   ].join("\n");
 }
 
+function resolvedRelayAgentsCacheKey(options: LoadResolvedRelayAgentsOptions): string {
+  return JSON.stringify({
+    currentDirectory: options.currentDirectory ?? desktopCurrentDirectory(),
+    ensureCurrentProjectConfig: Boolean(options.ensureCurrentProjectConfig),
+    syncLegacyMirror: Boolean(options.syncLegacyMirror),
+  });
+}
+
+function invalidateResolvedRelayAgentsCache(): void {
+  cachedResolvedRelayAgents.clear();
+}
+
+async function readResolvedRelayAgents(
+  options: LoadResolvedRelayAgentsOptions = {},
+  cacheOptions: {
+    force?: boolean;
+    ttlMs?: number;
+  } = {},
+): Promise<SetupResult> {
+  const normalizedOptions: LoadResolvedRelayAgentsOptions = {
+    ...options,
+    currentDirectory: options.currentDirectory ?? desktopCurrentDirectory(),
+  };
+  const cacheKey = resolvedRelayAgentsCacheKey(normalizedOptions);
+  const ttlMs = cacheOptions.ttlMs ?? RESOLVED_RELAY_AGENTS_CACHE_TTL_MS;
+  const existing = cachedResolvedRelayAgents.get(cacheKey);
+  const now = Date.now();
+
+  if (!cacheOptions.force) {
+    if (existing?.value && existing.expiresAt > now) {
+      return existing.value;
+    }
+    if (existing?.promise) {
+      return existing.promise;
+    }
+  }
+
+  const loadPromise = loadResolvedRelayAgents(normalizedOptions)
+    .then((value) => {
+      cachedResolvedRelayAgents.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + ttlMs,
+        promise: null,
+      });
+      return value;
+    })
+    .catch((error) => {
+      if (existing?.value && !cacheOptions.force) {
+        cachedResolvedRelayAgents.set(cacheKey, {
+          value: existing.value,
+          expiresAt: Date.now() + Math.min(ttlMs, 5_000),
+          promise: null,
+        });
+        return existing.value;
+      }
+
+      const current = cachedResolvedRelayAgents.get(cacheKey);
+      if (current?.promise === loadPromise) {
+        cachedResolvedRelayAgents.delete(cacheKey);
+      }
+      throw error;
+    });
+
+  cachedResolvedRelayAgents.set(cacheKey, {
+    value: existing?.value,
+    expiresAt: existing?.expiresAt ?? 0,
+    promise: loadPromise,
+  });
+
+  return loadPromise;
+}
+
 async function buildResolvedLogCatalog(): Promise<ResolvedLogSource[]> {
   if (cachedLogCatalog && cachedLogCatalog.expiresAt > Date.now()) {
     return cachedLogCatalog.sources;
   }
 
   const supportPaths = resolveOpenScoutSupportPaths();
-  const setup = await loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() });
+  const setup = await readResolvedRelayAgents();
 
   const sources: ResolvedLogSource[] = [
     {
@@ -812,6 +918,14 @@ function desktopCurrentDirectory(): string {
   return process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 }
 
+function desktopRepoRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+}
+
+function desktopCliEntrypoint(): string {
+  return path.join(desktopRepoRoot(), "packages", "cli", "src", "main.ts");
+}
+
 function normalizeOperatorName(value: string | undefined | null): string {
   const trimmed = value?.trim() ?? "";
   return trimmed || DEFAULT_OPERATOR_DISPLAY_NAME;
@@ -831,32 +945,30 @@ function resolveOperatorDisplayName(): string {
   return normalizeOperatorName(record.profile?.operatorName ?? record.operatorName);
 }
 
-async function readRegisteredTwinWorkspaces(): Promise<TwinWorkspaceRecord[]> {
-  const registryPath = path.join(resolveOpenScoutSupportPaths().relayHubDirectory, "twins.json");
-
+async function readRegisteredAgentWorkspaces(): Promise<AgentWorkspaceRecord[]> {
   try {
-    const raw = JSON.parse(await readFile(registryPath, "utf8")) as Record<string, {
-      project?: string;
-      cwd?: string;
-    }>;
-    const records = Object.entries(raw ?? {})
-      .map(([twinId, record]) => {
-        const cwd = record?.cwd?.trim();
+    const setup = await readResolvedRelayAgents({
+      currentDirectory: desktopCurrentDirectory(),
+      ensureCurrentProjectConfig: true,
+    });
+    const records = [...setup.agents, ...setup.discoveredAgents]
+      .map((agent) => {
+        const cwd = agent.runtime.cwd?.trim() || agent.projectRoot?.trim();
         if (!cwd) {
           return null;
         }
 
         const resolvedCwd = path.resolve(expandHomePath(cwd));
         return {
-          twinId,
-          project: record?.project?.trim() || path.basename(resolvedCwd),
+          agentId: agent.agentId,
+          project: agent.projectName.trim() || path.basename(resolvedCwd),
           cwd: resolvedCwd,
-        } satisfies TwinWorkspaceRecord;
+        } satisfies AgentWorkspaceRecord;
       })
-      .filter((entry): entry is TwinWorkspaceRecord => Boolean(entry));
+      .filter((entry): entry is AgentWorkspaceRecord => Boolean(entry));
 
     return Array.from(
-      records.reduce((map, entry) => map.set(entry.cwd, entry), new Map<string, TwinWorkspaceRecord>()).values(),
+      records.reduce((map, entry) => map.set(entry.cwd, entry), new Map<string, AgentWorkspaceRecord>()).values(),
     );
   } catch {
     return [];
@@ -975,6 +1087,10 @@ function extractPlanSummary(attributes: Record<string, string>, body: string): s
   return "No summary yet.";
 }
 
+function resolvePlanAgentId(attributes: Record<string, string>, fallback: string): string {
+  return attributes.agentid || attributes["agent-id"] || fallback;
+}
+
 function countPlanChecklistItems(markdown: string): { stepsCompleted: number; stepsTotal: number } {
   let stepsCompleted = 0;
   let stepsTotal = 0;
@@ -1006,9 +1122,9 @@ function parsePlanTags(value: string | undefined): string[] {
 }
 
 async function loadWorkspacePlans(snapshot: RuntimeRegistrySnapshot | null): Promise<DesktopPlan[]> {
-  const workspaces = new Map<string, TwinWorkspaceRecord>();
+  const workspaces = new Map<string, AgentWorkspaceRecord>();
 
-  for (const workspace of await readRegisteredTwinWorkspaces()) {
+  for (const workspace of await readRegisteredAgentWorkspaces()) {
     workspaces.set(workspace.cwd, workspace);
   }
 
@@ -1021,7 +1137,7 @@ async function loadWorkspacePlans(snapshot: RuntimeRegistrySnapshot | null): Pro
 
       const resolvedCwd = path.resolve(cwd);
       workspaces.set(resolvedCwd, {
-        twinId: endpoint.agentId,
+        agentId: endpoint.agentId,
         project: String(endpoint.metadata?.project ?? path.basename(resolvedCwd)),
         cwd: resolvedCwd,
       });
@@ -1060,7 +1176,7 @@ async function loadWorkspacePlans(snapshot: RuntimeRegistrySnapshot | null): Pro
               stepsTotal,
               progressPercent: stepsTotal > 0 ? Math.round((stepsCompleted / stepsTotal) * 100) : 0,
               tags: parsePlanTags(attributes.tags),
-              twinId: attributes.twin || workspace.twinId,
+              agentId: resolvePlanAgentId(attributes, workspace.agentId),
               agent: attributes.agent || workspace.project,
               workspaceName: workspace.project,
               workspacePath: compactHomePath(workspace.cwd) ?? workspace.cwd,
@@ -1276,6 +1392,51 @@ function sanitizeRelayBody(body: string): string {
     .replace(/\[speak\]\s*/gi, "")
     .replace(/^(@[\w.-]+\s+)+/g, "")
     .trim();
+}
+
+function normalizeMessageReferenceIds(value: string[] | null | undefined): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value.map((entry) => String(entry).trim()).filter(Boolean),
+  ));
+}
+
+function referencedMessageContext(
+  snapshot: RuntimeRegistrySnapshot,
+  messageId: string,
+): ReferencedMessageContext | null {
+  const message = (snapshot.messages as Record<string, MessageRecord>)[messageId];
+  if (!message) {
+    return null;
+  }
+
+  const conversation = (snapshot.conversations as Record<string, ConversationRecord>)[message.conversationId];
+  return {
+    id: message.id,
+    authorId: message.actorId,
+    authorName: actorDisplayName(snapshot, message.actorId),
+    conversationId: message.conversationId,
+    conversationTitle: conversation?.title ?? message.conversationId,
+    createdAt: normalizeTimestamp(message.createdAt),
+    body: sanitizeRelayBody(message.body),
+  };
+}
+
+function formatReferencedMessageContext(reference: ReferencedMessageContext): string {
+  const normalizedRef = reference.id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const shortRef = `m:${normalizedRef.slice(-7) || normalizedRef.slice(0, 7) || "message"}`;
+  const body = reference.body.length > 280
+    ? `${reference.body.slice(0, 279).trimEnd()}…`
+    : reference.body;
+  return [
+    `[${shortRef}] ${reference.authorName}`,
+    `Conversation: ${reference.conversationTitle} (${reference.conversationId})`,
+    `At: ${formatTimeLabel(reference.createdAt)}`,
+    `Body: ${body || "[no text]"}`,
+  ].join("\n");
 }
 
 function spokenTextForMessage(message: MessageRecord): string | null {
@@ -1596,6 +1757,205 @@ function buildDesktopTasks(
     .sort((lhs, rhs) => normalizeTimestamp(rhs.createdAt) - normalizeTimestamp(lhs.createdAt));
 }
 
+function buildReconciliationFindings(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+): DesktopReconciliationFinding[] {
+  const conversations = snapshot.conversations as Record<string, ConversationRecord>;
+  const messages = Object.values(snapshot.messages as Record<string, MessageRecord>)
+    .filter((message) => message.metadata?.transportOnly !== "true")
+    .sort((lhs, rhs) => normalizeTimestamp(rhs.createdAt) - normalizeTimestamp(lhs.createdAt));
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const latestStatusByExpectation = new Map<string, { createdAt: number; body: string }>();
+  const latestReplyByExpectation = new Map<string, { createdAt: number; body: string }>();
+  const findings = new Map<string, DesktopReconciliationFinding>();
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  for (const message of messages) {
+    if (!message.replyToMessageId) {
+      continue;
+    }
+
+    if (message.class === "status") {
+      const targetAgentId = typeof message.metadata?.targetAgentId === "string"
+        ? String(message.metadata.targetAgentId)
+        : null;
+      if (!targetAgentId) {
+        continue;
+      }
+
+      const key = taskSignalKey(message.replyToMessageId, targetAgentId);
+      const current = latestStatusByExpectation.get(key);
+      if (!current || normalizeTimestamp(current.createdAt) < normalizeTimestamp(message.createdAt)) {
+        latestStatusByExpectation.set(key, {
+          createdAt: message.createdAt,
+          body: sanitizeRelayBody(message.body),
+        });
+      }
+      continue;
+    }
+
+    const key = taskSignalKey(message.replyToMessageId, message.actorId);
+    const current = latestReplyByExpectation.get(key);
+    if (!current || normalizeTimestamp(current.createdAt) < normalizeTimestamp(message.createdAt)) {
+      latestReplyByExpectation.set(key, {
+        createdAt: message.createdAt,
+        body: sanitizeRelayBody(message.body),
+      });
+    }
+  }
+
+  for (const message of messages) {
+    if (message.class === "status" || message.class === "system") {
+      continue;
+    }
+
+    if (!isTaskLikeOperatorMessage(message.body)) {
+      continue;
+    }
+
+    const conversation = conversations[message.conversationId];
+    const targets = inferRecipients(message, conversation)
+      .filter((recipient) => recipient !== message.actorId)
+      .filter((recipient) => Boolean((snapshot.agents as Record<string, AgentRecord>)[recipient]));
+
+    for (const targetAgentId of targets) {
+      const key = taskSignalKey(message.id, targetAgentId);
+      const reply = latestReplyByExpectation.get(key) ?? null;
+      if (reply) {
+        continue;
+      }
+
+      const statusSignal = latestStatusByExpectation.get(key) ?? null;
+      const activity = directActivity.get(targetAgentId);
+      const createdAt = normalizeTimestamp(message.createdAt);
+      const ageSeconds = Math.max(0, nowSeconds - createdAt);
+      const requesterName = actorDisplayName(snapshot, message.actorId);
+      const targetAgentName = actorDisplayName(snapshot, targetAgentId);
+      const title = `${requesterName} is waiting on ${targetAgentName}`;
+      const baseFinding = {
+        requesterId: message.actorId,
+        requesterName,
+        targetAgentId,
+        targetAgentName,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        recordId: null,
+        ageLabel: formatRelativeTime(message.createdAt),
+      } satisfies Pick<DesktopReconciliationFinding, "requesterId" | "requesterName" | "targetAgentId" | "targetAgentName" | "conversationId" | "messageId" | "recordId" | "ageLabel">;
+
+      if (!activity?.reachable && ageSeconds >= RECONCILE_OFFLINE_WAIT_SECONDS) {
+        findings.set(`finding:${key}:offline`, {
+          id: `finding:${key}:offline`,
+          kind: "agent_offline",
+          severity: "error",
+          title,
+          summary: `${targetAgentName} has not started handling this ask.`,
+          detail: `${targetAgentName} looks offline while ${requesterName} is still waiting on: ${taskTitleFromBody(message.body)}`,
+          updatedAtLabel: null,
+          ...baseFinding,
+        });
+        continue;
+      }
+
+      if (
+        statusSignal
+        && /working|running|waking|queued/i.test(statusSignal.body)
+      ) {
+        const statusAgeSeconds = Math.max(0, nowSeconds - normalizeTimestamp(statusSignal.createdAt));
+        if (statusAgeSeconds >= RECONCILE_STALE_WORKING_SECONDS) {
+          findings.set(`finding:${key}:stale-working`, {
+            id: `finding:${key}:stale-working`,
+            kind: "stale_working",
+            severity: "warning",
+            title,
+            summary: `${targetAgentName} said it was working, but nothing else happened.`,
+            detail: statusSignal.body,
+            updatedAtLabel: formatRelativeTime(statusSignal.createdAt),
+            ...baseFinding,
+          });
+        }
+        continue;
+      }
+
+      if (!statusSignal && ageSeconds >= RECONCILE_NO_FOLLOW_UP_SECONDS) {
+        findings.set(`finding:${key}:no-follow-up`, {
+          id: `finding:${key}:no-follow-up`,
+          kind: "no_follow_up",
+          severity: "warning",
+          title,
+          summary: `${targetAgentName} has not acknowledged or answered this ask.`,
+          detail: taskTitleFromBody(message.body),
+          updatedAtLabel: null,
+          ...baseFinding,
+        });
+      }
+    }
+  }
+
+  for (const record of Object.values(snapshot.collaborationRecords ?? {}) as Array<unknown>) {
+    const recordValue = record as Record<string, unknown>;
+    const nextMoveOwnerId = typeof recordValue.nextMoveOwnerId === "string" ? String(recordValue.nextMoveOwnerId) : null;
+    const ownerId = typeof recordValue.ownerId === "string" ? String(recordValue.ownerId) : null;
+    const waitingOn = typeof recordValue.waitingOn === "object" && recordValue.waitingOn ? recordValue.waitingOn as Record<string, unknown> : null;
+    const targetId = typeof waitingOn?.targetId === "string" ? String(waitingOn.targetId) : null;
+    const waitingKind = typeof waitingOn?.kind === "string" ? String(waitingOn.kind) : null;
+    const updatedAt = typeof recordValue.updatedAt === "number" ? recordValue.updatedAt : 0;
+    const recordId = typeof recordValue.id === "string" ? String(recordValue.id) : null;
+    const title = typeof recordValue.title === "string" ? String(recordValue.title) : "Open item";
+    if (!recordId || !nextMoveOwnerId || waitingKind !== "actor" || !targetId) {
+      continue;
+    }
+
+    const targetActivity = directActivity.get(targetId);
+    const staleSeconds = Math.max(0, nowSeconds - normalizeTimestamp(updatedAt));
+    if (targetActivity?.reachable || staleSeconds < RECONCILE_NO_FOLLOW_UP_SECONDS) {
+      continue;
+    }
+
+    findings.set(`finding:record:${recordId}`, {
+      id: `finding:record:${recordId}`,
+      kind: "waiting_on_record",
+      severity: "error",
+      title: `${actorDisplayName(snapshot, nextMoveOwnerId)} is blocked on ${actorDisplayName(snapshot, targetId)}`,
+      summary: title,
+      detail: typeof waitingOn?.label === "string" ? String(waitingOn.label) : null,
+      requesterId: ownerId ?? nextMoveOwnerId,
+      requesterName: actorDisplayName(snapshot, ownerId ?? nextMoveOwnerId),
+      targetAgentId: targetId,
+      targetAgentName: actorDisplayName(snapshot, targetId),
+      conversationId: typeof recordValue.conversationId === "string" ? String(recordValue.conversationId) : null,
+      messageId: null,
+      recordId,
+      ageLabel: formatRelativeTime(updatedAt),
+      updatedAtLabel: formatRelativeTime(updatedAt),
+    });
+  }
+
+  return Array.from(findings.values())
+    .sort((lhs, rhs) => {
+      const severityRank = (value: DesktopReconciliationFinding["severity"]) => value === "error" ? 0 : 1;
+      const findingTimestamp = (finding: DesktopReconciliationFinding) => {
+        if (finding.messageId) {
+          const message = snapshot.messages[finding.messageId] as MessageRecord | undefined;
+          return normalizeTimestamp(message?.createdAt ?? 0);
+        }
+        if (finding.recordId) {
+          const record = snapshot.collaborationRecords?.[finding.recordId] as unknown;
+          const recordValue = record as Record<string, unknown> | undefined;
+          return normalizeTimestamp(typeof recordValue?.updatedAt === "number" ? recordValue.updatedAt : 0);
+        }
+        return 0;
+      };
+      return (
+        severityRank(lhs.severity) - severityRank(rhs.severity)
+        || findingTimestamp(rhs) - findingTimestamp(lhs)
+        || lhs.title.localeCompare(rhs.title)
+      );
+    });
+}
+
 function buildEmptyMachinesState(): DesktopMachinesState {
   return {
     title: "Machines",
@@ -1773,31 +2133,39 @@ async function buildPlansState(
   snapshot: RuntimeRegistrySnapshot | null,
   tmuxSessions: TmuxSession[],
 ): Promise<DesktopPlansState> {
-  const [plans, tasks] = await Promise.all([
+  const [plans, tasks, findings] = await Promise.all([
     loadWorkspacePlans(snapshot),
     Promise.resolve(snapshot ? buildDesktopTasks(snapshot, tmuxSessions) : []),
+    Promise.resolve(snapshot ? buildReconciliationFindings(snapshot, tmuxSessions) : []),
   ]);
   const workspaceCount = new Set(plans.map((plan) => plan.workspacePath)).size;
   const runningTaskCount = tasks.filter((task) => task.status === "running").length;
   const failedTaskCount = tasks.filter((task) => task.status === "failed").length;
   const completedTaskCount = tasks.filter((task) => task.status === "completed").length;
+  const warningCount = findings.filter((finding) => finding.severity === "warning").length;
+  const errorCount = findings.filter((finding) => finding.severity === "error").length;
   const latestTask = tasks[0];
   const latestPlan = plans[0];
+  const latestFinding = findings[0];
   const latestPlanLabel = latestPlan
     ? formatRelativeTime(Math.floor(Date.parse(latestPlan.updatedAt) / 1000))
     : null;
 
   return {
     title: "Plans",
-    subtitle: `${tasks.length} asks · ${plans.length} plans · ${workspaceCount} workspaces`,
+    subtitle: `${tasks.length} asks · ${findings.length} findings · ${plans.length} plans · ${workspaceCount} workspaces`,
     taskCount: tasks.length,
     runningTaskCount,
     failedTaskCount,
     completedTaskCount,
+    findingCount: findings.length,
+    warningCount,
+    errorCount,
     planCount: plans.length,
     workspaceCount,
-    lastUpdatedLabel: latestTask?.ageLabel ?? latestPlanLabel,
+    lastUpdatedLabel: latestFinding?.updatedAtLabel ?? latestTask?.ageLabel ?? latestPlanLabel,
     tasks,
+    findings,
     plans,
   };
 }
@@ -2207,7 +2575,7 @@ function interAgentProfileKind(agent: AgentRecord) {
   if (agent.agentClass === "system") {
     return "system" as const;
   }
-  if (agent.metadata?.source === "relay-twin-registry") {
+  if (agent.metadata?.source === "relay-agent-registry") {
     return "project" as const;
   }
   return "role" as const;
@@ -2220,7 +2588,7 @@ function agentTypeLabel(agent: AgentRecord | null | undefined) {
   if (agent.agentClass === "system") {
     return "System";
   }
-  if (agent.metadata?.source === "relay-twin-registry") {
+  if (agent.metadata?.source === "relay-agent-registry") {
     return "Relay Agent";
   }
   return "Built-in Role";
@@ -2639,7 +3007,7 @@ async function ensureDirectConversation(
   nodeId: string,
   agentId: string,
 ): Promise<string> {
-  const conversationId = `dm.${OPERATOR_ID}.${agentId}`;
+  const conversationId = primaryDirectConversationIdForAgent(agentId);
   const nextShareMode = snapshot.agents[agentId]?.authorityNodeId && snapshot.agents[agentId]?.authorityNodeId !== nodeId ? "shared" : "local";
   const existing = snapshot.conversations[conversationId];
   if (existing?.shareMode === nextShareMode) {
@@ -2649,12 +3017,15 @@ async function ensureDirectConversation(
   await brokerPost(baseUrl, "/v1/conversations", {
     id: conversationId,
     kind: "direct",
-    title: actorDisplayName(snapshot, agentId),
+    title: agentId === SCOUT_AGENT_ID ? "Scout" : actorDisplayName(snapshot, agentId),
     visibility: "private",
     shareMode: nextShareMode,
     authorityNodeId: nodeId,
     participantIds: [OPERATOR_ID, agentId].sort(),
-    metadata: { surface: "electron" },
+    metadata: {
+      surface: "electron",
+      ...(agentId === SCOUT_AGENT_ID ? { role: "partner" } : {}),
+    },
   });
 
   return conversationId;
@@ -2680,7 +3051,7 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-async function ensureProjectTwinBindingOnBroker(
+async function ensureLocalAgentBindingOnBroker(
   baseUrl: string,
   snapshot: RuntimeRegistrySnapshot,
   nodeId: string,
@@ -2690,7 +3061,7 @@ async function ensureProjectTwinBindingOnBroker(
     return true;
   }
 
-  const binding = await ensureProjectTwinBindingOnline(agentId, nodeId, {
+  const binding = await ensureLocalAgentBindingOnline(agentId, nodeId, {
     includeDiscovered: true,
     currentDirectory: desktopCurrentDirectory(),
   });
@@ -2723,7 +3094,7 @@ async function parseMentionTargets(
     return { actorIds: [], labels };
   }
 
-  const setup = await loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() });
+  const setup = await readResolvedRelayAgents();
   const candidateMap = new Map<string, AgentSelectorCandidate>();
   for (const agent of Object.values(snapshot.agents)) {
     candidateMap.set(agent.id, {
@@ -2803,15 +3174,27 @@ async function postMessageAndInvocations(
 
   const directTarget = input.destinationKind === "direct" ? input.destinationId : null;
   if (directTarget) {
-    await ensureProjectTwinBindingOnBroker(status.brokerUrl, snapshot, node.id, directTarget);
+    if (directTarget === SCOUT_AGENT_ID) {
+      await ensureScoutRelayAgentConfigured({ currentDirectory: desktopCurrentDirectory() });
+    }
+    await ensureLocalAgentBindingOnBroker(status.brokerUrl, snapshot, node.id, directTarget);
   }
 
   const mentionTargets = await parseMentionTargets(input.body, snapshot);
   for (const targetAgentId of mentionTargets.actorIds) {
-    await ensureProjectTwinBindingOnBroker(status.brokerUrl, snapshot, node.id, targetAgentId);
+    await ensureLocalAgentBindingOnBroker(status.brokerUrl, snapshot, node.id, targetAgentId);
   }
   const invokeTargets = unique([...(directTarget ? [directTarget] : []), ...mentionTargets.actorIds])
     .filter((targetAgentId) => Boolean(snapshot.agents[targetAgentId]));
+  const requestedHarness = input.harness && SUPPORTED_LOCAL_AGENT_HARNESSES.includes(input.harness as AgentHarness)
+    ? input.harness as AgentHarness
+    : undefined;
+
+  const referenceMessageIds = normalizeMessageReferenceIds(input.referenceMessageIds);
+  const referencedMessages = referenceMessageIds
+    .map((messageId) => referencedMessageContext(snapshot, messageId))
+    .filter((entry): entry is ReferencedMessageContext => Boolean(entry));
+  const effectiveReplyToMessageId = input.replyToMessageId ?? referencedMessages[0]?.id ?? undefined;
 
   let conversationId = SHARED_CHANNEL_ID;
   let visibility = "workspace";
@@ -2832,7 +3215,7 @@ async function postMessageAndInvocations(
   await brokerPost(status.brokerUrl, "/v1/messages", {
     id: messageId,
     conversationId,
-    replyToMessageId: input.replyToMessageId ?? undefined,
+    replyToMessageId: effectiveReplyToMessageId,
     actorId: OPERATOR_ID,
     originNodeId: node.id,
     class: messageClass,
@@ -2844,7 +3227,6 @@ async function postMessageAndInvocations(
     audience: invokeTargets.length > 0
       ? {
           notify: invokeTargets,
-          invoke: invokeTargets,
           reason: directTarget ? "direct_message" : "mention",
         }
       : undefined,
@@ -2855,6 +3237,7 @@ async function postMessageAndInvocations(
       source: "electron-app",
       destinationKind: input.destinationKind,
       destinationId: input.destinationId,
+      referenceMessageIds,
       clientMessageId: input.clientMessageId ?? null,
     },
   });
@@ -2869,6 +3252,17 @@ async function postMessageAndInvocations(
       task: input.body.trim(),
       conversationId,
       messageId,
+      context: referencedMessages.length > 0
+        ? {
+            reference_message_ids: referenceMessageIds.join(", "),
+            referenced_messages: referencedMessages.map(formatReferencedMessageContext).join("\n\n"),
+          }
+        : undefined,
+      execution: requestedHarness
+        ? {
+            harness: requestedHarness,
+          }
+        : undefined,
       ensureAwake: true,
       stream: false,
       createdAt: Date.now(),
@@ -2886,7 +3280,7 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
   const [status, helper, setup] = await Promise.all([
     brokerServiceStatus(),
     Promise.resolve(readHelperStatus()),
-    loadResolvedRelayAgents({ currentDirectory: desktopCurrentDirectory() }),
+    readResolvedRelayAgents(),
   ]);
   const liveBroker = await readLiveBrokerState(status);
   const tmuxSessions = readTmuxSessions();
@@ -2940,14 +3334,73 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
 }
 
 export async function getAppSettings(): Promise<AppSettingsState> {
-  const [setup, status] = await Promise.all([
-    loadResolvedRelayAgents({
-      currentDirectory: desktopCurrentDirectory(),
+  const [setup, status, catalog] = await Promise.all([
+    readResolvedRelayAgents({
       syncLegacyMirror: true,
+    }, {
+      force: true,
     }),
     brokerServiceStatus(),
+    loadHarnessCatalogSnapshot(),
   ]);
   const record = await readOpenScoutSettings({ currentDirectory: desktopCurrentDirectory() });
+  const telegram = telegramBridgeService.getRuntimeState();
+  const readinessByHarness = new Map(
+    catalog.entries.map((entry) => [entry.harness, entry.readinessReport] as const),
+  );
+  const hasSourceRoots = setup.settings.discovery.workspaceRoots.length > 0;
+  const hasReadyRuntime = catalog.entries.some((entry) => entry.readinessReport.ready);
+  const hasCurrentProjectConfig = Boolean(setup.currentProjectConfigPath);
+  const onboardingProgress = record.onboarding;
+  const onboardingSteps = [
+    {
+      id: "source-roots",
+      title: "Choose a source root",
+      detail: hasSourceRoots
+        ? `${setup.settings.discovery.workspaceRoots.length} source root${setup.settings.discovery.workspaceRoots.length === 1 ? "" : "s"} currently configured.`
+        : "Add the parent directory that contains your repos so OpenScout can walk it for projects.",
+      complete: Boolean(onboardingProgress.sourceRootsAnsweredAt),
+    },
+    {
+      id: "harness",
+      title: "Choose a default harness",
+      detail: `Current default harness: ${setup.settings.agents.defaultHarness}.`,
+      complete: Boolean(onboardingProgress.harnessChosenAt),
+    },
+    {
+      id: "confirm",
+      title: "Confirm and save inputs",
+      detail: onboardingProgress.inputsSavedAt
+        ? "Inputs have been explicitly saved for onboarding."
+        : "Save the onboarding inputs before running the command steps.",
+      complete: Boolean(onboardingProgress.inputsSavedAt),
+    },
+    {
+      id: "init",
+      title: "Run init",
+      detail: hasCurrentProjectConfig
+        ? "The current repo currently has a local `.openscout/project.json`."
+        : "Run `scout init` from this screen to create a local `.openscout/project.json` for the repo you launched from.",
+      complete: Boolean(onboardingProgress.initRanAt),
+    },
+    {
+      id: "doctor",
+      title: "Run doctor",
+      detail: setup.projectInventory.length > 0
+        ? `${setup.projectInventory.length} project${setup.projectInventory.length === 1 ? "" : "s"} currently appear in inventory.`
+        : "OpenScout has not discovered any projects yet.",
+      complete: Boolean(onboardingProgress.doctorRanAt),
+    },
+    {
+      id: "runtimes",
+      title: "Run runtimes",
+      detail: hasReadyRuntime
+        ? "At least one harness is installed and authenticated."
+        : "Install or sign into Claude or Codex so the broker can start local agent sessions.",
+      complete: Boolean(onboardingProgress.runtimesRanAt),
+    },
+  ];
+  const onboardingNeeded = !(onboardingProgress.completedAt || onboardingProgress.skippedAt);
 
   return {
     operatorId: OPERATOR_ID,
@@ -2960,12 +3413,29 @@ export async function getAppSettings(): Promise<AppSettingsState> {
     supportDirectory: setup.supportDirectory,
     currentProjectConfigPath: setup.currentProjectConfigPath,
     workspaceRoots: setup.settings.discovery.workspaceRoots.map((root) => compactHomePath(root) ?? root),
-    workspaceRootsNote: "Workspace roots are user-configured. OpenScout scans them shallowly for repos and project manifests.",
+    workspaceRootsNote: "Source roots are user-configured. OpenScout walks them recursively to find project roots and harness evidence.",
     includeCurrentRepo: setup.settings.discovery.includeCurrentRepo,
     defaultHarness: setup.settings.agents.defaultHarness,
     defaultTransport: setup.settings.agents.defaultTransport,
     defaultCapabilities: [...setup.settings.agents.defaultCapabilities],
     sessionPrefix: setup.settings.agents.sessionPrefix,
+    telegram: {
+      enabled: record.bridges.telegram.enabled,
+      mode: record.bridges.telegram.mode,
+      botToken: record.bridges.telegram.botToken,
+      secretToken: record.bridges.telegram.secretToken,
+      apiBaseUrl: record.bridges.telegram.apiBaseUrl,
+      userName: record.bridges.telegram.userName,
+      defaultConversationId: record.bridges.telegram.defaultConversationId,
+      ownerNodeId: record.bridges.telegram.ownerNodeId,
+      configured: telegram.configured,
+      running: telegram.running,
+      runtimeMode: telegram.runtimeMode,
+      detail: telegram.detail,
+      lastError: telegram.lastError,
+      bindingCount: telegram.bindingCount,
+      pendingDeliveries: telegram.pendingDeliveries,
+    },
     discoveredAgents: setup.discoveredAgents.map((agent) => ({
       id: agent.agentId,
       title: agent.displayName,
@@ -2976,6 +3446,45 @@ export async function getAppSettings(): Promise<AppSettingsState> {
       sessionId: agent.runtime.sessionId,
       projectConfigPath: agent.projectConfigPath ? compactHomePath(agent.projectConfigPath) ?? agent.projectConfigPath : null,
     })),
+    projectInventory: setup.projectInventory.map((project) => ({
+      id: project.agentId,
+      definitionId: project.definitionId,
+      title: project.displayName,
+      projectName: project.projectName,
+      root: compactHomePath(project.projectRoot) ?? project.projectRoot,
+      sourceRoot: compactHomePath(project.sourceRoot) ?? project.sourceRoot,
+      relativePath: project.relativePath,
+      source: project.source,
+      registrationKind: project.registrationKind,
+      defaultHarness: project.defaultHarness,
+      projectConfigPath: project.projectConfigPath ? compactHomePath(project.projectConfigPath) ?? project.projectConfigPath : null,
+      harnesses: project.harnesses.map((harness) => ({
+        harness: harness.harness,
+        source: harness.source,
+        detail: harness.detail,
+        readinessState: readinessByHarness.get(harness.harness)?.state ?? null,
+        readinessDetail: readinessByHarness.get(harness.harness)?.detail ?? null,
+      })),
+    })),
+    runtimeCatalog: catalog.entries.map((entry) => ({
+      name: entry.name,
+      label: entry.label,
+      readinessState: entry.readinessReport.state,
+      readinessDetail: entry.readinessReport.detail,
+    })),
+    onboarding: {
+      needed: onboardingNeeded,
+      title: onboardingNeeded ? "Finish First-Run Setup" : "OpenScout Is Ready",
+      detail: onboardingNeeded
+        ? "Use the same `scout init`, `scout doctor`, and `scout runtimes` commands from this screen. The wizard tracks your explicit progress instead of guessing from current machine state."
+        : "OpenScout onboarding has been completed or skipped for this machine. You can still revisit the setup screens any time.",
+      commands: [
+        "scout init --source-root ~/dev",
+        "scout doctor",
+        "scout runtimes",
+      ],
+      steps: onboardingSteps,
+    },
     broker: {
       label: status.label,
       url: status.brokerUrl,
@@ -2987,6 +3496,29 @@ export async function getAppSettings(): Promise<AppSettingsState> {
       stderrLogPath: compactHomePath(status.stderrLogPath) ?? status.stderrLogPath,
     },
   };
+}
+
+export async function getPhonePreparation(): Promise<PhonePreparationState> {
+  const record = await readOpenScoutSettings({ currentDirectory: desktopCurrentDirectory() });
+  return {
+    favorites: [...record.phone.favorites],
+    quickHits: [...record.phone.quickHits],
+    preparedAt: record.phone.preparedAt,
+  };
+}
+
+export async function updatePhonePreparation(input: UpdatePhonePreparationInput): Promise<PhonePreparationState> {
+  await writeOpenScoutSettings({
+    phone: {
+      favorites: input.favorites,
+      quickHits: input.quickHits,
+      preparedAt: input.preparedAt,
+    },
+  }, {
+    currentDirectory: desktopCurrentDirectory(),
+  });
+
+  return getPhonePreparation();
 }
 
 export async function getLogCatalog(): Promise<DesktopLogCatalog> {
@@ -3053,12 +3585,12 @@ export async function readLogSource(input: ReadLogSourceInput): Promise<DesktopL
 }
 
 export async function getAgentSession(agentId: string): Promise<AgentSessionInspector> {
-  const twinConfig = await getProjectTwinConfig(agentId);
-  const configuredTitle = twinConfig?.twinId ?? agentId;
-  const configuredHarness = twinConfig?.runtime.harness ?? null;
-  const configuredTransport = twinConfig?.runtime.transport ?? null;
-  const configuredSessionId = twinConfig?.runtime.sessionId ?? null;
-  const configuredDirectoryPath = twinConfig?.runtime.cwd ?? null;
+  const agentConfig = await getLocalAgentConfig(agentId);
+  const configuredTitle = agentConfig?.agentId ?? agentId;
+  const configuredHarness = agentConfig?.runtime.harness ?? null;
+  const configuredTransport = agentConfig?.runtime.transport ?? null;
+  const configuredSessionId = agentConfig?.runtime.sessionId ?? null;
+  const configuredDirectoryPath = agentConfig?.runtime.cwd ?? null;
   const configuredCwd = compactHomePath(configuredDirectoryPath ?? "") || null;
 
   // Most relay agents are local tmux-backed sessions. Check the canonical local config first
@@ -3164,14 +3696,113 @@ export async function getAgentSession(agentId: string): Promise<AgentSessionInsp
   };
 }
 
+export async function runOnboardingCommand(input: RunOnboardingCommandInput): Promise<OnboardingCommandResult> {
+  const command = input.command;
+  const currentDirectory = desktopCurrentDirectory();
+  const repoRoot = desktopRepoRoot();
+  const cliEntrypoint = desktopCliEntrypoint();
+  const normalizedSourceRoots = Array.from(new Set(
+    (input.sourceRoots ?? [])
+      .map((entry) => expandHomePath(entry).trim())
+      .filter(Boolean),
+  ));
+
+  const displayArgs = ["scout", command];
+  const execArgs = ["run", cliEntrypoint, command];
+  if (command === "init") {
+    for (const sourceRoot of normalizedSourceRoots) {
+      displayArgs.push("--source-root", compactHomePath(sourceRoot) ?? sourceRoot);
+      execArgs.push("--source-root", sourceRoot);
+    }
+  }
+
+  const result = await new Promise<OnboardingCommandResult>((resolvePromise, reject) => {
+    const child = spawn("bun", execArgs, {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        OPENSCOUT_SETUP_CWD: currentDirectory,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      reject(error);
+    });
+    child.on("close", (code) => {
+      const stdoutText = stdout.trim();
+      const stderrText = stderr.trim();
+      const output = [stdoutText, stderrText].filter(Boolean).join("\n\n").trim();
+      resolvePromise({
+        command,
+        commandLine: displayArgs.join(" "),
+        cwd: compactHomePath(currentDirectory) ?? currentDirectory,
+        exitCode: code ?? 0,
+        stdout: stdoutText,
+        stderr: stderrText,
+        output: output || "(no output)",
+      });
+    });
+  });
+
+  invalidateResolvedRelayAgentsCache();
+  if (result.exitCode === 0) {
+    const now = Date.now();
+    await writeOpenScoutSettings({
+      onboarding: input.command === "init"
+        ? {
+          initRanAt: now,
+        }
+        : input.command === "doctor"
+          ? {
+            doctorRanAt: now,
+          }
+          : {
+            runtimesRanAt: now,
+            completedAt: now,
+          },
+    }, {
+      currentDirectory,
+    });
+  }
+  return result;
+}
+
+export async function skipOnboarding(): Promise<AppSettingsState> {
+  await writeOpenScoutSettings({
+    onboarding: {
+      skippedAt: Date.now(),
+    },
+  }, {
+    currentDirectory: desktopCurrentDirectory(),
+  });
+  invalidateResolvedRelayAgentsCache();
+  return getAppSettings();
+}
+
 export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<AppSettingsState> {
   const trimmedOperatorName = input.operatorName?.trim() ?? "";
-  const defaultHarness: AgentHarness = SUPPORTED_TWIN_HARNESSES.includes(input.defaultHarness as AgentHarness)
+  const defaultHarness: AgentHarness = SUPPORTED_LOCAL_AGENT_HARNESSES.includes(input.defaultHarness as AgentHarness)
     ? input.defaultHarness as AgentHarness
     : "claude";
+  const now = Date.now();
   await writeOpenScoutSettings({
     profile: {
       operatorName: trimmedOperatorName || DEFAULT_OPERATOR_DISPLAY_NAME,
+    },
+    onboarding: {
+      sourceRootsAnsweredAt: splitLines(input.workspaceRootsText).length > 0 ? now : null,
+      harnessChosenAt: now,
+      inputsSavedAt: now,
     },
     discovery: {
       workspaceRoots: splitLines(input.workspaceRootsText).map((entry) => expandHomePath(entry)),
@@ -3179,20 +3810,33 @@ export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<
     },
     agents: {
       defaultHarness,
-      defaultTransport: "tmux",
+      defaultTransport: defaultHarness === "codex" ? "codex_app_server" : "claude_stream_json",
       defaultCapabilities: splitDelimitedTokens(input.defaultCapabilitiesText) as Array<"chat" | "invoke" | "deliver" | "speak" | "listen" | "bridge" | "summarize" | "review" | "execute">,
       sessionPrefix: input.sessionPrefix,
+    },
+    bridges: {
+      telegram: {
+        enabled: input.telegram.enabled,
+        mode: input.telegram.mode,
+        botToken: input.telegram.botToken,
+        secretToken: input.telegram.secretToken,
+        apiBaseUrl: input.telegram.apiBaseUrl,
+        userName: input.telegram.userName,
+        defaultConversationId: input.telegram.defaultConversationId,
+        ownerNodeId: input.telegram.ownerNodeId,
+      },
     },
   }, {
     currentDirectory: desktopCurrentDirectory(),
   });
-  await initializeOpenScoutSetup({ currentDirectory: desktopCurrentDirectory() });
+  invalidateResolvedRelayAgentsCache();
+  await telegramBridgeService.refreshConfiguration();
 
   const status = await brokerServiceStatus();
   if (status.reachable) {
     try {
       await ensureOperatorActor(status.brokerUrl);
-      await syncAllProjectTwinBindingsToBroker();
+      await syncAllLocalAgentBindingsToBroker();
     } catch {
       // Persisting settings should not fail just because the live broker actor could not refresh.
     }
@@ -3201,7 +3845,7 @@ export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<
   return getAppSettings();
 }
 
-async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = false): Promise<void> {
+async function syncLocalAgentBindingToBroker(agentId: string, ensureOnline = false): Promise<void> {
   const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
   const status = liveBroker.status;
   const node = liveBroker.node;
@@ -3209,7 +3853,7 @@ async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = fa
     return;
   }
 
-  const bindings = await loadRegisteredProjectTwinBindings(node.id, {
+  const bindings = await loadRegisteredLocalAgentBindings(node.id, {
     agentIds: [agentId],
     ensureOnline,
   });
@@ -3223,7 +3867,7 @@ async function syncProjectTwinBindingToBroker(agentId: string, ensureOnline = fa
   await brokerPost(status.brokerUrl, "/v1/endpoints", binding.endpoint);
 }
 
-async function syncAllProjectTwinBindingsToBroker(): Promise<void> {
+async function syncAllLocalAgentBindingsToBroker(): Promise<void> {
   const liveBroker = await readLiveBrokerState(await brokerServiceStatus());
   const status = liveBroker.status;
   const node = liveBroker.node;
@@ -3231,7 +3875,7 @@ async function syncAllProjectTwinBindingsToBroker(): Promise<void> {
     return;
   }
 
-  const bindings = await loadRegisteredProjectTwinBindings(node.id);
+  const bindings = await loadRegisteredLocalAgentBindings(node.id);
   for (const binding of bindings) {
     await brokerPost(status.brokerUrl, "/v1/actors", binding.actor);
     await brokerPost(status.brokerUrl, "/v1/agents", binding.agent);
@@ -3240,33 +3884,33 @@ async function syncAllProjectTwinBindingsToBroker(): Promise<void> {
 }
 
 export async function getAgentConfig(agentId: string): Promise<AgentConfigState> {
-  const twinConfig = await getProjectTwinConfig(agentId);
-  if (twinConfig) {
+  const agentConfig = await getLocalAgentConfig(agentId);
+  if (agentConfig) {
     const runtimeDirectory = relayAgentRuntimeDirectory(agentId);
     const logsDirectory = relayAgentLogsDirectory(agentId);
     return {
       agentId,
-      editable: twinConfig.editable,
+      editable: agentConfig.editable,
       title: agentId,
       typeLabel: "Relay Agent",
       applyModeLabel: "Save changes, then restart to apply runtime, prompt, and capability updates.",
       note: `Stored in the canonical relay agent registry. Runtime files live at ${compactHomePath(runtimeDirectory) ?? runtimeDirectory} and logs at ${compactHomePath(logsDirectory) ?? logsDirectory}.`,
-      systemPromptHint: twinConfig.templateHint,
-      availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+      systemPromptHint: agentConfig.templateHint,
+      availableHarnesses: [...SUPPORTED_LOCAL_AGENT_HARNESSES],
       runtime: {
-        cwd: compactHomePath(twinConfig.runtime.cwd) ?? twinConfig.runtime.cwd,
-        projectRoot: compactHomePath(twinConfig.runtime.cwd),
-        harness: twinConfig.runtime.harness,
-        transport: twinConfig.runtime.transport,
-        sessionId: twinConfig.runtime.sessionId,
-        wakePolicy: twinConfig.runtime.wakePolicy,
-        source: "relay-twin-registry",
+        cwd: compactHomePath(agentConfig.runtime.cwd) ?? agentConfig.runtime.cwd,
+        projectRoot: compactHomePath(agentConfig.runtime.cwd),
+        harness: agentConfig.runtime.harness,
+        transport: agentConfig.runtime.transport,
+        sessionId: agentConfig.runtime.sessionId,
+        wakePolicy: agentConfig.runtime.wakePolicy,
+        source: "relay-agent-registry",
       },
-      systemPrompt: twinConfig.systemPrompt,
+      systemPrompt: agentConfig.systemPrompt,
       toolUse: {
-        launchArgsText: twinConfig.launchArgs.join("\n"),
+        launchArgsText: agentConfig.launchArgs.join("\n"),
       },
-      capabilitiesText: twinConfig.capabilities.join(", "),
+      capabilitiesText: agentConfig.capabilities.join(", "),
     };
   }
 
@@ -3283,7 +3927,7 @@ export async function getAgentConfig(agentId: string): Promise<AgentConfigState>
       applyModeLabel: null,
       note: "The selected agent is not currently present in the broker snapshot.",
       systemPromptHint: null,
-      availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+      availableHarnesses: [...SUPPORTED_LOCAL_AGENT_HARNESSES],
       runtime: {
         cwd: "",
         projectRoot: null,
@@ -3315,7 +3959,7 @@ export async function getAgentConfig(agentId: string): Promise<AgentConfigState>
     applyModeLabel: null,
     note: "Built-in role agents are not editable yet.",
     systemPromptHint: null,
-    availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+    availableHarnesses: [...SUPPORTED_LOCAL_AGENT_HARNESSES],
     runtime: {
       cwd: compactHomePath(endpoint?.cwd) ?? "",
       projectRoot: compactHomePath(endpoint?.projectRoot ?? endpoint?.cwd),
@@ -3340,7 +3984,7 @@ export async function getAgentConfig(agentId: string): Promise<AgentConfigState>
 }
 
 export async function updateAgentConfig(input: UpdateAgentConfigInput): Promise<AgentConfigState> {
-  const nextConfig = await updateProjectTwinConfig(input.agentId, {
+  const nextConfig = await updateLocalAgentConfig(input.agentId, {
     runtime: {
       cwd: input.runtime.cwd,
       harness: input.runtime.harness,
@@ -3362,7 +4006,7 @@ export async function updateAgentConfig(input: UpdateAgentConfigInput): Promise<
     applyModeLabel: "Saved. Restart to apply runtime, prompt, and capability updates.",
     note: "Saved to the local relay registry.",
     systemPromptHint: nextConfig.templateHint,
-    availableHarnesses: [...SUPPORTED_TWIN_HARNESSES],
+    availableHarnesses: [...SUPPORTED_LOCAL_AGENT_HARNESSES],
     runtime: {
       cwd: compactHomePath(nextConfig.runtime.cwd) ?? nextConfig.runtime.cwd,
       projectRoot: compactHomePath(nextConfig.runtime.cwd),
@@ -3370,7 +4014,7 @@ export async function updateAgentConfig(input: UpdateAgentConfigInput): Promise<
       transport: nextConfig.runtime.transport,
       sessionId: nextConfig.runtime.sessionId,
       wakePolicy: nextConfig.runtime.wakePolicy,
-      source: "relay-twin-registry",
+      source: "relay-agent-registry",
     },
     systemPrompt: nextConfig.systemPrompt,
     toolUse: {
@@ -3381,14 +4025,14 @@ export async function updateAgentConfig(input: UpdateAgentConfigInput): Promise<
 }
 
 export async function restartAgent(appInfo: DesktopAppInfo, input: RestartAgentInput): Promise<DesktopShellState> {
-  const nextRecord = await restartProjectTwin(input.agentId, {
+  const nextRecord = await restartLocalAgent(input.agentId, {
     previousSessionId: input.previousSessionId ?? null,
   });
   if (!nextRecord) {
     throw new Error(`Agent ${input.agentId} is not an editable relay agent.`);
   }
 
-  await syncProjectTwinBindingToBroker(input.agentId, true);
+  await syncLocalAgentBindingToBroker(input.agentId, true);
   return buildDesktopShellState(appInfo);
 }
 
@@ -3396,10 +4040,11 @@ export async function controlBroker(appInfo: DesktopAppInfo, action: BrokerContr
   switch (action) {
     case "start":
       await startBrokerService();
+      await telegramBridgeService.refreshConfiguration();
       try {
         const status = await brokerServiceStatus();
         await ensureOperatorActor(status.brokerUrl);
-        await syncAllProjectTwinBindingsToBroker();
+        await syncAllLocalAgentBindingsToBroker();
       } catch {
         // A restarted broker can still be warming; return live state even if reconciliation has to catch up.
       }
@@ -3409,10 +4054,11 @@ export async function controlBroker(appInfo: DesktopAppInfo, action: BrokerContr
       break;
     case "restart":
       await restartBrokerService();
+      await telegramBridgeService.refreshConfiguration();
       try {
         const status = await brokerServiceStatus();
         await ensureOperatorActor(status.brokerUrl);
-        await syncAllProjectTwinBindingsToBroker();
+        await syncAllLocalAgentBindingsToBroker();
       } catch {
         // A restarted broker can still be warming; return live state even if reconciliation has to catch up.
       }

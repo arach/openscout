@@ -133,6 +133,7 @@ struct TurnView: View {
             sessionId: "s1",
             status: .completed,
             startedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-120)),
+            endedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-90)),
             blocks: [
                 Block(id: "b1", turnId: "t1", type: .text, status: .completed, index: 0,
                       text: "Let me help you with that refactoring."),

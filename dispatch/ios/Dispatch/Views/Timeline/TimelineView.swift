@@ -14,6 +14,7 @@ struct TimelineView: View {
     @State private var shouldAutoScroll = true
     @State private var showingSettings = false
     @State private var sendError: String?
+    @State private var isRefreshing = false
     @Environment(\.dismiss) private var dismiss
     @Namespace private var bottomAnchor
 
@@ -46,8 +47,10 @@ struct TimelineView: View {
                 sessionId: sessionId,
                 status: turnStatus,
                 startedAt: formatter.string(from: startedAtDate),
+                endedAt: turnState.endedAt.map { formatter.string(from: Date(timeIntervalSince1970: Double($0) / 1000.0)) },
                 blocks: blocks,
-                isUserTurn: turnState.isUserTurn
+                isUserTurn: turnState.isUserTurn,
+                turnHash: turnState.turnHash
             )
         }
     }
@@ -60,8 +63,16 @@ struct TimelineView: View {
         connection.state == .connected
     }
 
+    private var isCachedOnly: Bool {
+        store.cachedOnlySessionIds.contains(sessionId)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            if isCachedOnly {
+                cachedSessionBanner
+            }
+
             if turns.isEmpty {
                 emptyState
             } else {
@@ -94,37 +105,13 @@ struct TimelineView: View {
             ComposerView(
                 sessionId: sessionId,
                 projectName: session?.name,
-                isConnected: isConnected,
+                adapterType: session?.adapterType,
+                currentModel: session?.model,
+                currentBranch: session?.currentBranch,
+                isConnected: isConnected && !isCachedOnly,
                 isStreaming: isStreaming,
-                onSend: { text in
-                    // Show the user's message in the timeline immediately
-                    let turnId = "user-\(UUID().uuidString)"
-                    let userBlock = Block(
-                        id: UUID().uuidString,
-                        turnId: turnId,
-                        type: .text,
-                        status: .completed,
-                        index: 0,
-                        text: text
-                    )
-                    let userTurn = TurnState(
-                        id: turnId,
-                        status: .completed,
-                        blocks: [BlockState(block: userBlock, status: .completed)],
-                        startedAt: Int(Date().timeIntervalSince1970 * 1000),
-                        isUserTurn: true
-                    )
-                    store.appendLocalTurn(userTurn, sessionId: sessionId)
-
-                    Task {
-                        do {
-                            let prompt = Prompt(sessionId: sessionId, text: text)
-                            try await connection.sendPrompt(prompt)
-                            sendError = nil
-                        } catch {
-                            sendError = error.localizedDescription
-                        }
-                    }
+                onSend: { request in
+                    Task { await sendPrompt(request) }
                 },
                 onInterrupt: {
                     Task {
@@ -137,29 +124,14 @@ struct TimelineView: View {
         .navigationTitle(session?.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // 1. Hydrate from local cache immediately (no network wait)
-            if store.sessions[sessionId] == nil || store.sessions[sessionId]?.turns.isEmpty == true {
-                if let cached = SessionCache.shared.load(sessionId: sessionId) {
-                    store.applySnapshot(cached)
-                    DispatchLog.session.info("Restored \(cached.turns.count) turns from cache for \(sessionId)")
-                }
-            }
-
-            // 2. Overlay fresh state from bridge if connected
-            guard connection.state == .connected else { return }
-            do {
-                let snapshot = try await connection.getSnapshot(sessionId)
-                store.applySnapshot(snapshot)
-                DispatchLog.session.info("Loaded snapshot for \(sessionId): \(snapshot.turns.count) turns")
-            } catch {
-                DispatchLog.session.warning("Failed to load snapshot for \(sessionId): \(error.localizedDescription)")
-            }
+            await hydrateTimeline()
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 titleView
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
+                refreshButton
                 Button {
                     showingSettings = true
                 } label: {
@@ -176,6 +148,98 @@ struct TimelineView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    @MainActor
+    private func sendPrompt(_ request: ComposerSendRequest) async {
+        do {
+            guard try await verifyLatestTurnBeforeSending() else { return }
+
+            let turnId = "user-\(UUID().uuidString)"
+            let userBlock = Block(
+                id: UUID().uuidString,
+                turnId: turnId,
+                type: .text,
+                status: .completed,
+                index: 0,
+                text: request.text
+            )
+            let userTurn = TurnState(
+                id: turnId,
+                status: .completed,
+                blocks: [BlockState(block: userBlock, status: .completed)],
+                startedAt: Int(Date().timeIntervalSince1970 * 1000),
+                isUserTurn: true
+            )
+            store.appendLocalTurn(userTurn, sessionId: sessionId)
+
+            let prompt = Prompt(
+                sessionId: sessionId,
+                text: request.text,
+                providerOptions: promptProviderOptions(for: request)
+            )
+            try await connection.sendPrompt(prompt)
+            sendError = nil
+        } catch {
+            sendError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func verifyLatestTurnBeforeSending() async throws -> Bool {
+        guard connection.state == .connected else { return true }
+
+        let localState = store.sessions[sessionId] ?? SessionCache.shared.load(sessionId: sessionId)
+        let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
+        guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
+            store.applySnapshot(remoteSnapshot)
+            sendError = "Session changed on the bridge. Dispatch reloaded the latest turns. Review and send again."
+            return false
+        }
+
+        return true
+    }
+
+    @MainActor
+    private func hydrateTimeline() async {
+        if store.sessions[sessionId] == nil || store.sessions[sessionId]?.turns.isEmpty == true {
+            if let cached = SessionCache.shared.load(sessionId: sessionId) {
+                store.restoreCachedSnapshot(cached)
+                DispatchLog.session.info("Restored \(cached.turns.count) turns from cache for \(sessionId)")
+            }
+        }
+
+        guard connection.state == .connected else { return }
+        await refreshTimeline()
+    }
+
+    @MainActor
+    private func refreshTimeline() async {
+        guard connection.state == .connected else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        do {
+            let snapshot = try await connection.getSnapshot(sessionId)
+            store.applySnapshot(snapshot)
+            DispatchLog.session.info("Loaded snapshot for \(sessionId): \(snapshot.turns.count) turns")
+        } catch {
+            DispatchLog.session.warning("Failed to load snapshot for \(sessionId): \(error.localizedDescription)")
+        }
+    }
+
+    private func promptProviderOptions(for request: ComposerSendRequest) -> [String: AnyCodable]? {
+        var options: [String: AnyCodable] = [:]
+
+        if let model = request.model {
+            options["model"] = AnyCodable(model)
+        }
+
+        if let effort = request.effort {
+            options["effort"] = AnyCodable(effort)
+        }
+
+        return options.isEmpty ? nil : options
     }
 
     // MARK: - Timeline
@@ -202,13 +266,18 @@ struct TimelineView: View {
                 .padding(.bottom, DispatchSpacing.md)
             }
             .refreshable {
-                guard connection.state == .connected else { return }
-                if let snapshot = try? await connection.getSnapshot(sessionId) {
-                    store.applySnapshot(snapshot)
-                    DispatchLog.session.info("Refreshed snapshot: \(snapshot.turns.count) turns")
-                }
+                await refreshTimeline()
             }
             .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12)
+                    .onChanged { value in
+                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                        if shouldAutoScroll {
+                            shouldAutoScroll = false
+                        }
+                    }
+            )
             .onChange(of: turns.last?.blocks.count) { _, _ in
                 if shouldAutoScroll {
                     scrollToBottom(proxy: proxy)
@@ -227,6 +296,26 @@ struct TimelineView: View {
             }
             .onAppear {
                 scrollToBottom(proxy: proxy)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !shouldAutoScroll {
+                    Button {
+                        shouldAutoScroll = true
+                        scrollToBottom(proxy: proxy)
+                    } label: {
+                        HStack(spacing: DispatchSpacing.xs) {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text("Latest")
+                        }
+                        .font(DispatchTypography.caption(12, weight: .semibold))
+                        .padding(.horizontal, DispatchSpacing.md)
+                        .padding(.vertical, DispatchSpacing.sm)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                    }
+                    .padding(.trailing, DispatchSpacing.lg)
+                    .padding(.bottom, DispatchSpacing.lg)
+                }
             }
         }
     }
@@ -247,6 +336,20 @@ struct TimelineView: View {
 
     // MARK: - Title
 
+    private var cachedSessionBanner: some View {
+        HStack(spacing: DispatchSpacing.sm) {
+            Image(systemName: "internaldrive")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Read only")
+                .font(DispatchTypography.caption(12, weight: .medium))
+            Spacer()
+        }
+        .foregroundStyle(DispatchColors.textSecondary)
+        .padding(.horizontal, DispatchSpacing.lg)
+        .padding(.vertical, DispatchSpacing.sm)
+        .background(DispatchColors.surfaceRaisedAdaptive)
+    }
+
     private var titleView: some View {
         HStack(spacing: DispatchSpacing.sm) {
             if let session {
@@ -262,6 +365,24 @@ struct TimelineView: View {
     }
 
     // MARK: - Connection Indicator
+
+    @ViewBuilder
+    private var refreshButton: some View {
+        Button {
+            Task { await refreshTimeline() }
+        } label: {
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isConnected ? DispatchColors.textSecondary : DispatchColors.textMuted)
+            }
+        }
+        .disabled(!isConnected || isRefreshing)
+        .accessibilityLabel("Refresh session")
+    }
 
     @ViewBuilder
     private var connectionIndicator: some View {

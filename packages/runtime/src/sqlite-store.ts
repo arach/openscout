@@ -18,6 +18,7 @@ import type {
   ControlEvent,
   ConversationBinding,
   ConversationDefinition,
+  DeliveryAttempt,
   DeliveryIntent,
   FlightRecord,
   InvocationRequest,
@@ -47,6 +48,14 @@ function stringify(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
+function summarizeText(value: string, maxLength = 120): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 interface ActorRow {
   id: string;
   kind: ActorIdentity["kind"];
@@ -73,6 +82,11 @@ interface NodeRow {
 
 interface AgentRow {
   id: string;
+  definition_id: string;
+  node_qualifier: string | null;
+  workspace_qualifier: string | null;
+  selector: string | null;
+  default_selector: string | null;
   agent_class: AgentDefinition["agentClass"];
   capabilities_json: string;
   wake_policy: AgentDefinition["wakePolicy"];
@@ -165,6 +179,7 @@ interface InvocationRow {
   conversation_id: string | null;
   message_id: string | null;
   context_json: string | null;
+  execution_json: string | null;
   ensure_awake: number;
   stream: number;
   timeout_ms: number | null;
@@ -234,6 +249,17 @@ interface DeliveryRow {
   metadata_json: string | null;
 }
 
+interface DeliveryAttemptRow {
+  id: string;
+  delivery_id: string;
+  attempt: number;
+  status: DeliveryAttempt["status"];
+  error: string | null;
+  external_ref: string | null;
+  metadata_json: string | null;
+  created_at: number;
+}
+
 interface EventRow {
   id: string;
   kind: string;
@@ -241,6 +267,57 @@ interface EventRow {
   node_id: string | null;
   ts: number;
   payload_json: string;
+}
+
+export type ActivityItemKind =
+  | "message_posted"
+  | "agent_message"
+  | "status_message"
+  | "ask_opened"
+  | "ask_working"
+  | "ask_replied"
+  | "ask_failed"
+  | "handoff_sent"
+  | "invocation_recorded"
+  | "flight_updated"
+  | "collaboration_event";
+
+export type ActivityItem = {
+  id: string;
+  kind: ActivityItemKind;
+  ts: number;
+  conversationId?: string;
+  messageId?: string;
+  invocationId?: string;
+  flightId?: string;
+  recordId?: string;
+  actorId?: string;
+  counterpartId?: string;
+  agentId?: string;
+  workspaceRoot?: string;
+  sessionId?: string;
+  title?: string;
+  summary?: string;
+  payload?: Record<string, unknown>;
+};
+
+interface ActivityItemRow {
+  id: string;
+  kind: ActivityItemKind;
+  ts: number;
+  conversation_id: string | null;
+  message_id: string | null;
+  invocation_id: string | null;
+  flight_id: string | null;
+  record_id: string | null;
+  actor_id: string | null;
+  counterpart_id: string | null;
+  agent_id: string | null;
+  workspace_root: string | null;
+  session_id: string | null;
+  title: string | null;
+  summary: string | null;
+  payload_json: string | null;
 }
 
 function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRecord {
@@ -297,6 +374,11 @@ export class SQLiteControlPlaneStore {
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath, { create: true });
+    // The broker does frequent snapshot reads alongside short delivery-state writes.
+    // WAL mode and a busy timeout reduce transient SQLITE_BUSY/database locked errors.
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA synchronous = NORMAL;");
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
   }
 
@@ -345,6 +427,11 @@ export class SQLiteControlPlaneStore {
       snapshot.agents[row.id] = {
         ...actor,
         kind: "agent",
+        definitionId: row.definition_id,
+        nodeQualifier: row.node_qualifier ?? undefined,
+        workspaceQualifier: row.workspace_qualifier ?? undefined,
+        selector: row.selector ?? undefined,
+        defaultSelector: row.default_selector ?? undefined,
         agentClass: row.agent_class,
         capabilities: parseJson<AgentDefinition["capabilities"]>(row.capabilities_json, []),
         wakePolicy: row.wake_policy,
@@ -558,10 +645,16 @@ export class SQLiteControlPlaneStore {
   upsertAgent(agent: AgentDefinition): void {
     this.db.query(
       `INSERT INTO agents (
-        id, agent_class, capabilities_json, wake_policy, home_node_id, authority_node_id,
+        id, definition_id, node_qualifier, workspace_qualifier, selector, default_selector,
+        agent_class, capabilities_json, wake_policy, home_node_id, authority_node_id,
         advertise_scope, owner_id, metadata_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
       ON CONFLICT(id) DO UPDATE SET
+        definition_id = excluded.definition_id,
+        node_qualifier = excluded.node_qualifier,
+        workspace_qualifier = excluded.workspace_qualifier,
+        selector = excluded.selector,
+        default_selector = excluded.default_selector,
         agent_class = excluded.agent_class,
         capabilities_json = excluded.capabilities_json,
         wake_policy = excluded.wake_policy,
@@ -572,6 +665,11 @@ export class SQLiteControlPlaneStore {
         metadata_json = excluded.metadata_json`,
     ).run(
       agent.id,
+      agent.definitionId,
+      agent.nodeQualifier ?? null,
+      agent.workspaceQualifier ?? null,
+      agent.selector ?? null,
+      agent.defaultSelector ?? null,
       agent.agentClass,
       stringify(agent.capabilities),
       agent.wakePolicy,
@@ -724,14 +822,16 @@ export class SQLiteControlPlaneStore {
         stringify(attachment.metadata),
       );
     }
+
+    this.recordActivityItem(this.projectMessageActivity(message));
   }
 
   recordInvocation(invocation: InvocationRequest): void {
     this.db.query(
       `INSERT OR REPLACE INTO invocations (
         id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
-        conversation_id, message_id, context_json, ensure_awake, stream, timeout_ms, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+        conversation_id, message_id, context_json, execution_json, ensure_awake, stream, timeout_ms, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
     ).run(
       invocation.id,
       invocation.requesterId,
@@ -743,12 +843,15 @@ export class SQLiteControlPlaneStore {
       invocation.conversationId ?? null,
       invocation.messageId ?? null,
       stringify(invocation.context),
+      stringify(invocation.execution),
       invocation.ensureAwake ? 1 : 0,
       invocation.stream ? 1 : 0,
       invocation.timeoutMs ?? null,
       stringify(invocation.metadata),
       invocation.createdAt,
     );
+
+    this.recordActivityItem(this.projectInvocationActivity(invocation));
   }
 
   recordFlight(flight: FlightRecord): void {
@@ -770,6 +873,8 @@ export class SQLiteControlPlaneStore {
       flight.startedAt ?? null,
       flight.completedAt ?? null,
     );
+
+    this.recordActivityItem(this.projectFlightActivity(flight));
   }
 
   recordCollaborationRecord(record: CollaborationRecord): void {
@@ -834,6 +939,71 @@ export class SQLiteControlPlaneStore {
       stringify(event.metadata),
       event.at,
     );
+
+    this.recordActivityItem({
+      id: `activity:record:${event.id}`,
+      kind: "collaboration_event",
+      ts: event.at,
+      recordId: event.recordId,
+      actorId: event.actorId,
+      title: summarizeText(event.summary ?? event.kind),
+      summary: event.summary ?? event.kind,
+      payload: {
+        recordKind: event.recordKind,
+        kind: event.kind,
+        metadata: event.metadata,
+      },
+    });
+  }
+
+  listActivityItems(options: {
+    agentId?: string;
+    actorId?: string;
+    conversationId?: string;
+    limit?: number;
+  } = {}): ActivityItem[] {
+    const filters: string[] = [];
+    const values: Array<string | number> = [];
+
+    if (options.agentId) {
+      filters.push(`agent_id = ?${values.length + 1}`);
+      values.push(options.agentId);
+    }
+    if (options.actorId) {
+      filters.push(`actor_id = ?${values.length + 1}`);
+      values.push(options.actorId);
+    }
+    if (options.conversationId) {
+      filters.push(`conversation_id = ?${values.length + 1}`);
+      values.push(options.conversationId);
+    }
+
+    const limit = options.limit ?? 200;
+    const sql = [
+      "SELECT * FROM activity_items",
+      filters.length ? `WHERE ${filters.join(" AND ")}` : "",
+      "ORDER BY ts DESC",
+      `LIMIT ?${values.length + 1}`,
+    ].filter(Boolean).join(" ");
+    const rows = this.db.query<ActivityItemRow>(sql).all(...values, limit);
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      ts: row.ts,
+      conversationId: row.conversation_id ?? undefined,
+      messageId: row.message_id ?? undefined,
+      invocationId: row.invocation_id ?? undefined,
+      flightId: row.flight_id ?? undefined,
+      recordId: row.record_id ?? undefined,
+      actorId: row.actor_id ?? undefined,
+      counterpartId: row.counterpart_id ?? undefined,
+      agentId: row.agent_id ?? undefined,
+      workspaceRoot: row.workspace_root ?? undefined,
+      sessionId: row.session_id ?? undefined,
+      title: row.title ?? undefined,
+      summary: row.summary ?? undefined,
+      payload: parseJson<Record<string, unknown> | undefined>(row.payload_json, undefined),
+    }));
   }
 
   listCollaborationRecords(options: {
@@ -928,6 +1098,361 @@ export class SQLiteControlPlaneStore {
         stringify(delivery.metadata),
       );
     }
+  }
+
+  listDeliveries(options: {
+    transport?: DeliveryIntent["transport"];
+    status?: DeliveryIntent["status"];
+    limit?: number;
+  } = {}): DeliveryIntent[] {
+    const filters: string[] = [];
+    const values: Array<string | number> = [];
+
+    if (options.transport) {
+      filters.push(`transport = ?${values.length + 1}`);
+      values.push(options.transport);
+    }
+    if (options.status) {
+      filters.push(`status = ?${values.length + 1}`);
+      values.push(options.status);
+    }
+
+    const limit = options.limit ?? 200;
+    const sql = [
+      "SELECT * FROM deliveries",
+      filters.length ? `WHERE ${filters.join(" AND ")}` : "",
+      "ORDER BY created_at ASC",
+      `LIMIT ?${values.length + 1}`,
+    ].filter(Boolean).join(" ");
+    const rows = this.db.query<DeliveryRow>(sql).all(...values, limit);
+    return rows.map((row) => ({
+      id: row.id,
+      messageId: row.message_id ?? undefined,
+      invocationId: row.invocation_id ?? undefined,
+      targetId: row.target_id,
+      targetNodeId: row.target_node_id ?? undefined,
+      targetKind: row.target_kind,
+      transport: row.transport,
+      reason: row.reason,
+      policy: row.policy,
+      status: row.status,
+      bindingId: row.binding_id ?? undefined,
+      leaseOwner: row.lease_owner ?? undefined,
+      leaseExpiresAt: row.lease_expires_at ?? undefined,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+    }));
+  }
+
+  updateDeliveryStatus(
+    deliveryId: string,
+    status: DeliveryIntent["status"],
+    options: {
+      metadata?: Record<string, unknown> | undefined;
+      leaseOwner?: string | null;
+      leaseExpiresAt?: number | null;
+    } = {},
+  ): void {
+    const current = this.db.query<Pick<DeliveryRow, "metadata_json">>(
+      "SELECT metadata_json FROM deliveries WHERE id = ?1",
+    ).get(deliveryId);
+    const mergedMetadata = options.metadata
+      ? {
+          ...parseJson<Record<string, unknown>>(current?.metadata_json, {}),
+          ...options.metadata,
+        }
+      : current?.metadata_json
+        ? parseJson<Record<string, unknown>>(current.metadata_json, {})
+        : undefined;
+
+    this.db.query(
+      `UPDATE deliveries
+      SET status = ?2,
+          lease_owner = ?3,
+          lease_expires_at = ?4,
+          metadata_json = ?5
+      WHERE id = ?1`,
+    ).run(
+      deliveryId,
+      status,
+      options.leaseOwner ?? null,
+      options.leaseExpiresAt ?? null,
+      stringify(mergedMetadata),
+    );
+  }
+
+  listDeliveryAttempts(deliveryId: string): DeliveryAttempt[] {
+    const rows = this.db.query<DeliveryAttemptRow>(
+      "SELECT * FROM delivery_attempts WHERE delivery_id = ?1 ORDER BY attempt ASC, created_at ASC",
+    ).all(deliveryId);
+
+    return rows.map((row) => ({
+      id: row.id,
+      deliveryId: row.delivery_id,
+      attempt: row.attempt,
+      status: row.status,
+      error: row.error ?? undefined,
+      externalRef: row.external_ref ?? undefined,
+      createdAt: row.created_at,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+    }));
+  }
+
+  recordDeliveryAttempt(attempt: DeliveryAttempt): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO delivery_attempts (
+        id, delivery_id, attempt, status, error, external_ref, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    ).run(
+      attempt.id,
+      attempt.deliveryId,
+      attempt.attempt,
+      attempt.status,
+      attempt.error ?? null,
+      attempt.externalRef ?? null,
+      stringify(attempt.metadata),
+      attempt.createdAt,
+    );
+  }
+
+  private recordActivityItem(item: ActivityItem): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO activity_items (
+        id, kind, ts, conversation_id, message_id, invocation_id, flight_id, record_id,
+        actor_id, counterpart_id, agent_id, workspace_root, session_id, title, summary, payload_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+    ).run(
+      item.id,
+      item.kind,
+      item.ts,
+      item.conversationId ?? null,
+      item.messageId ?? null,
+      item.invocationId ?? null,
+      item.flightId ?? null,
+      item.recordId ?? null,
+      item.actorId ?? null,
+      item.counterpartId ?? null,
+      item.agentId ?? null,
+      item.workspaceRoot ?? null,
+      item.sessionId ?? null,
+      item.title ?? null,
+      item.summary ?? null,
+      stringify(item.payload),
+    );
+  }
+
+  private projectMessageActivity(message: MessageRecord): ActivityItem {
+    const agentId = this.resolveActivityAgentIdForMessage(message);
+    const counterpartId = this.resolveCounterpartIdForMessage(message, agentId);
+    const agentContext = this.resolveAgentContext(agentId);
+    const kind = this.classifyMessageActivity(message, agentId, counterpartId);
+    const bodySummary = summarizeText(message.body);
+
+    return {
+      id: `activity:message:${message.id}`,
+      kind,
+      ts: message.createdAt,
+      conversationId: message.conversationId,
+      messageId: message.id,
+      actorId: message.actorId,
+      counterpartId: counterpartId ?? undefined,
+      agentId: agentId ?? undefined,
+      workspaceRoot: agentContext.workspaceRoot ?? undefined,
+      sessionId: agentContext.sessionId ?? undefined,
+      title: bodySummary,
+      summary: kind === "status_message" || kind === "ask_working" || kind === "ask_failed"
+        ? bodySummary
+        : undefined,
+      payload: {
+        class: message.class,
+        replyToMessageId: message.replyToMessageId ?? null,
+        mentionActorIds: (message.mentions ?? []).map((mention) => mention.actorId),
+        visibility: message.visibility,
+        policy: message.policy,
+      },
+    };
+  }
+
+  private projectInvocationActivity(invocation: InvocationRequest): ActivityItem {
+    const agentContext = this.resolveAgentContext(invocation.targetAgentId);
+    return {
+      id: `activity:invocation:${invocation.id}`,
+      kind: "invocation_recorded",
+      ts: invocation.createdAt,
+      conversationId: invocation.conversationId ?? undefined,
+      messageId: invocation.messageId ?? undefined,
+      invocationId: invocation.id,
+      actorId: invocation.requesterId,
+      counterpartId: invocation.targetAgentId,
+      agentId: invocation.targetAgentId,
+      workspaceRoot: agentContext.workspaceRoot ?? undefined,
+      sessionId: agentContext.sessionId ?? undefined,
+      title: summarizeText(invocation.task),
+      summary: invocation.action,
+      payload: {
+        action: invocation.action,
+        targetNodeId: invocation.targetNodeId ?? null,
+        ensureAwake: invocation.ensureAwake,
+        stream: invocation.stream,
+        timeoutMs: invocation.timeoutMs ?? null,
+      },
+    };
+  }
+
+  private projectFlightActivity(flight: FlightRecord): ActivityItem {
+    const agentContext = this.resolveAgentContext(flight.targetAgentId);
+    return {
+      id: `activity:flight:${flight.id}`,
+      kind: "flight_updated",
+      ts: flight.completedAt ?? flight.startedAt ?? Math.floor(Date.now() / 1000),
+      invocationId: flight.invocationId,
+      flightId: flight.id,
+      actorId: flight.requesterId,
+      counterpartId: flight.targetAgentId,
+      agentId: flight.targetAgentId,
+      workspaceRoot: agentContext.workspaceRoot ?? undefined,
+      sessionId: agentContext.sessionId ?? undefined,
+      title: summarizeText(flight.summary ?? flight.state),
+      summary: flight.error ?? flight.output ?? flight.summary ?? flight.state,
+      payload: {
+        state: flight.state,
+        startedAt: flight.startedAt ?? null,
+        completedAt: flight.completedAt ?? null,
+      },
+    };
+  }
+
+  private classifyMessageActivity(
+    message: MessageRecord,
+    agentId: string | null,
+    counterpartId: string | null,
+  ): ActivityItemKind {
+    const body = message.body.toLowerCase();
+    if (message.class === "status") {
+      if (/failed|timed out|error/.test(body)) {
+        return "ask_failed";
+      }
+      if (/working|running|waking|queued/.test(body)) {
+        return "ask_working";
+      }
+      return "status_message";
+    }
+
+    if (this.isKnownAgentId(message.actorId) && counterpartId && this.isKnownAgentId(counterpartId) && counterpartId !== message.actorId) {
+      return "handoff_sent";
+    }
+
+    if (message.replyToMessageId && this.isKnownAgentId(message.actorId)) {
+      return "ask_replied";
+    }
+
+    if (agentId && message.actorId !== agentId) {
+      return "ask_opened";
+    }
+
+    if (this.isKnownAgentId(message.actorId)) {
+      return "agent_message";
+    }
+
+    return "message_posted";
+  }
+
+  private resolveActivityAgentIdForMessage(message: MessageRecord): string | null {
+    if (message.class === "status" && typeof message.metadata?.targetAgentId === "string" && this.isKnownAgentId(message.metadata.targetAgentId)) {
+      return message.metadata.targetAgentId;
+    }
+
+    if (this.isKnownAgentId(message.actorId)) {
+      return message.actorId;
+    }
+
+    const mentionedAgentIds = Array.from(new Set(
+      (message.mentions ?? [])
+        .map((mention) => mention.actorId)
+        .filter((actorId) => this.isKnownAgentId(actorId)),
+    ));
+    if (mentionedAgentIds.length === 1) {
+      return mentionedAgentIds[0] ?? null;
+    }
+
+    const conversationAgents = this.listConversationAgentIds(message.conversationId).filter((actorId) => actorId !== message.actorId);
+    if (conversationAgents.length === 1) {
+      return conversationAgents[0] ?? null;
+    }
+
+    return null;
+  }
+
+  private resolveCounterpartIdForMessage(message: MessageRecord, agentId: string | null): string | null {
+    const conversationMembers = this.listConversationMemberIds(message.conversationId).filter((actorId) => actorId !== message.actorId);
+    if (agentId && message.actorId !== agentId) {
+      return message.actorId;
+    }
+
+    const explicitMentions = (message.mentions ?? [])
+      .map((mention) => mention.actorId)
+      .filter((actorId) => actorId !== message.actorId);
+    if (explicitMentions.length === 1) {
+      return explicitMentions[0] ?? null;
+    }
+
+    if (conversationMembers.length === 1) {
+      return conversationMembers[0] ?? null;
+    }
+
+    return null;
+  }
+
+  private listConversationAgentIds(conversationId: string | undefined): string[] {
+    if (!conversationId) {
+      return [];
+    }
+
+    return this.db.query<{ actor_id: string }>(
+      `SELECT cm.actor_id
+      FROM conversation_members cm
+      JOIN agents a ON a.id = cm.actor_id
+      WHERE cm.conversation_id = ?1`,
+    ).all(conversationId).map((row) => row.actor_id);
+  }
+
+  private listConversationMemberIds(conversationId: string | undefined): string[] {
+    if (!conversationId) {
+      return [];
+    }
+
+    return this.db.query<{ actor_id: string }>(
+      "SELECT actor_id FROM conversation_members WHERE conversation_id = ?1",
+    ).all(conversationId).map((row) => row.actor_id);
+  }
+
+  private isKnownAgentId(actorId: string | undefined | null): actorId is string {
+    if (!actorId) {
+      return false;
+    }
+
+    const row = this.db.query<{ id: string }>(
+      "SELECT id FROM agents WHERE id = ?1 LIMIT 1",
+    ).get(actorId);
+    return Boolean(row?.id);
+  }
+
+  private resolveAgentContext(agentId: string | undefined | null): { workspaceRoot: string | null; sessionId: string | null } {
+    if (!agentId) {
+      return { workspaceRoot: null, sessionId: null };
+    }
+
+    const row = this.db.query<Pick<EndpointRow, "project_root" | "cwd" | "session_id">>(
+      `SELECT project_root, cwd, session_id
+      FROM agent_endpoints
+      WHERE agent_id = ?1
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+    ).get(agentId);
+
+    return {
+      workspaceRoot: row?.project_root ?? row?.cwd ?? null,
+      sessionId: row?.session_id ?? null,
+    };
   }
 
   recordEvent(event: ControlEvent): void {

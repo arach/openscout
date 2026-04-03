@@ -14,14 +14,14 @@ export interface RelayConfig {
   channels?: Record<string, ChannelConfig>;
   defaultVoice?: string;
   roster?: string[];
-  userTwin?: string;
-  companionTwin?: string;
+  userAgent?: string;
+  companionAgent?: string;
   pronunciations?: Record<string, string>;
   openaiApiKey?: string;
 }
 
-export const DEFAULT_USER_TWIN = "dev";
-export const DEFAULT_COMPANION_TWIN = DEFAULT_USER_TWIN;
+export const DEFAULT_USER_AGENT = "dev";
+export const DEFAULT_COMPANION_AGENT = DEFAULT_USER_AGENT;
 
 function normalizeRelayConfig(config?: Partial<RelayConfig>): RelayConfig {
   return {
@@ -31,20 +31,20 @@ function normalizeRelayConfig(config?: Partial<RelayConfig>): RelayConfig {
     channels: config?.channels,
     defaultVoice: config?.defaultVoice,
     roster: config?.roster,
-    userTwin: config?.userTwin,
-    companionTwin: config?.companionTwin,
+    userAgent: config?.userAgent,
+    companionAgent: config?.companionAgent,
     pronunciations: config?.pronunciations,
     openaiApiKey: config?.openaiApiKey,
   };
 }
 
-export function getUserTwinName(config?: Partial<RelayConfig>): string {
-  const userTwin = config?.userTwin?.trim();
-  const companion = config?.companionTwin?.trim();
-  return userTwin || companion || DEFAULT_USER_TWIN;
+export function getUserAgentName(config?: Partial<RelayConfig>): string {
+  const userAgent = config?.userAgent?.trim();
+  const companion = config?.companionAgent?.trim();
+  return userAgent || companion || DEFAULT_USER_AGENT;
 }
 
-export const getCompanionTwinName = getUserTwinName;
+export const getCompanionAgentName = getUserAgentName;
 
 export async function loadRelayConfig(hub: string): Promise<RelayConfig> {
   try {

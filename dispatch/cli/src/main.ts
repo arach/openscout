@@ -9,6 +9,9 @@ switch (command) {
   case "start":
     await start();
     break;
+  case "supervise":
+    await (await import("./supervisor")).runDispatchSupervisor();
+    break;
   case "pair":
     await (await import("./pair")).runPairMode();
     break;
@@ -34,6 +37,7 @@ function printHelp() {
 
 Usage:
   bun dispatch/cli/src/main.ts start
+  bun dispatch/cli/src/main.ts supervise
   bun dispatch/cli/src/main.ts pair
   bun dispatch/cli/src/main.ts relay
   bun dispatch/cli/src/main.ts config
