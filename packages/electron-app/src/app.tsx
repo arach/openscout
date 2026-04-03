@@ -118,6 +118,9 @@ type ComposerRelayReference = {
 
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings';
 type SettingsSectionId = 'profile' | 'agents' | 'communication' | 'database' | 'appearance';
+type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
+type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
+type CapabilityCard = { icon: React.ReactNode; title: string; desc: string; action: () => void; accent: boolean };
 
 const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
   enableAll: false,
@@ -3039,7 +3042,7 @@ export default function App() {
       <div className="scout-window-bar h-10 border-b flex items-center justify-between px-3 shrink-0 z-10" style={s.topBar}>
         <div className="flex items-center gap-3">
           <div className="flex gap-[6px]">
-            <div className="w-[10px] h-[10px] rounded-full bg-[#FF5F56]"></div>
+            <button type="button" className="w-[10px] h-[10px] rounded-full bg-[#FF5F56] hover:brightness-90 transition-all" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} onClick={handleQuitApp} aria-label="Quit" />
             <div className="w-[10px] h-[10px] rounded-full bg-[#FFBD2E]"></div>
             <div className="w-[10px] h-[10px] rounded-full bg-[#27C93F]"></div>
           </div>
@@ -4141,7 +4144,7 @@ export default function App() {
                             onClick={() => void handleSaveAppSettings()}
                             disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
                           >
-                            {appSettingsSaving ? 'Saving…' : 'Save Telegram'}
+                            {appSettingsSaving ? 'Saving…' : desktopFeatures.telegram ? 'Save Telegram' : 'Save Communication'}
                           </button>
                         </>
                       ) : (
@@ -4151,7 +4154,7 @@ export default function App() {
                           onClick={() => handleStartAppSettingsEdit()}
                           disabled={appSettingsLoading || !visibleAppSettings}
                         >
-                          Edit Telegram
+                          {desktopFeatures.telegram ? 'Edit Telegram' : 'Edit Communication'}
                         </button>
                       )
                     ) : settingsSection === 'agents' ? (
@@ -5269,6 +5272,7 @@ export default function App() {
                 ) : settingsSection === 'communication' ? (
                   <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] gap-4">
                     <div className="space-y-4 min-w-0">
+                      {desktopFeatures.telegram ? (
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start gap-3 mb-4">
                           <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
@@ -5500,6 +5504,7 @@ export default function App() {
                           ) : null}
                         </div>
                       </section>
+                      ) : null}
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Runtime</div>
@@ -5524,6 +5529,7 @@ export default function App() {
                     </div>
 
                     <div className="space-y-4 min-w-0">
+                      {desktopFeatures.telegram ? (
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div>
@@ -5562,6 +5568,7 @@ export default function App() {
                           </div>
                         ) : null}
                       </section>
+                      ) : null}
 
                       {brokerInspector ? (
                         <>
@@ -5675,6 +5682,7 @@ export default function App() {
                         </>
                       ) : null}
 
+                      {desktopFeatures.voice ? (
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Voice & Delivery</div>
                         <div className="space-y-3">
@@ -5698,6 +5706,7 @@ export default function App() {
                           </div>
                         </div>
                       </section>
+                      ) : null}
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Surfaces</div>
@@ -7487,22 +7496,26 @@ export default function App() {
                   >
                     Annotations <span className="font-mono uppercase">{showAnnotations ? 'On' : 'Off'}</span>
                   </button>
-                  <button
-                    className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
-                    style={relayState?.voice.isCapturing ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
-                    onClick={() => void handleToggleVoiceCapture()}
-                    title={relayState?.voice.detail ?? undefined}
-                  >
-                    {relayState?.voice.captureTitle ?? 'Capture'} <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.captureState ?? 'Off'}</span>
-                  </button>
-                  <button
-                    className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
-                    style={relayState?.voice.repliesEnabled ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
-                    onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
-                    title={relayState?.voice.detail ?? undefined}
-                  >
-                    Playback <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.speaking ? 'Speaking' : relayState?.voice.repliesEnabled ? 'On' : 'Off'}</span>
-                  </button>
+                  {desktopFeatures.voice ? (
+                    <>
+                      <button
+                        className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                        style={relayState?.voice.isCapturing ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
+                        onClick={() => void handleToggleVoiceCapture()}
+                        title={relayState?.voice.detail ?? undefined}
+                      >
+                        {relayState?.voice.captureTitle ?? 'Capture'} <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.captureState ?? 'Off'}</span>
+                      </button>
+                      <button
+                        className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
+                        style={relayState?.voice.repliesEnabled ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
+                        onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
+                        title={relayState?.voice.detail ?? undefined}
+                      >
+                        Playback <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.speaking ? 'Speaking' : relayState?.voice.repliesEnabled ? 'On' : 'Off'}</span>
+                      </button>
+                    </>
+                  ) : null}
                   <button className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded" style={{ color: C.ink }} onClick={() => void handleRefreshShell()}>
                     Sync
                   </button>
@@ -7622,9 +7635,11 @@ export default function App() {
                     }}
                   />
                   <div className="shrink-0 flex items-center gap-1 ml-2">
-                    <button className="p-1 opacity-50 cursor-default transition-opacity" style={s.mutedText} title={relayState?.voice.detail ?? 'Voice unavailable in Electron'}>
-                      <Mic size={12} />
-                    </button>
+                    {desktopFeatures.voice ? (
+                      <button className="p-1 opacity-50 cursor-default transition-opacity" style={s.mutedText} title={relayState?.voice.detail ?? 'Voice unavailable in Electron'}>
+                        <Mic size={12} />
+                      </button>
+                    ) : null}
                     <button
                       className="p-1 hover:opacity-70 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
                       style={s.mutedText}
