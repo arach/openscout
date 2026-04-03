@@ -18,7 +18,6 @@ import {
   ExternalLink,
   Key,
   Palette,
-  PenTool,
   MessageSquare,
   User,
   Server,
@@ -117,7 +116,7 @@ type ComposerRelayReference = {
 };
 
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings';
-type SettingsSectionId = 'profile' | 'agents' | 'communication' | 'database' | 'appearance';
+type SettingsSectionId = 'profile' | 'knowledge' | 'agents' | 'communication' | 'database' | 'appearance';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
 type CapabilityCard = { icon: React.ReactNode; title: string; desc: string; action: () => void; accent: boolean };
@@ -211,6 +210,7 @@ export default function App() {
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [dispatchControlPending, setDispatchControlPending] = useState(false);
   const [dispatchConfigPending, setDispatchConfigPending] = useState(false);
+  const [manualRefreshPending, setManualRefreshPending] = useState(false);
   const [dispatchConfigFeedback, setDispatchConfigFeedback] = useState<string | null>(null);
   const [selectedRelayKind, setSelectedRelayKind] = useState<RelayDestinationKind>('channel');
   const [selectedRelayId, setSelectedRelayId] = useState('shared');
@@ -604,7 +604,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeView, completeOnboardingIntoRelay, shellState, startupOnboardingState]);
+  }, [activeView, completeOnboardingIntoRelay, startupOnboardingState]);
 
   useEffect(() => {
     if (startupOnboardingCheckedRef.current) {
@@ -1481,6 +1481,40 @@ export default function App() {
       : '';
     return `scout ${command}${contextRootArg}${sourceRootArgs}`;
   }, [onboardingContextRoot, visibleAppSettings?.workspaceRoots]);
+  const renderLocalPathValue = React.useCallback((
+    filePath: string | null | undefined,
+    options?: { compact?: boolean; className?: string; style?: React.CSSProperties },
+  ) => {
+    if (!filePath) {
+      return null;
+    }
+
+    const label = options?.compact ? (compactHomePath(filePath) ?? filePath) : filePath;
+    const looksLikePath = label.includes('/') || label.startsWith('~/') || label.startsWith('.openscout');
+    if (!looksLikePath) {
+      return <>{label}</>;
+    }
+
+    return (
+      <button
+        type="button"
+        className={options?.className ?? 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity'}
+        style={options?.style ?? { color: C.ink }}
+        onClick={(event) => {
+          event.preventDefault();
+          if (!window.openScoutDesktop?.revealPath) {
+            return;
+          }
+          void window.openScoutDesktop.revealPath(filePath).catch((error) => {
+            setAppSettingsFeedback(asErrorMessage(error));
+          });
+        }}
+        title="Open in Finder"
+      >
+        {label}
+      </button>
+    );
+  }, []);
   const handleCopyOnboardingCommand = React.useCallback(async (command: OnboardingCommandName) => {
     const commandLine = buildOnboardingCommandLine(command);
     await navigator.clipboard.writeText(commandLine);
@@ -1648,9 +1682,15 @@ export default function App() {
   const settingsSections: SettingsSectionMeta[] = [
     {
       id: 'profile' as const,
-      label: 'Getting Started',
-      description: 'Identity, source roots, runtime readiness, and project inventory.',
+      label: 'General',
+      description: 'Project paths, project inventory, runtime readiness, and local defaults.',
       icon: <FolderOpen size={15} />,
+    },
+    {
+      id: 'knowledge' as const,
+      label: 'Knowledge Base',
+      description: 'Vocabulary and definitions for contexts, harnesses, and runtimes.',
+      icon: <FileText size={15} />,
     },
     {
       id: 'agents' as const,
@@ -1661,7 +1701,7 @@ export default function App() {
     {
       id: 'communication' as const,
       label: 'Communication',
-      description: 'Broker, relay delivery, and live operator-facing runtime status.',
+      description: 'Broker, relay delivery, and live runtime status.',
       icon: <Radio size={15} />,
     },
   ];
@@ -1669,7 +1709,7 @@ export default function App() {
     settingsSections.push({
       id: 'database',
       label: 'Database',
-      description: 'Session indexing and storage surfaces that back the desktop shell.',
+      description: 'Session indexing and storage.',
       icon: <Database size={15} />,
     });
   }
@@ -1677,7 +1717,7 @@ export default function App() {
     settingsSections.push({
       id: 'appearance',
       label: 'Appearance',
-      description: 'Visual preferences for the shell and operator-focused overlays.',
+      description: 'Visual preferences and display options.',
       icon: <Palette size={15} />,
     });
   }
@@ -1732,6 +1772,7 @@ export default function App() {
   }, []);
 
   const handleRefreshShell = async () => {
+    setManualRefreshPending(true);
     setRelayFeedback('Refreshing…');
     try {
       if (productSurface === 'dispatch' && window.openScoutDesktop?.refreshDispatchState) {
@@ -1748,9 +1789,31 @@ export default function App() {
       } else {
         await loadShellState(true);
       }
+
+      if (activeView === 'settings' && window.openScoutDesktop?.getAppSettings) {
+        const nextSettings = await window.openScoutDesktop.getAppSettings();
+        setAppSettings(nextSettings);
+        setAppSettingsDraft((current) => isAppSettingsEditing ? current : nextSettings);
+      }
+
+      if (activeView === 'settings' && settingsSection === 'communication' && window.openScoutDesktop?.getBrokerInspector) {
+        const nextInspector = await window.openScoutDesktop.getBrokerInspector();
+        setBrokerInspector(nextInspector);
+      }
+
+      if (activeView === 'logs') {
+        setLogsRefreshTick((current) => current + 1);
+      }
+
+      if (activeView === 'agents' && selectedInterAgentId) {
+        setAgentSessionRefreshTick((current) => current + 1);
+      }
+
       setRelayFeedback('Refreshed.');
     } catch (error) {
       setRelayFeedback(asErrorMessage(error));
+    } finally {
+      setManualRefreshPending(false);
     }
   };
 
@@ -2787,7 +2850,11 @@ export default function App() {
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg px-4 py-3" style={{ backgroundColor: C.bg }}>
                   <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
-                  <div className="text-[15px] font-medium leading-[1.5]" style={s.inkText}>{value}</div>
+                  <div className="text-[15px] font-medium leading-[1.5]" style={s.inkText}>
+                    {label === 'Relay context root'
+                      ? renderLocalPathValue(String(value), { className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity' })
+                      : value}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2832,7 +2899,9 @@ export default function App() {
               ))}
             </div>
             <div className="text-[12px] font-mono mt-5 leading-[1.6] break-all" style={s.mutedText}>
-              {initManifestPath}
+              {typeof initManifestPath === 'string'
+                ? renderLocalPathValue(initManifestPath, { className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity', style: s.mutedText })
+                : initManifestPath}
             </div>
           </div>
 
@@ -2885,7 +2954,11 @@ export default function App() {
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg px-4 py-3" style={{ backgroundColor: C.bg }}>
                   <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
-                  <div className="text-[15px] font-medium leading-[1.5] break-words" style={s.inkText}>{value}</div>
+                  <div className="text-[15px] font-medium leading-[1.5] break-words" style={s.inkText}>
+                    {label === 'Relay context root'
+                      ? renderLocalPathValue(String(value), { className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity' })
+                      : value}
+                  </div>
                 </div>
               ))}
             </div>
@@ -3139,11 +3212,13 @@ export default function App() {
             >
               {dark ? <Sun size={14} /> : <Moon size={14} />}
             </button>
-            <button className="hover:opacity-70 transition-opacity">
-              <PenTool size={14} />
-            </button>
-            <button className="hover:opacity-70 transition-opacity" onClick={() => void handleRefreshShell()}>
-              <RefreshCw size={14} />
+            <button
+              className="hover:opacity-70 transition-opacity"
+              onClick={() => void handleRefreshShell()}
+              title={manualRefreshPending ? 'Refreshing…' : 'Refresh current view'}
+              disabled={manualRefreshPending}
+            >
+              {manualRefreshPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             </button>
           </div>
         </div>
@@ -4115,21 +4190,21 @@ export default function App() {
         ) : activeView === 'settings' ? (
           <div className="flex-1 flex overflow-hidden" style={s.surface}>
             <div className="w-56 border-r flex flex-col shrink-0" style={{ backgroundColor: C.bg, borderColor: C.border }}>
-              <div className="px-4 py-4 border-b" style={{ borderColor: C.border }}>
-                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Settings</div>
+              <div className="px-4 py-3 border-b" style={{ borderColor: C.border }}>
+                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Settings</div>
               </div>
-              <div className="px-2 py-2 flex flex-col gap-1">
+              <div className="px-2 py-2 flex flex-col gap-0.5">
                 {settingsSections.map((section) => {
                   const active = settingsSection === section.id;
                   return (
                     <button
                       key={section.id}
                       onClick={() => setSettingsSection(section.id)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded text-left transition-colors"
-                      style={active ? s.activeItem : s.mutedText}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors"
+                      style={active ? { backgroundColor: C.surface, borderColor: C.border, color: C.ink, boxShadow: `0 1px 3px var(--os-shadow-soft)` } : s.mutedText}
                     >
                       <span style={{ color: active ? C.accent : C.muted }}>{section.icon}</span>
-                      <span className="text-[13px] font-medium" style={active ? s.inkText : undefined}>{section.label}</span>
+                      <span className="text-[12px] font-medium" style={active ? s.inkText : undefined}>{section.label}</span>
                       {active ? <ChevronRight size={12} className="ml-auto" style={s.mutedText} /> : null}
                     </button>
                   );
@@ -4138,12 +4213,12 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <div className="max-w-6xl mx-auto px-8 py-8">
-                <div className="flex items-start justify-between gap-6 mb-6">
+              <div className="max-w-6xl mx-auto px-8 py-6">
+                <div className="flex items-start justify-between gap-6 mb-5">
                   <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Settings</div>
-                    <h1 className="text-[28px] font-semibold tracking-tight" style={s.inkText}>{activeSettingsMeta.label}</h1>
-                    <p className="text-[13px] mt-2 max-w-2xl leading-[1.6]" style={s.mutedText}>
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-1.5" style={{ color: C.accent }}>Settings</div>
+                    <h1 className="text-[22px] font-semibold tracking-tight" style={s.inkText}>{activeSettingsMeta.label}</h1>
+                    <p className="text-[12px] mt-1.5 max-w-2xl leading-[1.6]" style={s.mutedText}>
                       {activeSettingsMeta.description}
                     </p>
                   </div>
@@ -4165,7 +4240,7 @@ export default function App() {
                             onClick={() => void handleSaveAppSettings()}
                             disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
                           >
-                            {appSettingsSaving ? 'Saving…' : 'Save Inputs'}
+                            {appSettingsSaving ? 'Saving…' : 'Save General'}
                           </button>
                         </>
                       ) : (
@@ -4175,7 +4250,7 @@ export default function App() {
                             onClick={() => handleStartAppSettingsEdit()}
                             disabled={appSettingsLoading || !visibleAppSettings}
                           >
-                          Edit Inputs
+                          Edit General
                         </button>
                       )
                     ) : settingsSection === 'communication' ? (
@@ -4274,7 +4349,7 @@ export default function App() {
                 {settingsSection === 'profile' ? (
                   <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)] gap-4">
                     <div className="space-y-4 min-w-0">
-                      {visibleAppSettings?.onboarding ? (
+                      {visibleAppSettings?.onboarding?.needed ? (
                         <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -4352,7 +4427,7 @@ export default function App() {
                                 <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
                                   <div className="text-[12px] font-medium" style={s.inkText}>OpenScout is ready.</div>
                                   <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                    You can revisit this wizard any time, but the Relay context root, inventory, and runtime checks are already in place.
+                                    Setup complete. You can revisit this wizard at any time.
                                   </div>
                                   <div className="flex flex-wrap gap-2 mt-3">
                                     <button
@@ -4379,7 +4454,7 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>What should OpenScout call you?</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      This is the name OpenScout will use across Relay, desktop views, and future prompts. It is prefilled from this machine when possible, and you can change it later.
+                                      Your display name across Relay and the desktop shell. Prefilled from this machine.
                                     </div>
                                   </div>
 
@@ -4415,10 +4490,10 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>Which folders should OpenScout scan?</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      These folders are scan inputs. OpenScout can walk the repos inside a parent folder like `~/dev`, `~/src`, or `~/code` and discover what is underneath.
+                                      Parent folders to scan for repos and projects (e.g. `~/dev`, `~/src`).
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      This is safe: OpenScout only inspects what is there. It does not write context data into these scan folders unless you explicitly choose one as the context root below.
+                                      Read-only scan. Nothing is written to these folders.
                                     </div>
                                   </div>
 
@@ -4522,7 +4597,7 @@ export default function App() {
                                           </button>
                                         </div>
                                         <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                          OpenScout will save `.openscout/project.json` inside this directory.
+                                          Project manifest will be saved here.
                                         </div>
                                       </>
                                     ) : (
@@ -4540,7 +4615,7 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>Harness vs runtime</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      A harness is the assistant family that answers a turn. A runtime is the local program or long-running session OpenScout uses to launch that harness.
+                                      The harness is the assistant family (e.g. Claude, Codex). The runtime is the local program that launches it.
                                     </div>
                                   </div>
 
@@ -4588,7 +4663,7 @@ export default function App() {
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
                                     <div className="text-[12px] font-medium" style={s.inkText}>Confirm this context</div>
                                     <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                      Review which folders OpenScout will scan and where it will save this context. Confirming saves those choices locally and then moves into the command steps.
+                                      Review your scan folders and context root before continuing.
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                                       {[
@@ -4631,13 +4706,17 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>Create the local project manifest</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      This runs `scout init` against your chosen Relay context root and uses your current source roots as repeated `--source-root` flags.
+                                      Initialize the project manifest at your context root.
                                     </div>
                                     <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>
                                       {buildOnboardingCommandLine('init')}
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Project config path: {visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot ? `${visibleAppSettings.onboardingContextRoot}/.openscout/project.json` : 'Not created yet.')}
+                                      Project config path:{' '}
+                                      {renderLocalPathValue(
+                                        visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot ? `${visibleAppSettings.onboardingContextRoot}/.openscout/project.json` : 'Not created yet.'),
+                                        { className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity', style: s.mutedText },
+                                      )}
                                     </div>
                                   </div>
                                   <button
@@ -4657,7 +4736,7 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>Review the current inventory</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      `scout doctor` reports the broker, your source roots, and the projects that were discovered from them.
+                                      Check broker connectivity, source roots, and discovered projects.
                                     </div>
                                     <div className="grid grid-cols-2 gap-3 mt-3">
                                       <div>
@@ -4688,7 +4767,7 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>Check runtime readiness</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      `scout runtimes` checks the local programs behind each harness and tells you whether they are ready to serve turns.
+                                      Verify each harness runtime is installed and ready.
                                     </div>
                                     <div className="grid grid-cols-1 gap-2 mt-3">
                                       {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
@@ -4753,7 +4832,7 @@ export default function App() {
                               ))}
                             </div>
                             <div className="text-[10px] mt-3 leading-[1.5]" style={s.mutedText}>
-                              The buttons in this wizard run these exact commands. The UI only helps you answer the inputs one decision at a time.
+                              Each wizard step runs the corresponding CLI command above.
                             </div>
                           </div>
 
@@ -4767,7 +4846,13 @@ export default function App() {
                                 <div className="min-w-0">
                                   <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Command</div>
                                   <div className="text-[11px] font-mono break-all" style={s.inkText}>{onboardingCommandResult.commandLine}</div>
-                                  <div className="text-[10px] mt-1" style={s.mutedText}>cwd: {onboardingCommandResult.cwd}</div>
+                                  <div className="text-[10px] mt-1" style={s.mutedText}>
+                                    cwd:{' '}
+                                    {renderLocalPathValue(onboardingCommandResult.cwd, {
+                                      className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                      style: s.mutedText,
+                                    })}
+                                  </div>
                                 </div>
                                 <span
                                   className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
@@ -4789,22 +4874,113 @@ export default function App() {
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
-                            <FolderOpen size={18} style={{ color: C.accent }} />
+                          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
+                            <FolderOpen size={16} style={{ color: C.accent }} />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Additional Inputs</div>
-                            <div className="text-[13px] font-medium mt-1" style={s.inkText}>Everything the wizard does not need to ask first</div>
-                            <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
-                              These settings are still local and still important, but they are secondary to the source root, harness, and command-backed onboarding flow above.
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>General</div>
+                            <div className="text-[13px] font-medium mt-0.5" style={s.inkText}>Project paths and defaults</div>
+                            <div className="text-[11px] mt-0.5 leading-[1.5]" style={s.mutedText}>
+                              Scan folders, context root, operator name, and default harness.
                             </div>
                           </div>
                         </div>
 
-                        {appSettingsLoading ? (
+                        {appSettingsLoading && !visibleAppSettings ? (
                           <div className="text-[11px]" style={s.mutedText}>Loading settings…</div>
                         ) : (
                           <div className="space-y-4">
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Project Paths</div>
+                              <div className="space-y-3">
+                                {((visibleAppSettings?.workspaceRoots ?? []).length > 0 ? visibleAppSettings.workspaceRoots : ['']).map((root, index) => (
+                                  <div key={`general-source-root-${index}`} className="flex items-center gap-2">
+                                    <input
+                                      value={root}
+                                      onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
+                                      readOnly={!isAppSettingsEditing || appSettingsSaving}
+                                      className="flex-1 rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
+                                      style={{ borderColor: C.border, color: C.ink }}
+                                      placeholder={index === 0 ? '~/dev' : 'Add another project path'}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button text-[10px] font-medium px-2 py-2 rounded"
+                                      style={{ color: C.ink }}
+                                      onClick={() => handleBrowseForSourceRoot(index)}
+                                      disabled={!isAppSettingsEditing || appSettingsSaving}
+                                    >
+                                      Finder
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button text-[12px] font-medium w-8 h-8 rounded disabled:opacity-50"
+                                      style={{ color: C.ink }}
+                                      onClick={() => handleRemoveSourceRootRow(index)}
+                                      disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings?.workspaceRoots ?? []).length <= 1 && !root)}
+                                      aria-label={`Remove project path ${index + 1}`}
+                                    >
+                                      -
+                                    </button>
+                                  </div>
+                                ))}
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                    style={{ color: C.ink }}
+                                    onClick={handleAddSourceRootRow}
+                                    disabled={!isAppSettingsEditing || appSettingsSaving}
+                                  >
+                                    <span className="text-[12px] leading-none">+</span>
+                                    Add path
+                                  </button>
+                                  {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
+                                    <button
+                                      key={root}
+                                      type="button"
+                                      className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                      style={{ color: C.ink }}
+                                      onClick={() => handleAddSourceRootSuggestion(root)}
+                                      disabled={!isAppSettingsEditing || appSettingsSaving}
+                                    >
+                                      {root}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Context Root</div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={visibleAppSettings?.onboardingContextRoot ?? ''}
+                                  onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
+                                  readOnly={!isAppSettingsEditing || appSettingsSaving}
+                                  className="flex-1 rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                  placeholder="Choose where .openscout should live"
+                                />
+                                <button
+                                  type="button"
+                                  className="os-toolbar-button text-[10px] font-medium px-2 py-2 rounded"
+                                  style={{ color: C.ink }}
+                                  onClick={handleBrowseForOnboardingContextRoot}
+                                  disabled={!isAppSettingsEditing || appSettingsSaving}
+                                >
+                                  Finder
+                                </button>
+                              </div>
+                              <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                                Project config:{' '}
+                                {renderLocalPathValue(visibleAppSettings?.currentProjectConfigPath ?? 'Not created yet', {
+                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                  style: s.mutedText,
+                                })}
+                              </div>
+                            </div>
+
                             <div>
                               <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Your Name</div>
                               {isAppSettingsEditing ? (
@@ -4829,61 +5005,42 @@ export default function App() {
                                     {visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? 'Operator'}
                                   </div>
                                   <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                    {visibleAppSettings?.note ?? 'Shown everywhere the desktop shell refers to you.'}
+                                    {visibleAppSettings?.note ?? 'Your display name across the shell.'}
                                   </div>
                                 </div>
                               )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Session Prefix</div>
-                                {isAppSettingsEditing ? (
-                                  <input
-                                    value={visibleAppSettings?.sessionPrefix ?? 'relay'}
-                                    onChange={(event) => {
-                                      setAppSettingsDraft((current) => current ? {
-                                        ...current,
-                                        sessionPrefix: event.target.value,
-                                      } : current);
-                                      setAppSettingsFeedback(null);
-                                    }}
-                                    readOnly={appSettingsSaving}
-                                    className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
-                                    style={{ borderColor: C.border, color: C.ink }}
-                                  />
-                                ) : (
-                                  <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.sessionPrefix ?? 'relay'}</div>
-                                )}
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Default Harness</div>
+                              <div className="grid grid-cols-2 gap-3">
+                                {(['claude', 'codex'] as const).map((harness) => {
+                                  const selected = visibleAppSettings?.defaultHarness === harness;
+                                  return (
+                                    <button
+                                      key={harness}
+                                      type="button"
+                                      className="text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90 disabled:opacity-60"
+                                      style={{ borderColor: C.border, backgroundColor: selected ? C.bg : C.surface }}
+                                      disabled={!isAppSettingsEditing || appSettingsSaving}
+                                      onClick={() => {
+                                        setAppSettingsDraft((current) => current ? {
+                                          ...current,
+                                          defaultHarness: harness,
+                                        } : current);
+                                        setAppSettingsFeedback(null);
+                                      }}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="text-[12px] font-medium capitalize" style={s.inkText}>{harness}</div>
+                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={selected ? s.activePill : s.tagBadge}>
+                                          {selected ? 'default' : 'available'}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            </div>
-
-                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Default Capabilities</div>
-                              {isAppSettingsEditing ? (
-                                <textarea
-                                  value={(visibleAppSettings?.defaultCapabilities ?? []).join('\n')}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      defaultCapabilities: event.target.value.split(/[\r\n,]/g).map((entry) => entry.trim()).filter(Boolean),
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  rows={3}
-                                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none resize-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="flex flex-wrap gap-2">
-                                  {(visibleAppSettings?.defaultCapabilities ?? []).map((capability) => (
-                                    <span key={capability} className="text-[10px] font-mono px-2 py-1 rounded" style={s.tagBadge}>
-                                      {capability}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
                             </div>
 
                             <label className="flex items-center gap-2 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
@@ -4900,12 +5057,16 @@ export default function App() {
                                 }}
                               />
                               <div className="min-w-0">
-                                <div className="text-[12px] font-medium" style={s.inkText}>Include the Relay context root</div>
+                                <div className="text-[12px] font-medium" style={s.inkText}>Include the context root</div>
                                 <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                  Create a local `.openscout/project.json` at the selected Relay context root and keep that context in discovery.
+                                  Add the context root itself to discovery.
                                 </div>
                               </div>
                             </label>
+
+                            {appSettingsFeedback ? (
+                              <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
+                            ) : null}
 
                           </div>
                         )}
@@ -4914,31 +5075,51 @@ export default function App() {
 
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Vocabulary</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Context Snapshot</div>
                         <div className="space-y-3">
                           {[
-                            ['Source Root', 'The parent folder that contains many repos. Point OpenScout at `~/dev`, `~/src`, or whichever folder you actually keep your projects in.'],
-                            ['Harness', 'The assistant family a project should prefer by default. Today that is `claude` or `codex`.'],
-                            ['Runtime', 'The local installed program or long-running session OpenScout uses to launch a harness and keep it available for work.'],
+                            ['Operator', visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? 'Operator'],
+                            ['Context Root', visibleAppSettings?.onboardingContextRoot ?? 'Not set'],
+                            ['Project Config', visibleAppSettings?.currentProjectConfigPath ?? 'Not created yet'],
+                            ['Onboarding', visibleAppSettings?.onboarding?.needed ? 'Needed' : 'Complete'],
                           ].map(([label, detail]) => (
                             <div key={label} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                               <div className="text-[11px] font-medium" style={s.inkText}>{label}</div>
-                              <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>{detail}</div>
+                              <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                {label === 'Context Root' || label === 'Project Config'
+                                  ? renderLocalPathValue(String(detail), {
+                                    className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                    style: s.mutedText,
+                                  })
+                                  : detail}
+                              </div>
                             </div>
                           ))}
                         </div>
                       </section>
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Project Inventory</div>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Project Inventory</div>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                            {visibleAppSettings?.projectInventory.length ?? 0}
+                          </span>
+                        </div>
                         <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
                           {(visibleAppSettings?.projectInventory ?? []).length > 0 ? (visibleAppSettings?.projectInventory ?? []).map((project) => (
                             <button
                               key={project.id}
                               onClick={() => {
+                                setSettingsSection('agents');
                                 if (project.registrationKind === 'configured') {
                                   openAgentProfile(project.id);
+                                  return;
                                 }
+                                setSelectedAgentableProjectId(project.id);
+                                setSelectedInterAgentId(null);
+                                setSelectedInterAgentThreadId(null);
+                                setIsAgentConfigEditing(false);
+                                setAgentConfigFeedback(null);
                               }}
                               className="w-full text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90"
                               style={{ borderColor: C.border, backgroundColor: C.bg }}
@@ -4947,10 +5128,25 @@ export default function App() {
                                 <div className="min-w-0">
                                   <div className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</div>
                                   <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
-                                    {project.relativePath === '.' ? project.root : `${project.relativePath} · ${project.root}`}
+                                    {project.relativePath === '.' ? (
+                                      renderLocalPathValue(project.root, {
+                                        compact: true,
+                                        className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                        style: s.mutedText,
+                                      })
+                                    ) : (
+                                      <>
+                                        {project.relativePath} ·{' '}
+                                        {renderLocalPathValue(project.root, {
+                                          compact: true,
+                                          className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                          style: s.mutedText,
+                                        })}
+                                      </>
+                                    )}
                                   </div>
                                   <div className="text-[10px] mt-1" style={s.mutedText}>
-                                    {project.registrationKind === 'configured' ? 'configured agent' : 'discovered project'} · default {project.defaultHarness}
+                                    {project.registrationKind === 'configured' ? 'configured agent' : 'agentable project'} · default {project.defaultHarness}
                                   </div>
                                   <div className="flex flex-wrap gap-1.5 mt-2">
                                     {project.harnesses.map((harness) => (
@@ -4965,7 +5161,12 @@ export default function App() {
                                     ))}
                                   </div>
                                   <div className="text-[10px] mt-2" style={s.mutedText}>
-                                    Source root: {project.sourceRoot}
+                                    Source root:{' '}
+                                    {renderLocalPathValue(project.sourceRoot, {
+                                      compact: true,
+                                      className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                      style: s.mutedText,
+                                    })}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
@@ -4985,7 +5186,7 @@ export default function App() {
                       </section>
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Runtime Readiness</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Runtimes</div>
                         <div className="grid grid-cols-1 gap-2">
                           {(visibleAppSettings?.runtimeCatalog ?? []).length > 0 ? (visibleAppSettings?.runtimeCatalog ?? []).map((runtimeEntry) => (
                             <div key={runtimeEntry.name} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
@@ -5005,50 +5206,57 @@ export default function App() {
                         </div>
                       </section>
 
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Canonical Paths</div>
-                        <div className="grid grid-cols-1 gap-3">
-                          {[
-                            ['Settings', visibleAppSettings?.settingsPath ?? 'Not reported'],
-                            ['Support Directory', visibleAppSettings?.supportDirectory ?? 'Not reported'],
-                            ['Agent Registry', visibleAppSettings?.relayAgentsPath ?? 'Not reported'],
-                            ['Current Project', visibleAppSettings?.currentProjectConfigPath ?? 'Not created'],
-                          ].map(([label, value]) => (
-                            <div key={label}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </section>
-
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Broker Service</div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          {[
-                            ['Label', visibleAppSettings?.broker.label ?? 'Not reported'],
-                            ['Reachable', visibleAppSettings?.broker.reachable ? 'Yes' : 'No'],
-                            ['Installed', visibleAppSettings?.broker.installed ? 'Yes' : 'No'],
-                            ['Loaded', visibleAppSettings?.broker.loaded ? 'Yes' : 'No'],
-                            ['Broker URL', visibleAppSettings?.broker.url ?? 'Not reported'],
-                            ['LaunchAgent', visibleAppSettings?.broker.launchAgentPath ?? 'Not reported'],
-                            ['Stdout Log', visibleAppSettings?.broker.stdoutLogPath ?? 'Not reported'],
-                            ['Stderr Log', visibleAppSettings?.broker.stderrLogPath ?? 'Not reported'],
-                          ].map(([label, value]) => (
-                            <div key={label} className="min-w-0">
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </section>
                     </div>
+                  </div>
+                ) : settingsSection === 'knowledge' ? (
+                  <div className="max-w-4xl">
+                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="flex items-start justify-between gap-4 mb-5">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Knowledge Base</div>
+                          <div className="text-[14px] font-medium mt-1" style={s.inkText}>Vocabulary</div>
+                          <div className="text-[12px] mt-1 leading-[1.6] max-w-2xl" style={s.mutedText}>
+                            Key terms used across OpenScout.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {[
+                          [
+                            'Project Path',
+                            'A folder OpenScout scans recursively to discover repos, project roots, and harness evidence.',
+                          ],
+                          [
+                            'Context Root',
+                            'The directory where OpenScout saves `.openscout/project.json` for the current local context.',
+                          ],
+                          [
+                            'Harness',
+                            'The assistant family a project prefers by default, such as `claude` or `codex`.',
+                          ],
+                          [
+                            'Runtime',
+                            'The installed local program or persistent session OpenScout uses to launch a chosen harness.',
+                          ],
+                        ].map(([label, value]) => (
+                          <article
+                            key={label}
+                            className="rounded-xl border px-4 py-3.5"
+                            style={{ borderColor: C.border, backgroundColor: C.bg }}
+                          >
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>{label}</div>
+                            <div className="text-[12px] mt-2 leading-[1.6]" style={s.inkText}>{value}</div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
                   </div>
                 ) : settingsSection === 'agents' ? (
                   <div className="grid grid-cols-[minmax(280px,0.58fr)_minmax(0,1.42fr)] gap-4">
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Configured Agents</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Configured Agents</div>
                         <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto pr-1">
                           {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => (
                             <button
@@ -5099,7 +5307,7 @@ export default function App() {
 
                       <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-center justify-between gap-3 mb-3">
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Agentable Projects</div>
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Agentable Projects</div>
                           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
                             {agentableProjects.length}
                           </span>
@@ -5164,10 +5372,10 @@ export default function App() {
                           <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="flex items-start justify-between gap-4">
                               <div className="min-w-0">
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Selected Project</div>
-                                <div className="text-[20px] font-semibold tracking-tight mt-2" style={s.inkText}>{selectedAgentableProject.title}</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Selected Project</div>
+                                <div className="text-[18px] font-semibold tracking-tight mt-1.5" style={s.inkText}>{selectedAgentableProject.title}</div>
                                 <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
-                                  Agentable project discovered from your scan folders. This project does not have a live configured agent record yet.
+                                  Discovered project. No configured agent yet.
                                 </div>
                               </div>
                             </div>
@@ -5175,7 +5383,7 @@ export default function App() {
 
                           <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
                             <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Project Summary</div>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Project Summary</div>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                                 {[
                                   ['Project', selectedAgentableProject.projectName],
@@ -5189,7 +5397,13 @@ export default function App() {
                                 ].map(([label, value]) => (
                                   <div key={label} className="min-w-0">
                                     <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                    <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                    <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>
+                                      {label === 'Root' || label === 'Source Root' || label === 'Manifest'
+                                        ? renderLocalPathValue(String(value), {
+                                          className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                        })
+                                        : value}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -5197,7 +5411,7 @@ export default function App() {
 
                             <div className="space-y-4 min-w-0">
                               <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Harness Evidence</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Harness Evidence</div>
                                 <div className="space-y-2">
                                   {selectedAgentableProject.harnesses.map((entry) => (
                                     <div key={`${entry.harness}-${entry.source}`} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
@@ -5223,10 +5437,10 @@ export default function App() {
                           <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="flex items-start justify-between gap-4">
                               <div className="min-w-0">
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Selected Agent</div>
-                                <div className="text-[20px] font-semibold tracking-tight mt-2" style={s.inkText}>{selectedInterAgent.title}</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Selected Agent</div>
+                                <div className="text-[18px] font-semibold tracking-tight mt-1.5" style={s.inkText}>{selectedInterAgent.title}</div>
                                 <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
-                                  {interAgentProfileKindLabel(selectedInterAgent.profileKind)} · {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Stored runtime definition and prompt template.'}
+                                  {interAgentProfileKindLabel(selectedInterAgent.profileKind)} · {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'No status reported.'}
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
@@ -5250,7 +5464,7 @@ export default function App() {
 
                           <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
                             <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>System Prompt</div>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>System Prompt</div>
                               {agentConfigLoading ? (
                                 <div className="text-[11px]" style={s.mutedText}>Loading system prompt…</div>
                               ) : isAgentConfigEditing ? (
@@ -5288,7 +5502,7 @@ export default function App() {
 
                             <div className="space-y-4 min-w-0">
                               <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Runtime</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Runtime</div>
                                 {agentConfigLoading ? (
                                   <div className="text-[11px]" style={s.mutedText}>Loading runtime…</div>
                                 ) : isAgentConfigEditing ? (
@@ -5370,7 +5584,13 @@ export default function App() {
                                     ].map(([label, value]) => (
                                       <div key={label} className="min-w-0">
                                         <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                        <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                        <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>
+                                          {label === 'Path' || label === 'Live Runtime'
+                                            ? renderLocalPathValue(String(value), {
+                                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                            })
+                                            : value}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -5378,7 +5598,7 @@ export default function App() {
                               </section>
 
                               <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Tool Use</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Tool Use</div>
                                 {isAgentConfigEditing ? (
                                   <textarea
                                     value={visibleAgentConfig?.toolUse.launchArgsText ?? ''}
@@ -5404,7 +5624,7 @@ export default function App() {
                               </section>
 
                               <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Capabilities</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Capabilities</div>
                                 {isAgentConfigEditing ? (
                                   <input
                                     value={visibleAgentConfig?.capabilitiesText ?? ''}
@@ -5444,14 +5664,14 @@ export default function App() {
                       {desktopFeatures.telegram ? (
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
-                            <Radio size={18} style={{ color: C.accent }} />
+                          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
+                            <Radio size={16} style={{ color: C.accent }} />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Telegram Bridge</div>
-                            <div className="text-[13px] font-medium mt-1" style={s.inkText}>ChatSDK-backed Telegram delivery and ingest</div>
-                            <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
-                              The desktop bridge uses ChatSDK in-process and should normally run in polling mode. Polling is the safe default for a long-running local app because Telegram webhooks require a public endpoint that this desktop app does not host.
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Telegram Bridge</div>
+                            <div className="text-[13px] font-medium mt-0.5" style={s.inkText}>Telegram delivery and ingest</div>
+                            <div className="text-[11px] mt-0.5 leading-[1.5]" style={s.mutedText}>
+                              Routes Telegram messages through the broker. Runs in polling mode by default.
                             </div>
                           </div>
                         </div>
@@ -5476,7 +5696,7 @@ export default function App() {
                             <div className="min-w-0">
                               <div className="text-[12px] font-medium" style={s.inkText}>Enable Telegram bridge</div>
                               <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                Starts the desktop Telegram bridge on launch and routes inbound/outbound Telegram traffic through the broker.
+                                Start the Telegram bridge on launch and route messages through the broker.
                               </div>
                             </div>
                           </label>
@@ -5676,7 +5896,7 @@ export default function App() {
                       ) : null}
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Runtime</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Relay Runtime</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           {[
                             ['Relay', runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'],
@@ -5702,9 +5922,9 @@ export default function App() {
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Telegram Status</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Telegram Status</div>
                             <div className="text-[11px] mt-1" style={s.mutedText}>
-                              {visibleAppSettings?.telegram.detail ?? 'Telegram bridge status is not reported yet.'}
+                              {visibleAppSettings?.telegram.detail ?? 'Status not reported yet.'}
                             </div>
                           </div>
                           <span
@@ -5744,9 +5964,9 @@ export default function App() {
                           <section ref={relayServiceInspectorRef} className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="flex items-start justify-between gap-3 mb-3">
                               <div>
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Relay Service</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Relay Service</div>
                                 <div className="text-[11px] mt-1" style={s.mutedText}>
-                                  {brokerInspector.statusDetail ?? 'Relay service profile and runtime state.'}
+                                  {brokerInspector.statusDetail ?? 'Service status not reported yet.'}
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
@@ -5808,7 +6028,7 @@ export default function App() {
                           </section>
 
                           <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Relay Paths</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Relay Paths</div>
                             <div className="space-y-3">
                               {[
                                 ['Support', brokerInspector.supportDirectory],
@@ -5819,7 +6039,11 @@ export default function App() {
                               ].map(([label, value]) => (
                                 <div key={label}>
                                   <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>
+                                    {renderLocalPathValue(String(value), {
+                                      className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                    })}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -5833,7 +6057,7 @@ export default function App() {
 
                           {brokerInspector.troubleshooting.length > 0 || brokerInspector.feedbackSummary ? (
                             <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Diagnostics</div>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Diagnostics</div>
                               {brokerInspector.troubleshooting.length > 0 ? (
                                 <div className="space-y-2 mb-4">
                                   {brokerInspector.troubleshooting.map((item) => (
@@ -5853,7 +6077,7 @@ export default function App() {
 
                       {desktopFeatures.voice ? (
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Voice & Delivery</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Voice & Delivery</div>
                         <div className="space-y-3">
                           <div>
                             <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Capture</div>
@@ -5882,8 +6106,8 @@ export default function App() {
                 ) : settingsSection === 'database' ? (
                   <div className="space-y-4">
                     <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Session Index</div>
-                      <div className="grid grid-cols-3 gap-x-4 gap-y-4">
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Session Index</div>
+                      <div className="grid grid-cols-3 gap-3">
                         {[
                           ['Sessions', `${stats.totalSessions}`],
                           ['Messages', `${stats.totalMessages}`],
@@ -5892,22 +6116,27 @@ export default function App() {
                           ['Runtime Messages', `${runtime?.messageCount ?? 0}`],
                           ['tmux Sessions', `${runtime?.tmuxSessionCount ?? 0}`],
                         ].map(([label, value]) => (
-                          <div key={label}>
+                          <div key={label} className="rounded-lg border px-3 py-2.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                             <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                            <div className="text-[15px] font-semibold" style={s.inkText}>{value}</div>
+                            <div className="text-[16px] font-semibold" style={s.inkText}>{value}</div>
                           </div>
                         ))}
                       </div>
                     </section>
 
                     <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Storage</div>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Storage</div>
                       <div className="space-y-3">
                         {visibleAppSettings?.controlPlaneSqlitePath ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-[12px] font-medium" style={s.inkText}>Control plane database</div>
-                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>{visibleAppSettings.controlPlaneSqlitePath}</div>
+                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>
+                                {renderLocalPathValue(visibleAppSettings.controlPlaneSqlitePath, {
+                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
+                                  style: s.mutedText,
+                                })}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -5923,7 +6152,12 @@ export default function App() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-[12px] font-medium" style={s.inkText}>Settings</div>
-                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>{visibleAppSettings.settingsPath}</div>
+                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>
+                                {renderLocalPathValue(visibleAppSettings.settingsPath, {
+                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
+                                  style: s.mutedText,
+                                })}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -5939,7 +6173,12 @@ export default function App() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-[12px] font-medium" style={s.inkText}>Support directory</div>
-                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>{visibleAppSettings.supportDirectory}</div>
+                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>
+                                {renderLocalPathValue(visibleAppSettings.supportDirectory, {
+                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
+                                  style: s.mutedText,
+                                })}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -5957,7 +6196,7 @@ export default function App() {
                 ) : (
                   <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(320px,0.85fr)] gap-4">
                     <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Color Mode</div>
+                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Color Mode</div>
                       <div className="flex gap-3 mb-5">
                         {[
                           { id: 'light', label: 'Light' },
@@ -5989,9 +6228,9 @@ export default function App() {
                       <div className="border rounded-xl px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={s.mutedText}>Annotations</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Annotations</div>
                             <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                              Show routing and provenance tags inside Relay and Inter-Agent timelines.
+                              Show routing and provenance tags in timelines.
                             </div>
                           </div>
                           <button
@@ -6007,7 +6246,7 @@ export default function App() {
 
                     <div className="space-y-4 min-w-0">
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Current Surface</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Current Surface</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           {[
                             ['Mode', dark ? 'Dark' : 'Light'],
@@ -6024,9 +6263,9 @@ export default function App() {
                       </section>
 
                       <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Direction</div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Coming Soon</div>
                         <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                          The v0 PR includes richer theme, density, and typography controls. Those belong here once we promote them from purely visual settings to persisted desktop preferences.
+                          Theme, density, and typography controls.
                         </div>
                       </section>
                     </div>
@@ -6631,7 +6870,12 @@ export default function App() {
                           style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
                         >
                           <div className="truncate min-w-0 font-mono">
-                            {visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.'}
+                            {renderLocalPathValue(
+                              visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.',
+                              {
+                                className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                              },
+                            )}
                           </div>
                           {agentSessionFeedback ? (
                             <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
@@ -6786,7 +7030,12 @@ export default function App() {
                       <div className="px-4 py-2 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
                         <div className="min-w-0">
                           <div className="text-[10px] font-mono uppercase tracking-widest" style={s.mutedText}>{selectedLogSource.title}</div>
-                          <div className="text-[11px] truncate mt-1" style={s.mutedText}>{logContent?.pathLabel ?? selectedLogSource.pathLabel}</div>
+                          <div className="text-[11px] truncate mt-1" style={s.mutedText}>
+                            {renderLocalPathValue(logContent?.pathLabel ?? selectedLogSource.pathLabel, {
+                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
+                              style: s.mutedText,
+                            })}
+                          </div>
                         </div>
                         <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>
                           {logContent?.truncated ? 'Tail' : 'Full'}
@@ -8029,7 +8278,12 @@ export default function App() {
 
             <div className="px-4 h-10 border-t flex items-center justify-between gap-3 shrink-0 text-[10px]" style={{ borderTopColor: C.border, color: C.muted }}>
               <div className="truncate min-w-0">
-                {visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent.cwd ?? selectedInterAgent.projectRoot) ?? 'No stable session path yet.'}
+                {renderLocalPathValue(
+                  visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent.cwd ?? selectedInterAgent.projectRoot) ?? 'No stable session path yet.',
+                  {
+                    className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                  },
+                )}
               </div>
               {agentSessionFeedback ? <div style={s.inkText}>{agentSessionFeedback}</div> : null}
             </div>
