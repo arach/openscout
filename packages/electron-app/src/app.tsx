@@ -2251,23 +2251,23 @@ export default function App() {
               }}
               readOnly={appSettingsSaving}
               rows={6}
-              className="w-full rounded-xl border px-4 py-3 text-[15px] leading-[1.6] bg-transparent outline-none resize-none"
+              className="w-full rounded-xl border px-4 py-3 text-[15px] font-mono leading-[1.6] bg-transparent outline-none resize-none transition-colors focus:border-[var(--os-accent)]"
               style={{ borderColor: C.border, color: C.ink }}
               placeholder="~/dev"
             />
             <div className="text-[13px] mt-3 leading-[1.6]" style={s.mutedText}>
-              If you do not already have one, create a folder like `~/dev` and start there.
+              If you do not already have one, create a folder like <code className="font-mono text-[12px] px-1.5 py-0.5 rounded" style={{ backgroundColor: C.bg }}>~/dev</code> and start there.
             </div>
             <div className="flex flex-wrap gap-2 mt-4">
               {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
                 <button
                   key={root}
-                  className="os-toolbar-button text-[12px] font-medium px-3 py-1.5 rounded disabled:opacity-50"
-                  style={{ color: C.ink }}
+                  className="os-toolbar-button text-[12px] font-mono font-medium px-3 py-1.5 rounded-lg border disabled:opacity-50"
+                  style={{ color: C.ink, borderColor: C.border }}
                   onClick={() => handleAddSourceRootSuggestion(root)}
                   disabled={appSettingsSaving}
                 >
-                  Use {root}
+                  {root}
                 </button>
               ))}
             </div>
@@ -2318,7 +2318,7 @@ export default function App() {
                         Runtime: {runtimeEntry?.label ?? harness} · {runtimeEntry?.readinessDetail ?? 'Not reported yet.'}
                       </div>
                     </div>
-                    <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={selected ? s.activePill : s.tagBadge}>
+                    <span className="text-[10px] font-mono px-2.5 py-1 rounded-full shrink-0" style={selected ? s.activePill : s.tagBadge}>
                       {selected ? 'selected' : 'available'}
                     </span>
                   </div>
@@ -2350,9 +2350,9 @@ export default function App() {
                 ['Relay context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
                 ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
               ].map(([label, value]) => (
-                <div key={label}>
-                  <div className="text-[11px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>{label}</div>
-                  <div className="text-[16px] leading-[1.5]" style={s.inkText}>{value}</div>
+                <div key={label} className="rounded-xl px-4 py-3" style={{ backgroundColor: C.bg }}>
+                  <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
+                  <div className="text-[15px] font-medium leading-[1.5]" style={s.inkText}>{value}</div>
                 </div>
               ))}
             </div>
@@ -2413,8 +2413,8 @@ export default function App() {
                 ['2. Local manifest', 'It writes `.openscout/project.json` at that root and keeps it out of git.'],
                 ['3. Discovery input', 'That manifest becomes one of the durable sources used for inventory and routing.'],
               ].map(([label, detail]) => (
-                <div key={label} className="rounded-xl border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                  <div className="text-[11px] font-medium" style={s.inkText}>{label}</div>
+                <div key={label} className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                  <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
                   <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
                 </div>
               ))}
@@ -2469,21 +2469,21 @@ export default function App() {
                 ['2. Discovery', 'It reads your saved source roots and scans the project manifests and harness evidence they expose.'],
                 ['3. Inventory', 'It merges those inputs into the project inventory that the UI and CLI both use.'],
               ].map(([label, detail]) => (
-                <div key={label} className="rounded-xl border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                  <div className="text-[11px] font-medium" style={s.inkText}>{label}</div>
+                <div key={label} className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                  <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
                   <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
               {[
                 ['Projects', `${visibleAppSettings.projectInventory.length}`],
                 ['Broker', visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'],
                 ['Relay context root', visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot || 'Not created')],
               ].map(([label, value]) => (
-                <div key={label}>
-                  <div className="text-[11px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>{label}</div>
-                  <div className="text-[16px] leading-[1.5] break-words" style={s.inkText}>{value}</div>
+                <div key={label} className="rounded-xl px-4 py-3" style={{ backgroundColor: C.bg }}>
+                  <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
+                  <div className="text-[15px] font-medium leading-[1.5] break-words" style={s.inkText}>{value}</div>
                 </div>
               ))}
             </div>
@@ -2524,13 +2524,18 @@ export default function App() {
 
         <div className="grid grid-cols-1 gap-3">
           {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
-            <div key={runtimeEntry.name} className="rounded-2xl border px-5 py-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+            <div key={runtimeEntry.name} className="os-card rounded-2xl border px-5 py-4" style={{ borderColor: runtimeEntry.readinessState === 'ready' ? C.accent : C.border, backgroundColor: C.surface }}>
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[16px] font-semibold tracking-tight" style={s.inkText}>{runtimeEntry.label}</div>
-                  <div className="text-[13px] mt-2 leading-[1.6]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
+                <div className="min-w-0 flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center mt-0.5" style={{ backgroundColor: runtimeEntry.readinessState === 'ready' ? C.accentBg : C.bg }}>
+                    <span className="text-[14px]" style={{ color: runtimeEntry.readinessState === 'ready' ? C.accent : C.muted }}>&#9654;</span>
+                  </div>
+                  <div>
+                    <div className="text-[16px] font-semibold tracking-tight" style={s.inkText}>{runtimeEntry.label}</div>
+                    <div className="text-[13px] mt-1 leading-[1.6]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
+                  </div>
                 </div>
-                <span className="text-[10px] font-mono px-2 py-1 rounded-full shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                <span className="text-[10px] font-mono px-2.5 py-1 rounded-full shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
                   {runtimeEntry.readinessState}
                 </span>
               </div>
