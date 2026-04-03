@@ -227,6 +227,7 @@ export default function App() {
   const [onboardingWizardStep, setOnboardingWizardStep] = useState<OnboardingWizardStepId>('source-roots');
   const [onboardingCommandPending, setOnboardingCommandPending] = useState<OnboardingCommandName | null>(null);
   const [onboardingCommandResult, setOnboardingCommandResult] = useState<OnboardingCommandResult | null>(null);
+  const [onboardingCopiedCommand, setOnboardingCopiedCommand] = useState<OnboardingCommandName | null>(null);
   const [startupOnboardingState, setStartupOnboardingState] = useState<'checking' | 'active' | 'done'>('checking');
   const [settingsSection, setSettingsSection] = useState<'profile' | 'agents' | 'communication' | 'database' | 'appearance'>('profile');
   const [logCatalog, setLogCatalog] = useState<DesktopLogCatalog | null>(null);
@@ -1339,6 +1340,9 @@ export default function App() {
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
     [appSettingsDraft, appSettings],
   );
+  const onboardingContextRoot = visibleAppSettings?.onboardingContextRoot
+    ?? visibleAppSettings?.workspaceRoots?.[0]
+    ?? null;
   const onboardingHasProjectConfig = Boolean(visibleAppSettings?.currentProjectConfigPath);
   const onboardingRuntimeMatch = (visibleAppSettings?.runtimeCatalog ?? []).find((entry) => entry.name === visibleAppSettings?.defaultHarness) ?? null;
   const onboardingStepCompletion = useMemo(
@@ -1371,7 +1375,7 @@ export default function App() {
       id: 'init' as const,
       number: '04',
       title: 'Run init',
-      detail: 'See how the current repo becomes a local project manifest and how that feeds discovery.',
+      detail: 'See how your chosen Relay context root becomes a local project manifest and how that feeds discovery.',
       complete: onboardingStepCompletion.get('init') ?? false,
     },
     {
@@ -1398,6 +1402,21 @@ export default function App() {
   const canGoToNextOnboardingStep = onboardingWizardIndex < onboardingWizardSteps.length - 1;
   const startupOnboardingVisible = startupOnboardingState === 'active' && Boolean(visibleAppSettings?.onboarding);
   const startupOnboardingBlocking = startupOnboardingState !== 'done';
+  const buildOnboardingCommandLine = React.useCallback((command: OnboardingCommandName) => {
+    const contextRootArg = onboardingContextRoot ? ` --context-root ${onboardingContextRoot}` : '';
+    const sourceRootArgs = command === 'init'
+      ? (visibleAppSettings?.workspaceRoots ?? []).map((root) => ` --source-root ${root}`).join('')
+      : '';
+    return `scout ${command}${contextRootArg}${sourceRootArgs}`;
+  }, [onboardingContextRoot, visibleAppSettings?.workspaceRoots]);
+  const handleCopyOnboardingCommand = React.useCallback(async (command: OnboardingCommandName) => {
+    const commandLine = buildOnboardingCommandLine(command);
+    await navigator.clipboard.writeText(commandLine);
+    setOnboardingCopiedCommand(command);
+    window.setTimeout(() => {
+      setOnboardingCopiedCommand((current) => current === command ? null : current);
+    }, 1500);
+  }, [buildOnboardingCommandLine]);
   const visibleAgentConfig = selectedInterAgentId && (agentConfigDraft ?? agentConfig)?.agentId === selectedInterAgentId
     ? (agentConfigDraft ?? agentConfig)
     : null;
@@ -1738,6 +1757,7 @@ export default function App() {
       const sourceRoots = (appSettingsDraft ?? appSettings)?.workspaceRoots ?? [];
       const result = await window.openScoutDesktop.runOnboardingCommand({
         command,
+        contextRoot: (appSettingsDraft ?? appSettings)?.onboardingContextRoot ?? sourceRoots[0],
         sourceRoots: command === 'init' ? sourceRoots : undefined,
       });
       setOnboardingCommandResult(result);
@@ -1761,6 +1781,18 @@ export default function App() {
       setOnboardingCommandPending(null);
     }
   }, [appSettings, appSettingsDraft, loadShellState]);
+
+  const handleQuitApp = React.useCallback(() => {
+    void (async () => {
+      try {
+        if (window.openScoutDesktop?.quitApp) {
+          await window.openScoutDesktop.quitApp();
+        }
+      } catch (error) {
+        setAppSettingsFeedback(asErrorMessage(error));
+      }
+    })();
+  }, []);
 
   const handleAddSourceRootSuggestion = React.useCallback((root: string) => {
     setAppSettingsDraft((current) => {
@@ -2134,6 +2166,61 @@ export default function App() {
     annotBadge:  { backgroundColor: C.tagBg, borderColor: C.border, color: C.muted },
   };
 
+  const renderOnboardingCommandShell = (
+    command: OnboardingCommandName,
+    commandLine: string,
+    running: boolean,
+  ) => (
+    <div className="rounded-[24px] border overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.12)', backgroundColor: C.termBg }}>
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 border-b"
+        style={{ borderBottomColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.04)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+          </div>
+          <div className="text-[11px] font-mono uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            Terminal
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className="text-[10px] font-mono px-2 py-1 rounded"
+            style={running
+              ? { backgroundColor: 'rgba(45, 212, 191, 0.18)', color: '#99f6e4' }
+              : { backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.72)' }}
+          >
+            {running ? 'running' : 'ready'}
+          </span>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-85"
+            style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.82)', backgroundColor: 'rgba(255,255,255,0.04)' }}
+            onClick={() => {
+              void handleCopyOnboardingCommand(command);
+            }}
+          >
+            {onboardingCopiedCommand === command ? <CheckCheck size={12} /> : <Copy size={12} />}
+            {onboardingCopiedCommand === command ? 'Copied' : 'Quick copy'}
+          </button>
+        </div>
+      </div>
+      <div className="px-5 py-5">
+        <div className="text-[14px] leading-[1.8] font-mono break-all" style={{ color: C.termFg }}>
+          <span style={{ color: 'rgba(153, 246, 228, 0.88)' }}>$</span> {commandLine}
+        </div>
+        {running ? (
+          <div className="text-[12px] mt-4 leading-[1.6]" style={{ color: 'rgba(255,255,255,0.62)' }}>
+            Running now inside OpenScout so you can see the same command the shell would run.
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
   const renderImmersiveOnboardingStep = () => {
     if (!visibleAppSettings) {
       return null;
@@ -2208,8 +2295,8 @@ export default function App() {
               return (
                 <button
                   key={harness}
-                  className="text-left rounded-2xl border px-5 py-5 transition-opacity hover:opacity-90 disabled:opacity-60"
-                  style={{ borderColor: C.border, backgroundColor: selected ? C.bg : C.surface }}
+                  className="os-card text-left rounded-2xl border px-5 py-5 disabled:opacity-60"
+                  style={{ borderColor: selected ? C.accent : C.border, backgroundColor: selected ? C.accentBg : C.surface, boxShadow: selected ? `0 0 0 1px ${C.accent}` : 'none' }}
                   disabled={appSettingsSaving}
                   onClick={() => {
                     setAppSettingsDraft((current) => current ? {
@@ -2260,7 +2347,7 @@ export default function App() {
               {[
                 ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
                 ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
-                ['Current repo', visibleAppSettings.includeCurrentRepo ? 'Included' : 'Not included'],
+                ['Relay context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
                 ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
               ].map(([label, value]) => (
                 <div key={label}>
@@ -2273,8 +2360,8 @@ export default function App() {
 
           <div className="flex flex-wrap gap-3">
             <button
-              className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
-              style={{ color: C.ink }}
+              className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+              style={{ backgroundColor: C.accent, color: '#fff' }}
               onClick={() => {
                 void (async () => {
                   const saved = await handleSaveAppSettings();
@@ -2302,8 +2389,10 @@ export default function App() {
     }
 
     if (activeOnboardingStep.id === 'init') {
-      const initCommandLine = `scout init${(visibleAppSettings.workspaceRoots ?? []).map((root) => ` --source-root ${root}`).join('')}`;
+      const initCommandLine = buildOnboardingCommandLine('init');
       const initRunning = onboardingCommandPending === 'init';
+      const initManifestPath = visibleAppSettings.currentProjectConfigPath
+        ?? (visibleAppSettings.onboardingContextRoot ? `${visibleAppSettings.onboardingContextRoot}/.openscout/project.json` : 'Not created yet.');
       return (
         <div className="space-y-6">
           <div className="space-y-3">
@@ -2311,31 +2400,17 @@ export default function App() {
               Create the local project manifest
             </div>
             <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
-              This runs `scout init` for the repo you launched from and uses the source roots you just saved.
+              This runs `scout init` against your chosen Relay context root and uses the source roots you just saved.
             </div>
           </div>
 
+          {renderOnboardingCommandShell('init', initCommandLine, initRunning)}
+
           <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Command</div>
-                <div className="text-[15px] font-mono break-all" style={s.inkText}>
-                  {initCommandLine}
-                </div>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={initRunning ? s.activePill : s.tagBadge}>
-                {initRunning ? 'running' : 'ready'}
-              </span>
-            </div>
-            {initRunning ? (
-              <div className="text-[13px] mt-4 leading-[1.6]" style={s.inkText}>
-                Running now: <span className="font-mono">{initCommandLine}</span>
-              </div>
-            ) : null}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
-                ['1. Current repo', 'OpenScout looks at the repo you launched from.'],
-                ['2. Local manifest', 'It writes `.openscout/project.json` locally and keeps it out of git.'],
+                ['1. Relay context root', visibleAppSettings.onboardingContextRoot || 'Choose a directory first so OpenScout knows where to root this context.'],
+                ['2. Local manifest', 'It writes `.openscout/project.json` at that root and keeps it out of git.'],
                 ['3. Discovery input', 'That manifest becomes one of the durable sources used for inventory and routing.'],
               ].map(([label, detail]) => (
                 <div key={label} className="rounded-xl border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
@@ -2345,16 +2420,16 @@ export default function App() {
               ))}
             </div>
             <div className="text-[13px] mt-5 leading-[1.6]" style={s.mutedText}>
-              `init` does not wake agents. It prepares the repo so the rest of OpenScout can reason about it consistently.
+              `init` does not wake agents. It prepares Scout&apos;s Relay context so the rest of OpenScout can reason about it consistently.
             </div>
             <div className="text-[13px] mt-4 leading-[1.6]" style={s.mutedText}>
-              Current project config: {visibleAppSettings.currentProjectConfigPath ?? 'Not created yet.'}
+              Project config path: {initManifestPath}
             </div>
           </div>
 
           <button
-            className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
-            style={{ color: C.ink }}
+            className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+            style={{ backgroundColor: C.accent, color: '#fff' }}
             onClick={() => {
               void (async () => {
                 const result = await handleRunOnboardingCommand('init');
@@ -2365,14 +2440,14 @@ export default function App() {
             }}
             disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsDirty}
           >
-            {initRunning ? initCommandLine : 'Run Init'}
+            {initRunning ? 'Running Init…' : 'Run Init'}
           </button>
         </div>
       );
     }
 
     if (activeOnboardingStep.id === 'doctor') {
-      const doctorCommandLine = 'scout doctor';
+      const doctorCommandLine = buildOnboardingCommandLine('doctor');
       const doctorRunning = onboardingCommandPending === 'doctor';
       return (
         <div className="space-y-6">
@@ -2385,24 +2460,10 @@ export default function App() {
             </div>
           </div>
 
+          {renderOnboardingCommandShell('doctor', doctorCommandLine, doctorRunning)}
+
           <div className="rounded-2xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[11px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Command</div>
-                <div className="text-[15px] font-mono break-all" style={s.inkText}>
-                  {doctorCommandLine}
-                </div>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={doctorRunning ? s.activePill : s.tagBadge}>
-                {doctorRunning ? 'running' : 'ready'}
-              </span>
-            </div>
-            {doctorRunning ? (
-              <div className="text-[13px] mt-4 leading-[1.6]" style={s.inkText}>
-                Running now: <span className="font-mono">{doctorCommandLine}</span>
-              </div>
-            ) : null}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
                 ['1. Broker', 'Doctor checks whether the broker is installed, reachable, and healthy.'],
                 ['2. Discovery', 'It reads your saved source roots and scans the project manifests and harness evidence they expose.'],
@@ -2418,7 +2479,7 @@ export default function App() {
               {[
                 ['Projects', `${visibleAppSettings.projectInventory.length}`],
                 ['Broker', visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'],
-                ['Current repo', visibleAppSettings.currentProjectConfigPath ?? 'Not created'],
+                ['Relay context root', visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot || 'Not created')],
               ].map(([label, value]) => (
                 <div key={label}>
                   <div className="text-[11px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>{label}</div>
@@ -2429,8 +2490,8 @@ export default function App() {
           </div>
 
           <button
-            className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
-            style={{ color: C.ink }}
+            className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+            style={{ backgroundColor: C.accent, color: '#fff' }}
             onClick={() => {
               void (async () => {
                 const result = await handleRunOnboardingCommand('doctor');
@@ -2441,12 +2502,13 @@ export default function App() {
             }}
             disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
           >
-            {doctorRunning ? doctorCommandLine : 'Run Doctor'}
+            {doctorRunning ? 'Running Doctor…' : 'Run Doctor'}
           </button>
         </div>
       );
     }
 
+    const runtimesCommandLine = buildOnboardingCommandLine('runtimes');
     return (
       <div className="space-y-6">
         <div className="space-y-3">
@@ -2458,6 +2520,8 @@ export default function App() {
           </div>
         </div>
 
+        {renderOnboardingCommandShell('runtimes', runtimesCommandLine, onboardingCommandPending === 'runtimes')}
+
         <div className="grid grid-cols-1 gap-3">
           {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
             <div key={runtimeEntry.name} className="rounded-2xl border px-5 py-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
@@ -2466,7 +2530,7 @@ export default function App() {
                   <div className="text-[16px] font-semibold tracking-tight" style={s.inkText}>{runtimeEntry.label}</div>
                   <div className="text-[13px] mt-2 leading-[1.6]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
                 </div>
-                <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                <span className="text-[10px] font-mono px-2 py-1 rounded-full shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
                   {runtimeEntry.readinessState}
                 </span>
               </div>
@@ -2475,8 +2539,8 @@ export default function App() {
         </div>
 
         <button
-          className="os-toolbar-button flex items-center gap-1 text-[13px] font-medium px-4 py-2 rounded disabled:opacity-50"
-          style={{ color: C.ink }}
+          className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+          style={{ backgroundColor: C.accent, color: '#fff' }}
           onClick={() => void handleRunOnboardingCommand('runtimes')}
           disabled={Boolean(onboardingCommandPending) || appSettingsLoading}
         >
@@ -2490,66 +2554,85 @@ export default function App() {
     return (
       <div
         className={`min-h-screen w-full font-sans${dark ? ' dark' : ''}`}
-        style={{
-          background:
-            'radial-gradient(circle at top, rgba(236,245,241,0.96) 0%, rgba(250,247,240,0.98) 42%, rgba(245,242,234,1) 100%)',
-          color: C.ink,
-        }}
+        style={{ backgroundColor: C.bg, color: C.ink }}
       >
         <div className="min-h-screen flex items-center justify-center px-6 py-10">
           {startupOnboardingVisible && visibleAppSettings ? (
-            <div className="w-full max-w-[820px]">
-              <div className="rounded-[32px] border shadow-[0_24px_80px_rgba(15,23,42,0.08)] overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.10)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
-                <div className="px-8 pt-8 pb-6 border-b" style={{ borderBottomColor: 'rgba(15, 23, 42, 0.08)' }}>
+            <div className="w-full max-w-[820px] os-scale-in">
+              <div className="rounded-[32px] border overflow-hidden" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
+                <div
+                  className="px-8 pt-8 pb-6 border-b cursor-grab active:cursor-grabbing"
+                  style={{ borderBottomColor: C.border, WebkitAppRegion: 'drag' } as React.CSSProperties}
+                >
                   <div className="flex items-center justify-between gap-4">
-                    <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>OpenScout Setup</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[12px] transition-opacity hover:opacity-80"
+                        style={{ borderColor: C.border, color: C.muted, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                        onClick={handleQuitApp}
+                      >
+                        <X size={12} />
+                        Quit
+                      </button>
+                      <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>OpenScout Setup</div>
+                    </div>
                     <button
                       className="text-[12px] transition-opacity hover:opacity-70"
-                      style={s.mutedText}
+                      style={{ ...s.mutedText, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                       onClick={dismissStartupOnboarding}
                     >
                       Skip onboarding
                     </button>
                   </div>
-                  <div className="flex items-center gap-2 mt-5">
-                    {onboardingWizardSteps.map((step) => (
-                      <div
-                        key={step.id}
-                        className="h-1.5 flex-1 rounded-full transition-all"
-                        style={{
-                          backgroundColor: ONBOARDING_WIZARD_STEP_ORDER.indexOf(step.id) <= onboardingWizardIndex
-                            ? 'rgba(15, 118, 110, 0.85)'
-                            : 'rgba(15, 23, 42, 0.08)',
-                        }}
-                      />
-                    ))}
+                  <div className="flex items-center gap-1.5 mt-6">
+                    {onboardingWizardSteps.map((step) => {
+                      const idx = ONBOARDING_WIZARD_STEP_ORDER.indexOf(step.id);
+                      const done = idx < onboardingWizardIndex;
+                      const active = idx === onboardingWizardIndex;
+                      return (
+                        <div
+                          key={step.id}
+                          className="h-1 flex-1 rounded-full transition-all duration-300"
+                          style={{
+                            backgroundColor: done || active ? C.accent : (dark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)'),
+                            opacity: active ? 0.6 : 1,
+                          }}
+                        />
+                      );
+                    })}
                   </div>
-                  <div className="text-[12px] mt-4" style={s.mutedText}>
-                    Step {activeOnboardingStep.number} of {onboardingWizardSteps.length}
+                  <div className="flex items-center gap-2 mt-4">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ backgroundColor: C.accentBg, color: C.accent }}>
+                      {activeOnboardingStep.number}/{onboardingWizardSteps.length}
+                    </span>
+                    <span className="text-[12px] font-medium" style={s.mutedText}>
+                      {activeOnboardingStep.title}
+                    </span>
                   </div>
                 </div>
 
-                <div className="px-8 py-8">
+                <div className="px-8 py-8 os-fade-up" key={activeOnboardingStep.id}>
                   {renderImmersiveOnboardingStep()}
 
                   {appSettingsFeedback ? (
-                    <div className="text-[13px] mt-6 leading-[1.6]" style={s.inkText}>{appSettingsFeedback}</div>
+                    <div className="text-[13px] mt-6 leading-[1.6] os-fade-in" style={s.inkText}>{appSettingsFeedback}</div>
                   ) : null}
 
                   {onboardingCommandResult ? (
-                    <div className="rounded-2xl border px-5 py-4 mt-6" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                    <div className="rounded-2xl border px-5 py-4 mt-6 os-fade-up" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-[11px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Command</div>
                           <div className="text-[13px] font-mono break-all" style={s.inkText}>{onboardingCommandResult.commandLine}</div>
                         </div>
-                        <span className="text-[10px] font-mono px-2 py-1 rounded shrink-0" style={onboardingCommandResult.exitCode === 0 ? s.activePill : s.tagBadge}>
+                        <span className="text-[10px] font-mono px-2 py-1 rounded-full shrink-0" style={onboardingCommandResult.exitCode === 0 ? s.activePill : s.tagBadge}>
                           exit {onboardingCommandResult.exitCode}
                         </span>
                       </div>
                       <pre
-                        className="mt-4 text-[12px] leading-[1.55] whitespace-pre-wrap break-words overflow-x-auto"
-                        style={{ color: C.ink }}
+                        className="mt-4 text-[12px] leading-[1.55] whitespace-pre-wrap break-words overflow-x-auto font-mono rounded-xl p-3"
+                        style={{ color: C.termFg, backgroundColor: C.termBg }}
                       >
                         {onboardingCommandResult.output}
                       </pre>
@@ -2557,10 +2640,10 @@ export default function App() {
                   ) : null}
                 </div>
 
-                <div className="px-8 py-5 border-t flex items-center justify-between gap-4" style={{ borderTopColor: 'rgba(15, 23, 42, 0.08)', backgroundColor: 'rgba(250, 247, 240, 0.72)' }}>
+                <div className="px-8 py-5 border-t flex items-center justify-between gap-4" style={{ borderTopColor: C.border, backgroundColor: C.bg }}>
                   <button
-                    className="os-toolbar-button flex items-center gap-1 text-[12px] font-medium px-3 py-2 rounded disabled:opacity-50"
-                    style={{ color: C.ink }}
+                    className="os-btn flex items-center gap-1 text-[12px] font-medium px-4 py-2.5 rounded-xl border disabled:opacity-40 transition-all"
+                    style={{ color: C.muted, borderColor: C.border, backgroundColor: 'transparent' }}
                     onClick={() => moveOnboardingWizard(-1)}
                     disabled={!canGoToPreviousOnboardingStep}
                   >
@@ -2575,15 +2658,15 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      className="os-toolbar-button flex items-center gap-1 text-[12px] font-medium px-3 py-2 rounded"
-                      style={{ color: C.ink }}
+                      className="os-btn flex items-center gap-1 text-[12px] font-medium px-4 py-2.5 rounded-xl transition-all"
+                      style={{ color: C.muted }}
                       onClick={skipCurrentOnboardingStep}
                     >
                       {canGoToNextOnboardingStep ? 'Skip step' : 'Finish later'}
                     </button>
                     <button
-                      className="os-toolbar-button flex items-center gap-1 text-[12px] font-medium px-3 py-2 rounded disabled:opacity-50"
-                      style={{ color: C.ink }}
+                      className="os-btn-primary flex items-center gap-1 text-[12px] font-semibold px-5 py-2.5 rounded-xl disabled:opacity-40 transition-all"
+                      style={{ backgroundColor: C.accent, color: '#fff' }}
                       onClick={() => moveOnboardingWizard(1)}
                       disabled={!canGoToNextOnboardingStep}
                     >
@@ -2595,11 +2678,30 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div className="w-full max-w-[560px] rounded-[28px] border px-8 py-10 text-center shadow-[0_24px_80px_rgba(15,23,42,0.08)]" style={{ borderColor: 'rgba(15, 23, 42, 0.10)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
+            <div className="w-full max-w-[560px] rounded-[28px] border px-8 py-10 text-center os-scale-in" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
+              <div className="flex justify-start mb-4">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[12px] transition-opacity hover:opacity-80"
+                  style={{ borderColor: C.border, color: C.muted }}
+                  onClick={handleQuitApp}
+                >
+                  <X size={12} />
+                  Quit
+                </button>
+              </div>
+              <div className="w-10 h-10 rounded-xl mx-auto mb-5 flex items-center justify-center" style={{ backgroundColor: C.accentBg }}>
+                <span className="text-[18px]" style={{ color: C.accent }}>&#9670;</span>
+              </div>
               <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>OpenScout Setup</div>
               <div className="text-[30px] font-semibold tracking-tight mt-4" style={s.inkText}>Preparing your first-run flow…</div>
               <div className="text-[15px] mt-3 leading-[1.7]" style={s.mutedText}>
                 OpenScout is checking whether setup is needed before the shell appears.
+              </div>
+              <div className="flex justify-center mt-6 gap-1">
+                <span className="os-thinking-dot" style={{ color: C.accent }} />
+                <span className="os-thinking-dot" style={{ color: C.accent }} />
+                <span className="os-thinking-dot" style={{ color: C.accent }} />
               </div>
             </div>
           )}
@@ -3850,7 +3952,7 @@ export default function App() {
                                 <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
                                   <div className="text-[12px] font-medium" style={s.inkText}>OpenScout is ready.</div>
                                   <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                    You can revisit this wizard any time, but the current repo, inventory, and runtime checks are already in place.
+                                    You can revisit this wizard any time, but the Relay context root, inventory, and runtime checks are already in place.
                                   </div>
                                   <div className="flex flex-wrap gap-2 mt-3">
                                     <button
@@ -3990,7 +4092,7 @@ export default function App() {
                                       {[
                                         ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
                                         ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
-                                        ['Current repo', visibleAppSettings.includeCurrentRepo ? 'Included' : 'Not included'],
+                                        ['Relay context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
                                         ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
                                       ].map(([label, value]) => (
                                         <div key={label}>
@@ -4037,13 +4139,13 @@ export default function App() {
                                       <div className="text-[12px] font-medium" style={s.inkText}>Create the local project manifest</div>
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      This runs `scout init` for the repo you launched from and uses your current source roots as repeated `--source-root` flags.
+                                      This runs `scout init` against your chosen Relay context root and uses your current source roots as repeated `--source-root` flags.
                                     </div>
                                     <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>
-                                      scout init{(visibleAppSettings.workspaceRoots ?? []).map((root) => ` --source-root ${root}`).join('')}
+                                      {buildOnboardingCommandLine('init')}
                                     </div>
                                     <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Current project config: {visibleAppSettings.currentProjectConfigPath ?? 'Not created yet.'}
+                                      Project config path: {visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot ? `${visibleAppSettings.onboardingContextRoot}/.openscout/project.json` : 'Not created yet.')}
                                     </div>
                                   </div>
                                   <button
@@ -4318,9 +4420,9 @@ export default function App() {
                                 }}
                               />
                               <div className="min-w-0">
-                                <div className="text-[12px] font-medium" style={s.inkText}>Include the current repo</div>
+                                <div className="text-[12px] font-medium" style={s.inkText}>Include the Relay context root</div>
                                 <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                  Create a local `.openscout/project.json` in the repo you launched from and keep that repo in discovery.
+                                  Create a local `.openscout/project.json` at the selected Relay context root and keep that context in discovery.
                                 </div>
                               </div>
                             </label>
