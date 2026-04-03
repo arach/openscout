@@ -15,11 +15,11 @@ export function CopyCommand({ command }: { command: string }) {
   return (
     <button
       onClick={copy}
-      className="group inline-flex h-11 items-center gap-3 rounded-full border border-[#dad6cd] bg-white px-5 font-mono text-[13px] text-[#111110] shadow-sm transition-all hover:border-[#cfcac1] hover:bg-[#faf9f4] hover:shadow-md"
+      className="group inline-flex h-11 items-center gap-3 rounded-full border border-[#dad6cd] bg-white px-4 font-mono text-[13px] text-[#111110] shadow-sm transition-all hover:border-[#cfcac1] hover:bg-[#faf9f4] hover:shadow-md max-w-full overflow-hidden"
     >
-      <span className="text-[#8b887f]">$</span>
-      <span>{command}</span>
-      <span className="ml-1 text-[#8b887f] transition-colors group-hover:text-[#5f5d57]">
+      <span className="text-[#8b887f] shrink-0">$</span>
+      <span className="truncate">{command}</span>
+      <span className="ml-1 text-[#8b887f] transition-colors group-hover:text-[#5f5d57] shrink-0">
         {copied ? <Check className="h-3.5 w-3.5 text-[#2657c6]" /> : <Copy className="h-3.5 w-3.5" />}
       </span>
     </button>

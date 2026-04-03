@@ -46,20 +46,22 @@ export function TerminalSession({ steps }: { steps: TerminalStep[] }) {
       </div>
 
       {/* Terminal body */}
-      <div className="space-y-0 px-5 py-5 font-[family-name:var(--font-geist-mono)] text-[13px] leading-relaxed">
-        {steps.map((step, i) => (
-          <div key={step.command} className={i > 0 ? "mt-4" : ""}>
-            {/* Comment line */}
-            <div className="select-none text-[#5a5751]">
-              <span className="text-[#4a4844]">#</span> {step.label}
+      <div className="overflow-x-auto">
+        <div className="space-y-0 px-5 py-5 font-[family-name:var(--font-geist-mono)] text-[13px] leading-relaxed min-w-max">
+          {steps.map((step, i) => (
+            <div key={step.command} className={i > 0 ? "mt-4" : ""}>
+              {/* Comment line */}
+              <div className="select-none text-[#5a5751]">
+                <span className="text-[#4a4844]">#</span> {step.label}
+              </div>
+              {/* Command line */}
+              <div className="text-[#e8e5de]">
+                <span className="select-none text-[#6b6963]">$ </span>
+                {step.command}
+              </div>
             </div>
-            {/* Command line */}
-            <div className="text-[#e8e5de]">
-              <span className="select-none text-[#6b6963]">$ </span>
-              {step.command}
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

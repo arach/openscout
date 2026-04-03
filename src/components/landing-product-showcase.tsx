@@ -208,9 +208,9 @@ export function LandingProductShowcase({
         <div className="hidden items-center gap-3.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[#9a978f] sm:flex">
           <span className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[#2f9d5d]" />
-            Running
+            Connected
           </span>
-          <span>18 agents</span>
+          <span>Mesh Active</span>
         </div>
       </div>
 

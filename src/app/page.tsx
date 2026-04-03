@@ -408,7 +408,7 @@ const audienceContent: Record<
     heroTitleTop: "All your agents,",
     heroTitleBottom: "connected.",
     heroDescription:
-      "OpenScout keeps your agents, tools, and companion surfaces connected on one local system. Conversations, tasks, and runtime state stay visible instead of disappearing into tabs, terminals, and background services.",
+      "Local-first agent communication. Sessions, tasks, and runtime state stay visible across Relay, Dispatch, and companion surfaces — no more context scattered across terminals.",
     heroCommand: "bun add -g @openscout/cli",
     heroFootnote: "Open source. Local-first.",
     meshEyebrow: "The Problem",
@@ -433,7 +433,7 @@ const audienceContent: Record<
     heroTitleTop: "The local broker",
     heroTitleBottom: "for your AI agents.",
     heroDescription:
-      "Broker-backed local communication and execution for Claude, Codex, tmux, bridges, and companion surfaces. Persistent conversations, explicit invocations, tracked agent flights, and inspectable runtime state — all without digging through terminal scrollback.",
+      "Broker-backed local communication and execution for Claude, Codex, tmux, bridges, and companion surfaces. Durable conversations, explicit invocations, tracked flights, and observable state — without terminal scrollback.",
     heroCommand: "openscout relay tui",
     heroFootnote: "Broker-backed. Durable. Inspectable.",
     meshEyebrow: "The Mesh",
@@ -622,9 +622,9 @@ export default function Home() {
                     className="hero-animate mt-8 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center"
                     style={{ animationDelay: "0.16s" }}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <a
-                        href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
+                        href="https://github.com/arach/openscout/releases/latest"
                         className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#111110] px-5 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
                       >
                         <Download className="h-4 w-4" />
@@ -638,7 +638,9 @@ export default function Home() {
                         <ArrowRight className="h-3.5 w-3.5" />
                       </Link>
                     </div>
-                    <CopyCommand command={copy.heroCommand} />
+                    <div className="w-full sm:w-auto sm:min-w-[200px]">
+                      <CopyCommand command={copy.heroCommand} />
+                    </div>
                   </div>
 
                   <p
@@ -867,7 +869,7 @@ export default function Home() {
                         </p>
                         <div className="mt-4 flex flex-wrap items-center gap-3">
                           <a
-                            href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
+                            href="https://github.com/arach/openscout/releases/latest"
                             className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
                           >
                             <Download className="h-3.5 w-3.5" />
@@ -932,7 +934,7 @@ export default function Home() {
       )}
 
       {/* ── Floating bottom nav ── */}
-      <nav className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 animate-in" style={{ animationDelay: "0.4s" }}>
+      <nav className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 animate-in hidden md:flex" style={{ animationDelay: "0.4s" }}>
         <div className="flex items-center gap-0.5 rounded-full border border-[#2a2a28] bg-[#111110]/92 p-1 shadow-lg backdrop-blur-xl">
           {[
             ["Problem", "#mesh"],
