@@ -550,7 +550,7 @@ export default function Home() {
             </span>
           </Link>
 
-          <div className="hidden items-center gap-8 text-sm font-medium text-[#69675f] md:flex">
+          <div className="hidden items-center gap-8 text-[11px] font-medium uppercase tracking-[0.12em] text-[#69675f] md:flex">
             {navLinks.map((link) => (
               <a
                 key={link.href}
@@ -567,7 +567,7 @@ export default function Home() {
               href="https://github.com/arach/openscout"
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden text-sm font-medium text-[#69675f] transition-colors hover:text-[#111110] sm:inline-flex"
+              className="hidden text-[11px] font-medium uppercase tracking-[0.12em] text-[#69675f] transition-colors hover:text-[#111110] sm:inline-flex"
             >
               GitHub
             </a>

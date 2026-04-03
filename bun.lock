@@ -22,7 +22,11 @@
       },
     },
     "dispatch/cli": {
-      "name": "@openscout/dispatch-cli",
+      "name": "@openscout/dispatch",
+      "version": "0.1.0",
+      "bin": {
+        "dispatch": "./bin/dispatch.mjs",
+      },
       "dependencies": {
         "@noble/ciphers": "^2.1.1",
         "@noble/curves": "^2.0.1",
@@ -31,12 +35,12 @@
       },
     },
     "packages/cli": {
-      "name": "scout",
+      "name": "@openscout/cli",
       "version": "0.1.0",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
-      "dependencies": {
+      "devDependencies": {
         "@openscout/runtime": "workspace:*",
       },
     },
@@ -117,7 +121,7 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "typescript": "^5",
       },
@@ -158,7 +162,7 @@
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@openscout/protocol": "workspace:*",
       },
@@ -491,7 +495,9 @@
 
     "@nolyfill/is-core-module": ["@nolyfill/is-core-module@1.0.39", "", {}, "sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA=="],
 
-    "@openscout/dispatch-cli": ["@openscout/dispatch-cli@workspace:dispatch/cli"],
+    "@openscout/cli": ["@openscout/cli@workspace:packages/cli"],
+
+    "@openscout/dispatch": ["@openscout/dispatch@workspace:dispatch/cli"],
 
     "@openscout/electron-app": ["@openscout/electron-app@workspace:packages/electron-app"],
 
@@ -1828,8 +1834,6 @@
     "sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
     "scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
-
-    "scout": ["scout@workspace:packages/cli"],
 
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
