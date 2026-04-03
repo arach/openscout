@@ -1,5 +1,5 @@
 {
-  "name": "scout",
+  "name": "@openscout/cli",
   "version": "0.1.0",
   "description": "User-facing CLI for OpenScout",
   "license": "UNLICENSED",
@@ -14,9 +14,13 @@
   ],
   "scripts": {
     "build": "mkdir -p dist && bun build ./src/main.ts --target=node --outfile ./dist/main.mjs",
-    "dev": "bun run ./src/main.ts"
+    "dev": "bun run ./src/main.ts",
+    "prepack": "bun run build"
   },
-  "dependencies": {
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
     "@openscout/runtime": "workspace:*"
   }
 }

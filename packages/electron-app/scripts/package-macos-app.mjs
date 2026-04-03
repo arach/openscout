@@ -97,6 +97,8 @@ await copyIntoBundle(path.join(projectRoot, "dist", "electron"), path.join(appRu
 await copyIntoBundle(path.join(projectRoot, "dist", "server"), path.join(appRuntimePath, "dist", "server"));
 await copyIntoBundle(path.join(projectRoot, "..", "cli", "bin"), path.join(appRuntimePath, "cli", "bin"));
 await copyIntoBundle(path.join(projectRoot, "..", "cli", "dist"), path.join(appRuntimePath, "cli", "dist"));
+await copyIntoBundle(path.join(projectRoot, "..", "..", "dispatch", "cli", "bin"), path.join(appRuntimePath, "dispatch-cli", "bin"));
+await copyIntoBundle(path.join(projectRoot, "..", "..", "dispatch", "cli", "dist"), path.join(appRuntimePath, "dispatch-cli", "dist"));
 await fs.copyFile(
   path.join(projectRoot, "dist", "index.js"),
   path.join(appRuntimePath, "dist", "index.js"),

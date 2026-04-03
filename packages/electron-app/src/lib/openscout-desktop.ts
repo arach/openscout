@@ -1,8 +1,28 @@
+export type DesktopFeatureFlags = {
+  enableAll: boolean;
+  overview: boolean;
+  relay: boolean;
+  dispatch: boolean;
+  interAgent: boolean;
+  agents: boolean;
+  settings: boolean;
+  logs: boolean;
+  activity: boolean;
+  machines: boolean;
+  plans: boolean;
+  sessions: boolean;
+  search: boolean;
+  phonePreparation: boolean;
+  telegram: boolean;
+  voice: boolean;
+};
+
 export type DesktopAppInfo = {
   productName: string;
   appVersion: string;
   isPackaged: boolean;
   platform: string;
+  features: DesktopFeatureFlags;
 };
 
 export type RelayDestinationKind = "channel" | "filter" | "direct";
@@ -441,6 +461,7 @@ export type OnboardingCommandName = "init" | "doctor" | "runtimes";
 
 export type RunOnboardingCommandInput = {
   command: OnboardingCommandName;
+  contextRoot?: string;
   sourceRoots?: string[];
 };
 
@@ -463,6 +484,7 @@ export type AppSettingsState = {
   relayAgentsPath: string;
   relayHubPath: string;
   supportDirectory: string;
+  onboardingContextRoot: string;
   currentProjectConfigPath: string | null;
   workspaceRoots: string[];
   workspaceRootsNote: string | null;
@@ -506,6 +528,7 @@ export type AppSettingsState = {
 
 export type UpdateAppSettingsInput = {
   operatorName: string;
+  onboardingContextRoot: string;
   workspaceRootsText: string;
   includeCurrentRepo: boolean;
   defaultHarness: string;
@@ -683,6 +706,9 @@ declare global {
       updateAppSettings: (input: UpdateAppSettingsInput) => Promise<AppSettingsState>;
       runOnboardingCommand: (input: RunOnboardingCommandInput) => Promise<OnboardingCommandResult>;
       skipOnboarding: () => Promise<AppSettingsState>;
+      restartOnboarding: () => Promise<AppSettingsState>;
+      pickDirectory: () => Promise<string | null>;
+      quitApp: () => Promise<boolean>;
       getPhonePreparation: () => Promise<PhonePreparationState>;
       updatePhonePreparation: (input: UpdatePhonePreparationInput) => Promise<PhonePreparationState>;
       getAgentConfig: (agentId: string) => Promise<AgentConfigState>;

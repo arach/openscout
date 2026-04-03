@@ -18,7 +18,8 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { CopyCommand, CopyCommandBlock } from "@/components/copy-command";
+import { CopyCommand } from "@/components/copy-command";
+import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { LandingProductShowcase } from "@/components/landing-product-showcase";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -621,23 +622,23 @@ export default function Home() {
                     className="hero-animate mt-8 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center"
                     style={{ animationDelay: "0.16s" }}
                   >
-                    <CopyCommand command={copy.heroCommand} />
                     <div className="flex items-center gap-3">
                       <a
                         href="https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg"
-                        className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
+                        className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#111110] px-5 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
                       >
-                        <Download className="h-3.5 w-3.5" />
+                        <Download className="h-4 w-4" />
                         <span>Download for macOS</span>
                       </a>
                       <Link
                         href="#get-started"
-                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
+                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-5 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
                       >
                         <span>Get started</span>
                         <ArrowRight className="h-3.5 w-3.5" />
                       </Link>
                     </div>
+                    <CopyCommand command={copy.heroCommand} />
                   </div>
 
                   <p
@@ -885,15 +886,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="space-y-4">
-                      {getStartedCommands.map(({ command, label }) => (
-                        <CopyCommandBlock
-                          key={command}
-                          command={command}
-                          label={label}
-                        />
-                      ))}
-                    </div>
+                    <TerminalSession steps={getStartedCommands} />
                   </div>
                 </div>
               </div>

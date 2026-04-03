@@ -134,7 +134,7 @@ const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
   activity: false,
   machines: false,
   plans: false,
-  sessions: false,
+  sessions: true,
   search: true,
   phonePreparation: false,
   telegram: false,
@@ -1399,6 +1399,12 @@ export default function App() {
       agent.id === selectedAgentableProject.id || agent.id === selectedAgentableProject.definitionId
     )) ?? null
     : null;
+  const unconfiguredAgentableProjects = useMemo(
+    () => agentableProjects.filter((project) => !interAgentAgents.some((agent) => (
+      agent.id === project.id || agent.id === project.definitionId
+    ))),
+    [agentableProjects, interAgentAgents],
+  );
   const onboardingContextRoot = visibleAppSettings?.onboardingContextRoot
     ?? visibleAppSettings?.workspaceRoots?.[0]
     ?? null;
@@ -1532,10 +1538,32 @@ export default function App() {
     [sessions],
   );
   const overviewProjects = useMemo(
-    () => [...projects]
-      .sort((lhs, rhs) => rhs.count - lhs.count || new Date(rhs.lastModified).getTime() - new Date(lhs.lastModified).getTime())
-      .slice(0, 6),
-    [projects],
+    () => {
+      const sessionProjects = new Map(
+        projects.map((project) => [project.name, project] as const),
+      );
+
+      const discoveredProjects = (visibleAppSettings?.projectInventory ?? []).map((project) => {
+        const name = project.projectName || project.title || project.id;
+        const sessionProject = sessionProjects.get(name);
+        return {
+          name,
+          count: sessionProject?.count ?? 0,
+          lastModified: sessionProject?.lastModified ?? '',
+        };
+      });
+
+      const missingSessionProjects = projects.filter((project) => !discoveredProjects.some((entry) => entry.name === project.name));
+
+      return [...discoveredProjects, ...missingSessionProjects]
+        .sort((lhs, rhs) =>
+          rhs.count - lhs.count
+          || new Date(rhs.lastModified || 0).getTime() - new Date(lhs.lastModified || 0).getTime()
+          || lhs.name.localeCompare(rhs.name),
+        )
+        .slice(0, 6);
+    },
+    [projects, visibleAppSettings?.projectInventory],
   );
   const reachableRelayAgents = useMemo(
     () => (relayState?.directs ?? []).filter((thread) => thread.reachable),
@@ -2289,6 +2317,14 @@ export default function App() {
     setAgentSessionFeedback(null);
     setIsAgentSessionPeekOpen(true);
     setAgentSessionRefreshTick((current) => current + 1);
+  }, []);
+  const openAgentableProjectInSettings = React.useCallback((projectId: string) => {
+    setSelectedAgentableProjectId(projectId);
+    setSelectedInterAgentId(null);
+    setSelectedInterAgentThreadId(null);
+    setProductSurface('relay');
+    setActiveView('settings');
+    setSettingsSection('agents');
   }, []);
 
   const handleRelaySend = async () => {
@@ -6095,6 +6131,46 @@ export default function App() {
                       )}
                     </div>
                   </div>
+                  <div className="px-2 pb-3">
+                    <div className="flex items-center justify-between gap-2 px-2 mb-1.5">
+                      <div className="font-mono text-[9px] tracking-widest uppercase" style={s.mutedText}>From Projects</div>
+                      {unconfiguredAgentableProjects.length > 0 ? (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                          {unconfiguredAgentableProjects.length}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col gap-px">
+                      {unconfiguredAgentableProjects.length > 0 ? unconfiguredAgentableProjects.slice(0, 8).map((project) => (
+                        <button
+                          key={project.id}
+                          onClick={() => openAgentableProjectInSettings(project.id)}
+                          className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left hover:opacity-90"
+                          style={s.mutedText}
+                        >
+                          <div
+                            className="w-6 h-6 rounded text-white flex items-center justify-center text-[9px] font-bold shrink-0"
+                            style={{ backgroundColor: colorForIdentity(project.id) }}
+                          >
+                            {project.title.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate" style={s.inkText}>{project.title}</div>
+                            <div className="text-[10px] truncate" style={s.mutedText}>
+                              {project.relativePath} · add agent
+                            </div>
+                          </div>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                            {project.defaultHarness}
+                          </span>
+                        </button>
+                      )) : (
+                        <div className="px-2 py-2 text-[11px]" style={s.mutedText}>
+                          No additional projects ready to add right now.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -8060,7 +8136,7 @@ function DispatchSurfacePlaceholder({
     backgroundColor: '#fbfbfd',
     borderColor: 'rgba(15, 23, 42, 0.06)',
   } as const;
-  const pairCommand = dispatchState?.commandLabel ?? 'bun dispatch/cli/src/main.ts start';
+  const pairCommand = dispatchState?.commandLabel ?? 'dispatch start';
   const connectionLabel = dispatchState?.pairing
     ? 'Pairing Ready'
     : dispatchState?.status === 'error' || dispatchState?.status === 'closed'

@@ -21,7 +21,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../../..");
 const supportPaths = resolveOpenScoutSupportPaths();
 const scoutDevScript = join(repoRoot, "scripts", "scout-dev");
-const setupCurrentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
+const defaultSetupCurrentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 
 const args = process.argv.slice(2);
 const [command = "help", subcommand, ...rest] = args;
@@ -68,9 +68,9 @@ OpenScout command line interface
 Usage:
   scout help
   scout version
-  scout doctor
-  scout init [--source-root <path>]...
-  scout runtimes
+  scout doctor [--context-root <path>]
+  scout init [--context-root <path>] [--source-root <path>]...
+  scout runtimes [--context-root <path>]
   scout dev help
   scout dev build app
   scout dev launch agent
@@ -87,7 +87,7 @@ Commands:
   help           Show this help text
   version        Print the CLI version
   doctor         Show broker health, source roots, runtimes, and project inventory
-  init           Set up OpenScout for the current repo and optional source roots
+  init           Set up OpenScout for the chosen Relay context root and optional source roots
   runtimes       Show the harness catalog and readiness state
   dev            Pass native developer commands through to scout-dev
   app            Run a scoped native app command through scout-dev
@@ -96,12 +96,14 @@ Commands:
 }
 
 async function runDoctor() {
+  const parsed = parseContextArgs(commandArgs, "doctor");
   const broker = await brokerServiceStatus();
-  const setup = await loadResolvedRelayAgents({ currentDirectory: setupCurrentDirectory });
+  const setup = await loadResolvedRelayAgents({ currentDirectory: parsed.currentDirectory });
   const catalog = await loadHarnessCatalogSnapshot();
 
   console.log(`OpenScout CLI: ${VERSION}`);
   console.log(`Repo root: ${repoRoot}`);
+  console.log(`Relay context root: ${parsed.currentDirectory}`);
   console.log(`Support directory: ${setup.supportDirectory}`);
   console.log(`Settings: ${setup.settingsPath}`);
   console.log(`Harness catalog: ${setup.harnessCatalogPath}`);
@@ -149,11 +151,11 @@ async function runInit(extraArgs: string[]) {
         workspaceRoots: parsed.sourceRoots,
       },
     }, {
-      currentDirectory: setupCurrentDirectory,
+      currentDirectory: parsed.currentDirectory,
     });
   }
 
-  const setup = await initializeOpenScoutSetup({ currentDirectory: setupCurrentDirectory });
+  const setup = await initializeOpenScoutSetup({ currentDirectory: parsed.currentDirectory });
   const catalog = await loadHarnessCatalogSnapshot();
   let broker = await brokerServiceStatus();
   let brokerWarning: string | null = null;
@@ -165,6 +167,7 @@ async function runInit(extraArgs: string[]) {
   }
 
   console.log("OpenScout initialized.");
+  console.log(`Relay context root: ${parsed.currentDirectory}`);
   console.log(`Support directory: ${setup.supportDirectory}`);
   console.log(`Settings: ${setup.settingsPath}`);
   console.log(`Harness catalog: ${setup.harnessCatalogPath}`);
@@ -197,6 +200,7 @@ async function runInit(extraArgs: string[]) {
   }
   console.log("");
   console.log("Vocabulary:");
+  console.log("  Relay context root: the directory where OpenScout writes .openscout/project.json for this setup");
   console.log("  Source root: the parent folder that contains your repos, such as ~/dev");
   console.log("  Harness: the assistant family a project prefers by default, such as claude or codex");
   console.log("  Runtime: the local installed program or session OpenScout uses to launch that harness");
@@ -207,12 +211,11 @@ async function runInit(extraArgs: string[]) {
 }
 
 async function runRuntimes(extraArgs: string[]) {
-  if (extraArgs.length > 0) {
-    fail(`unexpected arguments for runtimes: ${extraArgs.join(" ")}`);
-  }
+  const parsed = parseContextArgs(extraArgs, "runtimes");
 
   const snapshot = await loadHarnessCatalogSnapshot();
 
+  console.log(`Relay context root: ${parsed.currentDirectory}`);
   console.log(`Harness catalog: ${supportPaths.harnessCatalogPath}`);
   console.log(`Known runtimes: ${snapshot.entries.length}`);
   for (const entry of snapshot.entries) {
@@ -237,11 +240,49 @@ async function runRuntimes(extraArgs: string[]) {
   }
 }
 
-function parseInitArgs(args: string[]): { sourceRoots: string[] } {
+function parseContextArgs(args: string[], commandName: string): { currentDirectory: string } {
+  let currentDirectory = defaultSetupCurrentDirectory;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index] ?? "";
+    if (current === "--context-root") {
+      const value = args[index + 1];
+      if (!value) {
+        fail("missing value for --context-root");
+      }
+      currentDirectory = resolve(value);
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--context-root=")) {
+      currentDirectory = resolve(current.slice("--context-root=".length));
+      continue;
+    }
+    fail(`unexpected arguments for ${commandName}: ${args.join(" ")}`);
+  }
+
+  return { currentDirectory };
+}
+
+function parseInitArgs(args: string[]): { currentDirectory: string; sourceRoots: string[] } {
+  let currentDirectory = defaultSetupCurrentDirectory;
   const sourceRoots: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const current = args[index] ?? "";
+    if (current === "--context-root") {
+      const value = args[index + 1];
+      if (!value) {
+        fail("missing value for --context-root");
+      }
+      currentDirectory = resolve(value);
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--context-root=")) {
+      currentDirectory = resolve(current.slice("--context-root=".length));
+      continue;
+    }
     if (current === "--source-root") {
       const value = args[index + 1];
       if (!value) {
@@ -258,7 +299,7 @@ function parseInitArgs(args: string[]): { sourceRoots: string[] } {
     fail(`unexpected arguments for init: ${args.join(" ")}`);
   }
 
-  return { sourceRoots };
+  return { currentDirectory, sourceRoots };
 }
 
 function printProjectInventory(projects: ProjectInventoryEntry[]) {

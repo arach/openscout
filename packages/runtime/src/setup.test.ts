@@ -96,4 +96,31 @@ describe("setup inventory", () => {
       .filter((line) => line.trim() === ".openscout/project.json");
     expect(gitignoreLines).toHaveLength(1);
   });
+
+  test("creates a project manifest directly in the explicit Relay context root", async () => {
+    const home = join(tmpdir(), `openscout-context-root-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const sourceRoot = join(home, "dev");
+
+    testDirectories.add(home);
+    mkdirSync(sourceRoot, { recursive: true });
+
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [sourceRoot],
+        includeCurrentRepo: true,
+      },
+    }, {
+      currentDirectory: sourceRoot,
+    });
+
+    const setup = await initializeOpenScoutSetup({ currentDirectory: sourceRoot });
+
+    expect(setup.currentProjectConfigPath).toBe(join(sourceRoot, ".openscout", "project.json"));
+    expect(readFileSync(join(sourceRoot, ".gitignore"), "utf8")).toContain(".openscout/project.json");
+  });
 });

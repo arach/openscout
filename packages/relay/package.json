@@ -26,6 +26,9 @@
   ],
   "author": "Arach Tchoupani",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@arach/ora": "github:arach/ora",
     "@chat-adapter/state-memory": "^4.20.2",

@@ -29,6 +29,7 @@ import {
 } from "../../runtime/src/local-agents.js";
 import {
   ensureScoutRelayAgentConfigured,
+  DEFAULT_OPERATOR_NAME,
   loadResolvedRelayAgents,
   primaryDirectConversationIdForAgent,
   readOpenScoutSettings,
@@ -80,7 +81,7 @@ import type {
 } from "../src/lib/openscout-desktop.js";
 
 const OPERATOR_ID = "operator";
-const DEFAULT_OPERATOR_DISPLAY_NAME = process.env.OPENSCOUT_OPERATOR_NAME?.trim() || "Arach";
+const DEFAULT_OPERATOR_DISPLAY_NAME = DEFAULT_OPERATOR_NAME;
 const SHARED_CHANNEL_ID = "channel.shared";
 const VOICE_CHANNEL_ID = "channel.voice";
 const SYSTEM_CHANNEL_ID = "channel.system";
@@ -918,12 +919,44 @@ function desktopCurrentDirectory(): string {
   return process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 }
 
-function desktopRepoRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+function defaultOnboardingContextRoot(explicitRoot: string | null | undefined, workspaceRoots: string[], fallback = desktopCurrentDirectory()): string {
+  const chosenRoot = explicitRoot?.trim()
+    || workspaceRoots.find((entry) => entry.trim().length > 0)
+    || fallback;
+  return path.resolve(expandHomePath(chosenRoot));
 }
 
-function desktopCliEntrypoint(): string {
-  return path.join(desktopRepoRoot(), "packages", "cli", "src", "main.ts");
+function findDesktopWorkspaceRoot(): string | null {
+  let current = path.dirname(fileURLToPath(import.meta.url));
+
+  while (true) {
+    if (existsSync(path.join(current, "packages", "cli", "bin", "scout.mjs"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+}
+
+function desktopCliScriptPath(): string {
+  const bundledCli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "cli", "bin", "scout.mjs");
+  if (existsSync(bundledCli)) {
+    return bundledCli;
+  }
+
+  const workspaceRoot = findDesktopWorkspaceRoot();
+  if (workspaceRoot) {
+    return path.join(workspaceRoot, "packages", "cli", "bin", "scout.mjs");
+  }
+
+  throw new Error("Unable to locate the Scout CLI from the desktop runtime.");
+}
+
+function desktopCliWorkingDirectory(cliScriptPath: string): string {
+  return path.resolve(path.dirname(cliScriptPath), "..");
 }
 
 function normalizeOperatorName(value: string | undefined | null): string {
@@ -3334,8 +3367,11 @@ export async function buildDesktopShellState(appInfo: DesktopAppInfo): Promise<D
 }
 
 export async function getAppSettings(): Promise<AppSettingsState> {
+  const record = await readOpenScoutSettings({ currentDirectory: desktopCurrentDirectory() });
+  const onboardingContextRoot = defaultOnboardingContextRoot(record.discovery.contextRoot, record.discovery.workspaceRoots, desktopCurrentDirectory());
   const [setup, status, catalog] = await Promise.all([
     readResolvedRelayAgents({
+      currentDirectory: onboardingContextRoot,
       syncLegacyMirror: true,
     }, {
       force: true,
@@ -3343,7 +3379,6 @@ export async function getAppSettings(): Promise<AppSettingsState> {
     brokerServiceStatus(),
     loadHarnessCatalogSnapshot(),
   ]);
-  const record = await readOpenScoutSettings({ currentDirectory: desktopCurrentDirectory() });
   const telegram = telegramBridgeService.getRuntimeState();
   const readinessByHarness = new Map(
     catalog.entries.map((entry) => [entry.harness, entry.readinessReport] as const),
@@ -3354,11 +3389,19 @@ export async function getAppSettings(): Promise<AppSettingsState> {
   const onboardingProgress = record.onboarding;
   const onboardingSteps = [
     {
+      id: "welcome",
+      title: "Say hi",
+      detail: onboardingProgress.operatorAnsweredAt
+        ? `OpenScout will call you ${normalizeOperatorName(record.profile.operatorName)}.`
+        : "Tell OpenScout what to call you across Relay, desktop views, and prompts.",
+      complete: Boolean(onboardingProgress.operatorAnsweredAt),
+    },
+    {
       id: "source-roots",
-      title: "Choose a source root",
+      title: "Choose folders to scan",
       detail: hasSourceRoots
-        ? `${setup.settings.discovery.workspaceRoots.length} source root${setup.settings.discovery.workspaceRoots.length === 1 ? "" : "s"} currently configured.`
-        : "Add the parent directory that contains your repos so OpenScout can walk it for projects.",
+        ? `${setup.settings.discovery.workspaceRoots.length} scan folder${setup.settings.discovery.workspaceRoots.length === 1 ? "" : "s"} currently configured.`
+        : "Add the parent folders OpenScout should scan for repos, then choose where this context should live.",
       complete: Boolean(onboardingProgress.sourceRootsAnsweredAt),
     },
     {
@@ -3369,18 +3412,18 @@ export async function getAppSettings(): Promise<AppSettingsState> {
     },
     {
       id: "confirm",
-      title: "Confirm and save inputs",
+      title: "Confirm this context",
       detail: onboardingProgress.inputsSavedAt
-        ? "Inputs have been explicitly saved for onboarding."
-        : "Save the onboarding inputs before running the command steps.",
+        ? "Your scan folders and context location have been saved for onboarding."
+        : "Review the scan folders and context location before OpenScout saves them and moves into the command steps.",
       complete: Boolean(onboardingProgress.inputsSavedAt),
     },
     {
       id: "init",
       title: "Run init",
       detail: hasCurrentProjectConfig
-        ? "The current repo currently has a local `.openscout/project.json`."
-        : "Run `scout init` from this screen to create a local `.openscout/project.json` for the repo you launched from.",
+        ? "The selected context root already has a local `.openscout/project.json`."
+        : "Run `scout init` from this screen to create a local `.openscout/project.json` at your selected context root.",
       complete: Boolean(onboardingProgress.initRanAt),
     },
     {
@@ -3388,7 +3431,7 @@ export async function getAppSettings(): Promise<AppSettingsState> {
       title: "Run doctor",
       detail: setup.projectInventory.length > 0
         ? `${setup.projectInventory.length} project${setup.projectInventory.length === 1 ? "" : "s"} currently appear in inventory.`
-        : "OpenScout has not discovered any projects yet.",
+        : "OpenScout has not discovered any projects from the configured scan folders yet.",
       complete: Boolean(onboardingProgress.doctorRanAt),
     },
     {
@@ -3411,9 +3454,10 @@ export async function getAppSettings(): Promise<AppSettingsState> {
     relayAgentsPath: setup.relayAgentsPath,
     relayHubPath: setup.relayHubPath,
     supportDirectory: setup.supportDirectory,
+    onboardingContextRoot: compactHomePath(onboardingContextRoot) ?? onboardingContextRoot,
     currentProjectConfigPath: setup.currentProjectConfigPath,
     workspaceRoots: setup.settings.discovery.workspaceRoots.map((root) => compactHomePath(root) ?? root),
-    workspaceRootsNote: "Source roots are user-configured. OpenScout walks them recursively to find project roots and harness evidence.",
+    workspaceRootsNote: "Scan folders are user-configured. OpenScout walks them recursively to find repos, project roots, and harness evidence.",
     includeCurrentRepo: setup.settings.discovery.includeCurrentRepo,
     defaultHarness: setup.settings.agents.defaultHarness,
     defaultTransport: setup.settings.agents.defaultTransport,
@@ -3698,17 +3742,20 @@ export async function getAgentSession(agentId: string): Promise<AgentSessionInsp
 
 export async function runOnboardingCommand(input: RunOnboardingCommandInput): Promise<OnboardingCommandResult> {
   const command = input.command;
-  const currentDirectory = desktopCurrentDirectory();
-  const repoRoot = desktopRepoRoot();
-  const cliEntrypoint = desktopCliEntrypoint();
+  const settingsDirectory = desktopCurrentDirectory();
+  const contextRoot = path.resolve(expandHomePath(
+    input.contextRoot?.trim()
+    || defaultOnboardingContextRoot(null, input.sourceRoots ?? [], settingsDirectory),
+  ));
+  const cliScriptPath = desktopCliScriptPath();
   const normalizedSourceRoots = Array.from(new Set(
     (input.sourceRoots ?? [])
       .map((entry) => expandHomePath(entry).trim())
       .filter(Boolean),
   ));
 
-  const displayArgs = ["scout", command];
-  const execArgs = ["run", cliEntrypoint, command];
+  const displayArgs = ["scout", command, "--context-root", compactHomePath(contextRoot) ?? contextRoot];
+  const execArgs = [cliScriptPath, command, "--context-root", contextRoot];
   if (command === "init") {
     for (const sourceRoot of normalizedSourceRoots) {
       displayArgs.push("--source-root", compactHomePath(sourceRoot) ?? sourceRoot);
@@ -3717,11 +3764,12 @@ export async function runOnboardingCommand(input: RunOnboardingCommandInput): Pr
   }
 
   const result = await new Promise<OnboardingCommandResult>((resolvePromise, reject) => {
-    const child = spawn("bun", execArgs, {
-      cwd: repoRoot,
+    const child = spawn(process.execPath, execArgs, {
+      cwd: desktopCliWorkingDirectory(cliScriptPath),
       env: {
         ...process.env,
-        OPENSCOUT_SETUP_CWD: currentDirectory,
+        ELECTRON_RUN_AS_NODE: "1",
+        OPENSCOUT_SETUP_CWD: contextRoot,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -3745,7 +3793,7 @@ export async function runOnboardingCommand(input: RunOnboardingCommandInput): Pr
       resolvePromise({
         command,
         commandLine: displayArgs.join(" "),
-        cwd: compactHomePath(currentDirectory) ?? currentDirectory,
+        cwd: compactHomePath(contextRoot) ?? contextRoot,
         exitCode: code ?? 0,
         stdout: stdoutText,
         stderr: stderrText,
@@ -3757,6 +3805,9 @@ export async function runOnboardingCommand(input: RunOnboardingCommandInput): Pr
   invalidateResolvedRelayAgentsCache();
   if (result.exitCode === 0) {
     const now = Date.now();
+    const brokerStatus = input.command === "runtimes"
+      ? await brokerServiceStatus()
+      : null;
     await writeOpenScoutSettings({
       onboarding: input.command === "init"
         ? {
@@ -3768,10 +3819,10 @@ export async function runOnboardingCommand(input: RunOnboardingCommandInput): Pr
           }
           : {
             runtimesRanAt: now,
-            completedAt: now,
+            ...(brokerStatus?.reachable ? { completedAt: now } : {}),
           },
     }, {
-      currentDirectory,
+      currentDirectory: settingsDirectory,
     });
   }
   return result;
@@ -3789,8 +3840,29 @@ export async function skipOnboarding(): Promise<AppSettingsState> {
   return getAppSettings();
 }
 
+export async function restartOnboarding(): Promise<AppSettingsState> {
+  await writeOpenScoutSettings({
+    onboarding: {
+      operatorAnsweredAt: null,
+      sourceRootsAnsweredAt: null,
+      harnessChosenAt: null,
+      inputsSavedAt: null,
+      initRanAt: null,
+      doctorRanAt: null,
+      runtimesRanAt: null,
+      completedAt: null,
+      skippedAt: null,
+    },
+  }, {
+    currentDirectory: desktopCurrentDirectory(),
+  });
+  invalidateResolvedRelayAgentsCache();
+  return getAppSettings();
+}
+
 export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<AppSettingsState> {
   const trimmedOperatorName = input.operatorName?.trim() ?? "";
+  const trimmedContextRoot = input.onboardingContextRoot?.trim() ?? "";
   const defaultHarness: AgentHarness = SUPPORTED_LOCAL_AGENT_HARNESSES.includes(input.defaultHarness as AgentHarness)
     ? input.defaultHarness as AgentHarness
     : "claude";
@@ -3800,11 +3872,13 @@ export async function updateAppSettings(input: UpdateAppSettingsInput): Promise<
       operatorName: trimmedOperatorName || DEFAULT_OPERATOR_DISPLAY_NAME,
     },
     onboarding: {
+      operatorAnsweredAt: now,
       sourceRootsAnsweredAt: splitLines(input.workspaceRootsText).length > 0 ? now : null,
       harnessChosenAt: now,
       inputsSavedAt: now,
     },
     discovery: {
+      contextRoot: trimmedContextRoot ? expandHomePath(trimmedContextRoot) : null,
       workspaceRoots: splitLines(input.workspaceRootsText).map((entry) => expandHomePath(entry)),
       includeCurrentRepo: input.includeCurrentRepo,
     },

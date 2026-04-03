@@ -18,6 +18,7 @@ import {
   getLogCatalog,
   getPhonePreparation,
   readLogSource,
+  restartOnboarding,
   restartAgent,
   runOnboardingCommand,
   skipOnboarding,
@@ -30,6 +31,7 @@ import {
 } from "./openscout-runtime.js";
 import type {
   BrokerControlAction,
+  DesktopAppInfo,
   RunOnboardingCommandInput,
   ReadLogSourceInput,
   RestartAgentInput,
@@ -47,6 +49,7 @@ const {
   BrowserWindow,
   Menu,
   app,
+  dialog,
   ipcMain,
   nativeImage,
   shell,
@@ -110,6 +113,43 @@ async function openAgentSessionSurface(agentId: string) {
 
 function resolveProductName() {
   return process.env.OPENSCOUT_PRODUCT_NAME?.trim() || app.getName() || "OpenScout";
+}
+
+function envFlagEnabled(value: string | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function createDesktopAppInfo(): DesktopAppInfo {
+  const enableAll = envFlagEnabled(process.env.ENABLE_ALL) || envFlagEnabled(process.env.OPENSCOUT_ENABLE_ALL);
+
+  return {
+    productName: resolveProductName(),
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    features: {
+      enableAll,
+      overview: true,
+      relay: true,
+      dispatch: true,
+      interAgent: true,
+      agents: true,
+      settings: true,
+      logs: true,
+      activity: enableAll,
+      machines: enableAll,
+      plans: enableAll,
+      sessions: true,
+      search: true,
+      phonePreparation: enableAll,
+      telegram: enableAll,
+      voice: enableAll,
+    },
+  };
 }
 
 function resolveDesktopAssetPath(filename: string) {
@@ -261,29 +301,14 @@ function createAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-ipcMain.handle("openscout:get-app-info", async () => ({
-  productName: resolveProductName(),
-  appVersion: app.getVersion(),
-  isPackaged: app.isPackaged,
-  platform: process.platform,
-}));
+ipcMain.handle("openscout:get-app-info", async () => createDesktopAppInfo());
 
 ipcMain.handle("openscout:get-shell-state", async () =>
-  buildDesktopShellState({
-    productName: resolveProductName(),
-    appVersion: app.getVersion(),
-    isPackaged: app.isPackaged,
-    platform: process.platform,
-  }),
+  buildDesktopShellState(createDesktopAppInfo()),
 );
 
 ipcMain.handle("openscout:refresh-shell-state", async () =>
-  buildDesktopShellState({
-    productName: resolveProductName(),
-    appVersion: app.getVersion(),
-    isPackaged: app.isPackaged,
-    platform: process.platform,
-  }),
+  buildDesktopShellState(createDesktopAppInfo()),
 );
 
 ipcMain.handle("openscout:get-app-settings", async () =>
@@ -302,6 +327,27 @@ ipcMain.handle("openscout:skip-onboarding", async () =>
   skipOnboarding(),
 );
 
+ipcMain.handle("openscout:restart-onboarding", async () =>
+  restartOnboarding(),
+);
+
+ipcMain.handle("openscout:pick-directory", async () => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    properties: ["openDirectory"],
+  });
+  if (result.canceled) {
+    return null;
+  }
+  return result.filePaths[0] ?? null;
+});
+
+ipcMain.handle("openscout:quit-app", async () => {
+  setImmediate(() => {
+    app.quit();
+  });
+  return true;
+});
+
 ipcMain.handle("openscout:get-phone-preparation", async () =>
   getPhonePreparation(),
 );
@@ -319,39 +365,15 @@ ipcMain.handle("openscout:update-agent-config", async (_event, input: UpdateAgen
 );
 
 ipcMain.handle("openscout:restart-agent", async (_event, input: RestartAgentInput) =>
-  restartAgent(
-    {
-      productName: resolveProductName(),
-      appVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-    },
-    input,
-  ),
+  restartAgent(createDesktopAppInfo(), input),
 );
 
 ipcMain.handle("openscout:send-relay-message", async (_event, input: SendRelayMessageInput) =>
-  sendRelayMessage(
-    {
-      productName: resolveProductName(),
-      appVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-    },
-    input,
-  ),
+  sendRelayMessage(createDesktopAppInfo(), input),
 );
 
 ipcMain.handle("openscout:control-broker", async (_event, action: BrokerControlAction) =>
-  controlBroker(
-    {
-      productName: resolveProductName(),
-      appVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-    },
-    action,
-  ),
+  controlBroker(createDesktopAppInfo(), action),
 );
 
 ipcMain.handle("openscout:get-log-catalog", async () =>
@@ -391,24 +413,11 @@ ipcMain.handle("openscout:open-agent-session", async (_event, agentId: string) =
 );
 
 ipcMain.handle("openscout:toggle-voice-capture", async () =>
-  toggleVoiceCapture({
-    productName: resolveProductName(),
-    appVersion: app.getVersion(),
-    isPackaged: app.isPackaged,
-    platform: process.platform,
-  }),
+  toggleVoiceCapture(createDesktopAppInfo()),
 );
 
 ipcMain.handle("openscout:set-voice-replies-enabled", async (_event, enabled: boolean) =>
-  setVoiceRepliesEnabled(
-    {
-      productName: resolveProductName(),
-      appVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-    },
-    enabled,
-  ),
+  setVoiceRepliesEnabled(createDesktopAppInfo(), enabled),
 );
 
 app.whenReady().then(async () => {

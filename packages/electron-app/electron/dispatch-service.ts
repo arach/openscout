@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
-import path, { delimiter } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -18,7 +18,6 @@ import {
 import type { DispatchState, UpdateDispatchConfigInput } from "../src/lib/openscout-desktop.js";
 
 const DISPATCH_ROOT = resolveDispatchRoot();
-const DISPATCH_MAIN = path.join(DISPATCH_ROOT, "src", "main.ts");
 const LOG_TAIL_LIMIT = 160;
 
 function resolveDispatchRoot() {
@@ -142,35 +141,28 @@ function isExecutable(filePath: string | undefined | null): filePath is string {
   }
 }
 
-function resolveBunExecutable(): string | null {
-  const explicitCandidates = [
-    process.env.OPENSCOUT_BUN_BIN,
-    process.env.BUN_BIN,
-  ].filter(Boolean) as string[];
-
-  for (const candidate of explicitCandidates) {
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
+function dispatchCliScriptPath(): string {
+  const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+  const packagedCandidate = path.resolve(moduleDirectory, "../../dispatch-cli/bin/dispatch.mjs");
+  if (existsSync(packagedCandidate)) {
+    return packagedCandidate;
   }
 
-  const pathEntries = (process.env.PATH ?? "")
-    .split(delimiter)
-    .filter(Boolean);
-  const commonDirectories = [
-    `${process.env.HOME ?? ""}/.bun/bin`,
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ].filter(Boolean);
-
-  for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = path.join(directory, "bun");
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
+  const workspaceCandidate = path.resolve(DISPATCH_ROOT, "bin", "dispatch.mjs");
+  if (existsSync(workspaceCandidate)) {
+    return workspaceCandidate;
   }
 
-  return null;
+  return workspaceCandidate;
+}
+
+function dispatchCliWorkingDirectory(cliScriptPath: string): string {
+  const appRuntimeRoot = path.resolve(cliScriptPath, "../../..");
+  if (existsSync(path.join(appRuntimeRoot, "package.json"))) {
+    return appRuntimeRoot;
+  }
+
+  return DISPATCH_ROOT;
 }
 
 function baseState(): DispatchState {
@@ -197,7 +189,7 @@ function baseState(): DispatchState {
       statusLabel: snapshot.statusLabel,
       statusDetail: snapshot.statusDetail,
       isRunning: true,
-      commandLabel: "bun run dispatch:start",
+      commandLabel: "dispatch start",
       configPath: paths.configPath,
       identityPath: paths.identityPath,
       trustedPeersPath: paths.trustedPeersPath,
@@ -227,7 +219,7 @@ function baseState(): DispatchState {
     statusLabel: "Stopped",
     statusDetail: "Start Dispatch to launch the pairing relay and generate a fresh QR code.",
     isRunning: false,
-    commandLabel: "bun run dispatch:start",
+    commandLabel: "dispatch start",
     configPath: paths.configPath,
     identityPath: paths.identityPath,
     trustedPeersPath: paths.trustedPeersPath,
@@ -344,23 +336,13 @@ class DispatchService {
       return;
     }
 
-    const bunExecutable = resolveBunExecutable();
-    if (!bunExecutable) {
-      this.#state = {
-        ...this.#state,
-        status: "error",
-        statusLabel: "Error",
-        statusDetail: "Bun executable was not found. Install Bun or set OPENSCOUT_BUN_BIN.",
-        isRunning: false,
-        pairing: null,
-        lastUpdatedLabel: this.#timeLabel(),
-      };
-      return;
-    }
-
-    const child = spawn(bunExecutable, [DISPATCH_MAIN, "supervise"], {
-      cwd: DISPATCH_ROOT,
-      env: process.env,
+    const cliScriptPath = dispatchCliScriptPath();
+    const child = spawn(process.execPath, [cliScriptPath, "supervise"], {
+      cwd: dispatchCliWorkingDirectory(cliScriptPath),
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+      },
       detached: true,
       stdio: "ignore",
     });

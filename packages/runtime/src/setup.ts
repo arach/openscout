@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { homedir, hostname } from "node:os";
+import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import {
@@ -75,6 +75,7 @@ export type OpenScoutSettings = {
     operatorName: string;
   };
   onboarding: {
+    operatorAnsweredAt: number | null;
     sourceRootsAnsweredAt: number | null;
     harnessChosenAt: number | null;
     inputsSavedAt: number | null;
@@ -85,6 +86,7 @@ export type OpenScoutSettings = {
     skippedAt: number | null;
   };
   discovery: {
+    contextRoot: string | null;
     workspaceRoots: string[];
     includeCurrentRepo: boolean;
   };
@@ -237,7 +239,49 @@ type LegacyRelayAgentRecord = {
   session?: string;
 };
 
-const DEFAULT_OPERATOR_NAME = process.env.OPENSCOUT_OPERATOR_NAME?.trim() || "Arach";
+function titleCaseWords(value: string): string {
+  return value
+    .split(/[\s._-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function guessedOperatorName(): string {
+  const seeded = process.env.OPENSCOUT_OPERATOR_NAME?.trim();
+  if (seeded) {
+    return seeded;
+  }
+
+  const candidates = [
+    process.env.OPENSCOUT_OPERATOR_DISPLAY_NAME,
+    process.env.USER,
+    process.env.LOGNAME,
+    process.env.USERNAME,
+  ];
+
+  try {
+    candidates.push(userInfo().username);
+  } catch {
+    // Ignore OS user lookup failures and fall through to a neutral default.
+  }
+
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const normalized = titleCaseWords(trimmed);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return "Operator";
+}
+
+export const DEFAULT_OPERATOR_NAME = guessedOperatorName();
 const DEFAULT_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver"];
 const DEFAULT_TRANSPORT: RelayRuntimeTransport = "claude_stream_json";
 const DEFAULT_TELEGRAM_MODE: TelegramBridgeMode = "polling";
@@ -711,6 +755,7 @@ function defaultSettings(): OpenScoutSettings {
       operatorName: DEFAULT_OPERATOR_NAME,
     },
     onboarding: {
+      operatorAnsweredAt: null,
       sourceRootsAnsweredAt: null,
       harnessChosenAt: null,
       inputsSavedAt: null,
@@ -721,6 +766,7 @@ function defaultSettings(): OpenScoutSettings {
       skippedAt: null,
     },
     discovery: {
+      contextRoot: null,
       workspaceRoots: [],
       includeCurrentRepo: true,
     },
@@ -886,6 +932,9 @@ async function normalizeSettingsRecord(
     ? discovery.workspaceRoots.map((entry) => String(entry))
     : [];
   const workspaceRoots = uniquePaths(rawWorkspaceRoots.length > 0 ? rawWorkspaceRoots : seededWorkspaceRoots);
+  const contextRoot = normalizeOptionalString(discovery.contextRoot)
+    ? normalizePath(String(discovery.contextRoot))
+    : null;
   const seededTelegramBotToken = resolveTelegramConfigSeedValue("TELEGRAM_BOT_TOKEN", options.currentDirectory);
   const seededTelegramSecretToken = resolveTelegramConfigSeedValue("TELEGRAM_WEBHOOK_SECRET_TOKEN", options.currentDirectory);
   const seededTelegramApiBaseUrl = resolveTelegramConfigSeedValue("TELEGRAM_API_BASE_URL", options.currentDirectory);
@@ -901,6 +950,7 @@ async function normalizeSettingsRecord(
       operatorName: String(profile.operatorName ?? oldOperatorName ?? base.profile.operatorName).trim() || base.profile.operatorName,
     },
     onboarding: {
+      operatorAnsweredAt: normalizeOptionalTimestamp(onboarding.operatorAnsweredAt),
       sourceRootsAnsweredAt: normalizeOptionalTimestamp(onboarding.sourceRootsAnsweredAt),
       harnessChosenAt: normalizeOptionalTimestamp(onboarding.harnessChosenAt),
       inputsSavedAt: normalizeOptionalTimestamp(onboarding.inputsSavedAt),
@@ -911,6 +961,7 @@ async function normalizeSettingsRecord(
       skippedAt: normalizeOptionalTimestamp(onboarding.skippedAt),
     },
     discovery: {
+      contextRoot,
       workspaceRoots,
       includeCurrentRepo: typeof discovery.includeCurrentRepo === "boolean"
         ? discovery.includeCurrentRepo
@@ -1218,14 +1269,7 @@ export async function ensureProjectConfigForDirectory(currentDirectory: string, 
   projectConfigPath: string | null;
   created: boolean;
 }> {
-  const projectRoot = await findNearestProjectRoot(currentDirectory);
-  if (!projectRoot) {
-    return {
-      projectRoot: null,
-      projectConfigPath: null,
-      created: false,
-    };
-  }
+  const projectRoot = await findNearestProjectRoot(currentDirectory) ?? normalizePath(currentDirectory);
 
   const existing = await readProjectConfig(projectRoot);
   if (existing) {
