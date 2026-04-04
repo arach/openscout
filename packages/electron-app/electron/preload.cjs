@@ -32,6 +32,7 @@ const SCOUT_CHANNELS = {
   getLogCatalog: "scout:get-log-catalog",
   getBrokerInspector: "scout:get-broker-inspector",
   readLogSource: "scout:read-log-source",
+  openKnowledgeBase: "scout:open-knowledge-base",
 };
 
 const scoutDesktop = {
@@ -58,6 +59,16 @@ const scoutDesktop = {
   getLogCatalog: () => ipcRenderer.invoke(SCOUT_CHANNELS.getLogCatalog),
   getBrokerInspector: () => ipcRenderer.invoke(SCOUT_CHANNELS.getBrokerInspector),
   readLogSource: (input) => ipcRenderer.invoke(SCOUT_CHANNELS.readLogSource, input),
+  onOpenKnowledgeBase: (callback) => {
+    if (typeof callback !== "function") {
+      return () => {};
+    }
+    const handler = () => callback();
+    ipcRenderer.on(SCOUT_CHANNELS.openKnowledgeBase, handler);
+    return () => {
+      ipcRenderer.removeListener(SCOUT_CHANNELS.openKnowledgeBase, handler);
+    };
+  },
   getPairingState: () => ipcRenderer.invoke(SCOUT_CHANNELS.getPairingState),
   refreshPairingState: () => ipcRenderer.invoke(SCOUT_CHANNELS.refreshPairingState),
   controlPairingService: (action) => ipcRenderer.invoke(SCOUT_CHANNELS.controlPairingService, action),

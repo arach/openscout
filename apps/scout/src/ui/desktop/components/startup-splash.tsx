@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const C = {
   bg: "var(--os-bg)",
@@ -8,10 +8,10 @@ const C = {
   logoBorder: "var(--os-logo-border)",
 };
 
-const HOLD_MS = 1200;
-const EXIT_MS = 380;
+const DISPLAY_MS = 1100;
+const EXIT_MS = 320;
 
-type Phase = "play" | "exit";
+type Phase = "show" | "exit";
 
 export function StartupSplashOverlay({
   dark,
@@ -22,13 +22,23 @@ export function StartupSplashOverlay({
   productName: string;
   onDismissed: () => void;
 }) {
-  const [phase, setPhase] = useState<Phase>("play");
+  const [phase, setPhase] = useState<Phase>("show");
+  const dismissed = useRef(false);
 
   useEffect(() => {
-    const exitTimer = window.setTimeout(() => setPhase("exit"), HOLD_MS);
-    const doneTimer = window.setTimeout(() => onDismissed(), HOLD_MS + EXIT_MS);
+    const showTimer = window.setTimeout(() => {
+      setPhase("exit");
+    }, DISPLAY_MS);
+
+    const doneTimer = window.setTimeout(() => {
+      if (!dismissed.current) {
+        dismissed.current = true;
+        onDismissed();
+      }
+    }, DISPLAY_MS + EXIT_MS);
+
     return () => {
-      window.clearTimeout(exitTimer);
+      window.clearTimeout(showTimer);
       window.clearTimeout(doneTimer);
     };
   }, [onDismissed]);
@@ -40,38 +50,32 @@ export function StartupSplashOverlay({
       aria-hidden
     >
       <div
-        className={`flex flex-col items-center gap-8 px-8 ${phase === "exit" ? "os-splash-exit" : ""}`}
+        className={`flex flex-col items-center gap-6 px-8 ${phase === "exit" ? "os-splash-exit" : ""}`}
       >
-        <div className="os-splash-logo-wrap">
-          <div
-            className="os-splash-logo-tile rounded-[28px] border overflow-hidden shadow-2xl"
-            style={{
-              borderColor: C.logoBorder,
-              backgroundColor: C.logoBg,
-              boxShadow: dark ? "0 32px 100px rgba(0,0,0,0.55)" : "0 32px 100px rgba(15,23,42,0.12)",
-            }}
-          >
-            <img
-              src="/icon.svg"
-              alt=""
-              width={120}
-              height={120}
-              className="block w-[120px] h-[120px] os-splash-logo-img"
-              draggable={false}
-            />
-          </div>
-          <div className="os-splash-ring" aria-hidden />
+        <div
+          className="rounded-[22px] border overflow-hidden os-splash-logo-tile"
+          style={{
+            borderColor: C.logoBorder,
+            backgroundColor: C.logoBg,
+            boxShadow: dark
+              ? "0 24px 80px rgba(0,0,0,0.45)"
+              : "0 24px 80px rgba(15,23,42,0.10)",
+          }}
+        >
+          <img
+            src="/scout-icon.png"
+            alt=""
+            width={96}
+            height={96}
+            className="block h-[96px] w-[96px] rounded-[22px]"
+            draggable={false}
+          />
         </div>
-        <div className="flex flex-col items-center gap-2 text-center os-splash-wordmark">
-          <div
-            className="text-[13px] font-mono uppercase tracking-[0.28em]"
-            style={{ color: C.muted }}
-          >
-            OpenScout
-          </div>
-          <div className="text-[26px] font-semibold tracking-tight" style={{ color: C.ink }}>
-            {productName}
-          </div>
+        <div
+          className="text-[22px] font-semibold tracking-tight os-splash-wordmark"
+          style={{ color: C.ink }}
+        >
+          {productName}
         </div>
       </div>
     </div>

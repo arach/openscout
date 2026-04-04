@@ -69,6 +69,7 @@ export type ScoutElectronBridge = {
   getLogCatalog: () => Promise<ScoutDesktopLogCatalog>;
   getBrokerInspector: () => Promise<ScoutDesktopBrokerInspector>;
   readLogSource: (input: ReadScoutLogSourceInput) => Promise<ScoutDesktopLogContent>;
+  onOpenKnowledgeBase?: (callback: () => void) => () => void;
 };
 
 export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutElectronBridge {

@@ -152,10 +152,10 @@ export function createScoutElectronIpcServices(input: {
     revealPath: (filePath) => revealScoutElectronPath(filePath, host),
     getPhonePreparation: () => getScoutElectronPhonePreparation(currentDirectory),
     updatePhonePreparation: (nextState) => updateScoutElectronPhonePreparation(nextState, currentDirectory),
-    getPairingState: () => getScoutElectronPairingState(),
-    refreshPairingState: () => refreshScoutElectronPairingState(),
-    controlPairingService: (action) => controlScoutElectronPairingService(action),
-    updatePairingConfig: (input) => updateScoutElectronPairingConfig(input),
+    getPairingState: () => getScoutElectronPairingState(currentDirectory),
+    refreshPairingState: () => refreshScoutElectronPairingState(currentDirectory),
+    controlPairingService: (action) => controlScoutElectronPairingService(action, currentDirectory),
+    updatePairingConfig: (input) => updateScoutElectronPairingConfig(input, currentDirectory),
     restartAgent: async (nextInput) => {
       await restartScoutElectronAgent(nextInput, { currentDirectory, appInfo });
       return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });

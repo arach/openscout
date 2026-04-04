@@ -362,6 +362,17 @@ export default function App() {
     };
   }, [scoutDesktop]);
 
+  useEffect(() => {
+    if (!scoutDesktop?.onOpenKnowledgeBase) {
+      return;
+    }
+
+    return scoutDesktop.onOpenKnowledgeBase(() => {
+      setActiveView('settings');
+      setSettingsSection('knowledge');
+    });
+  }, [scoutDesktop]);
+
   const completeOnboardingIntoRelay = React.useCallback((nextShellState: DesktopShellState | null) => {
     setProductSurface('relay');
     if (nextShellState?.runtime?.brokerReachable) {
@@ -1734,12 +1745,6 @@ export default function App() {
       label: 'General',
       description: 'Project paths, project inventory, runtime readiness, and local defaults.',
       icon: <FolderOpen size={15} />,
-    },
-    {
-      id: 'knowledge' as const,
-      label: 'Knowledge Base',
-      description: 'Vocabulary and definitions for contexts, harnesses, and runtimes.',
-      icon: <FileText size={15} />,
     },
     {
       id: 'agents' as const,
@@ -4504,7 +4509,7 @@ export default function App() {
                 </div>
 
                 {settingsSection === 'profile' ? (
-                  <div className="max-w-3xl">
+                  <div className="max-w-5xl">
                     <div className="space-y-4 min-w-0">
                       {visibleAppSettings?.onboarding?.needed ? (
                         <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
@@ -5037,28 +5042,28 @@ export default function App() {
                       {appSettingsLoading && !visibleAppSettings ? (
                         <div className="text-[11px]" style={s.mutedText}>Loading settings…</div>
                       ) : (
-                        <div className="space-y-6">
+                        <div className="space-y-5">
 
                           {/* --- Scan Folders --- */}
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Scan Folders</div>
-                            <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
+                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
                               Parent directories Scout scans for repos and projects.
                             </div>
-                            <div className="space-y-2">
+                            <div className="space-y-1.5">
                               {(visibleAppSettings?.workspaceRoots ?? []).map((root, index) => (
-                                <div key={`general-source-root-${index}`} className="flex items-center gap-2">
+                                <div key={`general-source-root-${index}`} className="flex items-center gap-1.5">
                                   <input
                                     value={root}
                                     onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
                                     readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                    className="flex-1 rounded-lg border px-3 py-2 text-[12px] leading-[1.5] bg-transparent outline-none"
+                                    className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
                                     style={{ borderColor: C.border, color: C.ink }}
                                     placeholder={index === 0 ? '~/dev' : 'Add another path'}
                                   />
                                   <button
                                     type="button"
-                                    className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded"
+                                    className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
                                     style={{ color: C.ink }}
                                     onClick={() => handleBrowseForSourceRoot(index)}
                                     disabled={!isAppSettingsEditing || appSettingsSaving}
@@ -5067,7 +5072,7 @@ export default function App() {
                                   </button>
                                   <button
                                     type="button"
-                                    className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded disabled:opacity-50"
+                                    className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded-md disabled:opacity-50"
                                     style={{ color: C.ink }}
                                     onClick={() => handleRemoveSourceRootRow(index)}
                                     disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings?.workspaceRoots ?? []).length <= 1 && !root)}
@@ -5078,14 +5083,14 @@ export default function App() {
                                 </div>
                               ))}
                               {(visibleAppSettings?.workspaceRoots?.length ?? 0) === 0 ? (
-                                <div className="rounded-lg border border-dashed px-3 py-3 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.muted }}>
+                                <div className="rounded-md border border-dashed px-2.5 py-2.5 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.muted }}>
                                   No scan folders configured. Add one to discover projects.
                                 </div>
                               ) : null}
-                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
                                 <button
                                   type="button"
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
                                   style={{ color: C.ink }}
                                   onClick={() => {
                                     handleBeginGeneralEdit();
@@ -5096,12 +5101,12 @@ export default function App() {
                                   <span className="text-[12px] leading-none">+</span>
                                   Add path
                                 </button>
-                                <span className="text-[10px]" style={s.mutedText}>or quick-add:</span>
+                                <span className="text-[10px]" style={s.mutedText}>or</span>
                                 {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
                                   <button
                                     key={root}
                                     type="button"
-                                    className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded disabled:opacity-50"
+                                    className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded-md disabled:opacity-50"
                                     style={{ color: C.ink }}
                                     onClick={() => {
                                       handleBeginGeneralEdit();
@@ -5117,23 +5122,23 @@ export default function App() {
                           </section>
 
                           {/* --- Context Root --- */}
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Context Root</div>
-                            <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
+                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
                               Where Scout stores <span className="font-mono">.openscout/project.json</span> for this workspace.
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <input
                                 value={visibleAppSettings?.onboardingContextRoot ?? ''}
                                 onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
                                 readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                className="flex-1 rounded-lg border px-3 py-2 text-[12px] leading-[1.5] bg-transparent outline-none"
+                                className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
                                 style={{ borderColor: C.border, color: C.ink }}
                                 placeholder="Choose where .openscout should live"
                               />
                               <button
                                 type="button"
-                                className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded"
+                                className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
                                 style={{ color: C.ink }}
                                 onClick={handleBrowseForOnboardingContextRoot}
                                 disabled={!isAppSettingsEditing || appSettingsSaving}
@@ -5142,7 +5147,7 @@ export default function App() {
                               </button>
                             </div>
                             {visibleAppSettings?.currentProjectConfigPath ? (
-                              <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
+                              <div className="text-[10px] mt-1.5 leading-[1.5]" style={s.mutedText}>
                                 Config:{' '}
                                 {renderLocalPathValue(visibleAppSettings.currentProjectConfigPath, {
                                   className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
@@ -5150,7 +5155,7 @@ export default function App() {
                                 })}
                               </div>
                             ) : null}
-                            <label className="flex items-center gap-2.5 mt-3 pt-3 border-t" style={{ borderColor: C.border }}>
+                            <label className="flex items-center gap-2 mt-3 pt-3 border-t cursor-pointer" style={{ borderColor: C.border }}>
                               <input
                                 type="checkbox"
                                 checked={visibleAppSettings?.includeCurrentRepo ?? true}
@@ -5163,208 +5168,196 @@ export default function App() {
                                   setAppSettingsFeedback(null);
                                 }}
                               />
-                              <div className="min-w-0">
-                                <div className="text-[11px] font-medium" style={s.inkText}>Include the context root itself in project discovery</div>
-                              </div>
+                              <span className="text-[11px]" style={s.inkText}>Include the context root itself in project discovery</span>
                             </label>
                           </section>
 
-                          {/* --- Operator & Harness --- */}
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                              <div>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Your Name</div>
-                                <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>Display name across Relay and the desktop shell.</div>
-                                <input
-                                  ref={settingsOperatorNameRef}
-                                  value={isAppSettingsEditing ? (visibleAppSettings?.operatorName ?? '') : (visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? '')}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      operatorName: event.target.value,
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                  placeholder={appSettings?.operatorNameDefault ?? 'Operator'}
-                                  className="w-full rounded-lg border px-3 py-2 text-[12px] leading-[1.5] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              </div>
-                              <div>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Default Harness</div>
-                                <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>AI runtime used for new project agents.</div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {(['claude', 'codex'] as const).map((harness) => {
-                                    const selected = visibleAppSettings?.defaultHarness === harness;
-                                    return (
-                                      <button
-                                        key={harness}
-                                        type="button"
-                                        className="text-left rounded-lg border px-3 py-2 transition-opacity hover:opacity-90 disabled:opacity-60"
-                                        style={{ borderColor: selected ? C.accentBorder : C.border, backgroundColor: selected ? C.accentBg : C.bg }}
-                                        disabled={!isAppSettingsEditing || appSettingsSaving}
-                                        onClick={() => {
-                                          setAppSettingsDraft((current) => current ? {
-                                            ...current,
-                                            defaultHarness: harness,
-                                          } : current);
-                                          setAppSettingsFeedback(null);
-                                        }}
-                                      >
-                                        <div className="flex items-center justify-between gap-2">
-                                          <div className="text-[12px] font-medium capitalize" style={s.inkText}>{harness}</div>
-                                          {selected ? (
-                                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.activePill}>default</span>
-                                          ) : null}
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                          {/* --- Operator --- */}
+                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Your Name</div>
+                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
+                              The display name Scout uses across the desktop shell and Relay.
+                            </div>
+                            <input
+                              ref={settingsOperatorNameRef}
+                              value={isAppSettingsEditing ? (visibleAppSettings?.operatorName ?? '') : (visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? '')}
+                              onChange={(event) => {
+                                setAppSettingsDraft((current) => current ? {
+                                  ...current,
+                                  operatorName: event.target.value,
+                                } : current);
+                                setAppSettingsFeedback(null);
+                              }}
+                              readOnly={!isAppSettingsEditing || appSettingsSaving}
+                              placeholder={appSettings?.operatorNameDefault ?? 'Operator'}
+                              className="w-full rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none"
+                              style={{ borderColor: C.border, color: C.ink }}
+                            />
+                          </section>
+
+                          {/* --- Harness --- */}
+                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Default Harness</div>
+                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
+                              Pick the default assistant family Scout uses when a project does not override it.
+                            </div>
+                            <div className="flex gap-1.5">
+                              {(['claude', 'codex'] as const).map((harness) => {
+                                const selected = visibleAppSettings?.defaultHarness === harness;
+                                return (
+                                  <button
+                                    key={harness}
+                                    type="button"
+                                    className="rounded-md border px-3 py-1.5 text-[12px] font-medium capitalize transition-colors disabled:opacity-60"
+                                    style={{ borderColor: selected ? C.accentBorder : C.border, backgroundColor: selected ? C.accentBg : C.bg, color: selected ? C.accent : C.ink }}
+                                    disabled={!isAppSettingsEditing || appSettingsSaving}
+                                    onClick={() => {
+                                      setAppSettingsDraft((current) => current ? {
+                                        ...current,
+                                        defaultHarness: harness,
+                                      } : current);
+                                      setAppSettingsFeedback(null);
+                                    }}
+                                  >
+                                    {harness}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </section>
 
                           {/* --- Project Inventory --- */}
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="flex items-center justify-between gap-3 mb-1">
-                              <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Discovered Projects</div>
-                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                {visibleAppSettings?.projectInventory.length ?? 0}
-                              </span>
-                            </div>
-                            <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
-                              Projects found in your scan folders.{' '}
+                          <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                              <div className="flex items-center gap-2">
+                                <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Project Inventory</div>
+                                <span className="text-[9px] font-mono tabular-nums" style={s.mutedText}>
+                                  {visibleAppSettings?.projectInventory.length ?? 0}
+                                </span>
+                              </div>
                               <button
                                 type="button"
-                                className="underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity"
-                                style={{ color: C.muted }}
+                                className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md disabled:opacity-50"
+                                style={{ color: C.ink }}
                                 onClick={() => { void handleRunOnboardingCommand('doctor'); }}
                                 disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
                               >
-                                {onboardingCommandPending === 'doctor' ? 'Re-scanning…' : 'Re-scan'}
+                                {onboardingCommandPending === 'doctor' ? 'Running Doctor…' : 'Run Doctor'}
                               </button>
                             </div>
-                            <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                            <div className="max-h-[400px] overflow-y-auto divide-y" style={{ borderColor: C.border }}>
                               {(visibleAppSettings?.projectInventory ?? []).length > 0 ? (visibleAppSettings?.projectInventory ?? []).map((project) => (
                                 <div
                                   key={project.id}
-                                  className="rounded-lg border px-3 py-2.5"
-                                  style={{ borderColor: C.border, backgroundColor: C.bg }}
+                                  className="flex items-center gap-3 px-4 py-2.5 group"
+                                  style={{ borderColor: C.border }}
                                 >
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <div className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</div>
-                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={project.registrationKind === 'configured' ? s.activePill : s.tagBadge}>
-                                          {project.registrationKind === 'configured' ? 'agent' : 'project'}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</span>
+                                      {project.registrationKind === 'configured' ? (
+                                        <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm shrink-0" style={s.activePill}>agent</span>
+                                      ) : null}
+                                      {project.harnesses.map((harness) => (
+                                        <span
+                                          key={`${project.id}:${harness.harness}`}
+                                          className="text-[8px] font-mono px-1 py-px rounded-sm shrink-0"
+                                          style={harness.readinessState === 'ready' ? s.activePill : s.tagBadge}
+                                          title={harness.readinessDetail ?? undefined}
+                                        >
+                                          {harness.harness}
                                         </span>
-                                      </div>
-                                      <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
-                                        {project.relativePath === '.' ? (
-                                          renderLocalPathValue(project.root, {
+                                      ))}
+                                    </div>
+                                    <div className="text-[10px] mt-0.5 leading-[1.4] font-mono truncate" style={s.mutedText}>
+                                      {project.relativePath === '.' ? (
+                                        renderLocalPathValue(project.root, {
+                                          compact: true,
+                                          className: 'text-left hover:opacity-80 transition-opacity',
+                                          style: s.mutedText,
+                                        })
+                                      ) : (
+                                        <>
+                                          {project.relativePath}{' '}
+                                          <span style={{ opacity: 0.5 }}>in</span>{' '}
+                                          {renderLocalPathValue(project.root, {
                                             compact: true,
-                                            className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                            className: 'text-left hover:opacity-80 transition-opacity',
                                             style: s.mutedText,
-                                          })
-                                        ) : (
-                                          <>
-                                            {project.relativePath} ·{' '}
-                                            {renderLocalPathValue(project.root, {
-                                              compact: true,
-                                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                              style: s.mutedText,
-                                            })}
-                                          </>
-                                        )}
-                                      </div>
-                                      <div className="flex flex-wrap gap-1.5 mt-2">
-                                        {project.harnesses.map((harness) => (
-                                          <span
-                                            key={`${project.id}:${harness.harness}`}
-                                            className="text-[9px] font-mono px-1.5 py-0.5 rounded"
-                                            style={harness.readinessState === 'ready' ? s.activePill : s.tagBadge}
-                                            title={harness.readinessDetail ?? undefined}
-                                          >
-                                            {harness.harness} · {harness.detail}
-                                          </span>
-                                        ))}
-                                      </div>
+                                          })}
+                                        </>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        type="button"
-                                        className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded"
-                                        style={{ color: C.ink }}
-                                        onClick={() => {
-                                          setSettingsSection('agents');
-                                          if (project.registrationKind === 'configured') {
-                                            openAgentProfile(project.id);
-                                            return;
-                                          }
-                                          setSelectedAgentableProjectId(project.id);
-                                          setSelectedInterAgentId(null);
-                                          setSelectedInterAgentThreadId(null);
-                                          setIsAgentConfigEditing(false);
-                                          setAgentConfigFeedback(null);
-                                        }}
-                                      >
-                                        Open
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                        style={{ color: C.ink }}
-                                        onClick={() => { void handleRetireProject(project.root, project.title); }}
-                                        disabled={Boolean(projectRetirementPendingRoot)}
-                                      >
-                                        {projectRetirementPendingRoot === project.root ? 'Retiring…' : 'Retire'}
-                                      </button>
-                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md"
+                                      style={{ color: C.ink }}
+                                      onClick={() => {
+                                        setSettingsSection('agents');
+                                        if (project.registrationKind === 'configured') {
+                                          openAgentProfile(project.id);
+                                          return;
+                                        }
+                                        setSelectedAgentableProjectId(project.id);
+                                        setSelectedInterAgentId(null);
+                                        setSelectedInterAgentThreadId(null);
+                                        setIsAgentConfigEditing(false);
+                                        setAgentConfigFeedback(null);
+                                      }}
+                                    >
+                                      Open
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md disabled:opacity-50"
+                                      style={{ color: C.muted }}
+                                      onClick={() => { void handleRetireProject(project.root, project.title); }}
+                                      disabled={Boolean(projectRetirementPendingRoot)}
+                                    >
+                                      {projectRetirementPendingRoot === project.root ? 'Retiring…' : 'Retire'}
+                                    </button>
                                   </div>
                                 </div>
                               )) : (
-                                <div className="text-[11px]" style={s.mutedText}>No projects discovered yet. Add a scan folder above and re-scan.</div>
+                                <div className="px-4 py-6 text-center text-[11px]" style={s.mutedText}>No projects discovered yet. Add a scan folder above, then run Scout Doctor.</div>
                               )}
                             </div>
                           </section>
 
                           {/* --- Hidden Projects (only when there are some) --- */}
                           {hiddenProjects.length > 0 ? (
-                            <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Hidden Projects</div>
-                              <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
-                                Retired from discovery. Restore to include them again.
+                            <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                              <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+                                <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Hidden Projects</div>
                               </div>
-                              <div className="space-y-2">
+                              <div className="divide-y" style={{ borderColor: C.border }}>
                                 {hiddenProjects.map((project) => (
                                   <div
                                     key={project.root}
-                                    className="rounded-lg border px-3 py-2.5"
-                                    style={{ borderColor: C.border, backgroundColor: C.bg }}
+                                    className="flex items-center justify-between gap-3 px-4 py-2.5"
+                                    style={{ borderColor: C.border }}
                                   >
-                                    <div className="flex items-center justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <div className="text-[12px] font-medium" style={s.inkText}>{project.title}</div>
-                                        <div className="text-[10px] mt-0.5 leading-[1.4]" style={s.mutedText}>
-                                          {renderLocalPathValue(project.root, {
-                                            compact: true,
-                                            className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                            style: s.mutedText,
-                                          })}
-                                        </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[12px] font-medium" style={s.inkText}>{project.title}</div>
+                                      <div className="text-[10px] mt-0.5 font-mono truncate" style={s.mutedText}>
+                                        {renderLocalPathValue(project.root, {
+                                          compact: true,
+                                          className: 'text-left hover:opacity-80 transition-opacity',
+                                          style: s.mutedText,
+                                        })}
                                       </div>
-                                      <button
-                                        type="button"
-                                        className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50 shrink-0"
-                                        style={{ color: C.ink }}
-                                        onClick={() => { void handleRestoreProject(project); }}
-                                        disabled={Boolean(projectRetirementPendingRoot)}
-                                      >
-                                        {projectRetirementPendingRoot === project.root ? 'Restoring…' : 'Restore'}
-                                      </button>
                                     </div>
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md disabled:opacity-50 shrink-0"
+                                      style={{ color: C.ink }}
+                                      onClick={() => { void handleRestoreProject(project); }}
+                                      disabled={Boolean(projectRetirementPendingRoot)}
+                                    >
+                                      {projectRetirementPendingRoot === project.root ? 'Restoring…' : 'Restore'}
+                                    </button>
                                   </div>
                                 ))}
                               </div>
@@ -5373,21 +5366,15 @@ export default function App() {
 
                           {/* --- Runtimes --- */}
                           {(visibleAppSettings?.runtimeCatalog ?? []).length > 0 ? (
-                            <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Runtimes</div>
-                              <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
-                                Installed harness runtimes and their readiness.
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Runtimes</div>
+                              <div className="flex flex-wrap gap-2">
                                 {(visibleAppSettings?.runtimeCatalog ?? []).map((runtimeEntry) => (
-                                  <div key={runtimeEntry.name} className="rounded-lg border px-3 py-2.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="text-[12px] font-medium" style={s.inkText}>{runtimeEntry.label}</div>
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
-                                        {runtimeEntry.readinessState}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
+                                  <div key={runtimeEntry.name} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                                    <span className="text-[11px] font-medium" style={s.inkText}>{runtimeEntry.label}</span>
+                                    <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                                      {runtimeEntry.readinessState}
+                                    </span>
                                   </div>
                                 ))}
                               </div>
@@ -5400,7 +5387,7 @@ export default function App() {
                           ) : null}
 
                           {onboardingCommandResult?.command === 'doctor' ? (
-                            <div className="space-y-3">
+                            <div className="space-y-2">
                               <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Doctor Output</div>
                               {renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor')}
                             </div>
@@ -5887,25 +5874,19 @@ export default function App() {
                     </div>
                   </div>
                 ) : settingsSection === 'communication' ? (
-                  <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] gap-4">
-                    <div className="space-y-4 min-w-0">
+                  <div className="max-w-3xl space-y-5">
+                    <div className="space-y-5 min-w-0">
                       {desktopFeatures.telegram ? (
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-start gap-3 mb-4">
-                          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: C.accentBg }}>
-                            <Radio size={16} style={{ color: C.accent }} />
+                      <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Telegram Bridge</div>
+                            <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={visibleAppSettings?.telegram.running ? s.activePill : s.tagBadge}>
+                              {visibleAppSettings?.telegram.running ? 'Running' : visibleAppSettings?.telegram.enabled ? 'Stopped' : 'Disabled'}
+                            </span>
                           </div>
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Telegram Bridge</div>
-                            <div className="text-[13px] font-medium mt-0.5" style={s.inkText}>Telegram delivery and ingest</div>
-                            <div className="text-[11px] mt-0.5 leading-[1.5]" style={s.mutedText}>
-                              Routes Telegram messages through the broker. Runs in polling mode by default.
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4">
-                          <label className="flex items-center gap-2 rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <span className="text-[11px]" style={s.mutedText}>Enabled</span>
                             <input
                               type="checkbox"
                               checked={visibleAppSettings?.telegram.enabled ?? false}
@@ -5921,17 +5902,14 @@ export default function App() {
                                 setAppSettingsFeedback(null);
                               }}
                             />
-                            <div className="min-w-0">
-                              <div className="text-[12px] font-medium" style={s.inkText}>Enable Telegram bridge</div>
-                              <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                Start the Telegram bridge on launch and route messages through the broker.
-                              </div>
-                            </div>
                           </label>
+                        </div>
+
+                        <div className="space-y-3">
 
                           <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Mode</div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Mode</div>
                               {isAppSettingsEditing ? (
                                 <select
                                   value={visibleAppSettings?.telegram.mode ?? 'polling'}
@@ -5946,7 +5924,7 @@ export default function App() {
                                     setAppSettingsFeedback(null);
                                   }}
                                   disabled={appSettingsSaving}
-                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
                                   style={{ borderColor: C.border, color: C.ink }}
                                 >
                                   <option value="polling">polling</option>
@@ -5954,12 +5932,12 @@ export default function App() {
                                   <option value="webhook">webhook</option>
                                 </select>
                               ) : (
-                                <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.telegram.mode ?? 'polling'}</div>
+                                <div className="text-[12px] font-medium" style={s.inkText}>{visibleAppSettings?.telegram.mode ?? 'polling'}</div>
                               )}
                             </div>
 
-                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Telegram Target</div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Telegram Target</div>
                               {isAppSettingsEditing ? (
                                 <input
                                   value={visibleAppSettings?.telegram.defaultConversationId ?? 'dm.scout.primary'}
@@ -5974,7 +5952,7 @@ export default function App() {
                                     setAppSettingsFeedback(null);
                                   }}
                                   readOnly={appSettingsSaving}
-                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
                                   style={{ borderColor: C.border, color: C.ink }}
                                 />
                               ) : (
@@ -5983,36 +5961,9 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Owner Node</div>
-                            {isAppSettingsEditing ? (
-                              <input
-                                value={visibleAppSettings?.telegram.ownerNodeId ?? ''}
-                                onChange={(event) => {
-                                  setAppSettingsDraft((current) => current ? {
-                                    ...current,
-                                    telegram: {
-                                      ...current.telegram,
-                                      ownerNodeId: event.target.value,
-                                    },
-                                  } : current);
-                                  setAppSettingsFeedback(null);
-                                }}
-                                readOnly={appSettingsSaving}
-                                placeholder="Leave blank for automatic mesh owner election"
-                                className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
-                                style={{ borderColor: C.border, color: C.ink }}
-                              />
-                            ) : (
-                              <div className="text-[13px] font-medium break-words" style={s.inkText}>
-                                {visibleAppSettings?.telegram.ownerNodeId || 'Automatic mesh owner'}
-                              </div>
-                            )}
-                          </div>
-
                           <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Bot Username</div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Bot Username</div>
                               {isAppSettingsEditing ? (
                                 <input
                                   value={visibleAppSettings?.telegram.userName ?? ''}
@@ -6027,92 +5978,119 @@ export default function App() {
                                     setAppSettingsFeedback(null);
                                   }}
                                   readOnly={appSettingsSaving}
-                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
                                   style={{ borderColor: C.border, color: C.ink }}
                                 />
                               ) : (
-                                <div className="text-[13px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.userName || 'Not set'}</div>
+                                <div className="text-[12px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.userName || 'Not set'}</div>
                               )}
                             </div>
-
-                            <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>API Base URL</div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Owner Node</div>
                               {isAppSettingsEditing ? (
                                 <input
-                                  value={visibleAppSettings?.telegram.apiBaseUrl ?? ''}
+                                  value={visibleAppSettings?.telegram.ownerNodeId ?? ''}
                                   onChange={(event) => {
                                     setAppSettingsDraft((current) => current ? {
                                       ...current,
                                       telegram: {
                                         ...current.telegram,
-                                        apiBaseUrl: event.target.value,
+                                        ownerNodeId: event.target.value,
                                       },
                                     } : current);
                                     setAppSettingsFeedback(null);
                                   }}
                                   readOnly={appSettingsSaving}
-                                  className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                  placeholder="Automatic"
+                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
                                   style={{ borderColor: C.border, color: C.ink }}
                                 />
                               ) : (
-                                <div className="text-[13px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.apiBaseUrl || 'Default Telegram API'}</div>
+                                <div className="text-[12px] font-medium break-words" style={s.inkText}>
+                                  {visibleAppSettings?.telegram.ownerNodeId || 'Automatic'}
+                                </div>
                               )}
                             </div>
                           </div>
 
-                          <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Bot Token</div>
-                            {isAppSettingsEditing ? (
-                              <input
-                                type="password"
-                                value={visibleAppSettings?.telegram.botToken ?? ''}
-                                onChange={(event) => {
-                                  setAppSettingsDraft((current) => current ? {
-                                    ...current,
-                                    telegram: {
-                                      ...current.telegram,
-                                      botToken: event.target.value,
-                                    },
-                                  } : current);
-                                  setAppSettingsFeedback(null);
-                                }}
-                                readOnly={appSettingsSaving}
-                                placeholder="Telegram bot token"
-                                className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
-                                style={{ borderColor: C.border, color: C.ink }}
-                              />
-                            ) : (
-                              <div className="text-[12px]" style={s.inkText}>
-                                {visibleAppSettings?.telegram.botToken ? 'Configured' : 'Not set'}
-                              </div>
-                            )}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Bot Token</div>
+                              {isAppSettingsEditing ? (
+                                <input
+                                  type="password"
+                                  value={visibleAppSettings?.telegram.botToken ?? ''}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      telegram: {
+                                        ...current.telegram,
+                                        botToken: event.target.value,
+                                      },
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  placeholder="Telegram bot token"
+                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="text-[11px]" style={s.inkText}>
+                                  {visibleAppSettings?.telegram.botToken ? 'Configured' : 'Not set'}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Webhook Secret</div>
+                              {isAppSettingsEditing ? (
+                                <input
+                                  type="password"
+                                  value={visibleAppSettings?.telegram.secretToken ?? ''}
+                                  onChange={(event) => {
+                                    setAppSettingsDraft((current) => current ? {
+                                      ...current,
+                                      telegram: {
+                                        ...current.telegram,
+                                        secretToken: event.target.value,
+                                      },
+                                    } : current);
+                                    setAppSettingsFeedback(null);
+                                  }}
+                                  readOnly={appSettingsSaving}
+                                  placeholder="Optional"
+                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
+                                  style={{ borderColor: C.border, color: C.ink }}
+                                />
+                              ) : (
+                                <div className="text-[11px]" style={s.inkText}>
+                                  {visibleAppSettings?.telegram.secretToken ? 'Configured' : 'Not set'}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Webhook Secret</div>
+                          <div>
+                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>API Base URL</div>
                             {isAppSettingsEditing ? (
                               <input
-                                type="password"
-                                value={visibleAppSettings?.telegram.secretToken ?? ''}
+                                value={visibleAppSettings?.telegram.apiBaseUrl ?? ''}
                                 onChange={(event) => {
                                   setAppSettingsDraft((current) => current ? {
                                     ...current,
                                     telegram: {
                                       ...current.telegram,
-                                      secretToken: event.target.value,
+                                      apiBaseUrl: event.target.value,
                                     },
                                   } : current);
                                   setAppSettingsFeedback(null);
                                 }}
                                 readOnly={appSettingsSaving}
-                                placeholder="Optional webhook secret"
-                                className="w-full rounded-lg border px-3 py-2 text-[13px] bg-transparent outline-none"
+                                className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
                                 style={{ borderColor: C.border, color: C.ink }}
                               />
                             ) : (
-                              <div className="text-[12px]" style={s.inkText}>
-                                {visibleAppSettings?.telegram.secretToken ? 'Configured' : 'Not set'}
-                              </div>
+                              <div className="text-[12px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.apiBaseUrl || 'Default Telegram API'}</div>
                             )}
                           </div>
 
@@ -6123,11 +6101,82 @@ export default function App() {
                       </section>
                       ) : null}
 
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Relay Runtime</div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {/* --- Relay Service (primary) --- */}
+                      {brokerInspector ? (
+                        <section ref={relayServiceInspectorRef} className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                          <div className="flex items-center justify-between gap-3 mb-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Relay Service</div>
+                              <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
+                                {brokerInspector.statusLabel}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                type="button"
+                                variant={brokerInspector.reachable ? 'outline' : 'default'}
+                                size="sm"
+                                onClick={() => void handleBrokerControl(brokerInspector.reachable ? 'restart' : 'start')}
+                                disabled={brokerControlPending}
+                              >
+                                {brokerInspector.reachable ? 'Restart' : 'Start'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleBrokerControl('stop')}
+                                disabled={brokerControlPending || !brokerInspector.loaded}
+                              >
+                                Stop
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
+                            {brokerInspector.statusDetail ?? 'Service status not reported yet.'}
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                            {[
+                              ['Relay URL', brokerInspector.url],
+                              ['Version', brokerInspector.version ?? 'Not reported'],
+                              ['Mode', brokerInspector.mode],
+                              ['Service Label', brokerInspector.label],
+                              ['PID', brokerInspector.pid ?? 'Not reported'],
+                              ['Last Restart', brokerInspector.lastRestartLabel ?? 'Not reported'],
+                              ['Launch State', brokerInspector.launchdState ?? 'Not reported'],
+                              ['Mesh', brokerInspector.meshId ?? 'Not reported'],
+                              ['Last Exit', brokerInspector.lastExitStatus ?? 'Not reported'],
+                            ].map(([label, value]) => (
+                              <div key={label} className="min-w-0">
+                                <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
+                                <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {brokerInspector.processCommand ? (
+                            <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Process</div>
+                              <div className="text-[10px] font-mono leading-[1.45] break-all" style={s.mutedText}>{brokerInspector.processCommand}</div>
+                            </div>
+                          ) : null}
+                          {brokerControlFeedback ? (
+                            <div className="mt-3 pt-3 border-t text-[11px] leading-[1.45]" style={{ borderTopColor: C.border, color: C.ink }}>
+                              {brokerControlFeedback}
+                            </div>
+                          ) : null}
+                        </section>
+                      ) : null}
+
+                      {/* --- Relay Runtime (summary stats) --- */}
+                      <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                        <div className="flex items-center gap-2.5 mb-3">
+                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Relay Runtime</div>
+                          <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={runtime?.brokerHealthy ? s.activePill : s.tagBadge}>
+                            {runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-x-4 gap-y-3">
                           {[
-                            ['Relay', runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'],
                             ['Relay URL', runtime?.brokerUrl ?? 'Not reported'],
                             ['Node ID', runtime?.nodeId ?? 'Not reported'],
                             ['Agents', `${runtime?.agentCount ?? 0}`],
@@ -6137,196 +6186,88 @@ export default function App() {
                             ['Updated', runtime?.updatedAtLabel ?? 'Not reported'],
                           ].map(([label, value]) => (
                             <div key={label} className="min-w-0">
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
                               <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
                             </div>
                           ))}
                         </div>
                       </section>
-                    </div>
 
-                    <div className="space-y-4 min-w-0">
-                      {desktopFeatures.telegram ? (
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Telegram Status</div>
-                            <div className="text-[11px] mt-1" style={s.mutedText}>
-                              {visibleAppSettings?.telegram.detail ?? 'Status not reported yet.'}
-                            </div>
-                          </div>
-                          <span
-                            className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                            style={visibleAppSettings?.telegram.running ? s.activePill : s.tagBadge}
-                          >
-                            {visibleAppSettings?.telegram.running ? 'Running' : visibleAppSettings?.telegram.enabled ? 'Stopped' : 'Disabled'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          {[
-                            ['Configured', visibleAppSettings?.telegram.configured ? 'Yes' : 'No'],
-                            ['Enabled', visibleAppSettings?.telegram.enabled ? 'Yes' : 'No'],
-                            ['Requested Mode', visibleAppSettings?.telegram.mode ?? 'polling'],
-                            ['Runtime Mode', visibleAppSettings?.telegram.runtimeMode ?? 'Not running'],
-                            ['Owner Node', visibleAppSettings?.telegram.ownerNodeId || 'Automatic'],
-                            ['Bindings', `${visibleAppSettings?.telegram.bindingCount ?? 0}`],
-                            ['Pending Deliveries', `${visibleAppSettings?.telegram.pendingDeliveries ?? 0}`],
-                          ].map(([label, value]) => (
-                            <div key={label} className="min-w-0">
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                            </div>
-                          ))}
-                        </div>
-                        {visibleAppSettings?.telegram.lastError ? (
-                          <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Error</div>
-                            <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{visibleAppSettings.telegram.lastError}</div>
-                          </div>
-                        ) : null}
-                      </section>
-                      ) : null}
-
+                      {/* --- Relay Paths --- */}
                       {brokerInspector ? (
-                        <>
-                          <section ref={relayServiceInspectorRef} className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="flex items-start justify-between gap-3 mb-3">
-                              <div>
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Relay Service</div>
-                                <div className="text-[11px] mt-1" style={s.mutedText}>
-                                  {brokerInspector.statusDetail ?? 'Service status not reported yet.'}
+                        <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                          <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Relay Paths</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {[
+                              ['Support', brokerInspector.supportDirectory],
+                              ['Control Home', brokerInspector.controlHome],
+                              ['LaunchAgent', brokerInspector.launchAgentPath],
+                              ['Stdout Log', brokerInspector.stdoutLogPath],
+                              ['Stderr Log', brokerInspector.stderrLogPath],
+                            ].map(([label, value]) => (
+                              <div key={label}>
+                                <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
+                                <div className="text-[10px] font-mono leading-[1.45] truncate" style={s.mutedText}>
+                                  {renderLocalPathValue(String(value), {
+                                    className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                  })}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
-                                  {brokerInspector.statusLabel}
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant={brokerInspector.reachable ? 'outline' : 'default'}
-                                  size="sm"
-                                  onClick={() => void handleBrokerControl(brokerInspector.reachable ? 'restart' : 'start')}
-                                  disabled={brokerControlPending}
-                                >
-                                  {brokerInspector.reachable ? 'Restart' : 'Start'}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => void handleBrokerControl('stop')}
-                                  disabled={brokerControlPending || !brokerInspector.loaded}
-                                >
-                                  Stop
-                                </Button>
-                              </div>
+                            ))}
+                          </div>
+                          {brokerInspector.lastLogLine ? (
+                            <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Last Service Log</div>
+                              <div className="text-[10px] font-mono leading-[1.45] break-words" style={s.mutedText}>{brokerInspector.lastLogLine}</div>
                             </div>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              {[
-                                ['Version', brokerInspector.version ?? 'Not reported'],
-                                ['Mode', brokerInspector.mode],
-                                ['Service Label', brokerInspector.label],
-                                ['Relay URL', brokerInspector.url],
-                                ['PID', brokerInspector.pid ?? 'Not reported'],
-                                ['Last Restart', brokerInspector.lastRestartLabel ?? 'Not reported'],
-                                ['Installed', brokerInspector.installed ? 'Yes' : 'No'],
-                                ['Loaded', brokerInspector.loaded ? 'Yes' : 'No'],
-                                ['Reachable', brokerInspector.reachable ? 'Yes' : 'No'],
-                                ['Launch State', brokerInspector.launchdState ?? 'Not reported'],
-                                ['Last Exit', brokerInspector.lastExitStatus ?? 'Not reported'],
-                                ['Mesh', brokerInspector.meshId ?? 'Not reported'],
-                              ].map(([label, value]) => (
-                                <div key={label} className="min-w-0">
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                                </div>
-                              ))}
-                            </div>
-                            {brokerInspector.processCommand ? (
-                              <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Process</div>
-                                <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{brokerInspector.processCommand}</div>
-                              </div>
-                            ) : null}
-                            {brokerControlFeedback ? (
-                              <div className="mt-3 pt-3 border-t text-[11px] leading-[1.45]" style={{ borderTopColor: C.border, color: C.ink }}>
-                                {brokerControlFeedback}
-                              </div>
-                            ) : null}
-                          </section>
-
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Relay Paths</div>
-                            <div className="space-y-3">
-                              {[
-                                ['Support', brokerInspector.supportDirectory],
-                                ['Control Home', brokerInspector.controlHome],
-                                ['LaunchAgent', brokerInspector.launchAgentPath],
-                                ['Stdout Log', brokerInspector.stdoutLogPath],
-                                ['Stderr Log', brokerInspector.stderrLogPath],
-                              ].map(([label, value]) => (
-                                <div key={label}>
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>
-                                    {renderLocalPathValue(String(value), {
-                                      className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            {brokerInspector.lastLogLine ? (
-                              <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Service Log</div>
-                                <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{brokerInspector.lastLogLine}</div>
-                              </div>
-                            ) : null}
-                          </section>
-
-                          {brokerInspector.troubleshooting.length > 0 || brokerInspector.feedbackSummary ? (
-                            <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Diagnostics</div>
-                              {brokerInspector.troubleshooting.length > 0 ? (
-                                <div className="space-y-2 mb-4">
-                                  {brokerInspector.troubleshooting.map((item) => (
-                                    <div key={item} className="text-[11px] leading-[1.5]" style={s.inkText}>{item}</div>
-                                  ))}
-                                </div>
-                              ) : null}
-                              {brokerInspector.feedbackSummary ? (
-                                <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words" style={{ borderColor: C.border, color: C.ink }}>
-                                  {brokerInspector.feedbackSummary}
-                                </div>
-                              ) : null}
-                            </section>
                           ) : null}
-                        </>
+                        </section>
                       ) : null}
 
+                      {/* --- Diagnostics --- */}
+                      {brokerInspector && (brokerInspector.troubleshooting.length > 0 || brokerInspector.feedbackSummary) ? (
+                        <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                          <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Diagnostics</div>
+                          {brokerInspector.troubleshooting.length > 0 ? (
+                            <div className="space-y-2 mb-4">
+                              {brokerInspector.troubleshooting.map((item) => (
+                                <div key={item} className="text-[11px] leading-[1.5]" style={s.inkText}>{item}</div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {brokerInspector.feedbackSummary ? (
+                            <div className="rounded-md border px-3 py-3 text-[10px] font-mono leading-[1.55] whitespace-pre-wrap break-words" style={{ borderColor: C.border, color: C.ink }}>
+                              {brokerInspector.feedbackSummary}
+                            </div>
+                          ) : null}
+                        </section>
+                      ) : null}
+
+                      {/* --- Voice & Delivery --- */}
                       {desktopFeatures.voice ? (
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Voice & Delivery</div>
-                        <div className="space-y-3">
-                          <div>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Capture</div>
-                            <div className="text-[12px]" style={s.inkText}>{relayState?.voice.captureTitle ?? 'Not reported'}</div>
+                        <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
+                          <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Voice & Delivery</div>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Capture</div>
+                              <div className="text-[11px]" style={s.inkText}>{relayState?.voice.captureTitle ?? 'Not reported'}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Reachable Directs</div>
+                              <div className="text-[11px]" style={s.inkText}>{reachableRelayAgents.length}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Replies</div>
+                              <button
+                                className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md"
+                                style={{ color: C.ink }}
+                                onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
+                              >
+                                {relayState?.voice.repliesEnabled ? 'Disable' : 'Enable'}
+                              </button>
+                            </div>
                           </div>
-                          <div>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Replies</div>
-                            <button
-                              className="os-toolbar-button text-[11px] font-medium px-2 py-1 rounded"
-                              style={{ color: C.ink }}
-                              onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
-                            >
-                              {relayState?.voice.repliesEnabled ? 'Disable voice replies' : 'Enable voice replies'}
-                            </button>
-                          </div>
-                          <div>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Reachable Directs</div>
-                            <div className="text-[12px]" style={s.inkText}>{reachableRelayAgents.length}</div>
-                          </div>
-                        </div>
-                      </section>
+                        </section>
                       ) : null}
 
                     </div>

@@ -30,6 +30,7 @@ export const SCOUT_ELECTRON_CHANNELS = {
   getLogCatalog: "scout:get-log-catalog",
   getBrokerInspector: "scout:get-broker-inspector",
   readLogSource: "scout:read-log-source",
+  openKnowledgeBase: "scout:open-knowledge-base",
 } as const;
 
 export type ScoutElectronChannelName =

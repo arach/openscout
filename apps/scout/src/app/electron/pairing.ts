@@ -12,6 +12,8 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { findNearestProjectRoot } from "@openscout/runtime/setup";
+
 import { resolveScoutAppRoot } from "../../shared/paths.ts";
 
 export const SCOUT_PAIRING_HOME_DIRECTORY = ".scout/pairing";
@@ -185,6 +187,15 @@ function resolveScoutPairingConfig(): ScoutPairingResolvedConfig {
       : null,
     sessions: Array.isArray(config.sessions) ? config.sessions : [],
   };
+}
+
+async function resolveDefaultScoutPairingWorkspaceRoot(currentDirectory?: string): Promise<string | null> {
+  const trimmed = currentDirectory?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return await findNearestProjectRoot(trimmed) ?? trimmed;
 }
 
 function readScoutPairingRuntimeSnapshot(): ScoutPairingRuntimeSnapshot | null {
@@ -410,8 +421,10 @@ function pairingStateFromRuntime(
   paths: ScoutPairingPaths,
   log: ScoutPairingLogTail,
   resolvedConfig: ScoutPairingResolvedConfig,
+  fallbackWorkspaceRoot: string | null,
 ): ScoutPairingState {
   const relay = snapshot.relay ?? resolvedConfig.relay;
+  const effectiveWorkspaceRoot = snapshot.workspaceRoot ?? resolvedConfig.workspaceRoot ?? fallbackWorkspaceRoot;
   return {
     status: snapshot.status,
     statusLabel: snapshot.statusLabel,
@@ -425,7 +438,7 @@ function pairingStateFromRuntime(
     relay,
     configuredRelay: resolvedConfig.relay,
     secure: snapshot.secure,
-    workspaceRoot: snapshot.workspaceRoot,
+    workspaceRoot: effectiveWorkspaceRoot,
     sessionCount: snapshot.sessionCount,
     identityFingerprint: snapshot.identityFingerprint,
     trustedPeerCount: snapshot.trustedPeerCount,
@@ -442,8 +455,10 @@ function pairingStateFromConfig(
   paths: ScoutPairingPaths,
   resolvedConfig: ScoutPairingResolvedConfig,
   log: ScoutPairingLogTail,
+  fallbackWorkspaceRoot: string | null,
 ): ScoutPairingState {
   const hasConfiguredRelay = resolvedConfig.relay !== null;
+  const effectiveWorkspaceRoot = resolvedConfig.workspaceRoot ?? fallbackWorkspaceRoot;
   return {
     status: hasConfiguredRelay ? "stopped" : "unconfigured",
     statusLabel: hasConfiguredRelay ? "Stopped" : "Not configured",
@@ -459,7 +474,7 @@ function pairingStateFromConfig(
     relay: resolvedConfig.relay,
     configuredRelay: resolvedConfig.relay,
     secure: resolvedConfig.secure,
-    workspaceRoot: resolvedConfig.workspaceRoot,
+    workspaceRoot: effectiveWorkspaceRoot,
     sessionCount: resolvedConfig.sessions.length,
     identityFingerprint: readScoutPairingIdentityFingerprint(paths.identityPath),
     trustedPeerCount: readScoutPairingTrustedPeerCount(paths.trustedPeersPath),
@@ -472,7 +487,7 @@ function pairingStateFromConfig(
   };
 }
 
-function readScoutPairingState(): ScoutPairingState {
+async function readScoutPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
   clearStaleScoutPairingRuntimeFiles();
 
   const paths = resolveScoutPairingPaths();
@@ -480,15 +495,16 @@ function readScoutPairingState(): ScoutPairingState {
   const log = readScoutPairingLogTail(paths.logPath);
   const snapshot = readScoutPairingRuntimeSnapshot();
   const runtimeAlive = isScoutPairingRuntimeRunning();
+  const fallbackWorkspaceRoot = await resolveDefaultScoutPairingWorkspaceRoot(currentDirectory);
 
   if (snapshot && runtimeAlive) {
-    return pairingStateFromRuntime(snapshot, paths, log, resolvedConfig);
+    return pairingStateFromRuntime(snapshot, paths, log, resolvedConfig, fallbackWorkspaceRoot);
   }
 
-  return pairingStateFromConfig(paths, resolvedConfig, log);
+  return pairingStateFromConfig(paths, resolvedConfig, log, fallbackWorkspaceRoot);
 }
 
-function updateScoutPairingConfig(input: UpdateScoutPairingConfigInput): void {
+async function updateScoutPairingConfig(input: UpdateScoutPairingConfigInput, currentDirectory?: string): Promise<void> {
   const current = loadScoutPairingConfig();
   const next: ScoutPairingConfig = {
     ...current,
@@ -501,7 +517,7 @@ function updateScoutPairingConfig(input: UpdateScoutPairingConfigInput): void {
     delete next.relay;
   }
 
-  const workspaceRoot = input.workspaceRoot?.trim();
+  const workspaceRoot = input.workspaceRoot?.trim() || await resolveDefaultScoutPairingWorkspaceRoot(currentDirectory);
   if (workspaceRoot) {
     next.workspace = {
       ...(typeof current.workspace === "object" && current.workspace ? current.workspace : {}),
@@ -512,6 +528,29 @@ function updateScoutPairingConfig(input: UpdateScoutPairingConfigInput): void {
   }
 
   saveScoutPairingConfig(next);
+}
+
+async function ensureDefaultScoutPairingWorkspaceConfig(currentDirectory?: string): Promise<void> {
+  const current = loadScoutPairingConfig();
+  const existingWorkspaceRoot = typeof current.workspace?.root === "string" && current.workspace.root.trim().length > 0
+    ? current.workspace.root.trim()
+    : null;
+  if (existingWorkspaceRoot) {
+    return;
+  }
+
+  const workspaceRoot = await resolveDefaultScoutPairingWorkspaceRoot(currentDirectory);
+  if (!workspaceRoot) {
+    return;
+  }
+
+  saveScoutPairingConfig({
+    ...current,
+    workspace: {
+      ...(typeof current.workspace === "object" && current.workspace ? current.workspace : {}),
+      root: workspaceRoot,
+    },
+  });
 }
 
 async function waitForScoutPairingProcessExit(pid: number): Promise<void> {
@@ -564,36 +603,42 @@ async function ensureScoutPairingRuntimeStarted(): Promise<void> {
   await startScoutPairingRuntime();
 }
 
-export async function getScoutElectronPairingState(): Promise<ScoutPairingState> {
-  return readScoutPairingState();
+export async function getScoutElectronPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
+  return readScoutPairingState(currentDirectory);
 }
 
-export async function refreshScoutElectronPairingState(): Promise<ScoutPairingState> {
-  return readScoutPairingState();
+export async function refreshScoutElectronPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
+  return readScoutPairingState(currentDirectory);
 }
 
-export async function controlScoutElectronPairingService(action: ScoutPairingControlAction): Promise<ScoutPairingState> {
+export async function controlScoutElectronPairingService(
+  action: ScoutPairingControlAction,
+  currentDirectory?: string,
+): Promise<ScoutPairingState> {
   switch (action) {
     case "start":
+      await ensureDefaultScoutPairingWorkspaceConfig(currentDirectory);
       await ensureScoutPairingRuntimeStarted();
       break;
     case "stop":
       await stopScoutPairingRuntime();
       break;
     case "restart":
+      await ensureDefaultScoutPairingWorkspaceConfig(currentDirectory);
       await restartScoutPairingRuntime();
       break;
   }
 
-  return readScoutPairingState();
+  return readScoutPairingState(currentDirectory);
 }
 
 export async function updateScoutElectronPairingConfig(
   input: UpdateScoutPairingConfigInput,
+  currentDirectory?: string,
 ): Promise<ScoutPairingState> {
-  updateScoutPairingConfig(input);
+  await updateScoutPairingConfig(input, currentDirectory);
   if (isScoutPairingRuntimeRunning()) {
     await restartScoutPairingRuntime();
   }
-  return readScoutPairingState();
+  return readScoutPairingState(currentDirectory);
 }

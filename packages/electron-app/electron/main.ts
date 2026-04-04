@@ -14,6 +14,7 @@ import {
   resolveScoutElectronStartUrl,
   SCOUT_ELECTRON_DEFAULT_WINDOW,
 } from "../../../apps/scout/src/app/index.ts";
+import { SCOUT_ELECTRON_CHANNELS } from "../../../apps/scout/src/app/electron/channels.ts";
 import { SCOUT_PRODUCT_NAME } from "../../../apps/scout/src/shared/product.ts";
 import type { ScoutDesktopAppInfo } from "../../../apps/scout/src/app/desktop/index.ts";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
@@ -42,7 +43,15 @@ let appServer: StartedAppServer | null = null;
 const execFile = promisify(execFileCallback);
 
 function resolveProductName() {
-  return process.env.SCOUT_PRODUCT_NAME?.trim() || app.getName() || SCOUT_PRODUCT_NAME;
+  const fromEnv = process.env.SCOUT_PRODUCT_NAME?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const appName = app.getName()?.trim();
+  if (appName && appName !== "Electron") {
+    return appName;
+  }
+  return SCOUT_PRODUCT_NAME;
 }
 
 function envFlagEnabled(value: string | undefined) {
@@ -201,6 +210,17 @@ function createAppMenu() {
     {
       label: "Window",
       submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "front" }],
+    },
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "Knowledge Base",
+          click: () => {
+            mainWindow?.webContents.send(SCOUT_ELECTRON_CHANNELS.openKnowledgeBase);
+          },
+        },
+      ],
     },
   ];
 
