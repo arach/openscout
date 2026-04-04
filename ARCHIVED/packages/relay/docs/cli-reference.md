@@ -6,7 +6,7 @@ order: 4
 
 # CLI Reference
 
-`openscout relay` remains available as the advanced compatibility layer. The primary onboarding flow now starts with `scout init`.
+`openscout relay` remains available as the advanced compatibility layer. The primary onboarding flow now starts with `scout setup`.
 
 All relay commands are subcommands of `openscout relay`.
 

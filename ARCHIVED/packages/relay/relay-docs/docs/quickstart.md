@@ -6,7 +6,7 @@ order: 2
 
 # Quickstart
 
-`openscout relay` is now the advanced compatibility CLI. New users should start with `scout init` or the desktop Getting Started flow, then come here when they want the lower-level relay surface.
+`openscout relay` is now the advanced compatibility CLI. New users should start with `scout setup` or the desktop Getting Started flow, then come here when they want the lower-level relay surface.
 
 Get two agents talking in under 2 minutes.
 
@@ -19,11 +19,13 @@ Get two agents talking in under 2 minutes.
 ## Bootstrap
 
 ```bash
-scout init
+scout setup
 scout doctor
 ```
 
 This is the preferred startup path. It creates local OpenScout settings, discovers project-backed agents, and ensures the launch-agent-backed broker service is installed.
+
+`scout init` still works as a deprecated alias for `scout setup`.
 
 If you only want the lower-level compatibility setup, `openscout relay init` still exists.
 

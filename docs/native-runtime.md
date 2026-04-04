@@ -1,8 +1,12 @@
-# Native Runtime
+# Archived Native Runtime
 
-## Current Native Targets
+This document describes the archived native shell scaffold that now lives under:
 
-The native scaffold lives in `native/engine` and exposes three products:
+`ARCHIVED/native/engine`
+
+## Archived Native Targets
+
+The native scaffold exposed three products:
 
 - `ScoutApp`
 - `ScoutAgent`
@@ -20,7 +24,7 @@ The shell and helper should not be the same process because they have different 
 
 That mirrors the stronger process model already proven elsewhere in your ecosystem.
 
-## Current Behavior
+## Historical Behavior
 
 When `ScoutApp` launches it:
 
@@ -35,14 +39,6 @@ When `ScoutAgent` launches it:
 1. accepts an optional `--status-file` argument
 2. writes heartbeat updates to that file
 3. stays alive until terminated
-
-## Developer Commands
-
-```bash
-bun run native:build
-bun run native:app
-bun run native:agent
-```
 
 ## Notes
 

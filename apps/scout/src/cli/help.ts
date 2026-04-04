@@ -1,7 +1,10 @@
-import { SCOUT_COMMANDS } from "./registry.ts";
+import { listScoutDeprecatedCommands, listScoutPrimaryCommands } from "./registry.ts";
 
 export function renderScoutHelp(version = "0.2.0"): string {
-  const commandLines = SCOUT_COMMANDS
+  const commandLines = listScoutPrimaryCommands()
+    .map((command) => `  ${command.name.padEnd(12, " ")} ${command.summary}`)
+    .join("\n");
+  const deprecatedLines = listScoutDeprecatedCommands()
     .map((command) => `  ${command.name.padEnd(12, " ")} ${command.summary}`)
     .join("\n");
 
@@ -13,6 +16,13 @@ export function renderScoutHelp(version = "0.2.0"): string {
     "",
     "Commands:",
     commandLines,
+    ...(deprecatedLines
+      ? [
+          "",
+          "Deprecated aliases:",
+          deprecatedLines,
+        ]
+      : []),
     "",
     "Global flags:",
     "  --json        Structured JSON (doctor: NDJSON stream; last object has phase \"complete\")",

@@ -2089,8 +2089,12 @@ function buildInterAgentState(
           : counterpartCount === 1
             ? "1 counterpart"
             : `${counterpartCount} counterparts`,
+        definitionId: typeof agent.definitionId === "string" ? agent.definitionId : null,
         selector: typeof agent.metadata?.selector === "string" ? agent.metadata.selector : null,
         defaultSelector: typeof agent.metadata?.defaultSelector === "string" ? agent.metadata.defaultSelector : null,
+        nodeQualifier: typeof agent.metadata?.nodeQualifier === "string" ? agent.metadata.nodeQualifier : null,
+        workspaceQualifier: typeof agent.metadata?.workspaceQualifier === "string" ? agent.metadata.workspaceQualifier : null,
+        branch: typeof agent.metadata?.branch === "string" ? agent.metadata.branch : null,
         profileKind: interAgentProfileKind(agent),
         registrationKind: "configured" as const,
         source: typeof agent.metadata?.source === "string" ? agent.metadata.source : null,

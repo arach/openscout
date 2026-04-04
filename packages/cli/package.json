@@ -1,7 +1,7 @@
 {
   "name": "@openscout/cli",
   "version": "0.1.0",
-  "description": "Compatibility package that loads the Scout CLI",
+  "description": "Public Scout CLI for the OpenScout operator surface",
   "license": "UNLICENSED",
   "type": "module",
   "bin": {

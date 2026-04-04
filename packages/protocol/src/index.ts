@@ -1,5 +1,7 @@
 export * from "./common.js";
 export * from "./actors.js";
+export * from "./agent-identity.js";
+export * from "./agent-address.js";
 export * from "./agent-selectors.js";
 export * from "./mesh.js";
 export * from "./conversations.js";

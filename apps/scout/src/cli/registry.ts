@@ -1,6 +1,9 @@
 export type ScoutCommandRegistration = {
   name: string;
   summary: string;
+  status?: "stable" | "deprecated";
+  canonicalName?: string;
+  deprecationMessage?: string;
 };
 
 export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
@@ -21,5 +24,24 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "ps", summary: "List configured local agents" },
   { name: "restart", summary: "Restart configured local agents" },
   { name: "pair", summary: "Pair a companion device via QR" },
-  { name: "tui", summary: "Open the Scout monitor" }
+  { name: "tui", summary: "Open the Scout monitor" },
+  {
+    name: "init",
+    summary: "Deprecated alias for setup",
+    status: "deprecated",
+    canonicalName: "setup",
+    deprecationMessage: "scout init is deprecated; use scout setup.",
+  },
 ];
+
+export function listScoutPrimaryCommands(): ScoutCommandRegistration[] {
+  return SCOUT_COMMANDS.filter((command) => (command.status ?? "stable") === "stable");
+}
+
+export function listScoutDeprecatedCommands(): ScoutCommandRegistration[] {
+  return SCOUT_COMMANDS.filter((command) => command.status === "deprecated");
+}
+
+export function findScoutCommandRegistration(name: string): ScoutCommandRegistration | undefined {
+  return SCOUT_COMMANDS.find((command) => command.name === name);
+}

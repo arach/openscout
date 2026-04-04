@@ -1,7 +1,7 @@
 {
   "name": "@openscout/relay",
   "version": "0.2.1",
-  "description": "File-based agent chat — the filesystem is the transport",
+  "description": "Broker-backed compatibility relay CLI for OpenScout",
   "type": "module",
   "bin": {
     "openscout": "./dist/cli.js",

@@ -121,8 +121,12 @@ export type ScoutInterAgentAgent = {
   id: string;
   title: string;
   subtitle: string;
+  definitionId: string | null;
   selector: string | null;
   defaultSelector: string | null;
+  nodeQualifier: string | null;
+  workspaceQualifier: string | null;
+  branch: string | null;
   profileKind: "project" | "role" | "system";
   registrationKind: "configured" | "discovered";
   source: string | null;

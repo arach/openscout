@@ -159,7 +159,7 @@ The runtime should also track why a harness is not ready, not just whether it is
 
 ## Desktop UI Implications
 
-The native shell in `native/engine/Sources/ScoutApp` already exposes broker and helper health in [`ScoutSettingsView.swift`](../../native/engine/Sources/ScoutApp/ScoutSettingsView.swift) and [`ScoutBrokerSupervisor.swift`](../../native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift). This track should add a harness-focused panel that mirrors those patterns:
+The archived native shell in `ARCHIVED/native/engine/Sources/ScoutApp` already exposes broker and helper health in [`ScoutSettingsView.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift) and [`ScoutBrokerSupervisor.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift). This track should add a harness-focused panel that mirrors those patterns:
 
 - show installed, configured, ready, and failed states side by side
 - show missing requirements as actionable text, not just a red dot
@@ -224,5 +224,5 @@ The shell should answer three questions at a glance:
 - [`docs/native-runtime.md`](../native-runtime.md)
 - [`packages/runtime/README.md`](../../packages/runtime/README.md)
 - [`src/app/page.tsx`](../../src/app/page.tsx)
-- [`native/engine/Sources/ScoutApp/ScoutSettingsView.swift`](../../native/engine/Sources/ScoutApp/ScoutSettingsView.swift)
-- [`native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift`](../../native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift)
+- [`ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift)
+- [`ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift)

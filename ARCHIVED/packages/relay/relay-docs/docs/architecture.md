@@ -186,7 +186,7 @@ This is the sequence diagram story for the protocol:
 
 The intended operational path is:
 
-1. `scout init` creates machine settings, agent mappings, and repo-local manifests when needed.
+1. `scout setup` creates machine settings, agent mappings, and repo-local manifests when needed.
 2. The runtime installs a launch agent under `~/Library/LaunchAgents/`.
 3. `launchd` keeps the broker alive.
 4. Agents register endpoints with harness and transport metadata.
@@ -196,7 +196,7 @@ That is how the system should answer "how do we make sure nothing gets lost?"
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Installed: scout init
+    [*] --> Installed: scout setup
     Installed --> Starting: launchd starts broker
     Starting --> Healthy: health check passes
     Starting --> Failed: startup error

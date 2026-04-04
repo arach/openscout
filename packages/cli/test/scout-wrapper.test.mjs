@@ -15,6 +15,7 @@ test("scout wrapper exposes the new Scout CLI surface", () => {
 
   assert.match(output, /\bsetup\b/);
   assert.match(output, /\bpair\b/);
-  assert.doesNotMatch(output, /\binit\b/);
+  assert.match(output, /Deprecated aliases:/);
+  assert.match(output, /\binit\s+Deprecated alias for setup\b/);
   assert.doesNotMatch(output, /\bscout dev\b/);
 });

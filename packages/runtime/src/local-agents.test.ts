@@ -21,9 +21,9 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
-    expect(prompt).toContain("packages/relay/src/cli.ts relay send --as shaper");
-    expect(prompt).toContain('packages/relay/src/cli.ts relay ask --to <agent> --as shaper "your request"');
-    expect(prompt).toContain("packages/relay/src/cli.ts relay read --as shaper");
+    expect(prompt).toContain("bun relay send --as shaper");
+    expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
+    expect(prompt).toContain("bun relay read --as shaper");
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
     expect(prompt).toContain("/Users/arach/.agents/skills/relay-agent-comms/SKILL.md");
@@ -93,8 +93,8 @@ describe("local agent prompts", () => {
 
     expect(prompt).toContain("Task: Find the session restore race.");
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
-    expect(prompt).toContain("packages/relay/src/cli.ts relay read -n 20 --as shaper");
-    expect(prompt).toContain('packages/relay/src/cli.ts relay send --as shaper "[ask:flt-1] @hudson <your response>"');
+    expect(prompt).toContain("bun relay read -n 20 --as shaper");
+    expect(prompt).toContain('bun relay send --as shaper "[ask:flt-1] @hudson <your response>"');
   });
 
   test("tmux launch shell command quotes script paths with spaces", () => {

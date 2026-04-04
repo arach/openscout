@@ -3,6 +3,7 @@ import { createScoutCommandContext } from "./context.ts";
 import { ScoutCliError } from "./errors.ts";
 import { SCOUT_COMMAND_HANDLERS } from "./commands/index.ts";
 import { renderScoutHelp } from "./help.ts";
+import { findScoutCommandRegistration } from "./registry.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
 
 async function main() {
@@ -20,9 +21,19 @@ async function main() {
     return;
   }
 
-  const handler = SCOUT_COMMAND_HANDLERS[command as keyof typeof SCOUT_COMMAND_HANDLERS];
-  if (!handler) {
+  const registration = findScoutCommandRegistration(command);
+  if (!registration) {
     throw new ScoutCliError(`unknown command: ${command}`);
+  }
+
+  if (registration.status === "deprecated" && registration.deprecationMessage) {
+    context.stderr(`warning: ${registration.deprecationMessage}`);
+  }
+
+  const resolvedCommand = registration.canonicalName ?? registration.name;
+  const handler = SCOUT_COMMAND_HANDLERS[resolvedCommand as keyof typeof SCOUT_COMMAND_HANDLERS];
+  if (!handler) {
+    throw new ScoutCliError(`unknown command: ${resolvedCommand}`);
   }
 
   await handler(context, input.args);

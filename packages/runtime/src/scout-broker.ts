@@ -306,7 +306,7 @@ export async function loadScoutBrokerContext(baseUrl = resolveScoutBrokerUrl()):
 export async function requireScoutBrokerContext(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerContext> {
   const context = await loadScoutBrokerContext(baseUrl);
   if (!context) {
-    throw new Error(`Broker is not reachable at ${baseUrl}. Run scout init first.`);
+    throw new Error(`Broker is not reachable at ${baseUrl}. Run scout setup first.`);
   }
   return context;
 }

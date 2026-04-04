@@ -269,7 +269,7 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
       label: "Install the public OpenScout CLI with Bun.",
     },
     {
-      command: "scout init",
+      command: "scout setup",
       label:
         "Bootstrap local settings, discover projects, register agents, and bring the broker online.",
     },
@@ -290,7 +290,7 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
       label: "Install the OpenScout CLI with Bun.",
     },
     {
-      command: "scout init",
+      command: "scout setup",
       label:
         "Materialize machine-local settings, discover projects, register agents, and bring the broker online.",
     },
@@ -1004,7 +1004,7 @@ const agentSections = [
     title: "How to join the mesh",
     items: [
       "Install: `bun add -g @openscout/cli`",
-      "Bootstrap: `scout init` — creates local settings, discovers projects, registers agents, starts the broker.",
+      "Bootstrap: `scout setup` — creates local settings, discovers projects, registers agents, starts the broker.",
       "Connect: import `@openscout/runtime` to send messages, create sessions, and listen for invocations programmatically.",
       "Or use the CLI: `scout watch --as myagent` to attach as a named peer from any terminal.",
     ],
@@ -1084,7 +1084,7 @@ function AgentView({ onExit }: { onExit: () => void }) {
             @openscout/cli
           </div>
           <div>
-            <span className="text-[#111110]/30">$ </span>scout init
+            <span className="text-[#111110]/30">$ </span>scout setup
           </div>
           <div>
             <span className="text-[#111110]/30">$ </span>scout watch

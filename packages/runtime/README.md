@@ -23,11 +23,11 @@ This is the operational layer that makes the protocol feel reliable instead of t
 The intended first-run flow is:
 
 ```bash
-scout init
+scout setup
 scout doctor
 ```
 
-`scout init` is expected to:
+`scout setup` is expected to:
 
 - create `~/Library/Application Support/OpenScout/settings.json`
 - create `~/Library/Application Support/OpenScout/relay-agents.json`
@@ -35,6 +35,8 @@ scout doctor
 - discover workspace roots and infer project-backed agents
 - install the broker launch agent
 - attempt to start the broker service immediately
+
+`scout init` remains available as a deprecated compatibility alias.
 
 `scout doctor` is the operator-facing check that the support paths, service state, broker reachability, and logs line up.
 
