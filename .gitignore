@@ -34,6 +34,7 @@ packages/*/dist/
 packages/*/node_modules/
 apps/*/node_modules/
 packages/relay/relay-docs/node_modules/
+ARCHIVED/**/node_modules/
 packages/relay/relay-docs/.astro/
 
 # misc
