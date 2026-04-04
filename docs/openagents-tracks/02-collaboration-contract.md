@@ -36,7 +36,7 @@ OpenScout should treat these as distinct records:
 - `flight`: the lifecycle of a work request or delivery
 - `binding`: a durable link from an external surface or harness into the same broker model
 
-This aligns with the current broker-first direction in [OpenScout Architecture](/Users/arach/dev/openscout/docs/ARCHITECTURE.md), the archived runtime model in [Relay Architecture](/Users/arach/dev/openscout/ARCHIVED/packages/relay/docs/architecture.md), and the `question` / `work_item` split in [Collaboration Workflows V1](/Users/arach/dev/openscout/docs/collaboration-workflows-v1.md).
+This aligns with the current broker-first direction in [OpenScout Architecture](/Users/arach/dev/openscout/docs/ARCHITECTURE.md) and the `question` / `work_item` split in [Collaboration Workflows V1](/Users/arach/dev/openscout/docs/collaboration-workflows-v1.md).
 
 ## Identity Model
 

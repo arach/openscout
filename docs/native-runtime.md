@@ -1,10 +1,8 @@
-# Archived Native Runtime
+# Historical Native Runtime
 
-This document describes the archived native shell scaffold that now lives under:
+This document captures the shape of the earlier native shell scaffold that informed the current Electron and runtime split. The source tree is no longer kept in the repository, but the process model is still useful context.
 
-`ARCHIVED/native/engine`
-
-## Archived Native Targets
+## Historical Native Targets
 
 The native scaffold exposed three products:
 
@@ -12,7 +10,7 @@ The native scaffold exposed three products:
 - `ScoutAgent`
 - `ScoutCore`
 
-## Why The Split Exists
+## Why The Split Existed
 
 OpenScout wants one central GUI shell and one helper process that can be relied on independently.
 

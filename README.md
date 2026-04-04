@@ -1,18 +1,14 @@
 # OpenScout
 
-OpenScout is the local Scout workspace for the current desktop app, CLI, and broker runtime.
+OpenScout is the active Scout codebase: desktop app, CLI, broker runtime, and shared protocol.
 
-This repo now has three active layers:
-
-- A Scout app tree under `apps/scout` for product logic and UI
-- An Electron shell for the operator-facing desktop surface
-- A local broker/control plane in `packages/*` for durable agent communication and execution
-
-The live Scout path is:
+The live product path is:
 
 - `apps/scout` for product logic, CLI, UI, and app-layer services
 - `packages/electron-app` for the Electron host shell
-- `packages/runtime` and `packages/protocol` for the local broker/runtime foundation
+- `packages/runtime` for the broker/runtime foundation
+- `packages/protocol` for shared contracts and identity grammar
+- `packages/cli` for the published `@openscout/cli` wrapper that installs `scout`
 
 ## Why The Broker Matters
 
@@ -26,9 +22,9 @@ The product story is not just "chat between terminals." The current control-plan
 - recoverable: broker restarts do not have to erase the story of what happened
 - harness-agnostic: Claude, Codex, tmux, and future harnesses are edge concerns, not protocol forks
 
-## Current Direction
+## Product Shape
 
-Scout is being structured around one product path:
+Scout is structured around one product path:
 
 - `apps/scout` owns product behavior
 - `packages/electron-app` is the desktop host
@@ -48,7 +44,7 @@ scout doctor
 
 `scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
 
-## Run The Electron Shell
+## Run The Desktop App
 
 The main desktop loop now runs directly from the repo root:
 
@@ -57,14 +53,13 @@ bun install
 bun run dev
 ```
 
-That command starts the Scout renderer, verifies it is the Scout UI rather than another Vite app on the same machine, and then launches Electron against that renderer.
+That starts the Scout renderer and launches Electron against it.
 
-To install the CLI globally through Bun from this repo:
+To install the CLI globally from this repo:
 
 ```bash
-bun link
-bun run cli:build
-(cd packages/cli && bun link)
+npm --prefix packages/cli run build
+(cd packages/cli && npm link)
 scout --help
 scout setup
 ```
@@ -86,14 +81,10 @@ The support directory is now organized as:
     └── agents/
 ```
 
-`~/.openscout/relay` still exists as the relay compatibility layer, but it is no longer the primary setup surface.
-
 ## Repo Layout
 
 ```text
 .
-├── ARCHIVED/
-│   └── ...
 ├── apps/
 │   └── scout/
 ├── docs/
@@ -113,4 +104,3 @@ The support directory is now organized as:
 - `docs/agent-identity.md`
 - `packages/protocol/README.md`
 - `packages/runtime/README.md`
-- `ARCHIVED/README.md`

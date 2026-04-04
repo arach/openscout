@@ -130,7 +130,7 @@ The onboarding surface should be built around a small, obvious command set:
 - `scout runtimes info <name>` should explain install status, readiness requirements, and capability flags.
 - `scout runtimes refresh` should re-run discovery and remote enrichment.
 
-The track should explicitly reuse the onboarding commands now owned by the Scout app and CLI, and the archived native support-directory model in [`docs/native-runtime.md`](../native-runtime.md).
+The track should explicitly reuse the onboarding commands now owned by the Scout app and CLI, and the support-directory model described in [`docs/native-runtime.md`](../native-runtime.md).
 
 ## Broker And Runtime Responsibilities
 
@@ -159,7 +159,7 @@ The runtime should also track why a harness is not ready, not just whether it is
 
 ## Desktop UI Implications
 
-The archived native shell in `ARCHIVED/native/engine/Sources/ScoutApp` already exposes broker and helper health in [`ScoutSettingsView.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift) and [`ScoutBrokerSupervisor.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift). This track should add a harness-focused panel that mirrors those patterns:
+The current desktop shell should expose broker and helper health in the same spirit as the earlier native prototype, but now through Scout-owned app and desktop modules. This track should add a harness-focused panel that:
 
 - show installed, configured, ready, and failed states side by side
 - show missing requirements as actionable text, not just a red dot
@@ -223,6 +223,5 @@ The shell should answer three questions at a glance:
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md)
 - [`docs/native-runtime.md`](../native-runtime.md)
 - [`packages/runtime/README.md`](../../packages/runtime/README.md)
-- [`ARCHIVED/site/src/app/page.tsx`](../../ARCHIVED/site/src/app/page.tsx)
-- [`ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift)
-- [`ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift)
+- [`apps/scout/src/app/electron/settings.ts`](../../apps/scout/src/app/electron/settings.ts)
+- [`apps/scout/src/ui/desktop/app.tsx`](../../apps/scout/src/ui/desktop/app.tsx)
