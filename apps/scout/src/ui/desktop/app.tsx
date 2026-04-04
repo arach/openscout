@@ -3777,14 +3777,6 @@ export default function App() {
                 <Settings size={16} strokeWidth={1.5} />
               </button>
             ) : null}
-            <button
-              className="p-1.5 rounded flex items-center justify-center transition-colors"
-              style={activeView === 'help' ? s.activePill : s.mutedText}
-              title="Help"
-              onClick={openKnowledgeBase}
-            >
-              <BookOpen size={16} strokeWidth={1.5} />
-            </button>
           </div>
         </div>
 
@@ -9041,15 +9033,18 @@ export default function App() {
           >
             <LayoutGrid size={9} /> Home
           </button>
+        </div>
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={openKnowledgeBase}
-            className="flex items-center gap-1 hover:opacity-70 cursor-pointer transition-opacity"
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:opacity-80"
+            style={activeView === 'help' ? s.activePill : s.mutedText}
+            title="Help"
           >
-            <BookOpen size={9} /> Help
+            <BookOpen size={9} />
+            <span>Help</span>
           </button>
-        </div>
-        <div className="flex items-center gap-3">
           <button
             onClick={() => {
               setProductSurface('relay');

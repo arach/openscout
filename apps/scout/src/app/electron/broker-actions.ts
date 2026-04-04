@@ -35,6 +35,9 @@ import {
   loadScoutDesktopRelayShellPatch,
   loadScoutDesktopShellState,
   type ScoutDesktopAppInfo,
+  type ScoutInterAgentAgent,
+  type ScoutRelayDirectThread,
+  type ScoutRelayMessage,
   type ScoutDesktopShellPatch,
   type ScoutDesktopShellState,
 } from "../desktop/index.ts";
@@ -103,6 +106,166 @@ async function loadBrokerActionRelayShellPatch(input: ScoutElectronBrokerActionO
 
 function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
+}
+
+function relayTaskSnippet(body: string): string {
+  const normalized = sanitizeRelayBody(body).replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "Working…";
+  }
+  if (normalized.length <= 96) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 93).trimEnd()}...`;
+}
+
+function optimisticSentReceipt(): NonNullable<ScoutRelayMessage["receipt"]> {
+  return {
+    state: "sent",
+    label: "Sent",
+    detail: null,
+  };
+}
+
+function applyOptimisticWorkingToDirect(
+  thread: ScoutRelayDirectThread,
+  activeTask: string,
+): ScoutRelayDirectThread {
+  return {
+    ...thread,
+    state: "working",
+    reachable: true,
+    statusLabel: "Working",
+    statusDetail: null,
+    activeTask,
+  };
+}
+
+function applyOptimisticWorkingToAgent(
+  agent: ScoutInterAgentAgent,
+  activeTask: string,
+): ScoutInterAgentAgent {
+  return {
+    ...agent,
+    state: "working",
+    reachable: true,
+    statusLabel: "Working",
+    statusDetail: null,
+  };
+}
+
+function buildOptimisticBrokerRelayMessage(input: {
+  messageId: string;
+  clientMessageId: string | null | undefined;
+  conversationId: string;
+  body: string;
+  operatorId: string;
+  operatorName: string;
+  destinationKind: ScoutElectronSendRelayMessageInput["destinationKind"];
+  destinationId: string;
+  recipients: string[];
+  createdAt: number;
+}): ScoutRelayMessage {
+  const normalizedChannel = input.destinationKind === "channel"
+    ? input.destinationId
+    : input.destinationKind === "direct"
+      ? null
+      : "shared";
+  const isVoice = input.destinationKind === "channel" && input.destinationId === "voice";
+  const isSystem = input.destinationKind === "channel" && input.destinationId === "system";
+
+  return {
+    id: input.messageId,
+    clientMessageId: input.clientMessageId ?? null,
+    conversationId: input.conversationId,
+    createdAt: input.createdAt,
+    replyToMessageId: null,
+    authorId: input.operatorId,
+    authorName: input.operatorName,
+    authorRole: null,
+    body: input.body.trim(),
+    timestampLabel: new Date(input.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    dayLabel: new Date(input.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }).toUpperCase(),
+    normalizedChannel,
+    recipients: input.recipients,
+    isDirectConversation: input.destinationKind === "direct",
+    isSystem,
+    isVoice,
+    messageClass: isSystem ? "system" : "agent",
+    routingSummary: input.recipients.length > 0 ? `Targets ${input.recipients.join(", ")}` : null,
+    provenanceSummary: "via electron",
+    provenanceDetail: null,
+    isOperator: true,
+    avatarLabel: input.operatorName.slice(0, 1).toUpperCase() || "A",
+    avatarColor: "#64748b",
+    receipt: optimisticSentReceipt(),
+  };
+}
+
+function applyOptimisticRelayPatch(input: {
+  patch: ScoutDesktopShellPatch;
+  invokeTargets: string[];
+  activeTask: string;
+  messageId: string;
+  clientMessageId: string | null | undefined;
+  conversationId: string;
+  operatorName: string;
+  operatorId: string;
+  destinationKind: ScoutElectronSendRelayMessageInput["destinationKind"];
+  destinationId: string;
+  body: string;
+  createdAt: number;
+}): ScoutDesktopShellPatch {
+  if (input.invokeTargets.length === 0) {
+    return input.patch;
+  }
+
+  const nextDirects = input.patch.relay.directs.map((thread) => (
+    input.invokeTargets.includes(thread.id)
+      ? applyOptimisticWorkingToDirect(thread, input.activeTask)
+      : thread
+  ));
+
+  const nextAgents = input.patch.interAgent.agents.map((agent) => (
+    input.invokeTargets.includes(agent.id)
+      ? applyOptimisticWorkingToAgent(agent, input.activeTask)
+      : agent
+  ));
+
+  let nextMessages = input.patch.relay.messages;
+
+  const hasPostedMessage = nextMessages.some((message) => (
+    message.id === input.messageId
+    || (input.clientMessageId && message.clientMessageId === input.clientMessageId)
+  ));
+
+  if (!hasPostedMessage) {
+    nextMessages = [...nextMessages, buildOptimisticBrokerRelayMessage({
+      messageId: input.messageId,
+      clientMessageId: input.clientMessageId,
+      conversationId: input.conversationId,
+      body: input.body,
+      operatorId: input.operatorId,
+      operatorName: input.operatorName,
+      destinationKind: input.destinationKind,
+      destinationId: input.destinationId,
+      recipients: input.invokeTargets,
+      createdAt: input.createdAt,
+    })].sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+  }
+
+  return {
+    ...input.patch,
+    interAgent: {
+      ...input.patch.interAgent,
+      agents: nextAgents,
+    },
+    relay: {
+      ...input.patch.relay,
+      directs: nextDirects,
+      messages: nextMessages,
+    },
+  };
 }
 
 function normalizeTimestamp(value: unknown): number | null {
@@ -567,7 +730,8 @@ export async function sendScoutElectronRelayMessage(
     visibility = "private";
   }
 
-  const messageId = `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const createdAt = Date.now();
+  const messageId = `msg-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   await postBrokerJson(broker.baseUrl, "/v1/messages", {
     id: messageId,
     conversationId,
@@ -588,7 +752,7 @@ export async function sendScoutElectronRelayMessage(
       : undefined,
     visibility,
     policy: "durable",
-    createdAt: Date.now(),
+    createdAt,
     metadata: {
       source: "scout-electron",
       destinationKind: input.destinationKind,
@@ -617,7 +781,7 @@ export async function sendScoutElectronRelayMessage(
       execution: requestedHarness ? { harness: requestedHarness } : undefined,
       ensureAwake: true,
       stream: false,
-      createdAt: Date.now(),
+      createdAt,
       metadata: {
         source: "scout-electron",
         destinationKind: input.destinationKind,
@@ -625,5 +789,19 @@ export async function sendScoutElectronRelayMessage(
     });
   }
 
-  return loadBrokerActionRelayShellPatch(options);
+  const patch = await loadBrokerActionRelayShellPatch(options);
+  return applyOptimisticRelayPatch({
+    patch,
+    invokeTargets,
+    activeTask: relayTaskSnippet(input.body),
+    messageId,
+    clientMessageId: input.clientMessageId,
+    conversationId,
+    operatorName,
+    operatorId: SCOUT_BROKER_OPERATOR_ID,
+    destinationKind: input.destinationKind,
+    destinationId: input.destinationId,
+    body: input.body,
+    createdAt,
+  });
 }

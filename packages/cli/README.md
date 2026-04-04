@@ -1,6 +1,15 @@
 # scout
 
-User-facing CLI for Scout.
+Published CLI package for Scout.
+
+Install:
+
+```bash
+npm install -g @openscout/cli
+scout --help
+```
+
+`@openscout/cli` is the npm package name. It installs the `scout` command.
 
 ## Canonical Flow
 
