@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildDefaultBrokerUrl,
+  DEFAULT_BROKER_HOST,
+  DEFAULT_BROKER_PORT,
+  DEFAULT_BROKER_URL,
   parseLaunchctlPrint,
   renderLaunchAgentPlist,
   selectLastRelevantLogLine,
@@ -21,9 +25,9 @@ const config: BrokerServiceConfig = {
   controlHome: "/Users/arach/.openscout/control-plane",
   runtimePackageDir: "/Users/arach/dev/openscout/packages/runtime",
   bunExecutable: "/Users/arach/.bun/bin/bun",
-  brokerHost: "127.0.0.1",
-  brokerPort: 65535,
-  brokerUrl: "http://127.0.0.1:65535",
+  brokerHost: DEFAULT_BROKER_HOST,
+  brokerPort: DEFAULT_BROKER_PORT,
+  brokerUrl: DEFAULT_BROKER_URL,
 };
 
 describe("broker launch agent config", () => {
@@ -40,7 +44,7 @@ describe("broker launch agent config", () => {
     expect(plist).toContain("<key>SuccessfulExit</key>");
     expect(plist).toContain("<false/>");
     expect(plist).toContain("<key>OPENSCOUT_BROKER_URL</key>");
-    expect(plist).toContain("<string>http://127.0.0.1:65535</string>");
+    expect(plist).toContain(`<string>${DEFAULT_BROKER_URL}</string>`);
   });
 
   test("parses launchctl print output for pid and state", () => {
@@ -66,13 +70,19 @@ system/com.example.job = {
     expect(parsed.lastExitStatus).toBe(0);
   });
 
-  test("prefers informative runtime log lines over bun script banners", () => {
+  test("prefers informative runtime log lines over package script banners", () => {
     expect(
       selectLastRelevantLogLine([
         "$ bun run src/broker-daemon.ts",
-        "[openscout-runtime] broker listening on http://127.0.0.1:65535",
+        `[openscout-runtime] broker listening on ${DEFAULT_BROKER_URL}`,
       ]),
-    ).toBe("[openscout-runtime] broker listening on http://127.0.0.1:65535");
+    ).toBe(`[openscout-runtime] broker listening on ${DEFAULT_BROKER_URL}`);
+
+    expect(
+      selectLastRelevantLogLine([
+        "$ npm run broker",
+      ]),
+    ).toBe("$ npm run broker");
 
     expect(
       selectLastRelevantLogLine([

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -17,6 +18,7 @@ import {
 
 import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
+import { collectUserLevelProjectRootHints } from "./user-project-hints.js";
 
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "tmux";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
@@ -89,6 +91,7 @@ export type OpenScoutSettings = {
     contextRoot: string | null;
     workspaceRoots: string[];
     includeCurrentRepo: boolean;
+    hiddenProjectRoots: string[];
   };
   agents: {
     defaultHarness: AgentHarness;
@@ -307,19 +310,109 @@ const PROJECT_SCAN_SKIP_DIRECTORIES = new Set([
   "Pods",
   ".venv",
   "venv",
+  "target",
+  ".gradle",
+  "__pypackages__",
+  ".tox",
+  ".nox",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".pytest_cache",
+  "bower_components",
+  ".pnpm-store",
+  ".pnpm",
+  ".yarn",
+  "tmp",
+  ".tmp",
+  "DerivedData",
 ]);
 const PROJECT_STRONG_MARKERS = [
   ".openscout/project.json",
   ".git",
 ] as const;
+/** Files/dirs that imply an AI/agent workspace — used only for discovery, not harness choice. */
 const PROJECT_WEAK_MARKERS = [
   "AGENTS.md",
   "CLAUDE.md",
+  "CLAUDE.local.md",
+  "CODEX.md",
+  "GEMINI.md",
+  "GOOGLE.md",
+  ".cursorrules",
+  ".cursor",
+  ".github/copilot-instructions.md",
+  "opencode.json",
+  ".opencode",
+  "WARP.md",
+  "CONTINUE.md",
+  ".aider.conf.yml",
+  ".aider",
+  ".kilocode",
+  ".factory",
+  "PI.md",
+  ".pi",
+  "Cargo.toml",
+  "go.mod",
+  "go.work",
+  "pyproject.toml",
+  "setup.py",
+  "Gemfile",
+  "Package.swift",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "pubspec.yaml",
+  "composer.json",
+  "flake.nix",
 ] as const;
 const PROJECT_HARNESS_MARKERS: Record<ManagedAgentHarness, readonly string[]> = {
-  claude: ["CLAUDE.md", ".claude"],
-  codex: ["AGENTS.md", ".codex"],
+  claude: [
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".claude",
+  ],
+  codex: [
+    "AGENTS.md",
+    "CODEX.md",
+    ".codex",
+  ],
 };
+
+function partitionFlatAndNestedMarkers(markers: readonly string[]): { flat: string[]; nested: string[] } {
+  const flat: string[] = [];
+  const nested: string[] = [];
+  for (const marker of markers) {
+    if (marker.includes("/")) {
+      nested.push(marker);
+    } else {
+      flat.push(marker);
+    }
+  }
+  return { flat, nested };
+}
+
+const PROJECT_STRONG_MARKERS_FLAT_NESTED = partitionFlatAndNestedMarkers(PROJECT_STRONG_MARKERS);
+const PROJECT_WEAK_MARKERS_FLAT_NESTED = partitionFlatAndNestedMarkers(PROJECT_WEAK_MARKERS);
+
+function matchFlatMarkers(entryNames: ReadonlySet<string>, flatMarkers: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const marker of flatMarkers) {
+    if (entryNames.has(marker)) {
+      found.push(marker);
+    }
+  }
+  return found;
+}
+
+async function matchNestedMarkers(projectRoot: string, nestedMarkers: readonly string[]): Promise<string[]> {
+  if (nestedMarkers.length === 0) {
+    return [];
+  }
+  const hits = await Promise.all(
+    nestedMarkers.map(async (marker) => ((await pathExists(join(projectRoot, marker))) ? marker : null)),
+  );
+  return hits.filter((marker): marker is string => Boolean(marker));
+}
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -342,6 +435,11 @@ function compactHomePath(value: string): string {
 
 function normalizePath(value: string): string {
   return resolve(expandHomePath(value.trim() || "."));
+}
+
+function normalizeProjectRelativePath(projectRoot: string, value: string): string {
+  const expanded = expandHomePath(value.trim() || ".");
+  return isAbsolute(expanded) ? resolve(expanded) : resolve(projectRoot, expanded);
 }
 
 function uniquePaths(values: Iterable<string>): string[] {
@@ -507,10 +605,16 @@ function detectGitBranch(projectRoot: string): string | null {
 }
 
 function resolveWorkspaceQualifier(projectRoot: string): { workspaceQualifier: string; branch: string | null } {
-  const branch = detectGitBranch(projectRoot);
-  const workspaceQualifier = normalizeAgentSelectorSegment(branch || basename(projectRoot) || "workspace");
+  const normalizedProjectRoot = normalizePath(projectRoot);
+  const projectQualifier = normalizeAgentSelectorSegment(basename(normalizedProjectRoot) || "workspace") || "workspace";
+  const branch = detectGitBranch(normalizedProjectRoot);
+  const branchQualifier = branch ? normalizeAgentSelectorSegment(branch) : "";
+  const fingerprint = createHash("sha1").update(normalizedProjectRoot).digest("hex").slice(0, 6);
+  const workspaceQualifier = normalizeAgentSelectorSegment(
+    [projectQualifier, branchQualifier, fingerprint].filter(Boolean).join("-"),
+  );
   return {
-    workspaceQualifier: workspaceQualifier || "workspace",
+    workspaceQualifier: workspaceQualifier || `workspace-${fingerprint}`,
     branch,
   };
 }
@@ -590,7 +694,7 @@ function normalizeHarnessProfile(
   },
 ): RelayHarnessProfile {
   return {
-    cwd: profile?.cwd ? normalizePath(profile.cwd) : options.projectRoot,
+    cwd: profile?.cwd ? normalizeProjectRelativePath(options.projectRoot, profile.cwd) : options.projectRoot,
     transport: normalizeTransport(profile?.transport, harness, harness === "codex" ? "codex_app_server" : DEFAULT_TRANSPORT),
     sessionId: normalizeTmuxSessionName(
       profile?.sessionId,
@@ -769,6 +873,7 @@ function defaultSettings(): OpenScoutSettings {
       contextRoot: null,
       workspaceRoots: [],
       includeCurrentRepo: true,
+      hiddenProjectRoots: [],
     },
     agents: {
       defaultHarness: "claude",
@@ -932,6 +1037,11 @@ async function normalizeSettingsRecord(
     ? discovery.workspaceRoots.map((entry) => String(entry))
     : [];
   const workspaceRoots = uniquePaths(rawWorkspaceRoots.length > 0 ? rawWorkspaceRoots : seededWorkspaceRoots);
+  const hiddenProjectRoots = uniquePaths(
+    Array.isArray(discovery.hiddenProjectRoots)
+      ? discovery.hiddenProjectRoots.map((entry) => String(entry))
+      : [],
+  );
   const contextRoot = normalizeOptionalString(discovery.contextRoot)
     ? normalizePath(String(discovery.contextRoot))
     : null;
@@ -966,6 +1076,7 @@ async function normalizeSettingsRecord(
       includeCurrentRepo: typeof discovery.includeCurrentRepo === "boolean"
         ? discovery.includeCurrentRepo
         : base.discovery.includeCurrentRepo,
+      hiddenProjectRoots,
     },
     agents: {
       defaultHarness: normalizeHarness(
@@ -1060,6 +1171,9 @@ export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsIn
     discovery: {
       ...current.discovery,
       ...(settings.discovery ?? {}),
+      hiddenProjectRoots: settings.discovery?.hiddenProjectRoots
+        ? uniquePaths(settings.discovery.hiddenProjectRoots.map((entry) => String(entry)))
+        : current.discovery.hiddenProjectRoots,
     },
     agents: {
       ...current.agents,
@@ -1311,33 +1425,108 @@ async function detectProjectMarkers(
   return detected;
 }
 
+const PROJECT_SCAN_MAX_DEPTH = 64;
+
+async function tryCanonicalDirectory(dir: string): Promise<string | null> {
+  try {
+    return await realpath(dir);
+  } catch {
+    return null;
+  }
+}
+
+/** Collapse multiple candidate paths that resolve to the same directory (symlinks, overlaps). */
+async function dedupeResolvedAgentsByCanonicalProjectRoot(
+  agents: ResolvedRelayAgentConfig[],
+): Promise<ResolvedRelayAgentConfig[]> {
+  if (agents.length <= 1) {
+    return agents;
+  }
+
+  const rank = (agent: ResolvedRelayAgentConfig) =>
+    (agent.registrationKind === "configured" ? 4 : 0)
+    + (agent.projectConfigPath ? 2 : 0)
+    + (agent.source === "manifest" ? 1 : 0);
+
+  const byCanon = new Map<string, ResolvedRelayAgentConfig>();
+  for (const agent of agents) {
+    let canon: string;
+    try {
+      canon = await realpath(agent.projectRoot);
+    } catch {
+      canon = normalizePath(agent.projectRoot);
+    }
+    const prev = byCanon.get(canon);
+    if (!prev) {
+      byCanon.set(canon, agent);
+      continue;
+    }
+    const next = (() => {
+      const ra = rank(agent);
+      const rb = rank(prev);
+      if (ra !== rb) {
+        return ra > rb ? agent : prev;
+      }
+      if (agent.projectRoot.length !== prev.projectRoot.length) {
+        return agent.projectRoot.length < prev.projectRoot.length ? agent : prev;
+      }
+      return agent.projectRoot < prev.projectRoot ? agent : prev;
+    })();
+    byCanon.set(canon, next);
+  }
+
+  return Array.from(byCanon.values());
+}
+
 async function scanSourceRoot(sourceRoot: string): Promise<ProjectScanCandidate[]> {
   const discovered = new Map<string, ProjectScanCandidate>();
+  const visitedCanonical = new Set<string>();
 
-  async function walk(currentDirectory: string): Promise<void> {
-    const strongMarkers = await detectProjectMarkers(currentDirectory, PROJECT_STRONG_MARKERS);
+  async function walk(currentDirectory: string, depth: number): Promise<void> {
+    if (depth > PROJECT_SCAN_MAX_DEPTH) {
+      return;
+    }
+
+    const canonical = await tryCanonicalDirectory(currentDirectory);
+    if (!canonical) {
+      return;
+    }
+    if (visitedCanonical.has(canonical)) {
+      return;
+    }
+    visitedCanonical.add(canonical);
+
+    const entries = await readdir(currentDirectory, { withFileTypes: true }).catch(() => []);
+    const entryNames = new Set(entries.map((entry) => entry.name));
+
+    const strongMarkers = [
+      ...matchFlatMarkers(entryNames, PROJECT_STRONG_MARKERS_FLAT_NESTED.flat),
+      ...(await matchNestedMarkers(currentDirectory, PROJECT_STRONG_MARKERS_FLAT_NESTED.nested)),
+    ];
     if (strongMarkers.length > 0) {
       discovered.set(currentDirectory, {
         projectRoot: currentDirectory,
         sourceRoot,
       });
-      return;
     }
 
-    const weakMarkers = await detectProjectMarkers(currentDirectory, PROJECT_WEAK_MARKERS);
+    const weakMarkers = [
+      ...matchFlatMarkers(entryNames, PROJECT_WEAK_MARKERS_FLAT_NESTED.flat),
+      ...(await matchNestedMarkers(currentDirectory, PROJECT_WEAK_MARKERS_FLAT_NESTED.nested)),
+    ];
     if (weakMarkers.length > 0) {
       discovered.set(currentDirectory, {
         projectRoot: currentDirectory,
         sourceRoot,
       });
+    }
+
+    // One project per matched directory: do not descend into children (monorepo = single row).
+    if (strongMarkers.length > 0 || weakMarkers.length > 0) {
       return;
     }
 
-    const entries = await readdir(currentDirectory, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink()) {
-        continue;
-      }
       if (entry.name.startsWith(".") && entry.name !== ".openscout") {
         continue;
       }
@@ -1345,11 +1534,20 @@ async function scanSourceRoot(sourceRoot: string): Promise<ProjectScanCandidate[
         continue;
       }
 
-      await walk(join(currentDirectory, entry.name));
+      const nextPath = join(currentDirectory, entry.name);
+      if (entry.isSymbolicLink()) {
+        if (!(await isDirectory(nextPath))) {
+          continue;
+        }
+      } else if (!entry.isDirectory()) {
+        continue;
+      }
+
+      await walk(nextPath, depth + 1);
     }
   }
 
-  await walk(sourceRoot);
+  await walk(sourceRoot, 0);
   return Array.from(discovered.values());
 }
 
@@ -1401,17 +1599,18 @@ function mergeResolvedAgentConfig(
     return base;
   }
 
-  const manifestBeatsLegacyImport = base.source === "manifest" && override.source === "legacy-import";
+  const overrideIsManual = override.source === "manual";
+  const manifestOwnsResolvedConfig = base.source === "manifest" && !overrideIsManual;
   const overrideLaunchArgs = normalizeLaunchArgs(override.launchArgs);
   const overrideCapabilities = normalizeCapabilities(override.capabilities);
 
-  const definitionId = manifestBeatsLegacyImport ? base.definitionId : (override.definitionId || base.definitionId);
-  const projectRoot = manifestBeatsLegacyImport
+  const definitionId = manifestOwnsResolvedConfig ? base.definitionId : (override.definitionId || base.definitionId);
+  const projectRoot = manifestOwnsResolvedConfig
     ? base.projectRoot
     : (override.projectRoot ? normalizePath(override.projectRoot) : base.projectRoot);
   const instance = buildRelayAgentInstance(definitionId, projectRoot);
   const defaultHarness = normalizeManagedHarness(
-    manifestBeatsLegacyImport
+    manifestOwnsResolvedConfig
       ? base.defaultHarness
       : (override.defaultHarness ?? override.runtime?.harness),
     base.defaultHarness,
@@ -1423,10 +1622,10 @@ function mergeResolvedAgentConfig(
     defaultHarness,
     profiles: {
       ...(base.harnessProfiles ?? {}),
-      ...(manifestBeatsLegacyImport ? {} : (override.harnessProfiles ?? {})),
+      ...(manifestOwnsResolvedConfig ? {} : (override.harnessProfiles ?? {})),
     },
-    runtime: manifestBeatsLegacyImport ? undefined : override.runtime,
-    launchArgs: manifestBeatsLegacyImport ? base.launchArgs : overrideLaunchArgs,
+    runtime: manifestOwnsResolvedConfig ? undefined : override.runtime,
+    launchArgs: manifestOwnsResolvedConfig ? base.launchArgs : overrideLaunchArgs,
   });
   const view = resolvedRuntimeView(defaultHarness, harnessProfiles);
 
@@ -1434,20 +1633,20 @@ function mergeResolvedAgentConfig(
     ...base,
     agentId: instance.id,
     definitionId,
-    displayName: manifestBeatsLegacyImport ? base.displayName : (override.displayName?.trim() || base.displayName),
-    projectName: manifestBeatsLegacyImport ? base.projectName : (override.projectName?.trim() || base.projectName),
+    displayName: manifestOwnsResolvedConfig ? base.displayName : (override.displayName?.trim() || base.displayName),
+    projectName: manifestOwnsResolvedConfig ? base.projectName : (override.projectName?.trim() || base.projectName),
     projectRoot,
-    projectConfigPath: manifestBeatsLegacyImport ? base.projectConfigPath : (override.projectConfigPath ?? base.projectConfigPath),
-    source: manifestBeatsLegacyImport ? base.source : (override.source ?? base.source),
+    projectConfigPath: manifestOwnsResolvedConfig ? base.projectConfigPath : (override.projectConfigPath ?? base.projectConfigPath),
+    source: manifestOwnsResolvedConfig ? base.source : (override.source ?? base.source),
     registrationKind: isConfiguredRelayAgentOverride(instance.id, override, settings)
       ? "configured"
       : base.registrationKind,
     startedAt: Number.isFinite(override.startedAt) && override.startedAt ? Math.floor(override.startedAt) : base.startedAt,
-    systemPrompt: manifestBeatsLegacyImport
-      ? (base.systemPrompt || override.systemPrompt?.trim() || undefined)
-      : (override.systemPrompt?.trim() || base.systemPrompt),
+    systemPrompt: overrideIsManual
+      ? (override.systemPrompt?.trim() || base.systemPrompt)
+      : (base.systemPrompt || override.systemPrompt?.trim() || undefined),
     launchArgs: view.launchArgs,
-    capabilities: manifestBeatsLegacyImport
+    capabilities: manifestOwnsResolvedConfig
       ? (base.capabilities.length > 0 ? base.capabilities : overrideCapabilities)
       : (overrideCapabilities.length > 0 ? overrideCapabilities : base.capabilities),
     defaultHarness,
@@ -1698,6 +1897,10 @@ export async function loadResolvedRelayAgents(options: {
   currentDirectory?: string;
   ensureCurrentProjectConfig?: boolean;
   syncLegacyMirror?: boolean;
+  /** Plain-text doctor / UI: invoked after each project row is built (sorted by relative path). */
+  onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
+  /** Home used for ~/.claude/projects, Cursor workspaceStorage, ~/.codex hints. Defaults to os.homedir(). */
+  userLevelHintsHome?: string;
 } = {}): Promise<SetupResult> {
   ensureOpenScoutCleanSlateSync();
   const supportPaths = resolveOpenScoutSupportPaths();
@@ -1736,23 +1939,54 @@ export async function loadResolvedRelayAgents(options: {
     }
   }
 
+  const hiddenProjectRoots = new Set(settings.discovery.hiddenProjectRoots.map((entry) => normalizePath(entry)));
   const workspaceCandidates = await scanWorkspaceRoots(settings.discovery.workspaceRoots);
   const projectCandidates = new Set<string>(workspaceCandidates.map((candidate) => candidate.projectRoot));
   const sourceRootByProject = new Map<string, string>(
     workspaceCandidates.map((candidate) => [candidate.projectRoot, candidate.sourceRoot]),
   );
+
+  if (process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS !== "1") {
+    try {
+      const hintHome = options.userLevelHintsHome ?? homedir();
+      const userHints = await collectUserLevelProjectRootHints({ home: hintHome });
+      for (const hint of userHints) {
+        const normalized = normalizePath(hint);
+        if (hiddenProjectRoots.has(normalized)) {
+          continue;
+        }
+        if (projectCandidates.has(normalized)) {
+          continue;
+        }
+        projectCandidates.add(normalized);
+        sourceRootByProject.set(
+          normalized,
+          sourceRootForProject(normalized, settings.discovery.workspaceRoots),
+        );
+      }
+    } catch {
+      /* best-effort: ignore hint collection failures */
+    }
+  }
+
   const overrideByRoot = buildOverrideIndexByProjectRoot(overrides);
 
   if (settings.discovery.includeCurrentRepo && currentProjectConfig.projectRoot) {
-    projectCandidates.add(currentProjectConfig.projectRoot);
-    sourceRootByProject.set(
-      currentProjectConfig.projectRoot,
-      sourceRootForProject(currentProjectConfig.projectRoot, settings.discovery.workspaceRoots),
-    );
+    const normalizedCurrentProjectRoot = normalizePath(currentProjectConfig.projectRoot);
+    if (!hiddenProjectRoots.has(normalizedCurrentProjectRoot)) {
+      projectCandidates.add(normalizedCurrentProjectRoot);
+      sourceRootByProject.set(
+        normalizedCurrentProjectRoot,
+        sourceRootForProject(normalizedCurrentProjectRoot, settings.discovery.workspaceRoots),
+      );
+    }
   }
 
   for (const override of Object.values(overrides)) {
     const normalizedRoot = normalizePath(override.projectRoot);
+    if (hiddenProjectRoots.has(normalizedRoot)) {
+      continue;
+    }
     projectCandidates.add(normalizedRoot);
     sourceRootByProject.set(
       normalizedRoot,
@@ -1762,6 +1996,9 @@ export async function loadResolvedRelayAgents(options: {
 
   const resolvedAgents: ResolvedRelayAgentConfig[] = [];
   for (const projectRoot of Array.from(projectCandidates).sort()) {
+    if (hiddenProjectRoots.has(normalizePath(projectRoot))) {
+      continue;
+    }
     const manifest = await readProjectConfig(projectRoot);
     const override = overrideByRoot.get(projectRoot);
     const resolvedAgent = manifest
@@ -1775,7 +2012,9 @@ export async function loadResolvedRelayAgents(options: {
     resolvedAgents.push(resolvedAgent);
   }
 
-  const configuredAgents = resolvedAgents.filter((agent) => agent.registrationKind === "configured");
+  const dedupedResolvedAgents = await dedupeResolvedAgentsByCanonicalProjectRoot(resolvedAgents);
+
+  const configuredAgents = dedupedResolvedAgents.filter((agent) => agent.registrationKind === "configured");
   const builtInOverrides = Object.fromEntries(
     Object.entries(overrides).filter(([agentId]) => BUILT_IN_AGENT_IDS.has(agentId)),
   );
@@ -1795,13 +2034,28 @@ export async function loadResolvedRelayAgents(options: {
     await syncRelayAgentMirror(configuredAgents);
   }
 
-  const projectInventory = await Promise.all(
-    resolvedAgents.map((agent) => buildProjectInventoryEntry(
-      agent,
-      sourceRootByProject.get(agent.projectRoot)
-        ?? sourceRootForProject(agent.projectRoot, settings.discovery.workspaceRoots),
-    )),
-  );
+  const sortedForInventory = dedupedResolvedAgents.slice().sort((lhs, rhs) => {
+    const sourceRootL = sourceRootByProject.get(lhs.projectRoot)
+      ?? sourceRootForProject(lhs.projectRoot, settings.discovery.workspaceRoots);
+    const sourceRootR = sourceRootByProject.get(rhs.projectRoot)
+      ?? sourceRootForProject(rhs.projectRoot, settings.discovery.workspaceRoots);
+    const pathCmp = relativeProjectPath(lhs.projectRoot, sourceRootL).localeCompare(
+      relativeProjectPath(rhs.projectRoot, sourceRootR),
+    );
+    if (pathCmp !== 0) {
+      return pathCmp;
+    }
+    return lhs.displayName.localeCompare(rhs.displayName);
+  });
+
+  const projectInventory: ProjectInventoryEntry[] = [];
+  for (const agent of sortedForInventory) {
+    const sourceRoot = sourceRootByProject.get(agent.projectRoot)
+      ?? sourceRootForProject(agent.projectRoot, settings.discovery.workspaceRoots);
+    const row = await buildProjectInventoryEntry(agent, sourceRoot);
+    projectInventory.push(row);
+    await options.onProjectInventoryEntry?.(row);
+  }
 
   return {
     supportDirectory: supportPaths.supportDirectory,
@@ -1813,8 +2067,8 @@ export async function loadResolvedRelayAgents(options: {
     createdProjectConfig: currentProjectConfig.created,
     settings,
     agents: configuredAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
-    discoveredAgents: resolvedAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
-    projectInventory: projectInventory.sort((lhs, rhs) => lhs.relativePath.localeCompare(rhs.relativePath) || lhs.displayName.localeCompare(rhs.displayName)),
+    discoveredAgents: dedupedResolvedAgents.sort((lhs, rhs) => lhs.displayName.localeCompare(rhs.displayName)),
+    projectInventory,
   };
 }
 

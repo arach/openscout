@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Database } from "bun:sqlite";
+
+import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "./broker-service";
+
 const runtimeDir = join(import.meta.dir, "..");
 
 type BrokerHarness = {
@@ -23,17 +27,17 @@ afterEach(async () => {
   harnesses.clear();
 });
 
-async function startBroker(): Promise<BrokerHarness> {
-  const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+async function startBroker(input: { controlHome?: string } = {}): Promise<BrokerHarness> {
+  const controlHome = input.controlHome ?? mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
   const port = 38000 + Math.floor(Math.random() * 2000);
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const baseUrl = buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, port);
   const child = Bun.spawn({
     cmd: ["bun", "run", "src/broker-daemon.ts"],
     cwd: runtimeDir,
     env: {
       ...process.env,
       OPENSCOUT_CONTROL_HOME: controlHome,
-      OPENSCOUT_BROKER_HOST: "127.0.0.1",
+      OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
       OPENSCOUT_BROKER_PORT: String(port),
       OPENSCOUT_BROKER_URL: baseUrl,
       OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
@@ -65,6 +69,28 @@ async function waitForHealth(baseUrl: string): Promise<void> {
     await Bun.sleep(100);
   }
   throw lastError ?? new Error("broker did not become healthy");
+}
+
+async function waitFor<T>(
+  load: () => Promise<T>,
+  predicate: (value: T) => boolean,
+): Promise<T> {
+  let last: T | undefined;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      last = await load();
+      if (predicate(last)) {
+        return last;
+      }
+    } catch {
+      // Broker bootstrap is asynchronous after the HTTP listener comes up.
+    }
+    await Bun.sleep(100);
+  }
+  if (last !== undefined) {
+    return last;
+  }
+  throw new Error("waitFor did not receive a value");
 }
 
 async function postJson<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
@@ -179,7 +205,7 @@ describe("broker daemon comms layer", () => {
 
     expect(events.some((event) => event.kind === "message.posted" && event.payload.message?.id === "msg-test-1")).toBe(true);
     expect(events.some((event) => event.kind === "delivery.planned")).toBe(true);
-  });
+  }, 15_000);
 
   test("creates a flight for explicit invocations even when no endpoint is runnable", async () => {
     const harness = await startBroker();
@@ -235,7 +261,7 @@ describe("broker daemon comms layer", () => {
     expect(
       events.some((event) => event.kind === "flight.updated" && event.payload.flight?.targetAgentId === "ghost" && event.payload.flight?.state === "waking"),
     ).toBe(true);
-  });
+  }, 15_000);
 
   test("persists valid collaboration records and emits collaboration events", async () => {
     const harness = await startBroker();
@@ -279,7 +305,7 @@ describe("broker daemon comms layer", () => {
     );
 
     expect(events.some((event) => event.kind === "collaboration.upserted" && event.payload.record?.id === "work-test-1")).toBe(true);
-  });
+  }, 15_000);
 
   test("rejects invalid waiting work items without required ownership metadata", async () => {
     const harness = await startBroker();
@@ -308,7 +334,7 @@ describe("broker daemon comms layer", () => {
     const payload = await response.json() as { detail: string };
     expect(payload.detail).toContain("nextMoveOwnerId");
     expect(payload.detail).toContain("waitingOn");
-  });
+  }, 15_000);
 
   test("rejects collaboration events that do not match the target record kind", async () => {
     const harness = await startBroker();
@@ -349,7 +375,7 @@ describe("broker daemon comms layer", () => {
     expect(response.status).toBe(400);
     const payload = await response.json() as { detail: string };
     expect(payload.detail).toContain("review_requested");
-  });
+  }, 15_000);
 
   test("builds collaboration-aware invocations from the broker wake endpoint", async () => {
     const harness = await startBroker();
@@ -418,5 +444,97 @@ describe("broker daemon comms layer", () => {
     expect(response.invocation.metadata?.wakeReason).toBe("next_move_owner");
     expect(response.flight.targetAgentId).toBe("fabric");
     expect(response.flight.state).toBe("waking");
-  });
+  }, 15_000);
+
+  test("reconciles stale running flights when the endpoint has already moved on", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const firstHarness = await startBroker({ controlHome });
+    await seedBasicConversation(firstHarness);
+
+    await postJson(firstHarness.baseUrl, "/v1/agents", {
+      id: "arc",
+      kind: "agent",
+      definitionId: "arc",
+      displayName: "Arc",
+      handle: "arc",
+      labels: ["test"],
+      selector: "@arc",
+      defaultSelector: "@arc",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: firstHarness.nodeId,
+      authorityNodeId: firstHarness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const completedAt = Date.now();
+    await postJson(firstHarness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-arc",
+      agentId: "arc",
+      nodeId: firstHarness.nodeId,
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "idle",
+      address: null,
+      sessionId: "relay-arc",
+      pane: null,
+      cwd: "/tmp/arc",
+      projectRoot: "/tmp/arc",
+      metadata: {
+        source: "test",
+        lastCompletedAt: completedAt,
+      },
+    });
+
+    const db = new Database(join(controlHome, "control-plane.sqlite"));
+    const startedAt = completedAt - 60_000;
+    db.query(
+      `INSERT INTO invocations (
+        id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
+        conversation_id, message_id, context_json, execution_json, ensure_awake, stream,
+        timeout_ms, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, NULL, NULL, 1, 0, NULL, NULL, ?8)`,
+    ).run(
+      "inv-stale-arc",
+      "operator",
+      firstHarness.nodeId,
+      "arc",
+      "consult",
+      "are you there?",
+      "channel.shared",
+      startedAt,
+    );
+    db.query(
+      `INSERT INTO flights (
+        id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
+        metadata_json, started_at, completed_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, ?7, NULL)`,
+    ).run(
+      "flt-stale-arc",
+      "inv-stale-arc",
+      "operator",
+      "arc",
+      "running",
+      "Arc is working.",
+      startedAt,
+    );
+    db.close();
+
+    firstHarness.child.kill();
+    await firstHarness.child.exited.catch(() => {});
+    harnesses.delete(firstHarness);
+
+    const secondHarness = await startBroker({ controlHome });
+    const snapshot = await waitFor(async () => getJson<{
+      flights: Record<string, { state: string; error?: string; completedAt?: number }>;
+    }>(secondHarness.baseUrl, "/v1/snapshot"), (next) => next.flights["flt-stale-arc"]?.state === "failed");
+    const flight = snapshot.flights["flt-stale-arc"];
+
+    expect(flight).toBeDefined();
+    expect(flight?.state).toBe("failed");
+    expect(flight?.error).toContain("Stale running flight reconciled");
+    expect(typeof flight?.completedAt).toBe("number");
+  }, 15_000);
 });

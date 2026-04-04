@@ -8,6 +8,7 @@ import {
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
+import { DEFAULT_BROKER_URL } from "./broker-service";
 
 describe("local agent prompts", () => {
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
@@ -20,9 +21,9 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
-    expect(prompt).toContain("packages/relay/src/cli.ts relay send --as shaper");
-    expect(prompt).toContain('packages/relay/src/cli.ts relay ask --to <agent> --as shaper "your request"');
-    expect(prompt).toContain("packages/relay/src/cli.ts relay read --as shaper");
+    expect(prompt).toContain("bun relay send --as shaper");
+    expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
+    expect(prompt).toContain("bun relay read --as shaper");
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
     expect(prompt).toContain("/Users/arach/.agents/skills/relay-agent-comms/SKILL.md");
@@ -48,7 +49,7 @@ describe("local agent prompts", () => {
         displayName: "Shaper",
         projectName: "shaper",
         projectPath: "/Users/arach/dev/shaper",
-        brokerUrl: "http://127.0.0.1:65535",
+        brokerUrl: DEFAULT_BROKER_URL,
         relayCommand: "bun relay",
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
@@ -62,7 +63,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Projects root: /Users/arach/dev");
     expect(prompt).toContain("Base path: /Users/arach/dev");
     expect(prompt).toContain("Workspace root: /Users/arach/dev/shaper");
-    expect(prompt).toContain("Broker URL: http://127.0.0.1:65535");
+    expect(prompt).toContain(`Broker URL: ${DEFAULT_BROKER_URL}`);
     expect(prompt).toContain("bun relay send --as shaper");
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");
@@ -92,8 +93,8 @@ describe("local agent prompts", () => {
 
     expect(prompt).toContain("Task: Find the session restore race.");
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
-    expect(prompt).toContain("packages/relay/src/cli.ts relay read -n 20 --as shaper");
-    expect(prompt).toContain('packages/relay/src/cli.ts relay send --as shaper "[ask:flt-1] @hudson <your response>"');
+    expect(prompt).toContain("bun relay read -n 20 --as shaper");
+    expect(prompt).toContain('bun relay send --as shaper "[ask:flt-1] @hudson <your response>"');
   });
 
   test("tmux launch shell command quotes script paths with spaces", () => {

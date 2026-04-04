@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Splash Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --os-bg: #F9F9F8;
+      --os-ink: #1C1C1A;
+      --os-muted: #8A8A86;
+      --os-logo-bg: #F3F3FF;
+      --os-logo-border: #E0E0FF;
+    }
+    .dark {
+      --os-bg: #141413;
+      --os-ink: #F0F0EE;
+      --os-muted: #7A7A76;
+      --os-logo-bg: #0D0D1A;
+      --os-logo-border: #1E1E36;
+    }
+
+    @keyframes os-splash-in {
+      from { opacity: 0; transform: scale(0.96); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    @keyframes os-splash-out {
+      to { opacity: 0; transform: scale(1.02); }
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    }
+
+    .splash-root {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: var(--os-bg); color: var(--os-ink);
+    }
+
+    .splash-inner {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 24px; padding: 0 32px;
+    }
+
+    .splash-logo {
+      border-radius: 22px; border: 1px solid var(--os-logo-border);
+      background: var(--os-logo-bg); overflow: hidden;
+      animation: os-splash-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .splash-logo.dark-shadow {
+      box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+    }
+    .splash-logo.light-shadow {
+      box-shadow: 0 24px 80px rgba(15,23,42,0.10);
+    }
+
+    .splash-logo img {
+      display: block; width: 96px; height: 96px;
+      border-radius: 22px;
+    }
+
+    .splash-name {
+      font-size: 22px; font-weight: 600; letter-spacing: -0.02em;
+      color: var(--os-ink);
+      animation: os-splash-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+    }
+
+    .toggle {
+      position: fixed; bottom: 24px; right: 24px;
+      padding: 8px 16px; border-radius: 8px; border: 1px solid var(--os-muted);
+      background: var(--os-bg); color: var(--os-ink);
+      font-size: 13px; cursor: pointer; z-index: 300;
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-root" id="splash">
+    <div class="splash-inner">
+      <div class="splash-logo light-shadow" id="logo-tile">
+        <img src="../../packages/electron-app/public/scout-icon.png" alt="" draggable="false" />
+      </div>
+      <div class="splash-name">Scout</div>
+    </div>
+  </div>
+  <button class="toggle" id="toggle" onclick="toggleDark()">Toggle Dark</button>
+  <script>
+    let dark = false;
+    function toggleDark() {
+      dark = !dark;
+      document.getElementById('splash').classList.toggle('dark', dark);
+      const tile = document.getElementById('logo-tile');
+      tile.classList.toggle('dark-shadow', dark);
+      tile.classList.toggle('light-shadow', !dark);
+      document.getElementById('toggle').textContent = dark ? 'Toggle Light' : 'Toggle Dark';
+    }
+  </script>
+</body>
+</html>

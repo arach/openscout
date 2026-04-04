@@ -1,13 +1,23 @@
 import { spawn } from "node:child_process";
+import {
+  DEFAULT_RENDERER_PORT,
+  buildRendererUrl,
+  resolveRendererPort,
+  waitForScoutRenderer,
+} from "./dev-electron-lib.mjs";
 
 const packageDir = process.cwd();
 const rendererHost = process.env.OPENSCOUT_RENDERER_HOST?.trim() || "127.0.0.1";
-const rendererPort = process.env.OPENSCOUT_RENDERER_PORT?.trim() || "5173";
-const rendererUrl = `http://${rendererHost}:${rendererPort}`;
+const explicitRendererPort = process.env.OPENSCOUT_RENDERER_PORT?.trim();
+const requestedRendererPort = Number(explicitRendererPort || String(DEFAULT_RENDERER_PORT));
 const children = new Set();
 
-function spawnBun(args, env = {}) {
-  const child = spawn("bun", args, {
+function npmCommand() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function spawnPackageScript(scriptName, env = {}) {
+  const child = spawn(npmCommand(), ["run", scriptName], {
     cwd: packageDir,
     stdio: "inherit",
     env: {
@@ -19,24 +29,6 @@ function spawnBun(args, env = {}) {
   children.add(child);
   child.on("exit", () => children.delete(child));
   return child;
-}
-
-async function waitForRenderer(url, timeoutMs = 30000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // renderer not up yet
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  throw new Error(`Timed out waiting for renderer at ${url}`);
 }
 
 function killChildren() {
@@ -64,9 +56,15 @@ process.on("SIGTERM", () => {
 });
 
 try {
-  const renderer = spawnBun(["run", "dev:renderer"], {
+  const rendererPort = await resolveRendererPort({
+    host: rendererHost,
+    explicitPort: explicitRendererPort ? requestedRendererPort : null,
+    requestedPort: requestedRendererPort,
+  });
+  const rendererUrl = buildRendererUrl(rendererHost, rendererPort);
+  const renderer = spawnPackageScript("dev:renderer", {
     OPENSCOUT_RENDERER_HOST: rendererHost,
-    OPENSCOUT_RENDERER_PORT: rendererPort,
+    OPENSCOUT_RENDERER_PORT: String(rendererPort),
   });
 
   renderer.on("exit", (code) => {
@@ -76,12 +74,12 @@ try {
     }
   });
 
-  await waitForRenderer(rendererUrl);
+  await waitForScoutRenderer(rendererUrl);
 
-  const electron = spawnBun(["run", "electron:web"], {
+  const electron = spawnPackageScript("electron:web", {
     ELECTRON_START_URL: rendererUrl,
     OPENSCOUT_RENDERER_HOST: rendererHost,
-    OPENSCOUT_RENDERER_PORT: rendererPort,
+    OPENSCOUT_RENDERER_PORT: String(rendererPort),
   });
 
   electron.on("exit", (code) => {

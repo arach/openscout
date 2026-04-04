@@ -83,7 +83,7 @@ export async function startAppServer(
     typeof address === "object" && address !== null ? address.port : requestedPort;
 
   if (options.log ?? true) {
-    console.log(`OpenScout Electron server running at http://${host}:${port}`);
+    console.log(`Scout Electron server running at http://${host}:${port}`);
   }
 
   return {

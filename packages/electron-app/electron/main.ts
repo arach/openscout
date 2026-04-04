@@ -1,47 +1,22 @@
 import { existsSync } from "node:fs";
 import { execFile as execFileCallback } from "node:child_process";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import electron from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-
 import {
-  buildDesktopShellState,
-  controlBroker,
-  getAgentConfig,
-  getAgentSession,
-  getAppSettings,
-  getBrokerInspector,
-  getLogCatalog,
-  getPhonePreparation,
-  readLogSource,
-  restartOnboarding,
-  restartAgent,
-  runOnboardingCommand,
-  skipOnboarding,
-  sendRelayMessage,
-  setVoiceRepliesEnabled,
-  toggleVoiceCapture,
-  updateAgentConfig,
-  updateAppSettings,
-  updatePhonePreparation,
-} from "./openscout-runtime.js";
-import type {
-  BrokerControlAction,
-  DesktopAppInfo,
-  RunOnboardingCommandInput,
-  ReadLogSourceInput,
-  RestartAgentInput,
-  SendRelayMessageInput,
-  UpdateAgentConfigInput,
-  UpdateAppSettingsInput,
-  UpdateDispatchConfigInput,
-  UpdatePhonePreparationInput,
-} from "../src/lib/openscout-desktop.js";
-import { dispatchService } from "./dispatch-service.js";
+  createScoutDesktopAppInfo,
+  createScoutElectronIpcServices,
+  normalizeScoutElectronVoiceState,
+  registerScoutElectronIpcHandlers,
+  resolveScoutElectronStartUrl,
+  SCOUT_ELECTRON_DEFAULT_WINDOW,
+} from "../../../apps/scout/src/app/index.ts";
+import { SCOUT_ELECTRON_CHANNELS } from "../../../apps/scout/src/app/electron/channels.ts";
+import { SCOUT_PRODUCT_NAME } from "../../../apps/scout/src/shared/product.ts";
+import type { ScoutDesktopAppInfo } from "../../../apps/scout/src/app/desktop/index.ts";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 import { telegramBridgeService } from "./telegram-bridge-service.js";
 
@@ -67,52 +42,16 @@ let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let appServer: StartedAppServer | null = null;
 const execFile = promisify(execFileCallback);
 
-function expandHomePath(value: string | null) {
-  if (!value) {
-    return null;
-  }
-  if (value === "~") {
-    return os.homedir();
-  }
-  if (value.startsWith("~/")) {
-    return path.join(os.homedir(), value.slice(2));
-  }
-  return value;
-}
-
-function escapeAppleScriptString(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-async function openAgentSessionSurface(agentId: string) {
-  const session = await getAgentSession(agentId);
-  if (session.mode === "tmux" && session.commandLabel) {
-    if (process.platform !== "darwin") {
-      throw new Error("Direct tmux attach is only wired for macOS right now.");
-    }
-    await execFile("osascript", [
-      "-e",
-      'tell application "Terminal" to activate',
-      "-e",
-      `tell application "Terminal" to do script "${escapeAppleScriptString(session.commandLabel)}"`,
-    ]);
-    return true;
-  }
-
-  const targetPath = expandHomePath(session.directoryPath);
-  if (targetPath) {
-    const errorMessage = await shell.openPath(targetPath);
-    if (errorMessage) {
-      throw new Error(errorMessage);
-    }
-    return true;
-  }
-
-  throw new Error("No live tmux pane or session logs are available for this agent yet.");
-}
-
 function resolveProductName() {
-  return process.env.OPENSCOUT_PRODUCT_NAME?.trim() || app.getName() || "OpenScout";
+  const fromEnv = process.env.SCOUT_PRODUCT_NAME?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const appName = app.getName()?.trim();
+  if (appName && appName !== "Electron") {
+    return appName;
+  }
+  return SCOUT_PRODUCT_NAME;
 }
 
 function envFlagEnabled(value: string | undefined) {
@@ -123,33 +62,15 @@ function envFlagEnabled(value: string | undefined) {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
-function createDesktopAppInfo(): DesktopAppInfo {
-  const enableAll = envFlagEnabled(process.env.ENABLE_ALL) || envFlagEnabled(process.env.OPENSCOUT_ENABLE_ALL);
-
-  return {
+function createScoutHostAppInfo(): ScoutDesktopAppInfo {
+  const enableAll = envFlagEnabled(process.env.ENABLE_ALL) || envFlagEnabled(process.env.SCOUT_ENABLE_ALL);
+  return createScoutDesktopAppInfo({
     productName: resolveProductName(),
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     platform: process.platform,
-    features: {
-      enableAll,
-      overview: true,
-      relay: true,
-      dispatch: true,
-      interAgent: true,
-      agents: true,
-      settings: true,
-      logs: true,
-      activity: enableAll,
-      machines: enableAll,
-      plans: enableAll,
-      sessions: true,
-      search: true,
-      phonePreparation: enableAll,
-      telegram: enableAll,
-      voice: enableAll,
-    },
-  };
+    features: { enableAll },
+  });
 }
 
 function resolveDesktopAssetPath(filename: string) {
@@ -168,23 +89,17 @@ function applyApplicationIcon() {
     return;
   }
 
-  const dockIcon = nativeImage.createFromPath(resolveDesktopAssetPath("openscout-icon.png"));
+  const dockIcon = nativeImage.createFromPath(resolveDesktopAssetPath("scout-icon.png"));
   if (!dockIcon.isEmpty()) {
     app.dock.setIcon(dockIcon);
   }
 }
 
 function getStartUrl(port?: number) {
-  const explicitUrl = process.env.ELECTRON_START_URL?.trim();
-  if (explicitUrl) {
-    return explicitUrl;
-  }
-
-  if (!port) {
-    throw new Error("Desktop start URL requires a server port when ELECTRON_START_URL is not set.");
-  }
-
-  return `http://127.0.0.1:${port}`;
+  return resolveScoutElectronStartUrl({
+    explicitUrl: process.env.ELECTRON_START_URL?.trim(),
+    port,
+  });
 }
 
 async function ensureAppServer() {
@@ -214,12 +129,12 @@ async function createMainWindow() {
   const server = await ensureAppServer();
   const isMac = process.platform === "darwin";
   const window = new BrowserWindow({
-    width: 1440,
-    height: 980,
-    minWidth: 1100,
-    minHeight: 760,
+    width: SCOUT_ELECTRON_DEFAULT_WINDOW.width,
+    height: SCOUT_ELECTRON_DEFAULT_WINDOW.height,
+    minWidth: SCOUT_ELECTRON_DEFAULT_WINDOW.minWidth,
+    minHeight: SCOUT_ELECTRON_DEFAULT_WINDOW.minHeight,
     title: resolveProductName(),
-    icon: resolveDesktopAssetPath("openscout-icon.png"),
+    icon: resolveDesktopAssetPath("scout-icon.png"),
     backgroundColor: "#F9F9F8",
     frame: !isMac,
     titleBarStyle: isMac ? "hidden" : "default",
@@ -296,139 +211,72 @@ function createAppMenu() {
       label: "Window",
       submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "front" }],
     },
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "Knowledge Base",
+          click: () => {
+            mainWindow?.webContents.send(SCOUT_ELECTRON_CHANNELS.openKnowledgeBase);
+          },
+        },
+      ],
+    },
   ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-ipcMain.handle("openscout:get-app-info", async () => createDesktopAppInfo());
-
-ipcMain.handle("openscout:get-shell-state", async () =>
-  buildDesktopShellState(createDesktopAppInfo()),
-);
-
-ipcMain.handle("openscout:refresh-shell-state", async () =>
-  buildDesktopShellState(createDesktopAppInfo()),
-);
-
-ipcMain.handle("openscout:get-app-settings", async () =>
-  getAppSettings(),
-);
-
-ipcMain.handle("openscout:update-app-settings", async (_event, input: UpdateAppSettingsInput) =>
-  updateAppSettings(input),
-);
-
-ipcMain.handle("openscout:run-onboarding-command", async (_event, input: RunOnboardingCommandInput) =>
-  runOnboardingCommand(input),
-);
-
-ipcMain.handle("openscout:skip-onboarding", async () =>
-  skipOnboarding(),
-);
-
-ipcMain.handle("openscout:restart-onboarding", async () =>
-  restartOnboarding(),
-);
-
-ipcMain.handle("openscout:pick-directory", async () => {
-  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
-    properties: ["openDirectory"],
-  });
-  if (result.canceled) {
-    return null;
-  }
-  return result.filePaths[0] ?? null;
+const scoutElectronServices = createScoutElectronIpcServices({
+  currentDirectory: process.cwd(),
+  appInfo: createScoutHostAppInfo(),
+  settings: {
+    getTelegramRuntimeState: () => telegramBridgeService.getRuntimeState(),
+    refreshTelegramConfiguration: () => telegramBridgeService.refreshConfiguration(),
+  },
+  host: {
+    pickDirectory: async () => {
+      const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+        properties: ["openDirectory"],
+      });
+      if (result.canceled) {
+        return null;
+      }
+      return result.filePaths[0] ?? null;
+    },
+    reloadWindow: () => {
+      mainWindow?.webContents.reload();
+    },
+    requestQuit: () => {
+      setImmediate(() => {
+        app.quit();
+      });
+    },
+    openPath: (targetPath) => shell.openPath(targetPath),
+    showItemInFolder: (targetPath) => shell.showItemInFolder(targetPath),
+  },
+  agentSessionHost: {
+    platform: process.platform,
+    execFile: async (file, args) => {
+      await execFile(file, args);
+    },
+    openPath: (targetPath) => shell.openPath(targetPath),
+  },
+  voice: {
+    getVoiceState: () => normalizeScoutElectronVoiceState(relayVoiceBridgeService.getRelayVoiceState()),
+    toggleVoiceCapture: () => relayVoiceBridgeService.toggleCapture(),
+    setVoiceRepliesEnabled: (enabled) => relayVoiceBridgeService.setRepliesEnabled(enabled),
+  },
 });
 
-ipcMain.handle("openscout:quit-app", async () => {
-  setImmediate(() => {
-    app.quit();
-  });
-  return true;
-});
-
-ipcMain.handle("openscout:reveal-path", async (_event, filePath: string) => {
-  shell.showItemInFolder(filePath);
-  return true;
-});
-
-ipcMain.handle("openscout:get-phone-preparation", async () =>
-  getPhonePreparation(),
-);
-
-ipcMain.handle("openscout:update-phone-preparation", async (_event, input: UpdatePhonePreparationInput) =>
-  updatePhonePreparation(input),
-);
-
-ipcMain.handle("openscout:get-agent-config", async (_event, agentId: string) =>
-  getAgentConfig(agentId),
-);
-
-ipcMain.handle("openscout:update-agent-config", async (_event, input: UpdateAgentConfigInput) =>
-  updateAgentConfig(input),
-);
-
-ipcMain.handle("openscout:restart-agent", async (_event, input: RestartAgentInput) =>
-  restartAgent(createDesktopAppInfo(), input),
-);
-
-ipcMain.handle("openscout:send-relay-message", async (_event, input: SendRelayMessageInput) =>
-  sendRelayMessage(createDesktopAppInfo(), input),
-);
-
-ipcMain.handle("openscout:control-broker", async (_event, action: BrokerControlAction) =>
-  controlBroker(createDesktopAppInfo(), action),
-);
-
-ipcMain.handle("openscout:get-log-catalog", async () =>
-  getLogCatalog(),
-);
-
-ipcMain.handle("openscout:get-broker-inspector", async () =>
-  getBrokerInspector(),
-);
-
-ipcMain.handle("openscout:read-log-source", async (_event, input: ReadLogSourceInput) =>
-  readLogSource(input),
-);
-
-ipcMain.handle("openscout:get-dispatch-state", async () =>
-  dispatchService.getState(),
-);
-
-ipcMain.handle("openscout:refresh-dispatch-state", async () =>
-  dispatchService.refreshState(),
-);
-
-ipcMain.handle("openscout:control-dispatch-service", async (_event, action: "start" | "stop" | "restart") =>
-  dispatchService.control(action),
-);
-
-ipcMain.handle("openscout:update-dispatch-config", async (_event, input: UpdateDispatchConfigInput) =>
-  dispatchService.updateConfig(input),
-);
-
-ipcMain.handle("openscout:get-agent-session", async (_event, agentId: string) =>
-  getAgentSession(agentId),
-);
-
-ipcMain.handle("openscout:open-agent-session", async (_event, agentId: string) =>
-  openAgentSessionSurface(agentId),
-);
-
-ipcMain.handle("openscout:toggle-voice-capture", async () =>
-  toggleVoiceCapture(createDesktopAppInfo()),
-);
-
-ipcMain.handle("openscout:set-voice-replies-enabled", async (_event, enabled: boolean) =>
-  setVoiceRepliesEnabled(createDesktopAppInfo(), enabled),
-);
+registerScoutElectronIpcHandlers((channel, handler) => {
+  ipcMain.handle(channel, handler);
+}, scoutElectronServices);
 
 app.whenReady().then(async () => {
   applyApplicationIcon();
   createAppMenu();
-  await dispatchService.refreshState();
+  await scoutElectronServices.refreshPairingState();
   await createMainWindow();
   await telegramBridgeService.refreshConfiguration();
 
@@ -442,7 +290,6 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", async () => {
   if (process.platform !== "darwin") {
     await appServer?.close();
-    await dispatchService.shutdown();
     await relayVoiceBridgeService.shutdown();
     await telegramBridgeService.shutdown();
     app.quit();
@@ -451,7 +298,6 @@ app.on("window-all-closed", async () => {
 
 app.on("before-quit", async () => {
   await appServer?.close();
-  await dispatchService.shutdown();
   await relayVoiceBridgeService.shutdown();
   await telegramBridgeService.shutdown();
 });

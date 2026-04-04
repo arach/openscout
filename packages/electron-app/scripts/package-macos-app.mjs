@@ -23,12 +23,12 @@ const rootPackage = JSON.parse(
   await fs.readFile(path.join(projectRoot, "package.json"), "utf8"),
 );
 
-const productName = rootPackage.productName || "OpenScout";
-const bundleId = rootPackage.bundleId || "com.openscout.desktop";
-const bundleIconSource = path.join(projectRoot, "public", "openscout.icns");
-const windowIconSource = path.join(projectRoot, "public", "openscout-icon.png");
-const bundleIconFile = "openscout.icns";
-const windowIconFile = "openscout-icon.png";
+const productName = rootPackage.productName || "Scout";
+const bundleId = rootPackage.bundleId || "com.scout.desktop";
+const bundleIconSource = path.join(projectRoot, "public", "scout.icns");
+const windowIconSource = path.join(projectRoot, "public", "scout-icon.png");
+const bundleIconFile = "scout.icns";
+const windowIconFile = "scout-icon.png";
 const appBundlePath = path.join(outputRoot, `${productName}.app`);
 const appContentsPath = path.join(appBundlePath, "Contents");
 const appResourcesPath = path.join(appContentsPath, "Resources");
@@ -98,8 +98,6 @@ await copyIntoBundle(path.join(projectRoot, "dist", "electron"), path.join(appRu
 await copyIntoBundle(path.join(projectRoot, "dist", "server"), path.join(appRuntimePath, "dist", "server"));
 await copyIntoBundle(path.join(projectRoot, "..", "cli", "bin"), path.join(appRuntimePath, "cli", "bin"));
 await copyIntoBundle(path.join(projectRoot, "..", "cli", "dist"), path.join(appRuntimePath, "cli", "dist"));
-await copyIntoBundle(path.join(projectRoot, "..", "..", "dispatch", "cli", "bin"), path.join(appRuntimePath, "dispatch-cli", "bin"));
-await copyIntoBundle(path.join(projectRoot, "..", "..", "dispatch", "cli", "dist"), path.join(appRuntimePath, "dispatch-cli", "dist"));
 await fs.copyFile(
   path.join(projectRoot, "dist", "index.js"),
   path.join(appRuntimePath, "dist", "index.js"),

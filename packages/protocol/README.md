@@ -89,7 +89,7 @@ This lets a person work with a helper in Codex or Claude while still invoking re
 
 The intended machine lifecycle is:
 
-1. `scout init` creates machine-local settings, a relay agent registry, and repo-local `.openscout/project.json` when needed.
+1. `scout setup` creates machine-local settings, a relay agent registry, and repo-local `.openscout/project.json` when needed.
 2. The runtime installs a launch agent under `~/Library/LaunchAgents/` for the broker.
 3. `launchd` keeps the broker process alive and restarts it if it exits.
 4. Workspace discovery scans configured roots and repo-local manifests to map projects to agent identities.

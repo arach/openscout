@@ -1,20 +1,25 @@
 # scout
 
-User-facing CLI for OpenScout.
+Published CLI package for Scout.
 
-This package is separate from `scout-dev`:
-
-- `scout` is the long-term product CLI
-- `scout-dev` is the repo-local native developer wrapper
-
-## Primary Flow
+Install:
 
 ```bash
-scout init
-scout doctor
+npm install -g @openscout/cli
+scout --help
 ```
 
-`scout init` is the canonical onboarding entry point. It creates or updates:
+`@openscout/cli` is the npm package name. It installs the `scout` command.
+
+## Canonical Flow
+
+```bash
+scout setup
+scout doctor
+scout runtimes
+```
+
+`scout setup` is the canonical onboarding entry point. It creates or updates:
 
 - `~/Library/Application Support/OpenScout/settings.json`
 - `~/Library/Application Support/OpenScout/relay-agents.json`
@@ -22,24 +27,27 @@ scout doctor
 
 It also discovers relay agents from your configured workspace roots, installs the broker service, and attempts to start it.
 
+`scout init` is still accepted as a deprecated compatibility alias for `scout setup`.
+
 ## Current Commands
 
 ```bash
 scout --help
 scout version
 scout doctor
-scout init
-scout dev help
-scout dev build app
-scout dev build agent
-scout dev launch app
-scout dev launch agent
-scout app build
-scout app launch
-scout app relaunch
-scout app relaunch --rebuild
-scout app status
-scout agent build
-scout agent launch
-scout agent status
+scout setup
+scout runtimes
+scout send
+scout speak
+scout ask
+scout watch
+scout who
+scout enroll
+scout broadcast
+scout up
+scout down
+scout ps
+scout restart
+scout pair
+scout tui
 ```

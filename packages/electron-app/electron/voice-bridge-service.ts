@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
-import type { RelayVoiceState } from "../src/lib/openscout-desktop.js";
+import type { RelayVoiceState } from "../../../apps/scout/src/ui/desktop/lib/scout-desktop.ts";
 
 const OPERATOR_ID = "operator";
 const BRIDGE_TIMEOUT_MS = 30_000;
@@ -207,7 +207,7 @@ class RelayVoiceBridgeService {
   private resolveVoicePackageDir() {
     const repositoryRoot = resolveRepositoryRoot();
     if (!repositoryRoot) {
-      throw new Error("Unable to locate the OpenScout repository root for the voice bridge.");
+      throw new Error("Unable to locate the Scout repository root for the voice bridge.");
     }
 
     const packageDirectory = path.join(repositoryRoot, "packages", "voice");

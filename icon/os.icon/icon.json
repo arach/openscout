@@ -6,8 +6,8 @@
     {
       "layers" : [
         {
-          "fill" : "automatic",
-          "glass" : true,
+          "fill" : "none",
+          "glass" : false,
           "hidden" : false,
           "image-name" : "AppIcon.png",
           "name" : "AppIcon",
@@ -33,19 +33,6 @@
             }
           ]
         }
-      ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
-      },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
-      }
-    },
-    {
-      "layers" : [
-
       ],
       "shadow" : {
         "kind" : "neutral",

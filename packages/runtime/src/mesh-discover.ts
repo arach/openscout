@@ -1,5 +1,7 @@
+import { DEFAULT_BROKER_URL } from "./broker-service.js";
+
 function resolveBrokerUrl(): string {
-  return (process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65535").replace(/\/$/, "");
+  return (process.env.OPENSCOUT_BROKER_URL ?? DEFAULT_BROKER_URL).replace(/\/$/, "");
 }
 
 function collectSeeds(argv: string[]): string[] {

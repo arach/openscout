@@ -1,7 +1,7 @@
 {
   "name": "@openscout/cli",
-  "version": "0.1.0",
-  "description": "User-facing CLI for OpenScout",
+  "version": "0.2.0",
+  "description": "Published Scout CLI package that installs the `scout` command",
   "license": "UNLICENSED",
   "type": "module",
   "bin": {
@@ -13,9 +13,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "mkdir -p dist && bun build ./src/main.ts --target=node --outfile ./dist/main.mjs",
-    "dev": "bun run ./src/main.ts",
-    "prepack": "bun run build"
+    "build": "npm --prefix ../runtime run build && node ./scripts/build.mjs",
+    "dev": "bun ../../apps/scout/bin/scout.ts",
+    "test:happy": "node --test test/*.test.mjs",
+    "prepack": "npm run build"
   },
   "publishConfig": {
     "access": "public"

@@ -29,7 +29,7 @@ function step(label) {
 // ── 1. Build ──
 if (!skipBuild) {
   step(`Building OpenScout ${tag}`);
-  run("bun run electron:package");
+  run("npm run electron:package");
 } else {
   console.log("Skipping build (--skip-build)");
 }

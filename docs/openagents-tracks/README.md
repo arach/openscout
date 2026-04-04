@@ -112,7 +112,7 @@ Suggested code areas:
 
 - [packages/runtime/src/schema.ts](/Users/arach/dev/openscout/packages/runtime/src/schema.ts)
 - [packages/runtime/src/registry.ts](/Users/arach/dev/openscout/packages/runtime/src/registry.ts)
-- [packages/relay/docs/architecture.md](/Users/arach/dev/openscout/packages/relay/docs/architecture.md)
+- [ARCHIVED/packages/relay/docs/architecture.md](/Users/arach/dev/openscout/ARCHIVED/packages/relay/docs/architecture.md)
 - [docs/collaboration-workflows-v1.md](/Users/arach/dev/openscout/docs/collaboration-workflows-v1.md)
 
 ### Lane B: Runtime Inventory And Onboarding
@@ -125,7 +125,7 @@ Suggested code areas:
 
 - [packages/runtime/src](/Users/arach/dev/openscout/packages/runtime/src)
 - [docs/native-runtime.md](/Users/arach/dev/openscout/docs/native-runtime.md)
-- [native/engine/Sources/ScoutApp](/Users/arach/dev/openscout/native/engine/Sources/ScoutApp)
+- [ARCHIVED/native/engine/Sources/ScoutApp](/Users/arach/dev/openscout/ARCHIVED/native/engine/Sources/ScoutApp)
 
 ### Lane C: Surfaces And Product UX
 
@@ -136,9 +136,9 @@ Own:
 
 Suggested code areas:
 
-- [native/engine/Sources/ScoutApp](/Users/arach/dev/openscout/native/engine/Sources/ScoutApp)
+- [ARCHIVED/native/engine/Sources/ScoutApp](/Users/arach/dev/openscout/ARCHIVED/native/engine/Sources/ScoutApp)
 - [packages/electron-app/src](/Users/arach/dev/openscout/packages/electron-app/src)
-- [src/app](/Users/arach/dev/openscout/src/app)
+- [ARCHIVED/site/src/app](/Users/arach/dev/openscout/ARCHIVED/site/src/app)
 
 ## Recommended First Milestones
 

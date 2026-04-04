@@ -196,6 +196,11 @@ async function readOptionalFile(filePath: string): Promise<string | null> {
   }
 }
 
+function isMissingCodexRolloutError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("no rollout found for thread id");
+}
+
 class CodexAppServerSession {
   private readonly key: string;
 
@@ -475,6 +480,9 @@ class CodexAppServerSession {
           this.stderrLogPath,
           `[openscout] failed to resume stored Codex thread ${storedThreadId}: ${errorMessage(error)}\n`,
         ).catch(() => undefined);
+        if (isMissingCodexRolloutError(error)) {
+          await rm(this.threadIdPath, { force: true }).catch(() => undefined);
+        }
       }
     }
 
