@@ -2,6 +2,12 @@
 
 Scout agent references are a small address grammar for targeting a concrete agent identity.
 
+The system separates three layers:
+
+- canonical identity: exact, stable, system-owned
+- minimal unique identity: the shortest address that still resolves unambiguously
+- alias: a human-owned shortcut that maps to one concrete identity
+
 ## Model
 
 An agent identity is the combination of:
@@ -29,6 +35,8 @@ Examples:
 - `@arc.main.profile:dev`
 - `@arc.main.profile:dev-browser.harness:claude`
 - `@arc.super-refactor.profile:dev-browser.harness:claude.node:mini`
+
+Canonical identity stays exact even when it is ugly. Human-facing surfaces should prefer a minimal unique identity or an explicit alias.
 
 ## Parsing Rules
 
@@ -67,5 +75,43 @@ Resolution matches a parsed identity against concrete candidates.
 - Bare identities like `@arc` can resolve through an explicit default alias.
 - Partially qualified identities must resolve to exactly one candidate.
 - Ambiguous identities return `null`.
+- Exact aliases resolve before canonical matching.
 
 This keeps short names ergonomic while making precise identities explicit when needed.
+
+## Minimal Unique Identity
+
+Given a concrete candidate and a set of peers, Scout should prefer the shortest address that still resolves to exactly one candidate.
+
+Dimension order is:
+
+1. `workspaceQualifier`
+2. `profile`
+3. `harness`
+4. `nodeQualifier`
+
+Rules:
+
+- do not include a dimension unless it actually reduces ambiguity
+- prefer a configured alias if it uniquely resolves and is shorter than the canonical form
+- if no shorter unique subset exists, fall back to the canonical identity
+
+Examples:
+
+- canonical: `@hudson.hudson-main-8012ac.node:arachs-mac-mini-local`
+- minimal unique: `@hudson.node:backup-mac-mini`
+- alias: `@huddy`
+
+## Aliases
+
+Aliases are exact, human-owned shortcuts:
+
+- `@huddy`
+- `@arc.dev`
+
+Alias rules:
+
+- one alias targets one concrete identity
+- aliases must resolve uniquely
+- if an alias becomes ambiguous, it is invalid until repaired
+- aliases do not replace canonical identities; they sit on top of them

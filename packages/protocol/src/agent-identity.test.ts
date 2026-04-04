@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  constructAgentAlias,
   constructAgentIdentity,
   extractAgentIdentities,
+  formatAgentAlias,
   formatAgentIdentity,
+  formatMinimalAgentIdentity,
   parseAgentIdentity,
   parseAgentSelector,
+  resolveAgentAlias,
   resolveAgentIdentity,
   resolveAgentSelector,
 } from "./agent-identity.js";
@@ -116,6 +120,27 @@ describe("agent identity grammar", () => {
       profile: "dev",
     });
   });
+
+  test("constructs and formats explicit aliases", () => {
+    const alias = constructAgentAlias({
+      alias: "@Huddy",
+      target: {
+        definitionId: "hudson",
+        workspaceQualifier: "main",
+        profile: "dev-browser",
+      },
+    });
+
+    expect(alias).toEqual({
+      alias: "huddy",
+      target: {
+        definitionId: "hudson",
+        workspaceQualifier: "main",
+        profile: "dev-browser",
+      },
+    });
+    expect(formatAgentAlias(alias!)).toBe("@huddy");
+  });
 });
 
 describe("agent identity resolution", () => {
@@ -142,6 +167,29 @@ describe("agent identity resolution", () => {
       profile: "dev-browser",
       harness: "claude",
       nodeQualifier: "mini",
+    },
+    {
+      agentId: "hudson.main",
+      definitionId: "hudson",
+      workspaceQualifier: "hudson-main-8012ac",
+      harness: "codex",
+      nodeQualifier: "arachs-mac-mini-local",
+      aliases: ["@huddy"],
+    },
+    {
+      agentId: "hudson.browser",
+      definitionId: "hudson",
+      workspaceQualifier: "hudson-main-8012ac",
+      profile: "dev-browser",
+      harness: "codex",
+      nodeQualifier: "arachs-mac-mini-local",
+    },
+    {
+      agentId: "hudson.other-node",
+      definitionId: "hudson",
+      workspaceQualifier: "hudson-main-8012ac",
+      harness: "codex",
+      nodeQualifier: "backup-mac-mini",
     },
   ];
 
@@ -173,5 +221,45 @@ describe("agent identity resolution", () => {
     const identity = parseAgentSelector("@arc.main.profile:dev-browser");
     expect(identity).not.toBeNull();
     expect(resolveAgentSelector(identity!, candidates)).toEqual(candidates[1]);
+  });
+
+  test("resolves exact human aliases before canonical matching", () => {
+    const identity = parseAgentIdentity("@huddy");
+    expect(identity).not.toBeNull();
+    expect(resolveAgentIdentity(identity!, candidates)).toEqual(candidates[3]);
+  });
+
+  test("resolves aliases through the explicit alias table", () => {
+    const identity = resolveAgentAlias("@huddy", [
+      {
+        alias: "huddy",
+        target: {
+          definitionId: "hudson",
+          workspaceQualifier: "hudson-main-8012ac",
+          harness: "codex",
+          nodeQualifier: "arachs-mac-mini-local",
+        },
+      },
+    ]);
+
+    expect(identity).toEqual({
+      raw: "hudson.hudson-main-8012ac.harness:codex.node:arachs-mac-mini-local",
+      label: "@hudson.hudson-main-8012ac.harness:codex.node:arachs-mac-mini-local",
+      definitionId: "hudson",
+      workspaceQualifier: "hudson-main-8012ac",
+      harness: "codex",
+      nodeQualifier: "arachs-mac-mini-local",
+    });
+  });
+
+  test("formats the shortest unambiguous identity for a candidate", () => {
+    expect(formatMinimalAgentIdentity(candidates[0], candidates)).toBe("@arc");
+    expect(formatMinimalAgentIdentity(candidates[1], candidates)).toBe("@arc.main.profile:dev-browser");
+    expect(formatMinimalAgentIdentity(candidates[2], candidates)).toBe("@arc.super-refactor");
+    expect(formatMinimalAgentIdentity(candidates[3], candidates)).toBe("@huddy");
+    expect(formatMinimalAgentIdentity(candidates[4], candidates)).toBe(
+      "@hudson.profile:dev-browser",
+    );
+    expect(formatMinimalAgentIdentity(candidates[5], candidates)).toBe("@hudson.node:backup-mac-mini");
   });
 });
