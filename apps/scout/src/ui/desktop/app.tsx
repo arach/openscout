@@ -145,6 +145,10 @@ type RelayMentionCandidate = {
   title: string;
   subtitle: string | null;
   mentionToken: string;
+  definitionId: string | null;
+  workspaceQualifier: string | null;
+  branch: string | null;
+  harness: string | null;
   state: RelayDirectState;
   statusLabel: string;
   searchText: string;
@@ -1396,14 +1400,22 @@ export default function App() {
           title: agent.title,
           subtitle: agent.projectRoot ?? agent.cwd ?? agent.subtitle ?? null,
           mentionToken,
+          definitionId: agent.definitionId,
+          workspaceQualifier: agent.workspaceQualifier,
+          branch: agent.branch,
+          harness: agent.harness,
           state: agent.state,
           statusLabel: agent.statusLabel,
           searchText: [
             agent.title,
             agent.id,
+            agent.definitionId ?? '',
             mentionToken,
             agent.selector ?? '',
             agent.defaultSelector ?? '',
+            agent.workspaceQualifier ?? '',
+            agent.branch ?? '',
+            agent.harness ?? '',
             agent.projectRoot ?? '',
             agent.cwd ?? '',
           ].join(' ').toLowerCase(),
@@ -1437,6 +1449,13 @@ export default function App() {
         .map(({ candidate }) => candidate);
     },
     [relayActiveMention, relayMentionCandidates, selectedRelayId, selectedRelayKind],
+  );
+  const relayMentionDuplicateTitleCounts = useMemo(
+    () => relayMentionCandidates.reduce((map, candidate) => {
+      map.set(candidate.title, (map.get(candidate.title) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>()),
+    [relayMentionCandidates],
   );
   const relayMentionMenuOpen = relayMentionSuggestions.length > 0;
   useEffect(() => {
@@ -7206,16 +7225,97 @@ export default function App() {
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] gap-4">
-                    <div className="space-y-4 min-w-0">
-                      <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border, backgroundColor: C.surface }}>
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Activity Tail</div>
-                            <div className="text-[11px] mt-1" style={s.mutedText}>
-                              Broker-native asks, replies, and status signals touching {selectedInterAgent.title}. This is the operational trail behind Scout&apos;s routing work.
-                            </div>
+                  <div className="flex flex-col gap-4">
+                    {/* 1. Live Session */}
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div
+                        className="px-4 py-3 border-b flex items-center justify-between gap-3"
+                        style={{ backgroundColor: C.surface, borderBottomColor: C.border }}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Live Session</div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {visibleAgentSession?.commandLabel ? (
+                            <AgentActionButton
+                              icon={<Copy size={13} />}
+                              onClick={() => void handleCopyAgentSessionCommand()}
+                            >
+                              {agentSessionCopied ? 'Copied' : 'Copy'}
+                            </AgentActionButton>
+                          ) : null}
+                          {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
+                            <AgentActionButton
+                              icon={<FolderOpen size={13} />}
+                              onClick={() => void handleOpenAgentSession()}
+                            >
+                              {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                            </AgentActionButton>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div
+                        className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px]"
+                        style={{ backgroundColor: C.bg, borderBottomColor: C.border, color: C.muted }}
+                      >
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
+                          {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+                        </span>
+                        {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
+                      </div>
+
+                      <div style={{ backgroundColor: C.termBg }}>
+                        {agentSessionLoading && !visibleAgentSession ? (
+                          <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
+                            Loading live session…
                           </div>
+                        ) : visibleAgentSession?.body ? (
+                          <pre
+                            ref={(element) => {
+                              agentSessionInlineViewportRef.current = element;
+                            }}
+                            onScroll={(event) => {
+                              agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
+                            }}
+                            className="px-4 py-4 text-[11px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words min-h-[360px] max-h-[600px] overflow-y-auto"
+                            style={{ color: C.termFg, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                          >
+                            {visibleAgentSession.body}
+                          </pre>
+                        ) : (
+                          <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
+                            {agentSessionPending
+                              ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                              : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        className="px-4 h-10 border-t flex items-center justify-between gap-3 text-[10px]"
+                        style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
+                      >
+                        <div className="truncate min-w-0 font-mono">
+                          {renderLocalPathValue(
+                            visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.',
+                            {
+                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                            },
+                          )}
+                        </div>
+                        {agentSessionFeedback ? (
+                          <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
+                        ) : null}
+                      </div>
+                    </section>
+
+                    {/* 2. Recent Activity */}
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border, backgroundColor: C.surface }}>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Recent Activity</div>
+                        </div>
                           <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                             <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
                               {selectedInterAgentActivityMessages.length} events
@@ -7264,298 +7364,176 @@ export default function App() {
                           </div>
                         ) : null}
 
-                        <div className="px-4 py-4 max-h-[420px] overflow-y-auto" style={{ backgroundColor: C.bg }}>
-                          {selectedInterAgentActivityMessages.length > 0 ? (
-                            <RelayTimeline
-                              messages={selectedInterAgentActivityMessages}
-                              showAnnotations={true}
-                              showStatusMessages={true}
-                              inkStyle={s.inkText}
-                              mutedStyle={s.mutedText}
-                              tagStyle={s.tagBadge}
-                              annotStyle={s.annotBadge}
-                              agentLookup={interAgentAgentLookup}
-                              directThreadLookup={relayDirectLookup}
-                              onOpenAgentProfile={openAgentProfile}
-                              onOpenAgentChat={(agentId, draft) => openRelayAgentThread(agentId, { draft, focusComposer: true })}
-                              onNudgeMessage={handleNudgeMessage}
-                            />
-                          ) : (
-                            <div className="text-[11px] leading-[1.6]" style={s.mutedText}>
-                              No broker-visible activity for this agent yet.
-                            </div>
-                          )}
-                        </div>
-                      </section>
-
-                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-center justify-between gap-3 mb-3">
-                          <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Open Threads</div>
-                            <div className="text-[11px] mt-1" style={s.mutedText}>
-                              Your direct line first, then the other channels this agent is actively involved in.
-                            </div>
-                          </div>
-                          {visibleInterAgentThreads.length > 0 ? (
-                            <button
-                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                              style={{ color: C.ink }}
-                              onClick={() => setActiveView('inter-agent')}
-                            >
-                              Open Inter-Agent
-                            </button>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-col gap-3">
-                          <div className="border rounded-lg px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="text-[13px] font-medium truncate" style={s.inkText}>Direct Line</div>
-                                <div className="text-[10px] truncate mt-1" style={s.mutedText}>You and {selectedInterAgent.title}</div>
-                              </div>
-                              <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                                {selectedInterAgentDirectThread?.timestampLabel ?? selectedInterAgent.lastChatLabel ?? ''}
-                              </span>
-                            </div>
-                            <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
-                              {selectedAgentDirectLinePreview}
-                            </div>
-                            <div className="flex items-center justify-between gap-3 mt-3">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
-                                  Direct
-                                </span>
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                  {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
-                                </span>
-                              </div>
-                              <button
-                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
-                                style={{ color: C.ink }}
-                                onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
-                              >
-                                {selectedInterAgentChatActionLabel}
-                              </button>
-                            </div>
-                          </div>
-                        {visibleInterAgentThreads.length > 0 ? (
-                          <div className="flex flex-col gap-3">
-                            {visibleInterAgentThreads.map((thread) => (
-                              <div
-                                key={thread.id}
-                                className="border rounded-lg px-3 py-3"
-                                style={{ borderColor: C.border, backgroundColor: selectedInterAgentThreadId === thread.id ? C.bg : C.surface }}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-[13px] font-medium truncate" style={s.inkText}>
-                                      {interAgentThreadTitleForAgent(thread, selectedInterAgent.id)}
-                                    </div>
-                                    <div className="text-[10px] truncate mt-1" style={s.mutedText}>
-                                      {interAgentThreadSubtitle(thread, selectedInterAgent.id)}
-                                    </div>
-                                  </div>
-                                  <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                                    {thread.timestampLabel ?? ''}
-                                  </span>
-                                </div>
-                                <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
-                                  {thread.preview ?? 'No message preview yet.'}
-                                </div>
-                                <div className="flex items-center justify-between gap-3 mt-3">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
-                                      {thread.sourceKind === 'private' ? 'Private' : 'Targeted'}
-                                    </span>
-                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {thread.messageCount} msgs
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                      style={{ color: C.ink }}
-                                      onClick={() => openRelayAgentThread(selectedInterAgent.id, {
-                                        draft: agentThreadFollowUpDraft(thread, selectedInterAgent.id),
-                                        focusComposer: true,
-                                      })}
-                                    >
-                                      Ask About This
-                                    </button>
-                                    <button
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                      style={{ color: C.ink }}
-                                      onClick={() => {
-                                        setSelectedInterAgentThreadId(thread.id);
-                                        setActiveView('inter-agent');
-                                      }}
-                                    >
-                                      Open
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                      <div className="px-4 py-4 max-h-[280px] overflow-y-auto" style={{ backgroundColor: C.bg }}>
+                        {selectedInterAgentActivityMessages.length > 0 ? (
+                          <RelayTimeline
+                            messages={agentActivityExpanded ? selectedInterAgentActivityMessages : selectedInterAgentActivityMessages.slice(-5)}
+                            showAnnotations={true}
+                            showStatusMessages={true}
+                            inkStyle={s.inkText}
+                            mutedStyle={s.mutedText}
+                            tagStyle={s.tagBadge}
+                            annotStyle={s.annotBadge}
+                            agentLookup={interAgentAgentLookup}
+                            directThreadLookup={relayDirectLookup}
+                            onOpenAgentProfile={openAgentProfile}
+                            onOpenAgentChat={(agentId, draft) => openRelayAgentThread(agentId, { draft, focusComposer: true })}
+                            onNudgeMessage={handleNudgeMessage}
+                          />
                         ) : (
-                          <div className="flex flex-col items-start gap-3">
-                            <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                              No other active channels for this agent yet.
-                            </div>
+                          <div className="text-[11px] leading-[1.6]" style={s.mutedText}>
+                            No broker-visible activity for this agent yet.
                           </div>
                         )}
-                        </div>
-                      </section>
-                    </div>
+                        {selectedInterAgentActivityMessages.length > 5 && !agentActivityExpanded ? (
+                          <button
+                            className="w-full text-center py-2 text-[11px] font-medium hover:opacity-80 transition-opacity"
+                            style={{ color: C.accent }}
+                            onClick={() => setAgentActivityExpanded(true)}
+                          >
+                            Show all {selectedInterAgentActivityMessages.length} events
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
 
-                    <div className="space-y-4 min-w-0">
+                    {/* 3. Open Threads (collapsible) */}
+                    <Collapsible open={agentThreadsExpanded} onOpenChange={setAgentThreadsExpanded}>
                       <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                        <div
-                          className="px-4 py-3 border-b flex items-center justify-between gap-3"
-                          style={{ backgroundColor: C.surface, borderBottomColor: C.border }}
-                        >
-                          <div className="min-w-0 flex items-center gap-3">
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#f97316' }}></span>
-                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#facc15' }}></span>
-                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: '#22c55e' }}></span>
+                        <CollapsibleTrigger asChild>
+                          <button className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:opacity-90 transition-opacity text-left" style={{ backgroundColor: C.surface }}>
+                            <div className="flex items-center gap-2">
+                              <ChevronRight size={12} className="transition-transform duration-150" style={{ color: C.muted, transform: agentThreadsExpanded ? 'rotate(90deg)' : undefined }} />
+                              <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Open Threads</div>
+                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>{visibleInterAgentThreads.length + 1}</span>
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Live Session</div>
-                              <div className="text-[11px] mt-1 truncate" style={s.mutedText}>
-                                {agentSessionPending
-                                  ? 'Checking tmux pane and runtime logs for the selected agent.'
-                                  : visibleAgentSession?.mode === 'tmux'
-                                  ? 'Live tmux pane capture for the selected agent.'
-                                  : visibleAgentSession?.mode === 'logs'
-                                    ? 'Canonical runtime session logs for the selected agent.'
-                                    : 'No live tmux pane or predictable runtime logs are available yet.'}
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-4 py-3 border-t flex flex-col gap-3" style={{ borderTopColor: C.border }}>
+                            <div className="border rounded-lg px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[13px] font-medium truncate" style={s.inkText}>Direct Line</div>
+                                  <div className="text-[10px] truncate mt-1" style={s.mutedText}>You and {selectedInterAgent.title}</div>
+                                </div>
+                                <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                                  {selectedInterAgentDirectThread?.timestampLabel ?? selectedInterAgent.lastChatLabel ?? ''}
+                                </span>
+                              </div>
+                              <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
+                                {selectedAgentDirectLinePreview}
+                              </div>
+                              <div className="flex items-center justify-between gap-3 mt-3">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
+                                    Direct
+                                  </span>
+                                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                    {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
+                                  </span>
+                                </div>
+                                <button
+                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
+                                  style={{ color: C.ink }}
+                                  onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
+                                >
+                                  {selectedInterAgentChatActionLabel}
+                                </button>
                               </div>
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {visibleAgentSession?.commandLabel ? (
-                              <AgentActionButton
-                                icon={<Copy size={13} />}
-                                onClick={() => void handleCopyAgentSessionCommand()}
-                              >
-                                {agentSessionCopied ? 'Copied' : 'Copy'}
-                              </AgentActionButton>
-                            ) : null}
-                            {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
-                              <AgentActionButton
-                                icon={<FolderOpen size={13} />}
-                                onClick={() => void handleOpenAgentSession()}
-                              >
-                                {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
-                              </AgentActionButton>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div
-                          className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px]"
-                          style={{ backgroundColor: C.bg, borderBottomColor: C.border, color: C.muted }}
-                        >
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
-                            {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
-                          </span>
-                          {(visibleAgentSession?.harness ?? selectedInterAgent?.harness) ? (
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession?.harness ?? selectedInterAgent?.harness}
-                            </span>
-                          ) : null}
-                          {(visibleAgentSession?.transport ?? selectedInterAgent?.transport) ? (
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession?.transport ?? selectedInterAgent?.transport}
-                            </span>
-                          ) : null}
-                          {(visibleAgentSession?.sessionId ?? selectedInterAgent?.sessionId) ? (
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {visibleAgentSession?.sessionId ?? selectedInterAgent?.sessionId}
-                            </span>
-                          ) : null}
-                          {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
-                          {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? <span>{visibleAgentSession.lineCount} lines</span> : null}
-                          {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
-                        </div>
-
-                        <div style={{ backgroundColor: C.termBg }}>
-                          {agentSessionLoading && !visibleAgentSession ? (
-                            <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
-                              Loading live session…
-                            </div>
-                          ) : visibleAgentSession?.body ? (
-                            <pre
-                              ref={(element) => {
-                                agentSessionInlineViewportRef.current = element;
-                              }}
-                              onScroll={(event) => {
-                                agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
-                              }}
-                              className="px-4 py-4 text-[11px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words min-h-[320px] max-h-[520px] overflow-y-auto"
-                              style={{ color: C.termFg, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-                            >
-                              {visibleAgentSession.body}
-                            </pre>
-                          ) : (
-                            <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
-                              {agentSessionPending
-                                ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
-                                : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
-                            </div>
-                          )}
-                        </div>
-
-                        <div
-                          className="px-4 h-10 border-t flex items-center justify-between gap-3 text-[10px]"
-                          style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
-                        >
-                          <div className="truncate min-w-0 font-mono">
-                            {renderLocalPathValue(
-                              visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.',
-                              {
-                                className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                              },
+                            {visibleInterAgentThreads.length > 0 ? (
+                              <div className="flex flex-col gap-3">
+                                {visibleInterAgentThreads.map((thread) => (
+                                  <div
+                                    key={thread.id}
+                                    className="border rounded-lg px-3 py-3"
+                                    style={{ borderColor: C.border, backgroundColor: selectedInterAgentThreadId === thread.id ? C.bg : C.surface }}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="text-[13px] font-medium truncate" style={s.inkText}>
+                                          {interAgentThreadTitleForAgent(thread, selectedInterAgent.id)}
+                                        </div>
+                                        <div className="text-[10px] truncate mt-1" style={s.mutedText}>
+                                          {interAgentThreadSubtitle(thread, selectedInterAgent.id)}
+                                        </div>
+                                      </div>
+                                      <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
+                                        {thread.timestampLabel ?? ''}
+                                      </span>
+                                    </div>
+                                    <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
+                                      {thread.preview ?? 'No message preview yet.'}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 mt-3">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
+                                          {thread.sourceKind === 'private' ? 'Private' : 'Targeted'}
+                                        </span>
+                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                          {thread.messageCount} msgs
+                                        </span>
+                                      </div>
+                                      <button
+                                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                                        style={{ color: C.ink }}
+                                        onClick={() => {
+                                          setSelectedInterAgentThreadId(thread.id);
+                                          setActiveView('inter-agent');
+                                        }}
+                                      >
+                                        Open
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-start gap-3">
+                                <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                                  No other active channels for this agent yet.
+                                </div>
+                              </div>
                             )}
                           </div>
-                          {agentSessionFeedback ? (
-                            <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
-                          ) : null}
-                        </div>
+                        </CollapsibleContent>
                       </section>
+                    </Collapsible>
 
-                      <section className="border rounded-xl p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Operational Snapshot</div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          {[
-                            ['Agent ID', selectedInterAgent.id],
-                            ['Source', visibleAgentConfig?.runtime.source ?? selectedInterAgent.source ?? 'Built-in'],
-                            ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
-                            ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
-                            ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
-                            ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
-                            ['Last Chat', selectedInterAgent.lastChatLabel ?? 'Not reported'],
-                            ['Last Dev Session', selectedInterAgent.lastSessionLabel ?? 'Not reported'],
-                            ['Last Code Change', selectedInterAgent.lastCodeChangeLabel ?? 'Not reported'],
-                          ].map(([label, value]) => (
-                            <div key={label} className="min-w-0">
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                    {/* 4. Operational Snapshot (collapsible) */}
+                    <Collapsible open={agentSnapshotExpanded} onOpenChange={setAgentSnapshotExpanded}>
+                      <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                        <CollapsibleTrigger asChild>
+                          <button className="w-full px-4 py-3 flex items-center gap-2 hover:opacity-90 transition-opacity text-left" style={{ backgroundColor: C.surface }}>
+                            <ChevronRight size={12} className="transition-transform duration-150" style={{ color: C.muted, transform: agentSnapshotExpanded ? 'rotate(90deg)' : undefined }} />
+                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Operational Snapshot</div>
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="px-4 py-3 border-t" style={{ borderTopColor: C.border }}>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                              {[
+                                ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
+                                ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
+                                ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
+                                ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
+                                ['Last Chat', selectedInterAgent.lastChatLabel ?? 'Not reported'],
+                                ['Last Dev Session', selectedInterAgent.lastSessionLabel ?? 'Not reported'],
+                                ['Last Code Change', selectedInterAgent.lastCodeChangeLabel ?? 'Not reported'],
+                              ].map(([label, value]) => (
+                                <div key={label} className="min-w-0">
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                        <div className="text-[11px] leading-[1.5] mt-3 pt-3 border-t" style={{ ...s.mutedText, borderTopColor: C.border }}>
-                          The main agent view stays operational. Use Settings when you want to edit the system prompt, runtime definition, tools, or capabilities.
-                        </div>
+                          </div>
+                        </CollapsibleContent>
                       </section>
-                    </div>
+                    </Collapsible>
                   </div>
                 )}
-              </div>
-
-              <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Relay agent overview, live session, direct line, and recent thread activity</span>
               </div>
             </div>
           </>
@@ -8740,6 +8718,11 @@ export default function App() {
                       <div className="max-h-64 overflow-y-auto">
                         {relayMentionSuggestions.map((candidate, index) => {
                           const active = index === relayMentionSelectionIndex;
+                          const workspaceLabel = mentionWorkspaceLabel(candidate);
+                          const worktreeLabel = mentionWorktreeLabel(candidate);
+                          const duplicateTitle = (relayMentionDuplicateTitleCounts.get(candidate.title) ?? 0) > 1;
+                          const showWorkspace = duplicateTitle || Boolean(candidate.harness) || Boolean(worktreeLabel);
+                          const showWorktree = Boolean(worktreeLabel && worktreeLabel !== workspaceLabel);
                           return (
                             <button
                               key={candidate.agentId}
@@ -8755,15 +8738,30 @@ export default function App() {
                               }}
                             >
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2 min-w-0">
+                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                   <span className="text-[11px] font-medium truncate">{candidate.title}</span>
                                   <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
                                     {candidate.statusLabel}
                                   </span>
+                                  {showWorkspace && workspaceLabel ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {workspaceLabel}
+                                    </span>
+                                  ) : null}
+                                  {candidate.harness ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {candidate.harness}
+                                    </span>
+                                  ) : null}
+                                  {showWorktree && worktreeLabel ? (
+                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                      {worktreeLabel}
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <div className="text-[10px] mt-1 truncate" style={s.mutedText}>
                                   {candidate.mentionToken}
-                                  {candidate.subtitle ? ` · ${compactHomePath(candidate.subtitle) ?? candidate.subtitle}` : ''}
+                                  {duplicateTitle && candidate.subtitle ? ` · ${compactHomePath(candidate.subtitle) ?? candidate.subtitle}` : ''}
                                 </div>
                               </div>
                               <span className="text-[9px] font-mono shrink-0" style={s.mutedText}>
@@ -11135,6 +11133,20 @@ function normalizeRelayMentionQuery(value: string) {
   return value.trim().toLowerCase();
 }
 
+function pathLeaf(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.replace(/[\\/]+$/, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) ?? null;
+}
+
 function findActiveRelayMention(text: string, cursor: number): RelayActiveMention | null {
   const safeCursor = Math.max(0, Math.min(cursor, text.length));
   let start = safeCursor - 1;
@@ -11188,6 +11200,18 @@ function scoreRelayMentionCandidate(
   else if (candidate.state === 'available') score += 4;
 
   return score;
+}
+
+function mentionWorkspaceLabel(candidate: RelayMentionCandidate) {
+  return pathLeaf(candidate.subtitle) ?? candidate.workspaceQualifier ?? null;
+}
+
+function mentionWorktreeLabel(candidate: RelayMentionCandidate) {
+  const branch = candidate.branch?.trim();
+  if (branch && branch !== 'HEAD') {
+    return branch;
+  }
+  return candidate.workspaceQualifier?.trim() || null;
 }
 
 function optimisticRelayConversationId(kind: RelayDestinationKind, id: string) {
