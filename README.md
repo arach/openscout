@@ -4,7 +4,7 @@ OpenScout is the local Scout workspace for the current desktop app, CLI, and bro
 
 This repo now has three active layers:
 
-- A Next.js site at the repo root for product framing and launch messaging
+- A Scout app tree under `apps/scout` for product logic and UI
 - An Electron shell for the operator-facing desktop surface
 - A local broker/control plane in `packages/*` for durable agent communication and execution
 
@@ -28,18 +28,12 @@ The product story is not just "chat between terminals." The current control-plan
 
 ## Current Direction
 
-Scout is being structured as the thin waist across your apps:
+Scout is being structured around one product path:
 
-- `Talkie` contributes the process model and voice-adjacent context ideas
-- `Action` contributes the native app/agent split and local runtime discipline
-- `Hudson` contributes the shell principle: modules do not own chrome, the shell does
-
-That means the first scaffold focuses on:
-
-- one main native shell
-- one helper process
-- one embedded console surface
-- one place to aggregate modules such as Talkie, Lattices, Operate, Action, and Hudson-style experiences
+- `apps/scout` owns product behavior
+- `packages/electron-app` is the desktop host
+- `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
+- `packages/cli` is the thin publish wrapper around the Scout CLI
 
 ## Getting Started
 
@@ -53,15 +47,6 @@ scout doctor
 `scout setup` creates or updates machine-local settings, discovers workspace projects, writes `.openscout/project.json` for the current repo when needed, registers known agents, installs the broker launch agent, and attempts to start the broker service.
 
 `scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
-
-## Run The Website
-
-```bash
-bun install
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
 
 ## Run The Electron Shell
 
@@ -118,12 +103,8 @@ The support directory is now organized as:
 │   ├── cli/
 │   ├── electron-app/
 │   ├── protocol/
-│   ├── runtime/
-│   ├── voice/
-│   └── workflows/
-├── src/
-│   └── app/
-└── public/
+│   └── runtime/
+└── scripts/
 ```
 
 ## Read Next

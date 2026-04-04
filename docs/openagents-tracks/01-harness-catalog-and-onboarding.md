@@ -130,7 +130,7 @@ The onboarding surface should be built around a small, obvious command set:
 - `scout runtimes info <name>` should explain install status, readiness requirements, and capability flags.
 - `scout runtimes refresh` should re-run discovery and remote enrichment.
 
-The track should explicitly reuse the existing onboarding commands already shown in the product site at [`src/app/page.tsx`](../../src/app/page.tsx) and the native support-directory model in [`docs/native-runtime.md`](../native-runtime.md).
+The track should explicitly reuse the onboarding commands now owned by the Scout app and CLI, and the archived native support-directory model in [`docs/native-runtime.md`](../native-runtime.md).
 
 ## Broker And Runtime Responsibilities
 
@@ -223,6 +223,6 @@ The shell should answer three questions at a glance:
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md)
 - [`docs/native-runtime.md`](../native-runtime.md)
 - [`packages/runtime/README.md`](../../packages/runtime/README.md)
-- [`src/app/page.tsx`](../../src/app/page.tsx)
+- [`ARCHIVED/site/src/app/page.tsx`](../../ARCHIVED/site/src/app/page.tsx)
 - [`ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutSettingsView.swift)
 - [`ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift`](../../ARCHIVED/native/engine/Sources/ScoutApp/ScoutBrokerSupervisor.swift)

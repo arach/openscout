@@ -138,7 +138,7 @@ Suggested code areas:
 
 - [ARCHIVED/native/engine/Sources/ScoutApp](/Users/arach/dev/openscout/ARCHIVED/native/engine/Sources/ScoutApp)
 - [packages/electron-app/src](/Users/arach/dev/openscout/packages/electron-app/src)
-- [src/app](/Users/arach/dev/openscout/src/app)
+- [ARCHIVED/site/src/app](/Users/arach/dev/openscout/ARCHIVED/site/src/app)
 
 ## Recommended First Milestones
 
