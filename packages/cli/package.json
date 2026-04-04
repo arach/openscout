@@ -1,6 +1,6 @@
 {
   "name": "@openscout/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Public Scout CLI for the OpenScout operator surface",
   "license": "UNLICENSED",
   "type": "module",
