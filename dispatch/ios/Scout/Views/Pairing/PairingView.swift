@@ -1,6 +1,6 @@
 // PairingView — Welcome screen and QR scan flow for first connection.
 //
-// Shows Dispatch branding, instructions, and a "Scan QR Code" button.
+// Shows Scout branding, instructions, and a "Scan QR Code" button.
 // After successful scan: connecting animation -> handshake -> transition to session list.
 
 import SwiftUI
@@ -78,7 +78,7 @@ struct PairingView: View {
             }
 
             VStack(spacing: DispatchSpacing.sm) {
-                Text("Dispatch")
+                Text("Scout")
                     .font(.system(size: 34, weight: .bold, design: .default))
                     .foregroundStyle(DispatchColors.textPrimary)
 
@@ -232,7 +232,7 @@ struct PairingView: View {
                 .font(DispatchTypography.caption(13))
                 .foregroundStyle(DispatchColors.textMuted)
 
-            Text("dispatch bridge --pair")
+            Text("scout pair")
                 .font(DispatchTypography.code(14, weight: .medium))
                 .foregroundStyle(DispatchColors.accent)
                 .padding(.horizontal, DispatchSpacing.lg)
@@ -241,7 +241,7 @@ struct PairingView: View {
                 .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
                 .textSelection(.enabled)
 
-            Text("Then scan the QR code in Dispatch.")
+            Text("Then scan the QR code in Scout.")
                 .font(DispatchTypography.caption(13))
                 .foregroundStyle(DispatchColors.textMuted)
         }

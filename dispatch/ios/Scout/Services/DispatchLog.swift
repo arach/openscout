@@ -101,7 +101,7 @@ struct DispatchLogger {
 
     init(category: String) {
         self.category = category
-        self.osLogger = Logger(subsystem: "com.openscout.dispatch", category: category)
+        self.osLogger = Logger(subsystem: "com.openscout.scout", category: category)
     }
 
     func debug(_ message: String, detail: String? = nil) {

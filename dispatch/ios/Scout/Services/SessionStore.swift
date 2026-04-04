@@ -35,7 +35,7 @@ final class SessionStore: @unchecked Sendable {
     private var bridgeIdentityKey: String?
 
     private static let logger = Logger(
-        subsystem: "com.openscout.dispatch",
+        subsystem: "com.openscout.scout",
         category: "SessionStore"
     )
 
@@ -533,7 +533,7 @@ final class SessionStore: @unchecked Sendable {
     // MARK: - Private: Seq persistence
 
     private static func seqDefaultsKey(for bridgeKey: String) -> String {
-        "dispatch.lastAppliedSeq.\(bridgeKey)"
+        "scout.lastAppliedSeq.\(bridgeKey)"
     }
 
     private static func loadLastAppliedSeq(for bridgeKey: String) -> Int {
@@ -559,7 +559,7 @@ extension SessionStore {
                 turnCount: 8, currentTurnStatus: "streaming",
                 startedAt: Int(Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000),
                 lastActivityAt: Int(Date().addingTimeInterval(-15).timeIntervalSince1970 * 1000),
-                project: "openscout",
+                project: "scout",
                 model: "claude-sonnet-4-20250514"
             ),
             SessionSummary(
@@ -568,7 +568,7 @@ extension SessionStore {
                 turnCount: 3, currentTurnStatus: nil,
                 startedAt: Int(Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000),
                 lastActivityAt: Int(Date().addingTimeInterval(-300).timeIntervalSince1970 * 1000),
-                project: "dispatch",
+                project: "scout-mobile",
                 model: "gpt-5.4-mini"
             ),
         ]

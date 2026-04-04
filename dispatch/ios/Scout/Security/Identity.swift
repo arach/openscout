@@ -36,7 +36,7 @@ struct TrustedBridge: Codable, Sendable, Identifiable {
 final class DispatchIdentity: Sendable {
 
     // Keychain service identifiers
-    private static let service = "com.openscout.dispatch.identity"
+    private static let service = "com.openscout.scout.identity"
     private static let staticKeyAccount = "static-key-private"
     private static let trustedBridgesAccount = "trusted-bridges"
 

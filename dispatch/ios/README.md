@@ -1,18 +1,18 @@
-## Dispatch iOS
+## Scout iOS
 
-This directory contains the imported iOS donor app that previously lived in an
-external repo.
+This directory contains the restored iOS app that is now being refactored into
+the Scout mobile client.
 
 Status:
-- imported intact first to preserve behavior
-- internal names are now Dispatch-aligned
-- additional product refactors will land in-place
+- restored intact first to preserve behavior
+- product identity is now Scout
+- deeper internal renames will land in-place
 
 Expected migration order:
 1. user-facing copy and product identity
 2. product semantics such as partner surface and inbox/work-state flows
-3. deeper internal renames once behavior is stable in OpenScout
+3. deeper internal renames once behavior is stable in Scout
 
 Project notes:
 - XcodeGen project definition: [project.yml](/Users/arach/dev/openscout/dispatch/ios/project.yml)
-- donor source root: [Dispatch](/Users/arach/dev/openscout/dispatch/ios/Dispatch)
+- source root: [Scout](/Users/arach/dev/openscout/dispatch/ios/Scout)

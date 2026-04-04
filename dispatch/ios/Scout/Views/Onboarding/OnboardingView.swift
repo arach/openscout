@@ -1,7 +1,7 @@
 // OnboardingView — First-launch flow: value prop, permissions, model download.
 //
 // Three pages:
-//   1. Welcome — what Dispatch is, how to use it
+//   1. Welcome — what Scout is, how to use it
 //   2. Permissions — mic + speech recognition
 //   3. Model — Parakeet download progress, Apple Speech fallback
 
@@ -50,7 +50,7 @@ private struct WelcomePage: View {
                 }
 
                 VStack(spacing: DispatchSpacing.md) {
-                    Text("Dispatch")
+                    Text("Scout")
                         .font(DispatchTypography.body(32, weight: .bold))
                         .foregroundStyle(DispatchColors.textPrimary)
 
@@ -118,7 +118,7 @@ private struct PermissionsPage: View {
                         .font(DispatchTypography.body(28, weight: .bold))
                         .foregroundStyle(DispatchColors.textPrimary)
 
-                    Text("Dispatch needs microphone access for voice input and speech recognition for transcription.")
+                    Text("Scout needs microphone access for voice input and speech recognition for transcription.")
                         .font(DispatchTypography.body(15))
                         .foregroundStyle(DispatchColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -150,7 +150,7 @@ private struct PermissionsPage: View {
             Spacer()
 
             Button(action: onNext) {
-                Text(allGranted ? "Start Using Dispatch" : "Skip for Now")
+                Text(allGranted ? "Start Using Scout" : "Skip for Now")
                     .font(DispatchTypography.body(17, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
@@ -211,7 +211,7 @@ private struct ModelPage: View {
                         .font(DispatchTypography.body(28, weight: .bold))
                         .foregroundStyle(DispatchColors.textPrimary)
 
-                    Text("Dispatch uses on-device AI for private speech-to-text. No data leaves your phone.")
+                    Text("Scout uses on-device AI for private speech-to-text. No data leaves your phone.")
                         .font(DispatchTypography.body(15))
                         .foregroundStyle(DispatchColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -267,7 +267,7 @@ private struct ModelPage: View {
             VStack(spacing: DispatchSpacing.sm) {
                 #if canImport(FluidAudio)
                 if !parakeet.isReady {
-                    Text("Parakeet is loading in the background. You can start using Dispatch now.")
+                    Text("Parakeet is loading in the background. You can start using Scout now.")
                         .font(DispatchTypography.caption(13))
                         .foregroundStyle(DispatchColors.textMuted)
                         .multilineTextAlignment(.center)

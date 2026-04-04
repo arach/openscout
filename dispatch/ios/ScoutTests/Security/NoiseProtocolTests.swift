@@ -15,7 +15,7 @@ import CryptoKit
 import Foundation
 import XCTest
 
-@testable import OpenScoutDispatch
+@testable import ScoutApp
 
 final class NoiseProtocolTests: XCTestCase {
 

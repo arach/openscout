@@ -193,7 +193,7 @@ struct TimelineView: View {
         let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
         guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
             store.applySnapshot(remoteSnapshot)
-            sendError = "Session changed on the bridge. Dispatch reloaded the latest turns. Review and send again."
+            sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
             return false
         }
 

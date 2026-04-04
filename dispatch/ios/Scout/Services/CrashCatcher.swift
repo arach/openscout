@@ -6,7 +6,7 @@
 import Foundation
 import os.log
 
-private let crashKey = "dispatch_last_crash"
+private let crashKey = "scout_last_crash"
 
 private func crashSignalHandler(_ sig: Int32) {
     let name: String = switch sig {

@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-@testable import OpenScoutDispatch
+@testable import ScoutApp
 
 final class TurnHashTests: XCTestCase {
     func testHashMatchesForEquivalentBlockContent() {

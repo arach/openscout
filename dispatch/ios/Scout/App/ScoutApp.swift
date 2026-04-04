@@ -1,4 +1,4 @@
-// DispatchApp — Entry point for the Dispatch iOS client.
+// ScoutApp — Entry point for the Scout iOS client.
 //
 // Creates and wires the core services (SessionStore, ConnectionManager)
 // and injects them into the SwiftUI environment.
@@ -6,10 +6,10 @@
 import SwiftUI
 import os
 
-private let bootLogger = Logger(subsystem: "com.openscout.dispatch", category: "Boot")
+private let bootLogger = Logger(subsystem: "com.openscout.scout", category: "Boot")
 
 @main
-struct DispatchApp: App {
+struct ScoutApp: App {
 
     @State private var sessionStore: SessionStore
     @State private var connectionManager: ConnectionManager
@@ -18,7 +18,7 @@ struct DispatchApp: App {
 
     init() {
         CrashCatcher.install()
-        bootLogger.notice("Dispatch app launching")
+        bootLogger.notice("Scout app launching")
         let store = SessionStore()
         let manager = ConnectionManager(sessionStore: store)
         bootLogger.notice("hasTrustedBridge=\(manager.hasTrustedBridge, privacy: .public), state=\(String(describing: manager.state), privacy: .public)")

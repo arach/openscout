@@ -151,7 +151,7 @@ final class ConnectionManager: @unchecked Sendable {
     private var identityKeyPair: NoiseKeyPair?
 
     private static let logger = Logger(
-        subsystem: "com.openscout.dispatch",
+        subsystem: "com.openscout.scout",
         category: "ConnectionManager"
     )
 
@@ -399,7 +399,7 @@ final class ConnectionManager: @unchecked Sendable {
             }
         }
         connectionInfo = nil
-        UserDefaults.standard.removeObject(forKey: "dispatch.connectionInfo")
+        UserDefaults.standard.removeObject(forKey: "scout.connectionInfo")
         sessionStore.clearAll()
         sessionStore.connectionState = .disconnected
         setState(.disconnected)
@@ -812,7 +812,7 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: - Private: Connection info persistence
 
     private static func loadConnectionInfo() -> BridgeConnectionInfo? {
-        guard let data = UserDefaults.standard.data(forKey: "dispatch.connectionInfo") else {
+        guard let data = UserDefaults.standard.data(forKey: "scout.connectionInfo") else {
             return nil
         }
         return try? JSONDecoder().decode(BridgeConnectionInfo.self, from: data)
@@ -820,7 +820,7 @@ final class ConnectionManager: @unchecked Sendable {
 
     private func saveConnectionInfo(_ info: BridgeConnectionInfo) {
         if let data = try? JSONEncoder().encode(info) {
-            UserDefaults.standard.set(data, forKey: "dispatch.connectionInfo")
+            UserDefaults.standard.set(data, forKey: "scout.connectionInfo")
         }
     }
 
