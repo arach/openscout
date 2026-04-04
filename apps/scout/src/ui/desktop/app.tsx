@@ -295,6 +295,7 @@ export default function App() {
   const [agentThreadsExpanded, setAgentThreadsExpanded] = useState(false);
   const [agentSnapshotExpanded, setAgentSnapshotExpanded] = useState(false);
   const [agentActivityExpanded, setAgentActivityExpanded] = useState(false);
+  const [agentSessionLogsExpanded, setAgentSessionLogsExpanded] = useState(false);
   const [agentRosterMenu, setAgentRosterMenu] = useState<null | 'filter' | 'sort'>(null);
   const [agentConfig, setAgentConfig] = useState<AgentConfigState | null>(null);
   const [agentConfigDraft, setAgentConfigDraft] = useState<AgentConfigState | null>(null);
@@ -7247,59 +7248,92 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div
-                        className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px]"
-                        style={{ backgroundColor: C.bg, borderBottomColor: C.border, color: C.muted }}
-                      >
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
-                          {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
-                        </span>
-                        {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
-                      </div>
-
-                      <div style={{ backgroundColor: C.termBg }}>
-                        {agentSessionLoading && !visibleAgentSession ? (
-                          <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
-                            Loading live session…
-                          </div>
-                        ) : visibleAgentSession?.body ? (
-                          <pre
-                            ref={(element) => {
-                              agentSessionInlineViewportRef.current = element;
-                            }}
-                            onScroll={(event) => {
-                              agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
-                            }}
-                            className="px-4 py-4 text-[11px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words min-h-[360px] max-h-[600px] overflow-y-auto"
-                            style={{ color: C.termFg, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-                          >
-                            {visibleAgentSession.body}
-                          </pre>
+                      {/* Messages — primary content */}
+                      <div className="px-4 py-4 max-h-[320px] overflow-y-auto" style={{ backgroundColor: C.bg }}>
+                        {selectedInterAgentActivityMessages.length > 0 ? (
+                          <RelayTimeline
+                            messages={selectedInterAgentActivityMessages.slice(-8)}
+                            showAnnotations={false}
+                            showStatusMessages={false}
+                            inkStyle={s.inkText}
+                            mutedStyle={s.mutedText}
+                            tagStyle={s.tagBadge}
+                            annotStyle={s.annotBadge}
+                            agentLookup={interAgentAgentLookup}
+                            directThreadLookup={relayDirectLookup}
+                            onOpenAgentProfile={openAgentProfile}
+                            onOpenAgentChat={(agentId, draft) => openRelayAgentThread(agentId, { draft, focusComposer: true })}
+                            onNudgeMessage={handleNudgeMessage}
+                          />
                         ) : (
-                          <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
-                            {agentSessionPending
-                              ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
-                              : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                          <div className="text-[11px] leading-[1.6]" style={s.mutedText}>
+                            No messages yet. Use the broker to send this agent a task.
                           </div>
                         )}
                       </div>
 
-                      <div
-                        className="px-4 h-10 border-t flex items-center justify-between gap-3 text-[10px]"
-                        style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
-                      >
-                        <div className="truncate min-w-0 font-mono">
-                          {renderLocalPathValue(
-                            visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.',
-                            {
-                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                            },
-                          )}
-                        </div>
-                        {agentSessionFeedback ? (
-                          <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
-                        ) : null}
-                      </div>
+                      {/* Logs — collapsible secondary */}
+                      <Collapsible open={agentSessionLogsExpanded} onOpenChange={setAgentSessionLogsExpanded}>
+                        <CollapsibleTrigger asChild>
+                          <button
+                            className="w-full px-4 py-2 border-t flex items-center justify-between gap-2 text-[10px] hover:opacity-90 transition-opacity text-left"
+                            style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <ChevronRight size={10} className="transition-transform duration-150" style={{ transform: agentSessionLogsExpanded ? 'rotate(90deg)' : undefined }} />
+                              <span className="font-mono uppercase tracking-wider">Logs</span>
+                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
+                                {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+                              </span>
+                              {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
+                            </div>
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div style={{ backgroundColor: C.termBg }}>
+                            {agentSessionLoading && !visibleAgentSession ? (
+                              <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
+                                Loading live session…
+                              </div>
+                            ) : visibleAgentSession?.body ? (
+                              <pre
+                                ref={(element) => {
+                                  agentSessionInlineViewportRef.current = element;
+                                }}
+                                onScroll={(event) => {
+                                  agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
+                                }}
+                                className="px-4 py-4 text-[11px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto"
+                                style={{ color: C.termFg, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+                              >
+                                {visibleAgentSession.body}
+                              </pre>
+                            ) : (
+                              <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
+                                {agentSessionPending
+                                  ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                                  : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
+                              </div>
+                            )}
+                          </div>
+                          <div
+                            className="px-4 h-10 border-t flex items-center justify-between gap-3 text-[10px]"
+                            style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
+                          >
+                            <div className="truncate min-w-0 font-mono">
+                              {renderLocalPathValue(
+                                visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.',
+                                {
+                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                },
+                              )}
+                            </div>
+                            {agentSessionFeedback ? (
+                              <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
+                            ) : null}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     </section>
 
                     {/* 2. Recent Activity */}

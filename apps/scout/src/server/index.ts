@@ -5,6 +5,15 @@ import { serveStatic } from "hono/bun";
 import { createScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import { createScoutDesktopAppInfo } from "../app/desktop/index.ts";
 import type { ScoutElectronIpcServices } from "../app/electron/ipc.ts";
+import {
+  createScoutMobileSession,
+  getScoutMobileAgents,
+  getScoutMobileHome,
+  getScoutMobileSessionSnapshot,
+  getScoutMobileSessions,
+  getScoutMobileWorkspaces,
+  sendScoutMobileMessage,
+} from "../core/mobile/service.ts";
 
 const port = Number(process.env.SCOUT_WEB_PORT ?? "3200");
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
@@ -43,6 +52,14 @@ function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
 const getShellState = coalesce(() => services.getShellState());
 const getAppSettings = coalesce(() => services.getAppSettings());
 const getBrokerInspector = coalesce(() => services.getBrokerInspector());
+
+function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 const app = new Hono();
 
@@ -108,6 +125,29 @@ app.post("/api/voice/replies", async (c) => {
 app.get("/api/log-catalog", async (c) => c.json(await services.getLogCatalog()));
 app.get("/api/broker-inspector", async (c) => c.json(await getBrokerInspector()));
 app.post("/api/log-source", async (c) => c.json(await services.readLogSource(await c.req.json())));
+app.get("/api/mobile/home", async (c) => c.json(await getScoutMobileHome({
+  currentDirectory,
+  workspaceLimit: parseOptionalPositiveInt(c.req.query("workspaceLimit"), 6),
+  agentLimit: parseOptionalPositiveInt(c.req.query("agentLimit"), 6),
+  sessionLimit: parseOptionalPositiveInt(c.req.query("sessionLimit"), 6),
+})));
+app.get("/api/mobile/workspaces", async (c) => c.json(await getScoutMobileWorkspaces({
+  query: c.req.query("query"),
+  limit: parseOptionalPositiveInt(c.req.query("limit")),
+}, currentDirectory)));
+app.get("/api/mobile/agents", async (c) => c.json(await getScoutMobileAgents({
+  query: c.req.query("query"),
+  limit: parseOptionalPositiveInt(c.req.query("limit")),
+}, currentDirectory)));
+app.get("/api/mobile/sessions", async (c) => c.json(await getScoutMobileSessions({
+  query: c.req.query("query"),
+  limit: parseOptionalPositiveInt(c.req.query("limit")),
+}, currentDirectory)));
+app.get("/api/mobile/session/:conversationId", async (c) => c.json(
+  await getScoutMobileSessionSnapshot(c.req.param("conversationId"), currentDirectory),
+));
+app.post("/api/mobile/session/create", async (c) => c.json(await createScoutMobileSession(await c.req.json(), currentDirectory)));
+app.post("/api/mobile/message/send", async (c) => c.json(await sendScoutMobileMessage(await c.req.json(), currentDirectory)));
 
 // --- Proxy non-API requests to Vite dev server or serve static build ---
 const viteUrl = process.env.SCOUT_VITE_URL?.trim() || "http://127.0.0.1:43173";

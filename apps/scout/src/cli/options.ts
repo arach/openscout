@@ -39,6 +39,13 @@ export type ScoutEnrollCommandOptions = ContextRootOptions & {
   task?: string;
 };
 
+export type ScoutCardCreateCommandOptions = ContextRootOptions & {
+  projectPath: string;
+  agentName?: string;
+  harness?: string;
+  requesterId: string | null;
+};
+
 export type ScoutTuiCommandOptions = ContextRootOptions & {
   channel?: string;
   limit: number;
@@ -318,6 +325,64 @@ export function parseEnrollCommandOptions(
     args: parsed.args,
     agentName,
     task,
+  };
+}
+
+export function parseCardCreateCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutCardCreateCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let projectPath: string | null = null;
+  let agentName: string | undefined;
+  let harness: string | undefined;
+  let requesterId: string | null = null;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--name" || current.startsWith("--name=")) {
+      const value = parseFlagValue(parsed.args, index, "--name");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--harness" || current.startsWith("--harness=")) {
+      const value = parseFlagValue(parsed.args, index, "--harness");
+      harness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      requesterId = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--path" || current.startsWith("--path=")) {
+      const value = parseFlagValue(parsed.args, index, "--path");
+      if (projectPath) {
+        throw new ScoutCliError("project path was provided more than once");
+      }
+      projectPath = resolve(value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    if (current.startsWith("--")) {
+      unexpectedArgs("card create", args);
+    }
+    if (projectPath) {
+      throw new ScoutCliError(`unexpected arguments for card create: ${args.join(" ")}`);
+    }
+    projectPath = resolve(current);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    projectPath: projectPath ?? parsed.currentDirectory,
+    agentName,
+    harness,
+    requesterId,
   };
 }
 

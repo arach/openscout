@@ -16,9 +16,19 @@ import { readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
 import { basename, isAbsolute, join, relative } from "path";
 import { homedir } from "os";
+import type { AgentHarness } from "@openscout/protocol";
 import type { Bridge } from "./bridge.ts";
 import type { Prompt } from "../protocol/index.ts";
 import { resolveConfig } from "./config.ts";
+import {
+  createScoutMobileSession,
+  getScoutMobileAgents,
+  getScoutMobileHome,
+  getScoutMobileSessionSnapshot,
+  getScoutMobileSessions,
+  getScoutMobileWorkspaces,
+  sendScoutMobileMessage,
+} from "../../../mobile/service.ts";
 import {
   SecureTransport,
   type SocketLike,
@@ -73,7 +83,6 @@ export function startBridgeServer(
 
   // Per-socket state, keyed by the raw ServerWebSocket reference.
   const socketState = new WeakMap<ServerWebSocket<unknown>, SocketState>();
-
   const server = Bun.serve({
     port,
     fetch(req, server) {
@@ -216,7 +225,10 @@ export function startBridgeServer(
 // RPC handler — also used by relay-client.ts for relayed connections
 // ---------------------------------------------------------------------------
 
-export async function handleRPC(bridge: Bridge, req: RPCRequest): Promise<RPCResponse> {
+export async function handleRPC(
+  bridge: Bridge,
+  req: RPCRequest,
+): Promise<RPCResponse> {
   log.info("rpc", req.method, req.params);
   try {
     switch (req.method) {
@@ -430,6 +442,90 @@ export async function handleRPC(bridge: Bridge, req: RPCRequest): Promise<RPCRes
         return { id: req.id, result: session };
       }
 
+      // -- Broker-native mobile surface --------------------------------------
+
+      case "mobile/home": {
+        const p = req.params as {
+          workspaceLimit?: number;
+          agentLimit?: number;
+          sessionLimit?: number;
+        } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileHome({
+            currentDirectory: resolveMobileCurrentDirectory(),
+            workspaceLimit: p?.workspaceLimit,
+            agentLimit: p?.agentLimit,
+            sessionLimit: p?.sessionLimit,
+          }),
+        };
+      }
+
+      case "mobile/workspaces": {
+        const p = req.params as { query?: string; limit?: number } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileWorkspaces(p, resolveMobileCurrentDirectory()),
+        };
+      }
+
+      case "mobile/agents": {
+        const p = req.params as { query?: string; limit?: number } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileAgents(p, resolveMobileCurrentDirectory()),
+        };
+      }
+
+      case "mobile/sessions": {
+        const p = req.params as { query?: string; limit?: number } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileSessions(p, resolveMobileCurrentDirectory()),
+        };
+      }
+
+      case "mobile/session/snapshot": {
+        const p = req.params as { conversationId?: string; sessionId?: string };
+        const conversationId = p?.conversationId ?? p?.sessionId;
+        if (!conversationId) {
+          return { id: req.id, error: { code: -32602, message: "conversationId is required" } };
+        }
+        return {
+          id: req.id,
+          result: await getScoutMobileSessionSnapshot(conversationId, resolveMobileCurrentDirectory()),
+        };
+      }
+
+      case "mobile/session/create": {
+        const p = req.params as {
+          workspaceId: string;
+          harness?: AgentHarness;
+          agentName?: string;
+          worktree?: string | null;
+          profile?: string | null;
+        };
+        return {
+          id: req.id,
+          result: await createScoutMobileSession(p, resolveMobileCurrentDirectory()),
+        };
+      }
+
+      case "mobile/message/send": {
+        const p = req.params as {
+          agentId: string;
+          body: string;
+          clientMessageId?: string | null;
+          replyToMessageId?: string | null;
+          referenceMessageIds?: string[];
+          harness?: AgentHarness;
+        };
+        return {
+          id: req.id,
+          result: await sendScoutMobileMessage(p, resolveMobileCurrentDirectory()),
+        };
+      }
+
       // -- Session History Discovery ------------------------------------------
 
       case "history/discover": {
@@ -526,6 +622,20 @@ interface DirectoryEntry {
   name: string;
   path: string;
   markers: string[];
+}
+
+function resolveMobileCurrentDirectory(): string {
+  const config = resolveConfig();
+  const configuredRoot = config.workspace?.root;
+  if (!configuredRoot) {
+    return process.cwd();
+  }
+
+  try {
+    return resolveWorkspaceRoot(configuredRoot);
+  } catch {
+    return process.cwd();
+  }
 }
 
 function resolveWorkspaceRoot(root: string): string {

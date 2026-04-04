@@ -2,21 +2,22 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { hostname } from "node:os";
 import { join } from "node:path";
 
-import type {
-  ActorIdentity,
-  AgentDefinition,
-  AgentEndpoint,
-  CollaborationEvent,
-  CollaborationRecord,
-  ControlCommand,
-  ControlEvent,
-  ConversationBinding,
-  ConversationDefinition,
-  DeliveryIntent,
-  FlightRecord,
-  InvocationRequest,
-  MessageRecord,
-  NodeDefinition,
+import {
+  buildRelayReturnAddress,
+  type ActorIdentity,
+  type AgentDefinition,
+  type AgentEndpoint,
+  type CollaborationEvent,
+  type CollaborationRecord,
+  type ControlCommand,
+  type ControlEvent,
+  type ConversationBinding,
+  type ConversationDefinition,
+  type DeliveryIntent,
+  type FlightRecord,
+  type InvocationRequest,
+  type MessageRecord,
+  type NodeDefinition,
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
@@ -781,6 +782,19 @@ async function executeLocalInvocation(
             invocationId: invocation.id,
             flightId: completedFlight.id,
             source: "broker",
+            returnAddress: buildRelayReturnAddress({
+              actorId: agent.id,
+              handle: agent.handle?.trim() || agent.definitionId,
+              displayName: agent.displayName,
+              selector: agent.selector,
+              defaultSelector: agent.defaultSelector,
+              conversationId: invocation.conversationId,
+              replyToMessageId: invocation.messageId,
+              nodeId: runningEndpoint.nodeId,
+              projectRoot: runningEndpoint.projectRoot ?? runningEndpoint.cwd,
+              sessionId: runningEndpoint.sessionId,
+            }),
+            requestedReturnAddress: invocation.metadata?.["returnAddress"],
             responderHarness: runningEndpoint.harness,
             responderTransport: runningEndpoint.transport,
             responderSessionId: runningEndpoint.sessionId ?? "",

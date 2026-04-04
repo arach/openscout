@@ -1,6 +1,7 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { runAskCommand } from "./ask.ts";
 import { runBroadcastCommand } from "./broadcast.ts";
+import { runCardCommand } from "./card.ts";
 import { runDownCommand } from "./down.ts";
 import { runDoctorCommand } from "./doctor.ts";
 import { runEnrollCommand } from "./enroll.ts";
@@ -21,6 +22,7 @@ export type ScoutCommandHandler = (context: ScoutCommandContext, args: string[])
 export const SCOUT_COMMAND_HANDLERS: Record<string, ScoutCommandHandler> = {
   ask: runAskCommand,
   broadcast: runBroadcastCommand,
+  card: runCardCommand,
   down: runDownCommand,
   doctor: runDoctorCommand,
   enroll: runEnrollCommand,

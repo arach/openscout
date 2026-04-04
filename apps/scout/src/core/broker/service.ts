@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import {
+  buildRelayReturnAddress,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -18,11 +19,13 @@ import {
   type ControlEvent,
   type CollaborationRecord,
   type MessageRecord,
+  type RelayReturnAddress,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
   loadResolvedRelayAgents,
   resolveRelayAgentConfig,
+  SCOUT_AGENT_ID,
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
 import { resolveBrokerServiceConfig } from "@openscout/runtime/broker-service";
@@ -30,6 +33,7 @@ import {
   ensureLocalAgentBindingOnline,
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
+  type LocalAgentBinding,
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
@@ -89,6 +93,28 @@ export type ScoutAskResult = {
   conversationId?: string;
   messageId?: string;
   unresolvedTarget?: string;
+};
+
+export type ScoutDirectSessionResult = {
+  agent: ScoutBrokerAgentRecord;
+  conversation: ScoutBrokerConversationRecord;
+  existed: boolean;
+};
+
+export type ScoutPeerSessionResult = ScoutDirectSessionResult & {
+  sourceId: string;
+  targetId: string;
+};
+
+export type ScoutLocalAgentBindingSyncResult = {
+  binding: LocalAgentBinding;
+  brokerRegistered: boolean;
+};
+
+export type ScoutDirectMessageResult = {
+  conversationId: string;
+  messageId: string;
+  flight?: ScoutFlightRecord;
 };
 
 export type ScoutWatchOptions = {
@@ -179,6 +205,57 @@ function titleCaseName(value: string): string {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function displayNameForBrokerActor(snapshot: ScoutBrokerSnapshot, actorId: string): string {
+  return snapshot.agents[actorId]?.displayName
+    ?? snapshot.actors[actorId]?.displayName
+    ?? titleCaseName(metadataString(snapshot.agents[actorId]?.metadata, "definitionId") || actorId);
+}
+
+function firstEndpointForActor(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+): ScoutBrokerEndpointRecord | undefined {
+  return Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === actorId)
+    .sort((lhs, rhs) => lhs.id.localeCompare(rhs.id))[0];
+}
+
+function buildScoutReturnAddress(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+  options: {
+    conversationId?: string;
+    replyToMessageId?: string;
+  } = {},
+): RelayReturnAddress {
+  const agent = snapshot.agents[actorId];
+  const actor = snapshot.actors[actorId];
+  const endpoint = firstEndpointForActor(snapshot, actorId);
+  const selector = agent?.selector?.trim()
+    || metadataString(agent?.metadata, "selector")
+    || metadataString(actor?.metadata, "selector");
+  const defaultSelector = agent?.defaultSelector?.trim()
+    || metadataString(agent?.metadata, "defaultSelector")
+    || metadataString(actor?.metadata, "defaultSelector");
+  const projectRoot = endpoint?.projectRoot
+    ?? endpoint?.cwd
+    ?? metadataString(agent?.metadata, "projectRoot")
+    ?? metadataString(actor?.metadata, "projectRoot");
+
+  return buildRelayReturnAddress({
+    actorId,
+    handle: agent?.handle?.trim() || actor?.handle?.trim() || actorId,
+    displayName: agent?.displayName || actor?.displayName,
+    selector,
+    defaultSelector,
+    conversationId: options.conversationId,
+    replyToMessageId: options.replyToMessageId,
+    nodeId: endpoint?.nodeId || agent?.authorityNodeId || agent?.homeNodeId,
+    projectRoot,
+    sessionId: endpoint?.sessionId,
+  });
 }
 
 function sanitizeConversationSegment(value: string): string {
@@ -387,20 +464,58 @@ async function syncBrokerBinding(
   snapshot.endpoints[binding.endpoint.id] = binding.endpoint;
 }
 
-async function ensureSenderRelayAgent(
+export async function registerScoutLocalAgentBinding(input: {
+  agentId: string;
+  broker?: ScoutBrokerContext | null;
+}): Promise<ScoutLocalAgentBindingSyncResult | null> {
+  const broker = input.broker ?? await loadScoutBrokerContext();
+  const nodeId = broker?.node.id ?? process.env.OPENSCOUT_NODE_ID ?? "local";
+  const binding = await inferLocalAgentBinding(input.agentId, nodeId);
+  if (!binding) {
+    return null;
+  }
+  if (broker) {
+    await syncBrokerBinding(broker.baseUrl, broker.snapshot, binding);
+  }
+  return {
+    binding,
+    brokerRegistered: Boolean(broker),
+  };
+}
+
+async function resolveConversationActorId(
   baseUrl: string,
   snapshot: ScoutBrokerSnapshot,
   nodeId: string,
-  senderId: string,
+  actorId: string,
   currentDirectory: string,
-): Promise<void> {
-  if (snapshot.agents[senderId]) return;
-  const configured = await ensureRelayAgentConfigured(senderId, {
+  displayName?: string,
+): Promise<string> {
+  const normalized = actorId.trim() || OPERATOR_ID;
+  if (snapshot.agents[normalized] || snapshot.actors[normalized]) {
+    return normalized;
+  }
+  if (normalized === OPERATOR_ID) {
+    await ensureBrokerActor(baseUrl, snapshot, normalized, displayName);
+    return normalized;
+  }
+
+  const configured = await ensureRelayAgentConfigured(normalized, {
     currentDirectory,
     ensureCurrentProjectConfig: true,
   });
-  if (!configured) return;
-  await syncBrokerBinding(baseUrl, snapshot, await inferLocalAgentBinding(configured.agentId, nodeId));
+  if (!configured) {
+    await ensureBrokerActor(baseUrl, snapshot, normalized, displayName);
+    return normalized;
+  }
+
+  const binding = await inferLocalAgentBinding(configured.agentId, nodeId);
+  if (binding) {
+    await syncBrokerBinding(baseUrl, snapshot, binding);
+    return binding.actor.id;
+  }
+
+  return configured.agentId;
 }
 
 async function ensureTargetRelayAgent(
@@ -544,6 +659,79 @@ async function ensureBrokerConversation(
   return existing;
 }
 
+function directConversationIdForActors(sourceId: string, targetId: string): string {
+  if (sourceId === targetId) {
+    return `dm.${sourceId}.${targetId}`;
+  }
+  if (sourceId === OPERATOR_ID || targetId === OPERATOR_ID) {
+    const peerId = sourceId === OPERATOR_ID ? targetId : sourceId;
+    return `dm.${OPERATOR_ID}.${peerId}`;
+  }
+  return `dm.${[sourceId, targetId].sort().join(".")}`;
+}
+
+async function ensureBrokerDirectConversationBetween(
+  baseUrl: string,
+  snapshot: ScoutBrokerSnapshot,
+  nodeId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<ScoutDirectSessionResult> {
+  const conversationId = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
+    ? BROKER_SHARED_CHANNEL_ID
+    : directConversationIdForActors(sourceId, targetId);
+  const participantIds = [...new Set([sourceId, targetId])].sort();
+  const nextShareMode = resolveConversationShareMode(
+    snapshot,
+    nodeId,
+    participantIds,
+    "local",
+  );
+  const existing = snapshot.conversations[conversationId];
+  const alreadyMatches = existing
+    && existing.kind === "direct"
+    && existing.shareMode === nextShareMode
+    && existing.visibility === "private"
+    && existing.participantIds.join("\u0000") === participantIds.join("\u0000");
+
+  if (alreadyMatches) {
+    const preferredTargetId = targetId === OPERATOR_ID ? sourceId : targetId;
+    return {
+      agent: snapshot.agents[preferredTargetId] ?? snapshot.agents[sourceId],
+      conversation: existing,
+      existed: true,
+    };
+  }
+
+  const nonOperatorParticipants = participantIds.filter((participantId) => participantId !== OPERATOR_ID);
+  const conversationTitle = sourceId === OPERATOR_ID || targetId === OPERATOR_ID
+    ? displayNameForBrokerActor(snapshot, nonOperatorParticipants[0] ?? targetId)
+    : `${displayNameForBrokerActor(snapshot, sourceId)} <> ${displayNameForBrokerActor(snapshot, targetId)}`;
+
+  const definition: ScoutBrokerConversationRecord = {
+    id: conversationId,
+    kind: "direct",
+    title: targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID ? "Scout" : conversationTitle,
+    visibility: "private",
+    shareMode: nextShareMode,
+    authorityNodeId: nodeId,
+    participantIds,
+    metadata: {
+      surface: "scout",
+      ...(targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID ? { role: "partner" } : {}),
+    },
+  };
+
+  await brokerPostJson(baseUrl, scoutBrokerPaths.v1.conversations, definition);
+  snapshot.conversations[definition.id] = definition;
+
+  return {
+    agent: snapshot.agents[targetId] ?? snapshot.agents[sourceId],
+    conversation: definition,
+    existed: Boolean(existing),
+  };
+}
+
 export async function sendScoutMessage(input: {
   senderId: string;
   body: string;
@@ -561,9 +749,13 @@ export async function sendScoutMessage(input: {
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const createdAtMs = input.createdAtMs ?? Date.now();
   const mentionResolution = await resolveMentionTargets(broker.snapshot, input.body, currentDirectory);
-
-  await ensureSenderRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, input.senderId, currentDirectory);
-  await ensureBrokerActor(broker.baseUrl, broker.snapshot, input.senderId);
+  const senderId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.senderId,
+    currentDirectory,
+  );
   const availableTargets = (
     await Promise.all(
       mentionResolution.resolved.map(async (target) => (
@@ -579,14 +771,14 @@ export async function sendScoutMessage(input: {
     broker.snapshot,
     broker.node.id,
     input.channel,
-    input.senderId,
+    senderId,
     availableTargets.map((target) => target.agentId),
   );
 
   const validTargets = [...new Set(
     availableTargets
       .map((target) => target.agentId)
-      .filter((target) => target !== input.senderId && Boolean(broker.snapshot.agents[target])),
+      .filter((target) => target !== senderId && Boolean(broker.snapshot.agents[target])),
   )].sort();
   const unresolvedTargets = mentionResolution.resolved
     .filter((target) => !validTargets.includes(target.agentId))
@@ -594,11 +786,15 @@ export async function sendScoutMessage(input: {
     .concat(mentionResolution.unresolved);
   const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const speechText = input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : "";
+  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
+    conversationId: conversation.id,
+    replyToMessageId: messageId,
+  });
 
   await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
     id: messageId,
     conversationId: conversation.id,
-    actorId: input.senderId,
+    actorId: senderId,
     originNodeId: broker.node.id,
     class: conversation.kind === "system" ? "system" : "agent",
     body: input.body,
@@ -614,13 +810,14 @@ export async function sendScoutMessage(input: {
       source: "scout-cli",
       relayChannel: input.channel ?? "shared",
       relayMessageId: messageId,
+      returnAddress,
     },
   });
 
   for (const targetAgentId of validTargets) {
     await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
       id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      requesterId: input.senderId,
+      requesterId: senderId,
       requesterNodeId: broker.node.id,
       targetAgentId,
       action: "consult",
@@ -634,11 +831,168 @@ export async function sendScoutMessage(input: {
       metadata: {
         source: "scout-cli",
         relayChannel: input.channel ?? "shared",
+        returnAddress,
       },
     });
   }
 
   return { usedBroker: true, invokedTargets: validTargets, unresolvedTargets };
+}
+
+export async function openScoutDirectSession(input: {
+  agentId: string;
+  currentDirectory?: string;
+  operatorName?: string;
+}): Promise<ScoutDirectSessionResult> {
+  const session = await openScoutPeerSession({
+    sourceId: OPERATOR_ID,
+    targetId: input.agentId,
+    currentDirectory: input.currentDirectory,
+    sourceName: input.operatorName,
+  });
+  return {
+    agent: session.agent,
+    conversation: session.conversation,
+    existed: session.existed,
+  };
+}
+
+export async function openScoutPeerSession(input: {
+  sourceId: string;
+  targetId: string;
+  currentDirectory?: string;
+  sourceName?: string;
+  targetName?: string;
+}): Promise<ScoutPeerSessionResult> {
+  const broker = await requireScoutBrokerContext();
+  const currentDirectory = input.currentDirectory ?? process.cwd();
+  const sourceId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.sourceId,
+    currentDirectory,
+    input.sourceName,
+  );
+  const targetId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.targetId,
+    currentDirectory,
+    input.targetName,
+  );
+
+  if (broker.snapshot.agents[targetId]) {
+    const targetReady = await ensureTargetRelayAgent(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      targetId,
+      currentDirectory,
+    );
+    if (!targetReady) {
+      throw new Error(`Agent ${input.targetId} is not available.`);
+    }
+  }
+
+  const session = await ensureBrokerDirectConversationBetween(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    sourceId,
+    targetId,
+  );
+
+  return {
+    ...session,
+    sourceId,
+    targetId,
+  };
+}
+
+export async function sendScoutDirectMessage(input: {
+  agentId: string;
+  body: string;
+  currentDirectory?: string;
+  clientMessageId?: string | null;
+  replyToMessageId?: string | null;
+  referenceMessageIds?: string[];
+  executionHarness?: AgentHarness;
+  source?: string;
+}): Promise<ScoutDirectMessageResult> {
+  const currentDirectory = input.currentDirectory ?? process.cwd();
+  const directSession = await openScoutDirectSession({
+    agentId: input.agentId,
+    currentDirectory,
+  });
+  const broker = await requireScoutBrokerContext();
+  const createdAt = Date.now();
+  const messageId = `msg-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const source = input.source?.trim() || "scout-mobile";
+  const targetAgentId = directSession.agent.id;
+  const targetLabel = `@${directSession.agent.handle?.trim() || targetAgentId}`;
+  const returnAddress = buildScoutReturnAddress(broker.snapshot, OPERATOR_ID, {
+    conversationId: directSession.conversation.id,
+    replyToMessageId: messageId,
+  });
+
+  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
+    id: messageId,
+    conversationId: directSession.conversation.id,
+    replyToMessageId: input.replyToMessageId ?? undefined,
+    actorId: OPERATOR_ID,
+    originNodeId: broker.node.id,
+    class: "agent",
+    body: input.body.trim(),
+    mentions: [{ actorId: targetAgentId, label: targetLabel }],
+    audience: {
+      notify: [targetAgentId],
+      reason: "direct_message",
+    },
+    visibility: "private",
+    policy: "durable",
+    createdAt,
+    metadata: {
+      source,
+      destinationKind: "direct",
+      destinationId: targetAgentId,
+      referenceMessageIds: input.referenceMessageIds ?? [],
+      clientMessageId: input.clientMessageId ?? null,
+      returnAddress,
+    },
+  });
+
+  const invocationResponse = await brokerPostJson<{ ok: boolean; flight: ScoutFlightRecord }>(
+    broker.baseUrl,
+    scoutBrokerPaths.v1.invocations,
+    {
+      id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      requesterId: OPERATOR_ID,
+      requesterNodeId: broker.node.id,
+      targetAgentId,
+      action: "consult",
+      task: input.body.trim(),
+      conversationId: directSession.conversation.id,
+      messageId,
+      execution: input.executionHarness ? { harness: input.executionHarness } : undefined,
+      ensureAwake: true,
+      stream: false,
+      createdAt,
+      metadata: {
+        source,
+        destinationKind: "direct",
+        destinationId: targetAgentId,
+        returnAddress,
+      },
+    },
+  );
+
+  return {
+    conversationId: directSession.conversation.id,
+    messageId,
+    flight: invocationResponse.flight,
+  };
 }
 
 export async function askScoutQuestion(input: {
@@ -656,10 +1010,13 @@ export async function askScoutQuestion(input: {
     return { usedBroker: false, unresolvedTarget: input.targetLabel };
   }
   const currentDirectory = input.currentDirectory ?? process.cwd();
-  await ensureBrokerActor(broker.baseUrl, broker.snapshot, input.senderId);
-  if (input.senderId !== OPERATOR_ID) {
-    await ensureSenderRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, input.senderId, currentDirectory);
-  }
+  const senderId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.senderId,
+    currentDirectory,
+  );
 
   const target = await resolveSingleBrokerTarget(broker.snapshot, input.targetLabel, currentDirectory);
   if (!target) {
@@ -675,17 +1032,21 @@ export async function askScoutQuestion(input: {
     broker.snapshot,
     broker.node.id,
     input.channel,
-    input.senderId,
+    senderId,
     [target.agentId],
   );
   const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const messageBody = input.body.trim().startsWith(target.label) ? input.body.trim() : `${target.label} ${input.body.trim()}`;
   const speechText = input.shouldSpeak ? stripScoutAgentSelectorLabels(messageBody) : "";
+  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
+    conversationId: conversation.id,
+    replyToMessageId: messageId,
+  });
 
   await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
     id: messageId,
     conversationId: conversation.id,
-    actorId: input.senderId,
+    actorId: senderId,
     originNodeId: broker.node.id,
     class: conversation.kind === "system" ? "system" : "agent",
     body: messageBody,
@@ -699,12 +1060,13 @@ export async function askScoutQuestion(input: {
       source: "scout-cli",
       relayChannel: input.channel ?? "shared",
       relayTarget: target.agentId,
+      returnAddress,
     },
   });
 
   const invocationResponse = await brokerPostJson<{ ok: boolean; flight: ScoutFlightRecord }>(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
     id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    requesterId: input.senderId,
+    requesterId: senderId,
     requesterNodeId: broker.node.id,
     targetAgentId: target.agentId,
     action: "consult",
@@ -719,6 +1081,7 @@ export async function askScoutQuestion(input: {
       source: "scout-cli",
       relayChannel: input.channel ?? "shared",
       relayTarget: target.agentId,
+      returnAddress,
     },
   });
 

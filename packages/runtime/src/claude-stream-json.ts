@@ -34,6 +34,17 @@ type ClaudeEvent =
   | { type: "result"; subtype?: string; result?: string }
   | { type: "error"; error?: { message?: string }; message?: string };
 
+export function resolveClaudeStreamJsonOutput(
+  result: string | undefined,
+  fallbackParts: string[],
+): string {
+  const trimmedResult = result?.trim();
+  if (trimmedResult) {
+    return trimmedResult;
+  }
+  return fallbackParts.join("").trim();
+}
+
 function sessionKey(options: SessionRequestOptions): string {
   return `${options.agentName}:${options.sessionId}`;
 }
@@ -283,7 +294,7 @@ class ClaudeStreamJsonSession {
       if (turn.timer) {
         clearTimeout(turn.timer);
       }
-      turn.resolve(turn.output.join("").trim());
+      turn.resolve(resolveClaudeStreamJsonOutput(event.result, turn.output));
       return;
     }
 
