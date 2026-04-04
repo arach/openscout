@@ -19,9 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - run: cd site && bun install && bun run build
+
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: out
+          path: site/out
 
   deploy:
     needs: build
