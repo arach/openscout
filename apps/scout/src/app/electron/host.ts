@@ -4,6 +4,7 @@ import path from "node:path";
 
 export type ScoutElectronHostServices = {
   pickDirectory?: () => Promise<string | null>;
+  reloadWindow?: () => void;
   requestQuit?: () => void;
   openPath?: (targetPath: string) => Promise<string> | string;
   showItemInFolder?: (targetPath: string) => void;
@@ -40,6 +41,17 @@ export async function quitScoutElectronApp(
   }
 
   host.requestQuit();
+  return true;
+}
+
+export async function reloadScoutElectronApp(
+  host: ScoutElectronHostServices = {},
+): Promise<boolean> {
+  if (!host.reloadWindow) {
+    throw new Error("Scout app reload is unavailable.");
+  }
+
+  host.reloadWindow();
   return true;
 }
 

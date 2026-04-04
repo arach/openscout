@@ -121,6 +121,8 @@ export type ScoutInterAgentAgent = {
   id: string;
   title: string;
   subtitle: string;
+  selector: string | null;
+  defaultSelector: string | null;
   profileKind: "project" | "role" | "system";
   registrationKind: "configured" | "discovered";
   source: string | null;
@@ -369,3 +371,8 @@ export type ScoutDesktopShellState = {
   relay: ScoutRelayState;
   interAgent: ScoutInterAgentState;
 };
+
+export type ScoutDesktopShellPatch = Pick<
+  ScoutDesktopShellState,
+  "runtime" | "machines" | "sessions" | "relay" | "interAgent"
+>;

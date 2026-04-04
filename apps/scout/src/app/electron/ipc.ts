@@ -1,5 +1,6 @@
 import type {
   ScoutDesktopAppInfo,
+  ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutPhonePreparationState,
   UpdateScoutPhonePreparationInput,
@@ -48,6 +49,7 @@ import {
 } from "./pairing.ts";
 import {
   getScoutElectronAppSettings,
+  refreshScoutElectronAppSettingsInventory,
   restoreScoutElectronProject,
   retireScoutElectronProject,
   restartScoutElectronOnboarding,
@@ -62,6 +64,7 @@ import {
 } from "./settings.ts";
 import {
   pickScoutElectronDirectory,
+  reloadScoutElectronApp,
   quitScoutElectronApp,
   revealScoutElectronPath,
   type ScoutElectronHostServices,
@@ -90,6 +93,7 @@ export type ScoutElectronIpcServices = {
   getShellState: () => Promise<ScoutDesktopShellState>;
   refreshShellState: () => Promise<ScoutDesktopShellState>;
   getAppSettings: () => Promise<AppSettingsState>;
+  refreshSettingsInventory: () => Promise<AppSettingsState>;
   updateAppSettings: (input: UpdateAppSettingsInput) => Promise<AppSettingsState>;
   retireProject: (projectRoot: string) => Promise<AppSettingsState>;
   restoreProject: (projectRoot: string) => Promise<AppSettingsState>;
@@ -99,6 +103,7 @@ export type ScoutElectronIpcServices = {
   getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
   updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
   pickDirectory: () => Promise<string | null>;
+  reloadApp: () => Promise<boolean>;
   quitApp: () => Promise<boolean>;
   revealPath: (filePath: string) => Promise<boolean>;
   getPhonePreparation: () => Promise<ScoutPhonePreparationState>;
@@ -108,7 +113,7 @@ export type ScoutElectronIpcServices = {
   controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
   updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
   restartAgent: (input: ScoutElectronRestartAgentInput) => Promise<ScoutDesktopShellState>;
-  sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellState>;
+  sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
   controlBroker: (action: ScoutElectronBrokerControlAction) => Promise<ScoutDesktopShellState>;
   getAgentSession: (agentId: string) => Promise<ScoutElectronAgentSessionInspector>;
   openAgentSession: (agentId: string) => Promise<boolean>;
@@ -139,6 +144,7 @@ export function createScoutElectronIpcServices(input: {
     getShellState: () => getScoutElectronShellState({ currentDirectory, appInfo, voice }),
     refreshShellState: () => refreshScoutElectronShellState({ currentDirectory, appInfo, voice }),
     getAppSettings: () => getScoutElectronAppSettings(currentDirectory, settings),
+    refreshSettingsInventory: () => refreshScoutElectronAppSettingsInventory(currentDirectory, settings),
     updateAppSettings: (nextInput) => updateScoutElectronAppSettings(nextInput, currentDirectory, settings),
     retireProject: (projectRoot) => retireScoutElectronProject(projectRoot, currentDirectory, settings),
     restoreProject: (projectRoot) => restoreScoutElectronProject(projectRoot, currentDirectory, settings),
@@ -148,6 +154,7 @@ export function createScoutElectronIpcServices(input: {
     getAgentConfig: (agentId) => getScoutElectronAgentConfig(agentId),
     updateAgentConfig: (nextInput) => updateScoutElectronAgentConfig(nextInput),
     pickDirectory: () => pickScoutElectronDirectory(host),
+    reloadApp: () => reloadScoutElectronApp(host),
     quitApp: () => quitScoutElectronApp(host),
     revealPath: (filePath) => revealScoutElectronPath(filePath, host),
     getPhonePreparation: () => getScoutElectronPhonePreparation(currentDirectory),
@@ -160,10 +167,7 @@ export function createScoutElectronIpcServices(input: {
       await restartScoutElectronAgent(nextInput, { currentDirectory, appInfo });
       return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });
     },
-    sendRelayMessage: async (nextInput) => {
-      await sendScoutElectronRelayMessage(nextInput, { currentDirectory, appInfo });
-      return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });
-    },
+    sendRelayMessage: (nextInput) => sendScoutElectronRelayMessage(nextInput, { currentDirectory, appInfo }),
     controlBroker: async (action) => {
       await controlScoutElectronBroker(action, {
         currentDirectory,
@@ -192,6 +196,7 @@ export function registerScoutElectronIpcHandlers(
   register(SCOUT_ELECTRON_CHANNELS.getShellState, () => services.getShellState());
   register(SCOUT_ELECTRON_CHANNELS.refreshShellState, () => services.refreshShellState());
   register(SCOUT_ELECTRON_CHANNELS.getAppSettings, () => services.getAppSettings());
+  register(SCOUT_ELECTRON_CHANNELS.refreshSettingsInventory, () => services.refreshSettingsInventory());
   register(SCOUT_ELECTRON_CHANNELS.updateAppSettings, (_event, input) =>
     services.updateAppSettings(input as UpdateAppSettingsInput));
   register(SCOUT_ELECTRON_CHANNELS.retireProject, (_event, projectRoot) =>
@@ -207,6 +212,7 @@ export function registerScoutElectronIpcHandlers(
   register(SCOUT_ELECTRON_CHANNELS.updateAgentConfig, (_event, input) =>
     services.updateAgentConfig(input as ScoutElectronUpdateAgentConfigInput));
   register(SCOUT_ELECTRON_CHANNELS.pickDirectory, () => services.pickDirectory());
+  register(SCOUT_ELECTRON_CHANNELS.reloadApp, () => services.reloadApp());
   register(SCOUT_ELECTRON_CHANNELS.quitApp, () => services.quitApp());
   register(SCOUT_ELECTRON_CHANNELS.revealPath, (_event, filePath) =>
     services.revealPath(String(filePath)));

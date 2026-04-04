@@ -193,6 +193,7 @@ function captureTmuxPane(sessionId: string, tailLines: number): {
 async function readAgentSessionLogs(agentId: string, tailLines: number): Promise<{
   body: string;
   pathLabel: string;
+  targetPath: string | null;
   updatedAtLabel: string | null;
   lineCount: number;
   truncated: boolean;
@@ -208,6 +209,7 @@ async function readAgentSessionLogs(agentId: string, tailLines: number): Promise
   let lineCount = 0;
   let truncated = false;
   let foundAny = false;
+  let targetPath: string | null = null;
 
   for (const filePath of sources) {
     if (!existsSync(filePath)) {
@@ -215,6 +217,7 @@ async function readAgentSessionLogs(agentId: string, tailLines: number): Promise
     }
 
     foundAny = true;
+    targetPath ??= filePath;
     const content = await readVisibleLogFile(filePath, tailLines);
     updatedAtMs = Math.max(updatedAtMs, content.updatedAtMs);
     lineCount += content.lines.length;
@@ -225,7 +228,8 @@ async function readAgentSessionLogs(agentId: string, tailLines: number): Promise
 
   return {
     body: foundAny ? sections.join("\n\n") : "",
-    pathLabel: compactHomePath(logsDirectory) ?? logsDirectory,
+    pathLabel: compactHomePath(targetPath ?? logsDirectory) ?? targetPath ?? logsDirectory,
+    targetPath,
     updatedAtLabel: updatedAtMs > 0 ? formatRelativeTime(Math.floor(updatedAtMs / 1000)) : null,
     lineCount,
     truncated,
@@ -382,7 +386,7 @@ export async function getScoutElectronAgentSession(agentId: string): Promise<Sco
       sessionId,
       commandLabel: null,
       pathLabel: logCapture.pathLabel,
-      directoryPath: relayAgentLogsDirectory(agentId),
+      directoryPath: logCapture.targetPath ?? relayAgentLogsDirectory(agentId),
       body: logCapture.body,
       updatedAtLabel: logCapture.updatedAtLabel,
       lineCount: logCapture.lineCount,

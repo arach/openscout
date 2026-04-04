@@ -4,13 +4,12 @@ import { open } from "node:fs/promises";
 import path from "node:path";
 
 import { brokerServiceStatus } from "@openscout/runtime/broker-service";
-import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
 import {
-  relayAgentLogsDirectory,
   resolveOpenScoutSupportPaths,
 } from "@openscout/runtime/support-paths";
 
 import { resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
+import { resolveScoutPairingPaths } from "./pairing.ts";
 
 export type ScoutDesktopLogGroup = "runtime" | "app" | "agents";
 
@@ -265,15 +264,14 @@ function brokerFeedbackSummary(
   ].join("\n");
 }
 
-async function buildResolvedScoutLogCatalog(currentDirectory: string): Promise<ResolvedScoutLogSource[]> {
+function coreLogSources(): ResolvedScoutLogSource[] {
   const supportPaths = resolveOpenScoutSupportPaths();
-  const setup = await loadResolvedRelayAgents({ currentDirectory });
-
-  const sources: ResolvedScoutLogSource[] = [
+  const pairingPaths = resolveScoutPairingPaths();
+  return [
     {
       id: "broker",
-      title: "Relay Runtime",
-      subtitle: "Relay service stdout and stderr",
+      title: "Relay Service",
+      subtitle: "Broker stdout and stderr",
       group: "runtime",
       pathLabel: compactHomePath(supportPaths.brokerLogsDirectory) ?? supportPaths.brokerLogsDirectory,
       paths: [
@@ -293,24 +291,17 @@ async function buildResolvedScoutLogCatalog(currentDirectory: string): Promise<R
         path.join(supportPaths.appLogsDirectory, "agent-host.log"),
       ],
     },
-  ];
-
-  for (const agent of [...setup.agents].sort((left, right) => left.displayName.localeCompare(right.displayName))) {
-    const logsDirectory = relayAgentLogsDirectory(agent.agentId);
-    sources.push({
-      id: `agent:${agent.agentId}`,
-      title: agent.displayName,
-      subtitle: "Relay agent runtime logs",
-      group: "agents",
-      pathLabel: compactHomePath(logsDirectory) ?? logsDirectory,
+    {
+      id: "pairing",
+      title: "Pairing",
+      subtitle: "Phone bridge runtime log",
+      group: "runtime",
+      pathLabel: compactHomePath(pairingPaths.logPath) ?? pairingPaths.logPath,
       paths: [
-        path.join(logsDirectory, "stdout.log"),
-        path.join(logsDirectory, "stderr.log"),
+        pairingPaths.logPath,
       ],
-    });
-  }
-
-  return sources;
+    },
+  ];
 }
 
 function splitLogLines(raw: string): string[] {
@@ -416,16 +407,12 @@ async function tailScoutLogSource(
 }
 
 export async function getScoutElectronLogCatalog(
-  currentDirectory = process.cwd(),
+  _currentDirectory = process.cwd(),
 ): Promise<ScoutDesktopLogCatalog> {
-  const [sources, broker] = await Promise.all([
-    buildResolvedScoutLogCatalog(currentDirectory),
-    brokerServiceStatus(),
-  ]);
-
+  const sources = coreLogSources();
   return {
     sources: sources.map(({ paths: _paths, ...source }) => source),
-    defaultSourceId: broker.reachable ? "broker" : "app",
+    defaultSourceId: "broker",
   };
 }
 
@@ -473,12 +460,14 @@ export async function getScoutElectronBrokerInspector(): Promise<ScoutDesktopBro
 
 export async function readScoutElectronLogSource(
   input: ReadScoutLogSourceInput,
-  currentDirectory = process.cwd(),
+  _currentDirectory = process.cwd(),
 ): Promise<ScoutDesktopLogContent> {
-  const sources = await buildResolvedScoutLogCatalog(currentDirectory);
+  const sources = coreLogSources();
   const source = sources.find((entry) => entry.id === input.sourceId);
   if (!source) {
     throw new Error(`Unknown log source: ${input.sourceId}`);
   }
-  return tailScoutLogSource(source, input.tailLines ?? DEFAULT_LOG_TAIL_LINES);
+  const MAX_TAIL_LINES = 1000;
+  const tailLines = Math.min(input.tailLines ?? DEFAULT_LOG_TAIL_LINES, MAX_TAIL_LINES);
+  return tailScoutLogSource(source, tailLines);
 }

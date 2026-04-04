@@ -141,7 +141,7 @@ type ScoutPairingIdentity = {
   publicKey?: string;
 };
 
-function resolveScoutPairingPaths(): ScoutPairingPaths {
+export function resolveScoutPairingPaths(): ScoutPairingPaths {
   const rootDir = join(homedir(), SCOUT_PAIRING_HOME_DIRECTORY);
   return {
     rootDir,

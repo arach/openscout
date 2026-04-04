@@ -120,6 +120,7 @@ export type AppSettingsState = {
   controlPlaneSqlitePath: string;
   onboardingContextRoot: string;
   currentProjectConfigPath: string | null;
+  workspaceInventoryLoaded: boolean;
   workspaceRoots: string[];
   hiddenProjects: HiddenProjectSummary[];
   workspaceRootsNote: string | null;
@@ -159,6 +160,22 @@ export type AppSettingsState = {
     stdoutLogPath: string;
     stderrLogPath: string;
   };
+};
+
+type ScoutElectronSettingsBase = {
+  settingsDirectory: string;
+  onboardingContextRoot: string;
+  currentProjectConfigPath: string | null;
+  supportPaths: ReturnType<typeof resolveOpenScoutSupportPaths>;
+  record: Awaited<ReturnType<typeof readOpenScoutSettings>>;
+  status: Awaited<ReturnType<typeof brokerServiceStatus>>;
+  catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
+  readinessByHarness: Map<string, Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>["entries"][number]["readinessReport"]>;
+  workspaceRoots: string[];
+  hiddenProjectRoots: string[];
+  onboardingSteps: SetupOnboardingStep[];
+  onboardingNeeded: boolean;
+  telegram: Awaited<ReturnType<typeof resolveTelegramSettingsState>>;
 };
 
 export type UpdateAppSettingsInput = {
@@ -368,6 +385,203 @@ function buildOnboardingSteps(input: {
   ];
 }
 
+function resolveCurrentProjectConfigPath(onboardingContextRoot: string): string | null {
+  const candidate = path.join(onboardingContextRoot, ".openscout", "project.json");
+  return existsSync(candidate) ? candidate : null;
+}
+
+async function loadScoutElectronSettingsBase(
+  currentDirectory?: string,
+  services: ScoutElectronSettingsService = {},
+  input: {
+    projectInventoryCount?: number;
+  } = {},
+): Promise<ScoutElectronSettingsBase> {
+  const settingsDirectory = resolveSettingsDirectory(currentDirectory);
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const record = await readOpenScoutSettings({ currentDirectory: settingsDirectory });
+  const onboardingContextRoot = defaultOnboardingContextRoot(
+    record.discovery.contextRoot,
+    record.discovery.workspaceRoots,
+    settingsDirectory,
+  );
+  const currentProjectConfigPath = resolveCurrentProjectConfigPath(onboardingContextRoot);
+  const [status, catalog] = await Promise.all([
+    brokerServiceStatus(),
+    loadHarnessCatalogSnapshot(),
+  ]);
+
+  const readinessByHarness = new Map(
+    catalog.entries.map((entry) => [entry.harness, entry.readinessReport] as const),
+  );
+  const workspaceRoots = Array.isArray(record.discovery.workspaceRoots)
+    ? record.discovery.workspaceRoots
+    : [];
+  const hiddenProjectRoots = Array.isArray(record.discovery.hiddenProjectRoots)
+    ? record.discovery.hiddenProjectRoots
+    : [];
+  const hasSourceRoots = workspaceRoots.length > 0;
+  const hasReadyRuntime = catalog.entries.some((entry) => entry.readinessReport.ready);
+  const onboardingProgress = record.onboarding;
+  const onboardingSteps = buildOnboardingSteps({
+    operatorName: normalizeOperatorName(record.profile.operatorName),
+    operatorAnswered: Boolean(onboardingProgress.operatorAnsweredAt),
+    sourceRootsAnswered: Boolean(onboardingProgress.sourceRootsAnsweredAt),
+    harnessChosen: Boolean(onboardingProgress.harnessChosenAt),
+    inputsSaved: Boolean(onboardingProgress.inputsSavedAt),
+    initRan: Boolean(onboardingProgress.initRanAt),
+    doctorRan: Boolean(onboardingProgress.doctorRanAt),
+    runtimesRan: Boolean(onboardingProgress.runtimesRanAt),
+    hasSourceRoots,
+    hasReadyRuntime,
+    hasCurrentProjectConfig: Boolean(currentProjectConfigPath),
+    workspaceRootCount: workspaceRoots.length,
+    projectInventoryCount: input.projectInventoryCount ?? 0,
+    defaultHarness: record.agents.defaultHarness,
+  });
+  const onboardingNeeded = !(onboardingProgress.completedAt || onboardingProgress.skippedAt);
+  const telegram = await resolveTelegramSettingsState({
+    enabled: record.bridges.telegram.enabled,
+    mode: record.bridges.telegram.mode,
+    botToken: record.bridges.telegram.botToken,
+    secretToken: record.bridges.telegram.secretToken,
+    apiBaseUrl: record.bridges.telegram.apiBaseUrl,
+    userName: record.bridges.telegram.userName,
+    defaultConversationId: record.bridges.telegram.defaultConversationId,
+    ownerNodeId: record.bridges.telegram.ownerNodeId,
+    configured: false,
+    running: false,
+    runtimeMode: null,
+    detail: "",
+    lastError: null,
+    bindingCount: 0,
+    pendingDeliveries: 0,
+  }, services, {
+    brokerReachable: status.reachable,
+    localNodeId: status.health.nodeId ?? null,
+  });
+
+  return {
+    settingsDirectory,
+    onboardingContextRoot,
+    currentProjectConfigPath,
+    supportPaths,
+    record,
+    status,
+    catalog,
+    readinessByHarness,
+    workspaceRoots,
+    hiddenProjectRoots,
+    onboardingSteps,
+    onboardingNeeded,
+    telegram,
+  };
+}
+
+function buildScoutElectronAppSettingsState(
+  base: ScoutElectronSettingsBase,
+  input: {
+    workspaceInventoryLoaded: boolean;
+    discoveredAgents?: SetupAgentSummary[];
+    projectInventory?: SetupProjectSummary[];
+  },
+): AppSettingsState {
+  const discoveredAgents = input.discoveredAgents ?? [];
+  const projectInventory = input.projectInventory ?? [];
+  return {
+    operatorId: "operator",
+    operatorName: normalizeOperatorName(base.record.profile.operatorName),
+    operatorNameDefault: DEFAULT_OPERATOR_NAME,
+    note: "Shown across Scout surfaces. Clear it to fall back to the default name.",
+    settingsPath: base.supportPaths.settingsPath,
+    relayAgentsPath: base.supportPaths.relayAgentsRegistryPath,
+    relayHubPath: base.supportPaths.relayHubDirectory,
+    supportDirectory: base.supportPaths.supportDirectory,
+    controlPlaneSqlitePath: path.join(base.supportPaths.controlHome, "control-plane.sqlite"),
+    onboardingContextRoot: compactHomePath(base.onboardingContextRoot) ?? base.onboardingContextRoot,
+    currentProjectConfigPath: base.currentProjectConfigPath,
+    workspaceInventoryLoaded: input.workspaceInventoryLoaded,
+    workspaceRoots: base.workspaceRoots.map((root) => compactHomePath(root) ?? root),
+    hiddenProjects: base.hiddenProjectRoots.map((root) => {
+      const normalizedRoot = path.resolve(root);
+      const projectConfigFilePath = path.join(normalizedRoot, ".openscout", "project.json");
+      return {
+        root: compactHomePath(normalizedRoot) ?? normalizedRoot,
+        title: path.basename(normalizedRoot) || normalizedRoot,
+        projectConfigPath: existsSync(projectConfigFilePath)
+          ? (compactHomePath(projectConfigFilePath) ?? projectConfigFilePath)
+          : null,
+      };
+    }),
+    workspaceRootsNote: "Scan folders are user-configured. Scout walks them recursively to find repos, project roots, and harness evidence.",
+    includeCurrentRepo: base.record.discovery.includeCurrentRepo,
+    defaultHarness: base.record.agents.defaultHarness,
+    defaultTransport: base.record.agents.defaultTransport,
+    defaultCapabilities: [...base.record.agents.defaultCapabilities],
+    sessionPrefix: base.record.agents.sessionPrefix,
+    telegram: base.telegram,
+    discoveredAgents: discoveredAgents.map((agent) => ({
+      id: agent.id,
+      title: agent.title,
+      root: compactHomePath(agent.root) ?? agent.root,
+      source: agent.source,
+      registrationKind: agent.registrationKind,
+      harness: agent.harness,
+      sessionId: agent.sessionId,
+      projectConfigPath: agent.projectConfigPath ? compactHomePath(agent.projectConfigPath) ?? agent.projectConfigPath : null,
+    })),
+    projectInventory: projectInventory.map((project) => ({
+      id: project.id,
+      definitionId: project.definitionId,
+      title: project.title,
+      projectName: project.projectName,
+      root: compactHomePath(project.root) ?? project.root,
+      sourceRoot: compactHomePath(project.sourceRoot) ?? project.sourceRoot,
+      relativePath: project.relativePath,
+      source: project.source,
+      registrationKind: project.registrationKind,
+      defaultHarness: project.defaultHarness,
+      projectConfigPath: project.projectConfigPath ? compactHomePath(project.projectConfigPath) ?? project.projectConfigPath : null,
+      harnesses: project.harnesses.map((harness) => ({
+        harness: harness.harness,
+        source: harness.source,
+        detail: harness.detail,
+        readinessState: base.readinessByHarness.get(harness.harness)?.state ?? null,
+        readinessDetail: base.readinessByHarness.get(harness.harness)?.detail ?? null,
+      })),
+    })),
+    runtimeCatalog: base.catalog.entries.map((entry) => ({
+      name: entry.name,
+      label: entry.label,
+      readinessState: entry.readinessReport.state,
+      readinessDetail: entry.readinessReport.detail,
+    })),
+    onboarding: {
+      needed: base.onboardingNeeded,
+      title: base.onboardingNeeded ? "Finish First-Run Setup" : `${SCOUT_PRODUCT_NAME} Is Ready`,
+      detail: base.onboardingNeeded
+        ? "Use the same `scout setup`, `scout doctor`, and `scout runtimes` commands from this screen. The wizard tracks explicit progress instead of guessing from current machine state."
+        : `${SCOUT_PRODUCT_NAME} onboarding has been completed or skipped for this machine. You can still revisit the setup screens any time.`,
+      commands: [
+        "scout setup --source-root ~/dev",
+        "scout doctor",
+        "scout runtimes",
+      ],
+      steps: base.onboardingSteps,
+    },
+    broker: {
+      label: base.status.label,
+      url: base.status.brokerUrl,
+      installed: base.status.installed,
+      loaded: base.status.loaded,
+      reachable: base.status.reachable,
+      launchAgentPath: compactHomePath(base.status.launchAgentPath) ?? base.status.launchAgentPath,
+      stdoutLogPath: compactHomePath(base.status.stdoutLogPath) ?? base.status.stdoutLogPath,
+      stderrLogPath: compactHomePath(base.status.stderrLogPath) ?? base.status.stderrLogPath,
+    },
+  };
+}
+
 function deriveFallbackTelegramState(input: {
   enabled: boolean;
   mode: "auto" | "webhook" | "polling";
@@ -442,166 +656,65 @@ export async function getScoutElectronAppSettings(
   currentDirectory?: string,
   services: ScoutElectronSettingsService = {},
 ): Promise<AppSettingsState> {
-  const settingsDirectory = resolveSettingsDirectory(currentDirectory);
-  const record = await readOpenScoutSettings({ currentDirectory: settingsDirectory });
-  const onboardingContextRoot = defaultOnboardingContextRoot(
-    record.discovery.contextRoot,
-    record.discovery.workspaceRoots,
-    settingsDirectory,
-  );
-  const [setup, status, catalog] = await Promise.all([
-    loadResolvedRelayAgents({
-      currentDirectory: onboardingContextRoot,
-    }),
-    brokerServiceStatus(),
-    loadHarnessCatalogSnapshot(),
-  ]);
-
-  const readinessByHarness = new Map(
-    catalog.entries.map((entry) => [entry.harness, entry.readinessReport] as const),
-  );
-  const discoverySettings = setup.settings.discovery ?? record.discovery;
-  const workspaceRoots = Array.isArray(discoverySettings.workspaceRoots)
-    ? discoverySettings.workspaceRoots
-    : [];
-  const hiddenProjectRoots = Array.isArray(discoverySettings.hiddenProjectRoots)
-    ? discoverySettings.hiddenProjectRoots
-    : [];
-  const projectInventory = Array.isArray(setup.projectInventory) ? setup.projectInventory : [];
-  const discoveredAgents = Array.isArray(setup.discoveredAgents) ? setup.discoveredAgents : [];
-  const hasSourceRoots = workspaceRoots.length > 0;
-  const hasReadyRuntime = catalog.entries.some((entry) => entry.readinessReport.ready);
-  const hasCurrentProjectConfig = Boolean(setup.currentProjectConfigPath);
-  const onboardingProgress = record.onboarding;
-  const onboardingSteps = buildOnboardingSteps({
-    operatorName: normalizeOperatorName(record.profile.operatorName),
-    operatorAnswered: Boolean(onboardingProgress.operatorAnsweredAt),
-    sourceRootsAnswered: Boolean(onboardingProgress.sourceRootsAnsweredAt),
-    harnessChosen: Boolean(onboardingProgress.harnessChosenAt),
-    inputsSaved: Boolean(onboardingProgress.inputsSavedAt),
-    initRan: Boolean(onboardingProgress.initRanAt),
-    doctorRan: Boolean(onboardingProgress.doctorRanAt),
-    runtimesRan: Boolean(onboardingProgress.runtimesRanAt),
-    hasSourceRoots,
-    hasReadyRuntime,
-    hasCurrentProjectConfig,
-    workspaceRootCount: workspaceRoots.length,
-    projectInventoryCount: projectInventory.length,
-    defaultHarness: setup.settings.agents.defaultHarness,
+  const base = await loadScoutElectronSettingsBase(currentDirectory, services);
+  return buildScoutElectronAppSettingsState(base, {
+    workspaceInventoryLoaded: false,
   });
-  const onboardingNeeded = !(onboardingProgress.completedAt || onboardingProgress.skippedAt);
-  const telegram = await resolveTelegramSettingsState({
-    enabled: record.bridges.telegram.enabled,
-    mode: record.bridges.telegram.mode,
-    botToken: record.bridges.telegram.botToken,
-    secretToken: record.bridges.telegram.secretToken,
-    apiBaseUrl: record.bridges.telegram.apiBaseUrl,
-    userName: record.bridges.telegram.userName,
-    defaultConversationId: record.bridges.telegram.defaultConversationId,
-    ownerNodeId: record.bridges.telegram.ownerNodeId,
-    configured: false,
-    running: false,
-    runtimeMode: null,
-    detail: "",
-    lastError: null,
-    bindingCount: 0,
-    pendingDeliveries: 0,
-  }, services, {
-    brokerReachable: status.reachable,
-    localNodeId: status.health.nodeId ?? null,
-  });
+}
 
-  return {
-    operatorId: "operator",
-    operatorName: normalizeOperatorName(record.profile.operatorName),
-    operatorNameDefault: DEFAULT_OPERATOR_NAME,
-    note: "Shown across Scout surfaces. Clear it to fall back to the default name.",
-    settingsPath: setup.settingsPath,
-    relayAgentsPath: setup.relayAgentsPath,
-    relayHubPath: setup.relayHubPath,
-    supportDirectory: setup.supportDirectory,
-    controlPlaneSqlitePath: path.join(resolveOpenScoutSupportPaths().controlHome, "control-plane.sqlite"),
-    onboardingContextRoot: compactHomePath(onboardingContextRoot) ?? onboardingContextRoot,
-    currentProjectConfigPath: setup.currentProjectConfigPath,
-    workspaceRoots: workspaceRoots.map((root) => compactHomePath(root) ?? root),
-    hiddenProjects: hiddenProjectRoots.map((root) => {
-      const normalizedRoot = path.resolve(root);
-      const projectConfigFilePath = path.join(normalizedRoot, ".openscout", "project.json");
-      return {
-        root: compactHomePath(normalizedRoot) ?? normalizedRoot,
-        title: path.basename(normalizedRoot) || normalizedRoot,
-        projectConfigPath: existsSync(projectConfigFilePath)
-          ? (compactHomePath(projectConfigFilePath) ?? projectConfigFilePath)
-          : null,
-      };
-    }),
-    workspaceRootsNote: "Scan folders are user-configured. Scout walks them recursively to find repos, project roots, and harness evidence.",
-    includeCurrentRepo: discoverySettings.includeCurrentRepo,
-    defaultHarness: setup.settings.agents.defaultHarness,
-    defaultTransport: setup.settings.agents.defaultTransport,
-    defaultCapabilities: [...setup.settings.agents.defaultCapabilities],
-    sessionPrefix: setup.settings.agents.sessionPrefix,
-    telegram,
-    discoveredAgents: discoveredAgents.map((agent) => ({
-      id: agent.agentId,
-      title: agent.displayName,
-      root: compactHomePath(agent.projectRoot) ?? agent.projectRoot,
-      source: agent.source,
-      registrationKind: agent.registrationKind,
-      harness: agent.runtime.harness,
-      sessionId: agent.runtime.sessionId,
-      projectConfigPath: agent.projectConfigPath ? compactHomePath(agent.projectConfigPath) ?? agent.projectConfigPath : null,
-    })),
-    projectInventory: projectInventory.map((project) => ({
+export async function refreshScoutElectronAppSettingsInventory(
+  currentDirectory?: string,
+  services: ScoutElectronSettingsService = {},
+): Promise<AppSettingsState> {
+  const base = await loadScoutElectronSettingsBase(currentDirectory, services);
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory: base.onboardingContextRoot,
+  });
+  const projectInventory = Array.isArray(setup.projectInventory)
+    ? setup.projectInventory.map((project) => ({
       id: project.agentId,
       definitionId: project.definitionId,
       title: project.displayName,
       projectName: project.projectName,
-      root: compactHomePath(project.projectRoot) ?? project.projectRoot,
-      sourceRoot: compactHomePath(project.sourceRoot) ?? project.sourceRoot,
+      root: project.projectRoot,
+      sourceRoot: project.sourceRoot,
       relativePath: project.relativePath,
       source: project.source,
       registrationKind: project.registrationKind,
       defaultHarness: project.defaultHarness,
-      projectConfigPath: project.projectConfigPath ? compactHomePath(project.projectConfigPath) ?? project.projectConfigPath : null,
+      projectConfigPath: project.projectConfigPath ?? null,
       harnesses: project.harnesses.map((harness) => ({
         harness: harness.harness,
         source: harness.source,
         detail: harness.detail,
-        readinessState: readinessByHarness.get(harness.harness)?.state ?? null,
-        readinessDetail: readinessByHarness.get(harness.harness)?.detail ?? null,
+        readinessState: null,
+        readinessDetail: null,
       })),
-    })),
-    runtimeCatalog: catalog.entries.map((entry) => ({
-      name: entry.name,
-      label: entry.label,
-      readinessState: entry.readinessReport.state,
-      readinessDetail: entry.readinessReport.detail,
-    })),
-    onboarding: {
-      needed: onboardingNeeded,
-      title: onboardingNeeded ? "Finish First-Run Setup" : `${SCOUT_PRODUCT_NAME} Is Ready`,
-      detail: onboardingNeeded
-        ? "Use the same `scout setup`, `scout doctor`, and `scout runtimes` commands from this screen. The wizard tracks explicit progress instead of guessing from current machine state."
-        : `${SCOUT_PRODUCT_NAME} onboarding has been completed or skipped for this machine. You can still revisit the setup screens any time.`,
-      commands: [
-        "scout setup --source-root ~/dev",
-        "scout doctor",
-        "scout runtimes",
-      ],
-      steps: onboardingSteps,
+    } satisfies SetupProjectSummary))
+    : [];
+  const discoveredAgents = Array.isArray(setup.discoveredAgents)
+    ? setup.discoveredAgents.map((agent) => ({
+      id: agent.agentId,
+      title: agent.displayName,
+      root: agent.projectRoot,
+      source: agent.source,
+      registrationKind: agent.registrationKind,
+      harness: agent.runtime.harness,
+      sessionId: agent.runtime.sessionId,
+      projectConfigPath: agent.projectConfigPath ?? null,
+    } satisfies SetupAgentSummary))
+    : [];
+
+  return buildScoutElectronAppSettingsState(
+    await loadScoutElectronSettingsBase(currentDirectory, services, {
+      projectInventoryCount: projectInventory.length,
+    }),
+    {
+      workspaceInventoryLoaded: true,
+      discoveredAgents,
+      projectInventory,
     },
-    broker: {
-      label: status.label,
-      url: status.brokerUrl,
-      installed: status.installed,
-      loaded: status.loaded,
-      reachable: status.reachable,
-      launchAgentPath: compactHomePath(status.launchAgentPath) ?? status.launchAgentPath,
-      stdoutLogPath: compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath,
-      stderrLogPath: compactHomePath(status.stderrLogPath) ?? status.stderrLogPath,
-    },
-  };
+  );
 }
 
 export async function runScoutElectronOnboardingCommand(
@@ -844,7 +957,7 @@ async function updateHiddenProjectRoots(
     }
   }
 
-  return getScoutElectronAppSettings(currentDirectory, services);
+  return refreshScoutElectronAppSettingsInventory(currentDirectory, services);
 }
 
 export async function retireScoutElectronProject(

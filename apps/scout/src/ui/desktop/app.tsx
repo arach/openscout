@@ -4,9 +4,11 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Activity,
   AlertCircle,
+  ArrowLeft,
   ArrowUpDown,
   Copy,
   Bot,
+  BookOpen,
   Check,
   CheckCheck,
   CornerUpLeft,
@@ -26,6 +28,7 @@ import {
   Hash,
   RefreshCw,
   Search,
+  SendHorizontal,
   Radar,
   Terminal,
   X,
@@ -40,7 +43,7 @@ import {
   PanelLeftOpen,
   Radio,
   AtSign,
-  Loader2,
+  MoreHorizontal,
   Mic,
   Reply,
   Smartphone,
@@ -48,6 +51,12 @@ import {
   Sun,
   Moon,
   Eye,
+  GitBranch,
+  Grid3x3,
+  List,
+  Plus,
+  Settings2,
+  Zap,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -55,8 +64,15 @@ import { renderSVG } from 'uqr';
 import MachinesView from "@/components/machines-view";
 import PlansView from "@/components/plans-view";
 import { StartupSplashOverlay } from "@/components/startup-splash";
+import { BootLoader } from "@/components/boot-loader";
+import { LogPanel } from "@/components/log-panel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { getScoutDesktop } from "@/lib/electron";
+import { cn } from "@/lib/utils";
 import type {
   AgentSessionInspector,
   AgentConfigState,
@@ -70,6 +86,7 @@ import type {
   DesktopLogContent,
   DesktopLogSource,
   DesktopShellState,
+  SetupProjectSummary,
   InterAgentAgent,
   InterAgentThread,
   OnboardingCommandName,
@@ -81,11 +98,13 @@ import type {
   RelayNavItem,
   SessionMetadata,
   DesktopAppInfo,
+  RelayDirectState,
   UpdatePairingConfigInput,
 } from "@/lib/scout-desktop";
 
 // Semantic CSS variable shortcuts as inline style helpers
 const C = {
+  // Color
   bg:        'var(--os-bg)',
   surface:   'var(--os-surface)',
   border:    'var(--os-border)',
@@ -101,6 +120,17 @@ const C = {
   termFg:    'var(--os-terminal-fg)',
   markBg:    'var(--os-mark-bg)',
   markFg:    'var(--os-mark-fg)',
+  // Shape
+  radiusXs:  'var(--os-radius-xs)',
+  radiusSm:  'var(--os-radius-sm)',
+  radiusMd:  'var(--os-radius-md)',
+  radiusLg:  'var(--os-radius-lg)',
+  radiusXl:  'var(--os-radius-xl)',
+  // Elevation
+  shadowXs:  'var(--os-shadow-xs)',
+  shadowSm:  'var(--os-shadow-sm)',
+  shadowMd:  'var(--os-shadow-md)',
+  shadowLg:  'var(--os-shadow-lg)',
 };
 
 type AgentRosterFilterMode = 'all' | 'active';
@@ -110,7 +140,25 @@ type PendingRelayMessage = {
   message: RelayMessage;
 };
 
+type RelayMentionCandidate = {
+  agentId: string;
+  title: string;
+  subtitle: string | null;
+  mentionToken: string;
+  state: RelayDirectState;
+  statusLabel: string;
+  searchText: string;
+};
+
+type RelayActiveMention = {
+  start: number;
+  end: number;
+  query: string;
+};
+
 type OnboardingWizardStepId = 'welcome' | 'source-roots' | 'harness' | 'confirm' | 'setup' | 'doctor' | 'runtimes';
+type WorkspaceExplorerFilterTab = 'all' | 'bound' | 'discovered';
+type WorkspaceExplorerViewMode = 'grid' | 'list';
 
 type ComposerRelayReference = {
   messageId: string;
@@ -118,7 +166,7 @@ type ComposerRelayReference = {
   preview: string;
 };
 
-type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings';
+type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
 type SettingsSectionId = 'profile' | 'knowledge' | 'agents' | 'communication' | 'database' | 'appearance';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
@@ -217,11 +265,14 @@ export default function App() {
   const [pairingControlPending, setPairingControlPending] = useState(false);
   const [pairingConfigPending, setPairingConfigPending] = useState(false);
   const [manualRefreshPending, setManualRefreshPending] = useState(false);
+  const [appReloadPending, setAppReloadPending] = useState(false);
   const [pairingConfigFeedback, setPairingConfigFeedback] = useState<string | null>(null);
   const [selectedRelayKind, setSelectedRelayKind] = useState<RelayDestinationKind>('channel');
   const [selectedRelayId, setSelectedRelayId] = useState('shared');
   const [relayDraft, setRelayDraft] = useState('');
   const [relaySending, setRelaySending] = useState(false);
+  const [relayComposerSelectionStart, setRelayComposerSelectionStart] = useState(0);
+  const [relayMentionSelectionIndex, setRelayMentionSelectionIndex] = useState(0);
   const [relayFeedback, setRelayFeedback] = useState<string | null>(null);
   const [relayReplyTarget, setRelayReplyTarget] = useState<{
     messageId: string;
@@ -237,6 +288,9 @@ export default function App() {
   const [selectedAgentableProjectId, setSelectedAgentableProjectId] = useState<string | null>(null);
   const [agentRosterFilter, setAgentRosterFilter] = useState<AgentRosterFilterMode>('all');
   const [agentRosterSort, setAgentRosterSort] = useState<AgentRosterSortMode>('chat');
+  const [agentThreadsExpanded, setAgentThreadsExpanded] = useState(false);
+  const [agentSnapshotExpanded, setAgentSnapshotExpanded] = useState(false);
+  const [agentActivityExpanded, setAgentActivityExpanded] = useState(false);
   const [agentRosterMenu, setAgentRosterMenu] = useState<null | 'filter' | 'sort'>(null);
   const [agentConfig, setAgentConfig] = useState<AgentConfigState | null>(null);
   const [agentConfigDraft, setAgentConfigDraft] = useState<AgentConfigState | null>(null);
@@ -255,6 +309,7 @@ export default function App() {
   const [appSettings, setAppSettings] = useState<AppSettingsState | null>(null);
   const [appSettingsDraft, setAppSettingsDraft] = useState<AppSettingsState | null>(null);
   const [appSettingsLoading, setAppSettingsLoading] = useState(false);
+  const [workspaceInventoryLoading, setWorkspaceInventoryLoading] = useState(false);
   const [appSettingsSaving, setAppSettingsSaving] = useState(false);
   const [appSettingsFeedback, setAppSettingsFeedback] = useState<string | null>(null);
   const [isAppSettingsEditing, setIsAppSettingsEditing] = useState(false);
@@ -269,6 +324,14 @@ export default function App() {
     setStartupSplashDismissed(true);
   }, []);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('profile');
+  const openKnowledgeBase = React.useCallback(() => {
+    setProductSurface('relay');
+    setActiveView('help');
+    setAppSettingsFeedback(null);
+  }, []);
+  const [workspaceExplorerQuery, setWorkspaceExplorerQuery] = useState('');
+  const [workspaceExplorerFilter, setWorkspaceExplorerFilter] = useState<WorkspaceExplorerFilterTab>('all');
+  const [workspaceExplorerViewMode, setWorkspaceExplorerViewMode] = useState<WorkspaceExplorerViewMode>('grid');
   const [logCatalog, setLogCatalog] = useState<DesktopLogCatalog | null>(null);
   const [selectedLogSourceId, setSelectedLogSourceId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState<DesktopLogContent | null>(null);
@@ -367,11 +430,8 @@ export default function App() {
       return;
     }
 
-    return scoutDesktop.onOpenKnowledgeBase(() => {
-      setActiveView('settings');
-      setSettingsSection('knowledge');
-    });
-  }, [scoutDesktop]);
+    return scoutDesktop.onOpenKnowledgeBase(openKnowledgeBase);
+  }, [openKnowledgeBase, scoutDesktop]);
 
   const completeOnboardingIntoRelay = React.useCallback((nextShellState: DesktopShellState | null) => {
     setProductSurface('relay');
@@ -466,6 +526,9 @@ export default function App() {
       setAgentConfig(null);
       setAgentConfigDraft(null);
       setAgentConfigFeedback(null);
+      setAgentThreadsExpanded(false);
+      setAgentSnapshotExpanded(false);
+      setAgentActivityExpanded(false);
       return;
     }
 
@@ -602,7 +665,7 @@ export default function App() {
   }, [selectedInterAgentId, isAgentSessionPeekOpen]);
 
   useEffect(() => {
-    const shouldLoadAppSettings = activeView === 'settings' || startupOnboardingState === 'active';
+    const shouldLoadAppSettings = activeView === 'settings' || activeView === 'help' || startupOnboardingState === 'active';
     if (!shouldLoadAppSettings || !scoutDesktop?.getAppSettings) {
       return;
     }
@@ -727,60 +790,72 @@ export default function App() {
     };
   }, [activeView, scoutDesktop]);
 
+  // Load catalog once when entering logs view — no refresh tick dependency
   useEffect(() => {
     if (activeView !== 'logs') {
       return;
     }
-
-    if (!scoutDesktop?.getLogCatalog || !scoutDesktop?.readLogSource) {
+    if (!scoutDesktop?.getLogCatalog) {
       setLogCatalog(null);
-      setLogContent(null);
-      setLogsLoading(false);
       setLogsFeedback('Logs are unavailable in the current desktop bridge. Restart the app so the latest Electron preload is loaded.');
       return;
     }
 
     let cancelled = false;
-    const loadLogs = async () => {
-      setLogsLoading(true);
+    const loadCatalog = async () => {
       try {
         const nextCatalog = await scoutDesktop!.getLogCatalog();
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         setLogCatalog(nextCatalog);
-        const nextSourceId = nextCatalog.sources.some((source) => source.id === selectedLogSourceId)
-          ? selectedLogSourceId
-          : nextCatalog.defaultSourceId ?? nextCatalog.sources[0]?.id ?? null;
-        setSelectedLogSourceId(nextSourceId);
-        if (!nextSourceId) {
-          setLogContent(null);
+        // Auto-select the default source on first load
+        setSelectedLogSourceId((current) => {
+          if (current && nextCatalog.sources.some((s) => s.id === current)) return current;
+          return nextCatalog.defaultSourceId ?? nextCatalog.sources[0]?.id ?? null;
+        });
+        if (nextCatalog.sources.length === 0) {
           setLogsFeedback('No log sources available.');
-          return;
         }
-        const nextContent = await scoutDesktop!.readLogSource({ sourceId: nextSourceId, tailLines: 240 });
-        if (cancelled) {
-          return;
-        }
+      } catch (error) {
+        if (!cancelled) setLogsFeedback(asErrorMessage(error));
+      }
+    };
+    void loadCatalog();
+    return () => { cancelled = true; };
+  }, [activeView]);
+
+  // Load log content on source change and refresh tick (content only, no catalog)
+  useEffect(() => {
+    if (activeView !== 'logs' || !selectedLogSourceId) {
+      return;
+    }
+    if (!scoutDesktop?.readLogSource) {
+      setLogContent(null);
+      return;
+    }
+
+    let cancelled = false;
+    // Show loading spinner on first load or source switch, but not on background refresh
+    if (!logContent || logContent.sourceId !== selectedLogSourceId) {
+      setLogsLoading(true);
+    }
+    setLogsFeedback(null);
+    const loadContent = async () => {
+      try {
+        const nextContent = await scoutDesktop!.readLogSource({ sourceId: selectedLogSourceId, tailLines: 500 });
+        if (cancelled) return;
         setLogContent(nextContent);
         setLogsFeedback(null);
       } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setLogContent(null);
-        setLogsFeedback(asErrorMessage(error));
-      } finally {
         if (!cancelled) {
-          setLogsLoading(false);
+          setLogContent(null);
+          setLogsFeedback(asErrorMessage(error));
         }
+      } finally {
+        if (!cancelled) setLogsLoading(false);
       }
     };
-
-    void loadLogs();
-    return () => {
-      cancelled = true;
-    };
+    void loadContent();
+    return () => { cancelled = true; };
   }, [activeView, selectedLogSourceId, logsRefreshTick]);
 
   useEffect(() => {
@@ -1308,6 +1383,70 @@ export default function App() {
   );
   const interAgentAgents = interAgentState?.agents ?? [];
   const interAgentThreads = interAgentState?.threads ?? [];
+  const relayMentionCandidates = useMemo(
+    () => interAgentAgents
+      .flatMap((agent): RelayMentionCandidate[] => {
+        const mentionToken = agent.selector ?? agent.defaultSelector;
+        if (!mentionToken) {
+          return [];
+        }
+
+        return [{
+          agentId: agent.id,
+          title: agent.title,
+          subtitle: agent.projectRoot ?? agent.cwd ?? agent.subtitle ?? null,
+          mentionToken,
+          state: agent.state,
+          statusLabel: agent.statusLabel,
+          searchText: [
+            agent.title,
+            agent.id,
+            mentionToken,
+            agent.selector ?? '',
+            agent.defaultSelector ?? '',
+            agent.projectRoot ?? '',
+            agent.cwd ?? '',
+          ].join(' ').toLowerCase(),
+        }];
+      })
+      .sort((left, right) => left.title.localeCompare(right.title)),
+    [interAgentAgents],
+  );
+  const relayActiveMention = useMemo(
+    () => findActiveRelayMention(relayDraft, relayComposerSelectionStart),
+    [relayComposerSelectionStart, relayDraft],
+  );
+  const relayMentionSuggestions = useMemo(
+    () => {
+      if (!relayActiveMention) {
+        return [];
+      }
+
+      const selectedDirectAgentId = selectedRelayKind === 'direct' ? selectedRelayId : null;
+      return relayMentionCandidates
+        .map((candidate) => ({
+          candidate,
+          score: scoreRelayMentionCandidate(candidate, relayActiveMention.query, selectedDirectAgentId),
+        }))
+        .filter(({ score }) => score > 0)
+        .sort((left, right) => (
+          right.score - left.score
+          || left.candidate.title.localeCompare(right.candidate.title)
+        ))
+        .slice(0, 8)
+        .map(({ candidate }) => candidate);
+    },
+    [relayActiveMention, relayMentionCandidates, selectedRelayId, selectedRelayKind],
+  );
+  const relayMentionMenuOpen = relayMentionSuggestions.length > 0;
+  useEffect(() => {
+    if (!relayMentionMenuOpen) {
+      setRelayMentionSelectionIndex(0);
+      return;
+    }
+
+    setRelayMentionSelectionIndex((current) => Math.min(current, relayMentionSuggestions.length - 1));
+  }, [relayMentionMenuOpen, relayMentionSuggestions.length]);
   const interAgentAgentLookup = useMemo(
     () => new Map(interAgentAgents.map((agent) => [agent.id, agent])),
     [interAgentAgents],
@@ -1355,15 +1494,16 @@ export default function App() {
         return [];
       }
 
-      const relatedThreadMessageIds = new Set(
-        visibleInterAgentThreads.flatMap((thread) => thread.messageIds),
+      const relatedPrivateThreadMessageIds = new Set(
+        visibleInterAgentThreads
+          .filter((thread) => thread.sourceKind === 'private')
+          .flatMap((thread) => thread.messageIds),
       );
 
       return mergedRelayMessages
         .filter((message) => (
-          relatedThreadMessageIds.has(message.id)
+          relatedPrivateThreadMessageIds.has(message.id)
           || message.authorId === selectedInterAgent.id
-          || message.recipients.includes(selectedInterAgent.id)
         ))
         .slice(-60);
     },
@@ -1450,6 +1590,62 @@ export default function App() {
       agent.id === selectedAgentableProject.id || agent.id === selectedAgentableProject.definitionId
     )) ?? null
     : null;
+  const selectedAgentWorkspace = selectedInterAgentId
+    ? agentableProjects.find((project) => (
+      project.id === selectedInterAgentId || project.definitionId === selectedInterAgentId
+    )) ?? null
+    : null;
+  const selectedWorkspaceProject = selectedAgentableProject ?? selectedAgentWorkspace ?? null;
+  const workspaceExplorerItems = useMemo(() => agentableProjects.map((project) => {
+    const linkedAgent = interAgentAgents.find((agent) => (
+      agent.id === project.id || agent.id === project.definitionId
+    )) ?? null;
+    const isBound = Boolean(linkedAgent) || project.registrationKind === 'configured';
+    const primaryHarness = project.harnesses[0]?.harness ?? project.defaultHarness;
+    return {
+      project,
+      linkedAgent,
+      isBound,
+      primaryHarness,
+      pathLabel: compactHomePath(project.root) ?? project.root,
+      branchLabel: 'local',
+      activityLabel: linkedAgent?.timestampLabel ?? 'Workspace',
+      statusLabel: isBound ? 'Bound' : project.registrationKind === 'configured' ? 'Ready' : 'Discovered',
+    };
+  }), [agentableProjects, interAgentAgents]);
+  const filteredWorkspaceExplorerItems = useMemo(() => {
+    const query = workspaceExplorerQuery.trim().toLowerCase();
+    return workspaceExplorerItems.filter(({ project, isBound, primaryHarness }) => {
+      const matchesFilter = workspaceExplorerFilter === 'all'
+        ? true
+        : workspaceExplorerFilter === 'bound'
+          ? isBound
+          : !isBound;
+      if (!matchesFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return [
+        project.title,
+        project.projectName,
+        project.root,
+        project.relativePath,
+        primaryHarness,
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+  }, [workspaceExplorerFilter, workspaceExplorerItems, workspaceExplorerQuery]);
+  const workspaceExplorerBoundCount = useMemo(
+    () => workspaceExplorerItems.filter((item) => item.isBound).length,
+    [workspaceExplorerItems],
+  );
+  const workspaceExplorerDiscoveredCount = useMemo(
+    () => workspaceExplorerItems.filter((item) => !item.isBound).length,
+    [workspaceExplorerItems],
+  );
   const unconfiguredAgentableProjects = useMemo(
     () => agentableProjects.filter((project) => !interAgentAgents.some((agent) => (
       agent.id === project.id || agent.id === project.definitionId
@@ -1708,15 +1904,41 @@ export default function App() {
     [mergedRelayMessages],
   );
   const activityLeadTask = activityTasks.find((task) => task.status === 'running') ?? activityTasks[0] ?? null;
+  const relayRuntimeBooting = isLoadingShell && !shellState && !shellError;
+  const relayStatusLabel = relayRuntimeBooting
+    ? 'Starting…'
+    : runtime?.brokerReachable
+      ? 'Running'
+      : 'Offline';
+  const relayStatusTitle = relayRuntimeBooting
+    ? 'Scout is still loading the relay runtime.'
+    : runtime?.brokerReachable
+      ? 'Open Relay diagnostics'
+      : 'Relay is offline. Open diagnostics.';
+  const relayStatusDotClassName = relayRuntimeBooting
+    ? 'bg-sky-500 animate-pulse'
+    : runtime?.brokerReachable
+      ? 'bg-emerald-500'
+      : 'bg-amber-500';
+  const relayRuntimeHealthLabel = relayRuntimeBooting
+    ? 'Starting'
+    : runtime?.brokerHealthy
+      ? 'Healthy'
+      : runtime?.brokerReachable
+        ? 'Reachable'
+        : 'Offline';
   const logsAttentionLevel = useMemo<'error' | 'warning' | null>(() => {
     if (shellError || relayState?.voice.captureState === 'error') {
       return 'error';
+    }
+    if (relayRuntimeBooting) {
+      return null;
     }
     if (runtime && (!runtime.brokerReachable || !runtime.brokerHealthy)) {
       return 'warning';
     }
     return null;
-  }, [relayState?.voice.captureState, runtime, shellError]);
+  }, [relayRuntimeBooting, relayState?.voice.captureState, runtime, shellError]);
   const logsButtonTitle = logsAttentionLevel === 'error'
     ? 'Logs · attention required'
     : logsAttentionLevel === 'warning'
@@ -1743,7 +1965,7 @@ export default function App() {
     {
       id: 'profile' as const,
       label: 'General',
-      description: 'Project paths, project inventory, runtime readiness, and local defaults.',
+      description: 'Local Scout defaults, CLI setup commands, and workspace scanning roots.',
       icon: <FolderOpen size={15} />,
     },
     {
@@ -1844,8 +2066,12 @@ export default function App() {
         await loadShellState(true);
       }
 
-      if (activeView === 'settings' && scoutDesktop?.getAppSettings) {
-        const nextSettings = await scoutDesktop.getAppSettings();
+      if ((activeView === 'settings' || activeView === 'help') && scoutDesktop?.getAppSettings) {
+        const nextSettings = activeView === 'settings'
+          && settingsSection === 'agents'
+          && scoutDesktop?.refreshSettingsInventory
+          ? await scoutDesktop.refreshSettingsInventory()
+          : await scoutDesktop.getAppSettings();
         setAppSettings(nextSettings);
         setAppSettingsDraft((current) => isAppSettingsEditing ? current : nextSettings);
       }
@@ -1870,6 +2096,19 @@ export default function App() {
       setManualRefreshPending(false);
     }
   };
+
+  const handleReloadApp = React.useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    setAppReloadPending(true);
+    if (scoutDesktop?.reloadApp) {
+      void scoutDesktop.reloadApp();
+      return;
+    }
+    window.location.reload();
+  }, [scoutDesktop]);
 
   const handlePairingControl = React.useCallback(async (action: 'start' | 'stop' | 'restart') => {
     if (!scoutDesktop?.controlPairingService) {
@@ -1988,6 +2227,50 @@ export default function App() {
     ));
   }, [isAppSettingsEditing, mergeEditableAppSettingsDraft]);
 
+  useEffect(() => {
+    if (
+      activeView !== 'settings'
+      || settingsSection !== 'agents'
+      || !scoutDesktop?.refreshSettingsInventory
+      || !appSettings
+      || appSettings.workspaceInventoryLoaded
+      || workspaceInventoryLoading
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadWorkspaceInventory = async () => {
+      setWorkspaceInventoryLoading(true);
+      try {
+        const nextSettings = await scoutDesktop.refreshSettingsInventory();
+        if (!cancelled) {
+          applyNextAppSettings(nextSettings);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAppSettingsFeedback(asErrorMessage(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkspaceInventoryLoading(false);
+        }
+      }
+    };
+
+    void loadWorkspaceInventory();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeView,
+    appSettings,
+    applyNextAppSettings,
+    scoutDesktop,
+    settingsSection,
+    workspaceInventoryLoading,
+  ]);
+
   const handleSaveAppSettings = async (): Promise<boolean> => {
     if (!appSettingsDraft || !scoutDesktop?.updateAppSettings) {
       return false;
@@ -2053,7 +2336,9 @@ export default function App() {
       );
 
       if (scoutDesktop.getAppSettings) {
-        const nextSettings = await scoutDesktop.getAppSettings();
+        const nextSettings = (command === 'doctor' || command === 'setup') && scoutDesktop.refreshSettingsInventory
+          ? await scoutDesktop.refreshSettingsInventory()
+          : await scoutDesktop.getAppSettings();
         setAppSettings(nextSettings);
         setAppSettingsDraft(nextSettings);
         setIsAppSettingsEditing(nextSettings.onboarding.needed);
@@ -2533,6 +2818,56 @@ export default function App() {
     setSettingsSection('agents');
   }, []);
 
+  const handleOpenWorkspace = React.useCallback((project: SetupProjectSummary) => {
+    if (project.registrationKind === 'configured') {
+      openAgentProfile(project.id);
+      return;
+    }
+    openAgentableProjectInSettings(project.id);
+  }, [openAgentProfile, openAgentableProjectInSettings]);
+
+  const handleInspectWorkspace = React.useCallback((project: SetupProjectSummary) => {
+    const linkedAgent = interAgentAgents.find((agent) => (
+      agent.id === project.id || agent.id === project.definitionId
+    )) ?? null;
+    setSelectedAgentableProjectId(project.id);
+    setSelectedInterAgentId(linkedAgent?.id ?? null);
+    setSelectedInterAgentThreadId(linkedAgent ? firstInterAgentThreadIdForAgent(interAgentThreads, linkedAgent.id) : null);
+    setIsAgentConfigEditing(false);
+    setAgentConfigFeedback(null);
+  }, [interAgentAgents, interAgentThreads]);
+
+  const handleAddWorkspaceFromExplorer = React.useCallback(() => {
+    setActiveView('settings');
+    setSettingsSection('profile');
+    handleBeginGeneralEdit();
+    setAppSettingsFeedback('Add a scan folder below, then go back to Agents and refresh to discover workspaces.');
+  }, [handleBeginGeneralEdit]);
+
+  const applyRelayMentionSuggestion = React.useCallback((candidate: RelayMentionCandidate) => {
+    if (!relayActiveMention) {
+      return;
+    }
+
+    const suffix = relayDraft.slice(relayActiveMention.end);
+    const trailingSpace = suffix.startsWith(' ') || suffix.length === 0 ? '' : ' ';
+    const nextDraft = `${relayDraft.slice(0, relayActiveMention.start)}${candidate.mentionToken}${trailingSpace}${suffix}`;
+    const nextCursor = relayActiveMention.start + candidate.mentionToken.length + trailingSpace.length;
+
+    setRelayDraft(nextDraft);
+    setRelayComposerSelectionStart(nextCursor);
+    setRelayMentionSelectionIndex(0);
+
+    window.requestAnimationFrame(() => {
+      const textarea = relayComposerRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [relayActiveMention, relayDraft]);
+
   const handleRelaySend = async () => {
     const body = relayDraft.trim();
     if (!body || relaySending || !scoutDesktop?.sendRelayMessage) {
@@ -2568,7 +2903,14 @@ export default function App() {
         referenceMessageIds: relayContextMessageIds,
         clientMessageId,
       });
-      setShellState(nextState);
+      setShellState((current) => (
+        current
+          ? {
+              ...current,
+              ...nextState,
+            }
+          : current
+      ));
       setPendingRelayMessages((current) => current.map((entry) => (
         entry.clientMessageId === clientMessageId
           ? {
@@ -3287,21 +3629,7 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div className="w-full max-w-[560px] rounded-2xl border px-8 py-10 text-center os-scale-in" style={{ borderColor: C.border, backgroundColor: C.surface, boxShadow: `0 24px 80px ${dark ? 'rgba(0,0,0,0.4)' : 'rgba(15,23,42,0.08)'}` }}>
-              <div className="w-10 h-10 rounded-lg mx-auto mb-5 flex items-center justify-center" style={{ backgroundColor: C.accentBg }}>
-                <span className="text-[18px]" style={{ color: C.accent }}>&#9670;</span>
-              </div>
-              <div className="text-[11px] font-mono uppercase tracking-[0.22em]" style={s.mutedText}>Scout Setup</div>
-              <div className="text-[28px] font-semibold tracking-tight mt-4" style={s.inkText}>Setting up…</div>
-              <div className="text-[14px] mt-3 leading-[1.7]" style={s.mutedText}>
-                Checking your local environment.
-              </div>
-              <div className="flex justify-center mt-6 gap-1">
-                <span className="os-thinking-dot" style={{ color: C.accent }} />
-                <span className="os-thinking-dot" style={{ color: C.accent }} />
-                <span className="os-thinking-dot" style={{ color: C.accent }} />
-              </div>
-            </div>
+            <BootLoader dark={dark} C={C} s={s} />
           )}
         </div>
       </div>
@@ -3316,11 +3644,16 @@ export default function App() {
       {/* Global Top Bar */}
       <div className="scout-window-bar h-12 border-b flex items-center px-3 shrink-0 z-10 gap-3" style={s.topBar}>
         <div className="flex items-center gap-3">
-          <div className="flex gap-[6px]">
-            <button type="button" className="w-[10px] h-[10px] rounded-full bg-[#FF5F56] hover:brightness-90 transition-all" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} onClick={handleQuitApp} aria-label="Quit" />
-            <div className="w-[10px] h-[10px] rounded-full bg-[#FFBD2E]"></div>
-            <div className="w-[10px] h-[10px] rounded-full bg-[#27C93F]"></div>
-          </div>
+          <button
+            type="button"
+            className="w-5 h-5 rounded-md flex items-center justify-center transition-colors hover:bg-[var(--os-hover)]"
+            style={{ WebkitAppRegion: 'no-drag', color: C.muted } as React.CSSProperties}
+            onClick={handleQuitApp}
+            aria-label="Quit"
+            title="Quit"
+          >
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M1 1l6 6M7 1l-6 6"/></svg>
+          </button>
           <div className="flex items-center gap-1.5 ml-2">
             {([
               ['relay', 'Relay', desktopFeatures.relay],
@@ -3357,10 +3690,10 @@ export default function App() {
               onClick={openRelayDiagnostics}
               className="flex items-center gap-1.5 rounded-full border px-2 py-1 transition-opacity hover:opacity-80"
               style={{ borderColor: C.border }}
-              title={runtime?.brokerReachable ? 'Open Relay diagnostics' : 'Relay is offline. Open diagnostics.'}
+              title={relayStatusTitle}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${runtime?.brokerReachable ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-              Relay <span className="font-medium" style={s.inkText}>{runtime?.brokerReachable ? 'Running' : 'Offline'}</span>
+              <div className={`w-1.5 h-1.5 rounded-full ${relayStatusDotClassName}`}></div>
+              Relay <span className="font-medium" style={s.inkText}>{relayStatusLabel}</span>
             </button>
             <div className="flex items-center gap-1.5">
               Agents <span className="font-medium" style={s.inkText}>{runtime?.agentCount ?? 0}</span>
@@ -3376,11 +3709,11 @@ export default function App() {
             </button>
             <button
               className="hover:opacity-70 transition-opacity"
-              onClick={() => void handleRefreshShell()}
-              title={manualRefreshPending ? 'Refreshing…' : 'Refresh current view'}
-              disabled={manualRefreshPending}
+              onClick={handleReloadApp}
+              title={appReloadPending ? 'Reloading…' : 'Reload app'}
+              disabled={appReloadPending}
             >
-              {manualRefreshPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {appReloadPending ? <Spinner className="text-[14px]" /> : <RefreshCw size={14} />}
             </button>
           </div>
         </div>
@@ -3388,7 +3721,7 @@ export default function App() {
 
       {productSurface === 'relay' ? (
       <>
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden os-fade-in">
         {/* Sidebar Nav (Leftmost) */}
         <div className="w-12 border-r flex flex-col items-center py-2 gap-3 shrink-0 z-10" style={s.navBar}>
           <div className="flex flex-col gap-1 w-full px-2 mt-2" style={s.mutedText}>
@@ -3425,6 +3758,14 @@ export default function App() {
                 <Settings size={16} strokeWidth={1.5} />
               </button>
             ) : null}
+            <button
+              className="p-1.5 rounded flex items-center justify-center transition-colors"
+              style={activeView === 'help' ? s.activePill : s.mutedText}
+              title="Help"
+              onClick={openKnowledgeBase}
+            >
+              <BookOpen size={16} strokeWidth={1.5} />
+            </button>
           </div>
         </div>
 
@@ -4348,6 +4689,142 @@ export default function App() {
             </div>
           </>
 
+        /* --- HELP --- */
+        ) : activeView === 'help' ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-5xl px-8 py-6">
+              <div className="flex items-start justify-between gap-6 mb-5">
+                <div>
+                  <div className="text-[10px] font-mono tracking-widest uppercase mb-1.5" style={{ color: C.accent }}>Help</div>
+                  <h1 className="text-[22px] font-semibold tracking-tight" style={s.inkText}>Knowledge Base</h1>
+                  <p className="text-[12px] mt-1.5 max-w-2xl leading-[1.6]" style={s.mutedText}>
+                    Core Scout terms and the main CLI commands you can use here or in Terminal.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                    style={{ color: C.ink }}
+                    onClick={() => {
+                      setActiveView('settings');
+                      setSettingsSection('profile');
+                    }}
+                  >
+                    <Settings size={12} />
+                    General
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Vocabulary</div>
+                      <div className="text-[14px] font-medium mt-1" style={s.inkText}>What Scout means by each term</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[
+                      [
+                        'Project Path',
+                        'A folder Scout scans recursively to discover repos, project roots, and harness evidence.',
+                      ],
+                      [
+                        'Context Root',
+                        'The directory where Scout saves `.openscout/project.json` for the current local context.',
+                      ],
+                      [
+                        'Harness',
+                        'The assistant family a project prefers by default, such as `claude` or `codex`.',
+                      ],
+                      [
+                        'Runtime',
+                        'The installed local program or persistent session Scout uses to launch a chosen harness.',
+                      ],
+                    ].map(([label, value]) => (
+                      <article
+                        key={label}
+                        className="rounded-xl border px-4 py-3.5"
+                        style={{ borderColor: C.border, backgroundColor: C.bg }}
+                      >
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>{label}</div>
+                        <div className="text-[12px] mt-2 leading-[1.6]" style={s.inkText}>{value}</div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>CLI Basics</div>
+                      <div className="text-[14px] font-medium mt-1" style={s.inkText}>The same commands the app runs for you</div>
+                      <div className="text-[12px] mt-1 leading-[1.6] max-w-2xl" style={s.mutedText}>
+                        Run them from here for guidance, or copy them into your shell when you want the direct Scout workflow.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {([
+                      {
+                        command: 'setup' as const,
+                        title: 'Setup',
+                        detail: 'Writes a local `.openscout/project.json` for the chosen context.',
+                      },
+                      {
+                        command: 'doctor' as const,
+                        title: 'Doctor',
+                        detail: 'Checks broker health and whether Scout can discover workspaces from your scan roots.',
+                      },
+                      {
+                        command: 'runtimes' as const,
+                        title: 'Runtimes',
+                        detail: 'Shows whether Claude and Codex are installed, authenticated, and ready.',
+                      },
+                    ]).map((item) => (
+                      <article
+                        key={item.command}
+                        className="rounded-xl border px-4 py-3.5"
+                        style={{ borderColor: C.border, backgroundColor: C.bg }}
+                      >
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>{item.title}</div>
+                        <div className="text-[12px] mt-2 leading-[1.6]" style={s.inkText}>{item.detail}</div>
+                        <div className="text-[10px] font-mono mt-3 break-all" style={s.mutedText}>
+                          {buildOnboardingCommandLine(item.command)}
+                        </div>
+                        <div className="flex items-center gap-2 mt-3">
+                          <button
+                            type="button"
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                            style={{ color: C.ink }}
+                            onClick={() => { void handleCopyOnboardingCommand(item.command); }}
+                          >
+                            {onboardingCopiedCommand === item.command ? <Check size={12} /> : <Copy size={12} />}
+                            Copy
+                          </button>
+                          <button
+                            type="button"
+                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
+                            style={{ color: C.ink }}
+                            onClick={() => { void handleRunOnboardingCommand(item.command); }}
+                            disabled={Boolean(onboardingCommandPending)}
+                          >
+                            <Terminal size={12} />
+                            Run
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+
         /* --- SETTINGS --- */
         ) : activeView === 'settings' ? (
           <div className="flex-1 flex overflow-hidden" style={s.surface}>
@@ -4363,7 +4840,7 @@ export default function App() {
                       key={section.id}
                       onClick={() => setSettingsSection(section.id)}
                       className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors"
-                      style={active ? { backgroundColor: C.surface, borderColor: C.border, color: C.ink, boxShadow: `0 1px 3px var(--os-shadow-soft)` } : s.mutedText}
+                      style={active ? { backgroundColor: C.surface, borderColor: C.border, color: C.ink, boxShadow: C.shadowXs } : s.mutedText}
                     >
                       <span style={{ color: active ? C.accent : C.muted }}>{section.icon}</span>
                       <span className="text-[12px] font-medium" style={active ? s.inkText : undefined}>{section.label}</span>
@@ -4375,12 +4852,12 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <div className="max-w-6xl mx-auto px-8 py-6">
+              <div className="max-w-6xl px-8 py-6">
                 <div className="flex items-start justify-between gap-6 mb-5">
                   <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-1.5" style={{ color: C.accent }}>Settings</div>
-                    <h1 className="text-[22px] font-semibold tracking-tight" style={s.inkText}>{activeSettingsMeta.label}</h1>
-                    <p className="text-[12px] mt-1.5 max-w-2xl leading-[1.6]" style={s.mutedText}>
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Settings</div>
+                    <h1 className="text-[18px] font-semibold tracking-tight" style={s.inkText}>{activeSettingsMeta.label}</h1>
+                    <p className="text-[11px] mt-1 max-w-2xl leading-[1.6]" style={s.mutedText}>
                       {activeSettingsMeta.description}
                     </p>
                   </div>
@@ -4509,8 +4986,8 @@ export default function App() {
                 </div>
 
                 {settingsSection === 'profile' ? (
-                  <div className="max-w-5xl">
-                    <div className="space-y-4 min-w-0">
+                  <div className="max-w-3xl">
+                    <div className="space-y-5 min-w-0">
                       {visibleAppSettings?.onboarding?.needed ? (
                         <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                           <div className="flex items-start justify-between gap-3">
@@ -5044,342 +5521,300 @@ export default function App() {
                       ) : (
                         <div className="space-y-5">
 
-                          {/* --- Scan Folders --- */}
-                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Scan Folders</div>
-                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
-                              Parent directories Scout scans for repos and projects.
+                          <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="p-4 border-b" style={{ borderColor: C.border }}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Scout CLI</div>
+                                  <div className="text-[14px] font-medium mt-1" style={s.inkText}>Use the same commands here and in Terminal</div>
+                                  <div className="text-[11px] mt-1 leading-[1.6] max-w-2xl" style={s.mutedText}>
+                                    General is for local Scout setup. Workspace discovery lives in Workspace Explorer so this screen can stay fast.
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                                    style={{ color: C.ink }}
+                                    onClick={openKnowledgeBase}
+                                  >
+                                    <BookOpen size={12} />
+                                    Knowledge Base
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                            <div className="space-y-1.5">
-                              {(visibleAppSettings?.workspaceRoots ?? []).map((root, index) => (
-                                <div key={`general-source-root-${index}`} className="flex items-center gap-1.5">
-                                  <input
-                                    value={root}
-                                    onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
-                                    readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                    className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
-                                    style={{ borderColor: C.border, color: C.ink }}
-                                    placeholder={index === 0 ? '~/dev' : 'Add another path'}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
-                                    style={{ color: C.ink }}
-                                    onClick={() => handleBrowseForSourceRoot(index)}
-                                    disabled={!isAppSettingsEditing || appSettingsSaving}
-                                  >
-                                    Finder
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded-md disabled:opacity-50"
-                                    style={{ color: C.ink }}
-                                    onClick={() => handleRemoveSourceRootRow(index)}
-                                    disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings?.workspaceRoots ?? []).length <= 1 && !root)}
-                                    aria-label={`Remove project path ${index + 1}`}
-                                  >
-                                    -
-                                  </button>
-                                </div>
-                              ))}
-                              {(visibleAppSettings?.workspaceRoots?.length ?? 0) === 0 ? (
-                                <div className="rounded-md border border-dashed px-2.5 py-2.5 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.muted }}>
-                                  No scan folders configured. Add one to discover projects.
-                                </div>
-                              ) : null}
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                <button
-                                  type="button"
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
-                                  style={{ color: C.ink }}
-                                  onClick={() => {
-                                    handleBeginGeneralEdit();
-                                    handleAddSourceRootRow();
-                                  }}
-                                  disabled={appSettingsSaving}
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 p-4">
+                              {([
+                                {
+                                  command: 'setup' as const,
+                                  title: 'scout setup',
+                                  detail: 'Create or refresh the local project manifest for this context.',
+                                },
+                                {
+                                  command: 'doctor' as const,
+                                  title: 'scout doctor',
+                                  detail: 'Check broker health, scan roots, and discovery readiness.',
+                                },
+                                {
+                                  command: 'runtimes' as const,
+                                  title: 'scout runtimes',
+                                  detail: 'Verify Claude and Codex runtimes are installed and ready.',
+                                },
+                              ]).map((item) => (
+                                <article
+                                  key={item.command}
+                                  className="rounded-xl border px-4 py-4"
+                                  style={{ borderColor: C.border, backgroundColor: C.bg }}
                                 >
-                                  <span className="text-[12px] leading-none">+</span>
-                                  Add path
-                                </button>
-                                <span className="text-[10px]" style={s.mutedText}>or</span>
-                                {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
-                                  <button
-                                    key={root}
-                                    type="button"
-                                    className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded-md disabled:opacity-50"
-                                    style={{ color: C.ink }}
-                                    onClick={() => {
-                                      handleBeginGeneralEdit();
-                                      handleAddSourceRootSuggestion(root);
-                                    }}
-                                    disabled={appSettingsSaving}
-                                  >
-                                    {root}
-                                  </button>
-                                ))}
-                              </div>
+                                  <div className="text-[11px] font-mono font-medium" style={{ color: C.accent }}>{item.title}</div>
+                                  <div className="text-[11px] mt-2 leading-[1.6]" style={s.mutedText}>{item.detail}</div>
+                                  <div className="text-[10px] font-mono mt-3 break-all" style={s.inkText}>
+                                    {buildOnboardingCommandLine(item.command)}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-4">
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
+                                      style={{ color: C.ink }}
+                                      onClick={() => { void handleRunOnboardingCommand(item.command); }}
+                                      disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || (item.command === 'doctor' && appSettingsDirty)}
+                                    >
+                                      <Terminal size={12} />
+                                      Run
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                                      style={{ color: C.ink }}
+                                      onClick={() => { void handleCopyOnboardingCommand(item.command); }}
+                                    >
+                                      {onboardingCopiedCommand === item.command ? <Check size={12} /> : <Copy size={12} />}
+                                      Copy
+                                    </button>
+                                  </div>
+                                </article>
+                              ))}
                             </div>
                           </section>
 
-                          {/* --- Context Root --- */}
-                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Context Root</div>
-                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
-                              Where Scout stores <span className="font-mono">.openscout/project.json</span> for this workspace.
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                value={visibleAppSettings?.onboardingContextRoot ?? ''}
-                                onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
-                                readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
-                                style={{ borderColor: C.border, color: C.ink }}
-                                placeholder="Choose where .openscout should live"
-                              />
-                              <button
-                                type="button"
-                                className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
-                                style={{ color: C.ink }}
-                                onClick={handleBrowseForOnboardingContextRoot}
-                                disabled={!isAppSettingsEditing || appSettingsSaving}
-                              >
-                                Finder
-                              </button>
-                            </div>
-                            {visibleAppSettings?.currentProjectConfigPath ? (
-                              <div className="text-[10px] mt-1.5 leading-[1.5]" style={s.mutedText}>
-                                Config:{' '}
-                                {renderLocalPathValue(visibleAppSettings.currentProjectConfigPath, {
-                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                  style: s.mutedText,
-                                })}
-                              </div>
-                            ) : null}
-                            <label className="flex items-center gap-2 mt-3 pt-3 border-t cursor-pointer" style={{ borderColor: C.border }}>
-                              <input
-                                type="checkbox"
-                                checked={visibleAppSettings?.includeCurrentRepo ?? true}
-                                disabled={!isAppSettingsEditing || appSettingsSaving}
-                                onChange={(event) => {
-                                  setAppSettingsDraft((current) => current ? {
-                                    ...current,
-                                    includeCurrentRepo: event.target.checked,
-                                  } : current);
-                                  setAppSettingsFeedback(null);
-                                }}
-                              />
-                              <span className="text-[11px]" style={s.inkText}>Include the context root itself in project discovery</span>
-                            </label>
-                          </section>
+                          {/* --- Grouped Settings --- */}
+                          <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                            <div className="divide-y" style={{ borderColor: C.border }}>
 
-                          {/* --- Operator --- */}
-                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Your Name</div>
-                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
-                              The display name Scout uses across the desktop shell and Relay.
-                            </div>
-                            <input
-                              ref={settingsOperatorNameRef}
-                              value={isAppSettingsEditing ? (visibleAppSettings?.operatorName ?? '') : (visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? '')}
-                              onChange={(event) => {
-                                setAppSettingsDraft((current) => current ? {
-                                  ...current,
-                                  operatorName: event.target.value,
-                                } : current);
-                                setAppSettingsFeedback(null);
-                              }}
-                              readOnly={!isAppSettingsEditing || appSettingsSaving}
-                              placeholder={appSettings?.operatorNameDefault ?? 'Operator'}
-                              className="w-full rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none"
-                              style={{ borderColor: C.border, color: C.ink }}
-                            />
-                          </section>
-
-                          {/* --- Harness --- */}
-                          <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Default Harness</div>
-                            <div className="text-[11px] mb-3 leading-[1.5]" style={s.mutedText}>
-                              Pick the default assistant family Scout uses when a project does not override it.
-                            </div>
-                            <div className="flex gap-1.5">
-                              {(['claude', 'codex'] as const).map((harness) => {
-                                const selected = visibleAppSettings?.defaultHarness === harness;
-                                return (
-                                  <button
-                                    key={harness}
-                                    type="button"
-                                    className="rounded-md border px-3 py-1.5 text-[12px] font-medium capitalize transition-colors disabled:opacity-60"
-                                    style={{ borderColor: selected ? C.accentBorder : C.border, backgroundColor: selected ? C.accentBg : C.bg, color: selected ? C.accent : C.ink }}
-                                    disabled={!isAppSettingsEditing || appSettingsSaving}
-                                    onClick={() => {
+                              {/* Display Name */}
+                              <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                                <div className="sm:w-1/3">
+                                  <div className="text-[12px] font-medium" style={s.inkText}>Display Name</div>
+                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Used across Scout and Relay.</div>
+                                </div>
+                                <div className="sm:w-2/3">
+                                  <input
+                                    ref={settingsOperatorNameRef}
+                                    value={isAppSettingsEditing ? (visibleAppSettings?.operatorName ?? '') : (visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? '')}
+                                    onChange={(event) => {
                                       setAppSettingsDraft((current) => current ? {
                                         ...current,
-                                        defaultHarness: harness,
+                                        operatorName: event.target.value,
                                       } : current);
                                       setAppSettingsFeedback(null);
                                     }}
-                                  >
-                                    {harness}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </section>
-
-                          {/* --- Project Inventory --- */}
-                          <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                              <div className="flex items-center gap-2">
-                                <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Project Inventory</div>
-                                <span className="text-[9px] font-mono tabular-nums" style={s.mutedText}>
-                                  {visibleAppSettings?.projectInventory.length ?? 0}
-                                </span>
+                                    readOnly={!isAppSettingsEditing || appSettingsSaving}
+                                    placeholder={appSettings?.operatorNameDefault ?? 'Operator'}
+                                    className="w-full max-w-md rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none"
+                                    style={{ borderColor: C.border, color: C.ink }}
+                                  />
+                                </div>
                               </div>
-                              <button
-                                type="button"
-                                className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md disabled:opacity-50"
-                                style={{ color: C.ink }}
-                                onClick={() => { void handleRunOnboardingCommand('doctor'); }}
-                                disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
-                              >
-                                {onboardingCommandPending === 'doctor' ? 'Running Doctor…' : 'Run Doctor'}
-                              </button>
-                            </div>
-                            <div className="max-h-[400px] overflow-y-auto divide-y" style={{ borderColor: C.border }}>
-                              {(visibleAppSettings?.projectInventory ?? []).length > 0 ? (visibleAppSettings?.projectInventory ?? []).map((project) => (
-                                <div
-                                  key={project.id}
-                                  className="flex items-center gap-3 px-4 py-2.5 group"
-                                  style={{ borderColor: C.border }}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</span>
-                                      {project.registrationKind === 'configured' ? (
-                                        <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm shrink-0" style={s.activePill}>agent</span>
-                                      ) : null}
-                                      {project.harnesses.map((harness) => (
-                                        <span
-                                          key={`${project.id}:${harness.harness}`}
-                                          className="text-[8px] font-mono px-1 py-px rounded-sm shrink-0"
-                                          style={harness.readinessState === 'ready' ? s.activePill : s.tagBadge}
-                                          title={harness.readinessDetail ?? undefined}
+
+                              {/* Default Harness / Runtimes */}
+                              <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
+                                <div className="sm:w-1/3">
+                                  <div className="text-[12px] font-medium" style={s.inkText}>Default Harness</div>
+                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Fallback assistant family.</div>
+                                </div>
+                                <div className="sm:w-2/3">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {(['claude', 'codex'] as const).map((harness) => {
+                                      const selected = visibleAppSettings?.defaultHarness === harness;
+                                      const runtime = (visibleAppSettings?.runtimeCatalog ?? []).find((r) => r.name === harness);
+                                      return (
+                                        <button
+                                          key={harness}
+                                          type="button"
+                                          className="rounded-md border px-3 py-1.5 text-[12px] font-medium capitalize transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                                          style={{ borderColor: selected ? C.accentBorder : C.border, backgroundColor: selected ? C.accentBg : C.bg, color: selected ? C.accent : C.ink }}
+                                          disabled={!isAppSettingsEditing || appSettingsSaving}
+                                          onClick={() => {
+                                            setAppSettingsDraft((current) => current ? {
+                                              ...current,
+                                              defaultHarness: harness,
+                                            } : current);
+                                            setAppSettingsFeedback(null);
+                                          }}
                                         >
-                                          {harness.harness}
-                                        </span>
-                                      ))}
-                                    </div>
-                                    <div className="text-[10px] mt-0.5 leading-[1.4] font-mono truncate" style={s.mutedText}>
-                                      {project.relativePath === '.' ? (
-                                        renderLocalPathValue(project.root, {
-                                          compact: true,
-                                          className: 'text-left hover:opacity-80 transition-opacity',
-                                          style: s.mutedText,
-                                        })
-                                      ) : (
-                                        <>
-                                          {project.relativePath}{' '}
-                                          <span style={{ opacity: 0.5 }}>in</span>{' '}
-                                          {renderLocalPathValue(project.root, {
+                                          {harness}
+                                          {runtime ? (
+                                            <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={runtime.readinessState === 'ready' ? s.activePill : s.tagBadge}>
+                                              {runtime.readinessState}
+                                            </span>
+                                          ) : null}
+                                        </button>
+                                      );
+                                    })}
+                                    <button
+                                      type="button"
+                                      className="rounded-md border border-dashed w-8 h-8 flex items-center justify-center text-[14px] transition-colors disabled:opacity-40"
+                                      style={{ borderColor: C.border, color: C.muted }}
+                                      disabled={!isAppSettingsEditing || appSettingsSaving}
+                                      title="Add runtime"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Context Root */}
+                              <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
+                                <div className="sm:w-1/3">
+                                  <div className="text-[12px] font-medium" style={s.inkText}>Context Root</div>
+                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Where Scout stores workspace config.</div>
+                                </div>
+                                <div className="sm:w-2/3">
+                                  <div className="flex items-center gap-1.5 max-w-md mb-2">
+                                    <input
+                                      value={visibleAppSettings?.onboardingContextRoot ?? ''}
+                                      onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
+                                      readOnly={!isAppSettingsEditing || appSettingsSaving}
+                                      className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
+                                      style={{ borderColor: C.border, color: C.ink }}
+                                      placeholder="Choose where .openscout should live"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
+                                      style={{ color: C.ink }}
+                                      onClick={handleBrowseForOnboardingContextRoot}
+                                      disabled={!isAppSettingsEditing || appSettingsSaving}
+                                    >
+                                      Finder
+                                    </button>
+                                  </div>
+                                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={visibleAppSettings?.includeCurrentRepo ?? true}
+                                        disabled={!isAppSettingsEditing || appSettingsSaving}
+                                        onChange={(event) => {
+                                          setAppSettingsDraft((current) => current ? {
+                                            ...current,
+                                            includeCurrentRepo: event.target.checked,
+                                          } : current);
+                                          setAppSettingsFeedback(null);
+                                        }}
+                                      />
+                                      <span className="text-[10px]" style={s.inkText}>Include root in discovery</span>
+                                    </label>
+                                    {visibleAppSettings?.currentProjectConfigPath ? (
+                                      <>
+                                        <div className="hidden sm:block w-px h-3" style={{ backgroundColor: C.border }} />
+                                        <span className="text-[9px] font-mono truncate" style={s.mutedText} title={visibleAppSettings.currentProjectConfigPath}>
+                                          {renderLocalPathValue(visibleAppSettings.currentProjectConfigPath, {
                                             compact: true,
                                             className: 'text-left hover:opacity-80 transition-opacity',
                                             style: s.mutedText,
                                           })}
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md"
-                                      style={{ color: C.ink }}
-                                      onClick={() => {
-                                        setSettingsSection('agents');
-                                        if (project.registrationKind === 'configured') {
-                                          openAgentProfile(project.id);
-                                          return;
-                                        }
-                                        setSelectedAgentableProjectId(project.id);
-                                        setSelectedInterAgentId(null);
-                                        setSelectedInterAgentThreadId(null);
-                                        setIsAgentConfigEditing(false);
-                                        setAgentConfigFeedback(null);
-                                      }}
-                                    >
-                                      Open
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md disabled:opacity-50"
-                                      style={{ color: C.muted }}
-                                      onClick={() => { void handleRetireProject(project.root, project.title); }}
-                                      disabled={Boolean(projectRetirementPendingRoot)}
-                                    >
-                                      {projectRetirementPendingRoot === project.root ? 'Retiring…' : 'Retire'}
-                                    </button>
+                                        </span>
+                                      </>
+                                    ) : null}
                                   </div>
                                 </div>
-                              )) : (
-                                <div className="px-4 py-6 text-center text-[11px]" style={s.mutedText}>No projects discovered yet. Add a scan folder above, then run Scout Doctor.</div>
-                              )}
-                            </div>
-                          </section>
-
-                          {/* --- Hidden Projects (only when there are some) --- */}
-                          {hiddenProjects.length > 0 ? (
-                            <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
-                                <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Hidden Projects</div>
                               </div>
-                              <div className="divide-y" style={{ borderColor: C.border }}>
-                                {hiddenProjects.map((project) => (
-                                  <div
-                                    key={project.root}
-                                    className="flex items-center justify-between gap-3 px-4 py-2.5"
-                                    style={{ borderColor: C.border }}
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="text-[12px] font-medium" style={s.inkText}>{project.title}</div>
-                                      <div className="text-[10px] mt-0.5 font-mono truncate" style={s.mutedText}>
-                                        {renderLocalPathValue(project.root, {
-                                          compact: true,
-                                          className: 'text-left hover:opacity-80 transition-opacity',
-                                          style: s.mutedText,
-                                        })}
+
+                              {/* Scan Folders */}
+                              <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
+                                <div className="sm:w-1/3">
+                                  <div className="text-[12px] font-medium" style={s.inkText}>Scan Folders</div>
+                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Parent directories for repos.</div>
+                                </div>
+                                <div className="sm:w-2/3">
+                                  <div className="space-y-1.5">
+                                    {(visibleAppSettings?.workspaceRoots ?? []).map((root, index) => (
+                                      <div key={`general-source-root-${index}`} className="flex items-center gap-1.5 max-w-md">
+                                        <input
+                                          value={root}
+                                          onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
+                                          readOnly={!isAppSettingsEditing || appSettingsSaving}
+                                          className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
+                                          style={{ borderColor: C.border, color: C.ink }}
+                                          placeholder={index === 0 ? '~/dev' : 'Add another path'}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
+                                          style={{ color: C.ink }}
+                                          onClick={() => handleBrowseForSourceRoot(index)}
+                                          disabled={!isAppSettingsEditing || appSettingsSaving}
+                                        >
+                                          Finder
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded-md disabled:opacity-50"
+                                          style={{ color: C.ink }}
+                                          onClick={() => handleRemoveSourceRootRow(index)}
+                                          disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings?.workspaceRoots ?? []).length <= 1 && !root)}
+                                          aria-label={`Remove project path ${index + 1}`}
+                                        >
+                                          -
+                                        </button>
                                       </div>
-                                    </div>
+                                    ))}
+                                    {(visibleAppSettings?.workspaceRoots?.length ?? 0) === 0 ? (
+                                      <div className="rounded-md border border-dashed px-2.5 py-2.5 text-[11px] leading-[1.5] max-w-md" style={{ borderColor: C.border, color: C.muted }}>
+                                        No scan folders configured. Add one to discover projects.
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
                                     <button
                                       type="button"
-                                      className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md disabled:opacity-50 shrink-0"
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
                                       style={{ color: C.ink }}
-                                      onClick={() => { void handleRestoreProject(project); }}
-                                      disabled={Boolean(projectRetirementPendingRoot)}
+                                      onClick={() => {
+                                        handleBeginGeneralEdit();
+                                        handleAddSourceRootRow();
+                                      }}
+                                      disabled={appSettingsSaving}
                                     >
-                                      {projectRetirementPendingRoot === project.root ? 'Restoring…' : 'Restore'}
+                                      <span className="text-[12px] leading-none">+</span>
+                                      Add path
                                     </button>
+                                    <span className="text-[10px]" style={s.mutedText}>or</span>
+                                    {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
+                                      <button
+                                        key={root}
+                                        type="button"
+                                        className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded-md disabled:opacity-50"
+                                        style={{ color: C.ink }}
+                                        onClick={() => {
+                                          handleBeginGeneralEdit();
+                                          handleAddSourceRootSuggestion(root);
+                                        }}
+                                        disabled={appSettingsSaving}
+                                      >
+                                        {root}
+                                      </button>
+                                    ))}
                                   </div>
-                                ))}
+                                </div>
                               </div>
-                            </section>
-                          ) : null}
 
-                          {/* --- Runtimes --- */}
-                          {(visibleAppSettings?.runtimeCatalog ?? []).length > 0 ? (
-                            <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Runtimes</div>
-                              <div className="flex flex-wrap gap-2">
-                                {(visibleAppSettings?.runtimeCatalog ?? []).map((runtimeEntry) => (
-                                  <div key={runtimeEntry.name} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                    <span className="text-[11px] font-medium" style={s.inkText}>{runtimeEntry.label}</span>
-                                    <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
-                                      {runtimeEntry.readinessState}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          ) : null}
+                            </div>
+                          </section>
 
                           {/* --- Feedback & Doctor Output --- */}
                           {appSettingsFeedback ? (
@@ -5397,218 +5832,285 @@ export default function App() {
                     </div>
                   </div>
                 ) : settingsSection === 'knowledge' ? (
-                  <div className="max-w-4xl">
+                  <div className="max-w-3xl">
                     <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="flex items-start justify-between gap-4 mb-5">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Knowledge Base</div>
-                          <div className="text-[14px] font-medium mt-1" style={s.inkText}>Vocabulary</div>
-                          <div className="text-[12px] mt-1 leading-[1.6] max-w-2xl" style={s.mutedText}>
-                            Key terms used across Scout.
-                          </div>
-                        </div>
+                      <div className="text-[13px] font-medium" style={s.inkText}>Knowledge Base moved</div>
+                      <div className="text-[12px] mt-1 leading-[1.6]" style={s.mutedText}>
+                        Open Help for the dedicated Knowledge Base and CLI guide.
                       </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {[
-                          [
-                            'Project Path',
-                            'A folder Scout scans recursively to discover repos, project roots, and harness evidence.',
-                          ],
-                          [
-                            'Context Root',
-                            'The directory where Scout saves `.openscout/project.json` for the current local context.',
-                          ],
-                          [
-                            'Harness',
-                            'The assistant family a project prefers by default, such as `claude` or `codex`.',
-                          ],
-                          [
-                            'Runtime',
-                            'The installed local program or persistent session Scout uses to launch a chosen harness.',
-                          ],
-                        ].map(([label, value]) => (
-                          <article
-                            key={label}
-                            className="rounded-xl border px-4 py-3.5"
-                            style={{ borderColor: C.border, backgroundColor: C.bg }}
-                          >
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>{label}</div>
-                            <div className="text-[12px] mt-2 leading-[1.6]" style={s.inkText}>{value}</div>
-                          </article>
-                        ))}
+                      <div className="mt-4">
+                        <button
+                          type="button"
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                          style={{ color: C.ink }}
+                          onClick={openKnowledgeBase}
+                        >
+                          <BookOpen size={12} />
+                          Open Help
+                        </button>
                       </div>
                     </section>
                   </div>
                 ) : settingsSection === 'agents' ? (
-                  <div className="grid grid-cols-[minmax(280px,0.58fr)_minmax(0,1.42fr)] gap-4">
-                    <div className="space-y-4 min-w-0">
-                      <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Configured Agents</div>
-                        <div className="flex flex-col gap-2 max-h-[360px] overflow-y-auto pr-1">
-                          {interAgentAgents.length > 0 ? interAgentAgents.map((agent) => (
-                            <button
-                              key={agent.id}
-                              onClick={() => {
-                                setSelectedInterAgentId(agent.id);
-                                setSelectedAgentableProjectId(null);
-                                setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
-                                setIsAgentConfigEditing(false);
-                                setAgentConfigFeedback(null);
-                              }}
-                              className="w-full text-left border rounded-lg px-3 py-3 transition-opacity hover:opacity-90"
-                              style={{ borderColor: C.border, backgroundColor: selectedInterAgentId === agent.id ? C.bg : C.surface }}
+                  <div className="space-y-4 min-w-0">
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Agents</div>
+                            <div className="text-[18px] font-semibold tracking-tight" style={s.inkText}>Workspace Explorer</div>
+                            <div className="text-[12px] mt-1 leading-[1.6]" style={s.mutedText}>
+                              Discover and manage local projects for agent binding.
+                            </div>
+                          </div>
+                          <div className="hidden xl:flex items-center gap-2 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              onClick={() => { void handleRunOnboardingCommand('doctor'); }}
+                              disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 flex items-start gap-3">
-                                  <div
-                                    className={`w-8 h-8 rounded text-white flex items-center justify-center text-[11px] font-bold shrink-0 ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-                                    style={{ backgroundColor: colorForIdentity(agent.id) }}
-                                  >
-                                    {agent.title.charAt(0).toUpperCase()}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <div className="text-[12px] font-medium truncate" style={s.inkText}>{agent.title}</div>
-                                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                        {interAgentProfileKindLabel(agent.profileKind)}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
-                                      {agent.summary ?? agent.subtitle}
-                                    </div>
-                                    <div className="text-[10px] mt-1" style={s.mutedText}>
-                                      {agent.harness ?? 'runtime'} · {agent.transport ?? 'transport'} · {agent.threadCount} threads
-                                    </div>
-                                  </div>
-                                </div>
-                                <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                                  {agent.timestampLabel ?? ''}
-                                </span>
-                              </div>
-                            </button>
-                          )) : (
-                            <div className="text-[11px]" style={s.mutedText}>No registered agents found.</div>
-                          )}
+                              {onboardingCommandPending === 'doctor' ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
+                              {onboardingCommandPending === 'doctor' ? 'Scanning…' : 'Refresh'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="gap-2"
+                              onClick={handleAddWorkspaceFromExplorer}
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add Workspace
+                            </Button>
+                          </div>
                         </div>
-                      </section>
+                      </div>
 
-                      <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-center justify-between gap-3 mb-3">
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Agentable Projects</div>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                            {agentableProjects.length}
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
-                          {agentableProjects.length > 0 ? agentableProjects.map((project) => {
-                            const linkedAgent = interAgentAgents.find((agent) => agent.id === project.id || agent.id === project.definitionId) ?? null;
-                            const active = selectedAgentableProjectId === project.id;
-                            return (
-                              <div
-                                key={project.id}
-                                className="w-full text-left border rounded-lg px-3 py-3"
-                                style={{ borderColor: C.border, backgroundColor: active ? C.bg : C.surface }}
+                      <div className="px-6 py-4 border-b" style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 82%, transparent)' }}>
+                        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                          <div className="flex flex-1 flex-col gap-3 xl:flex-row xl:items-center">
+                            <div className="relative w-full xl:w-80">
+                              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: C.muted }} />
+                              <Input
+                                placeholder="Search workspaces..."
+                                value={workspaceExplorerQuery}
+                                onChange={(event) => setWorkspaceExplorerQuery(event.target.value)}
+                                className="pl-9"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-1 rounded-lg border p-1" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              {[
+                                ['all', 'All', workspaceExplorerItems.length],
+                                ['bound', 'Bound', workspaceExplorerBoundCount],
+                                ['discovered', 'Discovered', workspaceExplorerDiscoveredCount],
+                              ].map(([id, label, count]) => {
+                                const active = workspaceExplorerFilter === id;
+                                return (
+                                  <button
+                                    key={id}
+                                    type="button"
+                                    className="rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors"
+                                    style={{
+                                      backgroundColor: active ? C.surface : 'transparent',
+                                      color: active ? C.ink : C.muted,
+                                      boxShadow: active ? C.shadowXs : 'none',
+                                    }}
+                                    onClick={() => setWorkspaceExplorerFilter(id as WorkspaceExplorerFilterTab)}
+                                  >
+                                    <span className="flex items-center gap-1.5">
+                                      {id === 'bound' ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
+                                      {label}
+                                      <span style={{ color: C.muted }}>{count}</span>
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-0.5 rounded-lg border p-0.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <button
+                                type="button"
+                                className="rounded-md p-1.5 transition-colors"
+                                style={{ backgroundColor: workspaceExplorerViewMode === 'grid' ? C.surface : 'transparent', color: workspaceExplorerViewMode === 'grid' ? C.ink : C.muted }}
+                                onClick={() => setWorkspaceExplorerViewMode('grid')}
+                                title="Grid view"
                               >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <div className="text-[12px] font-medium truncate" style={s.inkText}>{project.title}</div>
-                                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={project.registrationKind === 'configured' ? s.activePill : s.tagBadge}>
-                                        {project.registrationKind === 'configured' ? 'configured' : 'project'}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>
-                                      {project.relativePath} · {project.defaultHarness}
-                                    </div>
-                                    <div className="text-[10px] mt-1" style={s.mutedText}>
-                                      {project.harnesses.map((entry) => entry.harness).join(' · ') || 'No harness evidence'}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded"
-                                      style={{ color: C.ink }}
-                                      onClick={() => {
-                                        setSelectedAgentableProjectId(project.id);
-                                        setSelectedInterAgentId(linkedAgent?.id ?? null);
-                                        setSelectedInterAgentThreadId(linkedAgent ? firstInterAgentThreadIdForAgent(interAgentThreads, linkedAgent.id) : null);
-                                        setIsAgentConfigEditing(false);
-                                        setAgentConfigFeedback(null);
-                                      }}
-                                    >
-                                      Open
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                      style={{ color: C.ink }}
-                                      onClick={() => { void handleRetireProject(project.root, project.title); }}
-                                      disabled={Boolean(projectRetirementPendingRoot)}
-                                    >
-                                      {projectRetirementPendingRoot === project.root ? 'Retiring…' : 'Retire'}
-                                    </button>
-                                    {linkedAgent ? (
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.activePill}>
-                                        agent
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          }) : (
-                            <div className="text-[11px]" style={s.mutedText}>No agentable projects discovered yet.</div>
-                          )}
+                                <Grid3x3 className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-md p-1.5 transition-colors"
+                                style={{ backgroundColor: workspaceExplorerViewMode === 'list' ? C.surface : 'transparent', color: workspaceExplorerViewMode === 'list' ? C.ink : C.muted }}
+                                onClick={() => setWorkspaceExplorerViewMode('list')}
+                                title="List view"
+                              >
+                                <List className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            <div className="xl:hidden flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-2"
+                                onClick={() => { void handleRunOnboardingCommand('doctor'); }}
+                                disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
+                              >
+                                {onboardingCommandPending === 'doctor' ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
+                                Refresh
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="gap-2"
+                                onClick={handleAddWorkspaceFromExplorer}
+                              >
+                                <Plus className="h-4 w-4" />
+                                Add
+                              </Button>
+                            </div>
+                          </div>
                         </div>
-                      </section>
-                    </div>
+                      </div>
+
+                      <div className="p-6">
+                        {!visibleAppSettings?.workspaceInventoryLoaded ? (
+                          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center" style={{ borderColor: C.border }}>
+                            {workspaceInventoryLoading ? <Spinner className="text-[28px] mb-3" style={{ color: C.muted, opacity: 0.7 }} /> : <FolderOpen className="h-8 w-8 mb-3" style={{ color: C.muted, opacity: 0.5 }} />}
+                            <div className="text-[13px] font-medium mb-1" style={s.inkText}>
+                              {workspaceInventoryLoading ? 'Loading workspaces…' : 'Workspace inventory is not loaded yet'}
+                            </div>
+                            <div className="text-[11px] mb-4 max-w-md leading-[1.6]" style={s.mutedText}>
+                              General loads quickly from local Scout settings. Workspace Explorer loads the heavier discovery inventory on demand.
+                            </div>
+                            <Button
+                              variant="outline"
+                              className="gap-2"
+                              onClick={() => {
+                                if (!scoutDesktop?.refreshSettingsInventory) {
+                                  return;
+                                }
+                                setWorkspaceInventoryLoading(true);
+                                void scoutDesktop.refreshSettingsInventory()
+                                  .then((nextSettings) => {
+                                    applyNextAppSettings(nextSettings);
+                                  })
+                                  .catch((error) => {
+                                    setAppSettingsFeedback(asErrorMessage(error));
+                                  })
+                                  .finally(() => {
+                                    setWorkspaceInventoryLoading(false);
+                                  });
+                              }}
+                              disabled={workspaceInventoryLoading || !scoutDesktop?.refreshSettingsInventory}
+                            >
+                              {workspaceInventoryLoading ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
+                              Load Workspaces
+                            </Button>
+                          </div>
+                        ) : filteredWorkspaceExplorerItems.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center" style={{ borderColor: C.border }}>
+                            <FolderOpen className="h-8 w-8 mb-3" style={{ color: C.muted, opacity: 0.5 }} />
+                            <div className="text-[13px] font-medium mb-1" style={s.inkText}>No workspaces found</div>
+                            <div className="text-[11px] mb-4 max-w-md leading-[1.6]" style={s.mutedText}>
+                              {workspaceExplorerQuery
+                                ? 'Try a different search term or filter.'
+                                : 'Add scan directories in General settings, then refresh to discover workspaces.'}
+                            </div>
+                            <Button
+                              variant="outline"
+                              className="gap-2"
+                              onClick={() => { void handleRunOnboardingCommand('doctor'); }}
+                              disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
+                            >
+                              {onboardingCommandPending === 'doctor' ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
+                              Scan Workspaces
+                            </Button>
+                          </div>
+                        ) : workspaceExplorerViewMode === 'grid' ? (
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                            {filteredWorkspaceExplorerItems.map((item) => (
+                              <WorkspaceExplorerCard
+                                key={item.project.id}
+                                item={item}
+                                isSelected={selectedWorkspaceProject?.id === item.project.id}
+                                onSelect={() => handleInspectWorkspace(item.project)}
+                                onPrimaryAction={() => handleOpenWorkspace(item.project)}
+                                onSecondaryAction={() => { void handleRetireProject(item.project.root, item.project.title); }}
+                                secondaryActionPending={projectRetirementPendingRoot === item.project.root}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <WorkspaceExplorerTable
+                            items={filteredWorkspaceExplorerItems}
+                            selectedWorkspaceId={selectedWorkspaceProject?.id ?? null}
+                            onSelectWorkspace={handleInspectWorkspace}
+                            onPrimaryAction={handleOpenWorkspace}
+                            onSecondaryAction={(project) => { void handleRetireProject(project.root, project.title); }}
+                            projectRetirementPendingRoot={projectRetirementPendingRoot}
+                          />
+                        )}
+                      </div>
+                    </section>
+
+                    {appSettingsFeedback ? (
+                      <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
+                    ) : null}
+
+                    {onboardingCommandResult?.command === 'doctor' ? (
+                      <div className="space-y-2">
+                        <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Scan Results</div>
+                        {renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor')}
+                      </div>
+                    ) : null}
 
                     <div className="space-y-4 min-w-0">
-                      {!selectedInterAgent && !selectedAgentableProject ? (
+                      {!selectedInterAgent && !selectedWorkspaceProject ? (
                         <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="text-[13px] font-medium mb-1" style={s.inkText}>Nothing selected</div>
+                          <div className="text-[13px] font-medium mb-1" style={s.inkText}>Select a workspace</div>
                           <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                            Pick a configured agent or an agentable project from the left to inspect it.
+                            Choose a workspace above to inspect its project details or open its bound agent.
                           </div>
                         </section>
-                      ) : !selectedInterAgent && selectedAgentableProject ? (
+                      ) : !selectedInterAgent && selectedWorkspaceProject ? (
                         <>
                           <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="flex items-start justify-between gap-4">
                               <div className="min-w-0">
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Selected Project</div>
-                                <div className="text-[18px] font-semibold tracking-tight mt-1.5" style={s.inkText}>{selectedAgentableProject.title}</div>
+                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Workspace Details</div>
+                                <div className="text-[18px] font-semibold tracking-tight mt-1.5" style={s.inkText}>{selectedWorkspaceProject.title}</div>
                                 <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
-                                  Discovered project. No configured agent yet.
+                                  Discovered workspace. No bound agent is attached yet.
                                 </div>
                               </div>
                               <button
                                 type="button"
                                 className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50 shrink-0"
                                 style={{ color: C.ink }}
-                                onClick={() => { void handleRetireProject(selectedAgentableProject.root, selectedAgentableProject.title); }}
+                                onClick={() => { void handleRetireProject(selectedWorkspaceProject.root, selectedWorkspaceProject.title); }}
                                 disabled={Boolean(projectRetirementPendingRoot)}
                               >
-                                {projectRetirementPendingRoot === selectedAgentableProject.root ? 'Retiring…' : 'Retire Project'}
+                                {projectRetirementPendingRoot === selectedWorkspaceProject.root ? 'Retiring…' : 'Retire Workspace'}
                               </button>
                             </div>
                           </section>
 
                           <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
                             <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Project Summary</div>
+                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Workspace Summary</div>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                                 {[
-                                  ['Project', selectedAgentableProject.projectName],
-                                  ['Agent ID', selectedAgentableProject.definitionId],
-                                  ['Root', compactHomePath(selectedAgentableProject.root) ?? selectedAgentableProject.root],
-                                  ['Source Root', compactHomePath(selectedAgentableProject.sourceRoot) ?? selectedAgentableProject.sourceRoot],
-                                  ['Relative Path', selectedAgentableProject.relativePath],
-                                  ['Default Harness', selectedAgentableProject.defaultHarness],
-                                  ['Registration', selectedAgentableProject.registrationKind],
-                                  ['Manifest', selectedAgentableProject.projectConfigPath ?? 'Not created'],
+                                  ['Workspace', selectedWorkspaceProject.projectName],
+                                  ['Agent ID', selectedWorkspaceProject.definitionId],
+                                  ['Root', compactHomePath(selectedWorkspaceProject.root) ?? selectedWorkspaceProject.root],
+                                  ['Source Root', compactHomePath(selectedWorkspaceProject.sourceRoot) ?? selectedWorkspaceProject.sourceRoot],
+                                  ['Relative Path', selectedWorkspaceProject.relativePath],
+                                  ['Default Harness', selectedWorkspaceProject.defaultHarness],
+                                  ['Registration', selectedWorkspaceProject.registrationKind],
+                                  ['Manifest', selectedWorkspaceProject.projectConfigPath ?? 'Not created'],
                                 ].map(([label, value]) => (
                                   <div key={label} className="min-w-0">
                                     <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
@@ -5628,7 +6130,7 @@ export default function App() {
                               <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
                                 <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Harness Evidence</div>
                                 <div className="space-y-2">
-                                  {selectedAgentableProject.harnesses.map((entry) => (
+                                  {selectedWorkspaceProject.harnesses.map((entry) => (
                                     <div key={`${entry.harness}-${entry.source}`} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
                                       <div className="flex items-center justify-between gap-3">
                                         <div className="text-[12px] font-medium" style={s.inkText}>{entry.harness}</div>
@@ -6101,51 +6603,90 @@ export default function App() {
                       </section>
                       ) : null}
 
-                      {/* --- Relay Service (primary) --- */}
-                      {brokerInspector ? (
-                        <section ref={relayServiceInspectorRef} className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="flex items-center justify-between gap-3 mb-4">
-                            <div className="flex items-center gap-2.5">
-                              <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Relay Service</div>
-                              <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
-                                {brokerInspector.statusLabel}
-                              </span>
+                      {/* --- Relay Service + Runtime --- */}
+                      <section ref={relayServiceInspectorRef} className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                        {brokerInspector ? (
+                          <>
+                            <div className="p-4">
+                              <div className="flex items-center justify-between gap-3 mb-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Relay Service</div>
+                                  <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
+                                    {brokerInspector.statusLabel}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    type="button"
+                                    variant={brokerInspector.reachable ? 'outline' : 'default'}
+                                    size="sm"
+                                    onClick={() => void handleBrokerControl(brokerInspector.reachable ? 'restart' : 'start')}
+                                    disabled={brokerControlPending}
+                                  >
+                                    {brokerInspector.reachable ? 'Restart' : 'Start'}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleBrokerControl('stop')}
+                                    disabled={brokerControlPending || !brokerInspector.loaded}
+                                  >
+                                    Stop
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
+                                {brokerInspector.statusDetail ?? 'Service status not reported yet.'}
+                              </div>
+                              <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                                {[
+                                  ['Relay URL', brokerInspector.url],
+                                  ['Version', brokerInspector.version ?? 'Not reported'],
+                                  ['Mode', brokerInspector.mode],
+                                  ['Service Label', brokerInspector.label],
+                                  ['PID', brokerInspector.pid ?? 'Not reported'],
+                                  ['Last Restart', brokerInspector.lastRestartLabel ?? 'Not reported'],
+                                  ['Launch State', brokerInspector.launchdState ?? 'Not reported'],
+                                  ['Mesh', brokerInspector.meshId ?? 'Not reported'],
+                                  ['Last Exit', brokerInspector.lastExitStatus ?? 'Not reported'],
+                                ].map(([label, value]) => (
+                                  <div key={label} className="min-w-0">
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
+                                    <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {brokerInspector.processCommand ? (
+                                <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Process</div>
+                                  <div className="text-[10px] font-mono leading-[1.45] break-all" style={s.mutedText}>{brokerInspector.processCommand}</div>
+                                </div>
+                              ) : null}
+                              {brokerControlFeedback ? (
+                                <div className="mt-3 pt-3 border-t text-[11px] leading-[1.45]" style={{ borderTopColor: C.border, color: C.ink }}>
+                                  {brokerControlFeedback}
+                                </div>
+                              ) : null}
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              <Button
-                                type="button"
-                                variant={brokerInspector.reachable ? 'outline' : 'default'}
-                                size="sm"
-                                onClick={() => void handleBrokerControl(brokerInspector.reachable ? 'restart' : 'start')}
-                                disabled={brokerControlPending}
-                              >
-                                {brokerInspector.reachable ? 'Restart' : 'Start'}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleBrokerControl('stop')}
-                                disabled={brokerControlPending || !brokerInspector.loaded}
-                              >
-                                Stop
-                              </Button>
-                            </div>
+                            <div className="border-t" style={{ borderTopColor: C.border }} />
+                          </>
+                        ) : null}
+                        <div className="px-4 py-3" style={{ backgroundColor: C.bg }}>
+                          <div className="flex items-center gap-2.5 mb-2.5">
+                            <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Runtime</div>
+                            <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={relayRuntimeBooting || runtime?.brokerHealthy ? s.activePill : s.tagBadge}>
+                              {relayRuntimeHealthLabel}
+                            </span>
                           </div>
-                          <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
-                            {brokerInspector.statusDetail ?? 'Service status not reported yet.'}
-                          </div>
-                          <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                          <div className="grid grid-cols-4 gap-x-4 gap-y-2.5">
                             {[
-                              ['Relay URL', brokerInspector.url],
-                              ['Version', brokerInspector.version ?? 'Not reported'],
-                              ['Mode', brokerInspector.mode],
-                              ['Service Label', brokerInspector.label],
-                              ['PID', brokerInspector.pid ?? 'Not reported'],
-                              ['Last Restart', brokerInspector.lastRestartLabel ?? 'Not reported'],
-                              ['Launch State', brokerInspector.launchdState ?? 'Not reported'],
-                              ['Mesh', brokerInspector.meshId ?? 'Not reported'],
-                              ['Last Exit', brokerInspector.lastExitStatus ?? 'Not reported'],
+                              ['Node ID', relayRuntimeBooting ? 'Starting…' : (runtime?.nodeId ?? 'Not reported')],
+                              ['Agents', `${runtime?.agentCount ?? 0}`],
+                              ['Conversations', `${runtime?.conversationCount ?? 0}`],
+                              ['Flights', `${runtime?.flightCount ?? 0}`],
+                              ['Latest Relay', relayRuntimeBooting ? 'Starting…' : (runtime?.latestRelayLabel ?? 'Not reported')],
+                              ['Updated', relayRuntimeBooting ? 'Starting…' : (runtime?.updatedAtLabel ?? 'Not reported')],
                             ].map(([label, value]) => (
                               <div key={label} className="min-w-0">
                                 <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
@@ -6153,43 +6694,6 @@ export default function App() {
                               </div>
                             ))}
                           </div>
-                          {brokerInspector.processCommand ? (
-                            <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Process</div>
-                              <div className="text-[10px] font-mono leading-[1.45] break-all" style={s.mutedText}>{brokerInspector.processCommand}</div>
-                            </div>
-                          ) : null}
-                          {brokerControlFeedback ? (
-                            <div className="mt-3 pt-3 border-t text-[11px] leading-[1.45]" style={{ borderTopColor: C.border, color: C.ink }}>
-                              {brokerControlFeedback}
-                            </div>
-                          ) : null}
-                        </section>
-                      ) : null}
-
-                      {/* --- Relay Runtime (summary stats) --- */}
-                      <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-center gap-2.5 mb-3">
-                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Relay Runtime</div>
-                          <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={runtime?.brokerHealthy ? s.activePill : s.tagBadge}>
-                            {runtime?.brokerHealthy ? 'Healthy' : runtime?.brokerReachable ? 'Reachable' : 'Offline'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-x-4 gap-y-3">
-                          {[
-                            ['Relay URL', runtime?.brokerUrl ?? 'Not reported'],
-                            ['Node ID', runtime?.nodeId ?? 'Not reported'],
-                            ['Agents', `${runtime?.agentCount ?? 0}`],
-                            ['Conversations', `${runtime?.conversationCount ?? 0}`],
-                            ['Flights', `${runtime?.flightCount ?? 0}`],
-                            ['Latest Relay', runtime?.latestRelayLabel ?? 'Not reported'],
-                            ['Updated', runtime?.updatedAtLabel ?? 'Not reported'],
-                          ].map(([label, value]) => (
-                            <div key={label} className="min-w-0">
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
-                              <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                            </div>
-                          ))}
                         </div>
                       </section>
 
@@ -6573,7 +7077,14 @@ export default function App() {
                   </div>
                   <div className="px-2 pb-3">
                     <div className="flex items-center justify-between gap-2 px-2 mb-1.5">
-                      <div className="font-mono text-[9px] tracking-widest uppercase" style={s.mutedText}>From Projects</div>
+                      <button
+                        type="button"
+                        className="font-mono text-[9px] tracking-widest uppercase hover:opacity-70 transition-opacity"
+                        style={{ color: C.muted }}
+                        onClick={() => { setActiveView('settings'); setSettingsSection('agents'); }}
+                      >
+                        Projects
+                      </button>
                       {unconfiguredAgentableProjects.length > 0 ? (
                         <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
                           {unconfiguredAgentableProjects.length}
@@ -6616,13 +7127,13 @@ export default function App() {
             )}
 
             <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="border-b px-4 py-4 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
+              <div className="border-b px-4 py-3 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
                 {selectedInterAgent ? (
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="relative shrink-0">
                         <div
-                          className={`w-11 h-11 rounded-2xl text-[15px] text-white flex items-center justify-center font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
+                          className={`w-9 h-9 rounded-xl text-[13px] text-white flex items-center justify-center font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
                           style={{ backgroundColor: colorForIdentity(selectedInterAgent.id) }}
                         >
                           {selectedInterAgent.title.charAt(0).toUpperCase()}
@@ -6633,76 +7144,38 @@ export default function App() {
                         ></div>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <div className="text-[16px] font-semibold tracking-tight truncate" style={s.inkText}>
+                        <div className="flex items-center gap-2">
+                          <div className="text-[15px] font-semibold tracking-tight truncate" style={s.inkText}>
                             {selectedInterAgent.title}
                           </div>
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
-                            {interAgentProfileKindLabel(selectedInterAgent.profileKind)}
-                          </span>
                           <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={selectedInterAgent.state === 'working' ? s.activePill : s.tagBadge}>
                             {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
                           </span>
                         </div>
-                        {normalizeLegacyAgentCopy(selectedInterAgent.role) ? (
-                          <div className="text-[11px] mt-1.5" style={s.inkText}>
-                            {normalizeLegacyAgentCopy(selectedInterAgent.role)}
-                          </div>
-                        ) : null}
-                        <div className="text-[11px] leading-[1.55] mt-1 max-w-3xl" style={s.mutedText}>
-                          {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? 'Operational snapshot and recent thread activity.'}
-                        </div>
-                        <div className="mt-3 flex items-center gap-2 flex-wrap text-[10px]" style={s.mutedText}>
-                          {selectedInterAgent.lastChatLabel ? (
-                            <span className="rounded-full px-2 py-1" style={{ backgroundColor: C.bg }}>
-                              Last chat {selectedInterAgent.lastChatLabel}
-                            </span>
-                          ) : null}
-                          {selectedInterAgent.lastSessionLabel ? (
-                            <span className="rounded-full px-2 py-1" style={{ backgroundColor: C.bg }}>
-                              Last session {selectedInterAgent.lastSessionLabel}
-                            </span>
-                          ) : null}
-                          {selectedInterAgent.harness ? (
-                            <span className="rounded-full px-2 py-1 font-mono uppercase" style={{ backgroundColor: C.bg }}>
-                              {selectedInterAgent.harness}
-                            </span>
-                          ) : null}
-                          {selectedInterAgent.transport ? (
-                            <span className="rounded-full px-2 py-1 font-mono uppercase" style={{ backgroundColor: C.bg }}>
-                              {selectedInterAgent.transport}
-                            </span>
-                          ) : null}
+                        <div className="text-[11px] mt-0.5 truncate max-w-2xl" style={s.mutedText}>
+                          {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? null}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <AgentActionButton
-                        icon={<MessageSquare size={14} />}
+                        icon={<MessageSquare size={13} />}
                         tone={selectedInterAgentDirectThread ? 'primary' : 'neutral'}
                         onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
                       >
                         {selectedInterAgentChatActionLabel}
                       </AgentActionButton>
-                      {visibleInterAgentThreads.length > 0 ? (
-                        <AgentActionButton
-                          icon={<Network size={14} />}
-                          onClick={() => setActiveView('inter-agent')}
-                        >
-                          Open Threads
-                        </AgentActionButton>
-                      ) : null}
                       <AgentActionButton
-                        icon={<Eye size={14} />}
+                        icon={<Eye size={13} />}
                         onClick={() => handlePeekAgentSession()}
                       >
                         Peek
                       </AgentActionButton>
                       <AgentActionButton
-                        icon={<Settings size={14} />}
+                        icon={<Settings size={13} />}
                         onClick={() => openAgentSettings(selectedInterAgent.id, selectedInterAgent.profileKind === 'project')}
                       >
-                        {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Open Settings'}
+                        {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Settings'}
                       </AgentActionButton>
                     </div>
                   </div>
@@ -7112,7 +7585,16 @@ export default function App() {
                   />
                 </div>
                 <div className="flex-1 overflow-y-auto py-3">
-                  {(['runtime', 'app', 'agents'] as const).map((group) => {
+                  {logSources.length === 0 ? (
+                    <div className="px-4 py-6 text-center">
+                      <div className="flex justify-center gap-1 mb-2">
+                        <span className="os-thinking-dot" style={{ color: C.accent }} />
+                        <span className="os-thinking-dot" style={{ color: C.accent }} />
+                        <span className="os-thinking-dot" style={{ color: C.accent }} />
+                      </div>
+                      <div className="text-[11px]" style={s.mutedText}>Loading sources…</div>
+                    </div>
+                  ) : (['runtime', 'app', 'agents'] as const).map((group) => {
                     const groupSources = filteredLogSources.filter((source) => source.group === group);
                     if (groupSources.length === 0) {
                       return null;
@@ -7185,55 +7667,40 @@ export default function App() {
               <div className="flex-1 overflow-y-auto px-4 py-4">
                 {!selectedLogSource ? (
                   <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <FileJson size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No log selected</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      Pick a relay runtime, app, or relay agent source from the left rail.
-                    </p>
+                    {!logCatalog ? (
+                      <>
+                        <div className="flex justify-center gap-1 mb-3">
+                          <span className="os-thinking-dot" style={{ color: C.accent }} />
+                          <span className="os-thinking-dot" style={{ color: C.accent }} />
+                          <span className="os-thinking-dot" style={{ color: C.accent }} />
+                        </div>
+                        <p className="text-[13px]" style={s.mutedText}>Loading log sources…</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
+                          <FileJson size={24} style={{ color: C.accent }} />
+                        </div>
+                        <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No log selected</h3>
+                        <p className="text-[13px] max-w-sm" style={s.mutedText}>
+                          Pick a relay runtime, app, or relay agent source from the left rail.
+                        </p>
+                      </>
+                    )}
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-4">
-                    <div className="border rounded-xl overflow-hidden min-h-[360px]" style={{ borderColor: C.border, backgroundColor: C.termBg }}>
-                      <div className="px-4 py-2 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-mono uppercase tracking-widest" style={s.mutedText}>{selectedLogSource.title}</div>
-                          <div className="text-[11px] truncate mt-1" style={s.mutedText}>
-                            {renderLocalPathValue(logContent?.pathLabel ?? selectedLogSource.pathLabel, {
-                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
-                              style: s.mutedText,
-                            })}
-                          </div>
-                        </div>
-                        <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                          {logContent?.truncated ? 'Tail' : 'Full'}
-                        </div>
-                      </div>
-                      {logsLoading && !logContent ? (
-                        <div className="flex items-center justify-center min-h-[240px]">
-                          <div className="flex flex-col items-center gap-3">
-                            <Loader2 size={18} className="animate-spin" style={{ color: C.accent }} />
-                            <span className="text-[13px]" style={s.mutedText}>Loading log tail…</span>
-                          </div>
-                        </div>
-                      ) : logContent?.missing ? (
-                        <div className="flex flex-col items-center justify-center min-h-[240px] px-6 text-center">
-                          <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                            <FileJson size={24} style={{ color: C.accent }} />
-                          </div>
-                          <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No log file yet</h3>
-                          <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                            {selectedLogSource.title} has not written a log yet. This panel stays live and will update as soon as the next log line lands.
-                          </p>
-                        </div>
-                      ) : (
-                        <pre className="h-full overflow-auto p-4 text-[11px] leading-[1.55] whitespace-pre-wrap break-words" style={{ color: C.termFg }}>
-                          {visibleLogBody || (logSearchQuery.trim() ? 'No visible lines match the current filter.' : '(empty log)')}
-                        </pre>
-                      )}
-                    </div>
-                  </div>
+                  <LogPanel
+                    title={selectedLogSource.title}
+                    pathLabel={logContent?.pathLabel ?? selectedLogSource.pathLabel}
+                    body={logContent?.body ?? null}
+                    truncated={logContent?.truncated}
+                    lineCount={logContent?.lineCount}
+                    missing={logContent?.missing}
+                    loading={logsLoading}
+                    searchQuery={logSearchQuery}
+                    updatedAtLabel={logContent?.updatedAtLabel}
+                    minHeight={360}
+                  />
                 )}
                 {logsFeedback ? (
                   <div className="text-[11px] leading-[1.5] mt-3" style={s.inkText}>{logsFeedback}</div>
@@ -7609,7 +8076,7 @@ export default function App() {
                     <div className="flex flex-col gap-px">
                       <div className="flex items-center gap-2 px-1.5 py-1 text-[11px]" style={s.mutedText}>
                         <FileJson size={12} />
-                        <span className="truncate">{runtime?.brokerUrl ?? 'Broker unavailable'}</span>
+                        <span className="truncate">{relayRuntimeBooting ? 'Loading broker…' : (runtime?.brokerUrl ?? 'Broker unavailable')}</span>
                       </div>
                     </div>
                   </div>
@@ -7635,7 +8102,7 @@ export default function App() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {phonePreparationSaving && <Loader2 size={12} className="animate-spin" style={s.mutedText} />}
+                  {phonePreparationSaving && <Spinner className="text-[12px]" style={s.mutedText} />}
                   <button
                     type="button"
                     onClick={handlePreparePhone}
@@ -7654,7 +8121,7 @@ export default function App() {
                 {isLoadingShell && !shellState ? (
                   <div className="flex items-center justify-center h-64">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: C.accent, borderTopColor: 'transparent' }} />
+                      <Spinner className="text-[28px]" style={{ color: C.accent }} />
                       <span className="text-[13px]" style={s.mutedText}>Loading broker workspace…</span>
                     </div>
                   </div>
@@ -7772,7 +8239,7 @@ export default function App() {
               <div className="p-4 flex-1 flex flex-col gap-4">
                 {phonePreparationLoading ? (
                   <div className="flex items-center gap-2 text-[12px]" style={s.mutedText}>
-                    <Loader2 size={12} className="animate-spin" />
+                    <Spinner className="text-[12px]" />
                     Loading My List…
                   </div>
                 ) : (
@@ -8209,12 +8676,6 @@ export default function App() {
                       onOpenAgentChat={openAgentDirectMessage}
                       onNudgeMessage={handleNudgeMessage}
                     />
-                    {selectedRelayDirectThread?.state === 'working' ? (
-                      <RelayThinkingIndicator
-                        thread={selectedRelayDirectThread}
-                        mutedStyle={s.mutedText}
-                      />
-                    ) : null}
                   </div>
                 )}
               </div>
@@ -8267,6 +8728,53 @@ export default function App() {
                     ))}
                   </div>
                 ) : null}
+                <div className="relative">
+                  {relayMentionMenuOpen ? (
+                    <div
+                      className="absolute inset-x-0 bottom-full mb-2 rounded-xl border shadow-lg overflow-hidden z-20"
+                      style={{ backgroundColor: C.surface, borderColor: C.border, boxShadow: C.shadowLg }}
+                    >
+                      <div className="px-3 py-2 border-b text-[9px] font-mono uppercase tracking-widest" style={{ ...s.mutedText, borderColor: C.border }}>
+                        Mention an agent
+                      </div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {relayMentionSuggestions.map((candidate, index) => {
+                          const active = index === relayMentionSelectionIndex;
+                          return (
+                            <button
+                              key={candidate.agentId}
+                              type="button"
+                              className="w-full flex items-start justify-between gap-3 px-3 py-2.5 text-left transition-colors"
+                              style={{
+                                backgroundColor: active ? C.bg : 'transparent',
+                                color: C.ink,
+                              }}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                applyRelayMentionSuggestion(candidate);
+                              }}
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-[11px] font-medium truncate">{candidate.title}</span>
+                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
+                                    {candidate.statusLabel}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] mt-1 truncate" style={s.mutedText}>
+                                  {candidate.mentionToken}
+                                  {candidate.subtitle ? ` · ${compactHomePath(candidate.subtitle) ?? candidate.subtitle}` : ''}
+                                </div>
+                              </div>
+                              <span className="text-[9px] font-mono shrink-0" style={s.mutedText}>
+                                {active ? '↵' : ''}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 <div className="border rounded flex items-center px-2 py-1 transition-all focus-within:ring-1" style={{ backgroundColor: C.bg, borderColor: C.border }}>
                   <textarea
                     ref={relayComposerRef}
@@ -8282,11 +8790,46 @@ export default function App() {
                         relayContextMessageIds,
                       );
                       setRelayDraft(nextDraft.body);
+                      setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? nextDraft.body.length);
                       if (nextDraft.nextReferenceMessageIds !== relayContextMessageIds) {
                         setRelayContextMessageIds(nextDraft.nextReferenceMessageIds);
                       }
                     }}
+                    onClick={(event) => setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? relayDraft.length)}
+                    onKeyUp={(event) => setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? relayDraft.length)}
+                    onSelect={(event) => setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? relayDraft.length)}
                     onKeyDown={(event) => {
+                      if (relayMentionMenuOpen) {
+                        if (event.key === 'ArrowDown') {
+                          event.preventDefault();
+                          setRelayMentionSelectionIndex((current) => (
+                            relayMentionSuggestions.length === 0 ? 0 : (current + 1) % relayMentionSuggestions.length
+                          ));
+                          return;
+                        }
+                        if (event.key === 'ArrowUp') {
+                          event.preventDefault();
+                          setRelayMentionSelectionIndex((current) => (
+                            relayMentionSuggestions.length === 0
+                              ? 0
+                              : (current - 1 + relayMentionSuggestions.length) % relayMentionSuggestions.length
+                          ));
+                          return;
+                        }
+                        if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.shiftKey) || event.key === 'Tab') {
+                          event.preventDefault();
+                          const candidate = relayMentionSuggestions[relayMentionSelectionIndex] ?? relayMentionSuggestions[0];
+                          if (candidate) {
+                            applyRelayMentionSuggestion(candidate);
+                          }
+                          return;
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          setRelayComposerSelectionStart(relayDraft.length);
+                          return;
+                        }
+                      }
                       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                         event.preventDefault();
                         void handleRelaySend();
@@ -8301,22 +8844,17 @@ export default function App() {
                     ) : null}
                     <button
                       type="button"
-                      className="shrink-0 p-0.5 rounded-md hover:opacity-85 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="shrink-0 flex h-[26px] w-[26px] items-center justify-center rounded-md border transition-opacity hover:opacity-85 disabled:opacity-30 disabled:cursor-not-allowed"
+                      style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}
                       onClick={() => void handleRelaySend()}
                       disabled={relaySending || !relayDraft.trim()}
-                      title="Dispatch"
-                      aria-label="Dispatch message"
+                      title="Send"
+                      aria-label="Send message"
                     >
-                      <img
-                        src="/dispatch-button.svg"
-                        alt=""
-                        width={26}
-                        height={26}
-                        className="block h-[26px] w-[26px] rounded-[3px]"
-                        draggable={false}
-                      />
+                      <SendHorizontal size={14} />
                     </button>
                   </div>
+                </div>
                 </div>
               </div>
 
@@ -8324,6 +8862,12 @@ export default function App() {
               <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
                 <div className="flex items-center gap-3 text-[9px] font-mono" style={s.mutedText}>
                   <span className="flex items-center gap-1"><span style={s.inkText}>@</span> mention agents</span>
+                  {relayMentionMenuOpen ? (
+                    <>
+                      <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
+                      <span>↑↓ select · ↵ or Tab insert</span>
+                    </>
+                  ) : null}
                   <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
                   <span className="flex items-center gap-1">
                     <kbd className="font-sans px-1 py-0.5 rounded border text-[9px] font-medium leading-none shadow-sm" style={s.kbd}>Cmd+Enter</kbd> send
@@ -8498,6 +9042,13 @@ export default function App() {
             className="flex items-center gap-1 hover:opacity-70 cursor-pointer transition-opacity"
           >
             <LayoutGrid size={9} /> Home
+          </button>
+          <button
+            type="button"
+            onClick={openKnowledgeBase}
+            className="flex items-center gap-1 hover:opacity-70 cursor-pointer transition-opacity"
+          >
+            <BookOpen size={9} /> Help
           </button>
         </div>
         <div className="flex items-center gap-3">
@@ -8706,7 +9257,7 @@ function PairingSurfacePlaceholder({
   }, [pairingState?.pairing?.expiresAt]);
 
   return (
-    <div className="flex flex-1 overflow-hidden" style={{ backgroundColor: C.bg }}>
+    <div className="flex flex-1 overflow-hidden os-fade-in" style={{ backgroundColor: C.bg }}>
       <div className="flex-1 overflow-y-auto">
         <div className="px-8 py-10" style={{ backgroundColor: '#FAFAFA' }}>
           <div className="mx-auto flex max-w-[980px] flex-col gap-8">
@@ -8967,23 +9518,16 @@ function PairingSurfacePlaceholder({
             </div>
 
             <div className={`grid gap-5 items-start ${showAdvancedSettings ? 'lg:grid-cols-[minmax(0,1.5fr)_320px]' : 'lg:grid-cols-1'}`}>
-              <section id="pairing-live-logs" ref={logsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
-                <div className="px-5 py-4 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
-                      <Terminal size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
-                      Logs
-                    </div>
-                    <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                      {pairingState?.logUpdatedAtLabel ? `Updated ${pairingState.logUpdatedAtLabel}` : 'Waiting for log output.'}
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-[#f7f8fb] px-5 py-4">
-                  <pre className="max-h-[320px] overflow-auto whitespace-pre-wrap break-words text-[13px] leading-[1.7] font-mono font-light" style={{ color: '#475569' }}>
-                    {pairingState?.logTail || (pairingState?.logMissing ? 'Log file has not been created yet.' : 'Waiting for Pairing bridge output.')}
-                  </pre>
-                </div>
+              <section id="pairing-live-logs" ref={logsRef}>
+                <LogPanel
+                  title="Pairing"
+                  body={pairingState?.logTail ?? null}
+                  missing={pairingState?.logMissing}
+                  loading={!pairingState}
+                  updatedAtLabel={pairingState?.logUpdatedAtLabel}
+                  maxHeight={320}
+                  minHeight={160}
+                />
               </section>
 
               {showAdvancedSettings ? (
@@ -9142,51 +9686,20 @@ function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
 
   if (thread.state === "working") {
     return (
-      <span className="inline-flex items-center gap-1.5 shrink-0 text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: C.accent }}>
-        <TypingDots className="text-[var(--os-accent)]" />
-        <span>{thread.statusLabel}</span>
+      <span className="inline-flex items-center gap-1 shrink-0" style={{ color: C.muted }}>
+        <TypingDots />
       </span>
     );
   }
 
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] border rounded-full px-2 py-1 shrink-0"
-      style={relayPresencePillStyle(thread.state)}
+      className="inline-flex items-center gap-1.5 text-[9px] font-mono tracking-wide shrink-0"
+      style={{ color: C.muted }}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(thread.state)}`}></span>
       <span>{thread.statusLabel}</span>
     </span>
-  );
-}
-
-function RelayThinkingIndicator({
-  thread,
-  mutedStyle,
-}: {
-  thread: RelayDirectThread;
-  mutedStyle: React.CSSProperties;
-}) {
-  return (
-    <div className="flex gap-2.5 mb-2">
-      <div
-        className="w-6 h-6 rounded text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5"
-        style={{ backgroundColor: colorForIdentity(thread.id) }}
-      >
-        {thread.title.charAt(0).toUpperCase()}
-      </div>
-      <div className="flex-1 min-w-0 pt-1">
-        <div className="inline-flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: C.accent }}>
-          <TypingDots className="text-[var(--os-accent)]" />
-          <span>Working</span>
-          {thread.activeTask ? (
-            <span className="normal-case tracking-normal" style={mutedStyle}>
-              · {thread.activeTask}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -9323,8 +9836,10 @@ function RelayTimeline({
 
     if (message.dayLabel !== lastDayLabel) {
       rows.push(
-        <div key={`day-${message.dayLabel}`} className="flex items-center justify-center mb-4">
-          <div className="px-2 font-mono text-[9px] tracking-widest uppercase" style={mutedStyle}>{message.dayLabel}</div>
+        <div key={`day-${message.dayLabel}`} className="flex items-center gap-3 mb-5 mt-2">
+          <div className="flex-1 h-px" style={{ backgroundColor: C.border }} />
+          <div className="px-2 font-mono text-[9px] tracking-widest uppercase shrink-0" style={mutedStyle}>{message.dayLabel}</div>
+          <div className="flex-1 h-px" style={{ backgroundColor: C.border }} />
         </div>,
       );
       lastDayLabel = message.dayLabel;
@@ -9332,8 +9847,8 @@ function RelayTimeline({
 
     if (message.isSystem || message.messageClass === 'status') {
       rows.push(
-        <div key={message.id} className="flex gap-2.5 mb-3 group">
-          <div className="w-6 h-6 rounded text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5" style={{ backgroundColor: message.avatarColor }}>
+        <div key={message.id} className="flex gap-3 mb-3 group rounded-lg px-2 py-2 -mx-2 bg-[var(--os-hover)]">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5" style={{ backgroundColor: message.avatarColor, color: 'white', opacity: 0.85 }}>
             {message.avatarLabel}
           </div>
           <div className="flex-1 min-w-0">
@@ -9365,7 +9880,7 @@ function RelayTimeline({
               style={highlightedMessageId === message.id ? highlightedMessageStyle() : inkStyle}
             >
               <div className="flex items-center gap-2 px-2 py-1.5 border rounded font-mono text-[10px] w-fit" style={tagStyle}>
-                <Loader2 size={10} className="animate-spin" />
+                <Spinner className="text-[10px]" />
                 <span><span style={mutedStyle}>TASK //</span> {message.body}</span>
                 <span className="ml-2 px-1 rounded" style={{ backgroundColor: 'rgba(99,102,241,0.12)', color: 'var(--os-accent)' }}>IN PROGRESS</span>
               </div>
@@ -9399,13 +9914,15 @@ function RelayTimeline({
       cursor += 1;
     }
 
+    const isAgent = Boolean(authorAgent);
+
     rows.push(
-      <div key={message.id} className="flex gap-2.5 mb-4 group">
-        <div className="w-6 h-6 rounded text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5" style={{ backgroundColor: message.avatarColor }}>
+      <div key={message.id} className={cn("flex gap-3 mb-4 group rounded-lg px-2 py-2 -mx-2", isAgent && "bg-[var(--os-hover)]")}>
+        <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5" style={{ backgroundColor: message.avatarColor, color: 'white', opacity: 0.85 }}>
           {message.avatarLabel}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between mb-0.5">
+          <div className="flex items-baseline justify-between mb-1">
             <div className="flex items-baseline gap-2">
               {authorAgent ? (
                 <AgentIdentityInline
@@ -9811,29 +10328,21 @@ function ReplyReferenceLine({
   mutedStyle: React.CSSProperties;
   onJump?: () => void;
 }) {
-  const refLabel = shortMessageRef(messageId);
   return (
-    <div className="mb-1.5 flex items-center gap-1.5 text-[10px] leading-none min-w-0" style={mutedStyle}>
-      <CornerUpLeft size={10} className="shrink-0" />
-      <span className="font-mono uppercase tracking-[0.14em] shrink-0">Reply to</span>
+    <div className="mb-1 flex items-center gap-1.5 text-[9px] leading-none min-w-0" style={{ ...mutedStyle, opacity: 0.7 }}>
+      <CornerUpLeft size={9} className="shrink-0" />
       {onJump ? (
         <button
           type="button"
           onClick={onJump}
-          className="font-mono underline-offset-2 hover:underline shrink-0"
-          style={{ color: C.accent }}
+          className="hover:underline underline-offset-2 truncate min-w-0"
           title={stableMessageRef(messageId)}
         >
-          {refLabel}
+          {preview || shortMessageRef(messageId)}
         </button>
       ) : (
-        <span className="font-mono shrink-0">{refLabel}</span>
+        <span className="font-mono shrink-0">{shortMessageRef(messageId)}</span>
       )}
-      {preview ? (
-        <span className="truncate min-w-0" title={preview}>
-          {preview}
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -10136,6 +10645,208 @@ function compactHomePath(value: string | null | undefined) {
     .replace(/^\/home\/[^/]+/, "~");
 }
 
+type WorkspaceExplorerItem = {
+  project: SetupProjectSummary;
+  linkedAgent: InterAgentAgent | null;
+  isBound: boolean;
+  primaryHarness: string;
+  pathLabel: string;
+  branchLabel: string;
+  activityLabel: string;
+  statusLabel: string;
+};
+
+const sStatic = {
+  ink: { color: C.ink } as React.CSSProperties,
+  muted: { color: C.muted } as React.CSSProperties,
+};
+
+function WorkspaceExplorerCard({
+  item,
+  isSelected,
+  onSelect,
+  onPrimaryAction,
+  onSecondaryAction,
+  secondaryActionPending,
+}: {
+  item: WorkspaceExplorerItem;
+  isSelected: boolean;
+  onSelect: () => void;
+  onPrimaryAction: () => void;
+  onSecondaryAction: () => void;
+  secondaryActionPending: boolean;
+}) {
+  const { project, isBound, primaryHarness, pathLabel, branchLabel, activityLabel, statusLabel } = item;
+  const initial = project.title.trim().charAt(0).toUpperCase() || "W";
+  const statusTone = isBound
+    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+    : project.registrationKind === "configured"
+      ? "border-amber-500/20 bg-amber-500/10 text-amber-700"
+      : "border-border bg-secondary text-secondary-foreground";
+
+  return (
+    <div
+      className={cn(
+        "os-card rounded-xl border p-4 cursor-pointer",
+        isSelected ? "ring-1 ring-[color:var(--os-accent)]" : "",
+      )}
+      style={{ borderColor: isSelected ? C.accent : C.border, backgroundColor: C.surface, boxShadow: isSelected ? C.shadowSm : undefined }}
+      onClick={onSelect}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[12px] font-semibold",
+            isBound ? "bg-emerald-500/10 text-emerald-700" : "bg-secondary text-secondary-foreground",
+          )}
+        >
+          {initial}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold leading-tight tracking-tight" style={sStatic.ink}>{project.title}</div>
+          <div className="mt-0.5 truncate text-[10px] font-mono" style={sStatic.muted}>{pathLabel}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <Badge variant="outline" className="font-mono text-[10px] capitalize">{primaryHarness}</Badge>
+        <Badge className={cn("text-[10px]", statusTone)}>
+          {isBound ? <Zap className="h-3 w-3" /> : null}
+          {statusLabel}
+        </Badge>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3 text-[10px]" style={sStatic.muted}>
+        <div className="flex items-center gap-1">
+          <GitBranch className="h-3 w-3" />
+          {branchLabel}
+        </div>
+        <div className="flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          {activityLabel}
+        </div>
+      </div>
+
+      <div className="mt-3 border-t pt-3" style={{ borderColor: C.border }}>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={isBound ? "outline" : "default"}
+            size="sm"
+            className="flex-1 text-[11px]"
+            onClick={(e) => { e.stopPropagation(); onPrimaryAction(); }}
+          >
+            {isBound ? "Open Agent" : "Configure"}
+          </Button>
+          {isBound ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-[11px]"
+              onClick={(e) => { e.stopPropagation(); onSecondaryAction(); }}
+              disabled={secondaryActionPending}
+            >
+              {secondaryActionPending ? "Retiring…" : "Retire"}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceExplorerTable({
+  items,
+  selectedWorkspaceId,
+  onSelectWorkspace,
+  onPrimaryAction,
+  onSecondaryAction,
+  projectRetirementPendingRoot,
+}: {
+  items: WorkspaceExplorerItem[];
+  selectedWorkspaceId: string | null;
+  onSelectWorkspace: (project: SetupProjectSummary) => void;
+  onPrimaryAction: (project: SetupProjectSummary) => void;
+  onSecondaryAction: (project: SetupProjectSummary) => void;
+  projectRetirementPendingRoot: string | null;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+      <table className="w-full">
+        <thead>
+          <tr style={{ backgroundColor: "color-mix(in srgb, var(--os-bg) 82%, transparent)" }}>
+            <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Workspace</th>
+            <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Harness</th>
+            <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Status</th>
+            <th className="px-4 py-3 text-right text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const active = selectedWorkspaceId === item.project.id;
+            return (
+              <tr
+                key={item.project.id}
+                className="border-t"
+                style={{ borderColor: C.border, backgroundColor: active ? "color-mix(in srgb, var(--os-surface) 80%, white)" : "transparent" }}
+              >
+                <td className="px-4 py-3">
+                  <button type="button" onClick={() => onSelectWorkspace(item.project)} className="flex min-w-0 items-center gap-3 text-left">
+                    <div
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold",
+                        item.isBound ? "bg-emerald-500/10 text-emerald-700" : "bg-secondary text-secondary-foreground",
+                      )}
+                    >
+                      {item.project.title.trim().charAt(0).toUpperCase() || "W"}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-medium" style={sStatic.ink}>{item.project.title}</div>
+                      <div className="truncate text-[11px]" style={sStatic.muted}>{item.pathLabel}</div>
+                    </div>
+                  </button>
+                </td>
+                <td className="px-4 py-3">
+                  <Badge variant="outline" className="font-mono text-[11px] capitalize">{item.primaryHarness}</Badge>
+                </td>
+                <td className="px-4 py-3">
+                  <Badge
+                    className={cn(
+                      "text-[11px]",
+                      item.isBound
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+                        : item.project.registrationKind === "configured"
+                          ? "border-amber-500/20 bg-amber-500/10 text-amber-700"
+                          : "border-border bg-secondary text-secondary-foreground",
+                    )}
+                  >
+                    {item.isBound ? <Zap className="h-3 w-3" /> : null}
+                    {item.statusLabel}
+                  </Badge>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button variant={item.isBound ? "outline" : "default"} size="sm" onClick={() => onPrimaryAction(item.project)}>
+                      {item.isBound ? "Open" : "Inspect"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => onSecondaryAction(item.project)}
+                      disabled={projectRetirementPendingRoot === item.project.root}
+                    >
+                      <Settings2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function InterAgentIcon({
   size = 16,
   strokeWidth = 1.35,
@@ -10418,6 +11129,65 @@ function resolveOperatorDisplayName(
 function relayMessageMentionRecipients(body: string) {
   const matches = body.match(/@[a-z0-9][\w.-]*(?:@[a-z0-9][\w.-]*)?(?:#[a-z0-9][\w.-]*)?/gi) ?? [];
   return Array.from(new Set(matches.map((match) => match.slice(1))));
+}
+
+function normalizeRelayMentionQuery(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function findActiveRelayMention(text: string, cursor: number): RelayActiveMention | null {
+  const safeCursor = Math.max(0, Math.min(cursor, text.length));
+  let start = safeCursor - 1;
+
+  while (start >= 0 && /[\w.@#-]/.test(text[start] ?? '')) {
+    start -= 1;
+  }
+
+  const mentionStart = start + 1;
+  if (text[mentionStart] !== '@') {
+    return null;
+  }
+
+  if (start >= 0 && !/[\s([{,]/.test(text[start] ?? '')) {
+    return null;
+  }
+
+  return {
+    start: mentionStart,
+    end: safeCursor,
+    query: normalizeRelayMentionQuery(text.slice(mentionStart + 1, safeCursor)),
+  };
+}
+
+function scoreRelayMentionCandidate(
+  candidate: RelayMentionCandidate,
+  query: string,
+  selectedDirectAgentId: string | null,
+): number {
+  const normalizedToken = candidate.mentionToken.replace(/^@/, '').toLowerCase();
+  const normalizedTitle = candidate.title.toLowerCase();
+  const normalizedQuery = normalizeRelayMentionQuery(query);
+  let score = 0;
+
+  if (candidate.agentId === selectedDirectAgentId) {
+    score += 100;
+  }
+
+  if (!normalizedQuery) {
+    if (candidate.state === 'working') score += 10;
+    else if (candidate.state === 'available') score += 6;
+    return score;
+  }
+
+  if (normalizedToken === normalizedQuery) score += 120;
+  else if (normalizedToken.startsWith(normalizedQuery)) score += 80;
+  else if (normalizedTitle.startsWith(normalizedQuery)) score += 72;
+  else if (candidate.searchText.includes(normalizedQuery)) score += 28;
+
+  if (candidate.state === 'working') score += 8;
+  else if (candidate.state === 'available') score += 4;
+
+  return score;
 }
 
 function optimisticRelayConversationId(kind: RelayDestinationKind, id: string) {

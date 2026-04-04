@@ -35,6 +35,7 @@ import type {
   ScoutDesktopPlansState,
   ScoutDesktopReconciliationFinding,
   ScoutDesktopRuntimeState,
+  ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutDesktopTask,
   ScoutDesktopTaskStatus,
@@ -380,6 +381,65 @@ function isWorkingFlightState(state: string | undefined): boolean {
   return state === "queued" || state === "waking" || state === "running" || state === "waiting";
 }
 
+function flightTimestamp(flight: FlightRecord): number {
+  return normalizeTimestamp(flight.completedAt ?? flight.startedAt ?? 0);
+}
+
+function endpointLastStartedAt(endpoint: AgentEndpoint | null): number {
+  if (!endpoint) {
+    return 0;
+  }
+  return normalizeTimestamp(
+    typeof endpoint.metadata?.lastStartedAt === "number"
+      ? endpoint.metadata.lastStartedAt
+      : 0,
+  );
+}
+
+function endpointLastResolvedAt(endpoint: AgentEndpoint | null): number {
+  if (!endpoint) {
+    return 0;
+  }
+
+  return Math.max(
+    normalizeTimestamp(
+      typeof endpoint.metadata?.lastCompletedAt === "number"
+        ? endpoint.metadata.lastCompletedAt
+        : 0,
+    ),
+    normalizeTimestamp(
+      typeof endpoint.metadata?.lastFailedAt === "number"
+        ? endpoint.metadata.lastFailedAt
+        : 0,
+    ),
+  );
+}
+
+function isSupersededWorkingFlight(
+  flight: FlightRecord,
+  endpoint: AgentEndpoint | null,
+  flights: FlightRecord[],
+): boolean {
+  const startedAt = flightTimestamp(flight);
+  const newerTerminalFlight = flights.some((candidate) => (
+    candidate.targetAgentId === flight.targetAgentId
+    && candidate.id !== flight.id
+    && !isWorkingFlightState(candidate.state)
+    && flightTimestamp(candidate) > startedAt
+  ));
+  if (newerTerminalFlight) {
+    return true;
+  }
+
+  const endpointResolvedAt = endpointLastResolvedAt(endpoint);
+  if (endpoint && endpoint.state !== "active" && endpointResolvedAt > startedAt) {
+    return true;
+  }
+
+  const newerEndpointStart = endpointLastStartedAt(endpoint);
+  return Boolean(endpoint && endpoint.state === "active" && newerEndpointStart > startedAt);
+}
+
 function directConversationId(agentId: string): string {
   return `dm.${OPERATOR_ID}.${agentId}`;
 }
@@ -539,6 +599,21 @@ function visibleRelayAgentIds(
   return visible;
 }
 
+function inferredConfiguredAgentIds(snapshot: RuntimeRegistrySnapshot | null): Set<string> {
+  if (!snapshot) {
+    return new Set();
+  }
+
+  return new Set(
+    Object.values(snapshot.agents)
+      .filter((agent) => (
+        agent.metadata?.staleLocalRegistration !== true &&
+        agent.metadata?.source === "relay-agent-registry"
+      ))
+      .map((agent) => agent.id),
+  );
+}
+
 function buildDirectAgentActivity(
   snapshot: RuntimeRegistrySnapshot,
   tmuxSessions: TmuxSession[],
@@ -567,10 +642,13 @@ function buildDirectAgentActivity(
     const lastMessageAt = latestMessage ? normalizeTimestamp(latestMessage.createdAt) : null;
     const degradedReason = typeof endpoint?.metadata?.lastError === "string" ? endpoint.metadata.lastError : null;
     const activeFlight = flights
-      .filter((flight) => flight.targetAgentId === agent.id && isWorkingFlightState(flight.state))
+      .filter((flight) => (
+        flight.targetAgentId === agent.id
+        && isWorkingFlightState(flight.state)
+        && !isSupersededWorkingFlight(flight, endpoint, flights)
+      ))
       .sort((left, right) => (
-        normalizeTimestamp(right.startedAt ?? right.completedAt ?? 0) -
-        normalizeTimestamp(left.startedAt ?? left.completedAt ?? 0)
+        flightTimestamp(right) - flightTimestamp(left)
       ))[0] ?? null;
 
     const activeTaskSummary = sanitizeRelayBody(
@@ -1231,6 +1309,7 @@ function buildReconciliationFindings(
   const latestReplyByExpectation = new Map<string, { createdAt: number; body: string }>();
   const findings = new Map<string, ScoutDesktopReconciliationFinding>();
   const nowSeconds = Math.floor(Date.now() / 1000);
+  const latestNonOperatorMessageByConversationAndActor = new Map<string, number>();
 
   for (const message of messages) {
     if (!message.replyToMessageId) {
@@ -1259,6 +1338,12 @@ function buildReconciliationFindings(
         body: sanitizeRelayBody(message.body),
       });
     }
+
+    const conversationActorKey = `${message.conversationId}:${message.actorId}`;
+    const latestConversationReplyAt = latestNonOperatorMessageByConversationAndActor.get(conversationActorKey) ?? 0;
+    if (normalizeTimestamp(message.createdAt) > latestConversationReplyAt) {
+      latestNonOperatorMessageByConversationAndActor.set(conversationActorKey, normalizeTimestamp(message.createdAt));
+    }
   }
 
   for (const message of messages) {
@@ -1274,6 +1359,12 @@ function buildReconciliationFindings(
       const key = taskSignalKey(message.id, targetAgentId);
       const reply = latestReplyByExpectation.get(key) ?? null;
       if (reply) {
+        continue;
+      }
+      const latestConversationReplyAt = latestNonOperatorMessageByConversationAndActor.get(
+        `${message.conversationId}:${targetAgentId}`,
+      ) ?? 0;
+      if (latestConversationReplyAt > normalizeTimestamp(message.createdAt)) {
         continue;
       }
       const statusSignal = latestStatusByExpectation.get(key) ?? null;
@@ -1379,18 +1470,37 @@ function buildReconciliationFindings(
     });
   }
 
-  return Array.from(findings.values()).sort((left, right) => {
-    const severityRank = (value: ScoutDesktopReconciliationFinding["severity"]) => value === "error" ? 0 : 1;
-    const findingTimestamp = (finding: ScoutDesktopReconciliationFinding) => {
-      if (finding.messageId) {
-        return normalizeTimestamp(snapshot.messages[finding.messageId]?.createdAt ?? 0);
-      }
-      if (finding.recordId) {
-        const record = snapshot.collaborationRecords?.[finding.recordId] as unknown as Record<string, unknown> | undefined;
-        return normalizeTimestamp(typeof record?.updatedAt === "number" ? record.updatedAt : 0);
-      }
-      return 0;
-    };
+  const latestFindingByPair = new Map<string, ScoutDesktopReconciliationFinding>();
+  const findingTimestamp = (finding: ScoutDesktopReconciliationFinding) => {
+    if (finding.messageId) {
+      return normalizeTimestamp(snapshot.messages[finding.messageId]?.createdAt ?? 0);
+    }
+    if (finding.recordId) {
+      const record = snapshot.collaborationRecords?.[finding.recordId] as unknown as Record<string, unknown> | undefined;
+      return normalizeTimestamp(typeof record?.updatedAt === "number" ? record.updatedAt : 0);
+    }
+    return 0;
+  };
+  const severityRank = (value: ScoutDesktopReconciliationFinding["severity"]) => value === "error" ? 0 : 1;
+
+  for (const finding of findings.values()) {
+    const pairKey = `${finding.requesterId ?? "none"}:${finding.targetAgentId ?? "none"}`;
+    const current = latestFindingByPair.get(pairKey);
+    if (!current) {
+      latestFindingByPair.set(pairKey, finding);
+      continue;
+    }
+    const currentTimestamp = findingTimestamp(current);
+    const nextTimestamp = findingTimestamp(finding);
+    if (
+      nextTimestamp > currentTimestamp ||
+      (nextTimestamp === currentTimestamp && severityRank(finding.severity) < severityRank(current.severity))
+    ) {
+      latestFindingByPair.set(pairKey, finding);
+    }
+  }
+
+  return Array.from(latestFindingByPair.values()).sort((left, right) => {
     return severityRank(left.severity) - severityRank(right.severity)
       || findingTimestamp(right) - findingTimestamp(left)
       || left.title.localeCompare(right.title);
@@ -1581,6 +1691,7 @@ function attachRelayReceipts(
     if (!targetAgentId) {
       return message;
     }
+    const isLatestForAgent = latestOperatorDirectMessageByAgent.get(targetAgentId) === message.id;
     const reply = latestReplyByReplyTo.get(message.id);
     if (reply && reply.authorId === targetAgentId) {
       return {
@@ -1594,16 +1705,6 @@ function attachRelayReceipts(
     }
     const status = latestStatusByReplyTo.get(message.id);
     if (status && (!status.targetAgentId || status.targetAgentId === targetAgentId)) {
-      if (/is working\.?$/i.test(status.body)) {
-        return {
-          ...message,
-          receipt: {
-            state: "working",
-            label: "Working",
-            detail: null,
-          },
-        };
-      }
       return {
         ...message,
         receipt: {
@@ -1614,13 +1715,22 @@ function attachRelayReceipts(
       };
     }
     const activity = activityByAgent.get(targetAgentId);
-    const isLatestForAgent = latestOperatorDirectMessageByAgent.get(targetAgentId) === message.id;
     if (activity?.state === "working" && isLatestForAgent) {
       return {
         ...message,
         receipt: {
-          state: "working",
-          label: "Working",
+          state: "seen",
+          label: "Seen",
+          detail: null,
+        },
+      };
+    }
+    if (activity?.reachable && isLatestForAgent) {
+      return {
+        ...message,
+        receipt: {
+          state: "seen",
+          label: "Seen",
           detail: null,
         },
       };
@@ -1979,6 +2089,8 @@ function buildInterAgentState(
           : counterpartCount === 1
             ? "1 counterpart"
             : `${counterpartCount} counterparts`,
+        selector: typeof agent.metadata?.selector === "string" ? agent.metadata.selector : null,
+        defaultSelector: typeof agent.metadata?.defaultSelector === "string" ? agent.metadata.defaultSelector : null,
         profileKind: interAgentProfileKind(agent),
         registrationKind: "configured" as const,
         source: typeof agent.metadata?.source === "string" ? agent.metadata.source : null,
@@ -2092,6 +2204,61 @@ export async function composeScoutDesktopShellState(input: {
       ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null)
       : buildEmptyMachinesState(),
     plans,
+    sessions: snapshot ? buildSessions(snapshot) : [],
+    interAgent: snapshot
+      ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+      : {
+          title: "Inter-Agent",
+          subtitle: "Broker unavailable",
+          agents: [],
+          threads: [],
+          lastUpdatedLabel: null,
+        },
+    relay: snapshot
+      ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+      : {
+          title: "Relay",
+          subtitle: "Broker unavailable",
+          transportTitle: "Broker-backed",
+          meshTitle: "Local mesh",
+          syncLine: "Disconnected",
+          operatorId: OPERATOR_ID,
+          channels: [],
+          views: [],
+          directs: [],
+          messages: [],
+          voice: createScoutVoiceState(),
+          lastUpdatedLabel: null,
+        },
+  };
+}
+
+export async function composeScoutDesktopRelayShellPatch(input: {
+  currentDirectory: string;
+}): Promise<ScoutDesktopShellPatch> {
+  const [status, helper] = await Promise.all([
+    brokerServiceStatus(),
+    Promise.resolve(readHelperStatus()),
+  ]);
+
+  const tmuxSessions = readTmuxSessions();
+  const broker = status.reachable ? await loadScoutBrokerContext(status.brokerUrl) : null;
+  const snapshot = broker?.snapshot ?? null;
+  const configuredAgentIds = inferredConfiguredAgentIds(snapshot);
+  const messagesByConversation = snapshot ? buildMessagesByConversation(snapshot) : null;
+  const directActivity = snapshot && messagesByConversation
+    ? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation)
+    : null;
+  const visibleAgentCount = snapshot && messagesByConversation && directActivity
+    ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
+    : configuredAgentIds.size;
+  const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
+
+  return {
+    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount),
+    machines: snapshot
+      ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null)
+      : buildEmptyMachinesState(),
     sessions: snapshot ? buildSessions(snapshot) : [],
     interAgent: snapshot
       ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)

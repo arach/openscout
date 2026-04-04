@@ -244,6 +244,9 @@ const scoutElectronServices = createScoutElectronIpcServices({
       }
       return result.filePaths[0] ?? null;
     },
+    reloadWindow: () => {
+      mainWindow?.webContents.reload();
+    },
     requestQuit: () => {
       setImmediate(() => {
         app.quit();

@@ -1,16 +1,33 @@
-import { Loader2Icon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
-function Spinner({ className, ...props }: React.ComponentProps<'svg'>) {
+const BRAILLE_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+
+function Spinner({
+  className,
+  fps = 12,
+  ...props
+}: React.ComponentProps<'span'> & { fps?: number }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setFrame((prev) => (prev + 1) % BRAILLE_FRAMES.length);
+    }, 1000 / fps);
+    return () => clearInterval(id);
+  }, [fps]);
+
   return (
-    <Loader2Icon
+    <span
       role="status"
       aria-label="Loading"
-      className={cn('size-4 animate-spin', className)}
+      className={cn('inline-block font-mono', className)}
       {...props}
-    />
-  )
+    >
+      {BRAILLE_FRAMES[frame]}
+    </span>
+  );
 }
 
 export { Spinner }

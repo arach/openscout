@@ -22,10 +22,16 @@ export function StartupSplashOverlay({
   productName: string;
   onDismissed: () => void;
 }) {
+  const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<Phase>("show");
   const dismissed = useRef(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const showTimer = window.setTimeout(() => {
       setPhase("exit");
     }, DISPLAY_MS);
@@ -41,7 +47,9 @@ export function StartupSplashOverlay({
       window.clearTimeout(showTimer);
       window.clearTimeout(doneTimer);
     };
-  }, [onDismissed]);
+  }, [mounted, onDismissed]);
+
+  if (!mounted) return null;
 
   return (
     <div

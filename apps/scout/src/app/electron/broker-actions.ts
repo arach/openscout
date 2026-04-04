@@ -32,8 +32,10 @@ import {
 } from "../../core/broker/service.ts";
 import {
   createScoutDesktopAppInfo,
+  loadScoutDesktopRelayShellPatch,
   loadScoutDesktopShellState,
   type ScoutDesktopAppInfo,
+  type ScoutDesktopShellPatch,
   type ScoutDesktopShellState,
 } from "../desktop/index.ts";
 
@@ -90,6 +92,12 @@ async function loadBrokerActionShellState(input: ScoutElectronBrokerActionOption
   return loadScoutDesktopShellState({
     currentDirectory: resolveCurrentDirectory(input.currentDirectory),
     appInfo: resolveAppInfo(input.appInfo),
+  });
+}
+
+async function loadBrokerActionRelayShellPatch(input: ScoutElectronBrokerActionOptions = {}): Promise<ScoutDesktopShellPatch> {
+  return loadScoutDesktopRelayShellPatch({
+    currentDirectory: resolveCurrentDirectory(input.currentDirectory),
   });
 }
 
@@ -490,15 +498,9 @@ export async function controlScoutElectronBroker(
 export async function sendScoutElectronRelayMessage(
   input: ScoutElectronSendRelayMessageInput,
   options: ScoutElectronBrokerActionOptions = {},
-): Promise<ScoutDesktopShellState> {
+): Promise<ScoutDesktopShellPatch> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const operatorName = await resolveOperatorDisplayName(currentDirectory);
-
-  await syncScoutBrokerBindings({
-    currentDirectory,
-    operatorId: SCOUT_BROKER_OPERATOR_ID,
-    operatorName,
-  });
 
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -623,5 +625,5 @@ export async function sendScoutElectronRelayMessage(
     });
   }
 
-  return loadBrokerActionShellState(options);
+  return loadBrokerActionRelayShellPatch(options);
 }

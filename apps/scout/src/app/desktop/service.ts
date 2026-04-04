@@ -4,11 +4,12 @@ import { SCOUT_APP_VERSION, SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
 import type {
   ScoutDesktopAppInfo,
   ScoutDesktopFeatureFlags,
+  ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutPhonePreparationState,
   UpdateScoutPhonePreparationInput,
 } from "./state.ts";
-import { composeScoutDesktopShellState } from "./shell.ts";
+import { composeScoutDesktopRelayShellPatch, composeScoutDesktopShellState } from "./shell.ts";
 
 export function createScoutDesktopFeatureFlags(input: Partial<ScoutDesktopFeatureFlags> = {}): ScoutDesktopFeatureFlags {
   const enableAll = input.enableAll ?? false;
@@ -86,6 +87,14 @@ export async function loadScoutDesktopShellState(input: {
   const appInfo = input.appInfo ?? createScoutDesktopAppInfo();
   return composeScoutDesktopShellState({
     appInfo,
+    currentDirectory: input.currentDirectory,
+  });
+}
+
+export async function loadScoutDesktopRelayShellPatch(input: {
+  currentDirectory: string;
+}): Promise<ScoutDesktopShellPatch> {
+  return composeScoutDesktopRelayShellPatch({
     currentDirectory: input.currentDirectory,
   });
 }

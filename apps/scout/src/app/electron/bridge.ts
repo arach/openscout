@@ -1,5 +1,6 @@
 import type {
   ScoutDesktopAppInfo,
+  ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutPhonePreparationState,
   UpdateScoutPhonePreparationInput,
@@ -37,11 +38,12 @@ import { SCOUT_ELECTRON_CHANNELS } from "./channels.ts";
 export type ScoutElectronInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
 
 export type ScoutElectronBridge = {
-  isDesktop: true;
+  isDesktop: boolean;
   getAppInfo: () => Promise<ScoutDesktopAppInfo>;
   getShellState: () => Promise<ScoutDesktopShellState>;
   refreshShellState: () => Promise<ScoutDesktopShellState>;
   getAppSettings: () => Promise<AppSettingsState>;
+  refreshSettingsInventory: () => Promise<AppSettingsState>;
   updateAppSettings: (input: UpdateAppSettingsInput) => Promise<AppSettingsState>;
   retireProject: (projectRoot: string) => Promise<AppSettingsState>;
   restoreProject: (projectRoot: string) => Promise<AppSettingsState>;
@@ -51,6 +53,7 @@ export type ScoutElectronBridge = {
   getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
   updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
   pickDirectory: () => Promise<string | null>;
+  reloadApp: () => Promise<boolean>;
   quitApp: () => Promise<boolean>;
   revealPath: (filePath: string) => Promise<boolean>;
   getPhonePreparation: () => Promise<ScoutPhonePreparationState>;
@@ -60,7 +63,7 @@ export type ScoutElectronBridge = {
   controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
   updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
   restartAgent: (input: ScoutElectronRestartAgentInput) => Promise<ScoutDesktopShellState>;
-  sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellState>;
+  sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
   controlBroker: (action: ScoutElectronBrokerControlAction) => Promise<ScoutDesktopShellState>;
   getAgentSession: (agentId: string) => Promise<ScoutElectronAgentSessionInspector>;
   openAgentSession: (agentId: string) => Promise<boolean>;
@@ -79,6 +82,9 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
     getShellState: () => invoke(SCOUT_ELECTRON_CHANNELS.getShellState) as Promise<ScoutDesktopShellState>,
     refreshShellState: () => invoke(SCOUT_ELECTRON_CHANNELS.refreshShellState) as Promise<ScoutDesktopShellState>,
     getAppSettings: () => invoke(SCOUT_ELECTRON_CHANNELS.getAppSettings) as Promise<AppSettingsState>,
+    refreshSettingsInventory: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.refreshSettingsInventory,
+    ) as Promise<AppSettingsState>,
     updateAppSettings: (input) => invoke(
       SCOUT_ELECTRON_CHANNELS.updateAppSettings,
       input,
@@ -106,6 +112,7 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
       input,
     ) as Promise<ScoutElectronAgentConfigState>,
     pickDirectory: () => invoke(SCOUT_ELECTRON_CHANNELS.pickDirectory) as Promise<string | null>,
+    reloadApp: () => invoke(SCOUT_ELECTRON_CHANNELS.reloadApp) as Promise<boolean>,
     quitApp: () => invoke(SCOUT_ELECTRON_CHANNELS.quitApp) as Promise<boolean>,
     revealPath: (filePath) => invoke(
       SCOUT_ELECTRON_CHANNELS.revealPath,
@@ -133,7 +140,7 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
     sendRelayMessage: (input) => invoke(
       SCOUT_ELECTRON_CHANNELS.sendRelayMessage,
       input,
-    ) as Promise<ScoutDesktopShellState>,
+    ) as Promise<ScoutDesktopShellPatch>,
     controlBroker: (action) => invoke(
       SCOUT_ELECTRON_CHANNELS.controlBroker,
       action,

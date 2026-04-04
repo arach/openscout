@@ -107,7 +107,7 @@ class ClaudeStreamJsonSession {
       throw new Error(`Claude stream-json session for ${this.options.agentName} already has an active turn.`);
     }
 
-    const output = await new Promise<string>((resolve, reject) => {
+    const outputPromise = new Promise<string>((resolve, reject) => {
       const turn: ActiveTurn = {
         id: randomUUID(),
         output: [],
@@ -134,6 +134,8 @@ class ClaudeStreamJsonSession {
       parent_tool_use_id: null,
     }) + "\n";
     this.process.stdin.write(payload);
+
+    const output = await outputPromise;
 
     return {
       output,

@@ -272,6 +272,104 @@ async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
   store.upsertEndpoint(endpoint);
 }
 
+function isWorkingFlightState(state: FlightRecord["state"]): boolean {
+  return state === "queued" || state === "waking" || state === "running" || state === "waiting";
+}
+
+function flightTimestamp(flight: FlightRecord): number {
+  return flight.completedAt ?? flight.startedAt ?? 0;
+}
+
+function endpointStartedAt(endpoint: AgentEndpoint): number {
+  const value = endpoint.metadata?.lastStartedAt;
+  return typeof value === "number" ? value : 0;
+}
+
+function endpointTerminalAt(endpoint: AgentEndpoint): number {
+  const completedAt = endpoint.metadata?.lastCompletedAt;
+  const failedAt = endpoint.metadata?.lastFailedAt;
+  return Math.max(
+    typeof completedAt === "number" ? completedAt : 0,
+    typeof failedAt === "number" ? failedAt : 0,
+  );
+}
+
+function latestEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, agentId: string): AgentEndpoint | null {
+  const candidates = Object.values(snapshot.endpoints).filter((endpoint) => endpoint.agentId === agentId);
+  return [...candidates].sort((left, right) => (
+    Math.max(endpointTerminalAt(right), endpointStartedAt(right))
+    - Math.max(endpointTerminalAt(left), endpointStartedAt(left))
+  ))[0] ?? null;
+}
+
+function staleWorkingFlightReason(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  flight: FlightRecord,
+): string | null {
+  if (!isWorkingFlightState(flight.state)) {
+    return null;
+  }
+
+  const startedAt = flightTimestamp(flight);
+  const newerTerminalFlight = Object.values(snapshot.flights)
+    .filter((candidate) => (
+      candidate.targetAgentId === flight.targetAgentId
+      && candidate.id !== flight.id
+      && !isWorkingFlightState(candidate.state)
+      && flightTimestamp(candidate) > startedAt
+    ))
+    .sort((left, right) => flightTimestamp(right) - flightTimestamp(left))[0] ?? null;
+  if (newerTerminalFlight) {
+    return `superseded by newer ${newerTerminalFlight.state} flight ${newerTerminalFlight.id}`;
+  }
+
+  const endpoint = latestEndpointForAgent(snapshot, flight.targetAgentId);
+  if (!endpoint) {
+    return null;
+  }
+
+  const terminalAt = endpointTerminalAt(endpoint);
+  if (endpoint.state !== "active" && terminalAt > startedAt) {
+    return `endpoint ${endpoint.id} moved to ${endpoint.state} at ${terminalAt}`;
+  }
+
+  const startedEndpointAt = endpointStartedAt(endpoint);
+  if (endpoint.state === "active" && startedEndpointAt > startedAt) {
+    return `endpoint ${endpoint.id} started newer work at ${startedEndpointAt}`;
+  }
+
+  return null;
+}
+
+async function reconcileStaleWorkingFlights(): Promise<void> {
+  const snapshot = runtime.snapshot();
+  const now = Date.now();
+
+  for (const flight of Object.values(snapshot.flights)) {
+    const reason = staleWorkingFlightReason(snapshot, flight);
+    if (!reason) {
+      continue;
+    }
+
+    const agent = snapshot.agents[flight.targetAgentId];
+    const reconciledFlight: FlightRecord = {
+      ...flight,
+      state: "failed",
+      summary: `${agent?.displayName ?? flight.targetAgentId} did not finish cleanly.`,
+      error: `Stale running flight reconciled: ${reason}`,
+      completedAt: now,
+      metadata: {
+        ...(flight.metadata ?? {}),
+        reconciledStaleFlight: true,
+        reconciledReason: reason,
+        reconciledAt: now,
+      },
+    };
+    await persistFlight(reconciledFlight);
+    console.warn(`[openscout-runtime] reconciled stale running flight ${flight.id}: ${reason}`);
+  }
+}
+
 function localAgentMetadataSource(metadata: Record<string, unknown> | undefined): string | null {
   const source = metadata?.source;
   return typeof source === "string" && source.trim().length > 0 ? source : null;
@@ -1560,6 +1658,9 @@ try {
 setTimeout(() => {
   bootstrapRegisteredLocalAgents().catch((error) => {
     console.error("[openscout-runtime] local agent bootstrap failed:", error);
+  });
+  reconcileStaleWorkingFlights().catch((error) => {
+    console.error("[openscout-runtime] stale flight reconciliation failed:", error);
   });
 }, 0).unref();
 

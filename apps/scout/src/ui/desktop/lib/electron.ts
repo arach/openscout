@@ -1,4 +1,5 @@
 import type { ScoutElectronBridge } from "../../../app/electron/bridge.ts";
+import { createWebBridge } from "./web-bridge.ts";
 
 export type ScoutDesktopBridge = NonNullable<Window["scoutDesktop"]>;
 
@@ -8,14 +9,23 @@ declare global {
   }
 }
 
-export function getScoutDesktop() {
+let webBridge: ScoutElectronBridge | null = null;
+
+export function getScoutDesktop(): ScoutElectronBridge | null {
   if (typeof window === "undefined") {
     return null;
   }
 
-  return window.scoutDesktop ?? null;
+  if (window.scoutDesktop) {
+    return window.scoutDesktop;
+  }
+
+  if (!webBridge) {
+    webBridge = createWebBridge();
+  }
+  return webBridge;
 }
 
-export function isElectronApp() {
-  return Boolean(getScoutDesktop());
+export function isDesktopApp() {
+  return typeof window !== "undefined" && Boolean(window.scoutDesktop);
 }
