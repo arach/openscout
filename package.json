@@ -32,7 +32,9 @@
     "runtime:build": "npm run protocol:build && npm --prefix packages/runtime run build",
     "runtime:check": "npm --prefix packages/runtime run check",
     "runtime:discover": "npm --prefix packages/runtime run discover",
-    "runtime:service": "npm --prefix packages/runtime run service"
+    "runtime:service": "npm --prefix packages/runtime run service",
+    "site:build": "cd site && bun install && bun run build",
+    "site:dev": "cd site && bun install && bun run dev"
   },
   "ignoreScripts": [
     "sharp",
