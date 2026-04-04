@@ -5,6 +5,7 @@
     "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
+    "types": ["node", "bun-types"],
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -13,8 +14,8 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["../../apps/scout/src/ui/desktop/*"]
     }
   },
-  "include": ["src", "electron", "server", "vite.config.ts"]
+  "include": ["electron", "server", "vite.config.ts"]
 }

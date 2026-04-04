@@ -46,6 +46,11 @@ import {
 } from "./local-agents.js";
 import { SQLiteControlPlaneStore } from "./sqlite-store.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
+import {
+  buildDefaultBrokerUrl,
+  DEFAULT_BROKER_HOST,
+  DEFAULT_BROKER_PORT,
+} from "./broker-service.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -90,12 +95,12 @@ function badRequest(response: ServerResponse, error: unknown): void {
 
 const controlHome = resolveControlPlaneHome();
 const dbPath = join(controlHome, "control-plane.sqlite");
-const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "65535", 10);
-const host = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
+const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
+const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
 const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
 const tailnetName = process.env.TAILSCALE_TAILNET ?? undefined;
-const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${host}:${port}`;
+const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host, port);
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
 const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
   .split(",")
@@ -161,7 +166,7 @@ const localNode: NodeDefinition = {
   meshId,
   name: nodeName,
   hostName: hostname(),
-  advertiseScope: host === "127.0.0.1" ? "local" : "mesh",
+  advertiseScope: host === DEFAULT_BROKER_HOST ? "local" : "mesh",
   brokerUrl,
   tailnetName,
   capabilities: ["broker", "mesh", "local_runtime"],
@@ -267,6 +272,101 @@ async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
   store.upsertEndpoint(endpoint);
 }
 
+function localAgentMetadataSource(metadata: Record<string, unknown> | undefined): string | null {
+  const source = metadata?.source;
+  return typeof source === "string" && source.trim().length > 0 ? source : null;
+}
+
+function isGeneratedLocalAgentMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  const source = localAgentMetadataSource(metadata);
+  return source === "relay-agent-registry" || source === "project-inferred";
+}
+
+function staleLocalAgentReplacementId(
+  definitionId: string | null,
+  activeAgentIdsByDefinition: Map<string, string[]>,
+): string | null {
+  if (!definitionId) {
+    return null;
+  }
+
+  const matches = activeAgentIdsByDefinition.get(definitionId) ?? [];
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<typeof loadRegisteredLocalAgentBindings>>): Promise<void> {
+  const activeAgentIds = new Set(bindings.map((binding) => binding.agent.id));
+  const activeAgentIdsByDefinition = bindings.reduce((map, binding) => {
+    const definitionId = binding.agent.definitionId?.trim();
+    if (!definitionId) {
+      return map;
+    }
+
+    const next = map.get(definitionId) ?? [];
+    next.push(binding.agent.id);
+    map.set(definitionId, next);
+    return map;
+  }, new Map<string, string[]>());
+  const snapshot = runtime.snapshot();
+  const staleAt = Date.now();
+
+  for (const endpoint of Object.values(snapshot.endpoints)) {
+    if (activeAgentIds.has(endpoint.agentId) || !isGeneratedLocalAgentMetadata(endpoint.metadata)) {
+      continue;
+    }
+
+    const agent = snapshot.agents[endpoint.agentId];
+    const replacementAgentId = staleLocalAgentReplacementId(
+      typeof agent?.definitionId === "string" ? agent.definitionId : null,
+      activeAgentIdsByDefinition,
+    );
+
+    if (endpoint.state === "offline" && endpoint.metadata?.staleLocalRegistration === true) {
+      continue;
+    }
+
+    await persistEndpoint({
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        staleLocalRegistration: true,
+        staleAt,
+        replacedByAgentId: replacementAgentId ?? endpoint.metadata?.replacedByAgentId,
+        lastError: "stale local agent registration superseded by current setup",
+        lastFailedAt: staleAt,
+      },
+    });
+    console.log(`[openscout-runtime] archived stale local endpoint ${endpoint.id}`);
+  }
+
+  for (const agent of Object.values(snapshot.agents)) {
+    if (activeAgentIds.has(agent.id) || !isGeneratedLocalAgentMetadata(agent.metadata)) {
+      continue;
+    }
+
+    const replacementAgentId = staleLocalAgentReplacementId(agent.definitionId, activeAgentIdsByDefinition);
+    const nextMetadata = {
+      ...(agent.metadata ?? {}),
+      staleLocalRegistration: true,
+      staleAt,
+      replacedByAgentId: replacementAgentId ?? agent.metadata?.replacedByAgentId,
+    };
+
+    if (agent.metadata?.staleLocalRegistration === true && nextMetadata.replacedByAgentId === agent.metadata?.replacedByAgentId) {
+      continue;
+    }
+
+    const nextAgent = {
+      ...agent,
+      metadata: nextMetadata,
+    };
+    await runtime.upsertAgent(nextAgent);
+    store.upsertAgent(nextAgent);
+    console.log(`[openscout-runtime] archived stale local agent ${agent.id}`);
+  }
+}
+
 async function syncRegisteredLocalAgents(): Promise<void> {
   const bindings = await loadRegisteredLocalAgentBindings(nodeId);
   console.log(
@@ -283,6 +383,8 @@ async function syncRegisteredLocalAgents(): Promise<void> {
       `[openscout-runtime] local agent ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
     );
   }
+
+  await archiveStaleRegisteredLocalAgents(bindings);
 
   const snapshot = runtime.snapshot();
   for (const endpoint of Object.values(snapshot.endpoints)) {

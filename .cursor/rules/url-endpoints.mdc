@@ -1,0 +1,23 @@
+---
+description: Centralize URL strings; avoid scattered HTTP literals in TypeScript/JavaScript
+globs: "**/*.{ts,tsx,js,mjs,cjs}"
+alwaysApply: false
+---
+
+# URLs and HTTP endpoints
+
+## Do not
+
+- Paste the same full URL (`https://…`, `http://host:port/…`) in multiple call sites.
+- Hardcode **environment-specific** hosts, ports, or tenant bases in business logic—use env vars, config, or injected settings.
+- Put **secrets** (tokens in query strings, presigned URLs from secrets) in source literals.
+
+## Do
+
+- **Your API paths** (e.g. `/health`, `/v1/messages`): one module or `as const` object per client/surface (e.g. `paths.ts` next to the broker client). Keep in sync with the server that implements them.
+- **Stable vendor API paths** (e.g. OpenAI): a single named constant or shared module—not 10 copies of the same string.
+- **Configurable bases**: resolve from `process.env`, user settings, or existing config helpers (e.g. broker URL from service config), then combine with path constants via `new URL(path, base)`.
+
+## Quick check
+
+Before merging: grep for `https://` and `http://` in the diff; each should be justified (single constant, vendor doc URL, or test fixture) or moved to config/constants.

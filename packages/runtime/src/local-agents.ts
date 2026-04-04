@@ -13,6 +13,7 @@ import type {
   AgentHarness,
   InvocationRequest,
 } from "@openscout/protocol";
+import { normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import {
   ensureClaudeStreamJsonAgentOnline,
@@ -32,6 +33,7 @@ import {
 } from "./collaboration-contract.js";
 import {
   buildRelayAgentInstance,
+  ensureProjectConfigForDirectory,
   ensureRelayAgentConfigured,
   loadResolvedRelayAgents,
   type ManagedAgentHarness,
@@ -49,6 +51,7 @@ import {
   relayAgentRuntimeDirectory,
   resolveOpenScoutSupportPaths,
 } from "./support-paths.js";
+import { resolveBrokerServiceConfig } from "./broker-service.js";
 
 const BUILT_IN_LOCAL_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +60,7 @@ const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
 type LocalAgentRecord = {
   definitionId?: string;
   project: string;
+  projectRoot?: string;
   tmuxSession: string;
   cwd: string;
   startedAt: number;
@@ -90,6 +94,26 @@ export type LocalAgentBinding = {
   actor: ActorIdentity;
   agent: AgentDefinition;
   endpoint: AgentEndpoint;
+};
+
+export type ScoutLocalAgentStatus = {
+  agentId: string;
+  definitionId: string;
+  projectName: string;
+  projectRoot: string;
+  sessionId: string;
+  startedAt: number;
+  harness: AgentHarness;
+  transport: RelayRuntimeTransport;
+  isOnline: boolean;
+  source: "configured" | "manual";
+};
+
+export type StartLocalAgentInput = {
+  projectPath: string;
+  agentName?: string;
+  harness?: AgentHarness;
+  currentDirectory?: string;
 };
 
 interface BrokerSnapshotMessage {
@@ -133,7 +157,7 @@ function resolveProjectsRoot(projectPath: string): string {
 }
 
 function resolveBrokerUrl(): string {
-  return process.env.OPENSCOUT_BROKER_URL ?? "http://127.0.0.1:65535";
+  return resolveBrokerServiceConfig().brokerUrl;
 }
 
 function nowSeconds(): number {
@@ -145,7 +169,7 @@ function normalizeBrokerTimestamp(value: number): number {
 }
 
 function brokerRelayCommand(): string {
-  return `bun run --cwd ${JSON.stringify(OPENSCOUT_REPO_ROOT)} packages/relay/src/cli.ts relay`;
+  return `node ${JSON.stringify(join(OPENSCOUT_REPO_ROOT, "packages", "cli", "bin", "scout.mjs"))}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -628,12 +652,14 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
 
 function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): LocalAgentRecord {
   const cwd = normalizeProjectPath(record.cwd || process.cwd());
-  const project = record.project?.trim() || basename(cwd);
+  const projectRoot = normalizeProjectPath(record.projectRoot || cwd);
+  const project = record.project?.trim() || basename(projectRoot);
   const definitionId = record.definitionId?.trim() || agentId;
   const defaultHarness = activeLocalHarness(record);
   const harnessProfiles = normalizeLocalHarnessProfiles(agentId, {
     ...record,
     cwd,
+    projectRoot,
     project,
   });
   const activeProfile = harnessProfiles[defaultHarness];
@@ -641,10 +667,11 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
   return {
     definitionId,
     project,
+    projectRoot,
     tmuxSession: activeProfile?.sessionId ?? normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${defaultHarness}`),
     cwd: activeProfile?.cwd ?? cwd,
     startedAt: Number.isFinite(record.startedAt) && record.startedAt > 0 ? Math.floor(record.startedAt) : nowSeconds(),
-    systemPrompt: normalizeLocalAgentSystemPrompt(definitionId, project, cwd, record.systemPrompt),
+    systemPrompt: normalizeLocalAgentSystemPrompt(definitionId, project, projectRoot, record.systemPrompt),
     harness,
     defaultHarness,
     harnessProfiles,
@@ -654,10 +681,38 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
   };
 }
 
+function localAgentStatusFromRecord(
+  agentId: string,
+  record: LocalAgentRecord,
+  source: ScoutLocalAgentStatus["source"],
+): ScoutLocalAgentStatus {
+  const normalizedRecord = normalizeLocalAgentRecord(agentId, record);
+  return {
+    agentId,
+    definitionId: normalizedRecord.definitionId ?? agentId,
+    projectName: normalizedRecord.project,
+    projectRoot: normalizedRecord.projectRoot ?? normalizedRecord.cwd,
+    sessionId: normalizedRecord.tmuxSession,
+    startedAt: normalizedRecord.startedAt,
+    harness: normalizeLocalAgentHarness(normalizedRecord.harness),
+    transport: normalizedRecord.transport,
+    isOnline: isLocalAgentRecordOnline(agentId, normalizedRecord),
+    source,
+  };
+}
+
+function localAgentStatusSource(
+  agentId: string,
+  overrides: Record<string, RelayAgentOverride>,
+): ScoutLocalAgentStatus["source"] {
+  return overrides[agentId]?.source === "manual" ? "manual" : "configured";
+}
+
 function localAgentRecordFromResolvedConfig(config: ResolvedRelayAgentConfig): LocalAgentRecord {
   return normalizeLocalAgentRecord(config.agentId, {
     definitionId: config.definitionId,
     project: config.projectName,
+    projectRoot: config.projectRoot,
     tmuxSession: config.runtime.sessionId,
     cwd: config.runtime.cwd,
     startedAt: config.startedAt,
@@ -678,6 +733,7 @@ function localAgentRecordFromRelayAgentOverride(
   return normalizeLocalAgentRecord(agentId, {
     definitionId: override.definitionId ?? agentId,
     project: override.projectName ?? basename(override.projectRoot || override.runtime?.cwd || agentId),
+    projectRoot: override.projectRoot ?? override.runtime?.cwd,
     tmuxSession: override.runtime?.sessionId ?? `relay-${agentId}`,
     cwd: override.runtime?.cwd ?? override.projectRoot,
     startedAt: override.startedAt ?? nowSeconds(),
@@ -1404,6 +1460,184 @@ export async function restartLocalAgent(
   return ensureLocalAgentOnline(agentId, normalizedRecord);
 }
 
+export async function listLocalAgents(options: {
+  currentDirectory?: string;
+} = {}): Promise<ScoutLocalAgentStatus[]> {
+  const [setup, overrides] = await Promise.all([
+    loadResolvedRelayAgents({
+      currentDirectory: options.currentDirectory,
+      ensureCurrentProjectConfig: false,
+    }),
+    readRelayAgentOverrides(),
+  ]);
+
+  return setup.agents.map((agent) => (
+    localAgentStatusFromRecord(
+      agent.agentId,
+      localAgentRecordFromResolvedConfig(agent),
+      localAgentStatusSource(agent.agentId, overrides),
+    )
+  )).sort((lhs, rhs) => lhs.projectName.localeCompare(rhs.projectName) || lhs.agentId.localeCompare(rhs.agentId));
+}
+
+export async function startLocalAgent(input: StartLocalAgentInput): Promise<ScoutLocalAgentStatus> {
+  const projectPath = normalizeProjectPath(input.projectPath);
+  const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
+  const currentDirectory = input.currentDirectory ?? projectPath;
+  const ensuredProject = await ensureProjectConfigForDirectory(projectPath);
+  const projectRoot = ensuredProject.projectRoot ?? projectPath;
+  const requestedDefinitionId = input.agentName?.trim()
+    ? normalizeAgentSelectorSegment(input.agentName.trim())
+    : "";
+
+  if (input.agentName?.trim() && !requestedDefinitionId) {
+    throw new Error(`Invalid agent name "${input.agentName}".`);
+  }
+
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory,
+    ensureCurrentProjectConfig: true,
+    syncLegacyMirror: true,
+  });
+  const candidate = setup.discoveredAgents.find((agent) => normalizeProjectPath(agent.projectRoot) === projectRoot);
+  if (!candidate) {
+    throw new Error(`No relay agent could be resolved for ${projectRoot}.`);
+  }
+
+  let targetAgentId = candidate.agentId;
+  if (requestedDefinitionId && requestedDefinitionId !== candidate.definitionId) {
+    const overrides = await readRelayAgentOverrides();
+    const instance = buildRelayAgentInstance(requestedDefinitionId, candidate.projectRoot);
+    overrides[instance.id] = {
+      agentId: instance.id,
+      definitionId: requestedDefinitionId,
+      displayName: titleCaseLocalAgentName(requestedDefinitionId),
+      projectName: candidate.projectName,
+      projectRoot: candidate.projectRoot,
+      projectConfigPath: candidate.projectConfigPath,
+      source: "manual",
+      startedAt: candidate.startedAt,
+      systemPrompt: candidate.systemPrompt,
+      launchArgs: candidate.launchArgs,
+      capabilities: candidate.capabilities,
+      defaultHarness: preferredHarness ?? candidate.defaultHarness,
+      harnessProfiles: candidate.harnessProfiles,
+      runtime: {
+        cwd: candidate.runtime.cwd,
+        harness: preferredHarness ?? candidate.runtime.harness,
+        transport: preferredHarness
+          ? normalizeLocalAgentTransport(undefined, preferredHarness)
+          : candidate.runtime.transport,
+        sessionId: candidate.runtime.sessionId,
+        wakePolicy: "on_demand",
+      },
+    };
+    await writeRelayAgentOverrides(overrides);
+    await loadResolvedRelayAgents({
+      currentDirectory,
+      syncLegacyMirror: true,
+    });
+    targetAgentId = instance.id;
+  } else {
+    const configured = await ensureRelayAgentConfigured(candidate.agentId, {
+      currentDirectory,
+      ensureCurrentProjectConfig: true,
+      syncLegacyMirror: true,
+    });
+    if (configured) {
+      targetAgentId = configured.agentId;
+    }
+  }
+
+  await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
+    includeDiscovered: true,
+    currentDirectory,
+    ensureCurrentProjectConfig: true,
+    harness: preferredHarness,
+  });
+
+  const [registry, overrides] = await Promise.all([
+    readLocalAgentRegistry(),
+    readRelayAgentOverrides(),
+  ]);
+  const record = registry[targetAgentId];
+  if (!record) {
+    throw new Error(`Agent ${targetAgentId} did not register successfully.`);
+  }
+
+  return localAgentStatusFromRecord(targetAgentId, record, localAgentStatusSource(targetAgentId, overrides));
+}
+
+export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentStatus | null> {
+  const [registry, overrides] = await Promise.all([
+    readLocalAgentRegistry(),
+    readRelayAgentOverrides(),
+  ]);
+  const record = registry[agentId];
+  if (!record) {
+    return null;
+  }
+
+  const normalizedRecord = normalizeLocalAgentRecord(agentId, record);
+  const sessionsToStop = new Set<string>([normalizedRecord.tmuxSession]);
+
+  if (normalizedRecord.transport === "codex_app_server") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownCodexAppServerAgent({
+        ...buildCodexAgentSessionOptions(agentId, normalizedRecord),
+        sessionId: sessionName,
+      }, {
+        resetThread: true,
+      });
+    }
+  } else if (normalizedRecord.transport === "claude_stream_json") {
+    for (const sessionName of sessionsToStop) {
+      await shutdownClaudeStreamJsonAgent({
+        ...buildClaudeAgentSessionOptions(agentId, normalizedRecord),
+        sessionId: sessionName,
+      }, {
+        resetSession: true,
+      });
+    }
+  } else {
+    for (const sessionName of sessionsToStop) {
+      killAgentSession(sessionName);
+    }
+  }
+
+  return {
+    ...localAgentStatusFromRecord(agentId, normalizedRecord, localAgentStatusSource(agentId, overrides)),
+    isOnline: false,
+  };
+}
+
+export async function stopAllLocalAgents(options: {
+  currentDirectory?: string;
+} = {}): Promise<ScoutLocalAgentStatus[]> {
+  const agents = await listLocalAgents(options);
+  const stopped = await Promise.all(agents.map(async (agent) => stopLocalAgent(agent.agentId)));
+  return stopped.filter((agent): agent is ScoutLocalAgentStatus => Boolean(agent));
+}
+
+export async function restartAllLocalAgents(options: {
+  currentDirectory?: string;
+} = {}): Promise<ScoutLocalAgentStatus[]> {
+  const agents = await listLocalAgents(options);
+  const overrides = await readRelayAgentOverrides();
+  const restarted = await Promise.all(agents.map(async (agent) => {
+    const record = await restartLocalAgent(agent.agentId);
+    if (!record) {
+      return null;
+    }
+    return localAgentStatusFromRecord(
+      agent.agentId,
+      record,
+      localAgentStatusSource(agent.agentId, overrides),
+    );
+  }));
+  return restarted.filter((agent): agent is ScoutLocalAgentStatus => Boolean(agent));
+}
+
 function buildLocalAgentBinding(
   agentId: string,
   record: LocalAgentRecord,
@@ -1414,7 +1648,8 @@ function buildLocalAgentBinding(
   const normalizedRecord = normalizeLocalAgentRecord(agentId, record);
   const definitionId = normalizedRecord.definitionId ?? agentId;
   const displayName = titleCaseLocalAgentName(definitionId);
-  const instance = buildRelayAgentInstance(definitionId, normalizedRecord.cwd);
+  const projectRoot = normalizedRecord.projectRoot ?? normalizedRecord.cwd;
+  const instance = buildRelayAgentInstance(definitionId, projectRoot);
   const actorId = instance.id;
 
   return {
@@ -1427,7 +1662,7 @@ function buildLocalAgentBinding(
       metadata: {
         source,
         project: normalizedRecord.project,
-        projectRoot: normalizedRecord.cwd,
+        projectRoot,
         tmuxSession: normalizedRecord.tmuxSession,
         definitionId,
         instanceId: instance.id,
@@ -1452,7 +1687,7 @@ function buildLocalAgentBinding(
       metadata: {
         source,
         project: normalizedRecord.project,
-        projectRoot: normalizedRecord.cwd,
+        projectRoot,
         tmuxSession: normalizedRecord.tmuxSession,
         summary: `${displayName} relay agent for ${normalizedRecord.project}.`,
         role: "Relay agent",
@@ -1479,7 +1714,7 @@ function buildLocalAgentBinding(
       transport: normalizedRecord.transport,
       state: alive ? "idle" : "waiting",
       cwd: normalizedRecord.cwd,
-      projectRoot: normalizedRecord.cwd,
+      projectRoot,
       sessionId: normalizedRecord.tmuxSession,
       metadata: {
         source,
@@ -1488,7 +1723,7 @@ function buildLocalAgentBinding(
         runtimeSessionId: normalizedRecord.tmuxSession,
         transport: normalizedRecord.transport,
         project: normalizedRecord.project,
-        projectRoot: normalizedRecord.cwd,
+        projectRoot,
         startedAt: String(normalizedRecord.startedAt),
         instanceId: instance.id,
         selector: instance.selector,
@@ -1504,14 +1739,23 @@ export async function loadRegisteredLocalAgentBindings(
   nodeId: string,
   options: { ensureOnline?: boolean; agentIds?: string[]; harness?: AgentHarness } = {},
 ): Promise<LocalAgentBinding[]> {
-  const registry = await readLocalAgentRegistry();
+  const [registry, overrides] = await Promise.all([
+    readLocalAgentRegistry(),
+    readRelayAgentOverrides(),
+  ]);
   const requestedAgentIds = new Set((options.agentIds ?? []).filter(Boolean));
   const selectedEntries = Object.entries(registry).filter(([agentId]) => (
     requestedAgentIds.size === 0 || requestedAgentIds.has(agentId)
   ));
 
   return Promise.all(selectedEntries.map(async ([agentId, record]) => {
-    const harnessRecord = options.harness ? recordForHarness(record, options.harness) : record;
+    const baseRecord = overrides[agentId]?.projectRoot
+      ? {
+        ...record,
+        projectRoot: overrides[agentId].projectRoot,
+      }
+      : record;
+    const harnessRecord = options.harness ? recordForHarness(baseRecord, options.harness) : baseRecord;
     const effectiveRecord = options.ensureOnline
       ? await ensureLocalAgentOnline(agentId, harnessRecord)
       : normalizeLocalAgentRecord(agentId, harnessRecord);
@@ -1627,6 +1871,7 @@ export async function invokeLocalAgentEndpoint(
       ? {
         definitionId,
         project: basename(projectRoot),
+        projectRoot,
         tmuxSession: String(endpoint.metadata?.tmuxSession ?? `relay-${agentRuntimeId}`),
         cwd: projectRoot,
         startedAt: nowSeconds(),

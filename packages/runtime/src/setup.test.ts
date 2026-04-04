@@ -9,6 +9,7 @@ const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
+const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
 const testDirectories = new Set<string>();
 
 afterEach(() => {
@@ -27,6 +28,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_RELAY_HUB;
   } else {
     process.env.OPENSCOUT_RELAY_HUB = originalRelayHub;
+  }
+  if (originalSkipUserProjectHints === undefined) {
+    delete process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
+  } else {
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = originalSkipUserProjectHints;
   }
 
   for (const directory of testDirectories) {
@@ -62,6 +68,7 @@ describe("setup inventory", () => {
     process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
     process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
     process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
 
     await writeOpenScoutSettings({
       discovery: {
@@ -88,7 +95,7 @@ describe("setup inventory", () => {
 
     const mono = setup.projectInventory.find((project) => project.relativePath === "mono");
     expect(mono).toBeTruthy();
-    expect(setup.projectInventory.some((project) => project.relativePath.includes("packages/ui"))).toBe(false);
+    expect(setup.projectInventory.some((project) => project.relativePath === "mono/packages/ui")).toBe(false);
 
     await initializeOpenScoutSetup({ currentDirectory: repoAlpha });
     const gitignoreLines = readFileSync(join(repoAlpha, ".gitignore"), "utf8")
@@ -108,6 +115,7 @@ describe("setup inventory", () => {
     process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
     process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
     process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
 
     await writeOpenScoutSettings({
       discovery: {

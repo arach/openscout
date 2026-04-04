@@ -77,8 +77,16 @@ type LaunchctlStatus = {
   raw: string;
 };
 
+export const DEFAULT_BROKER_HOST = "127.0.0.1";
+export const DEFAULT_BROKER_PORT = 65535;
 const BROKER_SERVICE_POLL_INTERVAL_MS = 100;
 const DEFAULT_BROKER_START_TIMEOUT_MS = 15_000;
+
+export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
+  return `http://${host}:${port}`;
+}
+
+export const DEFAULT_BROKER_URL = buildDefaultBrokerUrl();
 
 function runtimePackageDir(): string {
   const explicit = process.env.OPENSCOUT_RUNTIME_PACKAGE_DIR?.trim();
@@ -186,9 +194,9 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const supportDirectory = supportPaths.supportDirectory;
   const logsDirectory = supportPaths.brokerLogsDirectory;
   const controlHome = supportPaths.controlHome;
-  const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
-  const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? "65535", 10);
-  const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+  const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
+  const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
+  const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(brokerHost, brokerPort);
   const launchAgentPath = join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
 
   return {
@@ -248,9 +256,7 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
   <key>ProgramArguments</key>
   <array>
     <string>${xmlEscape(config.bunExecutable)}</string>
-    <string>run</string>
-    <string>--cwd</string>
-    <string>${xmlEscape(config.runtimePackageDir)}</string>
+    <string>${xmlEscape(join(config.runtimePackageDir, "bin", "openscout-runtime.mjs"))}</string>
     <string>broker</string>
   </array>
   <key>WorkingDirectory</key>
@@ -363,14 +369,14 @@ function readLogLines(path: string): string[] {
     .filter(Boolean);
 }
 
-function isBunRunBanner(line: string): boolean {
-  return /^\$\s*bun run\b/.test(line);
+function isPackageScriptBanner(line: string): boolean {
+  return /^\$\s*(bun run|npm run|pnpm\b|yarn\b)/.test(line);
 }
 
 export function selectLastRelevantLogLine(lines: string[]): string | null {
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
-    if (!isBunRunBanner(line)) {
+    if (!isPackageScriptBanner(line)) {
       return line;
     }
   }
@@ -390,7 +396,7 @@ function readLastLogLine(paths: string[]): string | null {
     if (!relevantLine) {
       continue;
     }
-    if (!isBunRunBanner(relevantLine)) {
+    if (!isPackageScriptBanner(relevantLine)) {
       return relevantLine;
     }
     fallback ??= relevantLine;

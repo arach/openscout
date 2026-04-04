@@ -1,0 +1,484 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { open } from "node:fs/promises";
+import path from "node:path";
+
+import { brokerServiceStatus } from "@openscout/runtime/broker-service";
+import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
+import {
+  relayAgentLogsDirectory,
+  resolveOpenScoutSupportPaths,
+} from "@openscout/runtime/support-paths";
+
+import { resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
+
+export type ScoutDesktopLogGroup = "runtime" | "app" | "agents";
+
+export type ScoutDesktopLogSource = {
+  id: string;
+  title: string;
+  subtitle: string;
+  group: ScoutDesktopLogGroup;
+  pathLabel: string;
+};
+
+export type ScoutDesktopLogCatalog = {
+  sources: ScoutDesktopLogSource[];
+  defaultSourceId: string | null;
+};
+
+export type ScoutDesktopBrokerInspector = {
+  statusLabel: string;
+  statusDetail: string | null;
+  version: string | null;
+  label: string;
+  mode: string;
+  url: string;
+  installed: boolean;
+  loaded: boolean;
+  reachable: boolean;
+  pid: string | null;
+  processCommand: string | null;
+  lastRestartLabel: string | null;
+  nodeId: string | null;
+  meshId: string | null;
+  launchdState: string | null;
+  lastExitStatus: string | null;
+  lastLogLine: string | null;
+  supportDirectory: string;
+  controlHome: string;
+  launchAgentPath: string;
+  stdoutLogPath: string;
+  stderrLogPath: string;
+  actorCount: number | null;
+  agentCount: number | null;
+  conversationCount: number | null;
+  messageCount: number | null;
+  flightCount: number | null;
+  troubleshooting: string[];
+  feedbackSummary: string;
+};
+
+export type ReadScoutLogSourceInput = {
+  sourceId: string;
+  tailLines?: number;
+};
+
+export type ScoutDesktopLogContent = {
+  sourceId: string;
+  title: string;
+  subtitle: string;
+  pathLabel: string;
+  body: string;
+  updatedAtLabel: string | null;
+  lineCount: number;
+  truncated: boolean;
+  missing: boolean;
+};
+
+type ResolvedScoutLogSource = ScoutDesktopLogSource & {
+  paths: string[];
+};
+
+const LOG_TAIL_CHUNK_BYTES = 64 * 1024;
+const DEFAULT_LOG_TAIL_LINES = 240;
+
+function compactHomePath(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const home = process.env.HOME ?? "";
+  return home && value.startsWith(home) ? value.replace(home, "~") : value;
+}
+
+function normalizeTimestamp(value: number | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+}
+
+function formatRelativeTime(value: number): string {
+  const deltaSeconds = Math.max(0, Math.floor(Date.now() / 1000) - normalizeTimestamp(value));
+  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
+  const deltaMinutes = Math.floor(deltaSeconds / 60);
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  if (deltaHours < 24) return `${deltaHours}h ago`;
+  const deltaDays = Math.floor(deltaHours / 24);
+  return `${deltaDays}d ago`;
+}
+
+function runOptionalCommand(command: string, args: string[]): string | null {
+  try {
+    const output = execFileSync(command, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return output.length > 0 ? output : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBrokerProcessId(brokerUrl: string, fallbackPid: number | null): number | null {
+  if (fallbackPid && Number.isFinite(fallbackPid)) {
+    return fallbackPid;
+  }
+
+  try {
+    const port = new URL(brokerUrl).port;
+    if (!port) {
+      return null;
+    }
+    const output = runOptionalCommand("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+    const pid = Number.parseInt(output?.split(/\s+/g)[0] ?? "", 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatProcessStartLabel(pid: number | null): string | null {
+  if (!pid) {
+    return null;
+  }
+
+  const raw = runOptionalCommand("ps", ["-p", String(pid), "-o", "lstart="]);
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return formatRelativeTime(Math.floor(parsed.getTime() / 1000));
+  }
+
+  return raw;
+}
+
+function readProcessCommand(pid: number | null): string | null {
+  if (!pid) {
+    return null;
+  }
+  return runOptionalCommand("ps", ["-p", String(pid), "-o", "command="]);
+}
+
+function brokerStatusLabel(
+  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+): { label: string; detail: string | null } {
+  if (status.reachable && status.health.ok) {
+    return {
+      label: "Running",
+      detail: `Broker is responding at ${status.brokerUrl}.`,
+    };
+  }
+  if (status.loaded) {
+    return {
+      label: "Starting",
+      detail: "LaunchAgent is loaded, but the broker health endpoint is not responding yet.",
+    };
+  }
+  if (status.installed) {
+    return {
+      label: "Installed",
+      detail: "LaunchAgent exists on disk, but it is not currently loaded.",
+    };
+  }
+  return {
+    label: "Missing",
+    detail: "No LaunchAgent is installed for the broker yet.",
+  };
+}
+
+function brokerTroubleshootingHints(status: Awaited<ReturnType<typeof brokerServiceStatus>>): string[] {
+  const hints: string[] = [];
+
+  if (!status.installed) {
+    hints.push("The broker LaunchAgent is not installed.");
+  }
+  if (status.installed && !status.loaded) {
+    hints.push("The LaunchAgent exists but is not loaded.");
+  }
+  if (status.loaded && !status.reachable) {
+    hints.push("launchd reports the service as loaded, but the broker health endpoint is not responding.");
+  }
+  if (status.lastExitStatus !== null && status.lastExitStatus !== 0) {
+    hints.push(`The last broker exit status was ${status.lastExitStatus}.`);
+  }
+  if (status.lastLogLine) {
+    hints.push(`Last broker log line: ${status.lastLogLine}`);
+  }
+
+  return hints;
+}
+
+function runtimeVersionLabel(): string | null {
+  const workspaceRoot = resolveScoutWorkspaceRoot();
+  const candidates = [
+    path.join(workspaceRoot, "packages", "runtime", "package.json"),
+    path.join(workspaceRoot, "package.json"),
+  ];
+
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) {
+      continue;
+    }
+    try {
+      const payload = JSON.parse(readFileSync(candidate, "utf8")) as { version?: string };
+      if (typeof payload.version === "string" && payload.version.trim().length > 0) {
+        return payload.version;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function brokerFeedbackSummary(
+  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  processId: number | null,
+  processCommand: string | null,
+  startedLabel: string | null,
+  version: string | null,
+): string {
+  const counts = status.health.counts;
+  return [
+    `status: ${status.reachable ? "reachable" : "unreachable"}`,
+    `label: ${status.label}`,
+    `mode: ${status.mode}`,
+    `version: ${version ?? "not reported"}`,
+    `url: ${status.brokerUrl}`,
+    `pid: ${processId ?? "not reported"}`,
+    `started: ${startedLabel ?? "not reported"}`,
+    `launchd: ${status.launchdState ?? "not reported"}`,
+    `last_exit: ${status.lastExitStatus ?? "not reported"}`,
+    `node: ${status.health.nodeId ?? "not reported"}`,
+    `mesh: ${status.health.meshId ?? "not reported"}`,
+    `counts: actors=${counts?.actors ?? "?"} agents=${counts?.agents ?? "?"} conversations=${counts?.conversations ?? "?"} messages=${counts?.messages ?? "?"} flights=${counts?.flights ?? "?"}`,
+    `command: ${processCommand ?? "not reported"}`,
+    `stdout: ${compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath}`,
+    `stderr: ${compactHomePath(status.stderrLogPath) ?? status.stderrLogPath}`,
+    `last_log: ${status.lastLogLine ?? "not reported"}`,
+  ].join("\n");
+}
+
+async function buildResolvedScoutLogCatalog(currentDirectory: string): Promise<ResolvedScoutLogSource[]> {
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const setup = await loadResolvedRelayAgents({ currentDirectory });
+
+  const sources: ResolvedScoutLogSource[] = [
+    {
+      id: "broker",
+      title: "Relay Runtime",
+      subtitle: "Relay service stdout and stderr",
+      group: "runtime",
+      pathLabel: compactHomePath(supportPaths.brokerLogsDirectory) ?? supportPaths.brokerLogsDirectory,
+      paths: [
+        path.join(supportPaths.brokerLogsDirectory, "stdout.log"),
+        path.join(supportPaths.brokerLogsDirectory, "stderr.log"),
+      ],
+    },
+    {
+      id: "app",
+      title: "Desktop App",
+      subtitle: "Electron and local app logs",
+      group: "app",
+      pathLabel: compactHomePath(supportPaths.appLogsDirectory) ?? supportPaths.appLogsDirectory,
+      paths: [
+        path.join(supportPaths.appLogsDirectory, "electron.log"),
+        path.join(supportPaths.appLogsDirectory, "native.log"),
+        path.join(supportPaths.appLogsDirectory, "agent-host.log"),
+      ],
+    },
+  ];
+
+  for (const agent of [...setup.agents].sort((left, right) => left.displayName.localeCompare(right.displayName))) {
+    const logsDirectory = relayAgentLogsDirectory(agent.agentId);
+    sources.push({
+      id: `agent:${agent.agentId}`,
+      title: agent.displayName,
+      subtitle: "Relay agent runtime logs",
+      group: "agents",
+      pathLabel: compactHomePath(logsDirectory) ?? logsDirectory,
+      paths: [
+        path.join(logsDirectory, "stdout.log"),
+        path.join(logsDirectory, "stderr.log"),
+      ],
+    });
+  }
+
+  return sources;
+}
+
+function splitLogLines(raw: string): string[] {
+  const lines = raw.split(/\r?\n/);
+  if (lines.length > 0 && lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+function logSectionLabel(filePath: string): string {
+  return path.basename(filePath);
+}
+
+async function readVisibleLogFile(filePath: string, tailLines: number): Promise<{
+  lines: string[];
+  updatedAtMs: number;
+  truncated: boolean;
+}> {
+  const file = await open(filePath, "r");
+
+  try {
+    const stats = await file.stat();
+    if (tailLines <= 0 || stats.size <= 0) {
+      const raw = stats.size > 0 ? await file.readFile({ encoding: "utf8" }) : "";
+      return {
+        lines: splitLogLines(raw),
+        updatedAtMs: stats.mtimeMs,
+        truncated: false,
+      };
+    }
+
+    let position = stats.size;
+    let newlineCount = 0;
+    let totalBytes = 0;
+    const chunks: Buffer[] = [];
+
+    while (position > 0 && newlineCount <= tailLines) {
+      const readSize = Math.min(LOG_TAIL_CHUNK_BYTES, position);
+      position -= readSize;
+      const buffer = Buffer.allocUnsafe(readSize);
+      const { bytesRead } = await file.read(buffer, 0, readSize, position);
+      if (bytesRead <= 0) {
+        break;
+      }
+      const chunk = buffer.subarray(0, bytesRead);
+      chunks.unshift(chunk);
+      totalBytes += bytesRead;
+      for (const byte of chunk) {
+        if (byte === 10) {
+          newlineCount += 1;
+        }
+      }
+    }
+
+    const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
+    const lines = splitLogLines(raw);
+    return {
+      lines: lines.length > tailLines ? lines.slice(-tailLines) : lines,
+      updatedAtMs: stats.mtimeMs,
+      truncated: position > 0 || lines.length > tailLines,
+    };
+  } finally {
+    await file.close();
+  }
+}
+
+async function tailScoutLogSource(
+  source: ResolvedScoutLogSource,
+  tailLines = DEFAULT_LOG_TAIL_LINES,
+): Promise<ScoutDesktopLogContent> {
+  const sections: string[] = [];
+  let updatedAtMs = 0;
+  let lineCount = 0;
+  let truncated = false;
+  let foundAny = false;
+
+  for (const filePath of source.paths) {
+    if (!existsSync(filePath)) {
+      continue;
+    }
+
+    foundAny = true;
+    const content = await readVisibleLogFile(filePath, tailLines);
+    updatedAtMs = Math.max(updatedAtMs, content.updatedAtMs);
+    lineCount += content.lines.length;
+    truncated = truncated || content.truncated;
+    sections.push(`== ${logSectionLabel(filePath)} ==`);
+    sections.push(content.lines.join("\n") || "(empty)");
+  }
+
+  return {
+    sourceId: source.id,
+    title: source.title,
+    subtitle: source.subtitle,
+    pathLabel: source.pathLabel,
+    body: foundAny ? sections.join("\n\n") : "",
+    updatedAtLabel: updatedAtMs > 0 ? formatRelativeTime(Math.floor(updatedAtMs / 1000)) : null,
+    lineCount,
+    truncated,
+    missing: !foundAny,
+  };
+}
+
+export async function getScoutElectronLogCatalog(
+  currentDirectory = process.cwd(),
+): Promise<ScoutDesktopLogCatalog> {
+  const [sources, broker] = await Promise.all([
+    buildResolvedScoutLogCatalog(currentDirectory),
+    brokerServiceStatus(),
+  ]);
+
+  return {
+    sources: sources.map(({ paths: _paths, ...source }) => source),
+    defaultSourceId: broker.reachable ? "broker" : "app",
+  };
+}
+
+export async function getScoutElectronBrokerInspector(): Promise<ScoutDesktopBrokerInspector> {
+  const status = await brokerServiceStatus();
+  const processId = resolveBrokerProcessId(status.brokerUrl, status.pid);
+  const processCommand = readProcessCommand(processId);
+  const lastRestartLabel = formatProcessStartLabel(processId);
+  const version = runtimeVersionLabel();
+  const { label, detail } = brokerStatusLabel(status);
+  const counts = status.health.counts;
+
+  return {
+    statusLabel: label,
+    statusDetail: detail,
+    version,
+    label: status.label,
+    mode: status.mode,
+    url: status.brokerUrl,
+    installed: status.installed,
+    loaded: status.loaded,
+    reachable: status.reachable,
+    pid: processId ? String(processId) : null,
+    processCommand,
+    lastRestartLabel,
+    nodeId: status.health.nodeId ?? null,
+    meshId: status.health.meshId ?? null,
+    launchdState: status.launchdState,
+    lastExitStatus: status.lastExitStatus !== null ? String(status.lastExitStatus) : null,
+    lastLogLine: status.lastLogLine,
+    supportDirectory: compactHomePath(status.supportDirectory) ?? status.supportDirectory,
+    controlHome: compactHomePath(status.controlHome) ?? status.controlHome,
+    launchAgentPath: compactHomePath(status.launchAgentPath) ?? status.launchAgentPath,
+    stdoutLogPath: compactHomePath(status.stdoutLogPath) ?? status.stdoutLogPath,
+    stderrLogPath: compactHomePath(status.stderrLogPath) ?? status.stderrLogPath,
+    actorCount: counts?.actors ?? null,
+    agentCount: counts?.agents ?? null,
+    conversationCount: counts?.conversations ?? null,
+    messageCount: counts?.messages ?? null,
+    flightCount: counts?.flights ?? null,
+    troubleshooting: brokerTroubleshootingHints(status),
+    feedbackSummary: brokerFeedbackSummary(status, processId, processCommand, lastRestartLabel, version),
+  };
+}
+
+export async function readScoutElectronLogSource(
+  input: ReadScoutLogSourceInput,
+  currentDirectory = process.cwd(),
+): Promise<ScoutDesktopLogContent> {
+  const sources = await buildResolvedScoutLogCatalog(currentDirectory);
+  const source = sources.find((entry) => entry.id === input.sourceId);
+  if (!source) {
+    throw new Error(`Unknown log source: ${input.sourceId}`);
+  }
+  return tailScoutLogSource(source, input.tailLines ?? DEFAULT_LOG_TAIL_LINES);
+}

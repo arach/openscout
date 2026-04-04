@@ -1,26 +1,29 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const binDir = dirname(fileURLToPath(import.meta.url));
+const packageDir = resolve(binDir, "..");
 const distEntry = resolve(binDir, "../dist/main.mjs");
-const sourceEntry = resolve(binDir, "../src/main.ts");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
-if (existsSync(distEntry)) {
-  await import(distEntry);
-} else {
-  const child = spawn("bun", [sourceEntry, ...process.argv.slice(2)], {
+if (!existsSync(distEntry)) {
+  const result = spawnSync(npmCommand, ["run", "build"], {
+    cwd: packageDir,
     stdio: "inherit",
   });
 
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-    } else {
-      process.exit(code ?? 0);
-    }
-  });
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
 }
+
+if (!existsSync(distEntry)) {
+  console.error("Scout CLI dist entry is missing after build.");
+  process.exit(1);
+}
+
+await import(pathToFileURL(distEntry).href);

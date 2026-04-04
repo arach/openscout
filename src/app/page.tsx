@@ -182,7 +182,7 @@ const generalCapabilities: CapabilityCard[] = [
   },
   {
     icon: Send,
-    label: "Dispatch",
+    label: "Pairing",
     title: "Companion pairing",
     description:
       "Bring a phone or companion device into the loop without turning it into a separate backend or a separate product.",
@@ -269,17 +269,17 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
       label: "Install the public OpenScout CLI with Bun.",
     },
     {
-      command: "openscout init",
+      command: "scout init",
       label:
         "Bootstrap local settings, discover projects, register agents, and bring the broker online.",
     },
     {
-      command: "openscout dispatch pair",
+      command: "scout pair",
       label:
-        "Pair a companion device into Dispatch when you want the mobile and host surface in the loop.",
+        "Pair a companion device into Scout when you want the mobile and host surface in the loop.",
     },
     {
-      command: "openscout relay watch --as myagent",
+      command: "scout watch --as myagent",
       label:
         "Drop into Relay when you want the broker-native operator surface and direct agent traffic.",
     },
@@ -290,17 +290,17 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
       label: "Install the OpenScout CLI with Bun.",
     },
     {
-      command: "openscout init",
+      command: "scout init",
       label:
         "Materialize machine-local settings, discover projects, register agents, and bring the broker online.",
     },
     {
-      command: "openscout relay tui",
+      command: "scout tui",
       label:
         "Start with the fast compatibility surface when you want broker state, active agents, and sessions in the terminal.",
     },
     {
-      command: "openscout relay watch --as myagent",
+      command: "scout watch --as myagent",
       label:
         "Keep a watcher attached when you want direct agent traffic and broker-native collaboration.",
     },
@@ -334,9 +334,9 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
         "Inspect nodes, reachable endpoints, projects, and machine-level runtime health in one place.",
     },
     {
-      src: "/dispatch/pair-mode.png",
-      alt: "OpenScout Dispatch pair mode captured March 31, 2026 at 10:17:29 AM",
-      eyebrow: "Dispatch",
+      src: "/scout/pair-mode.png",
+      alt: "Scout pair mode captured March 31, 2026 at 10:17:29 AM",
+      eyebrow: "Scout",
       title: "Pair mode",
       description:
         "Keep pairing, bridge logs, and runtime settings on the companion host surface instead of overloading Relay.",
@@ -371,9 +371,9 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
         "Inspect reachable endpoints, project counts, runtime endpoints, and machine-level health as live infrastructure.",
     },
     {
-      src: "/dispatch/pair-mode.png",
-      alt: "OpenScout Dispatch pair mode captured March 31, 2026 at 10:17:29 AM",
-      eyebrow: "Dispatch",
+      src: "/scout/pair-mode.png",
+      alt: "Scout pair mode captured March 31, 2026 at 10:17:29 AM",
+      eyebrow: "Scout",
       title: "Pair mode",
       description:
         "Keep pairing, bridge logs, and runtime settings in a dedicated companion host surface instead of leaking them into Relay.",
@@ -408,7 +408,7 @@ const audienceContent: Record<
     heroTitleTop: "All your agents,",
     heroTitleBottom: "connected.",
     heroDescription:
-      "Local-first agent communication. Sessions, tasks, and runtime state stay visible across Relay, Dispatch, and companion surfaces — no more context scattered across terminals.",
+      "Local-first agent communication. Sessions, tasks, and runtime state stay visible across Relay, Scout pairing, and companion surfaces — no more context scattered across terminals.",
     heroCommand: "bun add -g @openscout/cli",
     heroFootnote: "Open source. Local-first.",
     meshEyebrow: "The Problem",
@@ -418,15 +418,15 @@ const audienceContent: Record<
     capabilitiesTitle: "Messaging, pairing, and runtime state stay aligned.",
     capabilitiesDescription:
       "Every surface sits on top of the same local system, so the product feels coherent instead of stitched together.",
-    surfacesTitle: "Relay, Dispatch, and companion views stay in sync.",
+    surfacesTitle: "Relay, pairing, and companion views stay in sync.",
     surfacesDescription:
       "Start with the current product surfaces, then inspect each screenshot in detail without leaving the page.",
     surfacesNoteTitle: "Why This Matters",
     surfacesNoteDescription:
-      "Relay handles live agent work and search. Dispatch handles pairing and companion hosting. New surfaces can slot into the same system over time.",
+      "Relay handles live agent work and search. Scout handles pairing and companion hosting. New surfaces can slot into the same system over time.",
     getStartedTitle: "Install once. Move between surfaces cleanly.",
     getStartedDescription:
-      "The public flow should stay simple: install OpenScout, bootstrap the local mesh, pair Dispatch when you need a companion surface, and drop into Relay when you want the lower-level operator view.",
+      "The public flow should stay simple: install OpenScout, bootstrap the local mesh, pair Scout when you need a companion surface, and drop into Relay when you want the lower-level operator view.",
   },
   technical: {
     heroEyebrow: "Broker-Backed Runtime",
@@ -434,7 +434,7 @@ const audienceContent: Record<
     heroTitleBottom: "for your AI agents.",
     heroDescription:
       "Broker-backed local communication and execution for Claude, Codex, tmux, bridges, and companion surfaces. Durable conversations, explicit invocations, tracked flights, and observable state — without terminal scrollback.",
-    heroCommand: "openscout relay tui",
+    heroCommand: "scout tui",
     heroFootnote: "Broker-backed. Durable. Inspectable.",
     meshEyebrow: "The Mesh",
     meshTitle: "A mesh of peers, not a rigid agent hierarchy.",
@@ -445,10 +445,10 @@ const audienceContent: Record<
       "Typed records, operator views, and bridge surfaces all project the same durable state.",
     surfacesTitle: "Start in the TUI, then move outward.",
     surfacesDescription:
-      "Technical mode leads with the fast compatibility surface, then fans out into Relay and Dispatch views that sit on the same broker model.",
+      "Technical mode leads with the fast compatibility surface, then fans out into Relay and pairing views that sit on the same broker model.",
     surfacesNoteTitle: "Operator Path",
     surfacesNoteDescription:
-      "Start in the Relay TUI when you want the quickest read on sessions and active agents. Move into richer Relay views and Dispatch without losing the underlying broker context.",
+      "Start in the Relay TUI when you want the quickest read on sessions and active agents. Move into richer Relay views and Scout pairing without losing the underlying broker context.",
     getStartedTitle: "Install once. Start with the terminal.",
     getStartedDescription:
       "The operator flow should stay direct: install OpenScout, bootstrap the local mesh, open the Relay TUI, and keep a watcher running when you want direct agent traffic.",
@@ -1004,9 +1004,9 @@ const agentSections = [
     title: "How to join the mesh",
     items: [
       "Install: `bun add -g @openscout/cli`",
-      "Bootstrap: `openscout init` — creates local settings, discovers projects, registers agents, starts the broker.",
+      "Bootstrap: `scout init` — creates local settings, discovers projects, registers agents, starts the broker.",
       "Connect: import `@openscout/runtime` to send messages, create sessions, and listen for invocations programmatically.",
-      "Or use the CLI: `openscout relay watch --as myagent` to attach as a named peer from any terminal.",
+      "Or use the CLI: `scout watch --as myagent` to attach as a named peer from any terminal.",
     ],
   },
   {
@@ -1015,7 +1015,7 @@ const agentSections = [
       "Messages, invocations, flights, deliveries, and bindings are the five record types. All are typed via `@openscout/protocol`.",
       "Agents are peers, not children. No parent-child hierarchy — the broker routes between equals.",
       "Bridges (Telegram, voice, webhooks) attach as transports. Your conversation model stays the same regardless of surface.",
-      "State is durable and inspectable. Operator surfaces (Relay, Dispatch) project the same broker state you write to.",
+      "State is durable and inspectable. Operator surfaces (Relay, Scout pairing) project the same broker state you write to.",
     ],
   },
 ] as const;
@@ -1084,10 +1084,10 @@ function AgentView({ onExit }: { onExit: () => void }) {
             @openscout/cli
           </div>
           <div>
-            <span className="text-[#111110]/30">$ </span>openscout init
+            <span className="text-[#111110]/30">$ </span>scout init
           </div>
           <div>
-            <span className="text-[#111110]/30">$ </span>openscout relay watch
+            <span className="text-[#111110]/30">$ </span>scout watch
             --as myagent
           </div>
         </div>

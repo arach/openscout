@@ -1,0 +1,23 @@
+import type { ScoutCommandContext } from "../context.ts";
+import { defaultScoutContextDirectory } from "../context.ts";
+import { ScoutCliError } from "../errors.ts";
+import { downAllScoutAgents, downScoutAgent } from "../../core/agents/service.ts";
+import { renderScoutAgentStatusList, renderScoutDownResult } from "../../ui/terminal/agents.ts";
+
+export async function runDownCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
+  const [target, ...rest] = args;
+  if (!target || rest.length > 0) {
+    throw new ScoutCliError("usage: scout down <name|--all>");
+  }
+
+  if (target === "--all") {
+    const stopped = await downAllScoutAgents({
+      currentDirectory: defaultScoutContextDirectory(context),
+    });
+    context.output.writeValue(stopped, renderScoutAgentStatusList);
+    return;
+  }
+
+  const agent = await downScoutAgent(target);
+  context.output.writeValue(agent, renderScoutDownResult);
+}

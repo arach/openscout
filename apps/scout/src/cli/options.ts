@@ -1,0 +1,371 @@
+import { resolve } from "node:path";
+
+import { ScoutCliError } from "./errors.ts";
+
+type ContextRootOptions = {
+  currentDirectory: string;
+  args: string[];
+};
+
+type TargetableMessageOptions = ContextRootOptions & {
+  agentName: string | null;
+  channel?: string;
+  harness?: string;
+  shouldSpeak: boolean;
+  message: string;
+};
+
+export type ScoutSetupCommandOptions = {
+  currentDirectory: string;
+  sourceRoots: string[];
+};
+
+export type ScoutAskCommandOptions = ContextRootOptions & {
+  agentName: string | null;
+  targetLabel: string;
+  channel?: string;
+  harness?: string;
+  timeoutSeconds?: number;
+  message: string;
+};
+
+export type ScoutWatchCommandOptions = ContextRootOptions & {
+  agentName: string | null;
+  channel?: string;
+};
+
+export type ScoutEnrollCommandOptions = ContextRootOptions & {
+  agentName: string | null;
+  task?: string;
+};
+
+export type ScoutTuiCommandOptions = ContextRootOptions & {
+  channel?: string;
+  limit: number;
+  intervalMs: number;
+};
+
+function missingFlagValue(flag: string): never {
+  throw new ScoutCliError(`missing value for ${flag}`);
+}
+
+function unexpectedArgs(commandName: string, args: string[]): never {
+  throw new ScoutCliError(`unexpected arguments for ${commandName}: ${args.join(" ")}`);
+}
+
+function parseFlagValue(args: string[], index: number, flag: string): { value: string; nextIndex: number } {
+  const current = args[index] ?? "";
+  if (current === flag) {
+    const value = args[index + 1];
+    if (!value) {
+      missingFlagValue(flag);
+    }
+    return { value, nextIndex: index + 1 };
+  }
+
+  const prefix = `${flag}=`;
+  if (current.startsWith(prefix)) {
+    return { value: current.slice(prefix.length), nextIndex: index };
+  }
+
+  missingFlagValue(flag);
+}
+
+function parseContextRootPrefix(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ContextRootOptions {
+  let currentDirectory = defaultCurrentDirectory;
+  const rest: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index] ?? "";
+    if (current === "--context-root" || current.startsWith("--context-root=")) {
+      const parsed = parseFlagValue(args, index, "--context-root");
+      currentDirectory = resolve(parsed.value);
+      index = parsed.nextIndex;
+      continue;
+    }
+    rest.push(current);
+  }
+
+  return { currentDirectory, args: rest };
+}
+
+export function parseSetupCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutSetupCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  const sourceRoots: string[] = [];
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--source-root" || current.startsWith("--source-root=")) {
+      const value = parseFlagValue(parsed.args, index, "--source-root");
+      sourceRoots.push(resolve(value.value));
+      index = value.nextIndex;
+      continue;
+    }
+    unexpectedArgs("setup", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    sourceRoots,
+  };
+}
+
+export function parseContextRootCommandOptions(
+  commandName: string,
+  args: string[],
+  defaultCurrentDirectory: string,
+): ContextRootOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  if (parsed.args.length > 0) {
+    unexpectedArgs(commandName, args);
+  }
+  return parsed;
+}
+
+export function parseSendCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): TargetableMessageOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentName: string | null = null;
+  let channel: string | undefined;
+  let shouldSpeak = false;
+  let harness: string | undefined;
+  const messageParts: string[] = [];
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--harness" || current.startsWith("--harness=")) {
+      const value = parseFlagValue(parsed.args, index, "--harness");
+      harness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--speak") {
+      shouldSpeak = true;
+      continue;
+    }
+    messageParts.push(current);
+  }
+
+  const message = messageParts.join(" ").trim();
+  if (!message) {
+    throw new ScoutCliError("no message provided");
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentName,
+    channel,
+    shouldSpeak,
+    harness,
+    message,
+  };
+}
+
+export function parseAskCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutAskCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentName: string | null = null;
+  let targetLabel: string | null = null;
+  let channel: string | undefined;
+  let harness: string | undefined;
+  let timeoutSeconds: number | undefined;
+  const messageParts: string[] = [];
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--to" || current.startsWith("--to=")) {
+      const value = parseFlagValue(parsed.args, index, "--to");
+      targetLabel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--harness" || current.startsWith("--harness=")) {
+      const value = parseFlagValue(parsed.args, index, "--harness");
+      harness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--timeout" || current.startsWith("--timeout=")) {
+      const value = parseFlagValue(parsed.args, index, "--timeout");
+      const parsedTimeout = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
+        throw new ScoutCliError(`invalid timeout: ${value.value}`);
+      }
+      timeoutSeconds = parsedTimeout;
+      index = value.nextIndex;
+      continue;
+    }
+    messageParts.push(current);
+  }
+
+  const message = messageParts.join(" ").trim();
+  if (!targetLabel) {
+    throw new ScoutCliError("--to <name> is required");
+  }
+  if (!message) {
+    throw new ScoutCliError("no question provided");
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentName,
+    targetLabel,
+    channel,
+    harness,
+    timeoutSeconds,
+    message,
+  };
+}
+
+export function parseWatchCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutWatchCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentName: string | null = null;
+  let channel: string | undefined;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    unexpectedArgs("watch", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentName,
+    channel,
+  };
+}
+
+export function parseEnrollCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutEnrollCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentName: string | null = null;
+  let task: string | undefined;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--task") {
+      task = parsed.args.slice(index + 1).join(" ").trim() || undefined;
+      break;
+    }
+    if (current.startsWith("--task=")) {
+      task = current.slice("--task=".length).trim() || undefined;
+      continue;
+    }
+    unexpectedArgs("enroll", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentName,
+    task,
+  };
+}
+
+export function parseTuiCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutTuiCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let channel: string | undefined;
+  let limit = 12;
+  let intervalMs = 1_500;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--limit" || current.startsWith("--limit=")) {
+      const value = parseFlagValue(parsed.args, index, "--limit");
+      const parsedLimit = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        throw new ScoutCliError(`invalid limit: ${value.value}`);
+      }
+      limit = parsedLimit;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--interval" || current.startsWith("--interval=")) {
+      const value = parseFlagValue(parsed.args, index, "--interval");
+      const parsedInterval = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedInterval) || parsedInterval < 250) {
+        throw new ScoutCliError(`invalid interval: ${value.value}`);
+      }
+      intervalMs = parsedInterval;
+      index = value.nextIndex;
+      continue;
+    }
+    unexpectedArgs("tui", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    channel,
+    limit,
+    intervalMs,
+  };
+}

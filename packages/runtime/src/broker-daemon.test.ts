@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "./broker-service";
+
 const runtimeDir = join(import.meta.dir, "..");
 
 type BrokerHarness = {
@@ -26,14 +28,14 @@ afterEach(async () => {
 async function startBroker(): Promise<BrokerHarness> {
   const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
   const port = 38000 + Math.floor(Math.random() * 2000);
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const baseUrl = buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, port);
   const child = Bun.spawn({
     cmd: ["bun", "run", "src/broker-daemon.ts"],
     cwd: runtimeDir,
     env: {
       ...process.env,
       OPENSCOUT_CONTROL_HOME: controlHome,
-      OPENSCOUT_BROKER_HOST: "127.0.0.1",
+      OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
       OPENSCOUT_BROKER_PORT: String(port),
       OPENSCOUT_BROKER_URL: baseUrl,
       OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",

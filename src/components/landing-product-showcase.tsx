@@ -14,7 +14,7 @@ import {
 import { ExpandableImage } from "@/components/expandable-image";
 
 type AudienceMode = "general" | "technical";
-type SurfaceId = "relay" | "dispatch";
+type SurfaceId = "relay" | "pairing";
 type RelayViewId = "tui" | "home" | "agents" | "sessions" | "search" | "machines";
 
 type ShowcaseView = {
@@ -107,14 +107,14 @@ const relayViews: RelayView[] = [
   },
 ];
 
-const dispatchView: ShowcaseView = {
+const pairingView: ShowcaseView = {
   label: "Pair Mode",
-  title: "Dispatch host boundary",
+  title: "Scout pairing host",
   description:
-    "Dispatch handles pairing, bridge logs, and runtime settings so companion surfaces can plug into Relay without muddying the core broker model.",
+    "Scout keeps pairing, bridge logs, and runtime settings on a dedicated host surface so companion devices can plug in cleanly.",
   focus: "Current desktop host surface for pairing, logs, and settings.",
-  src: "/dispatch/pair-mode.png",
-  alt: "OpenScout Dispatch pair mode captured March 31, 2026 at 10:17:29 AM",
+  src: "/scout/pair-mode.png",
+  alt: "Scout pair mode captured March 31, 2026 at 10:17:29 AM",
 };
 
 function ShowcaseCaption({
@@ -163,7 +163,7 @@ export function LandingProductShowcase({
 
   const activeRelayView =
     availableRelayViews.find((view) => view.id === relayView) ?? availableRelayViews[0];
-  const activeView = surface === "relay" ? activeRelayView : dispatchView;
+  const activeView = surface === "relay" ? activeRelayView : pairingView;
   const relayEyebrow = activeRelayView.id === "tui" ? "Relay TUI" : "Relay";
 
   return (
@@ -192,15 +192,15 @@ export function LandingProductShowcase({
             </button>
             <button
               type="button"
-              onClick={() => setSurface("dispatch")}
+              onClick={() => setSurface("pairing")}
               className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
-                surface === "dispatch"
+                surface === "pairing"
                   ? "bg-[#111110] text-[#f5f4ef]"
                   : "text-[#7a7770] hover:bg-[#f5f4ef]"
               }`}
             >
               <Send className="h-3 w-3" />
-              Dispatch
+              Pairing
             </button>
           </div>
         </div>
@@ -302,20 +302,20 @@ export function LandingProductShowcase({
         <div className="bg-white p-3 sm:p-4">
           <div className="overflow-hidden rounded-lg border border-[#eae6dd] bg-[#f3f1eb]">
             <ExpandableImage
-              src={dispatchView.src}
-              alt={dispatchView.alt}
-              width={dispatchView.width ?? 1552}
-              height={dispatchView.height ?? 1092}
+              src={pairingView.src}
+              alt={pairingView.alt}
+              width={pairingView.width ?? 1552}
+              height={pairingView.height ?? 1092}
               className={
-                dispatchView.imageClassName ??
+                pairingView.imageClassName ??
                 "aspect-[1552/1092] w-full object-cover object-top"
               }
             />
             <ShowcaseCaption
-              eyebrow="Dispatch"
-              title={dispatchView.title}
-              description={dispatchView.description}
-              focus={`${dispatchView.focus} Mobile and companion views can slot in here as they land.`}
+              eyebrow="Scout"
+              title={pairingView.title}
+              description={pairingView.description}
+              focus={`${pairingView.focus} Mobile and companion views can slot in here as they land.`}
             />
           </div>
         </div>

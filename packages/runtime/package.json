@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
+  "bin": {
+    "openscout-runtime": "./bin/openscout-runtime.mjs"
+  },
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -10,28 +13,55 @@
       "default": "./dist/index.js"
     },
     "./setup": {
-      "types": "./dist/setup.d.ts",
+      "types": "./src/setup.ts",
       "bun": "./src/setup.ts",
       "default": "./dist/setup.js"
     },
     "./local-agents": {
-      "types": "./dist/local-agents.d.ts",
+      "types": "./src/local-agents.ts",
       "bun": "./src/local-agents.ts",
       "default": "./dist/local-agents.js"
+    },
+    "./broker-service": {
+      "types": "./src/broker-service.ts",
+      "bun": "./src/broker-service.ts",
+      "default": "./dist/broker-service.js"
+    },
+    "./registry": {
+      "types": "./src/registry.ts",
+      "bun": "./src/registry.ts",
+      "default": "./dist/registry.js"
+    },
+    "./harness-catalog": {
+      "types": "./src/harness-catalog.ts",
+      "bun": "./src/harness-catalog.ts",
+      "default": "./dist/harness-catalog.js"
+    },
+    "./support-paths": {
+      "types": "./src/support-paths.ts",
+      "bun": "./src/support-paths.ts",
+      "default": "./dist/support-paths.js"
+    },
+    "./codex-app-server": {
+      "types": "./src/codex-app-server.ts",
+      "bun": "./src/codex-app-server.ts",
+      "default": "./dist/codex-app-server.js"
     }
   },
   "types": "./src/index.ts",
   "files": [
+    "bin",
     "dist",
     "README.md"
   ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
-    "broker": "bun run src/broker-daemon.ts",
-    "service": "bun run src/broker-service.ts",
-    "discover": "bun run src/mesh-discover.ts",
+    "broker": "node ./bin/openscout-runtime.mjs broker",
+    "service": "node ./bin/openscout-runtime.mjs service",
+    "discover": "node ./bin/openscout-runtime.mjs discover",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test src/*.test.ts"
+    "test": "bun test src/*.test.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@openscout/protocol": "workspace:*"

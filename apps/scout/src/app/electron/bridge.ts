@@ -1,0 +1,166 @@
+import type {
+  ScoutDesktopAppInfo,
+  ScoutDesktopShellState,
+  ScoutPhonePreparationState,
+  UpdateScoutPhonePreparationInput,
+} from "../desktop/index.ts";
+import type {
+  ScoutElectronAgentConfigState,
+  ScoutElectronUpdateAgentConfigInput,
+} from "./agent-config.ts";
+import type {
+  ScoutElectronBrokerControlAction,
+  ScoutElectronRestartAgentInput,
+  ScoutElectronSendRelayMessageInput,
+} from "./broker-actions.ts";
+import type {
+  ScoutPairingControlAction,
+  ScoutPairingState,
+  UpdateScoutPairingConfigInput,
+} from "./pairing.ts";
+import type {
+  AppSettingsState,
+  OnboardingCommandResult,
+  RunOnboardingCommandInput,
+  UpdateAppSettingsInput,
+} from "./settings.ts";
+import type {
+  ReadScoutLogSourceInput,
+  ScoutDesktopBrokerInspector,
+  ScoutDesktopLogCatalog,
+  ScoutDesktopLogContent,
+} from "./diagnostics.ts";
+import type { ScoutElectronAgentSessionInspector } from "./agent-session.ts";
+import type { ScoutElectronVoiceState } from "./voice.ts";
+import { SCOUT_ELECTRON_CHANNELS } from "./channels.ts";
+
+export type ScoutElectronInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
+
+export type ScoutElectronBridge = {
+  isDesktop: true;
+  getAppInfo: () => Promise<ScoutDesktopAppInfo>;
+  getShellState: () => Promise<ScoutDesktopShellState>;
+  refreshShellState: () => Promise<ScoutDesktopShellState>;
+  getAppSettings: () => Promise<AppSettingsState>;
+  updateAppSettings: (input: UpdateAppSettingsInput) => Promise<AppSettingsState>;
+  retireProject: (projectRoot: string) => Promise<AppSettingsState>;
+  restoreProject: (projectRoot: string) => Promise<AppSettingsState>;
+  runOnboardingCommand: (input: RunOnboardingCommandInput) => Promise<OnboardingCommandResult>;
+  skipOnboarding: () => Promise<AppSettingsState>;
+  restartOnboarding: () => Promise<AppSettingsState>;
+  getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
+  updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
+  pickDirectory: () => Promise<string | null>;
+  quitApp: () => Promise<boolean>;
+  revealPath: (filePath: string) => Promise<boolean>;
+  getPhonePreparation: () => Promise<ScoutPhonePreparationState>;
+  updatePhonePreparation: (input: UpdateScoutPhonePreparationInput) => Promise<ScoutPhonePreparationState>;
+  getPairingState: () => Promise<ScoutPairingState>;
+  refreshPairingState: () => Promise<ScoutPairingState>;
+  controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
+  updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
+  restartAgent: (input: ScoutElectronRestartAgentInput) => Promise<ScoutDesktopShellState>;
+  sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellState>;
+  controlBroker: (action: ScoutElectronBrokerControlAction) => Promise<ScoutDesktopShellState>;
+  getAgentSession: (agentId: string) => Promise<ScoutElectronAgentSessionInspector>;
+  openAgentSession: (agentId: string) => Promise<boolean>;
+  toggleVoiceCapture: () => Promise<ScoutDesktopShellState>;
+  setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
+  getLogCatalog: () => Promise<ScoutDesktopLogCatalog>;
+  getBrokerInspector: () => Promise<ScoutDesktopBrokerInspector>;
+  readLogSource: (input: ReadScoutLogSourceInput) => Promise<ScoutDesktopLogContent>;
+};
+
+export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutElectronBridge {
+  return {
+    isDesktop: true,
+    getAppInfo: () => invoke(SCOUT_ELECTRON_CHANNELS.getAppInfo) as Promise<ScoutDesktopAppInfo>,
+    getShellState: () => invoke(SCOUT_ELECTRON_CHANNELS.getShellState) as Promise<ScoutDesktopShellState>,
+    refreshShellState: () => invoke(SCOUT_ELECTRON_CHANNELS.refreshShellState) as Promise<ScoutDesktopShellState>,
+    getAppSettings: () => invoke(SCOUT_ELECTRON_CHANNELS.getAppSettings) as Promise<AppSettingsState>,
+    updateAppSettings: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.updateAppSettings,
+      input,
+    ) as Promise<AppSettingsState>,
+    retireProject: (projectRoot) => invoke(
+      SCOUT_ELECTRON_CHANNELS.retireProject,
+      projectRoot,
+    ) as Promise<AppSettingsState>,
+    restoreProject: (projectRoot) => invoke(
+      SCOUT_ELECTRON_CHANNELS.restoreProject,
+      projectRoot,
+    ) as Promise<AppSettingsState>,
+    runOnboardingCommand: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.runOnboardingCommand,
+      input,
+    ) as Promise<OnboardingCommandResult>,
+    skipOnboarding: () => invoke(SCOUT_ELECTRON_CHANNELS.skipOnboarding) as Promise<AppSettingsState>,
+    restartOnboarding: () => invoke(SCOUT_ELECTRON_CHANNELS.restartOnboarding) as Promise<AppSettingsState>,
+    getAgentConfig: (agentId) => invoke(
+      SCOUT_ELECTRON_CHANNELS.getAgentConfig,
+      agentId,
+    ) as Promise<ScoutElectronAgentConfigState>,
+    updateAgentConfig: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.updateAgentConfig,
+      input,
+    ) as Promise<ScoutElectronAgentConfigState>,
+    pickDirectory: () => invoke(SCOUT_ELECTRON_CHANNELS.pickDirectory) as Promise<string | null>,
+    quitApp: () => invoke(SCOUT_ELECTRON_CHANNELS.quitApp) as Promise<boolean>,
+    revealPath: (filePath) => invoke(
+      SCOUT_ELECTRON_CHANNELS.revealPath,
+      filePath,
+    ) as Promise<boolean>,
+    getPhonePreparation: () => invoke(SCOUT_ELECTRON_CHANNELS.getPhonePreparation) as Promise<ScoutPhonePreparationState>,
+    updatePhonePreparation: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.updatePhonePreparation,
+      input,
+    ) as Promise<ScoutPhonePreparationState>,
+    getPairingState: () => invoke(SCOUT_ELECTRON_CHANNELS.getPairingState) as Promise<ScoutPairingState>,
+    refreshPairingState: () => invoke(SCOUT_ELECTRON_CHANNELS.refreshPairingState) as Promise<ScoutPairingState>,
+    controlPairingService: (action) => invoke(
+      SCOUT_ELECTRON_CHANNELS.controlPairingService,
+      action,
+    ) as Promise<ScoutPairingState>,
+    updatePairingConfig: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.updatePairingConfig,
+      input,
+    ) as Promise<ScoutPairingState>,
+    restartAgent: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.restartAgent,
+      input,
+    ) as Promise<ScoutDesktopShellState>,
+    sendRelayMessage: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.sendRelayMessage,
+      input,
+    ) as Promise<ScoutDesktopShellState>,
+    controlBroker: (action) => invoke(
+      SCOUT_ELECTRON_CHANNELS.controlBroker,
+      action,
+    ) as Promise<ScoutDesktopShellState>,
+    getAgentSession: (agentId) => invoke(
+      SCOUT_ELECTRON_CHANNELS.getAgentSession,
+      agentId,
+    ) as Promise<ScoutElectronAgentSessionInspector>,
+    openAgentSession: (agentId) => invoke(
+      SCOUT_ELECTRON_CHANNELS.openAgentSession,
+      agentId,
+    ) as Promise<boolean>,
+    toggleVoiceCapture: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.toggleVoiceCapture,
+    ) as Promise<ScoutDesktopShellState>,
+    setVoiceRepliesEnabled: (enabled) => invoke(
+      SCOUT_ELECTRON_CHANNELS.setVoiceRepliesEnabled,
+      enabled,
+    ) as Promise<ScoutDesktopShellState>,
+    getLogCatalog: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.getLogCatalog,
+    ) as Promise<ScoutDesktopLogCatalog>,
+    getBrokerInspector: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.getBrokerInspector,
+    ) as Promise<ScoutDesktopBrokerInspector>,
+    readLogSource: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.readLogSource,
+      input,
+    ) as Promise<ScoutDesktopLogContent>,
+  };
+}

@@ -1,0 +1,284 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE_PATH" ]]; do
+  SOURCE_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+  SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+  [[ "$SOURCE_PATH" != /* ]] && SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ELECTRON_DIR="$ROOT_DIR/packages/electron-app"
+SUPPORT_DIR="$HOME/Library/Application Support/OpenScout"
+APP_LOG_DIR="$SUPPORT_DIR/logs/app"
+ELECTRON_RUNTIME_DIR="$SUPPORT_DIR/runtime/electron"
+ELECTRON_LOG_FILE="$APP_LOG_DIR/electron.log"
+ELECTRON_PID_FILE="$ELECTRON_RUNTIME_DIR/electron-dev.pid"
+ELECTRON_LAUNCHER="$ROOT_DIR/scripts/launch-openscout-electron.mjs"
+ELECTRON_MAIN_PATH="$ELECTRON_DIR/dist/electron/main.js"
+
+mkdir -p "$SUPPORT_DIR" "$APP_LOG_DIR" "$ELECTRON_RUNTIME_DIR"
+
+usage() {
+  cat <<'EOF'
+openscout-dev: local developer CLI for the Electron shell
+
+Usage:
+  openscout-dev build
+  openscout-dev rebuild
+  openscout-dev launch
+  openscout-dev relaunch [--no-build]
+  openscout-dev quit
+  openscout-dev status
+  openscout-dev logs
+  openscout-dev help
+
+Defaults:
+  `relaunch` rebuilds before launching unless you pass `--no-build`
+  `launch` builds only if the Electron dist artifacts are missing
+EOF
+}
+
+info() {
+  printf '%s\n' "$*"
+}
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+electron_dist_ready() {
+  [[ -f "$ELECTRON_DIR/dist/client/index.html" ]] &&
+  [[ -f "$ELECTRON_DIR/dist/electron/main.js" ]] &&
+  [[ -f "$ELECTRON_DIR/dist/index.js" ]]
+}
+
+electron_pids() {
+  local patterns=(
+    "$ROOT_DIR/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron dist/electron/main.js"
+    "electron dist/electron/main.js"
+    "$ELECTRON_MAIN_PATH"
+  )
+  local pids=""
+
+  for pattern in "${patterns[@]}"; do
+    local matches
+    matches="$(pgrep -f "$pattern" || true)"
+    if [[ -n "$matches" ]]; then
+      pids="${pids}"$'\n'"${matches}"
+    fi
+  done
+
+  if [[ -n "$pids" ]]; then
+    printf '%s\n' "$pids" | awk 'NF {print $1}' | sort -u
+  fi
+}
+
+build_electron() {
+  info "Building Electron shell..."
+  (
+    cd "$ROOT_DIR"
+    npm run electron:build
+  )
+}
+
+read_pid_file() {
+  if [[ -f "$ELECTRON_PID_FILE" ]]; then
+    tr -d '[:space:]' <"$ELECTRON_PID_FILE"
+  fi
+}
+
+process_alive() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+stored_process_alive() {
+  local pid
+  pid="$(read_pid_file)"
+  process_alive "$pid"
+}
+
+remove_pid_file_if_stale() {
+  local pid
+  pid="$(read_pid_file)"
+  if [[ -n "$pid" ]] && ! process_alive "$pid"; then
+    rm -f "$ELECTRON_PID_FILE"
+  fi
+}
+
+wait_for_electron_start() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || fail "missing Electron PID after launch"
+
+  for _ in $(seq 1 25); do
+    if ! process_alive "$pid"; then
+      rm -f "$ELECTRON_PID_FILE"
+      info "Electron shell failed to stay up."
+      info "Recent log output:"
+      tail_logs
+      return 1
+    fi
+
+    sleep 0.2
+  done
+
+  return 0
+}
+
+launch_electron() {
+  if ! electron_dist_ready; then
+    build_electron
+  fi
+
+  remove_pid_file_if_stale
+  if stored_process_alive; then
+    info "Electron shell is already running."
+    status_electron
+    return
+  fi
+
+  if [[ -n "$(electron_pids)" ]]; then
+    info "Electron shell appears to already be running outside openscout-dev."
+    status_electron
+    return
+  fi
+
+  info "Launching Electron shell..."
+  : >"$ELECTRON_LOG_FILE"
+  OPENSCOUT_ELECTRON_LOG_FILE="$ELECTRON_LOG_FILE" \
+  OPENSCOUT_ELECTRON_PID_FILE="$ELECTRON_PID_FILE" \
+    node "$ELECTRON_LAUNCHER" >/dev/null
+
+  local pid
+  pid="$(read_pid_file)"
+  wait_for_electron_start "$pid" || exit 1
+  info "Electron log: $ELECTRON_LOG_FILE"
+  info "Electron PID: ${pid:-unknown}"
+}
+
+quit_electron() {
+  remove_pid_file_if_stale
+
+  local pid
+  pid="$(read_pid_file)"
+  if [[ -z "$pid" ]]; then
+    local fallback_pids
+    fallback_pids="$(electron_pids)"
+    if [[ -z "$fallback_pids" ]]; then
+      info "Electron shell is not running."
+      return
+    fi
+
+    info "Stopping Electron shell..."
+    printf '%s\n' "$fallback_pids" | while IFS= read -r fallback_pid; do
+      [[ -n "$fallback_pid" ]] || continue
+      kill "$fallback_pid" 2>/dev/null || true
+    done
+    return
+  fi
+
+  info "Stopping Electron shell..."
+  kill -TERM -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+
+  for _ in $(seq 1 30); do
+    if ! process_alive "$pid"; then
+      rm -f "$ELECTRON_PID_FILE"
+      info "Electron shell stopped."
+      return
+    fi
+    sleep 0.2
+  done
+
+  info "Electron shell did not exit cleanly, forcing stop..."
+  kill -KILL -- "-$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+  rm -f "$ELECTRON_PID_FILE"
+}
+
+status_electron() {
+  remove_pid_file_if_stale
+
+  local pid
+  pid="$(read_pid_file)"
+  info "Electron log: $ELECTRON_LOG_FILE"
+  if [[ -n "$pid" ]] && process_alive "$pid"; then
+    info "Electron shell: running (pid $pid)"
+  elif [[ -n "$(electron_pids)" ]]; then
+    info "Electron shell: running (externally managed)"
+  else
+    info "Electron shell: not running"
+  fi
+}
+
+tail_logs() {
+  touch "$ELECTRON_LOG_FILE"
+  tail -n 80 "$ELECTRON_LOG_FILE"
+}
+
+relaunch_electron() {
+  local build_before_launch=1
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-build)
+        build_before_launch=0
+        ;;
+      *)
+        fail "unexpected argument for relaunch: $1"
+        ;;
+    esac
+    shift
+  done
+
+  quit_electron
+  if [[ "$build_before_launch" == "1" ]]; then
+    build_electron
+  elif ! electron_dist_ready; then
+    build_electron
+  fi
+  launch_electron
+}
+
+main() {
+  local command="${1:-help}"
+  shift || true
+
+  case "$command" in
+    help|-h|--help)
+      usage
+      ;;
+    build|rebuild)
+      [[ $# -eq 0 ]] || fail "unexpected arguments for $command: $*"
+      build_electron
+      ;;
+    launch)
+      [[ $# -eq 0 ]] || fail "unexpected arguments for launch: $*"
+      launch_electron
+      ;;
+    relaunch)
+      relaunch_electron "$@"
+      ;;
+    quit)
+      [[ $# -eq 0 ]] || fail "unexpected arguments for quit: $*"
+      quit_electron
+      ;;
+    status)
+      [[ $# -eq 0 ]] || fail "unexpected arguments for status: $*"
+      status_electron
+      ;;
+    logs)
+      [[ $# -eq 0 ]] || fail "unexpected arguments for logs: $*"
+      tail_logs
+      ;;
+    *)
+      fail "unknown command: $command"
+      ;;
+  esac
+}
+
+main "$@"

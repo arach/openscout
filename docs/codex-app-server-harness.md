@@ -6,7 +6,7 @@ Relay should keep its current broker semantics as the canonical model.
 
 The improvement is lower in the stack: add a harness-session plane for long-running agent runtimes, then map those sessions back into the existing `message`, `invocation`, and `flight` model.
 
-This lets OpenScout borrow the strongest part of Dispatch without replacing Relay's richer collaboration semantics.
+This lets OpenScout reuse the strongest part of the pairing runtime without replacing Relay's richer collaboration semantics.
 
 ## What We Are Borrowing
 

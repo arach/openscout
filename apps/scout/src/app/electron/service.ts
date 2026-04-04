@@ -1,0 +1,106 @@
+import {
+  createScoutDesktopAppInfo,
+  loadScoutDesktopShellState,
+  loadScoutPhonePreparation,
+  updateScoutPhonePreparation,
+  type ScoutDesktopAppInfo,
+  type ScoutDesktopShellState,
+  type ScoutPhonePreparationState,
+  type UpdateScoutPhonePreparationInput,
+} from "../desktop/index.ts";
+import type { ScoutElectronVoiceState } from "./voice.ts";
+
+export type ScoutElectronServiceOptions = {
+  currentDirectory?: string;
+  appInfo?: ScoutDesktopAppInfo;
+  voice?: ScoutElectronVoiceService;
+};
+
+export type ScoutElectronVoiceService = {
+  getVoiceState?: () => Promise<ScoutElectronVoiceState> | ScoutElectronVoiceState;
+  toggleVoiceCapture?: () => Promise<void> | void;
+  setVoiceRepliesEnabled?: (enabled: boolean) => Promise<void> | void;
+};
+
+function resolveCurrentDirectory(input?: string): string {
+  return input ?? process.cwd();
+}
+
+export function getScoutElectronAppInfo(input: {
+  appVersion?: string;
+  isPackaged?: boolean;
+  platform?: string;
+} = {}): ScoutDesktopAppInfo {
+  return createScoutDesktopAppInfo(input);
+}
+
+async function applyScoutElectronVoiceState(
+  shellState: ScoutDesktopShellState,
+  voiceService?: ScoutElectronVoiceService,
+): Promise<ScoutDesktopShellState> {
+  if (!voiceService?.getVoiceState) {
+    return shellState;
+  }
+
+  const voice = await voiceService.getVoiceState();
+  return {
+    ...shellState,
+    relay: {
+      ...shellState.relay,
+      voice,
+    },
+  };
+}
+
+export async function getScoutElectronShellState(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopShellState> {
+  const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
+  const shellState = await loadScoutDesktopShellState({
+    currentDirectory,
+    appInfo: options.appInfo ?? createScoutDesktopAppInfo(),
+  });
+  return applyScoutElectronVoiceState(shellState, options.voice);
+}
+
+export async function refreshScoutElectronShellState(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopShellState> {
+  return getScoutElectronShellState(options);
+}
+
+export async function getScoutElectronPhonePreparation(
+  currentDirectory = process.cwd(),
+): Promise<ScoutPhonePreparationState> {
+  return loadScoutPhonePreparation(currentDirectory);
+}
+
+export async function updateScoutElectronPhonePreparation(
+  input: UpdateScoutPhonePreparationInput,
+  currentDirectory = process.cwd(),
+): Promise<ScoutPhonePreparationState> {
+  return updateScoutPhonePreparation(currentDirectory, input);
+}
+
+export async function toggleScoutElectronVoiceCapture(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopShellState> {
+  if (!options.voice?.toggleVoiceCapture) {
+    throw new Error("Scout voice capture is unavailable.");
+  }
+
+  await options.voice.toggleVoiceCapture();
+  return refreshScoutElectronShellState(options);
+}
+
+export async function setScoutElectronVoiceRepliesEnabled(
+  enabled: boolean,
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopShellState> {
+  if (!options.voice?.setVoiceRepliesEnabled) {
+    throw new Error("Scout voice playback control is unavailable.");
+  }
+
+  await options.voice.setVoiceRepliesEnabled(enabled);
+  return refreshScoutElectronShellState(options);
+}

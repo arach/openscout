@@ -3,7 +3,7 @@
 ## Goal
 
 Keep `control-plane.sqlite` as the single source of truth while adding a fast,
-broker-native activity projection for Relay, Dispatch, Spectator, and agent
+broker-native activity projection for Relay, pairing, Spectator, and agent
 detail views.
 
 The problem today is not storage capacity. The problem is that several desktop
@@ -40,7 +40,7 @@ The real scaling risk is not SQLite itself. It is:
 OpenScout needs one event spine and multiple first-class projections:
 
 - Relay / agent detail: actor-to-actor activity, asks, handoffs, blockers
-- Dispatch: turns, missions, waiting state, follow-up
+- Pairing host: turns, missions, waiting state, follow-up
 - Spectator: runtime health, logs, and infra behavior
 
 These should all read different projections over the same canonical facts.

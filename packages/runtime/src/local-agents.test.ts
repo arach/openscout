@@ -8,6 +8,7 @@ import {
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
+import { DEFAULT_BROKER_URL } from "./broker-service";
 
 describe("local agent prompts", () => {
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
@@ -48,7 +49,7 @@ describe("local agent prompts", () => {
         displayName: "Shaper",
         projectName: "shaper",
         projectPath: "/Users/arach/dev/shaper",
-        brokerUrl: "http://127.0.0.1:65535",
+        brokerUrl: DEFAULT_BROKER_URL,
         relayCommand: "bun relay",
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
@@ -62,7 +63,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Projects root: /Users/arach/dev");
     expect(prompt).toContain("Base path: /Users/arach/dev");
     expect(prompt).toContain("Workspace root: /Users/arach/dev/shaper");
-    expect(prompt).toContain("Broker URL: http://127.0.0.1:65535");
+    expect(prompt).toContain(`Broker URL: ${DEFAULT_BROKER_URL}`);
     expect(prompt).toContain("bun relay send --as shaper");
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");

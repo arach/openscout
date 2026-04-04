@@ -66,30 +66,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Run The Electron Shell
 
-Use the Electron dev wrapper when you want a rebuild-and-relaunch loop for the desktop shell:
+The main desktop loop now runs directly from the repo root:
 
 ```bash
-./scripts/openscout-dev relaunch
-./scripts/openscout-dev status
-./scripts/openscout-dev logs
+bun install
+bun run dev
 ```
 
-Shortcuts are also exposed through the root package scripts:
-
-```bash
-bun run openscout:relaunch
-bun run openscout:status
-bun run openscout:logs
-```
-
-`openscout-dev relaunch` rebuilds the Electron shell, stops any existing Electron shell for this workspace, launches a detached replacement, and waits for the new process to stay alive before returning. Pass `--no-build` if you only want to restart the existing build.
-
-To expose `openscout-dev` as a global CLI from this repo:
-
-```bash
-bun link
-openscout-dev status
-```
+That command starts the Scout renderer, verifies it is the Scout UI rather than another Vite app on the same machine, and then launches Electron against that renderer.
 
 ## Run The Native Scaffold
 
@@ -116,7 +100,7 @@ bun link
 bun run cli:build
 (cd packages/cli && bun link)
 scout --help
-scout init
+scout setup
 scout-dev status
 ```
 
@@ -124,7 +108,6 @@ For shell ergonomics:
 
 ```bash
 alias scoutd="scout-dev"
-alias osd="openscout-dev"
 ```
 
 Launch the shell:
@@ -164,7 +147,7 @@ The support directory is now organized as:
 
 `~/.openscout/relay` still exists as the relay compatibility layer, but it is no longer the primary setup surface.
 
-The `scout-dev` and `openscout-dev` wrappers now write app, broker, and Electron logs into the normalized `logs/` tree.
+The `scout-dev` wrapper writes app, broker, and Electron logs into the normalized `logs/` tree.
 
 The native dev loop now builds with `xcodebuild` into:
 

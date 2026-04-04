@@ -12,7 +12,7 @@
     "src/tui"
   ],
   "scripts": {
-    "build": "bun run --cwd ../runtime build && tsc",
+    "build": "npm --prefix ../runtime run build && tsc",
     "dev": "tsc --watch",
     "tui": "bun run src/tui/index.tsx"
   },
