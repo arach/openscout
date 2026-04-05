@@ -17,7 +17,7 @@ import type { SessionState } from "./state.ts";
 import type { ActionBlock, Prompt } from "../protocol/index.ts";
 import type { AgentHarness } from "@openscout/protocol";
 import {
-  createScoutMobileSession,
+  createScoutSession,
   getScoutMobileActivity,
   getScoutMobileAgents,
   getScoutMobileHome,
@@ -504,10 +504,12 @@ const mobileRouter = t.router({
         agentName: z.string().optional(),
         worktree: z.string().nullable().optional(),
         profile: z.string().nullable().optional(),
+        branch: z.string().optional(),
+        model: z.string().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      return createScoutMobileSession(
+      return createScoutSession(
         input,
         resolveMobileCurrentDirectory(),
         ctx.deviceId,

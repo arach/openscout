@@ -191,10 +191,23 @@ struct DirectoryEntry: Codable, Identifiable, Sendable {
     let name: String
     let path: String
     let markers: [String]
+    let currentBranch: String?
 
     var id: String { path }
 
     var isProject: Bool { !markers.isEmpty }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        markers = try container.decode([String].self, forKey: .markers)
+        currentBranch = try container.decodeIfPresent(String.self, forKey: .currentBranch)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, path, markers, currentBranch
+    }
 }
 
 struct WorkspaceListResponse: Codable, Sendable {
@@ -226,6 +239,8 @@ struct MobileCreateSessionParams: Codable, Sendable {
     var agentName: String?
     var worktree: String?
     var profile: String?
+    var branch: String?
+    var model: String?
 }
 
 struct MobileSessionSnapshotParams: Codable, Sendable {

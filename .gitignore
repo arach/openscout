@@ -66,3 +66,5 @@ scout/ios/.asc/artifacts/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+scout/ios/.asc/metadata/
+scout/ios/build/

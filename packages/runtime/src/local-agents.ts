@@ -119,6 +119,8 @@ export type StartLocalAgentInput = {
   agentName?: string;
   harness?: AgentHarness;
   currentDirectory?: string;
+  model?: string;
+  branch?: string;
 };
 
 interface BrokerSnapshotMessage {
@@ -639,7 +641,29 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
   const selectedHarness = normalizeManagedHarness(harnessOverride, activeLocalHarness(normalized));
   const profile = normalized.harnessProfiles?.[selectedHarness];
   if (!profile) {
-    throw new Error(`Agent ${normalized.definitionId ?? "agent"} has no ${selectedHarness} runtime profile.`);
+    // Build a default profile from the record's workspace path instead of throwing
+    const fallbackCwd = normalizeProjectPath(normalized.projectRoot || normalized.cwd || process.cwd());
+    const fallbackTransport = normalizeLocalAgentTransport(undefined, selectedHarness);
+    const agentKey = normalized.definitionId || "agent";
+    const fallbackSessionId = normalizeTmuxSessionName(undefined, `${agentKey}-${selectedHarness}`);
+    return {
+      ...normalized,
+      harness: selectedHarness,
+      defaultHarness: selectedHarness,
+      tmuxSession: fallbackSessionId,
+      cwd: fallbackCwd,
+      transport: fallbackTransport,
+      launchArgs: normalizeLocalAgentLaunchArgs(normalized.launchArgs),
+      harnessProfiles: {
+        ...normalized.harnessProfiles,
+        [selectedHarness]: {
+          cwd: fallbackCwd,
+          transport: fallbackTransport,
+          sessionId: fallbackSessionId,
+          launchArgs: normalizeLocalAgentLaunchArgs(normalized.launchArgs),
+        },
+      },
+    };
   }
 
   return {
@@ -1502,9 +1526,55 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     ensureCurrentProjectConfig: true,
     syncLegacyMirror: true,
   });
-  const candidate = setup.discoveredAgents.find((agent) => normalizeProjectPath(agent.projectRoot) === projectRoot);
+  let candidate = setup.discoveredAgents.find((agent) => normalizeProjectPath(agent.projectRoot) === projectRoot);
   if (!candidate) {
-    throw new Error(`No relay agent could be resolved for ${projectRoot}.`);
+    // Dynamic agent creation fallback: create an agent override from workspace defaults
+    const definitionId = requestedDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+    const instance = buildRelayAgentInstance(definitionId, projectRoot);
+    const effectiveHarness = normalizeManagedHarness(preferredHarness, "claude");
+    const transport = normalizeLocalAgentTransport(undefined, effectiveHarness);
+    const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
+
+    const overrides = await readRelayAgentOverrides();
+    overrides[instance.id] = {
+      agentId: instance.id,
+      definitionId,
+      displayName: titleCaseLocalAgentName(definitionId),
+      projectName: basename(projectRoot),
+      projectRoot,
+      projectConfigPath: ensuredProject.projectConfigPath ?? null,
+      source: "manual",
+      startedAt: nowSeconds(),
+      defaultHarness: effectiveHarness,
+      harnessProfiles: {
+        [effectiveHarness]: {
+          cwd: projectRoot,
+          transport,
+          sessionId,
+          launchArgs: [],
+        },
+      },
+      runtime: {
+        cwd: projectRoot,
+        harness: effectiveHarness,
+        transport,
+        sessionId,
+        wakePolicy: "on_demand",
+      },
+    };
+    await writeRelayAgentOverrides(overrides);
+
+    // Re-resolve so the new override is picked up
+    const refreshedSetup = await loadResolvedRelayAgents({
+      currentDirectory,
+      ensureCurrentProjectConfig: true,
+      syncLegacyMirror: true,
+    });
+    candidate = refreshedSetup.discoveredAgents.find((agent) => normalizeProjectPath(agent.projectRoot) === projectRoot)
+      ?? refreshedSetup.agents.find((agent) => agent.agentId === instance.id);
+    if (!candidate) {
+      throw new Error(`No relay agent could be resolved for ${projectRoot}.`);
+    }
   }
 
   let targetAgentId = candidate.agentId;

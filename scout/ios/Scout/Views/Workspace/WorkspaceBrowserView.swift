@@ -82,7 +82,8 @@ struct WorkspaceBrowserView: View {
         .sheet(item: $selectedProject) { project in
             HarnessPickerView(
                 projectName: project.name,
-                projectPath: project.path
+                projectPath: project.path,
+                projectBranch: project.currentBranch
             ) { config in
                 openProject(project, config: config)
             }
@@ -380,7 +381,9 @@ struct WorkspaceBrowserView: View {
                 let session = try await connection.createMobileSession(
                     workspaceId: entry.path,
                     harness: config.harness.id,
-                    agentName: entry.name
+                    agentName: entry.name,
+                    branch: config.branch,
+                    model: config.model
                 )
                 onSessionCreated?(session.session.conversationId)
             } catch {

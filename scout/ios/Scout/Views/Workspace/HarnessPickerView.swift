@@ -38,11 +38,13 @@ struct Harness: Identifiable, Hashable {
 struct HarnessConfig {
     let harness: Harness
     var model: String?
+    var branch: String?
 }
 
 struct HarnessPickerView: View {
     let projectName: String
     let projectPath: String
+    var projectBranch: String?
     let onSelect: (HarnessConfig) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -71,6 +73,15 @@ struct HarnessPickerView: View {
                             .foregroundStyle(ScoutColors.textMuted)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        if let branch = projectBranch?.trimmedNonEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text(branch)
+                                    .font(ScoutTypography.code(12))
+                            }
+                            .foregroundStyle(ScoutColors.textSecondary)
+                        }
                     }
                     Spacer()
                 }
@@ -125,7 +136,8 @@ struct HarnessPickerView: View {
                             onSelect(
                                 HarnessConfig(
                                     harness: harness,
-                                    model: selectedModel.trimmedNonEmpty
+                                    model: selectedModel.trimmedNonEmpty,
+                                    branch: projectBranch?.trimmedNonEmpty
                                 )
                             )
                             dismiss()

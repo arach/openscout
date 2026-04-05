@@ -6,7 +6,7 @@ import { createScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import { createScoutDesktopAppInfo } from "../app/desktop/index.ts";
 import type { ScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import {
-  createScoutMobileSession,
+  createScoutSession,
   getScoutMobileAgents,
   getScoutMobileHome,
   getScoutMobileSessionSnapshot,
@@ -153,7 +153,7 @@ app.get("/api/mobile/session/:conversationId", async (c) => c.json(
     currentDirectory,
   ),
 ));
-app.post("/api/mobile/session/create", async (c) => c.json(await createScoutMobileSession(await c.req.json(), currentDirectory)));
+app.post("/api/mobile/session/create", async (c) => c.json(await createScoutSession(await c.req.json(), currentDirectory)));
 app.post("/api/mobile/message/send", async (c) => c.json(await sendScoutMobileMessage(await c.req.json(), currentDirectory)));
 
 // --- Proxy non-API requests to Vite dev server or serve static build ---

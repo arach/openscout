@@ -86,12 +86,14 @@ export type ScoutMobileHomeState = {
   };
 };
 
-export type CreateScoutMobileSessionInput = {
+export type CreateScoutSessionInput = {
   workspaceId: string;
   harness?: AgentHarness;
   agentName?: string;
   worktree?: string | null;
   profile?: string | null;
+  branch?: string;
+  model?: string;
 };
 
 export type ScoutMobileSessionHandle = {
@@ -652,8 +654,8 @@ export async function getScoutMobileSessionSnapshot(
   };
 }
 
-export async function createScoutMobileSession(
-  input: CreateScoutMobileSessionInput,
+export async function createScoutSession(
+  input: CreateScoutSessionInput,
   currentDirectory?: string,
   deviceId?: string,
 ): Promise<ScoutMobileSessionHandle> {
@@ -668,6 +670,8 @@ export async function createScoutMobileSession(
     agentName: workspace.projectName,
     harness: input.harness,
     currentDirectory: currentDirectory ?? workspace.root,
+    model: input.model,
+    branch: input.branch,
   });
 
   const broker = await loadScoutBrokerContext();

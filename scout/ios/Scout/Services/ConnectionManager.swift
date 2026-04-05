@@ -489,14 +489,18 @@ final class ConnectionManager: @unchecked Sendable {
         harness: String? = nil,
         agentName: String? = nil,
         worktree: String? = nil,
-        profile: String? = nil
+        profile: String? = nil,
+        branch: String? = nil,
+        model: String? = nil
     ) async throws -> MobileSessionHandle {
         let params = MobileCreateSessionParams(
             workspaceId: workspaceId,
             harness: harness,
             agentName: agentName,
             worktree: worktree,
-            profile: profile
+            profile: profile,
+            branch: branch,
+            model: model
         )
         let data = try await sendRPC(method: "mobile/session/create", params: params)
         return try decodeResult(MobileSessionHandle.self, from: data)
