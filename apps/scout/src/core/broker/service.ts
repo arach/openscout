@@ -267,6 +267,22 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
+function isSupersededBrokerAgent(snapshot: ScoutBrokerSnapshot, agentId: string): boolean {
+  const agent = snapshot.agents[agentId];
+  if (!agent) {
+    return false;
+  }
+  if (!metadataBoolean(agent.metadata, "staleLocalRegistration")) {
+    return false;
+  }
+  const replacementAgentId = metadataString(agent.metadata, "replacedByAgentId");
+  return Boolean(replacementAgentId && snapshot.agents[replacementAgentId]);
+}
+
 async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
   const response = await fetch(new URL(path, baseUrl), {
     headers: {
@@ -343,6 +359,9 @@ async function resolveMentionTargets(
   )];
 
   for (const agent of Object.values(snapshot.agents)) {
+    if (isSupersededBrokerAgent(snapshot, agent.id)) {
+      continue;
+    }
     candidateMap.set(agent.id, {
       agentId: agent.id,
       definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
@@ -1274,12 +1293,14 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
 
   for (const endpoint of Object.values(broker.snapshot.endpoints ?? {})) {
     if (!endpoint.agentId || endpoint.agentId === OPERATOR_ID) continue;
+    if (isSupersededBrokerAgent(broker.snapshot, endpoint.agentId)) continue;
     const existing = endpointsByAgent.get(endpoint.agentId) ?? [];
     existing.push(endpoint);
     endpointsByAgent.set(endpoint.agentId, existing);
   }
   for (const message of Object.values(broker.snapshot.messages ?? {})) {
     if (!message.actorId || message.actorId === OPERATOR_ID) continue;
+    if (isSupersededBrokerAgent(broker.snapshot, message.actorId)) continue;
     const current = messageStats.get(message.actorId) ?? { messages: 0, lastSeen: null };
     current.messages += 1;
     current.lastSeen = maxDefined([current.lastSeen, normalizeUnixTimestamp(message.createdAt)]);
@@ -1293,6 +1314,7 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
     ...Array.from(discoveredAgents.keys()),
   ])]
     .filter((agentId) => agentId && agentId !== OPERATOR_ID)
+    .filter((agentId) => !isSupersededBrokerAgent(broker.snapshot, agentId))
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];
       const brokerMessages = messageStats.get(agentId);

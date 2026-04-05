@@ -12,6 +12,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "setup", summary: "Bootstrap local settings and broker" },
   { name: "doctor", summary: "Show broker health and project inventory" },
   { name: "runtimes", summary: "Show harness catalog and readiness" },
+  { name: "env", summary: "Show executable and agent identity context" },
   { name: "send", summary: "Post a broker-backed message" },
   { name: "speak", summary: "Send and speak aloud via TTS" },
   { name: "ask", summary: "Ask an agent and wait for the answer" },

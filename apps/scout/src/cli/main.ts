@@ -9,7 +9,8 @@ import { SCOUT_APP_VERSION } from "../shared/product.ts";
 async function main() {
   const input = parseScoutArgv(process.argv.slice(2));
   const context = createScoutCommandContext({ outputMode: input.outputMode });
-  const command = input.command;
+  let command = input.command;
+  let commandArgs = input.args;
 
   if (input.versionRequested) {
     context.output.writeText(SCOUT_APP_VERSION);
@@ -19,6 +20,15 @@ async function main() {
   if (input.helpRequested || !command) {
     context.output.writeText(renderScoutHelp(SCOUT_APP_VERSION));
     return;
+  }
+
+  if (command === "relay") {
+    command = commandArgs[0] ?? null;
+    commandArgs = commandArgs.slice(1);
+    if (!command || command === "help" || command === "--help" || command === "-h") {
+      context.output.writeText(renderScoutHelp(SCOUT_APP_VERSION));
+      return;
+    }
   }
 
   const registration = findScoutCommandRegistration(command);
@@ -36,7 +46,7 @@ async function main() {
     throw new ScoutCliError(`unknown command: ${resolvedCommand}`);
   }
 
-  await handler(context, input.args);
+  await handler(context, commandArgs);
 }
 
 try {

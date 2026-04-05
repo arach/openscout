@@ -13,6 +13,7 @@ export function renderScoutHelp(version = "0.2.0"): string {
     "",
     "Usage:",
     "  scout [--json] <command> [options]",
+    "  scout relay <command> [options]",
     "",
     "Commands:",
     commandLines,
@@ -26,5 +27,9 @@ export function renderScoutHelp(version = "0.2.0"): string {
     "",
     "Global flags:",
     "  --json        Structured JSON (doctor: NDJSON stream; last object has phase \"complete\")",
+    "",
+    "Compatibility:",
+    "  relay         Namespace alias for ask/send/speak/watch/card",
+    "  scout         Canonical CLI binary",
   ].join("\n");
 }

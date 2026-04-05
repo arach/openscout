@@ -5,6 +5,7 @@ import { runCardCommand } from "./card.ts";
 import { runDownCommand } from "./down.ts";
 import { runDoctorCommand } from "./doctor.ts";
 import { runEnrollCommand } from "./enroll.ts";
+import { runEnvCommand } from "./env.ts";
 import { runPairCommand } from "./pair.ts";
 import { runPsCommand } from "./ps.ts";
 import { runRestartCommand } from "./restart.ts";
@@ -26,6 +27,7 @@ export const SCOUT_COMMAND_HANDLERS: Record<string, ScoutCommandHandler> = {
   down: runDownCommand,
   doctor: runDoctorCommand,
   enroll: runEnrollCommand,
+  env: runEnvCommand,
   pair: runPairCommand,
   ps: runPsCommand,
   restart: runRestartCommand,
