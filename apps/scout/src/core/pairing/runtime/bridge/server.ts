@@ -64,6 +64,7 @@ export interface BridgeServerOptions {
 interface SocketState {
   unsub?: () => void;
   transport?: SecureTransport;
+  deviceId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +112,9 @@ export function startBridgeServer(
               onReady: (remotePublicKey) => {
                 const pubHex = bytesToHex(remotePublicKey);
                 const trusted = isTrustedPeer(pubHex);
+                state.deviceId = pubHex.slice(0, 16);
                 console.log(
-                  `[bridge] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${trusted})`,
+                  `[bridge] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${trusted}, device: ${state.deviceId})`,
                 );
 
                 // Push existing sessions through the encrypted channel.
@@ -144,7 +146,7 @@ export function startBridgeServer(
                   return;
                 }
 
-                handleRPC(bridge, req).then((res) => {
+                handleRPC(bridge, req, state.deviceId).then((res) => {
                   transport.send(JSON.stringify(res));
                 });
               },
@@ -197,7 +199,8 @@ export function startBridgeServer(
             return;
           }
 
-          handleRPC(bridge, req).then((res) => {
+          const connState = socketState.get(ws);
+          handleRPC(bridge, req, connState?.deviceId).then((res) => {
             ws.send(JSON.stringify(res));
           });
         }
@@ -228,6 +231,7 @@ export function startBridgeServer(
 export async function handleRPC(
   bridge: Bridge,
   req: RPCRequest,
+  deviceId?: string,
 ): Promise<RPCResponse> {
   log.info("rpc", req.method, req.params);
   try {
@@ -519,7 +523,7 @@ export async function handleRPC(
         };
         return {
           id: req.id,
-          result: await createScoutMobileSession(p, resolveMobileCurrentDirectory()),
+          result: await createScoutMobileSession(p, resolveMobileCurrentDirectory(), deviceId),
         };
       }
 
@@ -534,7 +538,7 @@ export async function handleRPC(
         };
         return {
           id: req.id,
-          result: await sendScoutMobileMessage(p, resolveMobileCurrentDirectory()),
+          result: await sendScoutMobileMessage(p, resolveMobileCurrentDirectory(), deviceId),
         };
       }
 

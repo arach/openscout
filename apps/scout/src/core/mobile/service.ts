@@ -653,6 +653,7 @@ export async function getScoutMobileSessionSnapshot(
 export async function createScoutMobileSession(
   input: CreateScoutMobileSessionInput,
   currentDirectory?: string,
+  deviceId?: string,
 ): Promise<ScoutMobileSessionHandle> {
   const workspaces = await loadMobileWorkspaceInventory(currentDirectory);
   const workspace = workspaces.find((entry) => entry.id === input.workspaceId || entry.root === input.workspaceId);
@@ -720,6 +721,7 @@ export async function createScoutMobileSession(
 export async function sendScoutMobileMessage(
   input: SendScoutMobileMessageInput,
   currentDirectory?: string,
+  deviceId?: string,
 ): Promise<ScoutDirectMessageResult> {
   return sendScoutDirectMessage({
     agentId: input.agentId,
@@ -730,6 +732,7 @@ export async function sendScoutMobileMessage(
     referenceMessageIds: input.referenceMessageIds,
     executionHarness: input.harness,
     source: "scout-mobile",
+    deviceId,
   });
 }
 

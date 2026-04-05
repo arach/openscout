@@ -939,6 +939,7 @@ export async function sendScoutDirectMessage(input: {
   referenceMessageIds?: string[];
   executionHarness?: AgentHarness;
   source?: string;
+  deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const directSession = await openScoutPeerSession({
@@ -982,6 +983,7 @@ export async function sendScoutDirectMessage(input: {
       referenceMessageIds: input.referenceMessageIds ?? [],
       clientMessageId: input.clientMessageId ?? null,
       returnAddress,
+      ...(input.deviceId ? { deviceId: input.deviceId } : {}),
     },
   });
 
@@ -1006,6 +1008,7 @@ export async function sendScoutDirectMessage(input: {
         destinationKind: "direct",
         destinationId: targetAgentId,
         returnAddress,
+        ...(input.deviceId ? { deviceId: input.deviceId } : {}),
       },
     },
   );

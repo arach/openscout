@@ -80,6 +80,7 @@ export function connectToRelay(
   let ws: WebSocket | null = null;
   let transport: SecureTransport | null = null;
   let eventUnsub: (() => void) | null = null;
+  let relayDeviceId: string | undefined;
   let stopped = false;
   let backoff = INITIAL_BACKOFF_MS;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -184,7 +185,8 @@ export function connectToRelay(
       {
         onReady: (remotePublicKey) => {
           const pubHex = bytesToHex(remotePublicKey);
-          console.log(`[relay-client] secure handshake complete (peer: ${pubHex.slice(0, 12)}...)`);
+          relayDeviceId = pubHex.slice(0, 16);
+          console.log(`[relay-client] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., device: ${relayDeviceId})`);
           events?.onPaired?.({ relayUrl, room: qrPayload.room, remotePublicKey });
 
           // Push existing sessions to the newly connected phone (with seq wrapper).
@@ -262,7 +264,7 @@ export function connectToRelay(
       return;
     }
 
-    handleRPC(bridge, req).then((res) => {
+    handleRPC(bridge, req, relayDeviceId).then((res) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(res));
       }
@@ -282,7 +284,7 @@ export function connectToRelay(
       return;
     }
 
-    handleRPC(bridge, req).then((res) => {
+    handleRPC(bridge, req, relayDeviceId).then((res) => {
       if (transport?.isReady()) {
         transport.send(JSON.stringify(res));
       }
