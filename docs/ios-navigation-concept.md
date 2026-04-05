@@ -2,167 +2,109 @@
 
 ## Design Language
 
-iOS 26 Liquid Glass. Translucent tab bar, glass-material navigation bars,
-system blur for overlays. Dark-first with the existing ScoutColors palette.
+iOS 26 Liquid Glass. Dark-first with the existing ScoutColors palette.
+Safari-inspired single-surface navigation — not a tab bar app.
 
 ---
 
-## Information Architecture
+## Navigation Model: Safari-Style
 
-Three top-level branches, one overlay layer:
+One primary surface at a time with a contextual bottom toolbar,
+a session/address bar, and a card grid for jumping between anything.
 
 ```
-TabView (Liquid Glass tab bar, 3 tabs)
-├── Home          — connection state, device info, quick actions
-├── Sessions      — recent work, search, history
-└── New           — project picker → harness config → launch
-
-Session Detail (full-screen push from Sessions or New)
-└── Multi-session switcher (overlay, like Safari tab cards)
+┌─────────────────────────────────────────────┐
+│                                             │
+│            Current Surface                  │
+│     (Home, Session Detail, New, etc.)       │
+│                                             │
+├─────────────────────────────────────────────┤
+│  [ session name · status ]          ⋯       │  ← address bar
+│  ◀  ▶  [context actions]      ▦  + │       │  ← bottom toolbar
+└─────────────────────────────────────────────┘
 ```
+
+### Bottom Toolbar (contextual, Liquid Glass)
+
+Changes based on what you're looking at:
+
+| Surface | Left | Center/Address Bar | Right |
+|---------|------|-------------------|-------|
+| Home | — | `● Connected · Mac Mini` | `⋯` `▦` |
+| Session Detail | `◀` `▶` | `openscout · main · ● Working` | `⋯` `▦` `+` |
+| New Session | `◀` | `New Session` | `▦` |
+| All Sessions | `Done` | `N Sessions` | `⋯` `+` |
+
+- `▦` = All Sessions grid (always available)
+- `+` = New Session
+- `⋯` = overflow (settings, pair/unpair, disconnect, help)
+- `◀` `▶` = back/forward through session history
+
+### Address Bar
+
+Tappable pill showing current context. Tap to:
+- Search sessions
+- See session state detail
+- Quick-switch to recent sessions (dropdown, like Safari URL suggestions)
 
 ---
 
-## Tab 1: Home
+## Surface: Home
 
-The "status dashboard." Always answers: what's connected, what's happening.
+Landing surface. Answers: what's connected, what's happening, what's next.
 
 ```
 ┌─────────────────────────────┐
-│  ● Connected                │  ← glass pill, green/yellow/red
+│                             │
+│         (Scout logo)        │
 │                             │
 │  ┌───────────────────────┐  │
-│  │  🖥  Arach's Mac Mini │  │  ← device card (glass surface)
+│  │  🖥  Arach's Mac Mini │  │  ← glass device card
+│  │  ● Connected          │  │
 │  │  macOS · 14 agents    │  │
-│  │  Uptime: 3d 12h       │  │
-│  │                       │  │
-│  │  [Disconnect]  [Pair] │  │
+│  │  Paired 3 days ago    │  │
 │  └───────────────────────┘  │
 │                             │
-│  QUICK ACTIONS              │
-│  ┌──────┐ ┌──────┐         │
-│  │ New  │ │ Ask  │         │  ← glass cards
-│  │ Sess.│ │ Scout│         │
-│  └──────┘ └──────┘         │
-│                             │
-│  ACTIVE NOW          2     │
+│  ACTIVE SESSIONS       2    │
 │  ┌───────────────────────┐  │
-│  │ ● dewey — working     │  │  ← live agent status
-│  │ ● arc — idle 5m ago   │  │
-│  └───────────────────────┘  │
-└─────────────────────────────┘
-```
-
-**Connection states surfaced here:**
-- `connected` — green dot, device card shows machine info
-- `connecting` / `handshaking` — amber pulse, "Connecting..."
-- `reconnecting(N)` — amber, "Reconnecting (attempt N)..."
-- `disconnected` (trusted) — gray, "Tap to reconnect"
-- `disconnected` (no trust) — shows Pair CTA
-- `failed` — red, error detail, retry button
-
-**This replaces** the current ContentView's state-switch routing.
-All states are visible _within_ the Home tab instead of replacing the whole screen.
-
----
-
-## Tab 2: Sessions
-
-Recent-first, searchable. Two sub-sections via a segmented control.
-
-```
-┌─────────────────────────────┐
-│  Sessions                   │
-│  [Active ▼] [History]       │  ← segmented / Liquid Glass toggle
-│                             │
-│  🔍 Search sessions...      │
-│                             │
-│  TODAY                      │
-│  ┌───────────────────────┐  │
-│  │ openscout · main      │  │
-│  │ 12 turns · 3m ago     │  │
-│  │ "Fix iOS build warn…" │  │
-│  └───────────────────────┘  │
-│  ┌───────────────────────┐  │
-│  │ dewey · main          │  │
-│  │ 8 turns · 14m ago     │  │
-│  │ "Read feedback, veri…"│  │
+│  │ openscout · ● Working │  │  ← tap → Session Detail
+│  │ 12 turns · "Fix iOS…" │  │
+│  ├───────────────────────┤  │
+│  │ dewey · ● Idle 14m    │  │
+│  │ 8 turns · "Read feed…"│  │
 │  └───────────────────────┘  │
 │                             │
-│  YESTERDAY                  │
-│  ┌───────────────────────┐  │
-│  │ amplink · master      │  │
-│  │ 34 turns · completed  │  │
-│  └───────────────────────┘  │
-└─────────────────────────────┘
-```
-
-**Active** = sessions with a live flight or recent turns (last hour).
-**History** = everything, grouped by day, searchable.
-
-Tap a session → push to Session Detail (full screen).
-
----
-
-## Tab 3: New Session
-
-Pick a project → pick a harness → configure → launch.
-
-```
-┌─────────────────────────────┐
-│  New Session                │
+│  RECENT                     │
+│  amplink · 34 turns · yday  │
+│  hudson · 12 turns · 2d ago │
 │                             │
-│  WORKSPACES                 │
-│  ┌───────────────────────┐  │
-│  │ 📁 openscout          │  │  ← from mobile/workspaces RPC
-│  │    ~/dev/openscout     │  │
-│  └───────────────────────┘  │
-│  ┌───────────────────────┐  │
-│  │ 📁 dewey              │  │
-│  │    ~/dev/dewey         │  │
-│  └───────────────────────┘  │
-│  ┌───────────────────────┐  │
-│  │ 📁 amplink            │  │
-│  │    ~/dev/amplink       │  │
-│  └───────────────────────┘  │
-│                             │
-│  🔍 Filter workspaces...    │
-└─────────────────────────────┘
-
-        │ tap a workspace
-        ▼
-
-┌─────────────────────────────┐
-│  ◀ openscout                │
-│                             │
-│  HARNESS                    │
-│  ( Claude )  ( Codex )      │  ← toggle / picker
-│                             │
-│  BRANCH                     │
-│  main                    ▼  │  ← dropdown if multiple
-│                             │
-│  EFFORT                     │
-│  ( Quick )  (● Normal ) ( Deep )
-│                             │
-│  ┌───────────────────────┐  │
-│  │    Launch Session   → │  │  ← accent-colored CTA
-│  └───────────────────────┘  │
-└─────────────────────────────┘
-```
-
-Launch → creates session via `mobile/session/create` → pushes to Session Detail.
-
----
-
-## Session Detail (Full Screen)
-
-The conversation/turn view. Pushed from Sessions or New.
-
-```
-┌─────────────────────────────┐
-│  ◀  openscout · main    ⋯  │  ← nav bar: back + overflow menu
-│  ● Claude · Working         │  ← agent status pill (glass)
 ├─────────────────────────────┤
+│ ● Connected · Mac Mini  ▦ + │  ← toolbar
+└─────────────────────────────┘
+```
+
+**Connection states** (shown in device card + address bar):
+
+| State | Device Card | Address Bar |
+|-------|------------|-------------|
+| `connected` | Green dot, machine info | `● Connected · Mac Mini` |
+| `connecting` | Amber pulse | `◐ Connecting...` |
+| `reconnecting(N)` | Amber, attempt count | `◐ Reconnecting...` |
+| `disconnected` (trusted) | Gray, "Tap to reconnect" | `○ Disconnected` |
+| `disconnected` (no trust) | Pair CTA fills the card | `○ Not Paired` |
+| `failed(error)` | Red, error + retry | `✕ Connection Failed` |
+
+No state replaces the whole screen. You always have the toolbar,
+can always reach All Sessions or start something new.
+
+---
+
+## Surface: Session Detail
+
+The conversation view. Pushes from Home, All Sessions, or New.
+
+```
+┌─────────────────────────────┐
 │                             │
 │  ┌─ You ──────────────────┐ │
 │  │ Fix the iOS build      │ │
@@ -180,75 +122,190 @@ The conversation/turn view. Pushed from Sessions or New.
 │  └────────────────────────┘ │
 │                             │
 │  ┌─ openscout ────────────┐ │
-│  │ ◉ Working...           │ │  ← live streaming indicator
+│  │ ◉ Working...           │ │  ← live indicator
 │  └────────────────────────┘ │
 │                             │
+│  [  Message agent...    🎤] │  ← composer (glass)
 ├─────────────────────────────┤
-│  [  Message agent...     ] 🎤│  ← composer (glass material)
+│ openscout · main · ● Working│
+│ ◀  ▶             ⋯  ▦  +  │  ← toolbar
 └─────────────────────────────┘
 ```
 
-**Session state indicators** (shown in the sub-header pill):
-- `Working` — amber pulse, agent is executing
-- `Idle` — green, waiting for input
-- `Completed` — green checkmark
-- `Error` — red, with retry action
-- `Queued` — gray, waiting for agent wake
+**Session state** in the address bar pill:
+- `● Working` — amber, agent executing
+- `● Idle` — green, waiting for input
+- `✓ Completed` — green checkmark
+- `✕ Error` — red, tap for detail + retry
+- `◐ Queued` — gray, agent waking
+
+**`⋯` overflow menu** from Session Detail:
+- Copy session link
+- View agent profile
+- Stop agent
+- Close session
+- Settings
+
+**`◀` `▶`** — navigate between turns or between sessions
+(back goes to previous session you were viewing, like browser history).
 
 ---
 
-## Multi-Session Switcher
+## Surface: All Sessions (▦)
 
-When you have 2+ active sessions, accessible via:
-- Long-press the Sessions tab
-- Swipe up from the composer
-- `⋯` menu → "Switch Session"
-
-Visual: Safari-style card stack with session previews.
+Card grid, like Safari's "All Tabs." Grouped, searchable.
 
 ```
 ┌─────────────────────────────┐
-│  Active Sessions         ✕  │
+│  Sessions              ⋯   │
+│  🔍 Search...               │
 │                             │
-│  ┌───────────────────────┐  │
-│  │ openscout · main      │  │  ← glass card, slightly tilted
-│  │ ● Working · 12 turns  │  │
-│  │ "Fix the iOS build…"  │  │
-│  └───────────────────────┘  │
+│  ACTIVE                  2  │
+│  ┌──────────┐ ┌──────────┐ │
+│  │openscout │ │ dewey    │ │
+│  │● Working │ │● Idle    │ │
+│  │"Fix iOS  │ │"Read     │ │
+│  │ build.." │ │ feedba.."│ │
+│  └──────────┘ └──────────┘ │
 │                             │
-│  ┌───────────────────────┐  │
-│  │ dewey · main          │  │
-│  │ ● Idle · 8 turns      │  │
-│  │ "Read feedback, ver…" │  │
-│  └───────────────────────┘  │
+│  TODAY                      │
+│  ┌──────────┐ ┌──────────┐ │
+│  │amplink   │ │ hudson   │ │
+│  │✓ Done    │ │✓ Done    │ │
+│  │34 turns  │ │12 turns  │ │
+│  └──────────┘ └──────────┘ │
 │                             │
-│  ┌───────────────────────┐  │
-│  │         + New          │  │
-│  └───────────────────────┘  │
+│  YESTERDAY                  │
+│  ┌──────────┐               │
+│  │lattices  │               │
+│  │✓ Done    │               │
+│  └──────────┘               │
+│                             │
+│  ┌──────────────────────┐   │
+│  │       + New Session   │   │
+│  └──────────────────────┘   │
+│                             │
+├─────────────────────────────┤
+│  Done    3 Sessions    ⋯  + │
 └─────────────────────────────┘
 ```
 
-Tap a card → animates back into the Session Detail for that session.
+**Grouped by:**
+- Active (live flights or recent turns) — always on top
+- Today / Yesterday / This Week / Older
+
+**Card interactions:**
+- Tap → animate into Session Detail
+- Swipe left → close/archive session
+- Long press → context menu (copy, share, stop agent)
+- `+ New Session` card at the bottom
+
+**`⋯` overflow** from All Sessions:
+- Close all completed
+- Sort by (recent, project, agent)
+- Settings
 
 ---
 
-## State Model Summary
+## Surface: New Session
+
+Reached via `+` button. Workspace → config → launch.
 
 ```
-ConnectionState (global, shown on Home tab)
-├── disconnected (no trust) → show Pair flow
-├── disconnected (trusted)  → show Reconnect
-├── connecting / handshaking → show progress
-├── connected               → show device card
-├── reconnecting(N)         → show retry count
-└── failed(error)           → show error + retry
+┌─────────────────────────────┐
+│  New Session                │
+│  🔍 Filter...               │
+│                             │
+│  ┌───────────────────────┐  │
+│  │ 📁 openscout          │  │
+│  │    ~/dev/openscout     │  │
+│  └───────────────────────┘  │
+│  ┌───────────────────────┐  │
+│  │ 📁 dewey              │  │
+│  │    ~/dev/dewey         │  │
+│  └───────────────────────┘  │
+│  ┌───────────────────────┐  │
+│  │ 📁 amplink            │  │
+│  │    ~/dev/amplink       │  │
+│  └───────────────────────┘  │
+│                             │
+├─────────────────────────────┤
+│ ◀  New Session         ▦   │
+└─────────────────────────────┘
 
-SessionState (per session, shown in Session Detail header)
-├── idle        → waiting for user input
-├── working     → agent executing (flight in progress)
-├── queued      → invocation sent, agent waking
-├── completed   → flight finished successfully
-└── error       → flight failed, show retry
+     │ tap workspace
+     ▼
+
+┌─────────────────────────────┐
+│  ◀ openscout                │
+│                             │
+│  HARNESS                    │
+│  ( Claude )  ( Codex )      │
+│                             │
+│  BRANCH                     │
+│  main                    ▼  │
+│                             │
+│  EFFORT                     │
+│  ( Quick ) (● Normal) (Deep)│
+│                             │
+│  ┌───────────────────────┐  │
+│  │    Launch Session   → │  │
+│  └───────────────────────┘  │
+├─────────────────────────────┤
+│ ◀  openscout           ▦   │
+└─────────────────────────────┘
+```
+
+Launch → pushes to Session Detail with the new session.
+
+---
+
+## Navigation Flow
+
+```
+         Home
+          │
+     ┌────┼────────────────┐
+     │    │                │
+     ▼    ▼                ▼
+  Session  Session    New Session
+  Detail   Detail     (workspace → config)
+     │                     │
+     │◀────── ▦ ──────────▶│
+     │   All Sessions      │
+     │   (card grid)       │
+     │                     │
+     └─────────┬───────────┘
+               │
+          Any session card
+          tapped → Session Detail
+```
+
+All surfaces share the same bottom toolbar. `▦` is always reachable.
+`+` is always reachable. Back button returns to previous surface.
+
+This is a **stack**, not tabs. You push and pop. The card grid
+is the "escape hatch" to jump anywhere without popping the whole stack.
+
+---
+
+## State Model
+
+```
+ConnectionState (global, always visible in toolbar address bar)
+├── disconnected (no trust) → Home shows Pair flow in device card
+├── disconnected (trusted)  → Home shows "Tap to reconnect"
+├── connecting / handshaking → address bar pulses amber
+├── connected               → green dot, machine name
+├── reconnecting(N)         → amber, attempt count
+└── failed(error)           → red dot, tap for detail
+
+SessionState (per session, in address bar when viewing that session)
+├── idle        → ● green, waiting for input
+├── working     → ● amber, agent executing
+├── queued      → ◐ gray, agent waking
+├── completed   → ✓ green, done
+└── error       → ✕ red, tap for retry
 ```
 
 ---
@@ -257,31 +314,35 @@ SessionState (per session, shown in Session Detail header)
 
 | Element | Treatment |
 |---------|-----------|
-| Tab bar | `.tabViewStyle(.liquidGlass)` — system translucent |
-| Nav bar | Glass material with blur |
+| Bottom toolbar | Liquid Glass bar, system translucent |
+| Address bar | Glass capsule pill in toolbar |
 | Device card (Home) | `.glassEffect()` container |
-| Session cards | `.glassEffect()` with subtle border |
-| Status pills | Tinted glass capsules (green/amber/red) |
-| Composer | Glass material, floats above content |
-| Session switcher | Glass cards with depth via shadow |
-| Segmented control | Glass-backed segments |
+| Session cards (grid) | `.glassEffect()` with state-tinted border |
+| Status pills | Tinted glass (green/amber/red/gray) |
+| Composer | Glass material, inset above toolbar |
+| Overflow menu | Glass popover |
+| New session config | Glass-backed form sections |
 
 ---
 
 ## Migration Path
 
-The current app has:
-- `ContentView` → state-switch router (replace with TabView)
-- `SessionListView` → becomes the Sessions tab content
-- `PairingView` → embedded in Home tab when no trust
-- `TimelineView` → becomes Session Detail
-- `WorkspaceBrowserView` → becomes New tab content
-- `HarnessPickerView` → sheet from New tab after workspace pick
+Current → Safari model:
 
-Incremental steps:
-1. Add TabView shell with Home / Sessions / New
-2. Move SessionListView into Sessions tab
-3. Build Home tab from connection state + device info
-4. Move workspace/harness flow into New tab
-5. Add session state pills to Session Detail header
-6. Add multi-session switcher overlay
+| Current | Becomes |
+|---------|---------|
+| `ContentView` (state-switch) | Home surface + toolbar (no more full-screen takeover) |
+| `SessionListView` | All Sessions card grid (▦) |
+| `PairingView` | Inline in Home device card |
+| `TimelineView` | Session Detail surface |
+| `WorkspaceBrowserView` | New Session surface |
+| `HarnessPickerView` | Config step in New Session flow |
+
+Steps:
+1. Build the toolbar + address bar shell (NavigationStack + custom toolbar)
+2. Home surface with device card and active sessions
+3. Session Detail with composer and state pill
+4. All Sessions card grid with grouping
+5. New Session flow (workspace → config → launch)
+6. Wire `◀` `▶` navigation history
+7. Polish: glass effects, animations, search
