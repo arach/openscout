@@ -56,8 +56,9 @@ struct ScoutBottomBar: View {
 
                 Spacer()
 
-                // Right side: grid + new + overflow
+                // Right side: activity + grid + new + overflow
                 HStack(spacing: 4) {
+                    activityButton
                     gridButton
                     newSessionButton
                     overflowMenu
@@ -138,6 +139,29 @@ struct ScoutBottomBar: View {
         }
         .disabled(!router.canGoBack)
         .accessibilityLabel("Back")
+    }
+
+    private var isOnActivity: Bool {
+        if case .activity = router.currentSurface { return true }
+        return false
+    }
+
+    private var activityButton: some View {
+        Button {
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            if isOnActivity {
+                router.pop()
+            } else {
+                router.push(.activity)
+            }
+        } label: {
+            Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(isOnActivity ? ScoutColors.accent : ScoutColors.textPrimary)
+                .frame(width: 40, height: 40)
+        }
+        .accessibilityLabel("Activity feed")
     }
 
     private var gridButton: some View {

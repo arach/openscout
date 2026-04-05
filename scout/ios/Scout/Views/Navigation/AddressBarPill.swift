@@ -51,6 +51,8 @@ struct AddressBarPill: View {
             return store.sessions[sessionId]?.session.name ?? "Session"
         case .allSessions:
             return "All Sessions"
+        case .activity:
+            return "Activity"
         case .newSession:
             return "New Session"
         case .settings:

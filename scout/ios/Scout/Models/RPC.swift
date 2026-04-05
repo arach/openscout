@@ -4,6 +4,7 @@
 // Note: This is a simplified JSON-RPC dialect — no "jsonrpc" field.
 
 import Foundation
+import SwiftUI
 
 // MARK: - Request
 
@@ -203,6 +204,98 @@ struct MobileAgentSummary: Codable, Sendable {
     let statusLabel: String
     let sessionId: String?
     let lastActiveAt: Int?
+}
+
+// MARK: - Activity Feed
+
+struct MobileActivityParams: Codable, Sendable {
+    var agentId: String?
+    var actorId: String?
+    var conversationId: String?
+    var limit: Int?
+}
+
+struct ActivityItem: Codable, Identifiable, Sendable {
+    let id: String
+    let kind: String
+    let ts: Int
+    var conversationId: String?
+    var messageId: String?
+    var invocationId: String?
+    var flightId: String?
+    var recordId: String?
+    var actorId: String?
+    var counterpartId: String?
+    var agentId: String?
+    var workspaceRoot: String?
+    var sessionId: String?
+    var title: String?
+    var summary: String?
+    var payload: [String: AnyCodable]?
+
+    /// Normalized timestamp in milliseconds — broker sends mixed seconds/milliseconds.
+    var tsMs: Int {
+        ts > 10_000_000_000 ? ts : ts * 1000
+    }
+
+    var date: Date {
+        Date(timeIntervalSince1970: Double(tsMs) / 1000.0)
+    }
+
+    var projectName: String? {
+        guard let root = workspaceRoot?.trimmedNonEmpty else { return nil }
+        return URL(fileURLWithPath: root).lastPathComponent
+    }
+
+    /// True for transient status updates that shouldn't appear in the feed.
+    var isNoise: Bool {
+        switch kind {
+        case "status_message", "ask_working": true
+        default: false
+        }
+    }
+
+    var kindLabel: String {
+        switch kind {
+        case "message_posted": "Message"
+        case "agent_message": "Agent"
+        case "ask_opened": "Asked"
+        case "ask_replied": "Replied"
+        case "ask_failed": "Failed"
+        case "handoff_sent": "Handoff"
+        case "invocation_recorded": "Task"
+        case "flight_updated": "Flight"
+        case "collaboration_event": "Event"
+        default: kind
+        }
+    }
+
+    var kindIcon: String {
+        switch kind {
+        case "message_posted": "bubble.left"
+        case "agent_message": "cpu"
+        case "ask_opened": "paperplane"
+        case "ask_replied": "checkmark.bubble"
+        case "ask_failed": "exclamationmark.triangle"
+        case "handoff_sent": "arrow.right.arrow.left"
+        case "invocation_recorded": "play.circle"
+        case "flight_updated": "airplane.departure"
+        case "collaboration_event": "person.2"
+        default: "bolt"
+        }
+    }
+
+    var kindColor: Color {
+        switch kind {
+        case "ask_replied": ScoutColors.statusActive
+        case "ask_failed": ScoutColors.statusError
+        case "flight_updated": ScoutColors.statusStreaming
+        case "agent_message": ScoutColors.accent
+        case "ask_opened", "invocation_recorded": ScoutColors.accent
+        case "message_posted": ScoutColors.textPrimary
+        default: ScoutColors.textSecondary
+        }
+    }
 }
 
 // MARK: - Type-erased Encodable wrapper

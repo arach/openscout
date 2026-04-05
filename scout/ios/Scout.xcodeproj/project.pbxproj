@@ -67,6 +67,7 @@
 		5E6F7A8B9C0D1E2F3A4B5C6D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */; };
 		6F7A8B9C0D1E2F3A4B5C6D7E /* AllSessionsGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */; };
 		7A8B9C0D1E2F3A4B5C6D7E8F /* SessionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */; };
+		B2D3E4F5A6B7C8D9E0F1A2B3 /* ActivityFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C2D3E4F5A6B7C8D9E0F1A2 /* ActivityFeedView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -142,6 +143,7 @@
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllSessionsGridView.swift; sourceTree = "<group>"; };
 		A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
+		A1C2D3E4F5A6B7C8D9E0F1A2 /* ActivityFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeedView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -283,6 +285,7 @@
 			children = (
 				029C6049264D3C5EE524673E /* Theme.swift */,
 				5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */,
+				C3E4F5A6B7C8D9E0F1A2B3C4 /* Activity */,
 				0D1E2F3A4B5C6D7E8F9A0B1C /* AllSessions */,
 				F539C32239630FBA3BCF3BB1 /* Blocks */,
 				6A881A2E98FAE9347CA9ADB4 /* Composer */,
@@ -405,6 +408,14 @@
 				E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */,
 			);
 			path = Home;
+			sourceTree = "<group>";
+		};
+		C3E4F5A6B7C8D9E0F1A2B3C4 /* Activity */ = {
+			isa = PBXGroup;
+			children = (
+				A1C2D3E4F5A6B7C8D9E0F1A2 /* ActivityFeedView.swift */,
+			);
+			path = Activity;
 			sourceTree = "<group>";
 		};
 		0D1E2F3A4B5C6D7E8F9A0B1C /* AllSessions */ = {
@@ -569,6 +580,7 @@
 				5E6F7A8B9C0D1E2F3A4B5C6D /* HomeView.swift in Sources */,
 				6F7A8B9C0D1E2F3A4B5C6D7E /* AllSessionsGridView.swift in Sources */,
 				7A8B9C0D1E2F3A4B5C6D7E8F /* SessionCardView.swift in Sources */,
+				B2D3E4F5A6B7C8D9E0F1A2B3 /* ActivityFeedView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -598,7 +610,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scout/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Scout;
@@ -614,7 +626,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
 				PRODUCT_MODULE_NAME = ScoutApp;
 				PRODUCT_NAME = Scout;
@@ -766,7 +778,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scout/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Scout;
@@ -782,7 +794,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
 				PRODUCT_MODULE_NAME = ScoutApp;
 				PRODUCT_NAME = Scout;

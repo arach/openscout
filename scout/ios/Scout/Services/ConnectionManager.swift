@@ -509,6 +509,12 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult([MobileWorkspaceSummary].self, from: data)
     }
 
+    func getActivity(agentId: String? = nil, limit: Int? = nil) async throws -> [ActivityItem] {
+        let params = MobileActivityParams(agentId: agentId, limit: limit)
+        let data = try await sendRPC(method: "mobile/activity", params: params)
+        return try decodeResult([ActivityItem].self, from: data)
+    }
+
     func closeSession(_ sessionId: String) async throws {
         let params = SessionIdParams(sessionId: sessionId)
         _ = try await sendRPC(method: "session/close", params: params)

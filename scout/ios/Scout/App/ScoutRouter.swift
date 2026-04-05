@@ -7,6 +7,7 @@ import SwiftUI
 
 enum Surface: Hashable {
     case home
+    case activity
     case sessionDetail(sessionId: String)
     case allSessions
     case newSession

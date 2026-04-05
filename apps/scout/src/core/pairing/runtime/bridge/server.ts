@@ -22,6 +22,7 @@ import type { Prompt } from "../protocol/index.ts";
 import { resolveConfig } from "./config.ts";
 import {
   createScoutMobileSession,
+  getScoutMobileActivity,
   getScoutMobileAgents,
   getScoutMobileHome,
   getScoutMobileSessionSnapshot,
@@ -127,6 +128,7 @@ export function startBridgeServer(
 
                 // Subscribe to future events — forwarded encrypted with seq.
                 state.unsub = bridge.onEvent((sequenced) => {
+                  logBridgeEvent(sequenced.event, sequenced.seq);
                   transport.send(JSON.stringify({
                     seq: sequenced.seq,
                     event: sequenced.event,
@@ -233,7 +235,25 @@ export async function handleRPC(
   req: RPCRequest,
   deviceId?: string,
 ): Promise<RPCResponse> {
-  log.info("rpc", req.method, req.params);
+  const rpcStart = Date.now();
+  const paramsSnippet = summarizeRPCParams(req.method, req.params);
+  log.info("rpc:req", `→ ${req.method}${paramsSnippet}`);
+  const result = await handleRPCInner(bridge, req, deviceId);
+  const elapsed = Date.now() - rpcStart;
+  if (result.error) {
+    log.error("rpc:res", `✗ ${req.method} — ${result.error.message} (${elapsed}ms)`);
+  } else {
+    const size = summarizeRPCResult(req.method, result.result);
+    log.info("rpc:res", `✓ ${req.method}${size} (${elapsed}ms)`);
+  }
+  return result;
+}
+
+async function handleRPCInner(
+  bridge: Bridge,
+  req: RPCRequest,
+  deviceId?: string,
+): Promise<RPCResponse> {
   try {
     switch (req.method) {
       case "session/create": {
@@ -542,6 +562,19 @@ export async function handleRPC(
         };
       }
 
+      case "mobile/activity": {
+        const p = req.params as {
+          agentId?: string;
+          actorId?: string;
+          conversationId?: string;
+          limit?: number;
+        } | undefined;
+        return {
+          id: req.id,
+          result: await getScoutMobileActivity(p),
+        };
+      }
+
       // -- Session History Discovery ------------------------------------------
 
       case "history/discover": {
@@ -627,6 +660,118 @@ export async function handleRPC(
     }
   } catch (err: any) {
     return { id: req.id, error: { code: -32000, message: err.message ?? "Internal error" } };
+  }
+}
+
+function logBridgeEvent(event: unknown, seq: number): void {
+  if (!event || typeof event !== "object") return;
+  const e = event as Record<string, unknown>;
+  const eventType = e.event as string ?? "unknown";
+  const sessionId = (e.sessionId ?? (e.session as any)?.id ?? "") as string;
+  const shortSession = sessionId ? sessionId.slice(0, 20) : "";
+
+  switch (eventType) {
+    case "session:update":
+      log.info("event", `↓ session:update ${shortSession} status=${(e.session as any)?.status ?? "?"}`, { seq });
+      break;
+    case "turn:start":
+      log.info("event", `↓ turn:start ${shortSession} turn=${e.turnId ?? "?"}`, { seq });
+      break;
+    case "turn:end":
+      log.info("event", `↓ turn:end ${shortSession} turn=${e.turnId ?? "?"}`, { seq });
+      break;
+    case "block:start":
+      log.debug("event", `↓ block:start ${shortSession} type=${(e.block as any)?.type ?? "?"}`, { seq });
+      break;
+    case "block:delta":
+      // Too noisy to log every delta — skip
+      break;
+    case "block:end":
+      log.debug("event", `↓ block:end ${shortSession}`, { seq });
+      break;
+    default:
+      log.info("event", `↓ ${eventType} ${shortSession}`, { seq });
+  }
+}
+
+function summarizeRPCResult(method: string, result: unknown): string {
+  if (!result) return "";
+  if (Array.isArray(result)) return ` → ${result.length} items`;
+  if (typeof result === "object" && result !== null) {
+    const r = result as Record<string, unknown>;
+    switch (method) {
+      case "mobile/session/snapshot": {
+        const turns = Array.isArray(r.turns) ? r.turns.length : 0;
+        const name = (r.session as any)?.name ?? "";
+        return ` → ${turns} turns${name ? ` "${name.toString().slice(0, 40)}"` : ""}`;
+      }
+      case "mobile/home": {
+        const s = r.sessions, a = r.agents, w = r.workspaces;
+        return ` → ${Array.isArray(s) ? s.length : 0} sessions, ${Array.isArray(a) ? a.length : 0} agents, ${Array.isArray(w) ? w.length : 0} workspaces`;
+      }
+      case "mobile/session/create": {
+        const conv = (r.session as any)?.conversationId ?? "";
+        return conv ? ` → ${conv}` : "";
+      }
+      case "history/discover": {
+        const sessions = Array.isArray(r.sessions) ? r.sessions.length : 0;
+        return ` → ${sessions} sessions`;
+      }
+      default:
+        if (r.ok) return " → ok";
+        return "";
+    }
+  }
+  return "";
+}
+
+function summarizeRPCParams(method: string, params: unknown): string {
+  if (!params || typeof params !== "object") return "";
+  const p = params as Record<string, unknown>;
+  switch (method) {
+    case "mobile/session/snapshot": {
+      const id = (p.conversationId ?? p.sessionId) as string | undefined;
+      const before = p.beforeTurnId ? ` before=${p.beforeTurnId}` : "";
+      const limit = p.limit ? ` limit=${p.limit}` : "";
+      return ` session=${id ?? "?"}${before}${limit}`;
+    }
+    case "mobile/sessions":
+    case "mobile/workspaces":
+    case "mobile/agents": {
+      const parts: string[] = [];
+      if (p.query) parts.push(`q="${p.query}"`);
+      if (p.limit) parts.push(`limit=${p.limit}`);
+      return parts.length ? ` ${parts.join(" ")}` : "";
+    }
+    case "mobile/activity": {
+      const parts: string[] = [];
+      if (p.agentId) parts.push(`agent=${p.agentId}`);
+      if (p.actorId) parts.push(`actor=${p.actorId}`);
+      if (p.conversationId) parts.push(`conv=${p.conversationId}`);
+      if (p.limit) parts.push(`limit=${p.limit}`);
+      return parts.length ? ` ${parts.join(" ")}` : "";
+    }
+    case "mobile/message/send": {
+      const body = typeof p.body === "string" ? p.body.slice(0, 60) : "";
+      return ` agent=${p.agentId ?? "?"} "${body}${body.length >= 60 ? "…" : ""}"`;
+    }
+    case "mobile/session/create": {
+      return ` workspace=${p.workspaceId ?? "?"} harness=${p.harness ?? "default"}`;
+    }
+    case "mobile/home": {
+      return "";
+    }
+    case "workspace/open": {
+      return ` path=${p.path ?? "?"}`;
+    }
+    case "history/discover": {
+      return ` maxAge=${p.maxAge ?? 14}d limit=${p.limit ?? 250}`;
+    }
+    case "history/search": {
+      return ` q="${(p.query as string)?.slice(0, 40) ?? ""}"`;
+    }
+    default:
+      return Object.keys(p).length > 0 ? ` ${JSON.stringify(p).slice(0, 80)}` : "";
   }
 }
 

@@ -43,6 +43,10 @@ struct HomeView: View {
                     .padding(.horizontal, ScoutSpacing.lg)
                     .padding(.top, ScoutSpacing.lg)
 
+                activityBanner
+                    .padding(.horizontal, ScoutSpacing.lg)
+                    .padding(.top, ScoutSpacing.md)
+
                 if !activeSummaries.isEmpty {
                     activeSessionsSection
                 }
@@ -146,6 +150,44 @@ struct HomeView: View {
         case .disconnected:
             return "Disconnected"
         }
+    }
+
+    // MARK: - Activity Banner
+
+    private var activityBanner: some View {
+        Button {
+            router.push(.activity)
+        } label: {
+            HStack(spacing: ScoutSpacing.md) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                        .fill(ScoutColors.accent.opacity(0.12))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(ScoutColors.accent)
+                }
+
+                VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
+                    Text("Activity Feed")
+                        .font(ScoutTypography.body(15, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
+
+                    Text("See what your agents have been up to")
+                        .font(ScoutTypography.caption(12))
+                        .foregroundStyle(ScoutColors.textSecondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
+            }
+            .scoutCard()
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Active Sessions (horizontal scroll)

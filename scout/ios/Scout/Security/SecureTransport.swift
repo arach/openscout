@@ -228,7 +228,7 @@ final class SecureTransport: SecureTransportProtocol, @unchecked Sendable {
                 return
             }
 
-            while !Task.isCancelled {
+            messageLoop: while !Task.isCancelled {
                 do {
                     let rawMessage = try await ws.receive()
                     let text: String
@@ -258,9 +258,10 @@ final class SecureTransport: SecureTransportProtocol, @unchecked Sendable {
                             continuation.yield(message)
                         } catch {
                             self.onError?(error)
-                            // Decryption failure = stale session (bridge restarted).
-                            // Break to trigger reconnect with fresh handshake.
-                            break
+                            // Decryption failure means the peer rolled transport keys.
+                            // End the receive stream so ConnectionManager tears down
+                            // the stale socket and reconnects with a fresh handshake.
+                            break messageLoop
                         }
 
                     case .handshake:

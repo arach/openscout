@@ -12,6 +12,7 @@ export const scoutBrokerPaths = {
     endpoints: "/v1/endpoints",
     conversations: "/v1/conversations",
     invocations: "/v1/invocations",
+    activity: "/v1/activity",
   },
 } as const;
 

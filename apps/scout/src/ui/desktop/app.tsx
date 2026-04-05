@@ -198,10 +198,26 @@ type ComposerRelayReference = {
   preview: string;
 };
 
+const PRODUCT_SURFACES = ['relay', 'pairing'] as const;
+type ProductSurface = (typeof PRODUCT_SURFACES)[number];
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
 type CapabilityCard = { icon: React.ReactNode; title: string; desc: string; action: () => void; accent: boolean };
+const APP_VIEW_IDS: readonly AppView[] = [
+  'overview',
+  'activity',
+  'machines',
+  'plans',
+  'sessions',
+  'search',
+  'relay',
+  'inter-agent',
+  'agents',
+  'logs',
+  'settings',
+  'help',
+];
 
 const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
   enableAll: false,
@@ -290,11 +306,44 @@ function pairingStatesMeaningfullyEqual(left: PairingState | null, right: Pairin
     && left.pairing?.qrArt === right.pairing?.qrArt;
 }
 
+function isProductSurface(value: string | null): value is ProductSurface {
+  return value !== null && (PRODUCT_SURFACES as readonly string[]).includes(value);
+}
+
+function isAppView(value: string | null): value is AppView {
+  return value !== null && (APP_VIEW_IDS as readonly string[]).includes(value);
+}
+
+function parseRelayViewPath(pathname: string): AppView | null {
+  if (pathname === '/') {
+    return 'overview';
+  }
+
+  const segment = pathname.slice(1).split('/')[0] ?? '';
+  if (!segment || segment === 'pairing' || segment === 'settings') {
+    return null;
+  }
+
+  return isAppView(segment) ? segment : null;
+}
+
+function buildDesktopPath(surface: ProductSurface, view: AppView, settingsSection: SettingsSectionId): string {
+  if (surface === 'pairing') {
+    return '/pairing';
+  }
+
+  if (view === 'settings') {
+    return settingsPath(settingsSection);
+  }
+
+  return view === 'overview' ? '/' : `/${view}`;
+}
+
 export default function App() {
     const scoutDesktop = getScoutDesktop();
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [productSurface, setProductSurface] = useState<'relay' | 'pairing'>('relay');
+  const [productSurface, setProductSurface] = useState<ProductSurface>('relay');
   const [activeView, setActiveView] = useState<AppView>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
@@ -386,6 +435,7 @@ export default function App() {
     }
     const section = parseSettingsPath(location.pathname);
     if (section) {
+      setProductSurface("relay");
       setActiveView("settings");
       setSettingsSection(section);
       return;
@@ -393,27 +443,35 @@ export default function App() {
     navigate("/settings/profile", { replace: true });
   }, [location.pathname, navigate]);
 
-  /** While on Settings, keep the address bar aligned with the active section. */
-  useEffect(() => {
-    if (activeView !== "settings") {
+  useLayoutEffect(() => {
+    if (location.pathname.startsWith('/settings')) {
       return;
     }
-    const urlSection = parseSettingsPath(location.pathname);
-    if (urlSection !== settingsSection) {
-      navigate(settingsPath(settingsSection), { replace: true });
-    }
-  }, [activeView, settingsSection, location.pathname, navigate]);
 
-  /** Leaving Settings clears /settings/* so the URL matches the main surface. */
+    if (location.pathname === '/pairing') {
+      setProductSurface('pairing');
+      setActiveView((current) => current === 'settings' ? 'overview' : current);
+      return;
+    }
+
+    const relayView = parseRelayViewPath(location.pathname);
+    if (relayView) {
+      setProductSurface('relay');
+      setActiveView(relayView);
+      return;
+    }
+
+    navigate('/', { replace: true });
+  }, [location.pathname, navigate]);
+
   useEffect(() => {
-    if (activeView === "settings") {
+    const nextPath = buildDesktopPath(productSurface, activeView, settingsSection);
+    if (location.pathname === nextPath) {
       return;
     }
-    if (!location.pathname.startsWith("/settings")) {
-      return;
-    }
-    navigate("/", { replace: true });
-  }, [activeView, location.pathname, navigate]);
+
+    navigate(nextPath, { replace: true });
+  }, [activeView, location.pathname, navigate, productSurface, settingsSection]);
 
   const openKnowledgeBase = React.useCallback(() => {
     setProductSurface('relay');
@@ -9567,183 +9625,195 @@ function PairingSurfacePlaceholder({
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_320px] items-start">
               <div className="flex flex-col gap-5">
                 <section className="rounded-[20px] border p-5" style={cardStyle}>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-2 text-[17px] font-medium tracking-tight" style={{ color: C.ink }}>
-                        <Server size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
-                        Pairing Status
-                      </span>
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-normal uppercase tracking-wide"
-                        style={connectionTone}
-                      >
-                        {!serviceIsRunning && (pairingState?.status === 'error' || pairingState?.status === 'closed') ? <AlertCircle size={13} strokeWidth={1.5} /> : null}
-                        {connectionLabel}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-[15px] leading-[1.75] font-light" style={{ color: C.muted }}>
-                      {connectionDetail}
-                    </p>
-                    {pairingState?.statusDetail && (pairingState.status === 'error' || pairingState.status === 'closed') ? (
-                      <div
-                        className="mt-4 rounded-2xl border px-4 py-3 text-[12px] leading-[1.7] font-mono whitespace-pre-wrap break-words"
-                        style={{ backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#9f1239' }}
-                      >
-                        {pairingState.statusDetail}
-                      </div>
-                    ) : null}
-                  </div>
-                  <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={pairingControlPending || pairingLoading}>
-                    <RefreshCw size={14} />
-                    Refresh
-                  </Button>
-                </div>
-
-                <div className="mt-4 overflow-hidden rounded-xl border" style={simpleTableStyle}>
-                  {statusRows.map(([label, value], index) => (
-                    <div
-                      key={label}
-                      className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)] md:items-start"
-                      style={index === 0 ? undefined : { borderTop: `1px solid ${C.border}` }}
-                    >
-                      <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
-                        {label}:
-                      </div>
-                      <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
-                        {value}
-                      </div>
-                    </div>
-                  ))}
-                  <div
-                    className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)_auto] md:items-center"
-                    style={{ borderTop: `1px solid ${C.border}` }}
-                  >
-                    <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
-                      Workspace:
-                    </div>
-                    {workspaceEditing ? (
-                      <input
-                        type="text"
-                        value={workspaceDraft}
-                        onChange={(event) => {
-                          setWorkspaceDraft(event.target.value);
-                          setConfigDirty(true);
-                        }}
-                        placeholder="/Users/arach/dev/openscout"
-                        className="w-full rounded-lg border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                        style={{ borderColor: C.border, color: C.ink }}
-                      />
-                    ) : (
-                      <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
-                        {pairingState?.workspaceRoot || 'Not set'}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 md:justify-end">
-                      {workspaceEditing ? (
-                        <>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => {
-                              void savePairingConfig();
-                            }}
-                            disabled={pairingConfigPending}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
-                              setConfigDirty(false);
-                              setWorkspaceEditing(false);
-                            }}
-                            disabled={pairingConfigPending}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
-                            setWorkspaceEditing(true);
-                          }}
-                          className="text-[12px] font-medium transition-opacity hover:opacity-70"
-                          style={{ color: C.muted }}
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-2 text-[17px] font-medium tracking-tight" style={{ color: C.ink }}>
+                          <Server size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
+                          Pairing Status
+                        </span>
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-normal uppercase tracking-wide"
+                          style={connectionTone}
                         >
-                          [edit]
-                        </button>
-                      )}
+                          {!serviceIsRunning && (pairingState?.status === 'error' || pairingState?.status === 'closed') ? <AlertCircle size={13} strokeWidth={1.5} /> : null}
+                          {connectionLabel}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-[15px] leading-[1.75] font-light" style={{ color: C.muted }}>
+                        {connectionDetail}
+                      </p>
+                      {pairingState?.statusDetail && (pairingState.status === 'error' || pairingState.status === 'closed') ? (
+                        <div
+                          className="mt-4 rounded-2xl border px-4 py-3 text-[12px] leading-[1.7] font-mono whitespace-pre-wrap break-words"
+                          style={{ backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#9f1239' }}
+                        >
+                          {pairingState.statusDetail}
+                        </div>
+                      ) : null}
                     </div>
+                    <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={pairingControlPending || pairingLoading}>
+                      <RefreshCw size={14} />
+                      Refresh
+                    </Button>
                   </div>
-                  {pairingConfigFeedback ? (
-                    <div
-                      className="px-4 py-3 text-[11px] leading-[1.6]"
-                      style={{ borderTop: `1px solid ${C.border}`, color: C.ink }}
-                    >
-                      {pairingConfigFeedback}
-                    </div>
-                  ) : null}
-                </div>
 
-                <div className="mt-5 flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => onControlPairing(serviceIsRunning ? 'stop' : 'start')}
-                    disabled={pairingControlPending}
-                  >
-                    {serviceIsRunning ? 'Stop Pairing' : 'Start Pairing'}
-                  </Button>
-                  {serviceIsRunning ? (
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                    {runtimeRows.map(([label, value]) => (
+                      <div key={label} className="rounded-2xl border px-3 py-3" style={subtlePanelStyle}>
+                        <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
+                          {label}
+                        </div>
+                        <div className="mt-2 text-[14px] font-medium tracking-tight" style={{ color: C.ink }}>
+                          {value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-[20px] border p-5" style={cardStyle}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
+                        Bridge Details
+                      </div>
+                      <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                        Relay identity, room state, workspace binding, and control actions.
+                      </div>
+                    </div>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => onControlPairing('restart')}
+                      onClick={() => {
+                        setShowAdvancedSettings(true);
+                        window.setTimeout(() => {
+                          settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 0);
+                      }}
+                    >
+                      <Settings size={14} />
+                      Advanced
+                    </Button>
+                  </div>
+
+                  <div className="mt-4 overflow-hidden rounded-xl border" style={simpleTableStyle}>
+                    {statusRows.map(([label, value], index) => (
+                      <div
+                        key={label}
+                        className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)] md:items-start"
+                        style={index === 0 ? undefined : { borderTop: `1px solid ${C.border}` }}
+                      >
+                        <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
+                          {label}:
+                        </div>
+                        <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
+                          {value}
+                        </div>
+                      </div>
+                    ))}
+                    <div
+                      className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)_auto] md:items-center"
+                      style={{ borderTop: `1px solid ${C.border}` }}
+                    >
+                      <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
+                        Workspace:
+                      </div>
+                      {workspaceEditing ? (
+                        <input
+                          type="text"
+                          value={workspaceDraft}
+                          onChange={(event) => {
+                            setWorkspaceDraft(event.target.value);
+                            setConfigDirty(true);
+                          }}
+                          placeholder="/Users/arach/dev/openscout"
+                          className="w-full rounded-lg border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
+                          style={{ borderColor: C.border, color: C.ink }}
+                        />
+                      ) : (
+                        <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
+                          {pairingState?.workspaceRoot || 'Not set'}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 md:justify-end">
+                        {workspaceEditing ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => {
+                                void savePairingConfig();
+                              }}
+                              disabled={pairingConfigPending}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
+                                setConfigDirty(false);
+                                setWorkspaceEditing(false);
+                              }}
+                              disabled={pairingConfigPending}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
+                              setWorkspaceEditing(true);
+                            }}
+                            className="text-[12px] font-medium transition-opacity hover:opacity-70"
+                            style={{ color: C.muted }}
+                          >
+                            [edit]
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {pairingConfigFeedback ? (
+                      <div
+                        className="px-4 py-3 text-[11px] leading-[1.6]"
+                        style={{ borderTop: `1px solid ${C.border}`, color: C.ink }}
+                      >
+                        {pairingConfigFeedback}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => onControlPairing(serviceIsRunning ? 'stop' : 'start')}
                       disabled={pairingControlPending}
                     >
-                      Restart
+                      {serviceIsRunning ? 'Stop Pairing' : 'Start Pairing'}
                     </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setPairingLogsExpanded(true);
-                      window.setTimeout(() => {
-                        logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }, 0);
-                    }}
-                  >
-                    <Terminal size={14} />
-                    Logs
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setShowAdvancedSettings(true);
-                      window.setTimeout(() => {
-                        settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }, 0);
-                    }}
-                  >
-                    <Settings size={14} />
-                    Advanced
-                  </Button>
-                </div>
+                    {serviceIsRunning ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onControlPairing('restart')}
+                        disabled={pairingControlPending}
+                      >
+                        Restart
+                      </Button>
+                    ) : null}
+                  </div>
                 </section>
               </div>
 
-              <div className="flex flex-col gap-5">
+              <div>
                 {pairingPairingSvg ? (
                   <section className="rounded-[20px] border p-5" style={cardStyle}>
                     <div className="flex items-center justify-between gap-3">
@@ -9807,62 +9877,79 @@ function PairingSurfacePlaceholder({
                     </div>
                   </section>
                 )}
-
-                <section className="rounded-[20px] border p-5" style={cardStyle}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Trusted Devices</div>
-                      <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                        Saved phone identities that have paired with this bridge.
-                      </div>
-                    </div>
-                    <span
-                      className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
-                      style={hasConnectedPeer
-                        ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
-                        : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
-                    >
-                      {trustedPeers.length} saved
-                    </span>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {trustedPeers.length > 0 ? trustedPeers.map((peer) => {
-                      const peerConnected = peer.fingerprint === pairingState?.connectedPeerFingerprint;
-                      return (
-                        <div key={peer.publicKey} className="rounded-2xl border p-3 min-w-0" style={subtlePanelStyle}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-[13px] font-medium tracking-tight truncate" style={{ color: C.ink }}>
-                                {formatPairingTrustedPeerLabel(peer)}
-                              </div>
-                              <div className="mt-1 text-[11px] font-mono break-all" style={{ color: C.muted }}>
-                                {formatPairingTrustedPeerKey(peer.publicKey)}
-                              </div>
-                            </div>
-                            {peerConnected ? (
-                              <span
-                                className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium whitespace-nowrap"
-                                style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
-                              >
-                                Connected now
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] leading-[1.6]" style={{ color: C.muted }}>
-                            <div className="min-w-0">Paired: <span style={{ color: C.ink }}>{peer.pairedAtLabel ?? 'Unknown'}</span></div>
-                            <div className="min-w-0">Last seen: <span style={{ color: C.ink }}>{peer.lastSeenLabel ?? 'Unknown'}</span></div>
-                          </div>
-                        </div>
-                      );
-                    }) : (
-                      <div className="rounded-2xl border px-4 py-4 text-[12px] leading-[1.7] md:col-span-2 xl:col-span-3" style={subtlePanelStyle}>
-                        No trusted devices yet. Start Pairing and scan the QR code from your phone to add one.
-                      </div>
-                    )}
-                  </div>
-                </section>
               </div>
             </div>
+
+            <section className="rounded-[20px] border p-5" style={cardStyle}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Trusted Devices</div>
+                  <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                    Saved phone identities that have paired with this bridge.
+                  </div>
+                </div>
+                <span
+                  className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
+                  style={hasConnectedPeer
+                    ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
+                    : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
+                >
+                  {trustedPeers.length} saved
+                </span>
+              </div>
+              {trustedPeers.length > 0 ? (
+                <div className="mt-4 overflow-hidden rounded-xl border" style={simpleTableStyle}>
+                  <div
+                    className="hidden gap-3 px-4 py-2 text-[9px] font-mono uppercase tracking-[0.16em] md:grid md:grid-cols-[minmax(0,1.8fr)_140px_140px_140px]"
+                    style={{ color: C.muted }}
+                  >
+                    <div>Device</div>
+                    <div>Status</div>
+                    <div>Last Seen</div>
+                    <div>Paired</div>
+                  </div>
+                  {trustedPeers.map((peer, index) => {
+                    const peerConnected = peer.fingerprint === pairingState?.connectedPeerFingerprint;
+                    return (
+                      <div
+                        key={peer.publicKey}
+                        className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.8fr)_140px_140px_140px] md:items-center"
+                        style={index === 0 ? undefined : { borderTop: `1px solid ${C.border}` }}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-medium tracking-tight" style={{ color: C.ink }}>
+                            {formatPairingTrustedPeerLabel(peer)}
+                          </div>
+                          <div className="mt-1 truncate text-[11px] font-mono" style={{ color: C.muted }}>
+                            {formatPairingTrustedPeerKey(peer.publicKey)}
+                          </div>
+                        </div>
+                        <div>
+                          <span
+                            className="inline-flex rounded-full border px-2 py-1 text-[10px] font-medium whitespace-nowrap"
+                            style={peerConnected
+                              ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
+                              : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
+                          >
+                            {peerConnected ? 'Connected now' : 'Trusted'}
+                          </span>
+                        </div>
+                        <div className="text-[12px]" style={{ color: C.ink }}>
+                          {peer.lastSeenLabel ?? 'Unknown'}
+                        </div>
+                        <div className="text-[12px]" style={{ color: C.ink }}>
+                          {peer.pairedAtLabel ?? 'Unknown'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border px-4 py-4 text-[12px] leading-[1.7]" style={subtlePanelStyle}>
+                  No trusted devices yet. Start Pairing and scan the QR code from your phone to add one.
+                </div>
+              )}
+            </section>
 
             <div className={`grid gap-5 items-start ${showAdvancedSettings ? 'lg:grid-cols-[minmax(0,1.5fr)_320px]' : 'lg:grid-cols-1'}`}>
               <section id="pairing-live-logs" ref={logsRef}>

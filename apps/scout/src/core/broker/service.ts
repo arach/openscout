@@ -1183,6 +1183,42 @@ export async function loadScoutMessages(options: {
   );
 }
 
+export type ScoutActivityItem = {
+  id: string;
+  kind: string;
+  ts: number;
+  conversationId?: string;
+  messageId?: string;
+  invocationId?: string;
+  flightId?: string;
+  recordId?: string;
+  actorId?: string;
+  counterpartId?: string;
+  agentId?: string;
+  workspaceRoot?: string;
+  sessionId?: string;
+  title?: string;
+  summary?: string;
+  payload?: Record<string, unknown>;
+};
+
+export async function loadScoutActivityItems(options: {
+  agentId?: string;
+  actorId?: string;
+  conversationId?: string;
+  limit?: number;
+  baseUrl?: string;
+} = {}): Promise<ScoutActivityItem[]> {
+  const search = new URLSearchParams();
+  if (options.agentId) search.set("agentId", options.agentId);
+  if (options.actorId) search.set("actorId", options.actorId);
+  if (options.conversationId) search.set("conversationId", options.conversationId);
+  if (typeof options.limit === "number" && options.limit > 0) search.set("limit", String(options.limit));
+  const q = search.toString();
+  const path = q ? `${scoutBrokerPaths.v1.activity}?${q}` : scoutBrokerPaths.v1.activity;
+  return brokerReadJson<ScoutActivityItem[]>(options.baseUrl ?? resolveScoutBrokerUrl(), path);
+}
+
 export async function watchScoutMessages(options: ScoutWatchOptions): Promise<void> {
   const broker = await requireScoutBrokerContext();
   const conversationId = scoutConversationIdForChannel(options.channel);

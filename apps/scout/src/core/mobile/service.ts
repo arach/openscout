@@ -14,9 +14,11 @@ import {
 import { upScoutAgent } from "../agents/service.ts";
 import {
   loadScoutBrokerContext,
+  loadScoutActivityItems,
   openScoutPeerSession,
   registerScoutLocalAgentBinding,
   sendScoutDirectMessage,
+  type ScoutActivityItem,
   type ScoutBrokerSnapshot,
   type ScoutDirectMessageResult,
 } from "../broker/service.ts";
@@ -742,4 +744,24 @@ async function requireMobileRelayContext() {
     throw new Error("Relay is not reachable.");
   }
   return broker;
+}
+
+// -- Activity Feed --------------------------------------------------------
+
+export type ScoutMobileActivityFilters = {
+  agentId?: string;
+  actorId?: string;
+  conversationId?: string;
+  limit?: number;
+};
+
+export async function getScoutMobileActivity(
+  filters: ScoutMobileActivityFilters = {},
+): Promise<ScoutActivityItem[]> {
+  return loadScoutActivityItems({
+    agentId: filters.agentId,
+    actorId: filters.actorId,
+    conversationId: filters.conversationId,
+    limit: filters.limit ?? 100,
+  });
 }

@@ -25,7 +25,11 @@ const app = (
   </StrictMode>
 );
 
-if (rootElement.hasChildNodes()) {
+const hasServerRender =
+  typeof window !== "undefined"
+  && Object.prototype.hasOwnProperty.call(window, "__INITIAL_STATE__");
+
+if (hasServerRender) {
   hydrateRoot(rootElement, app);
 } else {
   createRoot(rootElement).render(app);

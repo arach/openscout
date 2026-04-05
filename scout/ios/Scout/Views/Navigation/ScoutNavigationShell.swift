@@ -121,6 +121,8 @@ struct ScoutNavigationShell: View {
         switch surface {
         case .home:
             HomeView()
+        case .activity:
+            ActivityFeedView()
         case .sessionDetail(let sessionId):
             TimelineView(sessionId: sessionId)
         case .allSessions:
