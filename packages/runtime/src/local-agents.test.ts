@@ -26,7 +26,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("bun relay read --as shaper");
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
-    expect(prompt).toContain("/Users/arach/.agents/skills/relay-agent-comms/SKILL.md");
+    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/relay-agent-comms/SKILL.md");
   });
 
   test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
@@ -54,7 +54,7 @@ describe("local agent prompts", () => {
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
         openscoutRoot: "/Users/arach/dev/openscout",
-        relayAgentCommsSkill: "/Users/arach/.agents/skills/relay-agent-comms/SKILL.md",
+        relayAgentCommsSkill: "/Users/arach/dev/openscout/.agents/skills/relay-agent-comms/SKILL.md",
       },
     );
 
@@ -67,7 +67,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("bun relay send --as shaper");
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");
-    expect(prompt).toContain("/Users/arach/.agents/skills/relay-agent-comms/SKILL.md");
+    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/relay-agent-comms/SKILL.md");
     expect(prompt).toContain("Flag: broker-ready");
   });
 

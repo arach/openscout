@@ -214,6 +214,10 @@ export const LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT = [
 ].join("");
 
 function resolveRelayAgentCommsSkillPath(): string {
+  const repoSkillPath = join(OPENSCOUT_REPO_ROOT, ".agents", "skills", "relay-agent-comms", "SKILL.md");
+  if (existsSync(repoSkillPath)) {
+    return repoSkillPath;
+  }
   return join(process.env.HOME ?? "", ".agents", "skills", "relay-agent-comms", "SKILL.md");
 }
 
