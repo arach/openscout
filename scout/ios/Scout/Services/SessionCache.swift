@@ -91,7 +91,7 @@ final class SessionCache: Sendable {
         let state = load(sessionId: session.id)
         let info = CachedSessionInfo(
             id: session.id,
-            name: session.name ?? "Untitled",
+            name: session.name,
             adapterType: session.adapterType,
             cachedAt: Date(),
             turnCount: state?.turns.count ?? 0

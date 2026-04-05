@@ -206,8 +206,8 @@ final class ScoutVoice: ObservableObject {
                     || $0.portType == .headphones || $0.portType == .bluetoothLE
             }
             let options: AVAudioSession.CategoryOptions = hasExternalOutput
-                ? [.allowBluetoothA2DP, .allowBluetooth]
-                : [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth]
+                ? [.allowBluetoothA2DP, .allowBluetoothHFP]
+                : [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetoothHFP]
 
             try session.setCategory(.playAndRecord, mode: .default, options: options)
             try session.setPreferredIOBufferDuration(0.005)

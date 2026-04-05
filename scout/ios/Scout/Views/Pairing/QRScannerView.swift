@@ -64,18 +64,20 @@ final class QRScannerViewController: UIViewController, @preconcurrency AVCapture
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if !captureSession.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.captureSession.startRunning()
+        let session = captureSession
+        if !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
             }
         }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if captureSession.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.captureSession.stopRunning()
+        let session = captureSession
+        if session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.stopRunning()
             }
         }
     }

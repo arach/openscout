@@ -102,7 +102,8 @@ class AutoSizingTextView: UITextView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var intrinsicContentSize: CGSize {
-        let fittingSize = sizeThatFits(CGSize(width: bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width - 80, height: .greatestFiniteMagnitude))
+        let fallbackWidth = window?.windowScene?.screen.bounds.width ?? 375
+        let fittingSize = sizeThatFits(CGSize(width: bounds.width > 0 ? bounds.width : fallbackWidth - 80, height: .greatestFiniteMagnitude))
         let clampedHeight = min(fittingSize.height, maxAllowedHeight)
 
         let shouldScroll = fittingSize.height > maxAllowedHeight

@@ -566,7 +566,7 @@ final class ScoutCompactKeyboard: UIView {
         switch g.state {
         case .began:
             deleteRepeatTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                self?.onDeleteTapped?()
+                Task { @MainActor in self?.onDeleteTapped?() }
             }
         case .ended, .cancelled: deleteRepeatTimer?.invalidate(); deleteRepeatTimer = nil
         default: break
