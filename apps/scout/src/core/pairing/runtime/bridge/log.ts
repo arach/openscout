@@ -21,10 +21,13 @@ type Level = "debug" | "info" | "warn" | "error";
 
 function write(level: Level, category: string, message: string, data?: unknown): void {
   const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
-  const prefix = `${ts} [${level.toUpperCase().padEnd(5)}] [${category}]`;
-  const line = data
-    ? `${prefix} ${message} ${JSON.stringify(data)}\n`
-    : `${prefix} ${message}\n`;
+  const lvl = level.toUpperCase().padEnd(5);
+  const cat = category.padEnd(12);
+  const prefix = `${ts} ${lvl} ${cat}`;
+  const body = data ? `${message} ${JSON.stringify(data)}` : message;
+  const line = level === "error"
+    ? `${prefix} ⚠ ${body}\n`
+    : `${prefix} ${body}\n`;
   try {
     appendFileSync(LOG_FILE, line);
   } catch { /* don't crash on log failure */ }

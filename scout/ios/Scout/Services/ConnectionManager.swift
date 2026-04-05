@@ -171,12 +171,18 @@ final class ConnectionManager: @unchecked Sendable {
     private var transport: SecureTransport?
     private var receiveTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
-    private let pendingRequests = OSAllocatedUnfairLock(initialState: [String: PendingRequest]())
+    private let pendingRequests = OSAllocatedUnfairLock(initialState: [Int: PendingRequest]())
     private let urlSession: URLSession
     private let sessionDelegate = TrustAllDelegate()
     private var connectionInfo: BridgeConnectionInfo?
     private var identityKeyPair: NoiseKeyPair?
     private var manualDisconnectRequested = false
+
+    /// Monotonically incrementing tRPC request ID.
+    private let nextRequestId = OSAllocatedUnfairLock(initialState: 1)
+
+    /// Last event ID received from a tRPC tracked subscription (for reconnect recovery).
+    private(set) var lastEventId: String?
 
     private static let logger = Logger(
         subsystem: "com.openscout.scout",
@@ -421,6 +427,10 @@ final class ConnectionManager: @unchecked Sendable {
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
 
         cancelAllPendingRequests(with: ConnectionError.notConnected)
+
+        // Reset request ID counter (new connection = fresh sequence).
+        nextRequestId.withLock { $0 = 1 }
+        // Note: lastEventId is intentionally preserved across reconnects for subscription recovery.
 
         Task { @MainActor in
             sessionStore.connectionState = .disconnected
@@ -767,18 +777,31 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: - Private: Message routing
 
     private func handleDecryptedMessage(_ raw: String) {
+        // Handle tRPC keep-alive: PING → PONG (plain text, not JSON).
+        if raw == "PING" {
+            Task {
+                try? await transport?.send("PONG")
+            }
+            return
+        }
+        if raw == "PONG" {
+            // Server acknowledged our ping — nothing to do.
+            return
+        }
+
         guard let data = raw.data(using: .utf8) else {
             Self.logger.warning("Received non-UTF8 message, skipping")
             return
         }
 
-        // Try parsing as an RPC response first (has "id" field).
-        if let response = try? JSONDecoder().decode(RPCResponse.self, from: data) {
-            handleRPCResponse(response)
+        // Try parsing as a tRPC response (has integer "id" field).
+        if let response = try? JSONDecoder().decode(TRPCResponse.self, from: data) {
+            handleTRPCResponse(response)
             return
         }
 
         // Try parsing as a sequenced event (has "seq" and "event" fields).
+        // This handles the transition period before subscriptions are fully adopted.
         if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: data) {
             Task { @MainActor in
                 sessionStore.applyEvent(sequenced)
@@ -790,11 +813,42 @@ final class ConnectionManager: @unchecked Sendable {
         Self.logger.warning("Unrecognized message format, skipping: \(raw.prefix(200), privacy: .public)")
     }
 
-    private func handleRPCResponse(_ response: RPCResponse) {
+    private func handleTRPCResponse(_ response: TRPCResponse) {
+        // Check if this is subscription data (no pending request, just streamed events).
         let pending = pendingRequests.withLock { $0.removeValue(forKey: response.id) }
 
+        // Track lastEventId from subscription data for future reconnect recovery.
+        if let result = response.result, result.type == "data", let eventId = result.id {
+            lastEventId = eventId
+        }
+
+        // Subscription data with no pending request — it's a streamed event.
+        if pending == nil, let result = response.result, result.type == "data" {
+            if let eventData = result.data {
+                // Try decoding subscription data as a sequenced event.
+                do {
+                    let encoded = try JSONEncoder().encode(eventData)
+                    if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: encoded) {
+                        Task { @MainActor in
+                            sessionStore.applyEvent(sequenced)
+                        }
+                        return
+                    }
+                } catch {
+                    // Not a sequenced event — log and skip.
+                }
+            }
+            Self.logger.debug("Received subscription data for id \(response.id, privacy: .public) with no handler")
+            return
+        }
+
         guard let pending else {
-            Self.logger.warning("Received RPC response for unknown id: \(response.id, privacy: .public)")
+            // Could be a subscription "started"/"stopped" ack — not an error.
+            if let result = response.result, (result.type == "started" || result.type == "stopped") {
+                Self.logger.debug("Subscription \(result.type, privacy: .public) for id \(response.id, privacy: .public)")
+                return
+            }
+            Self.logger.warning("Received tRPC response for unknown id: \(response.id, privacy: .public)")
             return
         }
 
@@ -805,24 +859,38 @@ final class ConnectionManager: @unchecked Sendable {
                 throwing: ConnectionError.rpcError(code: error.code, message: error.message)
             )
         } else if let result = response.result {
-            // Re-encode the AnyCodable result to Data so callers can decode to their specific type.
-            do {
-                let resultData = try JSONEncoder().encode(result)
-                pending.continuation.resume(returning: resultData)
-            } catch {
-                pending.continuation.resume(
-                    throwing: ConnectionError.decodingFailed("Failed to re-encode result")
-                )
+            // Unwrap tRPC envelope: extract result.data.
+            if let resultData = result.data {
+                do {
+                    let encoded = try JSONEncoder().encode(resultData)
+                    pending.continuation.resume(returning: encoded)
+                } catch {
+                    pending.continuation.resume(
+                        throwing: ConnectionError.decodingFailed("Failed to re-encode tRPC result.data")
+                    )
+                }
+            } else {
+                // Success with null data — encode empty object for callers expecting decodable content.
+                let emptyData = "{}".data(using: .utf8)!
+                pending.continuation.resume(returning: emptyData)
             }
         } else {
-            // Success with no result body (e.g., { "id": "...", "result": null }).
-            // Encode an empty JSON object so decoders expecting { ok: true } still work.
+            // No result and no error — treat as empty success.
             let emptyData = "{}".data(using: .utf8)!
             pending.continuation.resume(returning: emptyData)
         }
     }
 
     // MARK: - Private: RPC sending
+
+    /// Allocate the next monotonic request ID.
+    private func allocateRequestId() -> Int {
+        nextRequestId.withLock { id in
+            let current = id
+            id += 1
+            return current
+        }
+    }
 
     private func sendRPC<P: Encodable & Sendable>(
         method: String,
@@ -832,7 +900,14 @@ final class ConnectionManager: @unchecked Sendable {
             throw ConnectionError.notConnected
         }
 
-        let request = RPCRequest(method: method, params: params)
+        // Resolve the tRPC route for this legacy method name.
+        guard let route = trpcRouteMap[method] else {
+            Self.logger.error("No tRPC route mapping for method: \(method, privacy: .public)")
+            throw ConnectionError.encodingFailed
+        }
+
+        let requestId = allocateRequestId()
+        let request = TRPCRequest(id: requestId, method: route.method, path: route.path, input: params)
 
         let encoder = JSONEncoder()
         guard let jsonData = try? encoder.encode(request),
@@ -851,7 +926,7 @@ final class ConnectionManager: @unchecked Sendable {
                 try? await Task.sleep(for: .seconds(timeout))
                 guard !Task.isCancelled else { return }
 
-                let removed = self?.pendingRequests.withLock { $0.removeValue(forKey: request.id) }
+                let removed = self?.pendingRequests.withLock { $0.removeValue(forKey: requestId) }
                 if removed != nil {
                     Self.logger.warning("RPC timeout: \(method, privacy: .public) — connection likely stale")
                     continuation.resume(throwing: ConnectionError.rpcTimeout(method: method))
@@ -866,13 +941,13 @@ final class ConnectionManager: @unchecked Sendable {
                 timeoutTask: timeoutTask
             )
 
-            pendingRequests.withLock { $0[request.id] = pending }
+            pendingRequests.withLock { $0[requestId] = pending }
 
             Task {
                 do {
                     try await transport.send(jsonString)
                 } catch {
-                    let removed = self.pendingRequests.withLock { $0.removeValue(forKey: request.id) }
+                    let removed = self.pendingRequests.withLock { $0.removeValue(forKey: requestId) }
                     if removed != nil {
                         timeoutTask.cancel()
                         continuation.resume(throwing: error)
@@ -883,7 +958,7 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     private func cancelAllPendingRequests(with error: Error) {
-        let requests = pendingRequests.withLock { dict -> [String: PendingRequest] in
+        let requests = pendingRequests.withLock { dict -> [Int: PendingRequest] in
             let copy = dict
             dict.removeAll()
             return copy

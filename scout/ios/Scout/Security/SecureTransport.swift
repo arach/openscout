@@ -65,6 +65,13 @@ final class SecureTransport: SecureTransportProtocol, @unchecked Sendable {
     /// Task that reads raw WebSocket messages and processes them.
     private var readLoopTask: Task<Void, Never>?
 
+    /// Serial send queue — ensures encrypt+write happen in strict FIFO order.
+    /// Without this, concurrent async send() calls can encrypt with sequential
+    /// nonces but have their WebSocket writes arrive out of order, causing
+    /// AES-GCM tag failures on the receiving side.
+    private var sendQueue: Task<Void, Never>?
+    private var sendContinuation: AsyncStream<String>.Continuation?
+
     /// True when the handshake is complete and transport messages can be sent.
     private(set) var isReady = false
 
@@ -131,6 +138,7 @@ final class SecureTransport: SecureTransportProtocol, @unchecked Sendable {
         // Finalize: derive transport cipher states.
         session = try hs.finalize()
         isReady = true
+        startSendLoop()
 
         if let remoteKey = session?.remoteStaticKey {
             onReady?(remoteKey)
@@ -195,22 +203,41 @@ final class SecureTransport: SecureTransportProtocol, @unchecked Sendable {
     }
 
     /// Encrypt and send an application message.
+    ///
+    /// Messages are enqueued into a serial send queue so that encrypt (nonce N)
+    /// and the corresponding WebSocket write complete before nonce N+1 starts.
+    /// This prevents AES-GCM tag failures caused by out-of-order writes.
     func send(_ message: String) async throws {
-        guard isReady, let session, let webSocket else {
+        guard isReady, sendContinuation != nil else {
             throw SecureTransportError.notReady
         }
+        sendContinuation?.yield(message)
+    }
 
-        let plaintext = Data(message.utf8)
-        let ciphertext = session.encrypt(plaintext)
-        let wire = WireMessage(
-            phase: .transport,
-            payload: ciphertext.base64EncodedString()
-        )
-        let json = try encoder.encode(wire)
-        guard let jsonString = String(data: json, encoding: .utf8) else {
-            throw SecureTransportError.encodingFailed
+    /// Start the serial send loop — called once after handshake completes.
+    private func startSendLoop() {
+        let (stream, continuation) = AsyncStream.makeStream(of: String.self)
+        self.sendContinuation = continuation
+
+        sendQueue = Task { [weak self] in
+            for await message in stream {
+                guard let self, let session = self.session, let ws = self.webSocket else { break }
+                let plaintext = Data(message.utf8)
+                let ciphertext = session.encrypt(plaintext)
+                let wire = WireMessage(
+                    phase: .transport,
+                    payload: ciphertext.base64EncodedString()
+                )
+                guard let json = try? self.encoder.encode(wire),
+                      let jsonString = String(data: json, encoding: .utf8) else { continue }
+                do {
+                    try await ws.send(.string(jsonString))
+                } catch {
+                    // WebSocket write failed — stop the send loop.
+                    break
+                }
+            }
         }
-        try await webSocket.send(.string(jsonString))
     }
 
     /// Returns an AsyncStream of decrypted application messages.
@@ -282,6 +309,10 @@ final class SecureTransport: SecureTransportProtocol, @unchecked Sendable {
 
     /// Tear down the transport.
     func shutdown() {
+        sendContinuation?.finish()
+        sendContinuation = nil
+        sendQueue?.cancel()
+        sendQueue = nil
         readLoopTask?.cancel()
         readLoopTask = nil
         messageContinuation?.finish()
