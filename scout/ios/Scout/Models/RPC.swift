@@ -115,6 +115,96 @@ struct SessionResumeParams: Codable, Sendable {
     var name: String?
 }
 
+struct MobileListParams: Codable, Sendable {
+    var query: String?
+    var limit: Int?
+}
+
+struct MobileCreateSessionParams: Codable, Sendable {
+    let workspaceId: String
+    var harness: String?
+    var agentName: String?
+    var worktree: String?
+    var profile: String?
+}
+
+struct MobileSessionSnapshotParams: Codable, Sendable {
+    let conversationId: String
+    var beforeTurnId: String?
+    var limit: Int?
+}
+
+struct MobileSendMessageParams: Codable, Sendable {
+    let agentId: String
+    let body: String
+    var clientMessageId: String?
+    var replyToMessageId: String?
+    var referenceMessageIds: [String]?
+    var harness: String?
+}
+
+struct MobileWorkspaceHarnessSummary: Codable, Sendable {
+    let harness: String
+    let source: String
+    let detail: String
+    let readinessState: String?
+    let readinessDetail: String?
+}
+
+struct MobileWorkspaceSummary: Codable, Identifiable, Sendable {
+    let id: String
+    let title: String
+    let projectName: String
+    let root: String
+    let sourceRoot: String
+    let relativePath: String
+    let registrationKind: String
+    let defaultHarness: String
+    let harnesses: [MobileWorkspaceHarnessSummary]
+}
+
+struct MobileSessionSummary: Codable, Identifiable, Sendable {
+    let id: String
+    let kind: String
+    let title: String
+    let participantIds: [String]
+    let agentId: String?
+    let agentName: String?
+    let harness: String?
+    let currentBranch: String?
+    let preview: String?
+    let messageCount: Int
+    let lastMessageAt: Int?
+    let workspaceRoot: String?
+}
+
+struct MobileSessionHandleConversation: Codable, Sendable {
+    let conversationId: String
+    let title: String
+    let existed: Bool
+}
+
+struct MobileSessionHandle: Codable, Sendable {
+    let workspace: MobileWorkspaceSummary
+    let agent: MobileAgentSummary
+    let session: MobileSessionHandleConversation
+    let unsupported: [String]
+}
+
+struct MobileAgentSummary: Codable, Sendable {
+    let id: String
+    let title: String
+    let selector: String?
+    let defaultSelector: String?
+    let workspaceRoot: String?
+    let harness: String?
+    let transport: String?
+    let state: String
+    let statusLabel: String
+    let sessionId: String?
+    let lastActiveAt: Int?
+}
+
 // MARK: - Type-erased Encodable wrapper
 
 private struct AnyEncodable: Encodable, @unchecked Sendable {

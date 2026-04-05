@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertCircle,
@@ -73,6 +74,11 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { getScoutDesktop } from "@/lib/electron";
 import { cn } from "@/lib/utils";
+import {
+  parseSettingsPath,
+  settingsPath,
+  type SettingsSectionId,
+} from "@/settings/settings-paths";
 import type {
   AgentSessionInspector,
   AgentConfigState,
@@ -171,7 +177,6 @@ type ComposerRelayReference = {
 };
 
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
-type SettingsSectionId = 'profile' | 'knowledge' | 'agents' | 'communication' | 'database' | 'appearance';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
 type CapabilityCard = { icon: React.ReactNode; title: string; desc: string; action: () => void; accent: boolean };
@@ -278,6 +283,7 @@ export default function App() {
   const [relayComposerSelectionStart, setRelayComposerSelectionStart] = useState(0);
   const [relayMentionSelectionIndex, setRelayMentionSelectionIndex] = useState(0);
   const [relayFeedback, setRelayFeedback] = useState<string | null>(null);
+  const [relayTimelinePinnedToBottom, setRelayTimelinePinnedToBottom] = useState(true);
   const [relayReplyTarget, setRelayReplyTarget] = useState<{
     messageId: string;
     authorId: string;
@@ -329,6 +335,45 @@ export default function App() {
     setStartupSplashDismissed(true);
   }, []);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('profile');
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  /** Deep links and browser navigation: /settings/* → in-app settings view. */
+  useLayoutEffect(() => {
+    if (!location.pathname.startsWith("/settings")) {
+      return;
+    }
+    const section = parseSettingsPath(location.pathname);
+    if (section) {
+      setActiveView("settings");
+      setSettingsSection(section);
+      return;
+    }
+    navigate("/settings/profile", { replace: true });
+  }, [location.pathname, navigate]);
+
+  /** While on Settings, keep the address bar aligned with the active section. */
+  useEffect(() => {
+    if (activeView !== "settings") {
+      return;
+    }
+    const urlSection = parseSettingsPath(location.pathname);
+    if (urlSection !== settingsSection) {
+      navigate(settingsPath(settingsSection), { replace: true });
+    }
+  }, [activeView, settingsSection, location.pathname, navigate]);
+
+  /** Leaving Settings clears /settings/* so the URL matches the main surface. */
+  useEffect(() => {
+    if (activeView === "settings") {
+      return;
+    }
+    if (!location.pathname.startsWith("/settings")) {
+      return;
+    }
+    navigate("/", { replace: true });
+  }, [activeView, location.pathname, navigate]);
+
   const openKnowledgeBase = React.useCallback(() => {
     setProductSurface('relay');
     setActiveView('help');
@@ -353,6 +398,7 @@ export default function App() {
   const [dark, setDark] = useState(false);
   const isDragging = useRef(false);
   const relayComposerRef = useRef<HTMLTextAreaElement | null>(null);
+  const relayTimelineViewportRef = useRef<HTMLDivElement | null>(null);
   const agentRuntimePathRef = useRef<HTMLInputElement | null>(null);
   const agentSystemPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const agentSystemPromptViewRef = useRef<HTMLDivElement | null>(null);
@@ -1377,12 +1423,11 @@ export default function App() {
     [relayContextMessageIds, relayMessageLookup],
   );
   const relayThreadTitle = cleanDisplayTitle(relayCurrentDestination?.title ?? '# shared-channel');
-  const relayThreadSubtitle = selectedRelayDirectThread?.state === 'working'
-    ? null
-    : selectedRelayDirectThread?.statusDetail
-      ?? selectedRelayDirectThread?.subtitle
-      ?? relayCurrentDestination?.subtitle
+  const relayThreadSubtitle = selectedRelayDirectThread
+    ? relaySecondaryText(selectedRelayDirectThread)
+    : relayCurrentDestination?.subtitle
       ?? null;
+  const lastVisibleRelayMessage = visibleRelayMessages.at(-1) ?? null;
   const relaySelectionIsFeed = relayFeedItems.some(
     (item) => item.kind === selectedRelayKind && item.id === selectedRelayId,
   );
@@ -1425,6 +1470,43 @@ export default function App() {
       .sort((left, right) => left.title.localeCompare(right.title)),
     [interAgentAgents],
   );
+
+  useEffect(() => {
+    setRelayTimelinePinnedToBottom(true);
+    const viewport = relayTimelineViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' });
+    });
+  }, [selectedRelayKind, selectedRelayId]);
+
+  useEffect(() => {
+    if (!relayTimelinePinnedToBottom) {
+      return;
+    }
+    const viewport = relayTimelineViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    });
+  }, [
+    relayTimelinePinnedToBottom,
+    selectedRelayDirectThread?.state,
+    selectedRelayDirectThread?.activeTask,
+    lastVisibleRelayMessage?.id,
+    lastVisibleRelayMessage?.body,
+    lastVisibleRelayMessage?.deliveryState,
+  ]);
+
+  const handleRelayTimelineScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const viewport = event.currentTarget;
+    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    setRelayTimelinePinnedToBottom(distanceFromBottom <= 48);
+  };
   const relayActiveMention = useMemo(
     () => findActiveRelayMention(relayDraft, relayComposerSelectionStart),
     [relayComposerSelectionStart, relayDraft],
@@ -1485,6 +1567,13 @@ export default function App() {
     },
     [agentRosterFilter, agentRosterSort, interAgentAgents],
   );
+  const rosterAgentTitleCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const agent of rosterInterAgentAgents) {
+      counts.set(agent.title, (counts.get(agent.title) ?? 0) + 1);
+    }
+    return counts;
+  }, [rosterInterAgentAgents]);
   const selectedInterAgent = interAgentAgents.find((agent) => agent.id === selectedInterAgentId) ?? null;
   const visibleInterAgentThreads = useMemo(
     () => interAgentThreads.filter((thread) => thread.participants.some((participant) => participant.id === selectedInterAgentId)),
@@ -7074,7 +7163,12 @@ export default function App() {
                               ></div>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate" style={s.inkText}>{agent.title}</div>
+                              <div className="font-medium truncate" style={s.inkText}>
+                                {agent.title}
+                                {(rosterAgentTitleCounts.get(agent.title) ?? 0) > 1 && agent.branch ? (
+                                  <span className="font-normal ml-1 text-[10px]" style={s.mutedText}>{agent.branch}</span>
+                                ) : null}
+                              </div>
                               <div className="text-[10px] truncate" style={s.mutedText}>{agentRosterSecondaryText(agent, agentRosterSort)}</div>
                             </div>
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
@@ -7831,7 +7925,12 @@ export default function App() {
                               ></div>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate" style={s.inkText}>{agent.title}</div>
+                              <div className="font-medium truncate" style={s.inkText}>
+                                {agent.title}
+                                {(rosterAgentTitleCounts.get(agent.title) ?? 0) > 1 && agent.branch ? (
+                                  <span className="font-normal ml-1 text-[10px]" style={s.mutedText}>{agent.branch}</span>
+                                ) : null}
+                              </div>
                               <div className="text-[10px] truncate" style={s.mutedText}>{agentRosterSecondaryText(agent, agentRosterSort)}</div>
                             </div>
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
@@ -8653,7 +8752,11 @@ export default function App() {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-4 py-3 pb-6">
+              <div
+                ref={relayTimelineViewportRef}
+                className="flex-1 overflow-y-auto px-4 py-3 pb-6"
+                onScroll={handleRelayTimelineScroll}
+              >
                 {visibleRelayMessages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 text-center">
                     <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>

@@ -144,7 +144,14 @@ app.get("/api/mobile/sessions", async (c) => c.json(await getScoutMobileSessions
   limit: parseOptionalPositiveInt(c.req.query("limit")),
 }, currentDirectory)));
 app.get("/api/mobile/session/:conversationId", async (c) => c.json(
-  await getScoutMobileSessionSnapshot(c.req.param("conversationId"), currentDirectory),
+  await getScoutMobileSessionSnapshot(
+    c.req.param("conversationId"),
+    {
+      beforeTurnId: c.req.query("beforeTurnId"),
+      limit: parseOptionalPositiveInt(c.req.query("limit")),
+    },
+    currentDirectory,
+  ),
 ));
 app.post("/api/mobile/session/create", async (c) => c.json(await createScoutMobileSession(await c.req.json(), currentDirectory)));
 app.post("/api/mobile/message/send", async (c) => c.json(await sendScoutMobileMessage(await c.req.json(), currentDirectory)));

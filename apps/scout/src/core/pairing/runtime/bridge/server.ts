@@ -486,14 +486,26 @@ export async function handleRPC(
       }
 
       case "mobile/session/snapshot": {
-        const p = req.params as { conversationId?: string; sessionId?: string };
+        const p = req.params as {
+          conversationId?: string;
+          sessionId?: string;
+          beforeTurnId?: string | null;
+          limit?: number | null;
+        };
         const conversationId = p?.conversationId ?? p?.sessionId;
         if (!conversationId) {
           return { id: req.id, error: { code: -32602, message: "conversationId is required" } };
         }
         return {
           id: req.id,
-          result: await getScoutMobileSessionSnapshot(conversationId, resolveMobileCurrentDirectory()),
+          result: await getScoutMobileSessionSnapshot(
+            conversationId,
+            {
+              beforeTurnId: p?.beforeTurnId ?? null,
+              limit: typeof p?.limit === "number" ? p.limit : null,
+            },
+            resolveMobileCurrentDirectory(),
+          ),
         };
       }
 

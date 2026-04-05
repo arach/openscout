@@ -10,11 +10,15 @@ struct TimelineView: View {
 
     @Environment(SessionStore.self) private var store
     @Environment(ConnectionManager.self) private var connection
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var shouldAutoScroll = true
     @State private var showingSettings = false
     @State private var sendError: String?
     @State private var isRefreshing = false
+    @State private var isLoadingOlder = false
+    @State private var liveRefreshGeneration = 0
+    @State private var liveRefreshDeadline: Date?
     @Environment(\.dismiss) private var dismiss
     @Namespace private var bottomAnchor
 
@@ -55,6 +59,14 @@ struct TimelineView: View {
         }
     }
 
+    private var hasOlderHistory: Bool {
+        sessionState?.history?.hasOlder == true
+    }
+
+    private var oldestLoadedTurnId: String? {
+        sessionState?.history?.oldestTurnId
+    }
+
     private var isStreaming: Bool {
         turns.last?.status == .streaming || turns.last?.status == .started
     }
@@ -65,6 +77,19 @@ struct TimelineView: View {
 
     private var isCachedOnly: Bool {
         store.cachedOnlySessionIds.contains(sessionId)
+    }
+
+    private var shouldRunFocusedRefresh: Bool {
+        guard connection.state == .connected, scenePhase == .active else { return false }
+        if sessionState?.currentTurnId != nil {
+            return true
+        }
+        guard let deadline = liveRefreshDeadline else { return false }
+        return deadline > Date()
+    }
+
+    private var liveRefreshInterval: Duration {
+        sessionState?.currentTurnId != nil ? .milliseconds(700) : .milliseconds(1500)
     }
 
     var body: some View {
@@ -126,6 +151,9 @@ struct TimelineView: View {
         .task {
             await hydrateTimeline()
         }
+        .task(id: liveRefreshGeneration) {
+            await runFocusedRefreshLoop()
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 titleView
@@ -147,6 +175,15 @@ struct TimelineView: View {
                 .environment(connection)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .onChange(of: sessionState?.currentTurnId) { _, currentTurnId in
+            guard currentTurnId != nil else { return }
+            shouldAutoScroll = true
+            requestFocusedRefresh(for: 30, forceRestart: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, (sessionState?.currentTurnId != nil || liveRefreshDeadline != nil) else { return }
+            requestFocusedRefresh(for: 20, forceRestart: true)
         }
     }
 
@@ -179,9 +216,11 @@ struct TimelineView: View {
                 providerOptions: promptProviderOptions(for: request)
             )
             try await connection.sendPrompt(prompt)
+            shouldAutoScroll = true
+            requestFocusedRefresh(for: 30, forceRestart: true)
             sendError = nil
         } catch {
-            sendError = error.localizedDescription
+            sendError = error.scoutUserFacingMessage
         }
     }
 
@@ -190,9 +229,9 @@ struct TimelineView: View {
         guard connection.state == .connected else { return true }
 
         let localState = store.sessions[sessionId] ?? SessionCache.shared.load(sessionId: sessionId)
-        let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
-        guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
-            store.applySnapshot(remoteSnapshot)
+            let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
+            guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
+            store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
             sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
             return false
         }
@@ -214,17 +253,51 @@ struct TimelineView: View {
     }
 
     @MainActor
-    private func refreshTimeline() async {
+    private func refreshTimeline(showSpinner: Bool = true, reportErrors: Bool = true) async {
         guard connection.state == .connected else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
+        if showSpinner {
+            isRefreshing = true
+        }
+        defer {
+            if showSpinner {
+                isRefreshing = false
+            }
+        }
 
         do {
             let snapshot = try await connection.getSnapshot(sessionId)
-            store.applySnapshot(snapshot)
+            store.applyLatestSnapshotPreservingHistory(snapshot)
             DispatchLog.session.info("Loaded snapshot for \(sessionId): \(snapshot.turns.count) turns")
         } catch {
             DispatchLog.session.warning("Failed to load snapshot for \(sessionId): \(error.localizedDescription)")
+            if reportErrors, sendError == nil {
+                sendError = error.scoutUserFacingMessage
+            }
+        }
+    }
+
+    @MainActor
+    private func requestFocusedRefresh(for seconds: TimeInterval, forceRestart: Bool = false) {
+        let now = Date()
+        let deadline = now.addingTimeInterval(seconds)
+        let hadActiveDeadline = liveRefreshDeadline.map { $0 > now } ?? false
+        if liveRefreshDeadline == nil || deadline > liveRefreshDeadline! {
+            liveRefreshDeadline = deadline
+        }
+        if forceRestart || !hadActiveDeadline {
+            liveRefreshGeneration += 1
+        }
+    }
+
+    @MainActor
+    private func runFocusedRefreshLoop() async {
+        guard liveRefreshGeneration > 0 else { return }
+
+        while !Task.isCancelled {
+            guard shouldRunFocusedRefresh else { return }
+            try? await Task.sleep(for: liveRefreshInterval)
+            guard !Task.isCancelled, shouldRunFocusedRefresh else { return }
+            await refreshTimeline(showSpinner: false, reportErrors: false)
         }
     }
 
@@ -248,6 +321,29 @@ struct TimelineView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if hasOlderHistory {
+                        Button {
+                            Task { await loadOlderHistory() }
+                        } label: {
+                            HStack(spacing: DispatchSpacing.xs) {
+                                if isLoadingOlder {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                }
+                                Text(isLoadingOlder ? "Loading earlier…" : "Load earlier")
+                            }
+                            .font(DispatchTypography.caption(12, weight: .semibold))
+                            .foregroundStyle(DispatchColors.textSecondary)
+                            .padding(.horizontal, DispatchSpacing.md)
+                            .padding(.vertical, DispatchSpacing.sm)
+                            .background(DispatchColors.surfaceRaisedAdaptive)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isLoadingOlder || !isConnected)
+                        .padding(.vertical, DispatchSpacing.sm)
+                    }
+
                     ForEach(turns) { turn in
                         TurnView(turn: turn)
 
@@ -279,6 +375,11 @@ struct TimelineView: View {
                     }
             )
             .onChange(of: turns.last?.blocks.count) { _, _ in
+                if shouldAutoScroll {
+                    scrollToBottom(proxy: proxy)
+                }
+            }
+            .onChange(of: turns.last?.blocks.last?.text) { _, _ in
                 if shouldAutoScroll {
                     scrollToBottom(proxy: proxy)
                 }
@@ -317,6 +418,24 @@ struct TimelineView: View {
                     .padding(.bottom, DispatchSpacing.lg)
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func loadOlderHistory() async {
+        guard connection.state == .connected,
+              !isLoadingOlder,
+              let beforeTurnId = oldestLoadedTurnId else { return }
+
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+
+        do {
+            let snapshot = try await connection.getSnapshot(sessionId, beforeTurnId: beforeTurnId, limit: 40)
+            store.prependHistoryPage(snapshot)
+            sendError = nil
+        } catch {
+            sendError = error.scoutUserFacingMessage
         }
     }
 

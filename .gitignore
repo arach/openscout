@@ -61,8 +61,8 @@ next-env.d.ts
 packages/relay/relay-docs/dist/
 
 # iOS derived data / build artifacts
-dispatch/ios/.derived-iphone/
-dispatch/ios/.asc/artifacts/
+scout/ios/.derived-iphone/
+scout/ios/.asc/artifacts/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/

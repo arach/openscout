@@ -7,7 +7,7 @@
     },
     "apps/scout": {
       "name": "@scout/app",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "bin": {
         "scout": "./bin/scout.ts",
       },
@@ -58,6 +58,7 @@
         "react-hook-form": "^7.54.1",
         "react-markdown": "^10.1.0",
         "react-resizable-panels": "^2.1.7",
+        "react-router-dom": "^6.28.0",
         "recharts": "2.15.0",
         "remark-gfm": "^4.0.1",
         "sonner": "^1.7.1",
@@ -74,7 +75,7 @@
     },
     "packages/cli": {
       "name": "@openscout/cli",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
@@ -84,7 +85,7 @@
     },
     "packages/electron-app": {
       "name": "@scout/electron-app",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@chat-adapter/state-memory": "^4.20.2",
         "@chat-adapter/telegram": "^4.20.2",
@@ -138,6 +139,7 @@
         "react-hook-form": "^7.54.1",
         "react-markdown": "^10.1.0",
         "react-resizable-panels": "^2.1.7",
+        "react-router-dom": "^6.28.0",
         "recharts": "2.15.0",
         "remark-gfm": "^4.0.1",
         "sonner": "^1.7.1",
@@ -164,14 +166,14 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
@@ -431,6 +433,8 @@
     "@radix-ui/react-visually-hidden": ["@radix-ui/react-visually-hidden@1.2.3", "", { "dependencies": { "@radix-ui/react-primitive": "2.1.3" }, "peerDependencies": { "@types/react": "*", "@types/react-dom": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc", "react-dom": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react", "@types/react-dom"] }, "sha512-pzJq12tEaaIhqjbzpCuv/OypJY/BPavOofm+dbab+MHLajy277+1lLm6JFcGgF5eskJ6mquGirhXY2GD/8u8Ug=="],
 
     "@radix-ui/rect": ["@radix-ui/rect@1.1.1", "", {}, "sha512-HPwpGIzkl28mWyZqG52jiqDJ12waP11Pa1lGoiyUkIEuMLBP0oeK/C89esbXrxsky5we7dfd8U58nm0SgAWpVw=="],
+
+    "@remix-run/router": ["@remix-run/router@1.23.2", "", {}, "sha512-Ic6m2U/rMjTkhERIa/0ZtXJP17QUi2CbWE7cqx4J58M8aA3QTfW+2UlQ4psvTX9IO1RfNVhK3pcpdjej7L+t2w=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-rc.3", "", {}, "sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q=="],
 
@@ -1129,6 +1133,10 @@
     "react-remove-scroll-bar": ["react-remove-scroll-bar@2.3.8", "", { "dependencies": { "react-style-singleton": "^2.2.2", "tslib": "^2.0.0" }, "peerDependencies": { "@types/react": "*", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-9r+yi9+mgU33AKcj6IbT9oRCO78WriSj6t/cF8DWBZJ9aOGPOTEDvdUDz1FwKim7QXWwmHqtdHnRJfhAxEG46Q=="],
 
     "react-resizable-panels": ["react-resizable-panels@2.1.9", "", { "peerDependencies": { "react": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "react-dom": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc" } }, "sha512-z77+X08YDIrgAes4jl8xhnUu1LNIRp4+E7cv4xHmLOxxUPO/ML7PSrE813b90vj7xvQ1lcf7g2uA9GeMZonjhQ=="],
+
+    "react-router": ["react-router@6.30.3", "", { "dependencies": { "@remix-run/router": "1.23.2" }, "peerDependencies": { "react": ">=16.8" } }, "sha512-XRnlbKMTmktBkjCLE8/XcZFlnHvr2Ltdr1eJX4idL55/9BbORzyZEaIkBFDhFGCEWBBItsVrDxwx3gnisMitdw=="],
+
+    "react-router-dom": ["react-router-dom@6.30.3", "", { "dependencies": { "@remix-run/router": "1.23.2", "react-router": "6.30.3" }, "peerDependencies": { "react": ">=16.8", "react-dom": ">=16.8" } }, "sha512-pxPcv1AczD4vso7G4Z3TKcvlxK7g7TNt3/FNGMhfqyntocvYKj+GCatfigGDjbLozC4baguJ0ReCigoDJXb0ag=="],
 
     "react-smooth": ["react-smooth@4.0.4", "", { "dependencies": { "fast-equals": "^5.0.1", "prop-types": "^15.8.1", "react-transition-group": "^4.4.5" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-gnGKTpYwqL0Iii09gHobNolvX4Kiq4PKx6eWBCYYix+8cdw+cGo3do906l1NBPKkSWx1DghC1dlWG9L2uGd61Q=="],
 

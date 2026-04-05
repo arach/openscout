@@ -2079,15 +2079,26 @@ export async function resolveRelayAgentConfig(
     ensureCurrentProjectConfig?: boolean;
   } = {},
 ): Promise<ResolvedRelayAgentConfig | null> {
+  const setup = await loadResolvedRelayAgents({
+    currentDirectory: options.currentDirectory,
+    ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
+  });
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed) {
+      const exact = setup.discoveredAgents.find((agent) => agent.agentId === trimmed);
+      if (exact) {
+        return exact;
+      }
+    }
+  }
+
   const selector = selectorFromInput(value);
   if (!selector) {
     return null;
   }
 
-  const setup = await loadResolvedRelayAgents({
-    currentDirectory: options.currentDirectory,
-    ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
-  });
   const match = resolveAgentSelector(
     selector,
     setup.discoveredAgents.map(selectorCandidateFromResolvedAgent),

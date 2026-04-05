@@ -87,6 +87,25 @@ struct SettingsView: View {
                         .foregroundStyle(DispatchColors.statusActive)
                 }
 
+                if connection.state == .connected || connection.state == .connecting || connection.state == .handshaking || {
+                    if case .reconnecting = connection.state { return true }
+                    return false
+                }() {
+                    Button {
+                        connection.disconnect()
+                    } label: {
+                        Label("Disconnect", systemImage: "bolt.slash")
+                    }
+                }
+
+                if connection.state != .connected {
+                    Button {
+                        Task { await connection.reconnect() }
+                    } label: {
+                        Label("Reconnect", systemImage: "arrow.clockwise")
+                    }
+                }
+
                 Button(role: .destructive) {
                     connection.clearTrustedBridge()
                 } label: {

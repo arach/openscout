@@ -34,13 +34,14 @@ struct SessionListView: View {
     @State private var sortOrder: SessionSortOrder = .recent
 
     private var visibleSummaries: [SessionSummary] {
+        let liveSummaries = store.summaries.filter { !$0.isCachedOnly }
         switch sortOrder {
         case .recent:
-            return store.summaries.sorted { $0.lastActivityAt > $1.lastActivityAt }
+            return liveSummaries.sorted { $0.lastActivityAt > $1.lastActivityAt }
         case .oldest:
-            return store.summaries.sorted { $0.lastActivityAt < $1.lastActivityAt }
+            return liveSummaries.sorted { $0.lastActivityAt < $1.lastActivityAt }
         case .name:
-            return store.summaries.sorted {
+            return liveSummaries.sorted {
                 let lhs = $0.name.localizedLowercase
                 let rhs = $1.name.localizedLowercase
                 if lhs == rhs {
@@ -55,13 +56,34 @@ struct SessionListView: View {
         connection.state == .connected
     }
 
+    private var connectionBannerText: String? {
+        switch connection.state {
+        case .connected:
+            return nil
+        case .connecting, .handshaking:
+            return "Connecting to Scout on your Mac…"
+        case .reconnecting:
+            return "Reconnecting to Scout on your Mac…"
+        case .failed:
+            return "Scout on your Mac is unavailable right now."
+        case .disconnected:
+            return connection.hasTrustedBridge ? "Scout on your Mac is unavailable right now." : nil
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            Group {
-                if visibleSummaries.isEmpty {
-                    emptyState
-                } else {
-                    sessionList
+            VStack(spacing: 0) {
+                if let connectionBannerText {
+                    connectionBanner(text: connectionBannerText)
+                }
+
+                Group {
+                    if visibleSummaries.isEmpty {
+                        emptyState
+                    } else {
+                        sessionList
+                    }
                 }
             }
             .background(DispatchColors.backgroundAdaptive)
@@ -109,6 +131,10 @@ struct SessionListView: View {
             if !isConnected && store.summaries.isEmpty {
                 await refreshSessions()
             }
+        }
+        .task(id: isConnected) {
+            guard isConnected else { return }
+            await refreshSessions()
         }
     }
 
@@ -210,6 +236,26 @@ struct SessionListView: View {
         .padding(.horizontal, DispatchSpacing.xxl)
     }
 
+    private func connectionBanner(text: String) -> some View {
+        HStack(spacing: DispatchSpacing.sm) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 13, weight: .semibold))
+            Text(text)
+                .font(DispatchTypography.caption(12, weight: .medium))
+            Spacer()
+            if connection.hasTrustedBridge {
+                Button("Retry") {
+                    Task { await connection.reconnect() }
+                }
+                .font(DispatchTypography.caption(12, weight: .bold))
+            }
+        }
+        .padding(.horizontal, DispatchSpacing.lg)
+        .padding(.vertical, DispatchSpacing.sm)
+        .background(DispatchColors.statusError.opacity(0.12))
+        .foregroundStyle(DispatchColors.statusError)
+    }
+
     private var connectionLabel: String {
         switch connection.state {
         case .connected: "Connected"
@@ -308,11 +354,7 @@ struct SessionListView: View {
 
     private func refreshSessions() async {
         isRefreshing = true
-        do {
-            _ = try await connection.bridgeStatus()
-        } catch {
-            // Silently handle -- the UI reflects connection state automatically
-        }
+        await connection.refreshRelaySessions()
         isRefreshing = false
     }
 }

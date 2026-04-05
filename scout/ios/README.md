@@ -14,5 +14,5 @@ Expected migration order:
 3. deeper internal renames once behavior is stable in Scout
 
 Project notes:
-- XcodeGen project definition: [project.yml](/Users/arach/dev/openscout/dispatch/ios/project.yml)
-- source root: [Scout](/Users/arach/dev/openscout/dispatch/ios/Scout)
+- XcodeGen project definition: [project.yml](/Users/arach/dev/openscout/scout/ios/project.yml)
+- source root: [Scout](/Users/arach/dev/openscout/scout/ios/Scout)

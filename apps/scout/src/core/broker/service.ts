@@ -922,16 +922,19 @@ export async function sendScoutDirectMessage(input: {
   source?: string;
 }): Promise<ScoutDirectMessageResult> {
   const currentDirectory = input.currentDirectory ?? process.cwd();
-  const directSession = await openScoutDirectSession({
-    agentId: input.agentId,
+  const directSession = await openScoutPeerSession({
+    sourceId: OPERATOR_ID,
+    targetId: input.agentId,
     currentDirectory,
   });
   const broker = await requireScoutBrokerContext();
   const createdAt = Date.now();
   const messageId = `msg-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const source = input.source?.trim() || "scout-mobile";
-  const targetAgentId = directSession.agent.id;
-  const targetLabel = `@${directSession.agent.handle?.trim() || targetAgentId}`;
+  const targetAgentId = directSession.targetId;
+  const targetAgent = broker.snapshot.agents[targetAgentId]
+    ?? ("agent" in directSession ? directSession.agent : undefined);
+  const targetLabel = `@${targetAgent?.handle?.trim() || targetAgent?.displayName?.trim() || targetAgentId}`;
   const returnAddress = buildScoutReturnAddress(broker.snapshot, OPERATOR_ID, {
     conversationId: directSession.conversation.id,
     replyToMessageId: messageId,

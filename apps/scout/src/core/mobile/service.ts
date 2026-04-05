@@ -14,7 +14,8 @@ import {
 import { upScoutAgent } from "../agents/service.ts";
 import {
   loadScoutBrokerContext,
-  openScoutDirectSession,
+  openScoutPeerSession,
+  registerScoutLocalAgentBinding,
   sendScoutDirectMessage,
   type ScoutBrokerSnapshot,
   type ScoutDirectMessageResult,
@@ -64,6 +65,8 @@ export type ScoutMobileSessionSummary = {
   participantIds: string[];
   agentId: string | null;
   agentName: string | null;
+  harness: string | null;
+  currentBranch: string | null;
   preview: string | null;
   messageCount: number;
   lastMessageAt: number | null;
@@ -110,6 +113,11 @@ export type ScoutMobileSessionSnapshot = {
     model: string | null;
     providerMeta?: Record<string, unknown>;
   };
+  history: {
+    hasOlder: boolean;
+    oldestTurnId: string | null;
+    newestTurnId: string | null;
+  };
   turns: Array<{
     id: string;
     status: "streaming" | "completed" | "interrupted" | "error";
@@ -132,6 +140,9 @@ export type ScoutMobileSessionSnapshot = {
   currentTurnId: string | null;
 };
 
+const DEFAULT_MOBILE_RECENT_TURN_LIMIT = 24;
+const DEFAULT_MOBILE_HISTORY_PAGE_LIMIT = 40;
+
 export type SendScoutMobileMessageInput = {
   agentId: string;
   body: string;
@@ -149,6 +160,27 @@ function normalizeTimestamp(value: number | null | undefined): number | null {
 function normalizeTimestampMs(value: number | null | undefined): number | null {
   if (!value) return null;
   return value > 10_000_000_000 ? Math.floor(value) : Math.floor(value * 1000);
+}
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function titleCaseToken(value: string): string {
+  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
+}
+
+function humanizeWorkspaceName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const base = trimmed.split("/").at(-1)?.trim() || trimmed;
+  if (!base) return null;
+  return base
+    .split(/[-_]+/g)
+    .filter((token) => token.length > 0)
+    .map(titleCaseToken)
+    .join(" ");
 }
 
 function normalizeQuery(value: string | undefined): string {
@@ -215,6 +247,11 @@ function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string,
 }
 
 function agentDisplayName(snapshot: ScoutBrokerSnapshot, agentId: string): string {
+  const endpoint = endpointForAgent(snapshot, agentId);
+  const workspaceTitle = humanizeWorkspaceName(endpoint?.projectRoot ?? endpoint?.cwd ?? null);
+  if (workspaceTitle) {
+    return workspaceTitle;
+  }
   return snapshot.agents[agentId]?.displayName
     ?? snapshot.actors[agentId]?.displayName
     ?? agentId;
@@ -261,15 +298,23 @@ function buildMobileAgentSummary(
 
 function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobileSessionSummary[] {
   const messagesByConversation = latestMessageByConversation(snapshot);
-  return Object.values(snapshot.conversations)
-    .map((conversation) => {
+  const summaries: ScoutMobileSessionSummary[] = Object.values(snapshot.conversations)
+    .filter((conversation) => conversation.kind === "direct")
+    .flatMap((conversation) => {
       const messages = messagesByConversation.get(conversation.id) ?? [];
       const latestMessage = messages.at(-1) ?? null;
       const directAgentId = conversation.kind === "direct"
         ? conversation.participantIds.find((participantId) => participantId !== "operator") ?? null
         : null;
-      const endpoint = directAgentId ? endpointForAgent(snapshot, directAgentId) : null;
-      return {
+      const agent = directAgentId ? snapshot.agents[directAgentId] ?? null : null;
+      if (!directAgentId || !agent || messages.length === 0) {
+        return [];
+      }
+      const endpoint = endpointForAgent(snapshot, directAgentId);
+      if (!endpoint || endpoint.state === "offline") {
+        return [];
+      }
+      return [{
         id: conversation.id,
         kind: conversation.kind,
         title: conversation.kind === "direct" && directAgentId
@@ -278,12 +323,42 @@ function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobile
         participantIds: [...conversation.participantIds],
         agentId: directAgentId,
         agentName: directAgentId ? agentDisplayName(snapshot, directAgentId) : null,
+        harness: endpoint?.harness ?? null,
+        currentBranch:
+          metadataString(endpoint?.metadata, "branch")
+          ?? metadataString(endpoint?.metadata, "workspaceQualifier")
+          ?? metadataString(agent?.metadata, "branch")
+          ?? metadataString(agent?.metadata, "workspaceQualifier"),
         preview: latestMessage?.body ?? null,
         messageCount: messages.length,
         lastMessageAt: normalizeTimestamp(latestMessage?.createdAt),
         workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
-      };
-    })
+      }];
+    });
+
+  const deduped = new Map<string, ScoutMobileSessionSummary>();
+  for (const summary of summaries) {
+    const agent = summary.agentId ? snapshot.agents[summary.agentId] : null;
+    const endpoint = summary.agentId ? endpointForAgent(snapshot, summary.agentId) : null;
+    const branchQualifier =
+      metadataString(endpoint?.metadata, "branch")
+      ?? metadataString(endpoint?.metadata, "workspaceQualifier")
+      ?? metadataString(agent?.metadata, "branch")
+      ?? metadataString(agent?.metadata, "workspaceQualifier");
+    const identityKey = [
+      endpoint?.projectRoot?.trim().toLowerCase(),
+      endpoint?.cwd?.trim().toLowerCase(),
+      branchQualifier?.trim().toLowerCase(),
+      endpoint?.harness?.trim().toLowerCase(),
+      summary.agentName?.trim().toLowerCase(),
+    ].filter((value): value is string => Boolean(value)).join("|") || summary.id;
+    const existing = deduped.get(identityKey);
+    if (!existing || (summary.lastMessageAt ?? 0) >= (existing.lastMessageAt ?? 0)) {
+      deduped.set(identityKey, summary);
+    }
+  }
+
+  return [...deduped.values()]
     .sort((left, right) => (right.lastMessageAt ?? 0) - (left.lastMessageAt ?? 0));
 }
 
@@ -294,6 +369,57 @@ function messagesForConversation(
   return Object.values(snapshot.messages)
     .filter((message) => message.conversationId === conversationId)
     .sort((left, right) => (normalizeTimestamp(left.createdAt) ?? 0) - (normalizeTimestamp(right.createdAt) ?? 0));
+}
+
+function pageMessagesForConversation(
+  snapshot: ScoutBrokerSnapshot,
+  conversationId: string,
+  options: {
+    beforeTurnId?: string | null;
+    limit?: number | null;
+  } = {},
+): {
+  messages: MessageRecord[];
+  hasOlder: boolean;
+  oldestTurnId: string | null;
+  newestTurnId: string | null;
+} {
+  const allMessages = messagesForConversation(snapshot, conversationId);
+  const normalizedLimit = Math.max(
+    1,
+    Math.floor(options.limit ?? (options.beforeTurnId ? DEFAULT_MOBILE_HISTORY_PAGE_LIMIT : DEFAULT_MOBILE_RECENT_TURN_LIMIT)),
+  );
+
+  if (allMessages.length === 0) {
+    return {
+      messages: [],
+      hasOlder: false,
+      oldestTurnId: null,
+      newestTurnId: null,
+    };
+  }
+
+  if (options.beforeTurnId) {
+    const beforeIndex = allMessages.findIndex((message) => message.id === options.beforeTurnId);
+    const endExclusive = beforeIndex >= 0 ? beforeIndex : allMessages.length;
+    const start = Math.max(0, endExclusive - normalizedLimit);
+    const messages = allMessages.slice(start, endExclusive);
+    return {
+      messages,
+      hasOlder: start > 0,
+      oldestTurnId: messages[0]?.id ?? null,
+      newestTurnId: messages.at(-1)?.id ?? null,
+    };
+  }
+
+  const start = Math.max(0, allMessages.length - normalizedLimit);
+  const messages = allMessages.slice(start);
+  return {
+    messages,
+    hasOlder: start > 0,
+    oldestTurnId: messages[0]?.id ?? null,
+    newestTurnId: messages.at(-1)?.id ?? null,
+  };
 }
 
 function latestActiveFlightForAgent(
@@ -415,6 +541,10 @@ export async function getScoutMobileSessions(
 
 export async function getScoutMobileSessionSnapshot(
   conversationId: string,
+  options: {
+    beforeTurnId?: string | null;
+    limit?: number | null;
+  } = {},
   currentDirectory?: string,
 ): Promise<ScoutMobileSessionSnapshot> {
   void currentDirectory;
@@ -429,7 +559,9 @@ export async function getScoutMobileSessionSnapshot(
     ? conversation.participantIds.find((participantId) => participantId !== "operator") ?? null
     : null;
   const endpoint = directAgentId ? endpointForAgent(snapshot, directAgentId) : null;
-  const messages = messagesForConversation(snapshot, conversationId);
+  const agent = directAgentId ? snapshot.agents[directAgentId] : null;
+  const messagePage = pageMessagesForConversation(snapshot, conversationId, options);
+  const messages = messagePage.messages;
   const activeFlight = latestActiveFlightForAgent(snapshot, directAgentId);
   const lastAgentMessageAt = messages
     .filter((message) => message.actorId === directAgentId)
@@ -461,7 +593,7 @@ export async function getScoutMobileSessionSnapshot(
     isUserTurn: message.actorId === "operator",
   }));
 
-  if (shouldShowWorkingTurn && activeFlight) {
+  if (!options.beforeTurnId && shouldShowWorkingTurn && activeFlight) {
     turns.push({
       id: `flight:${activeFlight.id}`,
       status: "streaming",
@@ -495,7 +627,23 @@ export async function getScoutMobileSessionSnapshot(
         agentId: directAgentId,
         workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
         harness: endpoint?.harness ?? null,
+        selector: agent?.selector ?? null,
+        defaultSelector: agent?.defaultSelector ?? null,
+        project: directAgentId ? agentDisplayName(snapshot, directAgentId) : conversation.title,
+        currentBranch:
+          metadataString(endpoint?.metadata, "branch")
+          ?? metadataString(endpoint?.metadata, "workspaceQualifier")
+          ?? metadataString(agent?.metadata, "branch")
+          ?? metadataString(agent?.metadata, "workspaceQualifier"),
+        workspaceQualifier:
+          metadataString(endpoint?.metadata, "workspaceQualifier")
+          ?? metadataString(agent?.metadata, "workspaceQualifier"),
       },
+    },
+    history: {
+      hasOlder: messagePage.hasOlder,
+      oldestTurnId: messagePage.oldestTurnId,
+      newestTurnId: messagePage.newestTurnId,
     },
     turns,
     currentTurnId: shouldShowWorkingTurn && activeFlight ? `flight:${activeFlight.id}` : null,
@@ -514,26 +662,42 @@ export async function createScoutMobileSession(
 
   const localAgent = await upScoutAgent({
     projectPath: workspace.root,
-    agentName: input.agentName,
+    agentName: workspace.projectName,
     harness: input.harness,
     currentDirectory: currentDirectory ?? workspace.root,
   });
 
-  const directSession = await openScoutDirectSession({
+  const broker = await loadScoutBrokerContext();
+  const bindingSync = await registerScoutLocalAgentBinding({
     agentId: localAgent.agentId,
+    broker,
+  });
+  const resolvedAgentId = bindingSync?.binding.agent.id ?? localAgent.agentId;
+
+  const directSession = await openScoutPeerSession({
+    sourceId: "operator",
+    targetId: resolvedAgentId,
     currentDirectory: currentDirectory ?? workspace.root,
   });
 
+  const snapshot = broker?.snapshot;
+  const targetAgentId = directSession.targetId;
+  const brokerAgent = snapshot?.agents[targetAgentId] ?? null;
+  const brokerEndpoint = snapshot ? endpointForAgent(snapshot, targetAgentId) : null;
+  const agentTitle = brokerAgent && snapshot
+    ? agentDisplayName(snapshot, brokerAgent.id)
+    : localAgent.projectName;
+
   const agentSummary: ScoutMobileAgentSummary = {
-    id: localAgent.agentId,
-    title: localAgent.projectName,
-    selector: directSession.agent.selector ?? null,
-    defaultSelector: directSession.agent.defaultSelector ?? null,
-    workspaceRoot: workspace.root,
-    harness: localAgent.harness,
+    id: targetAgentId,
+    title: agentTitle,
+    selector: brokerAgent?.selector ?? null,
+    defaultSelector: brokerAgent?.defaultSelector ?? null,
+    workspaceRoot: brokerEndpoint?.projectRoot ?? brokerEndpoint?.cwd ?? workspace.root,
+    harness: brokerEndpoint?.harness ?? localAgent.harness,
     transport: localAgent.transport,
-    state: "available",
-    statusLabel: "Available",
+    state: brokerEndpoint?.state === "offline" ? "offline" : "available",
+    statusLabel: brokerEndpoint?.state === "offline" ? "Offline" : "Available",
     sessionId: localAgent.sessionId,
     lastActiveAt: null,
   };
@@ -543,7 +707,7 @@ export async function createScoutMobileSession(
     agent: agentSummary,
     session: {
       conversationId: directSession.conversation.id,
-      title: directSession.conversation.title,
+      title: agentTitle,
       existed: directSession.existed,
     },
     unsupported: [

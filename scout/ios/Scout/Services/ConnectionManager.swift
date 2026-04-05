@@ -75,6 +75,33 @@ enum ConnectionError: LocalizedError, Sendable {
     }
 }
 
+extension Error {
+    var scoutUserFacingMessage: String {
+        if let connectionError = self as? ConnectionError {
+            switch connectionError {
+            case .notConnected, .reconnectExhausted:
+                return "Scout on your Mac is unavailable right now. Make sure the bridge is running and try again."
+            case .rpcTimeout:
+                return "Scout on your Mac took too long to respond. Check that the bridge is awake and try again."
+            case .rpcError(_, let message):
+                if message.localizedCaseInsensitiveContains("not connected")
+                    || message.localizedCaseInsensitiveContains("bridge")
+                    || message.localizedCaseInsensitiveContains("relay is not reachable") {
+                    return "Scout on your Mac is unavailable right now. Make sure the bridge is running and try again."
+                }
+                return message
+            case .handshakeFailed, .identityError:
+                return "Scout couldn't establish a secure connection to your Mac. Reconnect and try again."
+            case .invalidQRPayload:
+                return connectionError.localizedDescription ?? "That QR code isn't valid."
+            case .encodingFailed, .decodingFailed:
+                return "Scout hit a transport error talking to your Mac. Try again."
+            }
+        }
+        return localizedDescription
+    }
+}
+
 // MARK: - Connection info (for reconnect)
 
 /// Lightweight struct holding the relay/room info needed to reconnect.
@@ -149,6 +176,7 @@ final class ConnectionManager: @unchecked Sendable {
     private let sessionDelegate = TrustAllDelegate()
     private var connectionInfo: BridgeConnectionInfo?
     private var identityKeyPair: NoiseKeyPair?
+    private var manualDisconnectRequested = false
 
     private static let logger = Logger(
         subsystem: "com.openscout.scout",
@@ -156,6 +184,7 @@ final class ConnectionManager: @unchecked Sendable {
     )
 
     private static let rpcTimeout: TimeInterval = 10
+    private static let createSessionTimeout: TimeInterval = 30
     private static let maxReconnectAttempts = 3
     private static let maxBackoff: TimeInterval = 30
 
@@ -185,6 +214,7 @@ final class ConnectionManager: @unchecked Sendable {
 
     /// Connect to a bridge via QR pairing payload (XX handshake).
     func connect(qrPayload: QRPayload) async throws {
+        manualDisconnectRequested = false
         // Validate using the QRPayload's built-in validation.
         if let error = qrPayload.validate() {
             throw ConnectionError.invalidQRPayload(error)
@@ -227,7 +257,9 @@ final class ConnectionManager: @unchecked Sendable {
             connectionInfo = info
 
             // Bind session store to this bridge for seq persistence.
-            sessionStore.bindToBridge(publicKeyHex: publicKeyHex)
+            await MainActor.run {
+                sessionStore.bindToBridge(publicKeyHex: publicKeyHex)
+            }
 
             startMessageLoop()
 
@@ -252,11 +284,21 @@ final class ConnectionManager: @unchecked Sendable {
     ///   4. If resolve returns 404 → bridge offline, retry with backoff
     ///   5. After 3 failed IK attempts → clear trust, show QR scanner
     func reconnect() async {
+        guard !manualDisconnectRequested else {
+            setState(.disconnected)
+            await MainActor.run {
+                sessionStore.connectionState = .disconnected
+            }
+            return
+        }
+
         guard var info = connectionInfo else {
             Self.logger.warning("No saved connection info to reconnect to")
             setState(.disconnected)
             return
         }
+
+        manualDisconnectRequested = false
 
         let remoteKeyData = info.bridgePublicKeyData
         guard remoteKeyData.count == 32 else {
@@ -312,7 +354,9 @@ final class ConnectionManager: @unchecked Sendable {
                     failureReason: "Trusted bridge identity changed during reconnect"
                 )
 
-                sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
+                await MainActor.run {
+                    sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
+                }
                 try? DispatchIdentity.touchTrustedBridge(publicKey: remoteKeyData)
                 startMessageLoop()
                 setState(.connected)
@@ -364,6 +408,7 @@ final class ConnectionManager: @unchecked Sendable {
 
     /// Disconnect from the current bridge.
     func disconnect() {
+        manualDisconnectRequested = true
         receiveTask?.cancel()
         receiveTask = nil
         reconnectTask?.cancel()
@@ -371,12 +416,15 @@ final class ConnectionManager: @unchecked Sendable {
 
         transport = nil
 
-        webSocket?.cancel(with: .goingAway, reason: nil)
+        let activeWebSocket = webSocket
         webSocket = nil
+        activeWebSocket?.cancel(with: .goingAway, reason: nil)
 
         cancelAllPendingRequests(with: ConnectionError.notConnected)
 
-        sessionStore.connectionState = .disconnected
+        Task { @MainActor in
+            sessionStore.connectionState = .disconnected
+        }
 
         if state != .disconnected {
             setState(.disconnected)
@@ -400,8 +448,10 @@ final class ConnectionManager: @unchecked Sendable {
         }
         connectionInfo = nil
         UserDefaults.standard.removeObject(forKey: "scout.connectionInfo")
-        sessionStore.clearAll()
-        sessionStore.connectionState = .disconnected
+        Task { @MainActor in
+            sessionStore.clearAll()
+            sessionStore.connectionState = .disconnected
+        }
         setState(.disconnected)
         Self.logger.notice("Cleared trusted bridge record")
     }
@@ -424,9 +474,39 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(Session.self, from: data)
     }
 
+    func createMobileSession(
+        workspaceId: String,
+        harness: String? = nil,
+        agentName: String? = nil,
+        worktree: String? = nil,
+        profile: String? = nil
+    ) async throws -> MobileSessionHandle {
+        let params = MobileCreateSessionParams(
+            workspaceId: workspaceId,
+            harness: harness,
+            agentName: agentName,
+            worktree: worktree,
+            profile: profile
+        )
+        let data = try await sendRPC(method: "mobile/session/create", params: params)
+        return try decodeResult(MobileSessionHandle.self, from: data)
+    }
+
     func listSessions() async throws -> [Session] {
         let data = try await sendRPC(method: "session/list", params: nil as Empty?)
         return try decodeResult([Session].self, from: data)
+    }
+
+    func listMobileSessions(query: String? = nil, limit: Int? = nil) async throws -> [MobileSessionSummary] {
+        let params = MobileListParams(query: query, limit: limit)
+        let data = try await sendRPC(method: "mobile/sessions", params: params)
+        return try decodeResult([MobileSessionSummary].self, from: data)
+    }
+
+    func listMobileWorkspaces(query: String? = nil, limit: Int? = nil) async throws -> [MobileWorkspaceSummary] {
+        let params = MobileListParams(query: query, limit: limit)
+        let data = try await sendRPC(method: "mobile/workspaces", params: params)
+        return try decodeResult([MobileWorkspaceSummary].self, from: data)
     }
 
     func closeSession(_ sessionId: String) async throws {
@@ -435,7 +515,23 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     func sendPrompt(_ prompt: Prompt) async throws {
-        _ = try await sendRPC(method: "prompt/send", params: prompt)
+        let session = await MainActor.run {
+            sessionStore.sessions[prompt.sessionId]?.session
+        }
+        guard let session,
+              let agentId = session.agentId else {
+            throw ConnectionError.rpcError(code: -32602, message: "Missing relay agent for session")
+        }
+
+        let params = MobileSendMessageParams(
+            agentId: agentId,
+            body: prompt.text,
+            clientMessageId: UUID().uuidString,
+            replyToMessageId: nil,
+            referenceMessageIds: nil,
+            harness: session.adapterType.trimmedNonEmpty
+        )
+        _ = try await sendRPC(method: "mobile/message/send", params: params)
     }
 
     func interruptTurn(_ sessionId: String) async throws {
@@ -443,9 +539,13 @@ final class ConnectionManager: @unchecked Sendable {
         _ = try await sendRPC(method: "turn/interrupt", params: params)
     }
 
-    func getSnapshot(_ sessionId: String) async throws -> SessionState {
-        let params = SessionIdParams(sessionId: sessionId)
-        let data = try await sendRPC(method: "session/snapshot", params: params)
+    func getSnapshot(_ sessionId: String, beforeTurnId: String? = nil, limit: Int? = nil) async throws -> SessionState {
+        let params = MobileSessionSnapshotParams(
+            conversationId: sessionId,
+            beforeTurnId: beforeTurnId,
+            limit: limit
+        )
+        let data = try await sendRPC(method: "mobile/session/snapshot", params: params)
         return try decodeResult(SessionState.self, from: data)
     }
 
@@ -483,6 +583,42 @@ final class ConnectionManager: @unchecked Sendable {
         let params = WorkspaceOpenParams(path: path, adapter: adapter, name: name)
         let data = try await sendRPC(method: "workspace/open", params: params)
         return try decodeResult(Session.self, from: data)
+    }
+
+    func refreshRelaySessions(limit: Int = 100) async {
+        do {
+            let sessions = try await listMobileSessions(limit: limit)
+            let now = Int(Date().timeIntervalSince1970 * 1000)
+            let summaries = sessions.map { session in
+                let lastActivityAt = (session.lastMessageAt ?? Int(now / 1000)) * 1000
+                let project = session.workspaceRoot?.trimmedNonEmpty.map {
+                    URL(fileURLWithPath: $0).lastPathComponent
+                } ?? session.agentName
+                return SessionSummary(
+                    sessionId: session.id,
+                    name: session.title,
+                    adapterType: session.harness?.trimmedNonEmpty ?? "relay",
+                    status: "active",
+                    turnCount: session.messageCount,
+                    currentTurnStatus: nil,
+                    startedAt: lastActivityAt,
+                    lastActivityAt: lastActivityAt,
+                    project: project,
+                    model: nil,
+                    isCachedOnly: false
+                )
+            }
+
+            await MainActor.run {
+                sessionStore.reconcileLiveSummaries(summaries)
+                sessionStore.connectionState = .connected
+            }
+        } catch {
+            Self.logger.error("Relay refresh failed: \(error.localizedDescription, privacy: .public)")
+            await MainActor.run {
+                sessionStore.connectionState = state
+            }
+        }
     }
 
     // MARK: - Session Resume
@@ -598,20 +734,27 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     private func handleDisconnect() async {
+        let shouldReconnect = !manualDisconnectRequested && connectionInfo != nil
+
         // Clean up the dead connection state.
         transport = nil
-        webSocket?.cancel(with: .goingAway, reason: nil)
+        let activeWebSocket = webSocket
         webSocket = nil
+        activeWebSocket?.cancel(with: .goingAway, reason: nil)
         cancelAllPendingRequests(with: ConnectionError.notConnected)
 
-        sessionStore.connectionState = .reconnecting(attempt: 0)
+        await MainActor.run {
+            sessionStore.connectionState = shouldReconnect ? .reconnecting(attempt: 0) : .disconnected
+        }
 
         // Attempt reconnect if we have connection info for a trusted bridge.
-        if connectionInfo != nil {
+        if shouldReconnect {
             await reconnect()
         } else {
             setState(.disconnected)
-            sessionStore.connectionState = .disconnected
+            await MainActor.run {
+                sessionStore.connectionState = .disconnected
+            }
         }
     }
 
@@ -631,7 +774,9 @@ final class ConnectionManager: @unchecked Sendable {
 
         // Try parsing as a sequenced event (has "seq" and "event" fields).
         if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: data) {
-            sessionStore.applyEvent(sequenced)
+            Task { @MainActor in
+                sessionStore.applyEvent(sequenced)
+            }
             return
         }
 
@@ -691,7 +836,13 @@ final class ConnectionManager: @unchecked Sendable {
 
         return try await withCheckedThrowingContinuation { continuation in
             let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Self.rpcTimeout))
+                let timeout = switch method {
+                case "mobile/session/create", "session/create", "workspace/open", "session/resume":
+                    Self.createSessionTimeout
+                default:
+                    Self.rpcTimeout
+                }
+                try? await Task.sleep(for: .seconds(timeout))
                 guard !Task.isCancelled else { return }
 
                 let removed = self?.pendingRequests.withLock { $0.removeValue(forKey: request.id) }
@@ -752,61 +903,7 @@ final class ConnectionManager: @unchecked Sendable {
 
     /// Run the reconnect recovery algorithm from PROTOCOL.md §4.
     private func runRecovery() async {
-        let localSeq = sessionStore.lastAppliedSeq
-
-        do {
-            let status = try await syncStatus()
-
-            if localSeq >= status.oldestBufferedSeq && status.oldestBufferedSeq > 0 {
-                // Case 1: We can replay missed events.
-                Self.logger.notice(
-                    "Recovery: replaying from seq \(localSeq) (buffer oldest: \(status.oldestBufferedSeq), current: \(status.currentSeq))"
-                )
-                let events = try await syncReplay(lastSeq: localSeq)
-                sessionStore.applyReplayEvents(events)
-
-            } else if status.sessionCount > 0 {
-                // Case 2: Gap too large, need full snapshots.
-                Self.logger.notice(
-                    "Recovery: gap too large (local: \(localSeq), oldest buffered: \(status.oldestBufferedSeq)), fetching snapshots"
-                )
-                let sessions = try await listSessions()
-                let activeSessionIds = Set(
-                    sessions
-                        .filter { $0.status != .closed }
-                        .map(\.id)
-                )
-                var snapshots: [SessionState] = []
-
-                for session in sessions where session.status != .closed {
-                    do {
-                        let snapshot = try await getSnapshot(session.id)
-                        snapshots.append(snapshot)
-                    } catch {
-                        Self.logger.error("Failed to get snapshot for session \(session.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    }
-                }
-
-                sessionStore.reconcileSnapshots(snapshots, keeping: activeSessionIds)
-
-                // Reset seq tracking to current since we have full state.
-                sessionStore.updateLastAppliedSeq(status.currentSeq)
-
-            } else {
-                Self.logger.notice("Recovery: no sessions on bridge")
-                sessionStore.reconcileSnapshots([], keeping: [])
-                sessionStore.updateLastAppliedSeq(status.currentSeq)
-            }
-
-            // Sync the connection state into the store.
-            sessionStore.connectionState = .connected
-
-        } catch {
-            Self.logger.error("Recovery failed: \(error.localizedDescription, privacy: .public)")
-            // Connection is live, state may be partial — still mark connected
-            // so the user can interact. Events will accumulate going forward.
-            sessionStore.connectionState = .connected
-        }
+        await refreshRelaySessions()
     }
 
     // MARK: - Private: Connection info persistence
@@ -884,6 +981,7 @@ private func hexString(_ data: Data) -> String {
 
 extension ConnectionManager {
     /// Create a preview instance for SwiftUI previews.
+    @MainActor
     static func preview() -> ConnectionManager {
         let store = SessionStore.preview
         let manager = ConnectionManager(sessionStore: store)

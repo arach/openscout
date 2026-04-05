@@ -147,8 +147,15 @@ struct ImageAttachment: Codable, Sendable {
 
 struct SessionState: Codable, Sendable {
     var session: Session
+    var history: SessionHistory?
     var turns: [TurnState]
     var currentTurnId: String?
+}
+
+struct SessionHistory: Codable, Sendable {
+    var hasOlder: Bool
+    var oldestTurnId: String?
+    var newestTurnId: String?
 }
 
 enum SnapshotTurnStatus: String, Codable, Sendable {
@@ -256,6 +263,10 @@ extension AnyCodable {
 }
 
 extension Session {
+    var agentId: String? {
+        providerMeta?["agentId"]?.stringValue?.trimmedNonEmpty
+    }
+
     var currentBranch: String? {
         for key in ["branch", "gitBranch", "currentBranch", "workspaceQualifier"] {
             if let branch = providerMeta?[key]?.stringValue?.trimmedNonEmpty {

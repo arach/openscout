@@ -9,6 +9,7 @@
 import Foundation
 import os
 
+@MainActor
 @Observable
 final class SessionStore: @unchecked Sendable {
 
@@ -22,6 +23,9 @@ final class SessionStore: @unchecked Sendable {
 
     /// Session IDs restored from local cache but not known to be live on the bridge.
     private(set) var cachedOnlySessionIds: Set<String> = []
+
+    /// Last live relay summaries fetched for active sessions.
+    private var relaySummariesById: [String: SessionSummary] = [:]
 
     /// Mirrors ConnectionManager's state for UI binding convenience.
     var connectionState: ConnectionState = .disconnected
@@ -88,6 +92,64 @@ final class SessionStore: @unchecked Sendable {
         mergeSnapshot(snapshot, source: .live)
     }
 
+    /// Merge a fresh recent-window snapshot without discarding already loaded older turns.
+    func applyLatestSnapshotPreservingHistory(_ snapshot: SessionState) {
+        let normalizedSnapshot = TurnHash.normalize(snapshot)
+
+        lock.lock()
+        let existing = sessions[normalizedSnapshot.session.id]
+        let olderTurns: [TurnState]
+        if let existing,
+           let oldestIncomingId = normalizedSnapshot.turns.first?.id,
+           let pivotIndex = existing.turns.firstIndex(where: { $0.id == oldestIncomingId }) {
+            let existingIds = Set(normalizedSnapshot.turns.map(\.id))
+            olderTurns = existing.turns[..<pivotIndex].filter { !existingIds.contains($0.id) }
+        } else {
+            olderTurns = []
+        }
+
+        var merged = normalizedSnapshot
+        if !olderTurns.isEmpty {
+            merged.turns = olderTurns + normalizedSnapshot.turns
+        }
+        sessions[merged.session.id] = merged
+        cachedOnlySessionIds.remove(merged.session.id)
+        lock.unlock()
+
+        rebuildSummaries()
+        SessionCache.shared.save(merged)
+        Self.logger.notice("Applied live snapshot preserving older history for session \(merged.session.id)")
+    }
+
+    /// Prepend an older history page ahead of the currently loaded timeline.
+    func prependHistoryPage(_ snapshot: SessionState) {
+        let normalizedSnapshot = TurnHash.normalize(snapshot)
+
+        lock.lock()
+        if var existing = sessions[normalizedSnapshot.session.id] {
+            let existingIds = Set(existing.turns.map(\.id))
+            let olderTurns = normalizedSnapshot.turns.filter { !existingIds.contains($0.id) }
+            existing.turns = olderTurns + existing.turns
+            existing.history = normalizedSnapshot.history
+            existing.session = normalizedSnapshot.session
+            sessions[existing.session.id] = existing
+            cachedOnlySessionIds.remove(existing.session.id)
+            lock.unlock()
+
+            rebuildSummaries()
+            SessionCache.shared.save(existing)
+            Self.logger.notice("Prepended \(olderTurns.count) older turns for session \(existing.session.id)")
+            return
+        }
+
+        sessions[normalizedSnapshot.session.id] = normalizedSnapshot
+        cachedOnlySessionIds.remove(normalizedSnapshot.session.id)
+        lock.unlock()
+
+        rebuildSummaries()
+        SessionCache.shared.save(normalizedSnapshot)
+    }
+
     /// Restore cached turns without claiming the session is live on the bridge.
     func restoreCachedSnapshot(_ snapshot: SessionState) {
         mergeSnapshot(snapshot, source: .cache)
@@ -124,6 +186,7 @@ final class SessionStore: @unchecked Sendable {
         lock.lock()
         sessions = sessions.filter { sessionIds.contains($0.key) || cachedOnlySessionIds.contains($0.key) }
         cachedOnlySessionIds.subtract(sessionIds)
+        relaySummariesById = relaySummariesById.filter { sessionIds.contains($0.key) }
         for snapshot in snapshots {
             let normalizedSnapshot = TurnHash.normalize(snapshot)
             sessions[normalizedSnapshot.session.id] = normalizedSnapshot
@@ -140,12 +203,58 @@ final class SessionStore: @unchecked Sendable {
         )
     }
 
+    /// Reconcile the live session list using lightweight relay summaries.
+    /// The landing list should not require per-session snapshots.
+    func reconcileLiveSummaries(_ summaries: [SessionSummary]) {
+        let summaryIds = Set(summaries.map(\.sessionId))
+
+        lock.lock()
+        relaySummariesById = Dictionary(uniqueKeysWithValues: summaries.map { ($0.sessionId, $0) })
+        sessions = sessions.filter { summaryIds.contains($0.key) || cachedOnlySessionIds.contains($0.key) }
+        cachedOnlySessionIds.subtract(summaryIds)
+
+        for summary in summaries {
+            let status = SessionStatus(rawValue: summary.status) ?? .idle
+            let providerMeta = summary.project.map { ["project": AnyCodable($0)] }
+
+            if var existing = sessions[summary.sessionId] {
+                existing.session.name = summary.name
+                existing.session.status = status
+                existing.session.model = summary.model
+                if let providerMeta {
+                    existing.session.providerMeta = (existing.session.providerMeta ?? [:]).merging(providerMeta) { _, new in new }
+                }
+                sessions[summary.sessionId] = existing
+            } else {
+                sessions[summary.sessionId] = SessionState(
+                    session: Session(
+                        id: summary.sessionId,
+                        name: summary.name,
+                        adapterType: summary.adapterType,
+                        status: status,
+                        cwd: nil,
+                        model: summary.model,
+                        providerMeta: providerMeta
+                    ),
+                    history: nil,
+                    turns: [],
+                    currentTurnId: nil
+                )
+            }
+        }
+        lock.unlock()
+
+        rebuildSummaries()
+        Self.logger.notice("Reconciled \(summaries.count) live relay summaries")
+    }
+
     /// Reset all state. Used when bridge identity changes.
     func clearAll() {
         lock.lock()
         sessions.removeAll()
         summaries.removeAll()
         cachedOnlySessionIds.removeAll()
+        relaySummariesById.removeAll()
         lastAppliedSeq = 0
         bridgeIdentityKey = nil
         lock.unlock()
@@ -256,6 +365,7 @@ final class SessionStore: @unchecked Sendable {
             // First time seeing this session — create fresh state.
             let freshState = SessionState(
                 session: session,
+                history: nil,
                 turns: [],
                 currentTurnId: nil
             )
@@ -487,29 +597,39 @@ final class SessionStore: @unchecked Sendable {
     private func rebuildSummaries() {
         lock.lock()
         let allStates = Array(sessions.values)
+        let relaySummariesById = relaySummariesById
+        let cachedOnlySessionIds = cachedOnlySessionIds
         lock.unlock()
 
         let now = Int(Date().timeIntervalSince1970 * 1000)
 
         summaries = allStates.map { state in
+            let relaySummary = relaySummariesById[state.session.id]
             let currentTurn = state.currentTurnId.flatMap { turnId in
                 state.turns.first { $0.id == turnId }
             }
             let lastTurn = state.turns.last
-            let startedAt = state.turns.first?.startedAt ?? now
-            let lastActivity = lastTurn?.endedAt ?? lastTurn?.startedAt ?? startedAt
+            let startedAt = state.turns.first?.startedAt ?? relaySummary?.startedAt ?? now
+            let lastActivity = lastTurn?.endedAt ?? lastTurn?.startedAt ?? relaySummary?.lastActivityAt ?? startedAt
+            let turnCount = state.turns.isEmpty ? (relaySummary?.turnCount ?? 0) : state.turns.count
+            let currentTurnStatus = currentTurn?.status.rawValue ?? relaySummary?.currentTurnStatus
+            let status = relaySummary?.status ?? state.session.status.rawValue
+            let name = relaySummary?.name ?? state.session.name
+            let adapterType = relaySummary?.adapterType ?? state.session.adapterType
+            let project = state.session.inferredProjectName ?? relaySummary?.project
+            let model = state.session.model ?? relaySummary?.model
 
             return SessionSummary(
                 sessionId: state.session.id,
-                name: state.session.name,
-                adapterType: state.session.adapterType,
-                status: state.session.status.rawValue,
-                turnCount: state.turns.count,
-                currentTurnStatus: currentTurn?.status.rawValue,
+                name: name,
+                adapterType: adapterType,
+                status: status,
+                turnCount: turnCount,
+                currentTurnStatus: currentTurnStatus,
                 startedAt: startedAt,
                 lastActivityAt: lastActivity,
-                project: state.session.inferredProjectName,
-                model: state.session.model,
+                project: project,
+                model: model,
                 isCachedOnly: cachedOnlySessionIds.contains(state.session.id)
             )
         }.sorted { $0.lastActivityAt > $1.lastActivityAt }
@@ -579,6 +699,7 @@ extension SessionStore {
                 cwd: "/Users/arach/dev/openscout",
                 model: "claude-sonnet-4-20250514"
             ),
+            history: nil,
             turns: [
                 TurnState(
                     id: "t1",

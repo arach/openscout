@@ -104,7 +104,7 @@ struct ContentView: View {
             Text("Connection Failed")
                 .font(.title2.bold())
 
-            Text(error.localizedDescription)
+            Text(error.scoutUserFacingMessage)
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
