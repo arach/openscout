@@ -7,7 +7,6 @@ import SwiftUI
 
 struct WorkspaceBrowserView: View {
     @Environment(ConnectionManager.self) private var connection
-    @Environment(\.dismiss) private var dismiss
 
     /// Called with the new session ID after successfully opening a project.
     var onSessionCreated: ((String) -> Void)?
@@ -60,45 +59,37 @@ struct WorkspaceBrowserView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let connectionMessage, !isConnected {
-                    connectionStateView(connectionMessage)
-                } else if isLoading {
-                    loadingView
-                } else if !workspaceConfigured {
-                    noWorkspaceView
-                } else if let error {
-                    errorView(error)
-                } else {
-                    directoryList
-                }
-            }
-            .background(ScoutColors.backgroundAdaptive)
-            .navigationTitle("Projects")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-            .searchable(text: $searchText, prompt: "Find projects or folders")
-            .overlay {
-                if isOpening {
-                    openingOverlay
-                }
-            }
-            .sheet(item: $selectedProject) { project in
-                HarnessPickerView(
-                    projectName: project.name,
-                    projectPath: project.path
-                ) { config in
-                    openProject(project, config: config)
-                }
+        Group {
+            if let connectionMessage, !isConnected {
+                connectionStateView(connectionMessage)
+            } else if isLoading {
+                loadingView
+            } else if !workspaceConfigured {
+                noWorkspaceView
+            } else if let error {
+                errorView(error)
+            } else {
+                directoryList
             }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .background(ScoutColors.backgroundAdaptive)
+        .searchable(text: $searchText, prompt: "Find projects or folders")
+        .overlay {
+            if isOpening {
+                openingOverlay
+            }
+        }
+        .sheet(item: $selectedProject) { project in
+            HarnessPickerView(
+                projectName: project.name,
+                projectPath: project.path
+            ) { config in
+                openProject(project, config: config)
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 0)
+        }
         .task { await loadWorkspace() }
     }
 
@@ -391,8 +382,6 @@ struct WorkspaceBrowserView: View {
                     harness: config.harness.id,
                     agentName: entry.name
                 )
-                dismiss()
-                try? await Task.sleep(for: .milliseconds(300))
                 onSessionCreated?(session.session.conversationId)
             } catch {
                 isOpening = false

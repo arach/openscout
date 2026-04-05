@@ -63,11 +63,12 @@ struct ComposerView: View {
     let isStreaming: Bool
     let onSend: (ComposerSendRequest) -> Void
     let onInterrupt: () -> Void
+    var navigationLeftButton: AnyView? = nil
 
     @State private var text = ""
     @State private var showKeyboard = false
     @State private var showDiscovery = false
-    @State private var showMetadataStrip = true
+    @State private var showMetadataStrip = false
     @State private var selectedModel: String
     @State private var selectedEffort: ComposerEffort = .medium
 
@@ -97,7 +98,8 @@ struct ComposerView: View {
         isConnected: Bool,
         isStreaming: Bool,
         onSend: @escaping (ComposerSendRequest) -> Void,
-        onInterrupt: @escaping () -> Void
+        onInterrupt: @escaping () -> Void,
+        navigationLeftButton: AnyView? = nil
     ) {
         let storedPreferences = SessionPreferenceStore.shared.load(sessionId: sessionId)
         self.sessionId = sessionId
@@ -109,6 +111,7 @@ struct ComposerView: View {
         self.isStreaming = isStreaming
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.navigationLeftButton = navigationLeftButton
         _selectedModel = State(initialValue: storedPreferences?.model?.trimmedNonEmpty ?? Self.defaultModelLabel)
         _selectedEffort = State(initialValue: ComposerEffort(rawValue: storedPreferences?.effort ?? "") ?? .medium)
     }
@@ -196,31 +199,29 @@ struct ComposerView: View {
         .frame(maxWidth: .infinity)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [.white.opacity(0.12), .white.opacity(0.04), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(height: 1)
+                .fill(ScoutColors.border.opacity(0.3))
+                .frame(height: 0.5)
         }
         .background {
-            Color.clear
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 0))
+            composerSurface
                 .ignoresSafeArea(edges: .bottom)
         }
     }
 
     // MARK: - Buttons
 
+    @ViewBuilder
     private var leftButton: some View {
-        BottomCircleButton(icon: "sparkle.magnifyingglass", isActive: showDiscovery) {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            showDiscovery = true
+        if let navigationLeftButton {
+            navigationLeftButton
+        } else {
+            BottomCircleButton(icon: "sparkle.magnifyingglass", isActive: showDiscovery) {
+                let impact = UIImpactFeedbackGenerator(style: .light)
+                impact.impactOccurred()
+                showDiscovery = true
+            }
+            .accessibilityLabel("Browse sessions")
         }
-        .accessibilityLabel("Browse sessions")
     }
 
     @ViewBuilder
@@ -260,16 +261,20 @@ struct ComposerView: View {
 
     // MARK: - Message Field (stacked card above action tray)
 
-    // Max height matches the action tray (~100pt)
-    private let messageMaxHeight: CGFloat = 100
+    private let messageExpandedHeight: CGFloat = 100
+    private let messageCompactHeight: CGFloat = 48
+
+    private var messageFieldHeight: CGFloat {
+        hasText || showKeyboard ? messageExpandedHeight : messageCompactHeight
+    }
 
     private var messageField: some View {
         HStack(alignment: .bottom, spacing: 0) {
-            ScoutTextField(text: $text, placeholder: "Ask anything...", maxHeight: messageMaxHeight - 16)
+            ScoutTextField(text: $text, placeholder: "Ask anything...", maxHeight: messageFieldHeight - 16)
                 .frame(
                     maxWidth: .infinity,
-                    minHeight: messageMaxHeight - 16,
-                    maxHeight: messageMaxHeight - 16,
+                    minHeight: messageFieldHeight - 16,
+                    maxHeight: messageFieldHeight - 16,
                     alignment: .topLeading
                 )
                 .padding(.leading, 16)
@@ -301,37 +306,36 @@ struct ComposerView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .simultaneousGesture(metadataDragGesture)
-        .background(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 16,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 16,
-                style: .continuous
-            )
-            .fill(ScoutColors.surfaceAdaptive)
-            .overlay(alignment: .top) {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 16,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 16,
-                    style: .continuous
+        .background {
+            composerSurface
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 16,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 16,
+                        style: .continuous
+                    )
                 )
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.15), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 0.5
-                )
-            }
-            .shadow(color: .black.opacity(0.08), radius: 3, y: -1)
-        )
+                .overlay {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 16,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 16,
+                        style: .continuous
+                    )
+                    .strokeBorder(ScoutColors.border.opacity(0.4), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(0.04), radius: 2, y: -1)
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: messageFieldHeight)
         .animation(.easeInOut(duration: 0.15), value: canSend)
         .animation(.spring(response: 0.2, dampingFraction: 0.5), value: justSent)
     }
+
+    /// Clean solid surface — white in light, near-black in dark
+    private let composerSurface = Color(light: .white, dark: Color(white: 0.12))
 
     private var metadataStrip: some View {
         VStack(spacing: 10) {
@@ -359,10 +363,10 @@ struct ComposerView: View {
             .padding(.bottom, 10)
         }
         .frame(maxWidth: .infinity)
-        .background(ScoutColors.surfaceRaisedAdaptive)
+        .background { composerSurface }
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(ScoutColors.border.opacity(0.7))
+                .fill(ScoutColors.border.opacity(0.25))
                 .frame(height: 0.5)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -388,10 +392,10 @@ struct ComposerView: View {
             .padding(.vertical, 9)
         }
         .buttonStyle(.plain)
-        .background(ScoutColors.surfaceRaisedAdaptive)
+        .background { composerSurface }
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(ScoutColors.border.opacity(0.7))
+                .fill(ScoutColors.border.opacity(0.25))
                 .frame(height: 0.5)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))

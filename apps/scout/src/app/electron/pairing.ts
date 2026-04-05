@@ -64,6 +64,16 @@ export type ScoutPairingSnapshot = {
   qrValue: string;
 };
 
+export type ScoutPairingTrustedPeer = {
+  publicKey: string;
+  fingerprint: string;
+  name: string | null;
+  pairedAt: string | null;
+  pairedAtLabel: string | null;
+  lastSeen: string | null;
+  lastSeenLabel: string | null;
+};
+
 export type ScoutPairingRuntimeStatus =
   | "unconfigured"
   | "stopped"
@@ -81,6 +91,7 @@ export type ScoutPairingRuntimeSnapshot = {
   status: ScoutPairingRuntimeStatus;
   statusLabel: string;
   statusDetail: string | null;
+  connectedPeerFingerprint: string | null;
   relay: string | null;
   secure: boolean;
   workspaceRoot: string | null;
@@ -96,6 +107,7 @@ export type ScoutPairingState = {
   status: ScoutPairingRuntimeStatus;
   statusLabel: string;
   statusDetail: string | null;
+  connectedPeerFingerprint: string | null;
   isRunning: boolean;
   commandLabel: string;
   configPath: string;
@@ -109,6 +121,7 @@ export type ScoutPairingState = {
   sessionCount: number;
   identityFingerprint: string | null;
   trustedPeerCount: number;
+  trustedPeers: ScoutPairingTrustedPeer[];
   pairing: ScoutPairingSnapshot | null;
   logTail: string;
   logUpdatedAtLabel: string | null;
@@ -139,6 +152,13 @@ type ScoutPairingLogTail = {
 
 type ScoutPairingIdentity = {
   publicKey?: string;
+};
+
+type ScoutPairingTrustedPeerRecord = {
+  publicKey?: string;
+  name?: string;
+  pairedAt?: string;
+  lastSeen?: string;
 };
 
 export function resolveScoutPairingPaths(): ScoutPairingPaths {
@@ -319,6 +339,60 @@ function readScoutPairingTrustedPeerCount(trustedPeersPath: string): number {
   }
 }
 
+function formatScoutPairingHistoryTimestamp(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function readScoutPairingTrustedPeers(trustedPeersPath: string): ScoutPairingTrustedPeer[] {
+  if (!existsSync(trustedPeersPath)) {
+    return [];
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(trustedPeersPath, "utf8")) as ScoutPairingTrustedPeerRecord[];
+    if (!Array.isArray(payload)) {
+      return [];
+    }
+
+    return payload
+      .filter((entry): entry is Required<Pick<ScoutPairingTrustedPeerRecord, "publicKey">> & ScoutPairingTrustedPeerRecord => (
+        typeof entry?.publicKey === "string" && entry.publicKey.length > 0
+      ))
+      .map((entry) => ({
+        publicKey: entry.publicKey,
+        fingerprint: entry.publicKey.slice(0, 16),
+        name: typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name.trim() : null,
+        pairedAt: typeof entry.pairedAt === "string" && entry.pairedAt.length > 0 ? entry.pairedAt : null,
+        pairedAtLabel: formatScoutPairingHistoryTimestamp(entry.pairedAt),
+        lastSeen: typeof entry.lastSeen === "string" && entry.lastSeen.length > 0 ? entry.lastSeen : null,
+        lastSeenLabel: formatScoutPairingHistoryTimestamp(entry.lastSeen),
+      }))
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.lastSeen ?? left.pairedAt ?? "");
+        const rightTime = Date.parse(right.lastSeen ?? right.pairedAt ?? "");
+        const safeLeft = Number.isNaN(leftTime) ? 0 : leftTime;
+        const safeRight = Number.isNaN(rightTime) ? 0 : rightTime;
+        return safeRight - safeLeft;
+      });
+  } catch {
+    return [];
+  }
+}
+
 function readScoutPairingLogTail(logPath: string): ScoutPairingLogTail {
   if (!existsSync(logPath)) {
     return {
@@ -425,10 +499,12 @@ function pairingStateFromRuntime(
 ): ScoutPairingState {
   const relay = snapshot.relay ?? resolvedConfig.relay;
   const effectiveWorkspaceRoot = snapshot.workspaceRoot ?? resolvedConfig.workspaceRoot ?? fallbackWorkspaceRoot;
+  const trustedPeers = readScoutPairingTrustedPeers(paths.trustedPeersPath);
   return {
     status: snapshot.status,
     statusLabel: snapshot.statusLabel,
     statusDetail: snapshot.statusDetail,
+    connectedPeerFingerprint: snapshot.connectedPeerFingerprint ?? null,
     isRunning: true,
     commandLabel: SCOUT_PAIRING_COMMAND_LABEL,
     configPath: paths.configPath,
@@ -442,6 +518,7 @@ function pairingStateFromRuntime(
     sessionCount: snapshot.sessionCount,
     identityFingerprint: snapshot.identityFingerprint,
     trustedPeerCount: snapshot.trustedPeerCount,
+    trustedPeers,
     pairing: snapshot.pairing,
     logTail: log.body,
     logUpdatedAtLabel: log.updatedAtLabel,
@@ -459,12 +536,14 @@ function pairingStateFromConfig(
 ): ScoutPairingState {
   const hasConfiguredRelay = resolvedConfig.relay !== null;
   const effectiveWorkspaceRoot = resolvedConfig.workspaceRoot ?? fallbackWorkspaceRoot;
+  const trustedPeers = readScoutPairingTrustedPeers(paths.trustedPeersPath);
   return {
     status: hasConfiguredRelay ? "stopped" : "unconfigured",
     statusLabel: hasConfiguredRelay ? "Stopped" : "Not configured",
     statusDetail: hasConfiguredRelay
       ? "Start Scout pair mode to launch the pairing relay and generate a fresh QR code."
       : "Set a relay to prepare Scout pair mode.",
+    connectedPeerFingerprint: null,
     isRunning: false,
     commandLabel: SCOUT_PAIRING_COMMAND_LABEL,
     configPath: paths.configPath,
@@ -478,6 +557,7 @@ function pairingStateFromConfig(
     sessionCount: resolvedConfig.sessions.length,
     identityFingerprint: readScoutPairingIdentityFingerprint(paths.identityPath),
     trustedPeerCount: readScoutPairingTrustedPeerCount(paths.trustedPeersPath),
+    trustedPeers,
     pairing: null,
     logTail: log.body,
     logUpdatedAtLabel: log.updatedAtLabel,

@@ -22,6 +22,11 @@
       "bun": "./src/local-agents.ts",
       "default": "./dist/local-agents.js"
     },
+    "./local-agent-template": {
+      "types": "./src/local-agent-template.ts",
+      "bun": "./src/local-agent-template.ts",
+      "default": "./src/local-agent-template.ts"
+    },
     "./broker-service": {
       "types": "./src/broker-service.ts",
       "bun": "./src/broker-service.ts",

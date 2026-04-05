@@ -16,6 +16,7 @@ struct ScoutApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var lastCrash: String?
     @State private var showSplash: Bool
+    @AppStorage("scoutAppearance") private var appearanceMode: String = "system"
 
     init() {
         CrashCatcher.install()
@@ -48,6 +49,7 @@ struct ScoutApp: App {
                         .transition(.opacity)
                 }
             }
+            .preferredColorScheme(resolvedColorScheme)
             .animation(.easeOut(duration: 0.35), value: showSplash)
             .onChange(of: hasCompletedOnboarding) {
                 if hasCompletedOnboarding, connectionManager.hasTrustedBridge {
@@ -78,6 +80,14 @@ struct ScoutApp: App {
             } message: {
                 Text(lastCrash ?? "")
             }
+        }
+    }
+
+    private var resolvedColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
         }
     }
 

@@ -56,6 +56,7 @@ export async function runScoutPairingSupervisor(): Promise<void> {
         status: "starting",
         statusLabel: "Starting",
         statusDetail: "Launching Scout pair mode.",
+        connectedPeerFingerprint: null,
         relay: null,
         pairing: null,
       },
@@ -75,6 +76,7 @@ export async function runScoutPairingSupervisor(): Promise<void> {
       status: "stopped",
       statusLabel: "Stopped",
       statusDetail: "Scout pair mode is stopped.",
+      connectedPeerFingerprint: null,
       relay: null,
       pairing: null,
       childPid: null,
@@ -101,6 +103,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
     status: "starting",
     statusLabel: "Starting",
     statusDetail: "Launching Scout pair mode.",
+    connectedPeerFingerprint: null,
     relay: null,
     pairing: null,
     childPid: null,
@@ -125,7 +128,9 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
         },
         onPaired({ remotePublicKey }) {
           clearRefreshTimer(state);
-          emitStatus("paired", `Secure peer connected (${bytesToHex(remotePublicKey).slice(0, 16)}...)`);
+          emitStatus("paired", `Secure peer connected (${bytesToHex(remotePublicKey).slice(0, 16)}...)`, {
+            connectedPeerFingerprint: bytesToHex(remotePublicKey).slice(0, 16),
+          });
         },
         onReconnectScheduled({ delayMs }) {
           emitStatus("connecting", `Connection lost. Retrying in ${Math.max(1, Math.round(delayMs / 1000))}s.`);
@@ -143,6 +148,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
       status: "connecting",
       statusLabel: "Pairing Ready",
       statusDetail: `Relay room ${payload.room} is waiting for Scout.`,
+      connectedPeerFingerprint: null,
       relay: activeRelayUrl,
       pairing: {
         relay: payload.relay,
@@ -165,6 +171,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
       status: "error",
       statusLabel: "Error",
       statusDetail: detail,
+      connectedPeerFingerprint: null,
       relay: null,
       pairing: null,
       childPid: null,
@@ -176,7 +183,11 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
 }
 
 function createStatusWriter(state: SupervisorState) {
-  return (status: PairingRuntimeStatus, detail: string | null) => {
+  return (
+    status: PairingRuntimeStatus,
+    detail: string | null,
+    options: { connectedPeerFingerprint?: string | null } = {},
+  ) => {
     const labelByStatus: Record<PairingRuntimeStatus, string> = {
       stopped: "Stopped",
       starting: "Starting",
@@ -191,6 +202,7 @@ function createStatusWriter(state: SupervisorState) {
       status,
       statusLabel: labelByStatus[status],
       statusDetail: detail,
+      connectedPeerFingerprint: options.connectedPeerFingerprint ?? null,
     });
   };
 }
@@ -251,7 +263,7 @@ async function stopSupervisorRuntime(state: SupervisorState): Promise<void> {
 
 function writeCurrent(
   state: SupervisorState,
-  patch: Partial<Pick<PairingRuntimeSnapshot, "status" | "statusLabel" | "statusDetail" | "relay" | "pairing" | "childPid">>,
+  patch: Partial<Pick<PairingRuntimeSnapshot, "status" | "statusLabel" | "statusDetail" | "connectedPeerFingerprint" | "relay" | "pairing" | "childPid">>,
   overrides: Partial<Pick<PairingRuntimeSnapshot, "identityFingerprint" | "trustedPeerCount">> = {},
 ): void {
   state.current = writePairingRuntimeSnapshot({

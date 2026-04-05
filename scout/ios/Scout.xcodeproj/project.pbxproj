@@ -59,6 +59,14 @@
 		EF36CE2CE7EE4F684BABD283 /* SessionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */; };
 		F2339562BD7F60D19A3F608C /* WorkspaceBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8954092B5A751A7EBC5AD437 /* WorkspaceBrowserView.swift */; };
 		FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D8F1FFB1CB46F1A8E15322 /* HistoryRPC.swift */; };
+		1A2B3C4D5E6F7A8B9C0D1E2F /* ScoutRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* ScoutRouter.swift */; };
+		2B3C4D5E6F7A8B9C0D1E2F3A /* AddressBarPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* AddressBarPill.swift */; };
+		3C4D5E6F7A8B9C0D1E2F3A4B /* ScoutBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6A7B8C9D0E1F2A3B4 /* ScoutBottomBar.swift */; };
+		4D5E6F7A8B9C0D1E2F3A4B5C /* ScoutNavigationShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* ScoutNavigationShell.swift */; };
+		5E7A9C1B3D5F7A9C1B3D5E7A /* EdgeSwipeGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A9C1B3D5F7A9C1B3D5E7A9 /* EdgeSwipeGesture.swift */; };
+		5E6F7A8B9C0D1E2F3A4B5C6D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */; };
+		6F7A8B9C0D1E2F3A4B5C6D7E /* AllSessionsGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */; };
+		7A8B9C0D1E2F3A4B5C6D7E8F /* SessionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -126,6 +134,14 @@
 		E51A81D21A37B458E927F61B /* SessionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCache.swift; sourceTree = "<group>"; };
 		E61B31D0E2A906FC93D58001 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
 		EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectatorView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* ScoutRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutRouter.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* AddressBarPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBarPill.swift; sourceTree = "<group>"; };
+		C3D4E5F6A7B8C9D0E1F2A3B4 /* ScoutBottomBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutBottomBar.swift; sourceTree = "<group>"; };
+		D4E5F6A7B8C9D0E1F2A3B4C5 /* ScoutNavigationShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNavigationShell.swift; sourceTree = "<group>"; };
+		E7A9C1B3D5F7A9C1B3D5E7A9 /* EdgeSwipeGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeSwipeGesture.swift; sourceTree = "<group>"; };
+		E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllSessionsGridView.swift; sourceTree = "<group>"; };
+		A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -267,10 +283,13 @@
 			children = (
 				029C6049264D3C5EE524673E /* Theme.swift */,
 				5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */,
+				0D1E2F3A4B5C6D7E8F9A0B1C /* AllSessions */,
 				F539C32239630FBA3BCF3BB1 /* Blocks */,
 				6A881A2E98FAE9347CA9ADB4 /* Composer */,
 				A3CA4FF329970B1A022D0311 /* Discovery */,
+				9C0D1E2F3A4B5C6D7E8F9A0B /* Home */,
 				2771BC91F699E13325A0D0A9 /* Keyboard */,
+				8B9C0D1E2F3A4B5C6D7E8F9A /* Navigation */,
 				E31022DD011A60F3EC81D9D4 /* Onboarding */,
 				EF79050E1B872D91E7D5E8F2 /* Pairing */,
 				9685D4271DF0110810C14B66 /* SessionList */,
@@ -305,6 +324,7 @@
 			children = (
 				09A0710F2737060ABA3FC0A0 /* ContentView.swift */,
 				2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* ScoutRouter.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -366,6 +386,34 @@
 				1111361D907783103CAF1029 /* TextBlockView.swift */,
 			);
 			path = Blocks;
+			sourceTree = "<group>";
+		};
+		8B9C0D1E2F3A4B5C6D7E8F9A /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* AddressBarPill.swift */,
+				C3D4E5F6A7B8C9D0E1F2A3B4 /* ScoutBottomBar.swift */,
+				D4E5F6A7B8C9D0E1F2A3B4C5 /* ScoutNavigationShell.swift */,
+				E7A9C1B3D5F7A9C1B3D5E7A9 /* EdgeSwipeGesture.swift */,
+			);
+			path = Navigation;
+			sourceTree = "<group>";
+		};
+		9C0D1E2F3A4B5C6D7E8F9A0B /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		0D1E2F3A4B5C6D7E8F9A0B1C /* AllSessions */ = {
+			isa = PBXGroup;
+			children = (
+				F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */,
+				A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */,
+			);
+			path = AllSessions;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -513,6 +561,14 @@
 				79FFC939B11C65EC1EDC094F /* TurnHash.swift in Sources */,
 				1B548F5201CC047B5E766FEA /* TurnView.swift in Sources */,
 				F2339562BD7F60D19A3F608C /* WorkspaceBrowserView.swift in Sources */,
+				1A2B3C4D5E6F7A8B9C0D1E2F /* ScoutRouter.swift in Sources */,
+				2B3C4D5E6F7A8B9C0D1E2F3A /* AddressBarPill.swift in Sources */,
+				3C4D5E6F7A8B9C0D1E2F3A4B /* ScoutBottomBar.swift in Sources */,
+				4D5E6F7A8B9C0D1E2F3A4B5C /* ScoutNavigationShell.swift in Sources */,
+				5E7A9C1B3D5F7A9C1B3D5E7A /* EdgeSwipeGesture.swift in Sources */,
+				5E6F7A8B9C0D1E2F3A4B5C6D /* HomeView.swift in Sources */,
+				6F7A8B9C0D1E2F3A4B5C6D7E /* AllSessionsGridView.swift in Sources */,
+				7A8B9C0D1E2F3A4B5C6D7E8F /* SessionCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -551,7 +607,7 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Scout uses on-device speech recognition to transcribe voice input";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				/* UILaunchScreen defined in Info.plist */
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationAllButUpsideDown;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -719,7 +775,7 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Scout uses on-device speech recognition to transcribe voice input";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				/* UILaunchScreen defined in Info.plist */
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationAllButUpsideDown;
 				LD_RUNPATH_SEARCH_PATHS = (

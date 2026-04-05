@@ -48,7 +48,7 @@ struct SplashView: View {
 // MARK: - Video Player
 
 private struct LogoRevealPlayer: UIViewRepresentable {
-    var onFinished: () -> Void
+    var onFinished: @MainActor @Sendable () -> Void
 
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
@@ -92,14 +92,15 @@ private struct LogoRevealPlayer: UIViewRepresentable {
     class Coordinator: NSObject {
         var playerLayer: AVPlayerLayer?
         var player: AVPlayer?
-        let onFinished: () -> Void
+        let onFinished: @MainActor @Sendable () -> Void
 
-        init(onFinished: @escaping () -> Void) {
+        init(onFinished: @MainActor @Sendable @escaping () -> Void) {
             self.onFinished = onFinished
         }
 
         @objc func playerDidFinish() {
-            Task { @MainActor in onFinished() }
+            let callback = onFinished
+            Task { @MainActor in callback() }
         }
     }
 }

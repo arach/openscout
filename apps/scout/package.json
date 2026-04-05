@@ -25,6 +25,8 @@
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
+    "@opentui/core": "^0.1.88",
+    "@opentui/react": "^0.1.88",
     "@openscout/protocol": "workspace:*",
     "@openscout/runtime": "workspace:*",
     "@radix-ui/react-accordion": "1.2.12",

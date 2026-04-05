@@ -10,16 +10,15 @@ struct TimelineView: View {
 
     @Environment(SessionStore.self) private var store
     @Environment(ConnectionManager.self) private var connection
+    @Environment(ScoutRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var shouldAutoScroll = true
-    @State private var showingSettings = false
     @State private var sendError: String?
     @State private var isRefreshing = false
     @State private var isLoadingOlder = false
     @State private var liveRefreshGeneration = 0
     @State private var liveRefreshDeadline: Date?
-    @Environment(\.dismiss) private var dismiss
     @Namespace private var bottomAnchor
 
     private var sessionState: SessionState? {
@@ -103,7 +102,8 @@ struct TimelineView: View {
             } else {
                 timeline
             }
-
+        }
+        .overlay(alignment: .bottom) {
             if let sendError {
                 HStack {
                     Text(sendError.contains("No session") ? "Session expired" : sendError)
@@ -111,7 +111,7 @@ struct TimelineView: View {
                         .foregroundStyle(.white)
                     Spacer()
                     if sendError.contains("No session") {
-                        Button("Go back") { dismiss() }
+                        Button("Go back") { router.pop() }
                             .font(ScoutTypography.caption(12, weight: .bold))
                             .foregroundStyle(.white)
                     }
@@ -120,61 +120,27 @@ struct TimelineView: View {
                 .padding(.vertical, 8)
                 .background(ScoutColors.statusError.opacity(0.85))
                 .onTapGesture { self.sendError = nil }
+                .padding(.bottom, 180)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .task {
                     try? await Task.sleep(for: .seconds(5))
                     withAnimation { self.sendError = nil }
                 }
             }
-
-            ComposerView(
-                sessionId: sessionId,
-                projectName: session?.name,
-                adapterType: session?.adapterType,
-                currentModel: session?.model,
-                currentBranch: session?.currentBranch,
-                isConnected: isConnected && !isCachedOnly,
-                isStreaming: isStreaming,
-                onSend: { request in
-                    Task { await sendPrompt(request) }
-                },
-                onInterrupt: {
-                    Task {
-                        try? await connection.interruptTurn(sessionId)
-                    }
-                }
-            )
         }
         .background(ScoutColors.backgroundAdaptive)
-        .navigationTitle(session?.name ?? "Session")
-        .navigationBarTitleDisplayMode(.inline)
         .task {
             await hydrateTimeline()
         }
         .task(id: liveRefreshGeneration) {
             await runFocusedRefreshLoop()
         }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                titleView
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                refreshButton
-                Button {
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 15))
-                        .foregroundStyle(ScoutColors.textSecondary)
-                }
-                connectionIndicator
-            }
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-                .environment(connection)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+        .onReceive(NotificationCenter.default.publisher(for: .scoutSendPrompt)) { notification in
+            guard let info = notification.userInfo,
+                  let notifSessionId = info["sessionId"] as? String,
+                  notifSessionId == sessionId,
+                  let request = info["request"] as? ComposerSendRequest else { return }
+            Task { await sendPrompt(request) }
         }
         .onChange(of: sessionState?.currentTurnId) { _, currentTurnId in
             guard currentTurnId != nil else { return }
@@ -321,6 +287,8 @@ struct TimelineView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    // Top inset so content isn't hidden behind the blur chrome
+                    Color.clear.frame(height: 44)
                     if hasOlderHistory {
                         Button {
                             Task { await loadOlderHistory() }
@@ -353,13 +321,14 @@ struct TimelineView: View {
                         }
                     }
 
-                    // Invisible anchor at the bottom for auto-scroll
+                    // Bottom spacer to clear the composer bar, then the scroll anchor
+                    Color.clear.frame(height: 200)
+
                     Color.clear
                         .frame(height: 1)
                         .id("bottom")
                 }
                 .padding(.top, ScoutSpacing.sm)
-                .padding(.bottom, ScoutSpacing.md)
             }
             .refreshable {
                 await refreshTimeline()
@@ -396,7 +365,8 @@ struct TimelineView: View {
                 }
             }
             .onAppear {
-                scrollToBottom(proxy: proxy)
+                // Jump instantly on first appear — no animation
+                proxy.scrollTo("bottom", anchor: .bottom)
             }
             .overlay(alignment: .bottomTrailing) {
                 if !shouldAutoScroll {
@@ -417,6 +387,25 @@ struct TimelineView: View {
                     .padding(.trailing, ScoutSpacing.lg)
                     .padding(.bottom, ScoutSpacing.lg)
                 }
+            }
+            .overlay(alignment: .top) {
+                // Gradient blur behind the status bar / dynamic island
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white, location: 0),
+                                .init(color: .white, location: 0.5),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(height: 54)
+                    .ignoresSafeArea(edges: .top)
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -469,64 +458,6 @@ struct TimelineView: View {
         .background(ScoutColors.surfaceRaisedAdaptive)
     }
 
-    private var titleView: some View {
-        HStack(spacing: ScoutSpacing.sm) {
-            if let session {
-                Image(systemName: AdapterIcon.systemName(for: session.adapterType))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(ScoutColors.accent)
-            }
-
-            Text(session?.name ?? "Session")
-                .font(ScoutTypography.body(16, weight: .semibold))
-                .foregroundStyle(ScoutColors.textPrimary)
-        }
-    }
-
-    // MARK: - Connection Indicator
-
-    @ViewBuilder
-    private var refreshButton: some View {
-        Button {
-            Task { await refreshTimeline() }
-        } label: {
-            if isRefreshing {
-                ProgressView()
-                    .controlSize(.mini)
-            } else {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isConnected ? ScoutColors.textSecondary : ScoutColors.textMuted)
-            }
-        }
-        .disabled(!isConnected || isRefreshing)
-        .accessibilityLabel("Refresh session")
-    }
-
-    @ViewBuilder
-    private var connectionIndicator: some View {
-        Button {
-            Task { await connection.reconnect() }
-        } label: {
-            switch connection.state {
-            case .connected:
-                Circle()
-                    .fill(ScoutColors.statusActive)
-                    .frame(width: 7, height: 7)
-                    .accessibilityLabel("Connected — tap to reconnect")
-            case .connecting, .handshaking, .reconnecting:
-                ProgressView()
-                    .controlSize(.mini)
-                    .accessibilityLabel("Connecting — tap to retry")
-            case .disconnected, .failed:
-                Circle()
-                    .fill(ScoutColors.statusError)
-                    .frame(width: 7, height: 7)
-                    .accessibilityLabel("Disconnected — tap to reconnect")
-            }
-        }
-    }
-
     // MARK: - Empty State
 
     private var emptyState: some View {
@@ -557,10 +488,9 @@ struct TimelineView: View {
 // MARK: - Preview
 
 #Preview {
-    NavigationStack {
-        TimelineView(sessionId: "s1")
-            .environment(SessionStore.preview)
-            .environment(ConnectionManager.preview())
-    }
-    .preferredColorScheme(.dark)
+    TimelineView(sessionId: "s1")
+        .environment(SessionStore.preview)
+        .environment(ConnectionManager.preview())
+        .environment(ScoutRouter())
+        .preferredColorScheme(.dark)
 }

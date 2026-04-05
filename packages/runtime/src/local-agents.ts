@@ -52,6 +52,11 @@ import {
   resolveOpenScoutSupportPaths,
 } from "./support-paths.js";
 import { resolveBrokerServiceConfig } from "./broker-service.js";
+import {
+  LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT,
+  LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,
+  LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT,
+} from "./local-agent-template.js";
 
 const BUILT_IN_LOCAL_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -206,12 +211,6 @@ type LocalAgentSystemPromptTemplateContext = {
   openscoutRoot: string;
   relayAgentCommsSkill: string;
 };
-
-export const LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT = [
-  "Supports {{base_prompt}}, {{project_context}}, {{collaboration_prompt}}, {{collaboration_contract}}, {{protocol_prompt}}, {{protocol}}, {{agent_id}}, {{display_name}}, ",
-  "{{project_name}}, {{project_path}}, {{project_root}}, {{workspace_root}}, {{cwd}}, {{projects_root}}, {{base_path}}, ",
-  "{{relay_hub}}, {{broker_url}}, {{relay_command}}, {{openscout_root}}, {{relay_agent_comms_skill}}, and {{env.NAME}} variables.",
-].join("");
 
 function resolveRelayAgentCommsSkillPath(): string {
   const repoSkillPath = join(OPENSCOUT_REPO_ROOT, ".agents", "skills", "relay-agent-comms", "SKILL.md");

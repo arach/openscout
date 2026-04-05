@@ -79,6 +79,10 @@ import {
   settingsPath,
   type SettingsSectionId,
 } from "@/settings/settings-paths";
+import {
+  LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT,
+  LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,
+} from "@openscout/runtime/local-agent-template";
 import type {
   AgentSessionInspector,
   AgentConfigState,
@@ -138,6 +142,24 @@ const C = {
   shadowMd:  'var(--os-shadow-md)',
   shadowLg:  'var(--os-shadow-lg)',
 };
+
+function renderAgentPromptWithPlaceholders(text: string, keyPrefix: string): React.ReactNode {
+  const parts = text.split(/(\{\{[^}]+\}\})/g);
+  return parts.map((part, i) => {
+    if (/^\{\{[^}]+\}\}$/.test(part)) {
+      return (
+        <span
+          key={`${keyPrefix}-${i}`}
+          className="rounded px-0.5"
+          style={{ backgroundColor: C.accentBg, color: C.accent }}
+        >
+          {part}
+        </span>
+      );
+    }
+    return <React.Fragment key={`${keyPrefix}-${i}`}>{part}</React.Fragment>;
+  });
+}
 
 type AgentRosterFilterMode = 'all' | 'active';
 type AgentRosterSortMode = 'chat' | 'code' | 'session' | 'alpha';
@@ -213,6 +235,23 @@ const ONBOARDING_WIZARD_STEP_ORDER: OnboardingWizardStepId[] = [
 
 const SOURCE_ROOT_PATH_SUGGESTIONS = ['~/dev', '~/src', '~/code'];
 
+function pairingTrustedPeersMeaningfullyEqual(left: PairingState['trustedPeers'], right: PairingState['trustedPeers']) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((peer, index) => {
+    const other = right[index];
+    return peer.publicKey === other?.publicKey
+      && peer.fingerprint === other?.fingerprint
+      && peer.name === other?.name
+      && peer.pairedAt === other?.pairedAt
+      && peer.pairedAtLabel === other?.pairedAtLabel
+      && peer.lastSeen === other?.lastSeen
+      && peer.lastSeenLabel === other?.lastSeenLabel;
+  });
+}
+
 function pairingStatesMeaningfullyEqual(left: PairingState | null, right: PairingState | null) {
   if (left === right) {
     return true;
@@ -224,6 +263,7 @@ function pairingStatesMeaningfullyEqual(left: PairingState | null, right: Pairin
   return left.status === right.status
     && left.statusLabel === right.statusLabel
     && left.statusDetail === right.statusDetail
+    && left.connectedPeerFingerprint === right.connectedPeerFingerprint
     && left.isRunning === right.isRunning
     && left.commandLabel === right.commandLabel
     && left.configPath === right.configPath
@@ -237,6 +277,7 @@ function pairingStatesMeaningfullyEqual(left: PairingState | null, right: Pairin
     && left.sessionCount === right.sessionCount
     && left.identityFingerprint === right.identityFingerprint
     && left.trustedPeerCount === right.trustedPeerCount
+    && pairingTrustedPeersMeaningfullyEqual(left.trustedPeers, right.trustedPeers)
     && left.logTail === right.logTail
     && left.logUpdatedAtLabel === right.logUpdatedAtLabel
     && left.logMissing === right.logMissing
@@ -402,6 +443,8 @@ export default function App() {
   const agentRuntimePathRef = useRef<HTMLInputElement | null>(null);
   const agentSystemPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const agentSystemPromptViewRef = useRef<HTMLDivElement | null>(null);
+  const pendingAgentPromptSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const [agentPromptInsertGeneration, setAgentPromptInsertGeneration] = useState(0);
   const agentSessionInlineViewportRef = useRef<HTMLElement | null>(null);
   const agentSessionPeekViewportRef = useRef<HTMLElement | null>(null);
   const agentSessionInlineStickToBottomRef = useRef(true);
@@ -420,6 +463,7 @@ export default function App() {
   const relayState = shellState?.relay ?? null;
   const interAgentState = shellState?.interAgent ?? null;
   const desktopFeatures = scoutAppInfo?.features ?? shellState?.appInfo.features ?? DEFAULT_DESKTOP_FEATURES;
+  const pairingSurfaceBadge = describePairingSurfaceBadge(pairingState, pairingLoading, pairingError);
 
   const loadShellState = React.useCallback(async (withSpinner = false) => {
     if (!scoutDesktop?.getShellState) {
@@ -910,7 +954,7 @@ export default function App() {
   }, [activeView, selectedLogSourceId, logsRefreshTick]);
 
   useEffect(() => {
-    if (productSurface !== 'pairing' || !scoutDesktop?.getPairingState) {
+    if (!desktopFeatures.pairing || !scoutDesktop?.getPairingState) {
       return;
     }
 
@@ -947,7 +991,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [commitPairingState, pairingState, productSurface]);
+  }, [commitPairingState, desktopFeatures.pairing, pairingState]);
 
   useEffect(() => {
     if (activeView !== 'settings' || settingsSection !== 'communication' || !scoutDesktop?.getBrokerInspector) {
@@ -1105,6 +1149,20 @@ export default function App() {
       window.cancelAnimationFrame(rafId);
     };
   }, [activeView, pendingConfigFocusAgentId, selectedInterAgentId, agentConfigLoading, agentConfigDraft]);
+
+  useLayoutEffect(() => {
+    const sel = pendingAgentPromptSelectionRef.current;
+    if (!sel) {
+      return;
+    }
+    pendingAgentPromptSelectionRef.current = null;
+    const ta = agentSystemPromptRef.current;
+    if (!ta || !isAgentConfigEditing) {
+      return;
+    }
+    ta.focus();
+    ta.setSelectionRange(sel.start, sel.end);
+  }, [agentPromptInsertGeneration, isAgentConfigEditing]);
 
   useEffect(() => {
     if (activeView !== 'settings' || !isAppSettingsEditing) {
@@ -1892,6 +1950,50 @@ export default function App() {
     ? (agentConfigDraft ?? agentConfig)
     : null;
   const hasEditableAgentConfig = Boolean(agentConfig?.editable && visibleAgentConfig);
+  const insertAgentPromptToken = React.useCallback((token: string) => {
+    if (!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting) {
+      return;
+    }
+    setAgentConfigDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      const ta = agentSystemPromptRef.current;
+      const s0 = typeof ta?.selectionStart === 'number' ? ta.selectionStart : current.systemPrompt.length;
+      const s1 = typeof ta?.selectionEnd === 'number' ? ta.selectionEnd : current.systemPrompt.length;
+      const snippet = `{{${token}}}`;
+      const nextPrompt = current.systemPrompt.slice(0, s0) + snippet + current.systemPrompt.slice(s1);
+      pendingAgentPromptSelectionRef.current = { start: s0 + snippet.length, end: s0 + snippet.length };
+      setAgentConfigFeedback(null);
+      return { ...current, systemPrompt: nextPrompt };
+    });
+    setAgentPromptInsertGeneration((g) => g + 1);
+  }, [hasEditableAgentConfig, agentConfigSaving, agentConfigRestarting]);
+
+  const insertAgentPromptEnvPlaceholder = React.useCallback(() => {
+    if (!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting) {
+      return;
+    }
+    const snippet = "{{env.NAME}}";
+    const nameSelStart = 6;
+    const nameSelEnd = 10;
+    setAgentConfigDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      const ta = agentSystemPromptRef.current;
+      const s0 = typeof ta?.selectionStart === 'number' ? ta.selectionStart : current.systemPrompt.length;
+      const s1 = typeof ta?.selectionEnd === 'number' ? ta.selectionEnd : current.systemPrompt.length;
+      const nextPrompt = current.systemPrompt.slice(0, s0) + snippet + current.systemPrompt.slice(s1);
+      pendingAgentPromptSelectionRef.current = {
+        start: s0 + nameSelStart,
+        end: s0 + nameSelEnd,
+      };
+      setAgentConfigFeedback(null);
+      return { ...current, systemPrompt: nextPrompt };
+    });
+    setAgentPromptInsertGeneration((g) => g + 1);
+  }, [hasEditableAgentConfig, agentConfigSaving, agentConfigRestarting]);
   const logSources = logCatalog?.sources ?? [];
   const filteredLogSources = useMemo(
     () => {
@@ -2062,7 +2164,7 @@ export default function App() {
   if (desktopFeatures.activity) navViews.push({ id: 'activity', icon: <Radio size={16} strokeWidth={1.5} />, title: 'Activity Monitor' });
   if (desktopFeatures.machines) navViews.push({ id: 'machines', icon: <Network size={16} strokeWidth={1.5} />, title: 'Machines' });
   if (desktopFeatures.plans) navViews.push({ id: 'plans', icon: <FileText size={16} strokeWidth={1.5} />, title: 'Plans' });
-  if (desktopFeatures.sessions) navViews.push({ id: 'sessions', icon: <Radar size={16} strokeWidth={1.5} />, title: 'Session History' });
+  if (desktopFeatures.sessions) navViews.push({ id: 'sessions', icon: <Radar size={16} strokeWidth={1.5} />, title: 'Sessions' });
   if (desktopFeatures.search) navViews.push({ id: 'search', icon: <Search size={16} strokeWidth={1.5} />, title: 'Search' });
 
   const collapsibleViews = new Set<AppView>(navViews.map((item) => item.id).filter((view) => view !== 'overview'));
@@ -3771,6 +3873,7 @@ export default function App() {
               .filter(([, , enabled]) => enabled)
               .map(([surface, label]) => {
               const active = productSurface === surface;
+              const badge = surface === 'pairing' ? pairingSurfaceBadge : null;
               return (
                 <button
                   key={surface}
@@ -3783,6 +3886,18 @@ export default function App() {
                 >
                   <ProductSurfaceLogo surface={surface} active={active} />
                   <span>{label}</span>
+                  {badge ? (
+                    <span
+                      className="rounded-full border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em]"
+                      style={{
+                        backgroundColor: badge.backgroundColor,
+                        borderColor: badge.borderColor,
+                        color: badge.color,
+                      }}
+                    >
+                      {badge.label}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -5030,7 +5145,7 @@ export default function App() {
                           style={{ color: C.ink }}
                           onClick={() => setActiveView('agents')}
                         >
-                          Open Overview
+                          Open Agents
                         </button>
                         {selectedInterAgent && hasEditableAgentConfig ? (
                           isAgentConfigEditing ? (
@@ -5958,10 +6073,10 @@ export default function App() {
                       <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Agents</div>
+                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Workspace discovery</div>
                             <div className="text-[18px] font-semibold tracking-tight" style={s.inkText}>Workspace Explorer</div>
                             <div className="text-[12px] mt-1 leading-[1.6]" style={s.mutedText}>
-                              Discover and manage local projects for agent binding.
+                              Discover local projects, bind agents, and inspect harness readiness. Inventory loads on demand so this page stays responsive.
                             </div>
                           </div>
                           <div className="hidden xl:flex items-center gap-2 shrink-0">
@@ -6078,38 +6193,56 @@ export default function App() {
 
                       <div className="p-6">
                         {!visibleAppSettings?.workspaceInventoryLoaded ? (
-                          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center" style={{ borderColor: C.border }}>
-                            {workspaceInventoryLoading ? <Spinner className="text-[28px] mb-3" style={{ color: C.muted, opacity: 0.7 }} /> : <FolderOpen className="h-8 w-8 mb-3" style={{ color: C.muted, opacity: 0.5 }} />}
-                            <div className="text-[13px] font-medium mb-1" style={s.inkText}>
-                              {workspaceInventoryLoading ? 'Loading workspaces…' : 'Workspace inventory is not loaded yet'}
+                          <div
+                            className="flex flex-col items-stretch rounded-xl border border-dashed px-6 py-10 text-center"
+                            style={{ borderColor: C.border }}
+                            aria-busy={workspaceInventoryLoading}
+                          >
+                            <div className="flex flex-col items-center max-w-lg mx-auto">
+                              {workspaceInventoryLoading ? <Spinner className="text-[28px] mb-3" style={{ color: C.muted, opacity: 0.7 }} /> : <FolderOpen className="h-8 w-8 mb-3" style={{ color: C.muted, opacity: 0.5 }} />}
+                              <div className="text-[13px] font-medium mb-1" style={s.inkText}>
+                                {workspaceInventoryLoading ? 'Loading workspaces…' : 'Workspace inventory is not loaded yet'}
+                              </div>
+                              <div className="text-[11px] mb-5 max-w-md leading-[1.6]" style={s.mutedText}>
+                                Scan folders and project manifests are read when you load this list. Use General to edit scan roots first if discovery looks empty.
+                              </div>
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="gap-2"
+                                onClick={() => {
+                                  if (!scoutDesktop?.refreshSettingsInventory) {
+                                    return;
+                                  }
+                                  setWorkspaceInventoryLoading(true);
+                                  void scoutDesktop.refreshSettingsInventory()
+                                    .then((nextSettings) => {
+                                      applyNextAppSettings(nextSettings);
+                                    })
+                                    .catch((error) => {
+                                      setAppSettingsFeedback(asErrorMessage(error));
+                                    })
+                                    .finally(() => {
+                                      setWorkspaceInventoryLoading(false);
+                                    });
+                                }}
+                                disabled={workspaceInventoryLoading || !scoutDesktop?.refreshSettingsInventory}
+                              >
+                                {workspaceInventoryLoading ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
+                                Load Workspaces
+                              </Button>
                             </div>
-                            <div className="text-[11px] mb-4 max-w-md leading-[1.6]" style={s.mutedText}>
-                              General loads quickly from local Scout settings. Workspace Explorer loads the heavier discovery inventory on demand.
-                            </div>
-                            <Button
-                              variant="outline"
-                              className="gap-2"
-                              onClick={() => {
-                                if (!scoutDesktop?.refreshSettingsInventory) {
-                                  return;
-                                }
-                                setWorkspaceInventoryLoading(true);
-                                void scoutDesktop.refreshSettingsInventory()
-                                  .then((nextSettings) => {
-                                    applyNextAppSettings(nextSettings);
-                                  })
-                                  .catch((error) => {
-                                    setAppSettingsFeedback(asErrorMessage(error));
-                                  })
-                                  .finally(() => {
-                                    setWorkspaceInventoryLoading(false);
-                                  });
-                              }}
-                              disabled={workspaceInventoryLoading || !scoutDesktop?.refreshSettingsInventory}
-                            >
-                              {workspaceInventoryLoading ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
-                              Load Workspaces
-                            </Button>
+                            {workspaceInventoryLoading ? (
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3 mt-8 w-full">
+                                {[0, 1, 2].map((slot) => (
+                                  <div
+                                    key={`ws-skel-${slot}`}
+                                    className="h-[88px] rounded-xl border animate-pulse"
+                                    style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 70%, transparent)' }}
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                         ) : filteredWorkspaceExplorerItems.length === 0 ? (
                           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center" style={{ borderColor: C.border }}>
@@ -6199,7 +6332,7 @@ export default function App() {
                             </div>
                           </section>
 
-                          <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
+                          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
                             <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
                               <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Workspace Summary</div>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -6274,15 +6407,59 @@ export default function App() {
                                   style={{ color: C.ink }}
                                   onClick={() => openAgentProfile(selectedInterAgent!.id)}
                                 >
-                                  Open Overview
+                                  Show in Agents
                                 </button>
                               </div>
                             </div>
                           </section>
 
-                          <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
+                          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
                             <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
                               <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>System Prompt</div>
+                              {isAgentConfigEditing && hasEditableAgentConfig && !agentConfigLoading ? (
+                                <div
+                                  className="mb-3 rounded-lg border p-3 max-h-[200px] overflow-y-auto"
+                                  style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 90%, transparent)' }}
+                                >
+                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Insert at caret</div>
+                                  {([
+                                    ['Prompt blocks', LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS.slice(0, LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT)],
+                                    ['Substitutions', LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS.slice(LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT)],
+                                  ] as const).map(([groupLabel, tokens]) => (
+                                    <div key={groupLabel} className="mb-2 last:mb-0">
+                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1 opacity-80" style={s.mutedText}>{groupLabel}</div>
+                                      <div className="flex flex-wrap gap-1">
+                                        {tokens.map((token) => (
+                                          <button
+                                            key={token}
+                                            type="button"
+                                            className="rounded border px-1.5 py-0.5 text-[9px] font-mono leading-none transition-opacity hover:opacity-90 disabled:opacity-40"
+                                            style={{ borderColor: C.border, color: C.accent, backgroundColor: C.surface }}
+                                            disabled={agentConfigSaving || agentConfigRestarting}
+                                            title={`Insert {{${token}}}`}
+                                            onClick={() => insertAgentPromptToken(token)}
+                                          >
+                                            {`{{${token}}}`}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <div className="mt-2 pt-2 border-t" style={{ borderColor: C.border }}>
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1 opacity-80" style={s.mutedText}>Environment</div>
+                                    <button
+                                      type="button"
+                                      className="rounded border px-1.5 py-0.5 text-[9px] font-mono leading-none transition-opacity hover:opacity-90 disabled:opacity-40"
+                                      style={{ borderColor: C.border, color: C.accent, backgroundColor: C.surface }}
+                                      disabled={agentConfigSaving || agentConfigRestarting}
+                                      title="Insert {{env.NAME}} (replace NAME)"
+                                      onClick={insertAgentPromptEnvPlaceholder}
+                                    >
+                                      {'{{env.NAME}}'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null}
                               {agentConfigLoading ? (
                                 <div className="text-[11px]" style={s.mutedText}>Loading system prompt…</div>
                               ) : isAgentConfigEditing ? (
@@ -6307,11 +6484,25 @@ export default function App() {
                                   className="w-full min-h-[460px] max-h-[760px] overflow-auto rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.6] whitespace-pre-wrap break-words outline-none"
                                   style={{ borderColor: C.border, color: C.ink }}
                                 >
-                                  {visibleAgentConfig?.systemPrompt ?? 'System prompt unavailable.'}
+                                  {renderAgentPromptWithPlaceholders(
+                                    visibleAgentConfig?.systemPrompt ?? 'System prompt unavailable.',
+                                    `agent-prompt-${selectedInterAgent?.id ?? 'none'}`,
+                                  )}
                                 </div>
                               )}
                               {visibleAgentConfig?.systemPromptHint ? (
-                                <div className="text-[11px] mt-2 leading-[1.5]" style={s.mutedText}>{visibleAgentConfig.systemPromptHint}</div>
+                                <details className="mt-3 group rounded-lg border text-left" style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 88%, transparent)' }}>
+                                  <summary className="cursor-pointer select-none list-none px-3 py-2 text-[11px] font-medium [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2" style={s.inkText}>
+                                    <span>Template variables</span>
+                                    <span className="text-[10px] font-normal shrink-0" style={s.mutedText}>
+                                      <span className="group-open:hidden">Show</span>
+                                      <span className="hidden group-open:inline">Hide</span>
+                                    </span>
+                                  </summary>
+                                  <div className="px-3 pb-3 text-[11px] leading-[1.55] border-t" style={{ borderColor: C.border, ...s.mutedText }}>
+                                    {visibleAgentConfig.systemPromptHint}
+                                  </div>
+                                </details>
                               ) : null}
                               {agentConfigFeedback ? (
                                 <div className="text-[11px] mt-2 leading-[1.5]" style={s.inkText}>{agentConfigFeedback}</div>
@@ -6391,27 +6582,29 @@ export default function App() {
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                                  <dl>
                                     {[
                                       ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent!.projectRoot ?? selectedInterAgent!.cwd) ?? 'Not reported'],
                                       ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent!.harness ?? 'Not reported'],
                                       ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent!.sessionId ?? 'Not reported'],
                                       ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent!.transport ?? 'Not reported'],
-                                      ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent!.wakePolicy || 'Not reported'],
-                                      ['Live Runtime', compactHomePath(selectedInterAgent!.projectRoot ?? selectedInterAgent!.cwd) ?? 'Not reported'],
+                                      ['Wake policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent!.wakePolicy || 'Not reported'],
+                                      ['Live runtime', compactHomePath(selectedInterAgent!.projectRoot ?? selectedInterAgent!.cwd) ?? 'Not reported'],
                                     ].map(([label, value]) => (
-                                      <div key={label} className="min-w-0">
-                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                        <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>
-                                          {label === 'Path' || label === 'Live Runtime'
-                                            ? renderLocalPathValue(String(value), {
-                                              className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                            })
-                                            : value}
-                                        </div>
+                                      <div key={label} className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 py-2.5 border-b last:border-b-0" style={{ borderColor: C.border }}>
+                                        <dt className="text-[9px] font-mono uppercase tracking-widest shrink-0 sm:w-[7.5rem]" style={s.mutedText}>{label}</dt>
+                                        <dd className="text-[11px] leading-[1.45] break-words min-w-0 text-left sm:text-right sm:max-w-[70%]">
+                                          <span style={s.inkText}>
+                                            {label === 'Path' || label === 'Live runtime'
+                                              ? renderLocalPathValue(String(value), {
+                                                className: 'text-left sm:text-right underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
+                                              })
+                                              : value}
+                                          </span>
+                                        </dd>
                                       </div>
                                     ))}
-                                  </div>
+                                  </dl>
                                 )}
                               </section>
 
@@ -8135,88 +8328,35 @@ export default function App() {
         /* --- SESSIONS --- */
         ) : activeView === 'sessions' ? (
           <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-3 py-2.5 flex items-center justify-between border-b" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Sessions</h1>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>{stats.totalSessions} total</div>
-                  </div>
-                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-y-auto py-2">
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Projects</div>
-                    <div className="flex flex-col gap-px">
-                      <button
-                        onClick={() => setSelectedProject(null)}
-                        className="flex items-center gap-2 px-1.5 py-1 rounded text-[12px] transition-opacity"
-                        style={!selectedProject ? s.activeItem : s.mutedText}
-                      >
-                        <LayoutGrid size={12} style={!selectedProject ? { color: C.accent } : undefined} />
-                        <span className="font-medium flex-1 truncate text-left">All Projects</span>
-                        <span className="text-[9px] font-mono" style={s.mutedText}>{stats.totalSessions}</span>
-                      </button>
-                      {projects.map(project => (
-                        <button
-                          key={project.name}
-                          onClick={() => setSelectedProject(selectedProject === project.name ? null : project.name)}
-                          className="flex items-center gap-2 px-1.5 py-1 rounded text-[12px] transition-opacity"
-                          style={selectedProject === project.name ? s.activeItem : s.mutedText}
-                        >
-                          <Folder size={12} style={selectedProject === project.name ? { color: C.accent } : undefined} />
-                          <span className="font-medium flex-1 truncate text-left">{project.name}</span>
-                          <span className="text-[9px] font-mono" style={s.mutedText}>{project.count}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Source</div>
-                    <div className="flex flex-col gap-px">
-                      <div className="flex items-center gap-2 px-1.5 py-1 text-[11px]" style={s.mutedText}>
-                        <FileJson size={12} />
-                        <span className="truncate">{relayRuntimeBooting ? 'Loading broker…' : (runtime?.brokerUrl ?? 'Broker unavailable')}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Main Sessions Area */}
             <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
               <div className="h-10 border-b flex items-center justify-between px-4 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-2 flex-1">
-                  <Search size={14} style={s.mutedText} />
-                  <input
-                    type="text"
-                    placeholder="Search sessions by title, content, tags, agent..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 bg-transparent border-none outline-none text-[12px]"
-                    style={{ color: C.ink }}
-                  />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery('')} className="hover:opacity-70" style={s.mutedText}><X size={14} /></button>
-                  )}
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <div className="min-w-0 shrink-0">
+                    <div className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Sessions</div>
+                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
+                      {searchQuery ? `${filteredSessions.length} results` : `${stats.totalSessions} total`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Search size={14} style={s.mutedText} />
+                    <input
+                      type="text"
+                      placeholder="Search sessions by title, content, tags, or agent..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1 bg-transparent border-none outline-none text-[12px]"
+                      style={{ color: C.ink }}
+                    />
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="hover:opacity-70" style={s.mutedText}><X size={14} /></button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {phonePreparationSaving && <Spinner className="text-[12px]" style={s.mutedText} />}
-                  <button
-                    type="button"
-                    onClick={handlePreparePhone}
-                    disabled={phonePreparationSaving || phonePreparationLoading || sessions.length === 0}
-                    className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ backgroundColor: C.accentBg, color: C.accent }}
-                  >
-                    <Smartphone size={11} />
-                    Prepare Phone
+                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
+                    <RefreshCw size={14} />
                   </button>
-                  <div className="text-[10px] font-mono" style={s.mutedText}>{filteredSessions.length} results</div>
                 </div>
               </div>
 
@@ -8314,22 +8454,14 @@ export default function App() {
 
             <div className="w-80 border-l shrink-0 overflow-y-auto flex flex-col" style={{ ...s.surface, borderLeftColor: C.border }}>
               <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Smartphone size={13} style={{ color: C.accent }} />
-                      <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>My List</div>
-                    </div>
-                    <div className="text-[12px] font-medium" style={s.inkText}>My List first, then browse and search.</div>
-                    <div className="text-[10px] mt-1" style={s.mutedText}>
-                      {phonePreparationState.preparedAt
-                        ? `Prepared ${new Date(phonePreparationState.preparedAt).toLocaleString()}`
-                        : 'Not prepared yet'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleClearPhoneQuickHits}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={s.mutedText}>My List</div>
+                        <div className="text-[12px] font-medium" style={s.inkText}>My List first, then browse and search.</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleClearPhoneQuickHits}
                     disabled={phonePreparationSaving || phonePreparationState.quickHits.length === 0}
                     className="rounded px-2 py-1 text-[10px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ backgroundColor: C.bg, color: C.ink, border: `1px solid ${C.border}` }}
@@ -8343,7 +8475,7 @@ export default function App() {
                 {phonePreparationLoading ? (
                   <div className="flex items-center gap-2 text-[12px]" style={s.mutedText}>
                     <Spinner className="text-[12px]" />
-                    Loading My List…
+                    Loading list…
                   </div>
                 ) : (
                   <>
@@ -8365,7 +8497,7 @@ export default function App() {
                       </div>
                       {favoritePhoneSessions.length === 0 ? (
                         <div className="rounded border border-dashed px-3 py-4 text-[11px]" style={{ borderColor: C.border, color: C.muted }}>
-                          Drop sessions here to keep them pinned on the phone.
+                          Drop sessions here to keep them pinned in your list.
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
@@ -8415,14 +8547,14 @@ export default function App() {
                     >
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
-                          <Smartphone size={12} style={{ color: C.accent }} />
+                          <List size={12} style={{ color: C.accent }} />
                           <div className="text-[11px] font-semibold" style={s.inkText}>My List</div>
                         </div>
                         <div className="text-[10px] font-mono" style={s.mutedText}>{quickHitPhoneSessions.length}</div>
                       </div>
                       {quickHitPhoneSessions.length === 0 ? (
                         <div className="rounded border border-dashed px-3 py-4 text-[11px]" style={{ borderColor: C.border, color: C.muted }}>
-                          Prepare the phone for a fresh list, or drag sessions here and order them yourself.
+                          Drag sessions here and order them however you want.
                         </div>
                       ) : (
                         <div className="flex flex-col gap-2">
@@ -9149,11 +9281,13 @@ export default function App() {
           pairingLoading={pairingLoading}
           pairingState={pairingState}
           onControlPairing={handlePairingControl}
-          onOpenLogs={() => {
-            document.getElementById('pairing-live-logs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          onOpenFullLogs={() => {
+            setProductSurface('relay');
+            setActiveView('logs');
           }}
           onUpdateConfig={handleUpdatePairingConfig}
           onRefresh={() => void handleRefreshShell()}
+          onRevealPath={(filePath) => void scoutDesktop?.revealPath?.(filePath)}
         />
       )}
 
@@ -9215,9 +9349,10 @@ function PairingSurfacePlaceholder({
   pairingLoading,
   pairingState,
   onControlPairing,
-  onOpenLogs,
+  onOpenFullLogs,
   onUpdateConfig,
   onRefresh,
+  onRevealPath,
 }: {
   pairingControlPending: boolean;
   pairingConfigFeedback: string | null;
@@ -9226,9 +9361,10 @@ function PairingSurfacePlaceholder({
   pairingLoading: boolean;
   pairingState: PairingState | null;
   onControlPairing: (action: 'start' | 'stop' | 'restart') => void;
-  onOpenLogs: () => void;
+  onOpenFullLogs: () => void;
   onUpdateConfig: (input: UpdatePairingConfigInput) => Promise<void>;
   onRefresh: () => void;
+  onRevealPath?: (path: string) => void;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [relayDraft, setRelayDraft] = useState('');
@@ -9238,6 +9374,7 @@ function PairingSurfacePlaceholder({
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [qrExpanded, setQrExpanded] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [pairingLogsExpanded, setPairingLogsExpanded] = useState(false);
   const logsRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const pairingPairingSvg = useMemo(() => {
@@ -9248,7 +9385,7 @@ function PairingSurfacePlaceholder({
     return renderSVG(qrValue, {
       border: 2,
       ecc: 'M',
-      pixelSize: qrExpanded ? 8 : 6,
+      pixelSize: qrExpanded ? 12 : 6,
       blackColor: '#111111',
       whiteColor: '#ffffff',
     });
@@ -9257,6 +9394,9 @@ function PairingSurfacePlaceholder({
     ? Math.max(0, Math.floor((pairingState.pairing.expiresAt - countdownNow) / 1000))
     : null;
   const serviceIsRunning = Boolean(pairingState?.isRunning);
+  const trustedPeers = pairingState?.trustedPeers ?? [];
+  const connectedPeer = trustedPeers.find((peer) => peer.fingerprint === pairingState?.connectedPeerFingerprint) ?? null;
+  const hasConnectedPeer = pairingState?.status === 'paired' && Boolean(pairingState?.connectedPeerFingerprint);
   const activeRelay = pairingState?.pairing?.relay ?? pairingState?.relay ?? null;
   const dashboardTone = pairingState?.status === 'paired' || pairingState?.status === 'connected' || pairingState?.status === 'connecting'
     ? { label: 'Relay Active', backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
@@ -9282,7 +9422,9 @@ function PairingSurfacePlaceholder({
     borderColor: 'rgba(15, 23, 42, 0.06)',
   } as const;
   const pairCommand = pairingState?.commandLabel ?? 'scout pair';
-  const connectionLabel = pairingState?.pairing
+  const connectionLabel = hasConnectedPeer
+    ? 'Device Connected'
+    : pairingState?.pairing
     ? 'Pairing Ready'
     : pairingState?.status === 'error' || pairingState?.status === 'closed'
       ? pairingState.statusLabel
@@ -9290,6 +9432,9 @@ function PairingSurfacePlaceholder({
         ? pairingState?.statusLabel ?? 'Running'
         : 'Ready to Start';
   const connectionDetail = pairingError
+    ?? (hasConnectedPeer
+      ? `${formatPairingTrustedPeerLabel(connectedPeer)} is connected through the pairing relay.`
+      : null)
     ?? pairingState?.statusDetail
     ?? 'Start Pairing to launch a local pairing relay, generate a fresh QR code, and wait for your phone to connect.';
   const runtimeRows = [
@@ -9303,6 +9448,7 @@ function PairingSurfacePlaceholder({
     ['Relay', activeRelay ?? 'Not set'],
     ['Client ID', pairingState?.identityFingerprint ?? 'Not created'],
     ['Room', pairingState?.pairing?.room ?? 'Pending'],
+    ['Connected Device', hasConnectedPeer ? formatPairingTrustedPeerLabel(connectedPeer) : 'None'],
   ] as const;
   const topActions = (
     <>
@@ -9315,7 +9461,12 @@ function PairingSurfacePlaceholder({
       </span>
       <button
         type="button"
-        onClick={() => logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        onClick={() => {
+          setPairingLogsExpanded(true);
+          window.setTimeout(() => {
+            logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 0);
+        }}
         className="text-[12px] font-medium transition-opacity hover:opacity-70"
         style={{ color: C.muted }}
       >
@@ -9378,13 +9529,18 @@ function PairingSurfacePlaceholder({
 
     setCountdownNow(Date.now());
     const intervalId = window.setInterval(() => {
-      setCountdownNow(Date.now());
+      const now = Date.now();
+      setCountdownNow(now);
+      // Auto-refresh QR when it expires
+      if (now >= pairingState.pairing!.expiresAt) {
+        onRefresh();
+      }
     }, 1000);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [pairingState?.pairing?.expiresAt]);
+  }, [pairingState?.pairing?.expiresAt, onRefresh]);
 
   return (
     <div className="flex flex-1 overflow-hidden os-fade-in" style={{ backgroundColor: C.bg }}>
@@ -9559,7 +9715,12 @@ function PairingSurfacePlaceholder({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={onOpenLogs}
+                    onClick={() => {
+                      setPairingLogsExpanded(true);
+                      window.setTimeout(() => {
+                        logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 0);
+                    }}
                   >
                     <Terminal size={14} />
                     Logs
@@ -9582,82 +9743,193 @@ function PairingSurfacePlaceholder({
                 </section>
               </div>
 
-              {pairingPairingSvg ? (
+              <div className="flex flex-col gap-5">
+                {pairingPairingSvg ? (
+                  <section className="rounded-[20px] border p-5" style={cardStyle}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Scan QR Code</div>
+                        <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                          Point Pairing on your phone at this code.
+                        </div>
+                      </div>
+                      <span
+                        className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
+                        style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
+                      >
+                        Ready to Pair
+                      </span>
+                    </div>
+                    <div className="mt-5 rounded-[22px] border p-4" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
+                      <div
+                        aria-label="Pairing pairing QR code"
+                        className={`mx-auto w-full ${qrExpanded ? 'max-w-[480px]' : 'max-w-[248px]'}`}
+                        dangerouslySetInnerHTML={{ __html: pairingPairingSvg }}
+                      />
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-3 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
+                      <div>
+                        Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setQrExpanded((current) => !current)}
+                      >
+                        {qrExpanded ? 'Compact QR' : 'Larger QR'}
+                      </Button>
+                    </div>
+                  </section>
+                ) : (
+                  <section className="rounded-[20px] border bg-[rgba(250,250,250,0.65)] p-5" style={cardStyle}>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-3" style={{ color: C.muted }}>
+                      CLI Equivalent
+                    </div>
+                    <div className="rounded-2xl border px-3 py-3 flex items-center gap-3" style={subtlePanelStyle}>
+                      <code className="min-w-0 flex-1 truncate text-[11px]" style={{ color: C.ink }}>
+                        {pairCommand}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        onClick={() => void handleCopy('command', pairCommand)}
+                      >
+                        {copied === 'command' ? <Check size={14} /> : <Copy size={14} />}
+                      </Button>
+                    </div>
+                    <div className="mt-4 text-[11px] leading-[1.6] font-light" style={{ color: C.muted }}>
+                      <div className="inline-flex items-center gap-1.5">
+                        <Key size={13} strokeWidth={1.5} />
+                        Same backend as the command line, with QR rotation and log access.
+                      </div>
+                    </div>
+                  </section>
+                )}
+
                 <section className="rounded-[20px] border p-5" style={cardStyle}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Scan QR Code</div>
+                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Trusted Devices</div>
                       <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                        Point Pairing on your phone at this code.
+                        Saved phone identities that have paired with this bridge.
                       </div>
                     </div>
                     <span
                       className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
-                      style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
+                      style={hasConnectedPeer
+                        ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
+                        : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
                     >
-                      Ready to Pair
+                      {trustedPeers.length} saved
                     </span>
                   </div>
-                  <div className="mt-5 rounded-[22px] border p-4" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
-                    <div
-                      aria-label="Pairing pairing QR code"
-                      className={`mx-auto w-full ${qrExpanded ? 'max-w-[320px]' : 'max-w-[248px]'}`}
-                      dangerouslySetInnerHTML={{ __html: pairingPairingSvg }}
-                    />
-                  </div>
-                  <div className="mt-4 flex items-center justify-between gap-3 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
-                    <div>
-                      Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setQrExpanded((current) => !current)}
-                    >
-                      {qrExpanded ? 'Compact QR' : 'Larger QR'}
-                    </Button>
-                  </div>
-                </section>
-              ) : (
-                <section className="rounded-[20px] border bg-[rgba(250,250,250,0.65)] p-5" style={cardStyle}>
-                  <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-3" style={{ color: C.muted }}>
-                    CLI Equivalent
-                  </div>
-                  <div className="rounded-2xl border px-3 py-3 flex items-center gap-3" style={subtlePanelStyle}>
-                    <code className="min-w-0 flex-1 truncate text-[11px]" style={{ color: C.ink }}>
-                      {pairCommand}
-                    </code>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={() => void handleCopy('command', pairCommand)}
-                    >
-                      {copied === 'command' ? <Check size={14} /> : <Copy size={14} />}
-                    </Button>
-                  </div>
-                  <div className="mt-4 text-[11px] leading-[1.6] font-light" style={{ color: C.muted }}>
-                    <div className="inline-flex items-center gap-1.5">
-                      <Key size={13} strokeWidth={1.5} />
-                      Same backend as the command line, with QR rotation and log access.
-                    </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {trustedPeers.length > 0 ? trustedPeers.map((peer) => {
+                      const peerConnected = peer.fingerprint === pairingState?.connectedPeerFingerprint;
+                      return (
+                        <div key={peer.publicKey} className="rounded-2xl border p-3 min-w-0" style={subtlePanelStyle}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[13px] font-medium tracking-tight truncate" style={{ color: C.ink }}>
+                                {formatPairingTrustedPeerLabel(peer)}
+                              </div>
+                              <div className="mt-1 text-[11px] font-mono break-all" style={{ color: C.muted }}>
+                                {formatPairingTrustedPeerKey(peer.publicKey)}
+                              </div>
+                            </div>
+                            {peerConnected ? (
+                              <span
+                                className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium whitespace-nowrap"
+                                style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
+                              >
+                                Connected now
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] leading-[1.6]" style={{ color: C.muted }}>
+                            <div className="min-w-0">Paired: <span style={{ color: C.ink }}>{peer.pairedAtLabel ?? 'Unknown'}</span></div>
+                            <div className="min-w-0">Last seen: <span style={{ color: C.ink }}>{peer.lastSeenLabel ?? 'Unknown'}</span></div>
+                          </div>
+                        </div>
+                      );
+                    }) : (
+                      <div className="rounded-2xl border px-4 py-4 text-[12px] leading-[1.7] md:col-span-2 xl:col-span-3" style={subtlePanelStyle}>
+                        No trusted devices yet. Start Pairing and scan the QR code from your phone to add one.
+                      </div>
+                    )}
                   </div>
                 </section>
-              )}
+              </div>
             </div>
 
             <div className={`grid gap-5 items-start ${showAdvancedSettings ? 'lg:grid-cols-[minmax(0,1.5fr)_320px]' : 'lg:grid-cols-1'}`}>
               <section id="pairing-live-logs" ref={logsRef}>
-                <LogPanel
-                  title="Pairing"
-                  body={pairingState?.logTail ?? null}
-                  missing={pairingState?.logMissing}
-                  loading={!pairingState}
-                  updatedAtLabel={pairingState?.logUpdatedAtLabel}
-                  maxHeight={320}
-                  minHeight={160}
-                />
+                <Collapsible open={pairingLogsExpanded} onOpenChange={setPairingLogsExpanded}>
+                  <div className="rounded-[20px] border overflow-hidden" style={cardStyle}>
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="w-full px-5 py-4 border-b flex items-center justify-between gap-3 text-left hover:opacity-95 transition-opacity"
+                        style={{ borderBottomColor: pairingLogsExpanded ? C.border : 'transparent', backgroundColor: '#ffffff' }}
+                      >
+                        <div className="min-w-0">
+                          <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
+                            <Terminal size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
+                            Pairing Logs
+                          </div>
+                          <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                            {pairingLogsExpanded
+                              ? 'Live bridge output and runtime diagnostics.'
+                              : 'Hidden by default. Expand only when debugging pairing.'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          {pairingState?.logUpdatedAtLabel ? (
+                            <span className="text-[10px] font-mono" style={{ color: C.muted }}>
+                              {pairingState.logUpdatedAtLabel}
+                            </span>
+                          ) : null}
+                          <ChevronRight
+                            size={14}
+                            className="transition-transform duration-150"
+                            style={{ color: C.muted, transform: pairingLogsExpanded ? 'rotate(90deg)' : undefined }}
+                          />
+                        </div>
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="px-5 pt-4 flex items-center justify-between gap-3">
+                        <div className="text-[11px] font-light" style={{ color: C.muted }}>
+                          Open the full Logs view if you want the broader app and relay log catalog.
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={onOpenFullLogs}
+                        >
+                          Open Full Logs
+                        </Button>
+                      </div>
+                      <div className="px-5 pb-5 pt-4">
+                        <LogPanel
+                          title="Pairing"
+                          pathLabel={pairingState?.logPath ?? null}
+                          body={pairingState?.logTail ?? null}
+                          truncated={pairingState?.logTruncated}
+                          missing={pairingState?.logMissing}
+                          loading={!pairingState}
+                          updatedAtLabel={pairingState?.logUpdatedAtLabel}
+                          maxHeight={320}
+                          minHeight={160}
+                          onRevealPath={onRevealPath}
+                        />
+                      </div>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
               </section>
 
               {showAdvancedSettings ? (
@@ -9758,6 +10030,75 @@ function PairingSurfacePlaceholder({
       </div>
     </div>
   );
+}
+
+function formatPairingTrustedPeerLabel(peer: PairingState['trustedPeers'][number] | null | undefined) {
+  if (!peer) {
+    return 'Unknown device';
+  }
+
+  return peer.name ?? `Device ${peer.fingerprint}`;
+}
+
+function formatPairingTrustedPeerKey(publicKey: string) {
+  if (publicKey.length <= 16) {
+    return publicKey;
+  }
+
+  return `${publicKey.slice(0, 8)}...${publicKey.slice(-8)}`;
+}
+
+function describePairingSurfaceBadge(
+  pairingState: PairingState | null,
+  pairingLoading: boolean,
+  pairingError: string | null,
+) {
+  if (pairingError) {
+    return {
+      label: 'Error',
+      backgroundColor: '#fff1f2',
+      borderColor: '#fecdd3',
+      color: '#be123c',
+    };
+  }
+
+  if (pairingLoading && !pairingState) {
+    return {
+      label: 'Loading',
+      backgroundColor: '#f8fafc',
+      borderColor: '#e2e8f0',
+      color: '#475569',
+    };
+  }
+
+  if (pairingState?.status === 'paired' && pairingState.connectedPeerFingerprint) {
+    return {
+      label: 'Connected',
+      backgroundColor: '#ecfdf3',
+      borderColor: '#bbf7d0',
+      color: '#15803d',
+    };
+  }
+
+  if (pairingState?.isRunning && pairingState?.pairing) {
+    return {
+      label: 'Waiting',
+      backgroundColor: '#eff6ff',
+      borderColor: '#bfdbfe',
+      color: '#1d4ed8',
+    };
+  }
+
+  if ((pairingState?.trustedPeerCount ?? 0) > 0) {
+    return {
+      label: `${pairingState!.trustedPeerCount} trusted`,
+      backgroundColor: '#f8fafc',
+      borderColor: '#e2e8f0',
+      color: '#475569',
+    };
+  }
+
+  return null;
 }
 
 function ProductSurfaceLogo({

@@ -1,176 +1,164 @@
-// SettingsView — Debug, voice engine, and connection settings.
+// SettingsView — Full-screen settings with organized sections.
+//
+// Sections: Connection, Voice, Appearance, About & Debug.
+// Navigated to as a surface via ScoutRouter, not a sheet.
 
 import SwiftUI
 
 struct SettingsView: View {
     @Environment(ConnectionManager.self) private var connection
     @StateObject private var voice = ScoutVoice()
+    @ObservedObject private var logStore = LogStore.shared
+
+    @AppStorage("scoutAppearance") private var appearanceMode: String = "system"
+    @State private var showingLogs = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                voiceSection
+        ScrollView {
+            LazyVStack(spacing: ScoutSpacing.xl) {
                 connectionSection
-                debugSection
+                voiceSection
+                appearanceSection
+                aboutSection
+
+                // Bottom padding for the bar
+                Color.clear.frame(height: 120)
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
+            .padding(.horizontal, ScoutSpacing.lg)
+            .padding(.top, ScoutSpacing.xl)
         }
-    }
-
-    // MARK: - Voice
-
-    private var voiceSection: some View {
-        Section {
-            HStack {
-                Label("Engine", systemImage: "waveform")
-                Spacer()
-                Text(engineName)
-                    .foregroundStyle(ScoutColors.textSecondary)
+        .background(ScoutColors.backgroundAdaptive)
+        .sheet(isPresented: $showingLogs) {
+            NavigationStack {
+                LogView()
+                    .navigationTitle("Logs")
+                    .navigationBarTitleDisplayMode(.inline)
             }
-
-            HStack {
-                Label("State", systemImage: "circle.fill")
-                Spacer()
-                Text(voiceStateName)
-                    .foregroundStyle(voiceStateColor)
-            }
-
-            #if canImport(FluidAudio)
-            HStack {
-                Label("Parakeet Model", systemImage: "cpu")
-                Spacer()
-                Text(parakeetStatus)
-                    .foregroundStyle(ScoutColors.textSecondary)
-            }
-            #endif
-
-            HStack {
-                Label("Last Used", systemImage: "clock")
-                Spacer()
-                Text(voice.lastEngine)
-                    .foregroundStyle(ScoutColors.textSecondary)
-            }
-        } header: {
-            Text("Voice")
-        } footer: {
-            #if canImport(FluidAudio)
-            Text("Parakeet provides on-device AI transcription. Apple Speech is used as a fallback while the model loads (~90s).")
-            #else
-            Text("Using Apple Speech for on-device transcription. Add FluidAudio for Parakeet AI transcription.")
-            #endif
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
     // MARK: - Connection
 
     private var connectionSection: some View {
-        Section {
-            HStack {
-                Label("Status", systemImage: "antenna.radiowaves.left.and.right")
-                Spacer()
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(connectionColor)
-                        .frame(width: 8, height: 8)
-                    Text(connectionLabel)
-                        .foregroundStyle(ScoutColors.textSecondary)
-                }
+        SettingsSectionCard(title: "Connection", icon: "antenna.radiowaves.left.and.right") {
+            SettingsRow(icon: "circle.fill", iconColor: connectionColor, label: "Status") {
+                Text(connectionLabel)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
             if connection.hasTrustedBridge {
-                HStack {
-                    Label("Trusted Bridge", systemImage: "checkmark.shield")
-                    Spacer()
+                SettingsRow(icon: "checkmark.shield", iconColor: ScoutColors.statusActive, label: "Trusted Bridge") {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(ScoutColors.statusActive)
                 }
 
-                if connection.state == .connected || connection.state == .connecting || connection.state == .handshaking || {
-                    if case .reconnecting = connection.state { return true }
-                    return false
-                }() {
-                    Button {
+                Divider().padding(.leading, 40)
+
+                if connection.state == .connected {
+                    SettingsButton(icon: "bolt.slash", label: "Disconnect", role: .regular) {
                         connection.disconnect()
-                    } label: {
-                        Label("Disconnect", systemImage: "bolt.slash")
                     }
-                }
-
-                if connection.state != .connected {
-                    Button {
+                } else {
+                    SettingsButton(icon: "arrow.clockwise", label: "Reconnect", role: .regular) {
                         Task { await connection.reconnect() }
-                    } label: {
-                        Label("Reconnect", systemImage: "arrow.clockwise")
                     }
                 }
 
-                Button(role: .destructive) {
+                SettingsButton(icon: "trash", label: "Forget Bridge", role: .destructive) {
                     connection.clearTrustedBridge()
-                } label: {
-                    Label("Forget Bridge", systemImage: "trash")
                 }
             }
-        } header: {
-            Text("Connection")
         }
     }
 
-    // MARK: - Debug
+    // MARK: - Voice
 
-    private var debugSection: some View {
-        Section {
-            NavigationLink {
-                LogView()
-            } label: {
-                HStack {
-                    Label("Logs", systemImage: "doc.text")
-                    Spacer()
-                    if logStore.errorCount > 0 {
-                        Text("\(logStore.errorCount) errors")
-                            .font(ScoutTypography.caption(12))
-                            .foregroundStyle(ScoutColors.statusError)
-                    } else {
-                        Text("\(logStore.entries.count) entries")
-                            .font(ScoutTypography.caption(12))
-                            .foregroundStyle(ScoutColors.textMuted)
-                    }
-                }
+    private var voiceSection: some View {
+        SettingsSectionCard(title: "Voice", icon: "waveform") {
+            SettingsRow(icon: "cpu", iconColor: ScoutColors.accent, label: "Engine") {
+                Text(engineName)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
-            HStack {
-                Label("Build", systemImage: "hammer")
-                Spacer()
+            SettingsRow(icon: "circle.fill", iconColor: voiceStateColor, label: "State") {
+                Text(voiceStateName)
+                    .foregroundStyle(voiceStateColor)
+            }
+
+            #if canImport(FluidAudio)
+            SettingsRow(icon: "brain", iconColor: ScoutColors.accent, label: "Parakeet") {
+                Text(parakeetStatus)
+                    .foregroundStyle(ScoutColors.textSecondary)
+            }
+            #endif
+
+            SettingsRow(icon: "clock", iconColor: ScoutColors.textMuted, label: "Last Used") {
+                Text(voice.lastEngine)
+                    .foregroundStyle(ScoutColors.textSecondary)
+            }
+        } footer: {
+            #if canImport(FluidAudio)
+            "Parakeet provides on-device AI transcription. Apple Speech is used as a fallback."
+            #else
+            "Using Apple Speech for on-device transcription."
+            #endif
+        }
+    }
+
+    // MARK: - Appearance
+
+    private var appearanceSection: some View {
+        SettingsSectionCard(title: "Appearance", icon: "paintbrush") {
+            VStack(alignment: .leading, spacing: ScoutSpacing.md) {
+                Text("Theme")
+                    .font(ScoutTypography.caption(12, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
+
+                HStack(spacing: ScoutSpacing.sm) {
+                    AppearancePill(label: "System", value: "system", selection: $appearanceMode)
+                    AppearancePill(label: "Light", value: "light", selection: $appearanceMode)
+                    AppearancePill(label: "Dark", value: "dark", selection: $appearanceMode)
+                }
+            }
+            .padding(.vertical, ScoutSpacing.xs)
+        }
+    }
+
+    // MARK: - About & Debug
+
+    private var aboutSection: some View {
+        SettingsSectionCard(title: "About", icon: "info.circle") {
+            SettingsRow(icon: "hammer", iconColor: ScoutColors.textMuted, label: "Version") {
                 Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
                     .foregroundStyle(ScoutColors.textSecondary)
             }
 
-            HStack {
-                Label("Device", systemImage: "iphone")
-                Spacer()
+            SettingsRow(icon: "iphone", iconColor: ScoutColors.textMuted, label: "Device") {
                 Text(UIDevice.current.name)
                     .foregroundStyle(ScoutColors.textSecondary)
+                    .lineLimit(1)
             }
 
-            HStack {
-                Label("iOS", systemImage: "gear")
-                Spacer()
+            SettingsRow(icon: "gear", iconColor: ScoutColors.textMuted, label: "iOS") {
                 Text(UIDevice.current.systemVersion)
                     .foregroundStyle(ScoutColors.textSecondary)
             }
 
-            Button {
-                UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
-            } label: {
-                Label("Reset Onboarding", systemImage: "arrow.counterclockwise")
+            Divider().padding(.leading, 40)
+
+            SettingsButton(icon: "doc.text", label: "Logs", role: .regular) {
+                showingLogs = true
             }
-        } header: {
-            Text("Debug")
+
+            Divider().padding(.leading, 40)
+
+            SettingsButton(icon: "arrow.counterclockwise", label: "Reset Onboarding", role: .regular) {
+                UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+            }
         }
     }
-
-    @ObservedObject private var logStore = LogStore.shared
 
     // MARK: - Computed
 
@@ -178,7 +166,7 @@ struct SettingsView: View {
         #if canImport(FluidAudio)
         "Parakeet + Apple Speech"
         #else
-        "Apple Speech (on-device)"
+        "Apple Speech"
         #endif
     }
 
@@ -235,5 +223,176 @@ struct SettingsView: View {
         case .disconnected: "Disconnected"
         case .failed: "Failed"
         }
+    }
+}
+
+// MARK: - Section Card
+
+private struct SettingsSectionCard<Content: View>: View {
+    let title: String
+    let icon: String
+    var footer: String? = nil
+    @ViewBuilder let content: Content
+
+    init(title: String, icon: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.footer = nil
+        self.content = content()
+    }
+
+    init(title: String, icon: String, @ViewBuilder content: () -> Content, footer: () -> String) {
+        self.title = title
+        self.icon = icon
+        self.footer = footer()
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+            HStack(spacing: ScoutSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ScoutColors.accent)
+                Text(title.uppercased())
+                    .font(ScoutTypography.caption(12, weight: .bold))
+                    .foregroundStyle(ScoutColors.textMuted)
+            }
+            .padding(.leading, ScoutSpacing.xs)
+
+            VStack(spacing: 0) {
+                content
+            }
+            .scoutCard(padding: ScoutSpacing.lg, cornerRadius: ScoutRadius.lg)
+
+            if let footer {
+                Text(footer)
+                    .font(ScoutTypography.caption(12))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .padding(.horizontal, ScoutSpacing.xs)
+            }
+        }
+    }
+}
+
+// MARK: - Row Components
+
+private struct SettingsRow<Trailing: View>: View {
+    let icon: String
+    let iconColor: Color
+    let label: String
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: ScoutSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(iconColor)
+                .frame(width: 20)
+
+            Text(label)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textPrimary)
+
+            Spacer()
+
+            trailing
+                .font(ScoutTypography.body(14))
+        }
+        .padding(.vertical, ScoutSpacing.xs)
+    }
+}
+
+private struct SettingsNavRow<Trailing: View, Destination: View>: View {
+    let icon: String
+    let iconColor: Color
+    let label: String
+    @ViewBuilder let trailing: Trailing
+    @ViewBuilder let destination: Destination
+
+    var body: some View {
+        NavigationLink {
+            destination
+        } label: {
+            HStack(spacing: ScoutSpacing.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 20)
+
+                Text(label)
+                    .font(ScoutTypography.body(15))
+                    .foregroundStyle(ScoutColors.textPrimary)
+
+                Spacer()
+
+                trailing
+                    .font(ScoutTypography.body(14))
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
+            }
+            .padding(.vertical, ScoutSpacing.xs)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SettingsButton: View {
+    enum Role { case regular, destructive }
+
+    let icon: String
+    let label: String
+    let role: Role
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: ScoutSpacing.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(role == .destructive ? ScoutColors.statusError : ScoutColors.accent)
+                    .frame(width: 20)
+
+                Text(label)
+                    .font(ScoutTypography.body(15))
+                    .foregroundStyle(role == .destructive ? ScoutColors.statusError : ScoutColors.textPrimary)
+
+                Spacer()
+            }
+            .padding(.vertical, ScoutSpacing.xs)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Appearance Picker
+
+private struct AppearancePill: View {
+    let label: String
+    let value: String
+    @Binding var selection: String
+
+    private var isSelected: Bool { selection == value }
+
+    var body: some View {
+        Button {
+            selection = value
+        } label: {
+            Text(label)
+                .font(ScoutTypography.body(14, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? ScoutColors.textPrimary : ScoutColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, ScoutSpacing.sm)
+                .background(isSelected ? ScoutColors.accent.opacity(0.15) : ScoutColors.surfaceAdaptive)
+                .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                        .strokeBorder(isSelected ? ScoutColors.accent.opacity(0.4) : ScoutColors.border, lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }

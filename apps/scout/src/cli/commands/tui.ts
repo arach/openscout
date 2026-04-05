@@ -1,6 +1,6 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { parseTuiCommandOptions } from "../options.ts";
-import { runScoutMonitorApp } from "../../ui/monitor/index.ts";
+import { runScoutMonitorApp } from "../../ui/monitor/index.tsx";
 
 export async function runTuiCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   if (context.output.mode === "json") {
@@ -14,7 +14,5 @@ export async function runTuiCommand(context: ScoutCommandContext, args: string[]
     channel: options.channel,
     limit: options.limit,
     refreshIntervalMs: options.intervalMs,
-    stdout: process.stdout,
-    stdin: process.stdin,
   });
 }

@@ -21,6 +21,11 @@ struct TurnView: View {
     var body: some View {
         if isUser {
             userBubble
+        } else if sortedBlocks.isEmpty && isStreaming {
+            // Agent is working but has no blocks yet — skip rendering a
+            // separate "working" step. The composer's stop button and
+            // address bar already communicate the streaming state.
+            EmptyView()
         } else {
             assistantTurn
         }

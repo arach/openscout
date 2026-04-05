@@ -28,6 +28,7 @@ export type PairingRuntimeSnapshot = {
   status: PairingRuntimeStatus;
   statusLabel: string;
   statusDetail: string | null;
+  connectedPeerFingerprint: string | null;
   relay: string | null;
   secure: boolean;
   workspaceRoot: string | null;
@@ -144,7 +145,7 @@ export function createPairingRuntimeSnapshot(
   seed: SnapshotSeed,
   patch: Pick<
     PairingRuntimeSnapshot,
-    "status" | "statusLabel" | "statusDetail" | "relay" | "pairing"
+    "status" | "statusLabel" | "statusDetail" | "connectedPeerFingerprint" | "relay" | "pairing"
   >,
 ): PairingRuntimeSnapshot {
   const config = resolvedPairingConfig();
@@ -157,6 +158,7 @@ export function createPairingRuntimeSnapshot(
     status: patch.status,
     statusLabel: patch.statusLabel,
     statusDetail: patch.statusDetail,
+    connectedPeerFingerprint: patch.connectedPeerFingerprint,
     relay: patch.relay,
     secure: config.secure,
     workspaceRoot: config.workspaceRoot,
