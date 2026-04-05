@@ -39,6 +39,7 @@ struct HarnessConfig {
     let harness: Harness
     var model: String?
     var branch: String?
+    var worktree: Bool = false
 }
 
 // MARK: - Callback types

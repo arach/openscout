@@ -388,6 +388,7 @@ struct WorkspaceBrowserView: View {
                     workspaceId: entry.path,
                     harness: config.harness.id,
                     agentName: entry.name,
+                    worktree: config.worktree ? "auto" : nil,
                     branch: config.branch,
                     model: config.model,
                     forceNew: true

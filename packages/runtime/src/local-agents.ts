@@ -121,6 +121,8 @@ export type StartLocalAgentInput = {
   currentDirectory?: string;
   model?: string;
   branch?: string;
+  /** Override the agent's working directory (e.g., for git worktrees). */
+  cwdOverride?: string;
 };
 
 interface BrokerSnapshotMessage {
@@ -1511,6 +1513,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const projectPath = normalizeProjectPath(input.projectPath);
   const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
   const currentDirectory = input.currentDirectory ?? projectPath;
+  const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
   const ensuredProject = await ensureProjectConfigForDirectory(projectPath);
   const projectRoot = ensuredProject.projectRoot ?? projectPath;
   const requestedDefinitionId = input.agentName?.trim()
@@ -1548,14 +1551,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       defaultHarness: effectiveHarness,
       harnessProfiles: {
         [effectiveHarness]: {
-          cwd: projectRoot,
+          cwd: effectiveCwd ?? projectRoot,
           transport,
           sessionId,
           launchArgs: [],
         },
       },
       runtime: {
-        cwd: projectRoot,
+        cwd: effectiveCwd ?? projectRoot,
         harness: effectiveHarness,
         transport,
         sessionId,
@@ -1596,7 +1599,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       defaultHarness: preferredHarness ?? candidate.defaultHarness,
       harnessProfiles: candidate.harnessProfiles,
       runtime: {
-        cwd: candidate.runtime.cwd,
+        cwd: effectiveCwd ?? candidate.runtime.cwd,
         harness: preferredHarness ?? candidate.runtime.harness,
         transport: preferredHarness
           ? normalizeLocalAgentTransport(undefined, preferredHarness)
