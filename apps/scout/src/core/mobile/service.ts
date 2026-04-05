@@ -94,6 +94,7 @@ export type CreateScoutSessionInput = {
   profile?: string | null;
   branch?: string;
   model?: string;
+  forceNew?: boolean;
 };
 
 export type ScoutMobileSessionHandle = {
@@ -665,9 +666,16 @@ export async function createScoutSession(
     throw new Error(`Unknown workspace "${input.workspaceId}".`);
   }
 
+  // When forceNew is true, generate a unique agent name so it gets
+  // a fresh agent ID and conversation (the broker derives conversation ID
+  // deterministically from the agent ID).
+  const agentName = input.forceNew
+    ? await deriveNewAgentName(workspace.projectName, input.branch, input.harness)
+    : workspace.projectName;
+
   const localAgent = await upScoutAgent({
     projectPath: workspace.root,
-    agentName: workspace.projectName,
+    agentName,
     harness: input.harness,
     currentDirectory: currentDirectory ?? workspace.root,
     model: input.model,
@@ -740,6 +748,56 @@ export async function sendScoutMobileMessage(
     source: "scout-mobile",
     deviceId,
   });
+}
+
+/**
+ * Derive a human-readable agent name for a new session.
+ *
+ * Strategy: project-branch-harness, incrementing if taken.
+ * Examples:
+ *   openscout + main + claude-code  → "openscout"        (first, default harness)
+ *   openscout + feat/trpc + claude  → "openscout-trpc"   (branch suffix)
+ *   openscout + main + codex        → "openscout-codex"  (non-default harness)
+ *   openscout + main + claude-code  → "openscout-2"      (second session, same config)
+ */
+async function deriveNewAgentName(
+  projectName: string,
+  branch?: string,
+  harness?: string,
+): Promise<string> {
+  const parts = [projectName.toLowerCase()];
+
+  // Add shortened branch — take last segment, strip common prefixes
+  if (branch) {
+    const branchPart = branch
+      .split("/").pop()!
+      .replace(/^(feat|fix|chore|release|hotfix)[/-]?/i, "")
+      .slice(0, 20);
+    if (branchPart && branchPart !== "main" && branchPart !== "master") {
+      parts.push(branchPart);
+    }
+  }
+
+  // Add harness only if not the default
+  if (harness && harness !== "claude-code" && harness !== "claude") {
+    parts.push(harness);
+  }
+
+  const base = parts.join("-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
+
+  // Check existing agents in the broker to find the next available number
+  const broker = await loadScoutBrokerContext();
+  if (broker) {
+    const existingIds = Object.keys(broker.snapshot.agents);
+    const matchingCount = existingIds.filter((id) =>
+      id.startsWith(base) || id.includes(`.${base}.`) || id.includes(`.${base}-`)
+    ).length;
+    if (matchingCount > 0) {
+      return `${base}-${matchingCount + 1}`;
+    }
+  }
+
+  return base;
 }
 
 async function requireMobileRelayContext() {

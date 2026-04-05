@@ -506,6 +506,7 @@ const mobileRouter = t.router({
         profile: z.string().nullable().optional(),
         branch: z.string().optional(),
         model: z.string().optional(),
+        forceNew: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {

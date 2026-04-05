@@ -241,6 +241,7 @@ struct MobileCreateSessionParams: Codable, Sendable {
     var profile: String?
     var branch: String?
     var model: String?
+    var forceNew: Bool?
 }
 
 struct MobileSessionSnapshotParams: Codable, Sendable {

@@ -491,7 +491,8 @@ final class ConnectionManager: @unchecked Sendable {
         worktree: String? = nil,
         profile: String? = nil,
         branch: String? = nil,
-        model: String? = nil
+        model: String? = nil,
+        forceNew: Bool = false
     ) async throws -> MobileSessionHandle {
         let params = MobileCreateSessionParams(
             workspaceId: workspaceId,
@@ -500,7 +501,8 @@ final class ConnectionManager: @unchecked Sendable {
             worktree: worktree,
             profile: profile,
             branch: branch,
-            model: model
+            model: model,
+            forceNew: forceNew ? true : nil
         )
         let data = try await sendRPC(method: "mobile/session/create", params: params)
         return try decodeResult(MobileSessionHandle.self, from: data)

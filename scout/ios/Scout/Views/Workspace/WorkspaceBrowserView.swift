@@ -84,8 +84,14 @@ struct WorkspaceBrowserView: View {
                 projectName: project.name,
                 projectPath: project.path,
                 projectBranch: project.currentBranch
-            ) { config in
-                openProject(project, config: config)
+            ) { action in
+                switch action {
+                case .createNew(let config):
+                    openProject(project, config: config)
+                case .resume(let sessionId):
+                    selectedProject = nil
+                    onSessionCreated?(sessionId)
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -383,7 +389,8 @@ struct WorkspaceBrowserView: View {
                     harness: config.harness.id,
                     agentName: entry.name,
                     branch: config.branch,
-                    model: config.model
+                    model: config.model,
+                    forceNew: true
                 )
                 onSessionCreated?(session.session.conversationId)
             } catch {
