@@ -15,6 +15,7 @@ struct ScoutApp: App {
     @State private var connectionManager: ConnectionManager
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var lastCrash: String?
+    @State private var showSplash = true
 
     init() {
         CrashCatcher.install()
@@ -30,18 +31,28 @@ struct ScoutApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if hasCompletedOnboarding {
+                if showSplash {
+                    SplashView()
+                        .transition(.opacity)
+                } else if hasCompletedOnboarding {
                     ContentView()
                         .environment(sessionStore)
                         .environment(connectionManager)
+                        .transition(.opacity)
                 } else {
                     OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
+                        .transition(.opacity)
                 }
             }
+            .animation(.easeOut(duration: 0.35), value: showSplash)
             .onChange(of: hasCompletedOnboarding) {
                 if hasCompletedOnboarding, connectionManager.hasTrustedBridge {
                     Task { await connectionManager.reconnect() }
                 }
+            }
+            .task {
+                try? await Task.sleep(for: .seconds(1.2))
+                showSplash = false
             }
             .task {
                 // Start loading Parakeet immediately on app launch.
