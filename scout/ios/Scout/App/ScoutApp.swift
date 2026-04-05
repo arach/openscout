@@ -15,7 +15,7 @@ struct ScoutApp: App {
     @State private var connectionManager: ConnectionManager
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var lastCrash: String?
-    @State private var showSplash = true
+    @State private var showSplash: Bool
 
     init() {
         CrashCatcher.install()
@@ -26,14 +26,18 @@ struct ScoutApp: App {
         _sessionStore = State(initialValue: store)
         _connectionManager = State(initialValue: manager)
         _lastCrash = State(initialValue: CrashCatcher.consumeLastCrash())
+        _showSplash = State(initialValue: Self.shouldShowSplash())
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if showSplash {
-                    SplashView()
-                        .transition(.opacity)
+                    SplashView(onFinished: {
+                        withAnimation(.easeOut(duration: 0.35)) {
+                            showSplash = false
+                        }
+                    })
                 } else if hasCompletedOnboarding {
                     ContentView()
                         .environment(sessionStore)
@@ -49,10 +53,6 @@ struct ScoutApp: App {
                 if hasCompletedOnboarding, connectionManager.hasTrustedBridge {
                     Task { await connectionManager.reconnect() }
                 }
-            }
-            .task {
-                try? await Task.sleep(for: .seconds(1.2))
-                showSplash = false
             }
             .task {
                 // Start loading Parakeet immediately on app launch.
@@ -79,5 +79,17 @@ struct ScoutApp: App {
                 Text(lastCrash ?? "")
             }
         }
+    }
+
+    // Show the splash at most once per calendar day.
+    private static func shouldShowSplash() -> Bool {
+        let key = "lastSplashDate"
+        let today = Calendar.current.startOfDay(for: Date())
+        if let last = UserDefaults.standard.object(forKey: key) as? Date,
+           Calendar.current.isDate(last, inSameDayAs: today) {
+            return false
+        }
+        UserDefaults.standard.set(today, forKey: key)
+        return true
     }
 }

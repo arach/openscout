@@ -17,12 +17,14 @@
 		1CF13F1DB8DEEBB963158C84 /* NoiseProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B317D842F3C5606AC9AE81 /* NoiseProtocolTests.swift */; };
 		22198F2E0712C7093485DF3E /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07DE486878B8E8E6F3CB1BDF /* OnboardingView.swift */; };
 		2BE63822046698F6281DED9E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029C6049264D3C5EE524673E /* Theme.swift */; };
+		5C0A1B2E00D1F3A7E8B2C403 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */; };
 		2E233FBDD7ABD16D18172BAC /* RecordingIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9102509C4B05FADAF82B357D /* RecordingIndicator.swift */; };
 		2E7028BB05A0F7A013B51FCD /* NoiseProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43071A343AD10BEA3B6162AA /* NoiseProtocol.swift */; };
 		34AC269DEB1981DF20AF6EA4 /* ScoutVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15FBE5B3A64AF6D0F1E64906 /* ScoutVoice.swift */; };
 		38CDA54A82A9CCE4B4D5BF23 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3967724C6396B93527EC3A5C /* SettingsView.swift */; };
 		3DCA49831D5D6A725231D2EF /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481B4B35E3666F78B9AC957A /* PairingView.swift */; };
 		401B8B1200C88EDF5DBFBF4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04511C1BCDD7DF678F39AB23 /* Assets.xcassets */; };
+		5C0A1B2E00D1F3A7E8B2C401 /* scout-logo-reveal.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 5C0A1B2E00D1F3A7E8B2C402 /* scout-logo-reveal.mp4 */; };
 		40BB09A722485DE63DE08361 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 00F1A9565B1EE831E901D4BB /* FluidAudio */; };
 		41219D151E0B15AB2EDDA8FF /* Primitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06649F0636F0648AB140561 /* Primitives.swift */; };
 		4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FDE9E16EC017A6B945AF9D /* MicButton.swift */; };
@@ -71,7 +73,9 @@
 
 /* Begin PBXFileReference section */
 		029C6049264D3C5EE524673E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
 		04511C1BCDD7DF678F39AB23 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5C0A1B2E00D1F3A7E8B2C402 /* scout-logo-reveal.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = "scout-logo-reveal.mp4"; sourceTree = "<group>"; };
 		07DE486878B8E8E6F3CB1BDF /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		08B317D842F3C5606AC9AE81 /* NoiseProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoiseProtocolTests.swift; sourceTree = "<group>"; };
 		09A0710F2737060ABA3FC0A0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -199,6 +203,7 @@
 			isa = PBXGroup;
 			children = (
 				04511C1BCDD7DF678F39AB23 /* Assets.xcassets */,
+				5C0A1B2E00D1F3A7E8B2C402 /* scout-logo-reveal.mp4 */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -261,6 +266,7 @@
 			isa = PBXGroup;
 			children = (
 				029C6049264D3C5EE524673E /* Theme.swift */,
+				5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */,
 				F539C32239630FBA3BCF3BB1 /* Blocks */,
 				6A881A2E98FAE9347CA9ADB4 /* Composer */,
 				A3CA4FF329970B1A022D0311 /* Discovery */,
@@ -449,6 +455,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				401B8B1200C88EDF5DBFBF4F /* Assets.xcassets in Resources */,
+				5C0A1B2E00D1F3A7E8B2C401 /* scout-logo-reveal.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -501,6 +508,7 @@
 				B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */,
 				5C568548FBEF22CDE57196DE /* TextBlockView.swift in Sources */,
 				2BE63822046698F6281DED9E /* Theme.swift in Sources */,
+				5C0A1B2E00D1F3A7E8B2C403 /* SplashView.swift in Sources */,
 				82F0EA626092AD1FD2889BAB /* TimelineView.swift in Sources */,
 				79FFC939B11C65EC1EDC094F /* TurnHash.swift in Sources */,
 				1B548F5201CC047B5E766FEA /* TurnView.swift in Sources */,
