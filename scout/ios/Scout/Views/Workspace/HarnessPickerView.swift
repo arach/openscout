@@ -51,41 +51,41 @@ struct HarnessPickerView: View {
     @State private var selectedModel = ""
 
     private var launchModelOptions: [String] {
-        DispatchModelCatalog.launchOptions(for: selectedHarness?.id)
+        ScoutModelCatalog.launchOptions(for: selectedHarness?.id)
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Project header
-                HStack(spacing: DispatchSpacing.md) {
+                HStack(spacing: ScoutSpacing.md) {
                     Image(systemName: "folder.fill")
                         .font(.system(size: 18))
-                        .foregroundStyle(DispatchColors.accent)
+                        .foregroundStyle(ScoutColors.accent)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(projectName)
-                            .font(DispatchTypography.body(16, weight: .semibold))
-                            .foregroundStyle(DispatchColors.textPrimary)
+                            .font(ScoutTypography.body(16, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textPrimary)
                         Text(projectPath)
-                            .font(DispatchTypography.code(12))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.code(12))
+                            .foregroundStyle(ScoutColors.textMuted)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                     Spacer()
                 }
-                .padding(DispatchSpacing.lg)
-                .background(DispatchColors.surfaceAdaptive)
+                .padding(ScoutSpacing.lg)
+                .background(ScoutColors.surfaceAdaptive)
 
-                Divider().background(DispatchColors.divider)
+                Divider().background(ScoutColors.divider)
 
                 ScrollView {
-                    VStack(spacing: DispatchSpacing.lg) {
+                    VStack(spacing: ScoutSpacing.lg) {
                         // Harness selection
-                        VStack(alignment: .leading, spacing: DispatchSpacing.sm) {
+                        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
                             Text("Harness")
-                                .font(DispatchTypography.caption(13, weight: .medium))
-                                .foregroundStyle(DispatchColors.textMuted)
+                                .font(ScoutTypography.caption(13, weight: .medium))
+                                .foregroundStyle(ScoutColors.textMuted)
 
                             ForEach(Harness.builtIn) { harness in
                                 HarnessCard(
@@ -102,10 +102,10 @@ struct HarnessPickerView: View {
 
                         // Session config (visible when harness selected)
                         if selectedHarness != nil {
-                            VStack(alignment: .leading, spacing: DispatchSpacing.sm) {
+                            VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
                                 Text("Configuration")
-                                    .font(DispatchTypography.caption(13, weight: .medium))
-                                    .foregroundStyle(DispatchColors.textMuted)
+                                    .font(ScoutTypography.caption(13, weight: .medium))
+                                    .foregroundStyle(ScoutColors.textMuted)
 
                                 if !launchModelOptions.isEmpty {
                                     modelPickerField
@@ -114,13 +114,13 @@ struct HarnessPickerView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                     }
-                    .padding(DispatchSpacing.lg)
+                    .padding(ScoutSpacing.lg)
                 }
 
                 // Launch button
                 if let harness = selectedHarness {
                     VStack(spacing: 0) {
-                        Divider().background(DispatchColors.divider)
+                        Divider().background(ScoutColors.divider)
                         Button {
                             onSelect(
                                 HarnessConfig(
@@ -130,11 +130,11 @@ struct HarnessPickerView: View {
                             )
                             dismiss()
                         } label: {
-                            HStack(spacing: DispatchSpacing.sm) {
+                            HStack(spacing: ScoutSpacing.sm) {
                                 Image(systemName: harness.icon)
                                     .font(.system(size: 14, weight: .semibold))
                                 Text("Launch with \(harness.name)")
-                                    .font(DispatchTypography.body(15, weight: .semibold))
+                                    .font(ScoutTypography.body(15, weight: .semibold))
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -142,13 +142,13 @@ struct HarnessPickerView: View {
                             .foregroundStyle(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                        .padding(DispatchSpacing.lg)
+                        .padding(ScoutSpacing.lg)
                     }
-                    .background(DispatchColors.backgroundAdaptive)
+                    .background(ScoutColors.backgroundAdaptive)
                     .transition(.move(edge: .bottom))
                 }
             }
-            .background(DispatchColors.backgroundAdaptive)
+            .background(ScoutColors.backgroundAdaptive)
             .navigationTitle("Open Project")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -183,40 +183,40 @@ private extension HarnessPickerView {
                     selectedModel = model
                 } label: {
                     if selectedModel == model {
-                        Label(DispatchModelLabel.displayText(for: model, fallback: model), systemImage: "checkmark")
+                        Label(ScoutModelLabel.displayText(for: model, fallback: model), systemImage: "checkmark")
                     } else {
-                        Text(DispatchModelLabel.displayText(for: model, fallback: model))
+                        Text(ScoutModelLabel.displayText(for: model, fallback: model))
                     }
                 }
             }
         } label: {
-            HStack(spacing: DispatchSpacing.sm) {
+            HStack(spacing: ScoutSpacing.sm) {
                 Image(systemName: "cpu")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Model")
-                        .font(DispatchTypography.caption(11, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textMuted)
-                    Text(selectedModel.isEmpty ? "Default" : DispatchModelLabel.displayText(for: selectedModel, fallback: selectedModel))
-                        .font(DispatchTypography.code(14))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.caption(11, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                    Text(selectedModel.isEmpty ? "Default" : ScoutModelLabel.displayText(for: selectedModel, fallback: selectedModel))
+                        .font(ScoutTypography.code(14))
+                        .foregroundStyle(ScoutColors.textPrimary)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
             }
-            .padding(DispatchSpacing.md)
-            .background(DispatchColors.surfaceAdaptive)
+            .padding(ScoutSpacing.md)
+            .background(ScoutColors.surfaceAdaptive)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(DispatchColors.border, lineWidth: 0.5)
+                    .strokeBorder(ScoutColors.border, lineWidth: 0.5)
             )
         }
     }
@@ -231,7 +231,7 @@ private struct HarnessCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: DispatchSpacing.md) {
+            HStack(spacing: ScoutSpacing.md) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(harness.color.opacity(isSelected ? 0.2 : 0.12))
@@ -243,11 +243,11 @@ private struct HarnessCard: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(harness.name)
-                        .font(DispatchTypography.body(15, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(15, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
                     Text(harness.description)
-                        .font(DispatchTypography.caption(13))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.caption(13))
+                        .foregroundStyle(ScoutColors.textSecondary)
                 }
 
                 Spacer()
@@ -258,12 +258,12 @@ private struct HarnessCard: View {
                         .foregroundStyle(harness.color)
                 }
             }
-            .padding(DispatchSpacing.md)
-            .background(DispatchColors.surfaceRaisedAdaptive)
-            .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.md, style: .continuous))
+            .padding(ScoutSpacing.md)
+            .background(ScoutColors.surfaceRaisedAdaptive)
+            .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: DispatchRadius.md, style: .continuous)
-                    .strokeBorder(isSelected ? harness.color.opacity(0.4) : DispatchColors.border, lineWidth: isSelected ? 1.5 : 0.5)
+                RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous)
+                    .strokeBorder(isSelected ? harness.color.opacity(0.4) : ScoutColors.border, lineWidth: isSelected ? 1.5 : 0.5)
             )
         }
         .buttonStyle(.plain)

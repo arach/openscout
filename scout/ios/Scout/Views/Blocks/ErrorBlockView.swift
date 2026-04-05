@@ -10,41 +10,41 @@ struct ErrorBlockView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.sm) {
-            HStack(spacing: DispatchSpacing.sm) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+            HStack(spacing: ScoutSpacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(DispatchColors.statusError)
+                    .foregroundStyle(ScoutColors.statusError)
 
                 Text("Error")
-                    .font(DispatchTypography.body(14, weight: .semibold))
-                    .foregroundStyle(DispatchColors.statusError)
+                    .font(ScoutTypography.body(14, weight: .semibold))
+                    .foregroundStyle(ScoutColors.statusError)
 
                 Spacer()
 
                 if let code = block.code {
                     Text(code)
-                        .font(DispatchTypography.codeCaption)
-                        .foregroundStyle(DispatchColors.statusError.opacity(0.7))
-                        .padding(.horizontal, DispatchSpacing.sm)
-                        .padding(.vertical, DispatchSpacing.xxs)
-                        .background(DispatchColors.statusError.opacity(0.1))
+                        .font(ScoutTypography.codeCaption)
+                        .foregroundStyle(ScoutColors.statusError.opacity(0.7))
+                        .padding(.horizontal, ScoutSpacing.sm)
+                        .padding(.vertical, ScoutSpacing.xxs)
+                        .background(ScoutColors.statusError.opacity(0.1))
                         .clipShape(Capsule())
                 }
             }
 
             Text(errorMessage)
-                .font(DispatchTypography.codeBody)
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.codeBody)
+                .foregroundStyle(ScoutColors.textPrimary)
                 .textSelection(.enabled)
                 .lineSpacing(2)
         }
-        .padding(DispatchSpacing.md)
-        .background(DispatchColors.errorBackground)
-        .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.md, style: .continuous))
+        .padding(ScoutSpacing.md)
+        .background(ScoutColors.errorBackground)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: DispatchRadius.md, style: .continuous)
-                .strokeBorder(DispatchColors.statusError.opacity(0.25), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous)
+                .strokeBorder(ScoutColors.statusError.opacity(0.25), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Error: \(errorMessage)")

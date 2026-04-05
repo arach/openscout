@@ -1,4 +1,4 @@
-// DispatchTextField — Editable text view that suppresses the native keyboard.
+// ScoutTextField — Editable text view that suppresses the native keyboard.
 //
 // Uses UITextView with an empty inputView to prevent the system keyboard.
 // Grows with content up to maxHeight, then scrolls.
@@ -6,7 +6,7 @@
 import SwiftUI
 import UIKit
 
-struct DispatchTextField: UIViewRepresentable {
+struct ScoutTextField: UIViewRepresentable {
     @Binding var text: String
     var placeholder: String = ""
     var maxHeight: CGFloat = 70
@@ -57,25 +57,25 @@ struct DispatchTextField: UIViewRepresentable {
     }
 
     private func updateColors(_ textView: UITextView) {
-        textView.textColor = UIColor(DispatchColors.textPrimary)
-        textView.tintColor = UIColor(DispatchColors.accent)
+        textView.textColor = UIColor(ScoutColors.textPrimary)
+        textView.tintColor = UIColor(ScoutColors.accent)
     }
 
     private func makePlaceholderLabel() -> UILabel {
         let label = UILabel()
         label.text = placeholder
         label.font = UIFont.systemFont(ofSize: 15)
-        label.textColor = UIColor(DispatchColors.textMuted)
+        label.textColor = UIColor(ScoutColors.textMuted)
         label.translatesAutoresizingMaskIntoConstraints = false
         label.isHidden = !text.isEmpty
         return label
     }
 
     class Coordinator: NSObject, UITextViewDelegate {
-        let parent: DispatchTextField
+        let parent: ScoutTextField
         var placeholderLabel: UILabel?
 
-        init(parent: DispatchTextField) {
+        init(parent: ScoutTextField) {
             self.parent = parent
         }
 

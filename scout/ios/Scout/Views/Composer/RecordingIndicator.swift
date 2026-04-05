@@ -32,12 +32,12 @@ struct RecordingIndicator: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, DispatchSpacing.md)
-        .padding(.vertical, DispatchSpacing.md)
-        .background(DispatchColors.surfaceAdaptive)
-        .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.lg, style: .continuous))
+        .padding(.horizontal, ScoutSpacing.md)
+        .padding(.vertical, ScoutSpacing.md)
+        .background(ScoutColors.surfaceAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: DispatchRadius.lg, style: .continuous)
+            RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: 0.5)
         )
         .accessibilityElement(children: .combine)
@@ -45,38 +45,38 @@ struct RecordingIndicator: View {
 
     private var borderColor: Color {
         switch phase {
-        case .recording: DispatchColors.statusError.opacity(0.3)
-        case .transcribing: DispatchColors.statusStreaming.opacity(0.3)
+        case .recording: ScoutColors.statusError.opacity(0.3)
+        case .transcribing: ScoutColors.statusStreaming.opacity(0.3)
         }
     }
 
     // MARK: - Recording Content
 
     private func recordingContent(isPushToTalk: Bool) -> some View {
-        VStack(spacing: DispatchSpacing.sm) {
+        VStack(spacing: ScoutSpacing.sm) {
             // Waveform visualization
             LiveWaveformBars(levels: audioLevels)
                 .frame(height: 36)
 
-            HStack(spacing: DispatchSpacing.sm) {
+            HStack(spacing: ScoutSpacing.sm) {
                 // Pulsing red dot
                 PulsingDot()
 
                 // Duration
                 Text(formattedDuration)
-                    .font(DispatchTypography.code(14, weight: .medium))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.code(14, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
                     .monospacedDigit()
                     .contentTransition(.numericText())
 
                 Text("  ·  ")
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 // Mode hint
                 Text(isPushToTalk ? "RELEASE TO SEND" : "Tap to stop")
-                    .font(DispatchTypography.caption(11, weight: .medium))
+                    .font(ScoutTypography.caption(11, weight: .medium))
                     .tracking(isPushToTalk ? 1 : 0)
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 Spacer()
             }
@@ -91,14 +91,14 @@ struct RecordingIndicator: View {
     // MARK: - Transcribing Content
 
     private var transcribingContent: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             ProgressView()
                 .controlSize(.small)
-                .tint(DispatchColors.statusStreaming)
+                .tint(ScoutColors.statusStreaming)
 
             Text("Transcribing...")
-                .font(DispatchTypography.body(14, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(14, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
 
             Spacer()
         }
@@ -122,9 +122,9 @@ private struct PulsingDot: View {
 
     var body: some View {
         Circle()
-            .fill(DispatchColors.statusError)
+            .fill(ScoutColors.statusError)
             .frame(width: 10, height: 10)
-            .shadow(color: DispatchColors.statusError.opacity(0.6), radius: pulsing ? 6 : 2)
+            .shadow(color: ScoutColors.statusError.opacity(0.6), radius: pulsing ? 6 : 2)
             .scaleEffect(pulsing ? 1.15 : 0.85)
             .animation(
                 .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
@@ -150,7 +150,7 @@ struct LiveWaveformBars: View {
             ForEach(0..<barCount, id: \.self) { index in
                 let level = levelForBar(at: index)
                 RoundedRectangle(cornerRadius: 1.5)
-                    .fill(DispatchColors.statusError.opacity(0.6 + Double(level) * 0.4))
+                    .fill(ScoutColors.statusError.opacity(0.6 + Double(level) * 0.4))
                     .frame(
                         width: barWidth,
                         height: minHeight + CGFloat(level) * (maxHeight - minHeight)
@@ -212,7 +212,7 @@ private struct WaveformBar: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 1.5)
-            .fill(DispatchColors.statusError.opacity(0.7))
+            .fill(ScoutColors.statusError.opacity(0.7))
             .frame(width: 3, height: currentHeight)
             .onChange(of: animating) { _, isAnimating in
                 if isAnimating { startAnimating() }
@@ -252,6 +252,6 @@ private struct WaveformBar: View {
         RecordingIndicator(phase: .transcribing, duration: 12)
     }
     .padding()
-    .background(DispatchColors.backgroundAdaptive)
+    .background(ScoutColors.backgroundAdaptive)
     .preferredColorScheme(.dark)
 }

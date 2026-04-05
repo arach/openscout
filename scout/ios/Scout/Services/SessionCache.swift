@@ -31,9 +31,9 @@ final class SessionCache: Sendable {
         do {
             let data = try JSONEncoder().encode(trimmed)
             try data.write(to: url, options: .atomic)
-            DispatchLog.session.debug("Cached session \(state.session.id): \(trimmed.turns.count) turns")
+            ScoutLog.session.debug("Cached session \(state.session.id): \(trimmed.turns.count) turns")
         } catch {
-            DispatchLog.session.warning("Failed to cache session \(state.session.id): \(error.localizedDescription)")
+            ScoutLog.session.warning("Failed to cache session \(state.session.id): \(error.localizedDescription)")
         }
 
         // Also update the session index

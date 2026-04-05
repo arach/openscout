@@ -71,7 +71,7 @@ struct ComposerView: View {
     @State private var selectedModel: String
     @State private var selectedEffort: ComposerEffort = .medium
 
-    @StateObject private var voice = DispatchVoice()
+    @StateObject private var voice = ScoutVoice()
 
     @State private var micState: MicButtonState = .idle
     @State private var lastError: String?
@@ -117,12 +117,12 @@ struct ComposerView: View {
         VStack(spacing: 0) {
             if let lastError {
                 Text(lastError)
-                    .font(DispatchTypography.caption(12, weight: .medium))
+                    .font(ScoutTypography.caption(12, weight: .medium))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity)
-                    .background(DispatchColors.statusError.opacity(0.85))
+                    .background(ScoutColors.statusError.opacity(0.85))
                     .onTapGesture { self.lastError = nil }
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .task {
@@ -142,7 +142,7 @@ struct ComposerView: View {
 
             // Keyboard (only when explicitly toggled)
             if showKeyboard && !isRecording && !isTranscribing {
-                DispatchKeyboardView(
+                ScoutKeyboardView(
                     text: $text,
                     dictationState: .idle,
                     onInsert: { char in text.append(char) },
@@ -231,9 +231,9 @@ struct ComposerView: View {
             } label: {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(DispatchColors.statusError)
+                    .foregroundStyle(ScoutColors.statusError)
                     .frame(width: 70, height: 70)
-                    .background(DispatchColors.statusError.opacity(0.12))
+                    .background(ScoutColors.statusError.opacity(0.12))
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -265,7 +265,7 @@ struct ComposerView: View {
 
     private var messageField: some View {
         HStack(alignment: .bottom, spacing: 0) {
-            DispatchTextField(text: $text, placeholder: "Ask anything...", maxHeight: messageMaxHeight - 16)
+            ScoutTextField(text: $text, placeholder: "Ask anything...", maxHeight: messageMaxHeight - 16)
                 .frame(
                     maxWidth: .infinity,
                     minHeight: messageMaxHeight - 16,
@@ -281,7 +281,7 @@ struct ComposerView: View {
             } label: {
                 Image(systemName: "paperplane.fill")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(canSend ? DispatchColors.textPrimary : DispatchColors.textSecondary)
+                    .foregroundColor(canSend ? ScoutColors.textPrimary : ScoutColors.textSecondary)
                     .frame(width: 44, height: 44)
                     .background {
                         RoundedRectangle(cornerRadius: 10)
@@ -309,7 +309,7 @@ struct ComposerView: View {
                 topTrailingRadius: 16,
                 style: .continuous
             )
-            .fill(DispatchColors.surfaceAdaptive)
+            .fill(ScoutColors.surfaceAdaptive)
             .overlay(alignment: .top) {
                 UnevenRoundedRectangle(
                     topLeadingRadius: 16,
@@ -336,7 +336,7 @@ struct ComposerView: View {
     private var metadataStrip: some View {
         VStack(spacing: 10) {
             Capsule()
-                .fill(DispatchColors.textMuted.opacity(0.3))
+                .fill(ScoutColors.textMuted.opacity(0.3))
                 .frame(width: 30, height: 4)
                 .padding(.top, 4)
 
@@ -359,10 +359,10 @@ struct ComposerView: View {
             .padding(.bottom, 10)
         }
         .frame(maxWidth: .infinity)
-        .background(DispatchColors.surfaceRaisedAdaptive)
+        .background(ScoutColors.surfaceRaisedAdaptive)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(DispatchColors.border.opacity(0.7))
+                .fill(ScoutColors.border.opacity(0.7))
                 .frame(height: 0.5)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -379,19 +379,19 @@ struct ComposerView: View {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 10, weight: .semibold))
                 Text(collapsedMetadataSummary)
-                    .font(DispatchTypography.caption(12, weight: .medium))
+                    .font(ScoutTypography.caption(12, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(DispatchColors.textMuted)
+            .foregroundStyle(ScoutColors.textMuted)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
         }
         .buttonStyle(.plain)
-        .background(DispatchColors.surfaceRaisedAdaptive)
+        .background(ScoutColors.surfaceRaisedAdaptive)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(DispatchColors.border.opacity(0.7))
+                .fill(ScoutColors.border.opacity(0.7))
                 .frame(height: 0.5)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -416,7 +416,7 @@ struct ComposerView: View {
                 icon: "cpu",
                 title: "Model",
                 value: effectiveModelLabel,
-                accent: DispatchColors.accent
+                accent: ScoutColors.accent
             )
         }
     }
@@ -426,7 +426,7 @@ struct ComposerView: View {
             icon: "cpu",
             title: "Model",
             value: effectiveModelLabel,
-            accent: DispatchColors.textPrimary,
+            accent: ScoutColors.textPrimary,
             isReadOnly: true
         )
     }
@@ -449,7 +449,7 @@ struct ComposerView: View {
                 icon: "dial.medium",
                 title: "Effort",
                 value: selectedEffort.label,
-                accent: DispatchColors.textPrimary
+                accent: ScoutColors.textPrimary
             )
         }
     }
@@ -459,7 +459,7 @@ struct ComposerView: View {
             icon: "arrow.triangle.branch",
             title: "Branch",
             value: currentBranch ?? "Unavailable",
-            accent: currentBranch == nil ? DispatchColors.textMuted : DispatchColors.textPrimary,
+            accent: currentBranch == nil ? ScoutColors.textMuted : ScoutColors.textPrimary,
             isReadOnly: true
         )
     }
@@ -479,27 +479,27 @@ struct ComposerView: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title.uppercased())
-                    .font(DispatchTypography.caption(10, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.caption(10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
                 Text(value)
-                    .font(DispatchTypography.code(12, weight: .medium))
-                    .foregroundStyle(isReadOnly ? accent : DispatchColors.textPrimary)
+                    .font(ScoutTypography.code(12, weight: .medium))
+                    .foregroundStyle(isReadOnly ? accent : ScoutColors.textPrimary)
                     .lineLimit(1)
             }
 
             if !isReadOnly {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(DispatchColors.surfaceAdaptive)
+        .background(ScoutColors.surfaceAdaptive)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(DispatchColors.border, lineWidth: 0.5)
+                .strokeBorder(ScoutColors.border, lineWidth: 0.5)
         )
     }
 
@@ -542,7 +542,7 @@ struct ComposerView: View {
     }
 
     private var showsModelPicker: Bool {
-        DispatchModelCatalog.supportsComposerModelSelection(for: adapterType)
+        ScoutModelCatalog.supportsComposerModelSelection(for: adapterType)
     }
 
     private var showReadOnlyModelChip: Bool {
@@ -550,7 +550,7 @@ struct ComposerView: View {
     }
 
     private var showsEffortPicker: Bool {
-        DispatchModelCatalog.supportsComposerEffortSelection(for: adapterType)
+        ScoutModelCatalog.supportsComposerEffortSelection(for: adapterType)
     }
 
     private var composerModelOverride: String? {
@@ -560,7 +560,7 @@ struct ComposerView: View {
 
     private var effectiveModelLabel: String {
         let rawModel = selectedModel != Self.defaultModelLabel ? selectedModel : currentModel
-        return DispatchModelLabel.displayText(for: rawModel, fallback: Self.defaultModelLabel)
+        return ScoutModelLabel.displayText(for: rawModel, fallback: Self.defaultModelLabel)
     }
 
     private var collapsedMetadataSummary: String {
@@ -592,17 +592,17 @@ struct ComposerView: View {
 
     private func modelMenuLabel(for model: String) -> String {
         if model == Self.defaultModelLabel, let currentModel {
-            let currentLabel = DispatchModelLabel.describe(currentModel)?.menuLabel
-                ?? DispatchModelLabel.displayText(for: currentModel, fallback: currentModel)
+            let currentLabel = ScoutModelLabel.describe(currentModel)?.menuLabel
+                ?? ScoutModelLabel.displayText(for: currentModel, fallback: currentModel)
             return "\(Self.defaultModelLabel) (\(currentLabel))"
         }
 
-        return DispatchModelLabel.describe(model)?.menuLabel ?? model
+        return ScoutModelLabel.describe(model)?.menuLabel ?? model
     }
 
     private static func modelOptions(for adapterType: String?, currentModel: String?) -> [String] {
         var options = [defaultModelLabel]
-        options.append(contentsOf: DispatchModelCatalog.composerOptions(for: adapterType))
+        options.append(contentsOf: ScoutModelCatalog.composerOptions(for: adapterType))
 
         if let currentModel,
            !currentModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -660,7 +660,7 @@ struct ComposerView: View {
                 let transcribed = try await voice.stopAndTranscribe()
                 text = transcribed
                 micState = .idle
-            } catch DispatchVoice.VoiceError.recordingTooShort {
+            } catch ScoutVoice.VoiceError.recordingTooShort {
                 lastError = "Recording too short (min 0.3s)"
                 micState = .idle
             } catch {
@@ -681,6 +681,6 @@ struct ComposerView: View {
             onSend: { print("Send: \($0.text)") }, onInterrupt: {}
         )
     }
-    .background(DispatchColors.backgroundAdaptive)
+    .background(ScoutColors.backgroundAdaptive)
     .preferredColorScheme(.dark)
 }

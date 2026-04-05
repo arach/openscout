@@ -33,9 +33,9 @@ struct ReasoningBlockView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .dispatchCard(padding: DispatchSpacing.sm, cornerRadius: DispatchRadius.sm)
-        .background(DispatchColors.reasoningBackground.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
+        .scoutCard(padding: ScoutSpacing.sm, cornerRadius: ScoutRadius.sm)
+        .background(ScoutColors.reasoningBackground.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
         .animation(.easeInOut(duration: 0.25), value: isExpanded)
         .onChange(of: block.status) { _, newStatus in
             // Auto-collapse when streaming ends
@@ -57,32 +57,32 @@ struct ReasoningBlockView: View {
                 isExpanded.toggle()
             }
         } label: {
-            HStack(spacing: DispatchSpacing.sm) {
+            HStack(spacing: ScoutSpacing.sm) {
                 Image(systemName: "brain")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 if isStreaming {
-                    HStack(spacing: DispatchSpacing.xs) {
+                    HStack(spacing: ScoutSpacing.xs) {
                         Text("Thinking")
-                            .font(DispatchTypography.caption(13, weight: .medium))
-                            .foregroundStyle(DispatchColors.textSecondary)
+                            .font(ScoutTypography.caption(13, weight: .medium))
+                            .foregroundStyle(ScoutColors.textSecondary)
                         TypingDots()
                     }
                 } else {
                     Text("Thought process")
-                        .font(DispatchTypography.caption(13, weight: .medium))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .font(ScoutTypography.caption(13, weight: .medium))
+                        .foregroundStyle(ScoutColors.textMuted)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
-            .padding(.vertical, DispatchSpacing.xs)
+            .padding(.vertical, ScoutSpacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -93,14 +93,14 @@ struct ReasoningBlockView: View {
     // MARK: - Content
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
             Divider()
-                .background(DispatchColors.divider)
+                .background(ScoutColors.divider)
 
             HStack(alignment: .bottom, spacing: 0) {
                 Text(displayText)
-                    .font(DispatchTypography.body(14))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.textSecondary)
                     .lineSpacing(2)
                     .textSelection(.enabled)
 
@@ -109,7 +109,7 @@ struct ReasoningBlockView: View {
                         .padding(.leading, 2)
                 }
             }
-            .padding(.top, DispatchSpacing.xs)
+            .padding(.top, ScoutSpacing.xs)
         }
     }
 }
@@ -123,7 +123,7 @@ private struct TypingDots: View {
         HStack(spacing: 2) {
             ForEach(0..<3) { i in
                 Circle()
-                    .fill(DispatchColors.textMuted)
+                    .fill(ScoutColors.textMuted)
                     .frame(width: 3, height: 3)
                     .offset(y: dotOffset(for: i))
             }

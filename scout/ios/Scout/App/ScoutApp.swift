@@ -46,12 +46,12 @@ struct ScoutApp: App {
             .task {
                 // Start loading Parakeet immediately on app launch.
                 #if canImport(FluidAudio)
-                DispatchLog.voice.info("Preloading Parakeet model at app launch")
+                ScoutLog.voice.info("Preloading Parakeet model at app launch")
                 do {
                     try await ParakeetModelManager.shared.downloadAndLoad()
-                    DispatchLog.voice.info("Parakeet ready")
+                    ScoutLog.voice.info("Parakeet ready")
                 } catch {
-                    DispatchLog.voice.warning("Parakeet preload failed: \(error.localizedDescription)")
+                    ScoutLog.voice.warning("Parakeet preload failed: \(error.localizedDescription)")
                 }
                 #endif
             }

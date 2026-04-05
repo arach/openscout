@@ -4,7 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(ConnectionManager.self) private var connection
-    @StateObject private var voice = DispatchVoice()
+    @StateObject private var voice = ScoutVoice()
 
     var body: some View {
         NavigationStack {
@@ -27,7 +27,7 @@ struct SettingsView: View {
                 Label("Engine", systemImage: "waveform")
                 Spacer()
                 Text(engineName)
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
             HStack {
@@ -42,7 +42,7 @@ struct SettingsView: View {
                 Label("Parakeet Model", systemImage: "cpu")
                 Spacer()
                 Text(parakeetStatus)
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
             #endif
 
@@ -50,7 +50,7 @@ struct SettingsView: View {
                 Label("Last Used", systemImage: "clock")
                 Spacer()
                 Text(voice.lastEngine)
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
         } header: {
             Text("Voice")
@@ -75,7 +75,7 @@ struct SettingsView: View {
                         .fill(connectionColor)
                         .frame(width: 8, height: 8)
                     Text(connectionLabel)
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .foregroundStyle(ScoutColors.textSecondary)
                 }
             }
 
@@ -84,7 +84,7 @@ struct SettingsView: View {
                     Label("Trusted Bridge", systemImage: "checkmark.shield")
                     Spacer()
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(DispatchColors.statusActive)
+                        .foregroundStyle(ScoutColors.statusActive)
                 }
 
                 if connection.state == .connected || connection.state == .connecting || connection.state == .handshaking || {
@@ -129,12 +129,12 @@ struct SettingsView: View {
                     Spacer()
                     if logStore.errorCount > 0 {
                         Text("\(logStore.errorCount) errors")
-                            .font(DispatchTypography.caption(12))
-                            .foregroundStyle(DispatchColors.statusError)
+                            .font(ScoutTypography.caption(12))
+                            .foregroundStyle(ScoutColors.statusError)
                     } else {
                         Text("\(logStore.entries.count) entries")
-                            .font(DispatchTypography.caption(12))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.caption(12))
+                            .foregroundStyle(ScoutColors.textMuted)
                     }
                 }
             }
@@ -143,21 +143,21 @@ struct SettingsView: View {
                 Label("Build", systemImage: "hammer")
                 Spacer()
                 Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
             HStack {
                 Label("Device", systemImage: "iphone")
                 Spacer()
                 Text(UIDevice.current.name)
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
             HStack {
                 Label("iOS", systemImage: "gear")
                 Spacer()
                 Text(UIDevice.current.systemVersion)
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
             Button {
@@ -195,11 +195,11 @@ struct SettingsView: View {
 
     private var voiceStateColor: Color {
         switch voice.state {
-        case .ready: DispatchColors.statusActive
-        case .recording: DispatchColors.statusError
-        case .transcribing: DispatchColors.statusStreaming
-        case .error: DispatchColors.statusError
-        default: DispatchColors.textSecondary
+        case .ready: ScoutColors.statusActive
+        case .recording: ScoutColors.statusError
+        case .transcribing: ScoutColors.statusStreaming
+        case .error: ScoutColors.statusError
+        default: ScoutColors.textSecondary
         }
     }
 
@@ -219,10 +219,10 @@ struct SettingsView: View {
 
     private var connectionColor: Color {
         switch connection.state {
-        case .connected: DispatchColors.statusActive
-        case .connecting, .handshaking, .reconnecting: DispatchColors.statusStreaming
-        case .disconnected: DispatchColors.statusIdle
-        case .failed: DispatchColors.statusError
+        case .connected: ScoutColors.statusActive
+        case .connecting, .handshaking, .reconnecting: ScoutColors.statusStreaming
+        case .disconnected: ScoutColors.statusIdle
+        case .failed: ScoutColors.statusError
         }
     }
 

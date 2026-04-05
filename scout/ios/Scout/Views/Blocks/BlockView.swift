@@ -31,23 +31,23 @@ struct UnsupportedBlockView: View {
     let blockType: String
 
     var body: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             Image(systemName: "questionmark.app.dashed")
                 .font(.system(size: 16))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
 
-            VStack(alignment: .leading, spacing: DispatchSpacing.xxs) {
+            VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
                 Text("Unsupported block")
-                    .font(DispatchTypography.body(14, weight: .medium))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(14, weight: .medium))
+                    .foregroundStyle(ScoutColors.textSecondary)
                 Text("Type: \(blockType)")
-                    .font(DispatchTypography.codeCaption)
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.codeCaption)
+                    .foregroundStyle(ScoutColors.textMuted)
             }
 
             Spacer()
         }
-        .dispatchCard()
+        .scoutCard()
         .accessibilityLabel("Unsupported block type: \(blockType)")
     }
 }

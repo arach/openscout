@@ -107,18 +107,18 @@ struct TimelineView: View {
             if let sendError {
                 HStack {
                     Text(sendError.contains("No session") ? "Session expired" : sendError)
-                        .font(DispatchTypography.caption(12, weight: .medium))
+                        .font(ScoutTypography.caption(12, weight: .medium))
                         .foregroundStyle(.white)
                     Spacer()
                     if sendError.contains("No session") {
                         Button("Go back") { dismiss() }
-                            .font(DispatchTypography.caption(12, weight: .bold))
+                            .font(ScoutTypography.caption(12, weight: .bold))
                             .foregroundStyle(.white)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(DispatchColors.statusError.opacity(0.85))
+                .background(ScoutColors.statusError.opacity(0.85))
                 .onTapGesture { self.sendError = nil }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .task {
@@ -145,7 +145,7 @@ struct TimelineView: View {
                 }
             )
         }
-        .background(DispatchColors.backgroundAdaptive)
+        .background(ScoutColors.backgroundAdaptive)
         .navigationTitle(session?.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -165,7 +165,7 @@ struct TimelineView: View {
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 15))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .foregroundStyle(ScoutColors.textSecondary)
                 }
                 connectionIndicator
             }
@@ -244,7 +244,7 @@ struct TimelineView: View {
         if store.sessions[sessionId] == nil || store.sessions[sessionId]?.turns.isEmpty == true {
             if let cached = SessionCache.shared.load(sessionId: sessionId) {
                 store.restoreCachedSnapshot(cached)
-                DispatchLog.session.info("Restored \(cached.turns.count) turns from cache for \(sessionId)")
+                ScoutLog.session.info("Restored \(cached.turns.count) turns from cache for \(sessionId)")
             }
         }
 
@@ -267,9 +267,9 @@ struct TimelineView: View {
         do {
             let snapshot = try await connection.getSnapshot(sessionId)
             store.applyLatestSnapshotPreservingHistory(snapshot)
-            DispatchLog.session.info("Loaded snapshot for \(sessionId): \(snapshot.turns.count) turns")
+            ScoutLog.session.info("Loaded snapshot for \(sessionId): \(snapshot.turns.count) turns")
         } catch {
-            DispatchLog.session.warning("Failed to load snapshot for \(sessionId): \(error.localizedDescription)")
+            ScoutLog.session.warning("Failed to load snapshot for \(sessionId): \(error.localizedDescription)")
             if reportErrors, sendError == nil {
                 sendError = error.scoutUserFacingMessage
             }
@@ -325,23 +325,23 @@ struct TimelineView: View {
                         Button {
                             Task { await loadOlderHistory() }
                         } label: {
-                            HStack(spacing: DispatchSpacing.xs) {
+                            HStack(spacing: ScoutSpacing.xs) {
                                 if isLoadingOlder {
                                     ProgressView()
                                         .controlSize(.mini)
                                 }
                                 Text(isLoadingOlder ? "Loading earlier…" : "Load earlier")
                             }
-                            .font(DispatchTypography.caption(12, weight: .semibold))
-                            .foregroundStyle(DispatchColors.textSecondary)
-                            .padding(.horizontal, DispatchSpacing.md)
-                            .padding(.vertical, DispatchSpacing.sm)
-                            .background(DispatchColors.surfaceRaisedAdaptive)
+                            .font(ScoutTypography.caption(12, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textSecondary)
+                            .padding(.horizontal, ScoutSpacing.md)
+                            .padding(.vertical, ScoutSpacing.sm)
+                            .background(ScoutColors.surfaceRaisedAdaptive)
                             .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
                         .disabled(isLoadingOlder || !isConnected)
-                        .padding(.vertical, DispatchSpacing.sm)
+                        .padding(.vertical, ScoutSpacing.sm)
                     }
 
                     ForEach(turns) { turn in
@@ -358,8 +358,8 @@ struct TimelineView: View {
                         .frame(height: 1)
                         .id("bottom")
                 }
-                .padding(.top, DispatchSpacing.sm)
-                .padding(.bottom, DispatchSpacing.md)
+                .padding(.top, ScoutSpacing.sm)
+                .padding(.bottom, ScoutSpacing.md)
             }
             .refreshable {
                 await refreshTimeline()
@@ -404,18 +404,18 @@ struct TimelineView: View {
                         shouldAutoScroll = true
                         scrollToBottom(proxy: proxy)
                     } label: {
-                        HStack(spacing: DispatchSpacing.xs) {
+                        HStack(spacing: ScoutSpacing.xs) {
                             Image(systemName: "arrow.down.circle.fill")
                             Text("Latest")
                         }
-                        .font(DispatchTypography.caption(12, weight: .semibold))
-                        .padding(.horizontal, DispatchSpacing.md)
-                        .padding(.vertical, DispatchSpacing.sm)
+                        .font(ScoutTypography.caption(12, weight: .semibold))
+                        .padding(.horizontal, ScoutSpacing.md)
+                        .padding(.vertical, ScoutSpacing.sm)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
                     }
-                    .padding(.trailing, DispatchSpacing.lg)
-                    .padding(.bottom, DispatchSpacing.lg)
+                    .padding(.trailing, ScoutSpacing.lg)
+                    .padding(.bottom, ScoutSpacing.lg)
                 }
             }
         }
@@ -447,39 +447,39 @@ struct TimelineView: View {
 
     private var turnDivider: some View {
         Rectangle()
-            .fill(DispatchColors.divider)
+            .fill(ScoutColors.divider)
             .frame(height: 0.5)
-            .padding(.horizontal, DispatchSpacing.xl)
-            .padding(.vertical, DispatchSpacing.sm)
+            .padding(.horizontal, ScoutSpacing.xl)
+            .padding(.vertical, ScoutSpacing.sm)
     }
 
     // MARK: - Title
 
     private var cachedSessionBanner: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             Image(systemName: "internaldrive")
                 .font(.system(size: 12, weight: .semibold))
             Text("Read only")
-                .font(DispatchTypography.caption(12, weight: .medium))
+                .font(ScoutTypography.caption(12, weight: .medium))
             Spacer()
         }
-        .foregroundStyle(DispatchColors.textSecondary)
-        .padding(.horizontal, DispatchSpacing.lg)
-        .padding(.vertical, DispatchSpacing.sm)
-        .background(DispatchColors.surfaceRaisedAdaptive)
+        .foregroundStyle(ScoutColors.textSecondary)
+        .padding(.horizontal, ScoutSpacing.lg)
+        .padding(.vertical, ScoutSpacing.sm)
+        .background(ScoutColors.surfaceRaisedAdaptive)
     }
 
     private var titleView: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             if let session {
                 Image(systemName: AdapterIcon.systemName(for: session.adapterType))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(DispatchColors.accent)
+                    .foregroundStyle(ScoutColors.accent)
             }
 
             Text(session?.name ?? "Session")
-                .font(DispatchTypography.body(16, weight: .semibold))
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.body(16, weight: .semibold))
+                .foregroundStyle(ScoutColors.textPrimary)
         }
     }
 
@@ -496,7 +496,7 @@ struct TimelineView: View {
             } else {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isConnected ? DispatchColors.textSecondary : DispatchColors.textMuted)
+                    .foregroundStyle(isConnected ? ScoutColors.textSecondary : ScoutColors.textMuted)
             }
         }
         .disabled(!isConnected || isRefreshing)
@@ -511,7 +511,7 @@ struct TimelineView: View {
             switch connection.state {
             case .connected:
                 Circle()
-                    .fill(DispatchColors.statusActive)
+                    .fill(ScoutColors.statusActive)
                     .frame(width: 7, height: 7)
                     .accessibilityLabel("Connected — tap to reconnect")
             case .connecting, .handshaking, .reconnecting:
@@ -520,7 +520,7 @@ struct TimelineView: View {
                     .accessibilityLabel("Connecting — tap to retry")
             case .disconnected, .failed:
                 Circle()
-                    .fill(DispatchColors.statusError)
+                    .fill(ScoutColors.statusError)
                     .frame(width: 7, height: 7)
                     .accessibilityLabel("Disconnected — tap to reconnect")
             }
@@ -530,27 +530,27 @@ struct TimelineView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
 
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.system(size: 40))
-                .foregroundStyle(DispatchColors.textMuted.opacity(0.5))
+                .foregroundStyle(ScoutColors.textMuted.opacity(0.5))
 
-            VStack(spacing: DispatchSpacing.sm) {
+            VStack(spacing: ScoutSpacing.sm) {
                 Text("No turns yet")
-                    .font(DispatchTypography.body(18, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(18, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textSecondary)
 
                 Text("Send a prompt to start a conversation with the agent.")
-                    .font(DispatchTypography.body(14))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.textMuted)
                     .multilineTextAlignment(.center)
             }
 
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 }
 

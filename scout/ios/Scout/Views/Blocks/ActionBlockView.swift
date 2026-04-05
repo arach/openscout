@@ -38,7 +38,7 @@ struct ActionBlockView: View {
                     outputSection(action: action)
                 }
             }
-            .dispatchCard(padding: 0, cornerRadius: DispatchRadius.md)
+            .scoutCard(padding: 0, cornerRadius: ScoutRadius.md)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Action: \(kindLabel)")
         } else {
@@ -50,49 +50,49 @@ struct ActionBlockView: View {
     // MARK: - Header
 
     private func header(action: Action) -> some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             Image(systemName: kindIcon)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(DispatchColors.accent)
+                .foregroundStyle(ScoutColors.accent)
                 .frame(width: 24, height: 24)
 
             Text(kindLabel)
-                .font(DispatchTypography.caption(13, weight: .semibold))
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.caption(13, weight: .semibold))
+                .foregroundStyle(ScoutColors.textPrimary)
 
             Spacer()
 
             statusBadge
         }
-        .padding(.horizontal, DispatchSpacing.md)
-        .padding(.vertical, DispatchSpacing.sm)
+        .padding(.horizontal, ScoutSpacing.md)
+        .padding(.vertical, ScoutSpacing.sm)
     }
 
     // MARK: - File Change
 
     private func fileChangeBody(action: Action) -> some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
             if let path = action.path {
-                HStack(spacing: DispatchSpacing.xs) {
+                HStack(spacing: ScoutSpacing.xs) {
                     Image(systemName: "doc.text")
                         .font(.system(size: 11))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .foregroundStyle(ScoutColors.textMuted)
                     Text(path)
-                        .font(DispatchTypography.codeCaption)
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.codeCaption)
+                        .foregroundStyle(ScoutColors.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .padding(.horizontal, DispatchSpacing.md)
+                .padding(.horizontal, ScoutSpacing.md)
             }
 
             if let diff = action.diff, !diff.isEmpty {
                 diffView(diff)
-                    .padding(.horizontal, DispatchSpacing.sm)
-                    .padding(.vertical, DispatchSpacing.xs)
+                    .padding(.horizontal, ScoutSpacing.sm)
+                    .padding(.vertical, ScoutSpacing.xs)
             }
         }
-        .padding(.bottom, action.output.isEmpty ? DispatchSpacing.sm : 0)
+        .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
     }
 
     private func diffView(_ diff: String) -> some View {
@@ -100,106 +100,106 @@ struct ActionBlockView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(diff.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
                     Text(line)
-                        .font(DispatchTypography.code(12))
+                        .font(ScoutTypography.code(12))
                         .foregroundStyle(diffLineColor(line))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, DispatchSpacing.sm)
+                        .padding(.horizontal, ScoutSpacing.sm)
                         .padding(.vertical, 1)
                         .background(diffLineBackground(line))
                 }
             }
         }
         .frame(maxHeight: 200)
-        .background(DispatchColors.surfaceAdaptive)
-        .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
+        .background(ScoutColors.surfaceAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
     }
 
     private func diffLineColor(_ line: String) -> Color {
-        if line.hasPrefix("+") { return DispatchColors.diffAdded }
-        if line.hasPrefix("-") { return DispatchColors.diffRemoved }
-        return DispatchColors.textSecondary
+        if line.hasPrefix("+") { return ScoutColors.diffAdded }
+        if line.hasPrefix("-") { return ScoutColors.diffRemoved }
+        return ScoutColors.textSecondary
     }
 
     private func diffLineBackground(_ line: String) -> Color {
-        if line.hasPrefix("+") { return DispatchColors.diffAdded.opacity(0.08) }
-        if line.hasPrefix("-") { return DispatchColors.diffRemoved.opacity(0.08) }
+        if line.hasPrefix("+") { return ScoutColors.diffAdded.opacity(0.08) }
+        if line.hasPrefix("-") { return ScoutColors.diffRemoved.opacity(0.08) }
         return .clear
     }
 
     // MARK: - Command
 
     private func commandBody(action: Action) -> some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
             if let command = action.command {
-                HStack(spacing: DispatchSpacing.xs) {
+                HStack(spacing: ScoutSpacing.xs) {
                     Text("$")
-                        .font(DispatchTypography.code(13, weight: .bold))
-                        .foregroundStyle(DispatchColors.accent)
+                        .font(ScoutTypography.code(13, weight: .bold))
+                        .foregroundStyle(ScoutColors.accent)
                     Text(command)
-                        .font(DispatchTypography.code(13))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.code(13))
+                        .foregroundStyle(ScoutColors.textPrimary)
                         .lineLimit(3)
                         .textSelection(.enabled)
                 }
-                .padding(.horizontal, DispatchSpacing.md)
+                .padding(.horizontal, ScoutSpacing.md)
             }
 
             if let exitCode = action.exitCode, exitCode != 0 {
                 Text("Exit code: \(exitCode)")
-                    .font(DispatchTypography.codeCaption)
-                    .foregroundStyle(DispatchColors.statusError)
-                    .padding(.horizontal, DispatchSpacing.md)
+                    .font(ScoutTypography.codeCaption)
+                    .foregroundStyle(ScoutColors.statusError)
+                    .padding(.horizontal, ScoutSpacing.md)
             }
         }
-        .padding(.bottom, action.output.isEmpty ? DispatchSpacing.sm : 0)
+        .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
     }
 
     // MARK: - Tool Call
 
     private func toolCallBody(action: Action) -> some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
             if let toolName = action.toolName {
-                HStack(spacing: DispatchSpacing.xs) {
+                HStack(spacing: ScoutSpacing.xs) {
                     Text(toolName)
-                        .font(DispatchTypography.code(13, weight: .medium))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.code(13, weight: .medium))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     if let toolCallId = action.toolCallId {
                         Text(toolCallId.prefix(8) + "...")
-                            .font(DispatchTypography.codeCaption)
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.codeCaption)
+                            .foregroundStyle(ScoutColors.textMuted)
                     }
                 }
-                .padding(.horizontal, DispatchSpacing.md)
+                .padding(.horizontal, ScoutSpacing.md)
             }
         }
-        .padding(.bottom, action.output.isEmpty ? DispatchSpacing.sm : 0)
+        .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
     }
 
     // MARK: - Subagent
 
     private func subagentBody(action: Action) -> some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
-            HStack(spacing: DispatchSpacing.sm) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
+            HStack(spacing: ScoutSpacing.sm) {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.system(size: 11))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 Text(action.agentName ?? action.agentId ?? "Subagent")
-                    .font(DispatchTypography.body(14, weight: .medium))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.body(14, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
             }
-            .padding(.horizontal, DispatchSpacing.md)
+            .padding(.horizontal, ScoutSpacing.md)
 
             if let prompt = action.prompt {
                 Text(prompt)
-                    .font(DispatchTypography.body(13))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(13))
+                    .foregroundStyle(ScoutColors.textSecondary)
                     .lineLimit(3)
-                    .padding(.horizontal, DispatchSpacing.md)
+                    .padding(.horizontal, ScoutSpacing.md)
             }
         }
-        .padding(.bottom, action.output.isEmpty ? DispatchSpacing.sm : 0)
+        .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
     }
 
     // MARK: - Output Section
@@ -207,22 +207,22 @@ struct ActionBlockView: View {
     private func outputSection(action: Action) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Divider()
-                .background(DispatchColors.divider)
+                .background(ScoutColors.divider)
 
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isOutputExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: DispatchSpacing.xs) {
+                HStack(spacing: ScoutSpacing.xs) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .foregroundStyle(ScoutColors.textMuted)
                         .rotationEffect(.degrees(isOutputExpanded ? 90 : 0))
 
                     Text("Output")
-                        .font(DispatchTypography.caption(12, weight: .medium))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .font(ScoutTypography.caption(12, weight: .medium))
+                        .foregroundStyle(ScoutColors.textMuted)
 
                     if isStreaming {
                         PulseIndicator()
@@ -232,11 +232,11 @@ struct ActionBlockView: View {
 
                     let lineCount = action.output.components(separatedBy: "\n").count
                     Text("\(lineCount) line\(lineCount == 1 ? "" : "s")")
-                        .font(DispatchTypography.caption(11))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .font(ScoutTypography.caption(11))
+                        .foregroundStyle(ScoutColors.textMuted)
                 }
-                .padding(.horizontal, DispatchSpacing.md)
-                .padding(.vertical, DispatchSpacing.sm)
+                .padding(.horizontal, ScoutSpacing.md)
+                .padding(.vertical, ScoutSpacing.sm)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -244,13 +244,13 @@ struct ActionBlockView: View {
             if isOutputExpanded {
                 ScrollView([.horizontal, .vertical], showsIndicators: true) {
                     Text(action.output)
-                        .font(DispatchTypography.code(12))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.code(12))
+                        .foregroundStyle(ScoutColors.textSecondary)
                         .textSelection(.enabled)
-                        .padding(DispatchSpacing.sm)
+                        .padding(ScoutSpacing.sm)
                 }
                 .frame(maxHeight: 240)
-                .background(DispatchColors.surfaceAdaptive)
+                .background(ScoutColors.surfaceAdaptive)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -264,22 +264,22 @@ struct ActionBlockView: View {
         case .pending:
             Image(systemName: "clock")
                 .font(.system(size: 11))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
                 .accessibilityLabel("Pending")
         case .running:
             ProgressView()
                 .controlSize(.mini)
-                .tint(DispatchColors.accent)
+                .tint(ScoutColors.accent)
                 .accessibilityLabel("Running")
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 13))
-                .foregroundStyle(DispatchColors.statusActive)
+                .foregroundStyle(ScoutColors.statusActive)
                 .accessibilityLabel("Completed")
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 13))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
                 .accessibilityLabel("Failed")
         }
     }
@@ -287,14 +287,14 @@ struct ActionBlockView: View {
     // MARK: - Unknown Action
 
     private var unknownActionCard: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             Image(systemName: "questionmark.square.dashed")
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
             Text("Unknown action")
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
         }
-        .dispatchCard()
+        .scoutCard()
     }
 
     // MARK: - Helpers

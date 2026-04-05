@@ -313,8 +313,8 @@ final class SessionStore: @unchecked Sendable {
 
     // MARK: - Private: Event routing
 
-    /// Route a single DispatchEvent to the appropriate handler.
-    private func routeEvent(_ event: DispatchEvent) {
+    /// Route a single ScoutEvent to the appropriate handler.
+    private func routeEvent(_ event: ScoutEvent) {
         switch event {
         case .sessionUpdate(let session):
             handleSessionUpdate(session)

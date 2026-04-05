@@ -24,18 +24,18 @@ struct SessionRowView: View {
         return project
     }
 
-    private var modelDescriptor: DispatchModelDescriptor? {
-        DispatchModelLabel.describe(summary.model)
+    private var modelDescriptor: ScoutModelDescriptor? {
+        ScoutModelLabel.describe(summary.model)
     }
 
     var body: some View {
-        HStack(spacing: DispatchSpacing.md) {
+        HStack(spacing: ScoutSpacing.md) {
             adapterBadge
             details
             Spacer()
             trailing
         }
-        .padding(.vertical, DispatchSpacing.sm)
+        .padding(.vertical, ScoutSpacing.sm)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
@@ -46,55 +46,55 @@ struct SessionRowView: View {
 
     private var adapterBadge: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous)
-                .fill(DispatchColors.accent.opacity(0.12))
+            RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                .fill(ScoutColors.accent.opacity(0.12))
                 .frame(width: 38, height: 38)
 
             Image(systemName: AdapterIcon.systemName(for: summary.adapterType))
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(DispatchColors.accent)
+                .foregroundStyle(ScoutColors.accent)
         }
     }
 
     // MARK: - Details
 
     private var details: some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xxs) {
-            HStack(spacing: DispatchSpacing.sm) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
+            HStack(spacing: ScoutSpacing.sm) {
                 Text(summary.name)
-                    .font(DispatchTypography.body(15, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.body(15, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textPrimary)
                     .lineLimit(1)
 
                 if summary.isCachedOnly {
                     Image(systemName: "internaldrive")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .foregroundStyle(ScoutColors.textMuted)
                 } else {
                     StatusDot(sessionStatus, size: 7)
                 }
             }
 
-            HStack(spacing: DispatchSpacing.xs) {
+            HStack(spacing: ScoutSpacing.xs) {
                 Text(metadataLine)
-                    .font(DispatchTypography.caption(12))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.caption(12))
+                    .foregroundStyle(ScoutColors.textMuted)
                     .lineLimit(1)
 
                 if !summary.isCachedOnly, isStreaming {
-                    HStack(spacing: DispatchSpacing.xxs) {
+                    HStack(spacing: ScoutSpacing.xxs) {
                         PulseIndicator()
                         Text("Working")
-                            .font(DispatchTypography.caption(12, weight: .medium))
-                            .foregroundStyle(DispatchColors.statusStreaming)
+                            .font(ScoutTypography.caption(12, weight: .medium))
+                            .foregroundStyle(ScoutColors.statusStreaming)
                     }
                 }
             }
 
             if let modelDescriptor {
                 Text(modelDescriptor.inlineLabel)
-                    .font(DispatchTypography.caption(11, weight: .medium))
-                    .foregroundStyle(DispatchColors.accent)
+                    .font(ScoutTypography.caption(11, weight: .medium))
+                    .foregroundStyle(ScoutColors.accent)
                     .lineLimit(1)
             }
         }
@@ -103,18 +103,18 @@ struct SessionRowView: View {
     // MARK: - Trailing
 
     private var trailing: some View {
-        VStack(alignment: .trailing, spacing: DispatchSpacing.xs) {
+        VStack(alignment: .trailing, spacing: ScoutSpacing.xs) {
             Text(RelativeTime.string(from: summary.lastActivityAt))
-                .font(DispatchTypography.caption(11))
-                .foregroundStyle(DispatchColors.textMuted)
+                .font(ScoutTypography.caption(11))
+                .foregroundStyle(ScoutColors.textMuted)
 
             if summary.turnCount > 0 {
                 Text("\(summary.turnCount)")
-                    .font(DispatchTypography.caption(11, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textSecondary)
-                    .padding(.horizontal, DispatchSpacing.sm)
-                    .padding(.vertical, DispatchSpacing.xxs)
-                    .background(DispatchColors.surfaceAdaptive)
+                    .font(ScoutTypography.caption(11, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textSecondary)
+                    .padding(.horizontal, ScoutSpacing.sm)
+                    .padding(.vertical, ScoutSpacing.xxs)
+                    .background(ScoutColors.surfaceAdaptive)
                     .clipShape(Capsule())
                     .accessibilityLabel("\(summary.turnCount) turns")
             }

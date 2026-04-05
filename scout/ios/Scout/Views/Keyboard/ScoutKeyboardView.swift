@@ -1,4 +1,4 @@
-// DispatchKeyboardView — SwiftUI wrapper around DispatchCompactKeyboard (UIKit).
+// ScoutKeyboardView — SwiftUI wrapper around ScoutCompactKeyboard (UIKit).
 //
 // UIViewRepresentable bridge that exposes the same callback API
 // while using the real UIKit keyboard underneath for proper touch
@@ -162,9 +162,9 @@ struct KeyboardToolbarItem: Identifiable {
     }
 }
 
-// MARK: - DispatchKeyboardView (SwiftUI API)
+// MARK: - ScoutKeyboardView (SwiftUI API)
 
-struct DispatchKeyboardView: View {
+struct ScoutKeyboardView: View {
     @Binding var text: String
     var dictationState: DictationState = .idle
     var toolbarItems: [KeyboardToolbarItem] = KeyboardToolbarItem.defaultItems()
@@ -183,7 +183,7 @@ struct DispatchKeyboardView: View {
             if isMinimized {
                 minimizedBar
             } else {
-                DispatchKeyboardRepresentable(
+                ScoutKeyboardRepresentable(
                     dictationState: dictationState,
                     onInsert: onInsert,
                     onDelete: onDelete,
@@ -194,7 +194,7 @@ struct DispatchKeyboardView: View {
                     onSwipeLeft: nil,
                     onSwipeRight: nil
                 )
-                .frame(height: DispatchCompactKeyboard.preferredHeight)
+                .frame(height: ScoutCompactKeyboard.preferredHeight)
             }
         }
         .background {
@@ -208,7 +208,7 @@ struct DispatchKeyboardView: View {
     private var minimizedBar: some View {
         VStack(spacing: 0) {
             // Top row: fixed controls
-            HStack(spacing: DispatchSpacing.sm) {
+            HStack(spacing: ScoutSpacing.sm) {
                 // Expand keyboard
                 ToolbarButton(icon: "keyboard", label: nil) {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -235,7 +235,7 @@ struct DispatchKeyboardView: View {
                     .padding(.horizontal, 2)
                 }
             }
-            .padding(.horizontal, DispatchSpacing.sm)
+            .padding(.horizontal, ScoutSpacing.sm)
             .frame(height: 44)
         }
     }
@@ -244,7 +244,7 @@ struct DispatchKeyboardView: View {
 
 // MARK: - UIViewRepresentable Bridge
 
-private struct DispatchKeyboardRepresentable: UIViewRepresentable {
+private struct ScoutKeyboardRepresentable: UIViewRepresentable {
     let dictationState: DictationState
     let onInsert: (String) -> Void
     let onDelete: () -> Void
@@ -255,17 +255,17 @@ private struct DispatchKeyboardRepresentable: UIViewRepresentable {
     let onSwipeLeft: (() -> Void)?
     let onSwipeRight: (() -> Void)?
 
-    func makeUIView(context: Context) -> DispatchKeyboardHostView {
-        let host = DispatchKeyboardHostView()
+    func makeUIView(context: Context) -> ScoutKeyboardHostView {
+        let host = ScoutKeyboardHostView()
         bindCallbacks(host)
         return host
     }
 
-    func updateUIView(_ host: DispatchKeyboardHostView, context: Context) {
+    func updateUIView(_ host: ScoutKeyboardHostView, context: Context) {
         bindCallbacks(host)
     }
 
-    private func bindCallbacks(_ host: DispatchKeyboardHostView) {
+    private func bindCallbacks(_ host: ScoutKeyboardHostView) {
         host.keyboard.onKeyTapped = { key in onInsert(key) }
         host.keyboard.onDeleteTapped = { onDelete() }
         host.keyboard.onReturnTapped = { onReturn() }
@@ -277,7 +277,7 @@ private struct DispatchKeyboardRepresentable: UIViewRepresentable {
         host.onSwipeRight = { host.keyboard.previousPage(); reportPage(host) }
     }
 
-    private func reportPage(_ host: DispatchKeyboardHostView) {
+    private func reportPage(_ host: ScoutKeyboardHostView) {
         let label: String
         switch host.keyboard.currentPage {
         case .letters: label = "ABC"
@@ -290,10 +290,10 @@ private struct DispatchKeyboardRepresentable: UIViewRepresentable {
 
 // MARK: - Host View (gesture handling from HostedTalkieKeyboardView)
 
-/// Wraps DispatchCompactKeyboard with swipe gesture handling
+/// Wraps ScoutCompactKeyboard with swipe gesture handling
 /// and edge gesture exclusion zones.
-final class DispatchKeyboardHostView: UIView, UIGestureRecognizerDelegate {
-    let keyboard = DispatchCompactKeyboard()
+final class ScoutKeyboardHostView: UIView, UIGestureRecognizerDelegate {
+    let keyboard = ScoutCompactKeyboard()
     var onSwipeDown: (() -> Void)?
     var onSwipeLeft: (() -> Void)?
     var onSwipeRight: (() -> Void)?
@@ -369,7 +369,7 @@ final class DispatchKeyboardHostView: UIView, UIGestureRecognizerDelegate {
 private struct ToolbarButton: View {
     let icon: String
     let label: String?
-    var tint: Color = DispatchColors.textSecondary
+    var tint: Color = ScoutColors.textSecondary
     let action: () -> Void
 
     var body: some View {
@@ -399,9 +399,9 @@ private struct ToolChip: View {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .medium))
                 Text(label)
-                    .font(DispatchTypography.caption(12, weight: .medium))
+                    .font(ScoutTypography.caption(12, weight: .medium))
             }
-            .foregroundStyle(DispatchColors.textPrimary)
+            .foregroundStyle(ScoutColors.textPrimary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background {
@@ -420,7 +420,7 @@ private struct ToolChip: View {
     @Previewable @State var text = "Hello world"
     VStack {
         Spacer()
-        DispatchKeyboardView(
+        ScoutKeyboardView(
             text: $text,
             onInsert: { text.append($0) },
             onDelete: { if !text.isEmpty { text.removeLast() } },
@@ -428,6 +428,6 @@ private struct ToolChip: View {
             onVoice: { print("Voice") }
         )
     }
-    .background(DispatchColors.backgroundAdaptive)
+    .background(ScoutColors.backgroundAdaptive)
     .preferredColorScheme(.dark)
 }

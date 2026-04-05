@@ -5,7 +5,7 @@
 // continuations), and expose typed async RPC methods.
 //
 // Uses SecureTransport from Security/SecureTransport.swift for Noise encryption,
-// DispatchIdentity from Security/Identity.swift for Keychain-based key/trust storage,
+// ScoutIdentity from Security/Identity.swift for Keychain-based key/trust storage,
 // and QRPayload from Security/QRPayload.swift for pairing payload parsing.
 
 import Foundation
@@ -105,7 +105,7 @@ extension Error {
 // MARK: - Connection info (for reconnect)
 
 /// Lightweight struct holding the relay/room info needed to reconnect.
-/// The bridge's trust record (public key) lives in DispatchIdentity (Keychain).
+/// The bridge's trust record (public key) lives in ScoutIdentity (Keychain).
 struct BridgeConnectionInfo: Codable, Sendable {
     let relayURL: String
     var roomId: String      // Mutable — updated when room is resolved after bridge restart
@@ -205,7 +205,7 @@ final class ConnectionManager: @unchecked Sendable {
     /// Load or create the phone's static Noise identity from Keychain.
     private func ensureIdentity() throws -> NoiseKeyPair {
         if let existing = identityKeyPair { return existing }
-        let keyPair = try DispatchIdentity.loadOrCreateIdentity()
+        let keyPair = try ScoutIdentity.loadOrCreateIdentity()
         identityKeyPair = keyPair
         return keyPair
     }
@@ -244,7 +244,7 @@ final class ConnectionManager: @unchecked Sendable {
             )
 
             // On successful XX handshake, save the bridge as trusted in Keychain.
-            try DispatchIdentity.saveTrustedBridge(publicKey: remoteKey)
+            try ScoutIdentity.saveTrustedBridge(publicKey: remoteKey)
 
             let publicKeyHex = hexString(remoteKey)
 
@@ -309,7 +309,7 @@ final class ConnectionManager: @unchecked Sendable {
         }
 
         // Verify the bridge is still trusted in Keychain.
-        guard DispatchIdentity.isTrustedBridge(publicKey: remoteKeyData) else {
+        guard ScoutIdentity.isTrustedBridge(publicKey: remoteKeyData) else {
             Self.logger.warning("Bridge no longer trusted, clearing connection info")
             clearTrustedBridge()
             setState(.disconnected)
@@ -357,7 +357,7 @@ final class ConnectionManager: @unchecked Sendable {
                 await MainActor.run {
                     sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
                 }
-                try? DispatchIdentity.touchTrustedBridge(publicKey: remoteKeyData)
+                try? ScoutIdentity.touchTrustedBridge(publicKey: remoteKeyData)
                 startMessageLoop()
                 setState(.connected)
                 Self.logger.notice("Reconnected via IK handshake")
@@ -443,7 +443,7 @@ final class ConnectionManager: @unchecked Sendable {
         if let info = connectionInfo {
             let keyData = info.bridgePublicKeyData
             if keyData.count == 32 {
-                try? DispatchIdentity.removeTrustedBridge(publicKey: keyData)
+                try? ScoutIdentity.removeTrustedBridge(publicKey: keyData)
             }
         }
         connectionInfo = nil

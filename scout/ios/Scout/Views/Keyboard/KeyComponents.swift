@@ -1,4 +1,4 @@
-// KeyComponents — Individual key button views for DispatchKeyboardView.
+// KeyComponents — Individual key button views for ScoutKeyboardView.
 //
 // All keys use iOS 26 Liquid Glass (.glassEffect) for interactive surfaces.
 // Haptic feedback on press. Accent popover on long-press for letter keys.
@@ -10,7 +10,7 @@ import SwiftUI
 enum KeyStyle {
     case standard   // Letter/character keys
     case special    // Shift, 123, ABC toggles
-    case accent     // Voice, return — uses DispatchColors.accent
+    case accent     // Voice, return — uses ScoutColors.accent
     case delete     // Delete key
 }
 
@@ -48,7 +48,7 @@ struct CharKey: View {
     private var foregroundColor: Color {
         switch style {
         case .standard: .white
-        case .special: DispatchColors.textSecondary
+        case .special: ScoutColors.textSecondary
         case .accent: .white
         case .delete: .white
         }
@@ -67,7 +67,7 @@ struct CharKey: View {
                 .glassEffect(.regular.interactive())
         case .accent:
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(DispatchColors.accent)
+                .fill(ScoutColors.accent)
         case .delete:
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(.white.opacity(0.04))
@@ -146,7 +146,7 @@ struct LetterKey: View {
                         .background {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .fill(selectedAccent == accent
-                                    ? DispatchColors.accent
+                                    ? ScoutColors.accent
                                     : .white.opacity(0.12)
                                 )
                         }
@@ -185,7 +185,7 @@ struct ShiftKey: View {
         } label: {
             Image(systemName: shiftIcon)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(isShifted ? .white : DispatchColors.textSecondary)
+                .foregroundStyle(isShifted ? .white : ScoutColors.textSecondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -269,7 +269,7 @@ struct SpaceKey: View {
         Button(action: onTap) {
             Text("space")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .foregroundStyle(ScoutColors.textSecondary)
                 .frame(maxWidth: .infinity)
                 .frame(height: height)
                 .background {
@@ -300,7 +300,7 @@ struct VoiceKey: View {
                 // Recording glow
                 if state == .recording {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(DispatchColors.statusError)
+                        .fill(ScoutColors.statusError)
                         .blur(radius: 8)
                         .opacity(glowPulsing ? 0.5 : 0.2)
                 }
@@ -350,17 +350,17 @@ struct VoiceKey: View {
 
     private var buttonColor: Color {
         switch state {
-        case .idle: DispatchColors.accent
-        case .recording: DispatchColors.statusError
-        case .processing: DispatchColors.statusStreaming
+        case .idle: ScoutColors.accent
+        case .recording: ScoutColors.statusError
+        case .processing: ScoutColors.statusStreaming
         }
     }
 
     private var borderColor: Color {
         switch state {
-        case .idle: DispatchColors.accent.opacity(0.4)
-        case .recording: DispatchColors.statusError.opacity(0.4)
-        case .processing: DispatchColors.statusStreaming.opacity(0.4)
+        case .idle: ScoutColors.accent.opacity(0.4)
+        case .recording: ScoutColors.statusError.opacity(0.4)
+        case .processing: ScoutColors.statusStreaming.opacity(0.4)
         }
     }
 
@@ -391,7 +391,7 @@ struct ReturnKey: View {
                 .frame(height: height)
                 .background {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(DispatchColors.accent)
+                        .fill(ScoutColors.accent)
                 }
         }
         .buttonStyle(KeyPressStyle())
@@ -446,6 +446,6 @@ struct KeyPressStyle: ButtonStyle {
         SpaceKey(height: 44) {}
     }
     .padding()
-    .background(DispatchColors.backgroundAdaptive)
+    .background(ScoutColors.backgroundAdaptive)
     .preferredColorScheme(.dark)
 }

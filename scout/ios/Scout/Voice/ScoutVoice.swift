@@ -1,4 +1,4 @@
-// DispatchVoice — Voice capture and transcription for the Dispatch composer.
+// ScoutVoice — Voice capture and transcription for the Scout composer.
 //
 // Two modes:
 //   FluidAudio present  -> real Parakeet TDT inference (on-device, no network)
@@ -12,7 +12,7 @@ import AVFoundation
 import Speech
 import os.log
 
-private let log = DispatchLog.voice
+private let log = ScoutLog.voice
 
 // MARK: - FluidAudio Engine (real transcription)
 
@@ -24,7 +24,7 @@ import FluidAudio
 final class ParakeetModelManager: ObservableObject {
     static let shared = ParakeetModelManager()
 
-    @Published var state: DispatchVoice.ModelState = .notDownloaded
+    @Published var state: ScoutVoice.ModelState = .notDownloaded
     @Published var isWarmedUp = false
 
     private var asrManager: AsrManager?
@@ -78,7 +78,7 @@ final class ParakeetModelManager: ObservableObject {
     /// Transcribe from a file URL (Parakeet can do this directly, no sample loading needed).
     func transcribe(url: URL) async throws -> String {
         guard let manager = asrManager, state == .ready else {
-            throw DispatchVoice.VoiceError.notReady
+            throw ScoutVoice.VoiceError.notReady
         }
         let result = try await manager.transcribe(url, source: .microphone)
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,7 +93,7 @@ final class ParakeetModelManager: ObservableObject {
 }
 #endif
 
-// MARK: - DispatchVoice
+// MARK: - ScoutVoice
 
 /// Voice capture and transcription engine for the composer.
 ///
@@ -102,7 +102,7 @@ final class ParakeetModelManager: ObservableObject {
 /// When FluidAudio is available, samples go through Parakeet for on-device
 /// transcription. Otherwise a mock transcript is returned.
 @MainActor
-final class DispatchVoice: ObservableObject {
+final class ScoutVoice: ObservableObject {
 
     // MARK: - Types
 
@@ -177,7 +177,7 @@ final class DispatchVoice: ObservableObject {
         // Recording is ready immediately — we only need AVAudioRecorder + Apple Speech.
         // Parakeet model loading is kicked off at app launch (DispatchApp.swift).
         state = .ready
-        log.info("DispatchVoice ready (recording + Apple Speech available)")
+        log.info("ScoutVoice ready (recording + Apple Speech available)")
     }
 
     // MARK: - Permissions

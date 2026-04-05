@@ -91,14 +91,14 @@ struct MicButton: View {
         ZStack {
             // Outer diffuse glow
             Circle()
-                .fill(DispatchColors.statusError)
+                .fill(ScoutColors.statusError)
                 .frame(width: glowSize + 12, height: glowSize + 12)
                 .blur(radius: 18)
                 .opacity(glowPulsing ? 0.4 : 0.15)
 
             // Inner sharp glow
             Circle()
-                .fill(DispatchColors.statusError)
+                .fill(ScoutColors.statusError)
                 .frame(width: glowSize, height: glowSize)
                 .blur(radius: 12)
                 .opacity(glowPulsing ? 0.55 : 0.25)
@@ -161,8 +161,8 @@ struct MicButton: View {
         switch state {
         case .idle:         Self.micColor
         case .recording:    Self.micColor
-        case .transcribing: DispatchColors.statusStreaming
-        case .disabled:     DispatchColors.textMuted.opacity(0.3)
+        case .transcribing: ScoutColors.statusStreaming
+        case .disabled:     ScoutColors.textMuted.opacity(0.3)
         }
     }
 
@@ -170,8 +170,8 @@ struct MicButton: View {
         switch state {
         case .idle:         Self.micColor.opacity(0.4)
         case .recording:    Self.micColor.opacity(0.6)
-        case .transcribing: DispatchColors.statusStreaming.opacity(0.4)
-        case .disabled:     DispatchColors.textMuted.opacity(0.15)
+        case .transcribing: ScoutColors.statusStreaming.opacity(0.4)
+        case .disabled:     ScoutColors.textMuted.opacity(0.15)
         }
     }
 
@@ -209,7 +209,7 @@ struct BottomCircleButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isActive ? DispatchColors.textPrimary : DispatchColors.textSecondary)
+                .foregroundColor(isActive ? ScoutColors.textPrimary : ScoutColors.textSecondary)
                 .frame(width: 44, height: 44)
                 .background {
                     RoundedRectangle(cornerRadius: 8)
@@ -234,13 +234,13 @@ struct BottomCircleButton: View {
                 MicButton(state: micState, onTap: {})
 
                 Text(String(describing: micState))
-                    .font(DispatchTypography.caption(11))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.caption(11))
+                    .foregroundStyle(ScoutColors.textMuted)
             }
         }
     }
     .padding()
-    .background(DispatchColors.backgroundAdaptive)
+    .background(ScoutColors.backgroundAdaptive)
     .preferredColorScheme(.dark)
 }
 
@@ -252,6 +252,6 @@ struct BottomCircleButton: View {
         BottomCircleButton(icon: "xmark", isActive: false) {}
     }
     .padding()
-    .background(DispatchColors.backgroundAdaptive)
+    .background(ScoutColors.backgroundAdaptive)
     .preferredColorScheme(.dark)
 }

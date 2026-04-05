@@ -30,23 +30,23 @@ struct TurnView: View {
         HStack {
             Spacer(minLength: 60)
             Text(turn.blocks.first?.text ?? "")
-                .font(DispatchTypography.body(15))
+                .font(ScoutTypography.body(15))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(DispatchColors.accent)
+                .background(ScoutColors.accent)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .padding(.horizontal, DispatchSpacing.lg)
-        .padding(.vertical, DispatchSpacing.sm)
+        .padding(.horizontal, ScoutSpacing.lg)
+        .padding(.vertical, ScoutSpacing.sm)
     }
 
     private var assistantTurn: some View {
         VStack(alignment: .leading, spacing: 0) {
             turnHeader
-                .padding(.bottom, DispatchSpacing.sm)
+                .padding(.bottom, ScoutSpacing.sm)
 
-            VStack(alignment: .leading, spacing: DispatchSpacing.md) {
+            VStack(alignment: .leading, spacing: ScoutSpacing.md) {
                 ForEach(sortedBlocks) { block in
                     BlockView(block: block)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -54,8 +54,8 @@ struct TurnView: View {
             }
             .animation(.easeOut(duration: 0.2), value: sortedBlocks.map(\.id))
         }
-        .padding(.horizontal, DispatchSpacing.lg)
-        .padding(.vertical, DispatchSpacing.md)
+        .padding(.horizontal, ScoutSpacing.lg)
+        .padding(.vertical, ScoutSpacing.md)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Turn, \(statusLabel), \(sortedBlocks.count) blocks")
     }
@@ -63,21 +63,21 @@ struct TurnView: View {
     // MARK: - Header
 
     private var turnHeader: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             statusIcon
                 .frame(width: 18, height: 18)
 
             Text(RelativeTime.string(fromISO: turn.startedAt))
-                .font(DispatchTypography.caption(11))
-                .foregroundStyle(DispatchColors.textMuted)
+                .font(ScoutTypography.caption(11))
+                .foregroundStyle(ScoutColors.textMuted)
 
             if sortedBlocks.count > 1 {
                 Text("\(sortedBlocks.count) blocks")
-                    .font(DispatchTypography.caption(11))
-                    .foregroundStyle(DispatchColors.textMuted)
-                    .padding(.horizontal, DispatchSpacing.sm)
-                    .padding(.vertical, DispatchSpacing.xxs)
-                    .background(DispatchColors.surfaceAdaptive)
+                    .font(ScoutTypography.caption(11))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .padding(.horizontal, ScoutSpacing.sm)
+                    .padding(.vertical, ScoutSpacing.xxs)
+                    .background(ScoutColors.surfaceAdaptive)
                     .clipShape(Capsule())
             }
 
@@ -93,22 +93,22 @@ struct TurnView: View {
         case .started, .streaming:
             ProgressView()
                 .controlSize(.mini)
-                .tint(DispatchColors.accent)
+                .tint(ScoutColors.accent)
                 .accessibilityLabel("Streaming")
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 14))
-                .foregroundStyle(DispatchColors.statusActive)
+                .foregroundStyle(ScoutColors.statusActive)
                 .accessibilityLabel("Completed")
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 14))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
                 .accessibilityLabel("Failed")
         case .stopped:
             Image(systemName: "stop.circle.fill")
                 .font(.system(size: 14))
-                .foregroundStyle(DispatchColors.statusStreaming)
+                .foregroundStyle(ScoutColors.statusStreaming)
                 .accessibilityLabel("Interrupted")
         }
     }

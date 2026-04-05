@@ -25,7 +25,7 @@ struct TrustedBridge: Codable, Sendable, Identifiable {
     }
 }
 
-// MARK: - DispatchIdentity
+// MARK: - ScoutIdentity
 
 /// Manages the phone's long-lived identity and trusted bridge records.
 ///
@@ -33,7 +33,7 @@ struct TrustedBridge: Codable, Sendable, Identifiable {
 ///   - The static key pair is persisted in the iOS Keychain.
 ///   - Trusted bridge records are persisted in the iOS Keychain.
 ///   - No sensitive data is stored outside the Keychain.
-final class DispatchIdentity: Sendable {
+final class ScoutIdentity: Sendable {
 
     // Keychain service identifiers
     private static let service = "com.openscout.scout.identity"

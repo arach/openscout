@@ -86,7 +86,7 @@ struct SessionListView: View {
                     }
                 }
             }
-            .background(DispatchColors.backgroundAdaptive)
+            .background(ScoutColors.backgroundAdaptive)
             .navigationTitle("Sessions")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -146,8 +146,8 @@ struct SessionListView: View {
                 NavigationLink(value: summary.sessionId) {
                     SessionRowView(summary: summary)
                 }
-                .listRowBackground(DispatchColors.backgroundAdaptive)
-                .listRowSeparatorTint(DispatchColors.divider)
+                .listRowBackground(ScoutColors.backgroundAdaptive)
+                .listRowSeparatorTint(ScoutColors.divider)
             }
         }
         .listStyle(.plain)
@@ -162,69 +162,69 @@ struct SessionListView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: DispatchSpacing.xl) {
+        VStack(spacing: ScoutSpacing.xl) {
             Spacer()
 
-            VStack(spacing: DispatchSpacing.lg) {
+            VStack(spacing: ScoutSpacing.lg) {
                 ZStack {
                     Circle()
-                        .fill(DispatchColors.accent.opacity(0.08))
+                        .fill(ScoutColors.accent.opacity(0.08))
                         .frame(width: 80, height: 80)
 
                     Image(systemName: "rectangle.connected.to.line.below")
                         .font(.system(size: 32, weight: .light))
-                        .foregroundStyle(DispatchColors.accent.opacity(0.6))
+                        .foregroundStyle(ScoutColors.accent.opacity(0.6))
                 }
 
-                VStack(spacing: DispatchSpacing.sm) {
+                VStack(spacing: ScoutSpacing.sm) {
                     Text("No sessions")
-                        .font(DispatchTypography.body(20, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(20, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     if isConnected {
                         Text("Start a session or search older work.")
-                            .font(DispatchTypography.body(15))
-                            .foregroundStyle(DispatchColors.textSecondary)
+                            .font(ScoutTypography.body(15))
+                            .foregroundStyle(ScoutColors.textSecondary)
                             .multilineTextAlignment(.center)
                     } else {
                         Text("Connect to a bridge to see your sessions.")
-                            .font(DispatchTypography.body(15))
-                            .foregroundStyle(DispatchColors.textSecondary)
+                            .font(ScoutTypography.body(15))
+                            .foregroundStyle(ScoutColors.textSecondary)
                             .multilineTextAlignment(.center)
                     }
                 }
             }
 
             if isConnected {
-                HStack(spacing: DispatchSpacing.md) {
+                HStack(spacing: ScoutSpacing.md) {
                     Button {
                         showingSearch = true
                     } label: {
-                        HStack(spacing: DispatchSpacing.sm) {
+                        HStack(spacing: ScoutSpacing.sm) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 14, weight: .semibold))
                             Text("Search")
-                                .font(DispatchTypography.body(15, weight: .semibold))
+                                .font(ScoutTypography.body(15, weight: .semibold))
                         }
-                        .padding(.horizontal, DispatchSpacing.xl)
-                        .padding(.vertical, DispatchSpacing.md)
-                        .background(DispatchColors.surfaceRaisedAdaptive)
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .padding(.horizontal, ScoutSpacing.xl)
+                        .padding(.vertical, ScoutSpacing.md)
+                        .background(ScoutColors.surfaceRaisedAdaptive)
+                        .foregroundStyle(ScoutColors.textPrimary)
                         .clipShape(Capsule())
                     }
 
                     Button {
                         showingNewSession = true
                     } label: {
-                        HStack(spacing: DispatchSpacing.sm) {
+                        HStack(spacing: ScoutSpacing.sm) {
                             Image(systemName: "plus")
                                 .font(.system(size: 14, weight: .semibold))
                             Text("New Session")
-                                .font(DispatchTypography.body(15, weight: .semibold))
+                                .font(ScoutTypography.body(15, weight: .semibold))
                         }
-                        .padding(.horizontal, DispatchSpacing.xl)
-                        .padding(.vertical, DispatchSpacing.md)
-                        .background(DispatchColors.accent)
+                        .padding(.horizontal, ScoutSpacing.xl)
+                        .padding(.vertical, ScoutSpacing.md)
+                        .background(ScoutColors.accent)
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
                     }
@@ -233,27 +233,27 @@ struct SessionListView: View {
 
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     private func connectionBanner(text: String) -> some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             Image(systemName: "wifi.exclamationmark")
                 .font(.system(size: 13, weight: .semibold))
             Text(text)
-                .font(DispatchTypography.caption(12, weight: .medium))
+                .font(ScoutTypography.caption(12, weight: .medium))
             Spacer()
             if connection.hasTrustedBridge {
                 Button("Retry") {
                     Task { await connection.reconnect() }
                 }
-                .font(DispatchTypography.caption(12, weight: .bold))
+                .font(ScoutTypography.caption(12, weight: .bold))
             }
         }
-        .padding(.horizontal, DispatchSpacing.lg)
-        .padding(.vertical, DispatchSpacing.sm)
-        .background(DispatchColors.statusError.opacity(0.12))
-        .foregroundStyle(DispatchColors.statusError)
+        .padding(.horizontal, ScoutSpacing.lg)
+        .padding(.vertical, ScoutSpacing.sm)
+        .background(ScoutColors.statusError.opacity(0.12))
+        .foregroundStyle(ScoutColors.statusError)
     }
 
     private var connectionLabel: String {
@@ -296,7 +296,7 @@ struct SessionListView: View {
         } label: {
             Image(systemName: "line.3.horizontal.circle")
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .foregroundStyle(ScoutColors.textSecondary)
         }
         .accessibilityLabel("More")
     }
@@ -307,7 +307,7 @@ struct SessionListView: View {
         } label: {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(isConnected ? DispatchColors.textPrimary : DispatchColors.textMuted)
+                .foregroundStyle(isConnected ? ScoutColors.textPrimary : ScoutColors.textMuted)
         }
         .disabled(!isConnected)
         .accessibilityLabel("Search sessions")
@@ -329,7 +329,7 @@ struct SessionListView: View {
         } label: {
             Image(systemName: "arrow.up.arrow.down.circle")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .foregroundStyle(ScoutColors.textSecondary)
         }
         .accessibilityLabel("Sort sessions")
     }
@@ -342,7 +342,7 @@ struct SessionListView: View {
         } label: {
             Image(systemName: "plus.circle.fill")
                 .font(.system(size: 22))
-                .foregroundStyle(isConnected ? DispatchColors.accent : DispatchColors.textMuted.opacity(0.4))
+                .foregroundStyle(isConnected ? ScoutColors.accent : ScoutColors.textMuted.opacity(0.4))
                 .symbolRenderingMode(.hierarchical)
         }
         .disabled(!isConnected)
@@ -378,10 +378,10 @@ struct NewSessionSheet: View {
             Form {
                 Section {
                     TextField("Session name", text: $sessionName)
-                        .font(DispatchTypography.body())
+                        .font(ScoutTypography.body())
                 } header: {
                     Text("Name")
-                        .font(DispatchTypography.caption(12, weight: .medium))
+                        .font(ScoutTypography.caption(12, weight: .medium))
                 }
 
                 Section {
@@ -389,33 +389,33 @@ struct NewSessionSheet: View {
                         Button {
                             selectedAdapter = adapter.id
                         } label: {
-                            HStack(spacing: DispatchSpacing.md) {
+                            HStack(spacing: ScoutSpacing.md) {
                                 ZStack {
-                                    RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous)
+                                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
                                         .fill(selectedAdapter == adapter.id
-                                              ? DispatchColors.accent.opacity(0.15)
-                                              : DispatchColors.surfaceAdaptive)
+                                              ? ScoutColors.accent.opacity(0.15)
+                                              : ScoutColors.surfaceAdaptive)
                                         .frame(width: 36, height: 36)
 
                                     Image(systemName: adapter.icon)
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(
                                             selectedAdapter == adapter.id
-                                            ? DispatchColors.accent
-                                            : DispatchColors.textSecondary
+                                            ? ScoutColors.accent
+                                            : ScoutColors.textSecondary
                                         )
                                 }
 
                                 Text(adapter.name)
-                                    .font(DispatchTypography.body(15, weight: .medium))
-                                    .foregroundStyle(DispatchColors.textPrimary)
+                                    .font(ScoutTypography.body(15, weight: .medium))
+                                    .foregroundStyle(ScoutColors.textPrimary)
 
                                 Spacer()
 
                                 if selectedAdapter == adapter.id {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 18))
-                                        .foregroundStyle(DispatchColors.accent)
+                                        .foregroundStyle(ScoutColors.accent)
                                 }
                             }
                             .contentShape(Rectangle())
@@ -424,7 +424,7 @@ struct NewSessionSheet: View {
                     }
                 } header: {
                     Text("Adapter")
-                        .font(DispatchTypography.caption(12, weight: .medium))
+                        .font(ScoutTypography.caption(12, weight: .medium))
                 }
             }
             .navigationTitle("New Session")

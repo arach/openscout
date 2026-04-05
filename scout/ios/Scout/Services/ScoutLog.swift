@@ -1,4 +1,4 @@
-// DispatchLog — Dual-output logging: os.Logger (Console.app) + in-memory LogStore (in-app viewing).
+// ScoutLog — Dual-output logging: os.Logger (Console.app) + in-memory LogStore (in-app viewing).
 //
 // Pattern from Talkie's AppLogger. Every log call goes to both:
 //   1. os.Logger — visible in Console.app with subsystem filtering
@@ -12,7 +12,7 @@ import SwiftUI
 struct LogEntry: Identifiable {
     let id = UUID()
     let timestamp: Date
-    let level: DispatchLog.Level
+    let level: ScoutLog.Level
     let category: String
     let message: String
     let detail: String?
@@ -54,9 +54,9 @@ final class LogStore: ObservableObject {
     }
 }
 
-// MARK: - DispatchLog
+// MARK: - ScoutLog
 
-enum DispatchLog {
+enum ScoutLog {
     enum Level: String, CaseIterable {
         case debug = "DEBUG"
         case info = "INFO"
@@ -66,11 +66,11 @@ enum DispatchLog {
 
         var color: Color {
             switch self {
-            case .debug: DispatchColors.textMuted
-            case .info: DispatchColors.textSecondary
-            case .warning: DispatchColors.statusStreaming
-            case .error: DispatchColors.statusError
-            case .fault: DispatchColors.statusError
+            case .debug: ScoutColors.textMuted
+            case .info: ScoutColors.textSecondary
+            case .warning: ScoutColors.statusStreaming
+            case .error: ScoutColors.statusError
+            case .fault: ScoutColors.statusError
             }
         }
 
@@ -86,16 +86,16 @@ enum DispatchLog {
     }
 
     // Category loggers
-    static let voice = DispatchLogger(category: "voice")
-    static let session = DispatchLogger(category: "session")
-    static let network = DispatchLogger(category: "network")
-    static let ui = DispatchLogger(category: "ui")
-    static let security = DispatchLogger(category: "security")
+    static let voice = ScoutLogger(category: "voice")
+    static let session = ScoutLogger(category: "session")
+    static let network = ScoutLogger(category: "network")
+    static let ui = ScoutLogger(category: "ui")
+    static let security = ScoutLogger(category: "security")
 }
 
-// MARK: - DispatchLogger (per-category)
+// MARK: - ScoutLogger (per-category)
 
-struct DispatchLogger {
+struct ScoutLogger {
     let category: String
     private let osLogger: Logger
 
@@ -124,7 +124,7 @@ struct DispatchLogger {
         log(.fault, message, detail: detail)
     }
 
-    private func log(_ level: DispatchLog.Level, _ message: String, detail: String?) {
+    private func log(_ level: ScoutLog.Level, _ message: String, detail: String?) {
         // 1. os.Logger (Console.app)
         osLogger.log(level: level.osLogType, "[\(level.rawValue)] \(message)")
 

@@ -26,31 +26,31 @@ struct SpectatorView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                DispatchColors.backgroundAdaptive.ignoresSafeArea()
+                ScoutColors.backgroundAdaptive.ignoresSafeArea()
 
                 if let url = viewerURL {
                     BridgeWebView(url: url, isLoading: $isLoading)
                         .ignoresSafeArea(edges: .bottom)
 
                     if isLoading {
-                        VStack(spacing: DispatchSpacing.lg) {
+                        VStack(spacing: ScoutSpacing.lg) {
                             ProgressView()
                                 .controlSize(.regular)
                             Text("Loading viewer...")
-                                .font(DispatchTypography.body(14))
-                                .foregroundStyle(DispatchColors.textMuted)
+                                .font(ScoutTypography.body(14))
+                                .foregroundStyle(ScoutColors.textMuted)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(DispatchColors.backgroundAdaptive.opacity(0.9))
+                        .background(ScoutColors.backgroundAdaptive.opacity(0.9))
                     }
                 } else {
-                    VStack(spacing: DispatchSpacing.lg) {
+                    VStack(spacing: ScoutSpacing.lg) {
                         Image(systemName: "wifi.slash")
                             .font(.system(size: 36))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .foregroundStyle(ScoutColors.textMuted)
                         Text("Not connected to bridge")
-                            .font(DispatchTypography.body(16, weight: .medium))
-                            .foregroundStyle(DispatchColors.textSecondary)
+                            .font(ScoutTypography.body(16, weight: .medium))
+                            .foregroundStyle(ScoutColors.textSecondary)
                     }
                 }
 
@@ -58,15 +58,15 @@ struct SpectatorView: View {
                 if isResuming {
                     ZStack {
                         Color.black.opacity(0.4).ignoresSafeArea()
-                        VStack(spacing: DispatchSpacing.lg) {
+                        VStack(spacing: ScoutSpacing.lg) {
                             ProgressView().controlSize(.large).tint(.white)
                             Text("Resuming session...")
-                                .font(DispatchTypography.body(16, weight: .medium))
+                                .font(ScoutTypography.body(16, weight: .medium))
                                 .foregroundStyle(.white)
                         }
-                        .padding(DispatchSpacing.xxl)
+                        .padding(ScoutSpacing.xxl)
                         .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.lg, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
                     }
                 }
             }
@@ -77,7 +77,7 @@ struct SpectatorView: View {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .foregroundStyle(ScoutColors.textMuted)
                             .symbolRenderingMode(.hierarchical)
                     }
                 }
@@ -87,9 +87,9 @@ struct SpectatorView: View {
                             Image(systemName: "arrow.uturn.forward")
                                 .font(.system(size: 13, weight: .semibold))
                             Text("Resume")
-                                .font(DispatchTypography.body(14, weight: .semibold))
+                                .font(ScoutTypography.body(14, weight: .semibold))
                         }
-                        .foregroundStyle(canResume ? DispatchColors.accent : DispatchColors.textMuted)
+                        .foregroundStyle(canResume ? ScoutColors.accent : ScoutColors.textMuted)
                     }
                     .disabled(!canResume)
                 }
@@ -120,7 +120,7 @@ struct SpectatorView: View {
                 onResumed?(session.id)
             } catch {
                 isResuming = false
-                DispatchLog.session.error("Resume failed: \(error.localizedDescription)")
+                ScoutLog.session.error("Resume failed: \(error.localizedDescription)")
             }
         }
     }
@@ -140,7 +140,7 @@ struct BridgeWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
-        webView.underPageBackgroundColor = UIColor(DispatchColors.backgroundAdaptive)
+        webView.underPageBackgroundColor = UIColor(ScoutColors.backgroundAdaptive)
         webView.scrollView.bounces = false
         webView.load(URLRequest(url: url))
         return webView

@@ -33,17 +33,17 @@ struct PairingView: View {
             Spacer()
 
             branding
-                .padding(.bottom, DispatchSpacing.xxl)
+                .padding(.bottom, ScoutSpacing.xxl)
 
             stateContent
-                .padding(.horizontal, DispatchSpacing.xxl)
+                .padding(.horizontal, ScoutSpacing.xxl)
 
             Spacer()
 
             instructions
-                .padding(.bottom, DispatchSpacing.xxl)
+                .padding(.bottom, ScoutSpacing.xxl)
         }
-        .background(DispatchColors.backgroundAdaptive)
+        .background(ScoutColors.backgroundAdaptive)
         .fullScreenCover(isPresented: $showingScanner) {
             scannerSheet
         }
@@ -58,13 +58,13 @@ struct PairingView: View {
     // MARK: - Branding
 
     private var branding: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             // App icon / logo
             ZStack {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [DispatchColors.accent.opacity(0.2), DispatchColors.accent.opacity(0.05)],
+                            colors: [ScoutColors.accent.opacity(0.2), ScoutColors.accent.opacity(0.05)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -73,18 +73,18 @@ struct PairingView: View {
 
                 Image(systemName: "link.circle.fill")
                     .font(.system(size: 48, weight: .light))
-                    .foregroundStyle(DispatchColors.accent)
+                    .foregroundStyle(ScoutColors.accent)
                     .symbolRenderingMode(.hierarchical)
             }
 
-            VStack(spacing: DispatchSpacing.sm) {
+            VStack(spacing: ScoutSpacing.sm) {
                 Text("Scout")
                     .font(.system(size: 34, weight: .bold, design: .default))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .foregroundStyle(ScoutColors.textPrimary)
 
                 Text("Your AI agents, in your pocket")
-                    .font(DispatchTypography.body(16))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(16))
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
         }
     }
@@ -117,21 +117,21 @@ struct PairingView: View {
     // MARK: - Scan Button
 
     private var scanButton: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Button {
                 startScanning()
             } label: {
-                HStack(spacing: DispatchSpacing.md) {
+                HStack(spacing: ScoutSpacing.md) {
                     Image(systemName: "qrcode.viewfinder")
                         .font(.system(size: 20, weight: .medium))
                     Text("Scan QR Code")
-                        .font(DispatchTypography.body(17, weight: .semibold))
+                        .font(ScoutTypography.body(17, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, DispatchSpacing.lg)
-                .background(DispatchColors.accent)
+                .padding(.vertical, ScoutSpacing.lg)
+                .background(ScoutColors.accent)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.lg, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
             }
             .accessibilityHint("Open the camera to scan a pairing QR code from your bridge")
 
@@ -141,8 +141,8 @@ struct PairingView: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(DispatchTypography.body(14))
-                    .foregroundStyle(DispatchColors.statusError)
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.statusError)
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
             }
@@ -150,10 +150,10 @@ struct PairingView: View {
     }
 
     private var cameraPermissionWarning: some View {
-        VStack(spacing: DispatchSpacing.sm) {
+        VStack(spacing: ScoutSpacing.sm) {
             Text("Camera access is required to scan QR codes.")
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Open Settings") {
@@ -161,22 +161,22 @@ struct PairingView: View {
                     UIApplication.shared.open(url)
                 }
             }
-            .font(DispatchTypography.body(14, weight: .medium))
-            .foregroundStyle(DispatchColors.accent)
+            .font(ScoutTypography.body(14, weight: .medium))
+            .foregroundStyle(ScoutColors.accent)
         }
     }
 
     // MARK: - Connecting View
 
     private func connectingView(label: String) -> some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             ProgressView()
                 .controlSize(.large)
-                .tint(DispatchColors.accent)
+                .tint(ScoutColors.accent)
 
             Text(label)
-                .font(DispatchTypography.body(16, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(16, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
@@ -184,15 +184,15 @@ struct PairingView: View {
     // MARK: - Success View
 
     private var successView: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
-                .foregroundStyle(DispatchColors.statusActive)
+                .foregroundStyle(ScoutColors.statusActive)
                 .symbolEffect(.bounce, value: pairingState)
 
             Text("Connected!")
-                .font(DispatchTypography.body(18, weight: .semibold))
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.body(18, weight: .semibold))
+                .foregroundStyle(ScoutColors.textPrimary)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
@@ -200,14 +200,14 @@ struct PairingView: View {
     // MARK: - Failed View
 
     private func failedView(message: String) -> some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
 
             Text(message)
-                .font(DispatchTypography.body(15))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button {
@@ -217,8 +217,8 @@ struct PairingView: View {
                 }
             } label: {
                 Text("Try Again")
-                    .font(DispatchTypography.body(15, weight: .semibold))
-                    .foregroundStyle(DispatchColors.accent)
+                    .font(ScoutTypography.body(15, weight: .semibold))
+                    .foregroundStyle(ScoutColors.accent)
             }
         }
         .transition(.opacity)
@@ -227,23 +227,23 @@ struct PairingView: View {
     // MARK: - Instructions
 
     private var instructions: some View {
-        VStack(spacing: DispatchSpacing.sm) {
+        VStack(spacing: ScoutSpacing.sm) {
             Text("On your computer, run the current pairing command:")
-                .font(DispatchTypography.caption(13))
-                .foregroundStyle(DispatchColors.textMuted)
+                .font(ScoutTypography.caption(13))
+                .foregroundStyle(ScoutColors.textMuted)
 
             Text("scout pair")
-                .font(DispatchTypography.code(14, weight: .medium))
-                .foregroundStyle(DispatchColors.accent)
-                .padding(.horizontal, DispatchSpacing.lg)
-                .padding(.vertical, DispatchSpacing.sm)
-                .background(DispatchColors.surfaceAdaptive)
-                .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
+                .font(ScoutTypography.code(14, weight: .medium))
+                .foregroundStyle(ScoutColors.accent)
+                .padding(.horizontal, ScoutSpacing.lg)
+                .padding(.vertical, ScoutSpacing.sm)
+                .background(ScoutColors.surfaceAdaptive)
+                .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
                 .textSelection(.enabled)
 
             Text("Then scan the QR code in Scout.")
-                .font(DispatchTypography.caption(13))
-                .foregroundStyle(DispatchColors.textMuted)
+                .font(ScoutTypography.caption(13))
+                .foregroundStyle(ScoutColors.textMuted)
         }
     }
 
@@ -290,8 +290,8 @@ struct PairingView: View {
                         .foregroundStyle(.white.opacity(0.8))
                         .symbolRenderingMode(.hierarchical)
                 }
-                .padding(.leading, DispatchSpacing.lg)
-                .padding(.top, DispatchSpacing.xl)
+                .padding(.leading, ScoutSpacing.lg)
+                .padding(.top, ScoutSpacing.xl)
 
                 Spacer()
             }
@@ -300,10 +300,10 @@ struct PairingView: View {
             VStack {
                 Spacer()
                 Text("Point at the QR code on your terminal")
-                    .font(DispatchTypography.body(15, weight: .medium))
+                    .font(ScoutTypography.body(15, weight: .medium))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, DispatchSpacing.xl)
-                    .padding(.vertical, DispatchSpacing.md)
+                    .padding(.horizontal, ScoutSpacing.xl)
+                    .padding(.vertical, ScoutSpacing.md)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
                     .padding(.bottom, 100)

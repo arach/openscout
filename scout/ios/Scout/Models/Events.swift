@@ -9,12 +9,12 @@ import Foundation
 
 struct SequencedEvent: Codable, Sendable {
     let seq: Int
-    let event: DispatchEvent
+    let event: ScoutEvent
 }
 
-// MARK: - DispatchEvent — discriminated union on "event" field
+// MARK: - ScoutEvent — discriminated union on "event" field
 
-enum DispatchEvent: Sendable {
+enum ScoutEvent: Sendable {
     case sessionUpdate(session: Session)
     case sessionClosed(sessionId: String)
     case turnStart(sessionId: String, turn: Turn)
@@ -28,7 +28,7 @@ enum DispatchEvent: Sendable {
     case unknown(discriminator: String)
 }
 
-extension DispatchEvent: Codable {
+extension ScoutEvent: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case event

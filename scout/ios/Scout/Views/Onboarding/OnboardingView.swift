@@ -24,7 +24,7 @@ struct OnboardingView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .always))
         .indexViewStyle(.page(backgroundDisplayMode: .always))
-        .background(DispatchColors.backgroundAdaptive)
+        .background(ScoutColors.backgroundAdaptive)
         .interactiveDismissDisabled()
     }
 }
@@ -38,50 +38,50 @@ private struct WelcomePage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            VStack(spacing: DispatchSpacing.xl) {
+            VStack(spacing: ScoutSpacing.xl) {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(DispatchColors.accent.opacity(0.1))
+                        .fill(ScoutColors.accent.opacity(0.1))
                         .frame(width: 100, height: 100)
                     Image(systemName: "rectangle.connected.to.line.below")
                         .font(.system(size: 44, weight: .light))
-                        .foregroundStyle(DispatchColors.accent)
+                        .foregroundStyle(ScoutColors.accent)
                 }
 
-                VStack(spacing: DispatchSpacing.md) {
+                VStack(spacing: ScoutSpacing.md) {
                     Text("Scout")
-                        .font(DispatchTypography.body(32, weight: .bold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(32, weight: .bold))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     Text("Scout and your agents,\nright from your phone.")
-                        .font(DispatchTypography.body(17))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.body(17))
+                        .foregroundStyle(ScoutColors.textSecondary)
                         .multilineTextAlignment(.center)
                 }
 
                 // How it works
-                VStack(alignment: .leading, spacing: DispatchSpacing.md) {
+                VStack(alignment: .leading, spacing: ScoutSpacing.md) {
                     FeatureRow(icon: "mic.fill", text: "Voice or text input")
                     FeatureRow(icon: "lock.shield", text: "End-to-end encrypted")
                     FeatureRow(icon: "bolt.fill", text: "On-device transcription")
                     FeatureRow(icon: "puzzlepiece.extension", text: "Works with any AI agent")
                 }
-                .padding(.top, DispatchSpacing.lg)
+                .padding(.top, ScoutSpacing.lg)
             }
 
             Spacer()
 
             Button(action: onNext) {
                 Text("Get Started")
-                    .font(DispatchTypography.body(17, weight: .semibold))
+                    .font(ScoutTypography.body(17, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(DispatchColors.accent)
+                    .background(ScoutColors.accent)
                     .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .padding(.horizontal, DispatchSpacing.xxl)
+            .padding(.horizontal, ScoutSpacing.xxl)
             .padding(.bottom, 60)
         }
     }
@@ -103,29 +103,29 @@ private struct PermissionsPage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            VStack(spacing: DispatchSpacing.xl) {
+            VStack(spacing: ScoutSpacing.xl) {
                 ZStack {
                     Circle()
-                        .fill(DispatchColors.accent.opacity(0.1))
+                        .fill(ScoutColors.accent.opacity(0.1))
                         .frame(width: 100, height: 100)
                     Image(systemName: "mic.badge.plus")
                         .font(.system(size: 44, weight: .light))
-                        .foregroundStyle(DispatchColors.accent)
+                        .foregroundStyle(ScoutColors.accent)
                 }
 
-                VStack(spacing: DispatchSpacing.md) {
+                VStack(spacing: ScoutSpacing.md) {
                     Text("Permissions")
-                        .font(DispatchTypography.body(28, weight: .bold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(28, weight: .bold))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     Text("Scout needs microphone access for voice input and speech recognition for transcription.")
-                        .font(DispatchTypography.body(15))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.body(15))
+                        .foregroundStyle(ScoutColors.textSecondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, DispatchSpacing.lg)
+                        .padding(.horizontal, ScoutSpacing.lg)
                 }
 
-                VStack(spacing: DispatchSpacing.md) {
+                VStack(spacing: ScoutSpacing.md) {
                     PermissionRow(
                         icon: "mic.fill",
                         title: "Microphone",
@@ -144,25 +144,25 @@ private struct PermissionsPage: View {
                         await requestSpeech()
                     }
                 }
-                .padding(.horizontal, DispatchSpacing.lg)
+                .padding(.horizontal, ScoutSpacing.lg)
             }
 
             Spacer()
 
             Button(action: onNext) {
                 Text(allGranted ? "Start Using Scout" : "Skip for Now")
-                    .font(DispatchTypography.body(17, weight: .semibold))
+                    .font(ScoutTypography.body(17, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(allGranted ? DispatchColors.accent : DispatchColors.surfaceAdaptive)
-                    .foregroundStyle(allGranted ? .white : DispatchColors.textSecondary)
+                    .background(allGranted ? ScoutColors.accent : ScoutColors.surfaceAdaptive)
+                    .foregroundStyle(allGranted ? .white : ScoutColors.textSecondary)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(allGranted ? Color.clear : DispatchColors.border, lineWidth: 0.5)
+                            .strokeBorder(allGranted ? Color.clear : ScoutColors.border, lineWidth: 0.5)
                     )
             }
-            .padding(.horizontal, DispatchSpacing.xxl)
+            .padding(.horizontal, ScoutSpacing.xxl)
             .padding(.bottom, 60)
         }
         .task {
@@ -196,95 +196,95 @@ private struct ModelPage: View {
         VStack(spacing: 0) {
             Spacer()
 
-            VStack(spacing: DispatchSpacing.xl) {
+            VStack(spacing: ScoutSpacing.xl) {
                 ZStack {
                     Circle()
-                        .fill(DispatchColors.statusActive.opacity(0.1))
+                        .fill(ScoutColors.statusActive.opacity(0.1))
                         .frame(width: 100, height: 100)
                     Image(systemName: "cpu")
                         .font(.system(size: 44, weight: .light))
-                        .foregroundStyle(DispatchColors.statusActive)
+                        .foregroundStyle(ScoutColors.statusActive)
                 }
 
-                VStack(spacing: DispatchSpacing.md) {
+                VStack(spacing: ScoutSpacing.md) {
                     Text("Voice Engine")
-                        .font(DispatchTypography.body(28, weight: .bold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(28, weight: .bold))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     Text("Scout uses on-device AI for private speech-to-text. No data leaves your phone.")
-                        .font(DispatchTypography.body(15))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.body(15))
+                        .foregroundStyle(ScoutColors.textSecondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, DispatchSpacing.lg)
+                        .padding(.horizontal, ScoutSpacing.lg)
                 }
 
-                VStack(spacing: DispatchSpacing.md) {
+                VStack(spacing: ScoutSpacing.md) {
                     // Apple Speech — always available
-                    HStack(spacing: DispatchSpacing.md) {
+                    HStack(spacing: ScoutSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(DispatchColors.statusActive)
+                            .foregroundStyle(ScoutColors.statusActive)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Apple Speech")
-                                .font(DispatchTypography.body(15, weight: .medium))
-                                .foregroundStyle(DispatchColors.textPrimary)
+                                .font(ScoutTypography.body(15, weight: .medium))
+                                .foregroundStyle(ScoutColors.textPrimary)
                             Text("Ready now — built into iOS")
-                                .font(DispatchTypography.caption(13))
-                                .foregroundStyle(DispatchColors.textSecondary)
+                                .font(ScoutTypography.caption(13))
+                                .foregroundStyle(ScoutColors.textSecondary)
                         }
                         Spacer()
                     }
-                    .padding(DispatchSpacing.md)
-                    .background(DispatchColors.surfaceAdaptive)
+                    .padding(ScoutSpacing.md)
+                    .background(ScoutColors.surfaceAdaptive)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                     // Parakeet — loading in background
                     #if canImport(FluidAudio)
-                    HStack(spacing: DispatchSpacing.md) {
+                    HStack(spacing: ScoutSpacing.md) {
                         parakeetIcon
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Parakeet AI")
-                                .font(DispatchTypography.body(15, weight: .medium))
-                                .foregroundStyle(DispatchColors.textPrimary)
+                                .font(ScoutTypography.body(15, weight: .medium))
+                                .foregroundStyle(ScoutColors.textPrimary)
                             Text(parakeetSubtitle)
-                                .font(DispatchTypography.caption(13))
-                                .foregroundStyle(DispatchColors.textSecondary)
+                                .font(ScoutTypography.caption(13))
+                                .foregroundStyle(ScoutColors.textSecondary)
                         }
                         Spacer()
                     }
-                    .padding(DispatchSpacing.md)
-                    .background(DispatchColors.surfaceAdaptive)
+                    .padding(ScoutSpacing.md)
+                    .background(ScoutColors.surfaceAdaptive)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     #endif
                 }
-                .padding(.horizontal, DispatchSpacing.lg)
+                .padding(.horizontal, ScoutSpacing.lg)
             }
 
             Spacer()
 
-            VStack(spacing: DispatchSpacing.sm) {
+            VStack(spacing: ScoutSpacing.sm) {
                 #if canImport(FluidAudio)
                 if !parakeet.isReady {
                     Text("Parakeet is loading in the background. You can start using Scout now.")
-                        .font(DispatchTypography.caption(13))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .font(ScoutTypography.caption(13))
+                        .foregroundStyle(ScoutColors.textMuted)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, DispatchSpacing.xxl)
+                        .padding(.horizontal, ScoutSpacing.xxl)
                 }
                 #endif
 
                 Button(action: onComplete) {
                     Text("Continue")
-                        .font(DispatchTypography.body(17, weight: .semibold))
+                        .font(ScoutTypography.body(17, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(DispatchColors.accent)
+                        .background(ScoutColors.accent)
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .padding(.horizontal, DispatchSpacing.xxl)
+                .padding(.horizontal, ScoutSpacing.xxl)
             }
             .padding(.bottom, 60)
         }
@@ -297,7 +297,7 @@ private struct ModelPage: View {
         case .ready:
             Image(systemName: parakeet.isWarmedUp ? "checkmark.circle.fill" : "arrow.trianglehead.clockwise")
                 .font(.system(size: 20))
-                .foregroundStyle(parakeet.isWarmedUp ? DispatchColors.statusActive : DispatchColors.statusStreaming)
+                .foregroundStyle(parakeet.isWarmedUp ? ScoutColors.statusActive : ScoutColors.statusStreaming)
         case .downloading:
             ProgressView()
                 .controlSize(.small)
@@ -307,11 +307,11 @@ private struct ModelPage: View {
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 20))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
         default:
             Image(systemName: "arrow.down.circle")
                 .font(.system(size: 20))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
         }
     }
 
@@ -335,14 +335,14 @@ private struct FeatureRow: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: DispatchSpacing.md) {
+        HStack(spacing: ScoutSpacing.md) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(DispatchColors.accent)
+                .foregroundStyle(ScoutColors.accent)
                 .frame(width: 28)
             Text(text)
-                .font(DispatchTypography.body(15))
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textPrimary)
         }
     }
 }
@@ -355,7 +355,7 @@ private struct PermissionRow: View {
     let request: () async -> Void
 
     var body: some View {
-        HStack(spacing: DispatchSpacing.md) {
+        HStack(spacing: ScoutSpacing.md) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(statusColor)
@@ -363,11 +363,11 @@ private struct PermissionRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(DispatchTypography.body(15, weight: .medium))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.body(15, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
                 Text(subtitle)
-                    .font(DispatchTypography.caption(13))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.caption(13))
+                    .foregroundStyle(ScoutColors.textSecondary)
             }
 
             Spacer()
@@ -375,30 +375,30 @@ private struct PermissionRow: View {
             if granted == true {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 22))
-                    .foregroundStyle(DispatchColors.statusActive)
+                    .foregroundStyle(ScoutColors.statusActive)
             } else {
                 Button("Allow") {
                     Task { await request() }
                 }
-                .font(DispatchTypography.body(14, weight: .semibold))
+                .font(ScoutTypography.body(14, weight: .semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
-                .background(DispatchColors.accent)
+                .background(ScoutColors.accent)
                 .foregroundStyle(.white)
                 .clipShape(Capsule())
             }
         }
-        .padding(DispatchSpacing.md)
-        .background(DispatchColors.surfaceAdaptive)
+        .padding(ScoutSpacing.md)
+        .background(ScoutColors.surfaceAdaptive)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var statusColor: Color {
         switch granted {
-        case true: DispatchColors.statusActive
-        case false: DispatchColors.statusError
-        case nil: DispatchColors.textMuted
-        default: DispatchColors.textMuted
+        case true: ScoutColors.statusActive
+        case false: ScoutColors.statusError
+        case nil: ScoutColors.textMuted
+        default: ScoutColors.textMuted
         }
     }
 }

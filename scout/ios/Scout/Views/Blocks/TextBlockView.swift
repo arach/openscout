@@ -46,7 +46,7 @@ struct TextBlockView: View {
 
         if isStreaming {
             StreamingCursor()
-                .padding(.top, DispatchSpacing.xxs)
+                .padding(.top, ScoutSpacing.xxs)
         }
     }
 
@@ -55,14 +55,14 @@ struct TextBlockView: View {
         if let attributed = try? AttributedString(markdown: text,
                                                    options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             Text(attributed)
-                .font(DispatchTypography.body())
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.body())
+                .foregroundStyle(ScoutColors.textPrimary)
                 .textSelection(.enabled)
                 .lineSpacing(3)
         } else {
             Text(text)
-                .font(DispatchTypography.body())
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.body())
+                .foregroundStyle(ScoutColors.textPrimary)
                 .textSelection(.enabled)
                 .lineSpacing(3)
         }
@@ -72,36 +72,36 @@ struct TextBlockView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let language, !language.isEmpty {
                 Text(language)
-                    .font(DispatchTypography.codeCaption)
-                    .foregroundStyle(DispatchColors.textMuted)
-                    .padding(.horizontal, DispatchSpacing.md)
-                    .padding(.top, DispatchSpacing.sm)
-                    .padding(.bottom, DispatchSpacing.xs)
+                    .font(ScoutTypography.codeCaption)
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .padding(.horizontal, ScoutSpacing.md)
+                    .padding(.top, ScoutSpacing.sm)
+                    .padding(.bottom, ScoutSpacing.xs)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(DispatchTypography.codeBody)
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.codeBody)
+                    .foregroundStyle(ScoutColors.textPrimary)
                     .textSelection(.enabled)
-                    .padding(.horizontal, DispatchSpacing.md)
-                    .padding(.vertical, DispatchSpacing.sm)
+                    .padding(.horizontal, ScoutSpacing.md)
+                    .padding(.vertical, ScoutSpacing.sm)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DispatchColors.surfaceAdaptive)
-        .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
-        .padding(.vertical, DispatchSpacing.xs)
+        .background(ScoutColors.surfaceAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
+        .padding(.vertical, ScoutSpacing.xs)
     }
 
     // MARK: - Streaming Placeholder
 
     private var streamingPlaceholder: some View {
-        HStack(spacing: DispatchSpacing.sm) {
+        HStack(spacing: ScoutSpacing.sm) {
             PulseIndicator()
             Text("Writing...")
-                .font(DispatchTypography.caption())
-                .foregroundStyle(DispatchColors.textMuted)
+                .font(ScoutTypography.caption())
+                .foregroundStyle(ScoutColors.textMuted)
         }
     }
 }

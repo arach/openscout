@@ -8,7 +8,7 @@ import SwiftUI
 
 // MARK: - Color Palette
 
-enum DispatchColors {
+enum ScoutColors {
     // Backgrounds
     static let background = Color("background", bundle: nil)
     static let surface = Color("surface", bundle: nil)
@@ -53,7 +53,7 @@ enum DispatchColors {
 
 // MARK: - Typography
 
-enum DispatchTypography {
+enum ScoutTypography {
     static let codeFontName = "SF Mono"
     static let codeFontFallback = "Menlo"
 
@@ -77,7 +77,7 @@ enum DispatchTypography {
 
 // MARK: - Spacing
 
-enum DispatchSpacing {
+enum ScoutSpacing {
     static let xxs: CGFloat = 2
     static let xs: CGFloat = 4
     static let sm: CGFloat = 8
@@ -89,7 +89,7 @@ enum DispatchSpacing {
 
 // MARK: - Corner Radius
 
-enum DispatchRadius {
+enum ScoutRadius {
     static let sm: CGFloat = 6
     static let md: CGFloat = 10
     static let lg: CGFloat = 14
@@ -98,26 +98,26 @@ enum DispatchRadius {
 
 // MARK: - Card Style
 
-struct DispatchCardModifier: ViewModifier {
-    var padding: CGFloat = DispatchSpacing.md
-    var cornerRadius: CGFloat = DispatchRadius.md
+struct ScoutCardModifier: ViewModifier {
+    var padding: CGFloat = ScoutSpacing.md
+    var cornerRadius: CGFloat = ScoutRadius.md
 
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(DispatchColors.surfaceRaisedAdaptive)
+            .background(ScoutColors.surfaceRaisedAdaptive)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(DispatchColors.border, lineWidth: 0.5)
+                    .strokeBorder(ScoutColors.border, lineWidth: 0.5)
             )
     }
 }
 
 extension View {
-    func dispatchCard(padding: CGFloat = DispatchSpacing.md,
-                    cornerRadius: CGFloat = DispatchRadius.md) -> some View {
-        modifier(DispatchCardModifier(padding: padding, cornerRadius: cornerRadius))
+    func scoutCard(padding: CGFloat = ScoutSpacing.md,
+                    cornerRadius: CGFloat = ScoutRadius.md) -> some View {
+        modifier(ScoutCardModifier(padding: padding, cornerRadius: cornerRadius))
     }
 }
 
@@ -134,11 +134,11 @@ struct StatusDot: View {
 
     var color: Color {
         switch status {
-        case .active: DispatchColors.statusActive
-        case .connecting: DispatchColors.statusStreaming
-        case .idle: DispatchColors.statusIdle
-        case .error: DispatchColors.statusError
-        case .closed: DispatchColors.statusIdle
+        case .active: ScoutColors.statusActive
+        case .connecting: ScoutColors.statusStreaming
+        case .idle: ScoutColors.statusIdle
+        case .error: ScoutColors.statusError
+        case .closed: ScoutColors.statusIdle
         }
     }
 
@@ -186,7 +186,7 @@ struct StreamingCursor: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 1)
-            .fill(DispatchColors.accent)
+            .fill(ScoutColors.accent)
             .frame(width: 2, height: 16)
             .opacity(visible ? 1.0 : 0.0)
             .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: visible)
@@ -202,7 +202,7 @@ struct PulseIndicator: View {
 
     var body: some View {
         Circle()
-            .fill(DispatchColors.accent.opacity(0.8))
+            .fill(ScoutColors.accent.opacity(0.8))
             .frame(width: 6, height: 6)
             .scaleEffect(animating ? 1.3 : 0.7)
             .opacity(animating ? 0.5 : 1.0)
@@ -243,7 +243,7 @@ enum AdapterIcon {
 
 // MARK: - Harness / Model Catalog
 
-enum DispatchModelCatalog {
+enum ScoutModelCatalog {
     static func launchOptions(for adapterType: String?) -> [String] {
         switch normalizedAdapterType(adapterType) {
         case "claude-code":
@@ -293,7 +293,7 @@ enum DispatchModelCatalog {
 
 // MARK: - Model Label Helper
 
-struct DispatchModelDescriptor: Sendable {
+struct ScoutModelDescriptor: Sendable {
     let raw: String
     let title: String
     let subtitle: String?
@@ -310,8 +310,8 @@ struct DispatchModelDescriptor: Sendable {
     }
 }
 
-enum DispatchModelLabel {
-    static func describe(_ rawModel: String?) -> DispatchModelDescriptor? {
+enum ScoutModelLabel {
+    static func describe(_ rawModel: String?) -> ScoutModelDescriptor? {
         guard let raw = rawModel?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
@@ -328,7 +328,7 @@ enum DispatchModelLabel {
         }
         subtitleComponents.append(contentsOf: detailComponents)
 
-        return DispatchModelDescriptor(
+        return ScoutModelDescriptor(
             raw: raw,
             title: title(for: cleaned, fallback: raw),
             subtitle: subtitleComponents.isEmpty ? nil : subtitleComponents.joined(separator: " · "),

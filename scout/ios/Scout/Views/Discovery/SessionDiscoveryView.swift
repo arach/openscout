@@ -73,7 +73,7 @@ struct SessionDiscoveryView: View {
                     browseResults
                 }
             }
-            .background(DispatchColors.backgroundAdaptive)
+            .background(ScoutColors.backgroundAdaptive)
             .navigationTitle(projectFilter ?? "Search")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -81,7 +81,7 @@ struct SessionDiscoveryView: View {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .foregroundStyle(ScoutColors.textMuted)
                             .symbolRenderingMode(.hierarchical)
                     }
                 }
@@ -126,17 +126,17 @@ struct SessionDiscoveryView: View {
                         discoveredSessionRow(session)
                     }
                 } header: {
-                    HStack(spacing: DispatchSpacing.sm) {
+                    HStack(spacing: ScoutSpacing.sm) {
                         Image(systemName: agentIcon(for: group.sessions.first?.agent ?? "unknown"))
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(DispatchColors.accent)
+                            .foregroundStyle(ScoutColors.accent)
                         Text(group.project)
-                            .font(DispatchTypography.caption(12, weight: .semibold))
-                            .foregroundStyle(DispatchColors.textSecondary)
+                            .font(ScoutTypography.caption(12, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textSecondary)
                         Spacer()
                         Text("\(group.sessions.count)")
-                            .font(DispatchTypography.caption(11, weight: .medium))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.caption(11, weight: .medium))
+                            .foregroundStyle(ScoutColors.textMuted)
                     }
                 }
             }
@@ -150,21 +150,21 @@ struct SessionDiscoveryView: View {
     private var searchResults: some View {
         List {
             if isSearching {
-                HStack(spacing: DispatchSpacing.sm) {
+                HStack(spacing: ScoutSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
                     Text("Searching...")
-                        .font(DispatchTypography.body(14))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.body(14))
+                        .foregroundStyle(ScoutColors.textSecondary)
                 }
-                .padding(.vertical, DispatchSpacing.sm)
-                .listRowBackground(DispatchColors.backgroundAdaptive)
+                .padding(.vertical, ScoutSpacing.sm)
+                .listRowBackground(ScoutColors.backgroundAdaptive)
             } else {
                 if !transcriptMatches.isEmpty {
                     Section("Transcript") {
                         ForEach(transcriptMatches) { match in
                             transcriptMatchRow(match)
-                                .listRowBackground(DispatchColors.backgroundAdaptive)
+                                .listRowBackground(ScoutColors.backgroundAdaptive)
                         }
                     }
                 }
@@ -173,23 +173,23 @@ struct SessionDiscoveryView: View {
                     Section("Sessions") {
                         ForEach(matchingSessions) { session in
                             discoveredSessionRow(session)
-                                .listRowBackground(DispatchColors.backgroundAdaptive)
+                                .listRowBackground(ScoutColors.backgroundAdaptive)
                         }
                     }
                 }
 
                 if transcriptMatches.isEmpty && matchingSessions.isEmpty {
-                    VStack(spacing: DispatchSpacing.sm) {
+                    VStack(spacing: ScoutSpacing.sm) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .foregroundStyle(ScoutColors.textMuted)
                         Text("No results")
-                            .font(DispatchTypography.body(15, weight: .semibold))
-                            .foregroundStyle(DispatchColors.textPrimary)
+                            .font(ScoutTypography.body(15, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textPrimary)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, DispatchSpacing.xl)
-                    .listRowBackground(DispatchColors.backgroundAdaptive)
+                    .padding(.vertical, ScoutSpacing.xl)
+                    .listRowBackground(ScoutColors.backgroundAdaptive)
                 }
             }
         }
@@ -200,24 +200,24 @@ struct SessionDiscoveryView: View {
         Button {
             selectedSession = session
         } label: {
-            HStack(spacing: DispatchSpacing.md) {
+            HStack(spacing: ScoutSpacing.md) {
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(DispatchColors.accent.opacity(0.15))
+                    .fill(ScoutColors.accent.opacity(0.15))
                     .frame(width: 4, height: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(sessionDisplayName(session.path))
-                        .font(DispatchTypography.code(13, weight: .medium))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.code(13, weight: .medium))
+                        .foregroundStyle(ScoutColors.textPrimary)
                         .lineLimit(1)
 
-                    HStack(spacing: DispatchSpacing.md) {
+                    HStack(spacing: ScoutSpacing.md) {
                         Label(AdapterIcon.displayName(for: session.agent), systemImage: agentIcon(for: session.agent))
-                            .font(DispatchTypography.caption(11))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.caption(11))
+                            .foregroundStyle(ScoutColors.textMuted)
                         Text(RelativeTime.string(from: session.modifiedDate))
-                            .font(DispatchTypography.caption(11))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.caption(11))
+                            .foregroundStyle(ScoutColors.textMuted)
                     }
                 }
 
@@ -225,9 +225,9 @@ struct SessionDiscoveryView: View {
 
                 Image(systemName: "play.circle")
                     .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(DispatchColors.accent.opacity(0.6))
+                    .foregroundStyle(ScoutColors.accent.opacity(0.6))
             }
-            .padding(.vertical, DispatchSpacing.xs)
+            .padding(.vertical, ScoutSpacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -237,88 +237,88 @@ struct SessionDiscoveryView: View {
         Button {
             selectedMatch = match
         } label: {
-            VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
-                HStack(spacing: DispatchSpacing.sm) {
+            VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
+                HStack(spacing: ScoutSpacing.sm) {
                     Image(systemName: AdapterIcon.systemName(for: match.agent))
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(DispatchColors.accent)
+                        .foregroundStyle(ScoutColors.accent)
 
                     Text(match.project)
-                        .font(DispatchTypography.body(14, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(14, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
                         .lineLimit(1)
 
                     Spacer()
 
                     Text("\(match.matchCount)")
-                        .font(DispatchTypography.caption(11, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textSecondary)
-                        .padding(.horizontal, DispatchSpacing.sm)
-                        .padding(.vertical, DispatchSpacing.xxs)
-                        .background(DispatchColors.surfaceAdaptive)
+                        .font(ScoutTypography.caption(11, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textSecondary)
+                        .padding(.horizontal, ScoutSpacing.sm)
+                        .padding(.vertical, ScoutSpacing.xxs)
+                        .background(ScoutColors.surfaceAdaptive)
                         .clipShape(Capsule())
                 }
 
                 Text((match.path as NSString).lastPathComponent)
-                    .font(DispatchTypography.code(11))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.code(11))
+                    .foregroundStyle(ScoutColors.textMuted)
                     .lineLimit(1)
 
                 ForEach(Array(match.preview.enumerated()), id: \.offset) { previewLine in
                     Text(previewLine.element.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(DispatchTypography.body(12))
-                        .foregroundStyle(DispatchColors.textSecondary)
+                        .font(ScoutTypography.body(12))
+                        .foregroundStyle(ScoutColors.textSecondary)
                         .lineLimit(2)
                 }
             }
-            .padding(.vertical, DispatchSpacing.xs)
+            .padding(.vertical, ScoutSpacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private var loadingState: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             ProgressView()
             Text("Loading...")
-                .font(DispatchTypography.body(15))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func errorState(_ message: String) -> some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 32))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
             Text(message)
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
             Button("Retry") {
                 Task { await loadSessions() }
             }
-            .font(DispatchTypography.body(14, weight: .medium))
-            .foregroundStyle(DispatchColors.accent)
+            .font(ScoutTypography.body(14, weight: .medium))
+            .foregroundStyle(ScoutColors.accent)
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     private var emptyState: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 36))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
             Text("No sessions")
-                .font(DispatchTypography.body(16, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(16, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     private func loadSessions() async {

@@ -1,6 +1,6 @@
 // LogView — In-app debug log viewer.
 //
-// Shows DispatchLog entries in real time. Filter by category or level.
+// Shows ScoutLog entries in real time. Filter by category or level.
 // Scrolls to bottom automatically. Copy-all for sharing.
 
 import SwiftUI
@@ -87,8 +87,8 @@ struct LogView: View {
                     }
                 }
             }
-            .padding(.horizontal, DispatchSpacing.md)
-            .padding(.vertical, DispatchSpacing.sm)
+            .padding(.horizontal, ScoutSpacing.md)
+            .padding(.vertical, ScoutSpacing.sm)
         }
     }
 
@@ -117,14 +117,14 @@ struct LogView: View {
     // MARK: - Empty
 
     private var emptyState: some View {
-        VStack(spacing: DispatchSpacing.md) {
+        VStack(spacing: ScoutSpacing.md) {
             Spacer()
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 36))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
             Text("No log entries")
-                .font(DispatchTypography.body(15))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textSecondary)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -152,34 +152,34 @@ private struct LogEntryRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Text(entry.timestampString)
-                    .font(DispatchTypography.code(10))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.code(10))
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 Text(entry.category)
-                    .font(DispatchTypography.code(10, weight: .semibold))
-                    .foregroundStyle(DispatchColors.accent)
+                    .font(ScoutTypography.code(10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.accent)
 
                 Text(entry.level.rawValue)
-                    .font(DispatchTypography.code(10, weight: .bold))
+                    .font(ScoutTypography.code(10, weight: .bold))
                     .foregroundStyle(entry.level.color)
 
                 Spacer()
             }
 
             Text(entry.message)
-                .font(DispatchTypography.code(12))
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.code(12))
+                .foregroundStyle(ScoutColors.textPrimary)
                 .lineLimit(expanded ? nil : 2)
 
             if let detail = entry.detail, expanded {
                 Text(detail)
-                    .font(DispatchTypography.code(11))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.code(11))
+                    .foregroundStyle(ScoutColors.textSecondary)
                     .padding(.top, 2)
             }
         }
-        .padding(.horizontal, DispatchSpacing.md)
-        .padding(.vertical, DispatchSpacing.xs)
+        .padding(.horizontal, ScoutSpacing.md)
+        .padding(.vertical, ScoutSpacing.xs)
         .contentShape(Rectangle())
         .onTapGesture {
             if entry.detail != nil {
@@ -201,15 +201,15 @@ private struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(DispatchTypography.caption(12, weight: .medium))
+                .font(ScoutTypography.caption(12, weight: .medium))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(isActive ? DispatchColors.accent.opacity(0.15) : DispatchColors.surfaceAdaptive)
-                .foregroundStyle(isActive ? DispatchColors.accent : DispatchColors.textSecondary)
+                .background(isActive ? ScoutColors.accent.opacity(0.15) : ScoutColors.surfaceAdaptive)
+                .foregroundStyle(isActive ? ScoutColors.accent : ScoutColors.textSecondary)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule().strokeBorder(
-                        isActive ? DispatchColors.accent.opacity(0.3) : DispatchColors.border,
+                        isActive ? ScoutColors.accent.opacity(0.3) : ScoutColors.border,
                         lineWidth: 0.5
                     )
                 )

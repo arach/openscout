@@ -74,7 +74,7 @@ struct WorkspaceBrowserView: View {
                     directoryList
                 }
             }
-            .background(DispatchColors.backgroundAdaptive)
+            .background(ScoutColors.backgroundAdaptive)
             .navigationTitle("Projects")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -130,8 +130,8 @@ struct WorkspaceBrowserView: View {
                             }
                         } header: {
                             Text("Projects")
-                                .font(DispatchTypography.caption(12, weight: .semibold))
-                                .foregroundStyle(DispatchColors.textSecondary)
+                                .font(ScoutTypography.caption(12, weight: .semibold))
+                                .foregroundStyle(ScoutColors.textSecondary)
                         }
                     }
 
@@ -144,8 +144,8 @@ struct WorkspaceBrowserView: View {
                             }
                         } header: {
                             Text("Folders")
-                                .font(DispatchTypography.caption(12, weight: .semibold))
-                                .foregroundStyle(DispatchColors.textSecondary)
+                                .font(ScoutTypography.caption(12, weight: .semibold))
+                                .foregroundStyle(ScoutColors.textSecondary)
                         }
                     }
                 }
@@ -164,33 +164,33 @@ struct WorkspaceBrowserView: View {
                 } label: {
                     Image(systemName: "house.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(DispatchColors.accent)
+                        .foregroundStyle(ScoutColors.accent)
                 }
 
                 ForEach(Array(breadcrumbs.enumerated()), id: \.offset) { index, crumb in
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .foregroundStyle(ScoutColors.textMuted)
 
                     Button {
                         let subPath = breadcrumbs.prefix(index + 1).joined(separator: "/")
                         Task { await browse(path: subPath) }
                     } label: {
                         Text(crumb)
-                            .font(DispatchTypography.caption(13, weight: .medium))
+                            .font(ScoutTypography.caption(13, weight: .medium))
                             .foregroundStyle(
                                 index == breadcrumbs.count - 1
-                                    ? DispatchColors.textPrimary
-                                    : DispatchColors.accent
+                                    ? ScoutColors.textPrimary
+                                    : ScoutColors.accent
                             )
                     }
                     .disabled(index == breadcrumbs.count - 1)
                 }
             }
-            .padding(.horizontal, DispatchSpacing.lg)
-            .padding(.vertical, DispatchSpacing.sm)
+            .padding(.horizontal, ScoutSpacing.lg)
+            .padding(.vertical, ScoutSpacing.sm)
         }
-        .background(DispatchColors.surfaceAdaptive)
+        .background(ScoutColors.surfaceAdaptive)
     }
 
     // MARK: - Opening overlay
@@ -200,64 +200,64 @@ struct WorkspaceBrowserView: View {
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
 
-            VStack(spacing: DispatchSpacing.lg) {
+            VStack(spacing: ScoutSpacing.lg) {
                 ProgressView()
                     .controlSize(.large)
                     .tint(.white)
                 Text("Starting session...")
-                    .font(DispatchTypography.body(16, weight: .medium))
+                    .font(ScoutTypography.body(16, weight: .medium))
                     .foregroundStyle(.white)
             }
-            .padding(DispatchSpacing.xxl)
+            .padding(ScoutSpacing.xxl)
             .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.lg, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
         }
     }
 
     // MARK: - States
 
     private var loadingView: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             ProgressView()
             Text("Loading workspace...")
-                .font(DispatchTypography.body(15))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var noWorkspaceView: some View {
-        VStack(spacing: DispatchSpacing.xl) {
+        VStack(spacing: ScoutSpacing.xl) {
             Spacer()
             Image(systemName: "folder.badge.questionmark")
                 .font(.system(size: 48, weight: .light))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
 
-            VStack(spacing: DispatchSpacing.sm) {
+            VStack(spacing: ScoutSpacing.sm) {
                 Text("No workspace configured")
-                    .font(DispatchTypography.body(18, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.body(18, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textPrimary)
 
                 Text("Run `scout setup` on your computer to set up a workspace root.")
-                    .font(DispatchTypography.body(14))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.textSecondary)
                     .multilineTextAlignment(.center)
             }
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
 
             Text(message)
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
@@ -266,18 +266,18 @@ struct WorkspaceBrowserView: View {
             .buttonStyle(.bordered)
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     private func connectionStateView(_ message: String) -> some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "wifi.exclamationmark")
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(DispatchColors.statusError)
+                .foregroundStyle(ScoutColors.statusError)
             Text(message)
-                .font(DispatchTypography.body(14))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
             if connection.hasTrustedBridge {
                 Button("Retry") {
@@ -287,37 +287,37 @@ struct WorkspaceBrowserView: View {
             }
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     private var emptyDirectory: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "folder")
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
             Text("Empty directory")
-                .font(DispatchTypography.body(15))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(15))
+                .foregroundStyle(ScoutColors.textSecondary)
             Spacer()
         }
     }
 
     private var emptySearchResults: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
             Text("No projects match")
-                .font(DispatchTypography.body(15, weight: .semibold))
-                .foregroundStyle(DispatchColors.textPrimary)
+                .font(ScoutTypography.body(15, weight: .semibold))
+                .foregroundStyle(ScoutColors.textPrimary)
             Text("Try a broader search for the project or folder name.")
-                .font(DispatchTypography.body(13))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(13))
+                .foregroundStyle(ScoutColors.textSecondary)
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     // MARK: - Actions
@@ -411,10 +411,10 @@ private struct ProjectRow: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: DispatchSpacing.md) {
+            HStack(spacing: ScoutSpacing.md) {
                 // Project icon with marker-based color
                 ZStack {
-                    RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous)
+                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
                         .fill(markerColor.opacity(0.12))
                         .frame(width: 40, height: 40)
 
@@ -425,17 +425,17 @@ private struct ProjectRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name)
-                        .font(DispatchTypography.body(16, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(16, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     HStack(spacing: 6) {
                         ForEach(entry.markers, id: \.self) { marker in
                             Text(marker)
-                                .font(DispatchTypography.caption(11, weight: .medium))
-                                .foregroundStyle(DispatchColors.textMuted)
+                                .font(ScoutTypography.caption(11, weight: .medium))
+                                .foregroundStyle(ScoutColors.textMuted)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(DispatchColors.surfaceAdaptive)
+                                .background(ScoutColors.surfaceAdaptive)
                                 .clipShape(Capsule())
                         }
                     }
@@ -447,7 +447,7 @@ private struct ProjectRow: View {
                 Button(action: onNavigate) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .foregroundStyle(ScoutColors.textMuted)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -485,7 +485,7 @@ private struct ProjectRow: View {
         case "ruby":           return .red
         case "java":           return .blue
         case "cpp", "make":    return .purple
-        default:               return DispatchColors.accent
+        default:               return ScoutColors.accent
         }
     }
 }
@@ -498,21 +498,21 @@ private struct DirectoryRow: View {
 
     var body: some View {
         Button(action: onNavigate) {
-            HStack(spacing: DispatchSpacing.md) {
+            HStack(spacing: ScoutSpacing.md) {
                 Image(systemName: "folder")
                     .font(.system(size: 17))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
                     .frame(width: 40, height: 40)
 
                 Text(entry.name)
-                    .font(DispatchTypography.body(15))
-                    .foregroundStyle(DispatchColors.textSecondary)
+                    .font(ScoutTypography.body(15))
+                    .foregroundStyle(ScoutColors.textSecondary)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .foregroundStyle(ScoutColors.textMuted)
             }
             .contentShape(Rectangle())
         }

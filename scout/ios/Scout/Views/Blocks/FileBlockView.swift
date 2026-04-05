@@ -25,7 +25,7 @@ struct FileBlockView: View {
 
     @ViewBuilder
     private var imageView: some View {
-        VStack(alignment: .leading, spacing: DispatchSpacing.xs) {
+        VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
             if let data = block.data {
                 if data.hasPrefix("data:") || data.hasPrefix("http://") || data.hasPrefix("https://") {
                     // URL-based image
@@ -38,7 +38,7 @@ struct FileBlockView: View {
                                 image
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
                             case .failure:
                                 imageError
                             @unknown default:
@@ -57,7 +57,7 @@ struct FileBlockView: View {
                         Image(uiImage: uiImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
                             .frame(maxWidth: .infinity)
                             .frame(maxHeight: 400)
                     } else {
@@ -70,8 +70,8 @@ struct FileBlockView: View {
 
             if let name = block.name {
                 Text(name)
-                    .font(DispatchTypography.caption(12))
-                    .foregroundStyle(DispatchColors.textMuted)
+                    .font(ScoutTypography.caption(12))
+                    .foregroundStyle(ScoutColors.textMuted)
             }
         }
         .accessibilityElement(children: .combine)
@@ -79,27 +79,27 @@ struct FileBlockView: View {
     }
 
     private var imagePlaceholder: some View {
-        RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous)
-            .fill(DispatchColors.surfaceAdaptive)
+        RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+            .fill(ScoutColors.surfaceAdaptive)
             .frame(height: 120)
             .overlay {
                 ProgressView()
-                    .tint(DispatchColors.textMuted)
+                    .tint(ScoutColors.textMuted)
             }
     }
 
     private var imageError: some View {
-        RoundedRectangle(cornerRadius: DispatchRadius.sm, style: .continuous)
-            .fill(DispatchColors.surfaceAdaptive)
+        RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+            .fill(ScoutColors.surfaceAdaptive)
             .frame(height: 80)
             .overlay {
-                VStack(spacing: DispatchSpacing.xs) {
+                VStack(spacing: ScoutSpacing.xs) {
                     Image(systemName: "photo.badge.exclamationmark")
                         .font(.system(size: 20))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .foregroundStyle(ScoutColors.textMuted)
                     Text("Failed to load image")
-                        .font(DispatchTypography.caption())
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .font(ScoutTypography.caption())
+                        .foregroundStyle(ScoutColors.textMuted)
                 }
             }
     }
@@ -107,23 +107,23 @@ struct FileBlockView: View {
     // MARK: - File Card
 
     private var fileCard: some View {
-        HStack(spacing: DispatchSpacing.md) {
+        HStack(spacing: ScoutSpacing.md) {
             Image(systemName: fileIcon)
                 .font(.system(size: 22))
-                .foregroundStyle(DispatchColors.accent)
+                .foregroundStyle(ScoutColors.accent)
                 .frame(width: 32, height: 32)
 
-            VStack(alignment: .leading, spacing: DispatchSpacing.xxs) {
+            VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
                 Text(fileName)
-                    .font(DispatchTypography.body(14, weight: .medium))
-                    .foregroundStyle(DispatchColors.textPrimary)
+                    .font(ScoutTypography.body(14, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 if let mimeType = block.mimeType {
                     Text(mimeType)
-                        .font(DispatchTypography.caption(11))
-                        .foregroundStyle(DispatchColors.textMuted)
+                        .font(ScoutTypography.caption(11))
+                        .foregroundStyle(ScoutColors.textMuted)
                 }
             }
 
@@ -131,9 +131,9 @@ struct FileBlockView: View {
 
             Image(systemName: "arrow.down.circle")
                 .font(.system(size: 18))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
         }
-        .dispatchCard()
+        .scoutCard()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("File: \(fileName)")
     }

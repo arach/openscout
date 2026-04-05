@@ -33,7 +33,7 @@ struct SessionHistoryView: View {
                     sessionList
                 }
             }
-            .background(DispatchColors.backgroundAdaptive)
+            .background(ScoutColors.backgroundAdaptive)
             .navigationTitle("Saved")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(item: $selectedSessionId) { sessionId in
@@ -50,35 +50,35 @@ struct SessionHistoryView: View {
         List {
             if filteredSessions.isEmpty {
                 Text("No cached sessions match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”.")
-                    .font(DispatchTypography.body(14))
-                    .foregroundStyle(DispatchColors.textSecondary)
-                    .padding(.vertical, DispatchSpacing.md)
-                    .listRowBackground(DispatchColors.backgroundAdaptive)
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.textSecondary)
+                    .padding(.vertical, ScoutSpacing.md)
+                    .listRowBackground(ScoutColors.backgroundAdaptive)
             } else {
                 ForEach(filteredSessions, id: \.id) { info in
                     Button {
                         selectedSessionId = info.id
                     } label: {
-                        HStack(spacing: DispatchSpacing.md) {
+                        HStack(spacing: ScoutSpacing.md) {
                             Image(systemName: AdapterIcon.systemName(for: info.adapterType))
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(DispatchColors.accent)
+                                .foregroundStyle(ScoutColors.accent)
                                 .frame(width: 32)
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(info.name)
-                                    .font(DispatchTypography.body(15, weight: .medium))
-                                    .foregroundStyle(DispatchColors.textPrimary)
-                                HStack(spacing: DispatchSpacing.sm) {
+                                    .font(ScoutTypography.body(15, weight: .medium))
+                                    .foregroundStyle(ScoutColors.textPrimary)
+                                HStack(spacing: ScoutSpacing.sm) {
                                     Text(AdapterIcon.displayName(for: info.adapterType))
-                                        .font(DispatchTypography.caption(12))
-                                        .foregroundStyle(DispatchColors.textMuted)
+                                        .font(ScoutTypography.caption(12))
+                                        .foregroundStyle(ScoutColors.textMuted)
                                     Text("\(info.turnCount) turns")
-                                        .font(DispatchTypography.caption(12))
-                                        .foregroundStyle(DispatchColors.textMuted)
+                                        .font(ScoutTypography.caption(12))
+                                        .foregroundStyle(ScoutColors.textMuted)
                                     Text(RelativeTime.string(from: info.cachedAt))
-                                        .font(DispatchTypography.caption(12))
-                                        .foregroundStyle(DispatchColors.textMuted)
+                                        .font(ScoutTypography.caption(12))
+                                        .foregroundStyle(ScoutColors.textMuted)
                                 }
                             }
 
@@ -86,10 +86,10 @@ struct SessionHistoryView: View {
 
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(DispatchColors.textMuted)
+                                .foregroundStyle(ScoutColors.textMuted)
                         }
                     }
-                    .listRowBackground(DispatchColors.backgroundAdaptive)
+                    .listRowBackground(ScoutColors.backgroundAdaptive)
                 }
                 .onDelete { indexSet in
                     for index in indexSet {
@@ -104,17 +104,17 @@ struct SessionHistoryView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DispatchSpacing.lg) {
+        VStack(spacing: ScoutSpacing.lg) {
             Spacer()
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 36))
-                .foregroundStyle(DispatchColors.textMuted)
+                .foregroundStyle(ScoutColors.textMuted)
             Text("Nothing saved")
-                .font(DispatchTypography.body(16, weight: .medium))
-                .foregroundStyle(DispatchColors.textSecondary)
+                .font(ScoutTypography.body(16, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 }
 
@@ -163,25 +163,25 @@ struct CachedSessionView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         // Source banner
-                        HStack(spacing: DispatchSpacing.sm) {
+                        HStack(spacing: ScoutSpacing.sm) {
                             Image(systemName: "internaldrive")
                                 .font(.system(size: 12))
                             Text("Read only")
-                                .font(DispatchTypography.caption(12, weight: .medium))
+                                .font(ScoutTypography.caption(12, weight: .medium))
                         }
-                        .foregroundStyle(DispatchColors.textMuted)
-                        .padding(.vertical, DispatchSpacing.sm)
+                        .foregroundStyle(ScoutColors.textMuted)
+                        .padding(.vertical, ScoutSpacing.sm)
 
                         ForEach(turns) { turn in
                             TurnView(turn: turn)
                         }
                     }
-                    .padding(.top, DispatchSpacing.sm)
-                    .padding(.bottom, DispatchSpacing.md)
+                    .padding(.top, ScoutSpacing.sm)
+                    .padding(.bottom, ScoutSpacing.md)
                 }
             }
         }
-        .background(DispatchColors.backgroundAdaptive)
+        .background(ScoutColors.backgroundAdaptive)
         .navigationTitle(state?.session.name ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -199,51 +199,51 @@ struct CachedSessionView: View {
         VStack(spacing: 0) {
             Spacer()
 
-            VStack(spacing: DispatchSpacing.xl) {
+            VStack(spacing: ScoutSpacing.xl) {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(DispatchColors.accent.opacity(0.08))
+                        .fill(ScoutColors.accent.opacity(0.08))
                         .frame(width: 72, height: 72)
                     Image(systemName: "text.document")
                         .font(.system(size: 28, weight: .light))
-                        .foregroundStyle(DispatchColors.accent.opacity(0.5))
+                        .foregroundStyle(ScoutColors.accent.opacity(0.5))
                 }
 
-                VStack(spacing: DispatchSpacing.sm) {
+                VStack(spacing: ScoutSpacing.sm) {
                     Text("No turns cached")
-                        .font(DispatchTypography.body(17, weight: .semibold))
-                        .foregroundStyle(DispatchColors.textPrimary)
+                        .font(ScoutTypography.body(17, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
 
                     if let session = state?.session {
                         // Show what we know about this session
-                        HStack(spacing: DispatchSpacing.md) {
+                        HStack(spacing: ScoutSpacing.md) {
                             Label(
                                 AdapterIcon.displayName(for: session.adapterType),
                                 systemImage: AdapterIcon.systemName(for: session.adapterType)
                             )
-                            .font(DispatchTypography.caption(12, weight: .medium))
-                            .foregroundStyle(DispatchColors.textSecondary)
+                            .font(ScoutTypography.caption(12, weight: .medium))
+                            .foregroundStyle(ScoutColors.textSecondary)
 
                             Text(session.status.rawValue)
-                                .font(DispatchTypography.caption(12))
-                                .foregroundStyle(DispatchColors.textMuted)
+                                .font(ScoutTypography.caption(12))
+                                .foregroundStyle(ScoutColors.textMuted)
                         }
                     }
 
                         Text("No messages yet.")
-                            .font(DispatchTypography.body(14))
-                            .foregroundStyle(DispatchColors.textMuted)
-                            .padding(.top, DispatchSpacing.xxs)
+                            .font(ScoutTypography.body(14))
+                            .foregroundStyle(ScoutColors.textMuted)
+                            .padding(.top, ScoutSpacing.xxs)
                 }
 
                 // Fetch from bridge button
                 if isConnected {
-                    VStack(spacing: DispatchSpacing.sm) {
+                    VStack(spacing: ScoutSpacing.sm) {
                         Button {
                             Task { await fetchFromBridge() }
                         } label: {
-                            HStack(spacing: DispatchSpacing.sm) {
+                            HStack(spacing: ScoutSpacing.sm) {
                                 if isFetchingFromBridge {
                                     ProgressView()
                                         .controlSize(.small)
@@ -252,11 +252,11 @@ struct CachedSessionView: View {
                                         .font(.system(size: 14, weight: .semibold))
                                 }
                                 Text(isFetchingFromBridge ? "Fetching..." : "Fetch from bridge")
-                                    .font(DispatchTypography.body(14, weight: .semibold))
+                                    .font(ScoutTypography.body(14, weight: .semibold))
                             }
-                            .padding(.horizontal, DispatchSpacing.xl)
-                            .padding(.vertical, DispatchSpacing.md)
-                            .background(DispatchColors.accent)
+                            .padding(.horizontal, ScoutSpacing.xl)
+                            .padding(.vertical, ScoutSpacing.md)
+                            .background(ScoutColors.accent)
                             .foregroundStyle(.white)
                             .clipShape(Capsule())
                         }
@@ -264,26 +264,26 @@ struct CachedSessionView: View {
 
                         if let fetchError {
                             Text(fetchError)
-                                .font(DispatchTypography.caption(12))
-                                .foregroundStyle(DispatchColors.statusError)
+                                .font(ScoutTypography.caption(12))
+                                .foregroundStyle(ScoutColors.statusError)
                         }
                     }
                 } else {
-                    HStack(spacing: DispatchSpacing.xs) {
+                    HStack(spacing: ScoutSpacing.xs) {
                         Circle()
-                            .fill(DispatchColors.statusIdle)
+                            .fill(ScoutColors.statusIdle)
                             .frame(width: 6, height: 6)
                         Text("Connect to fetch")
-                            .font(DispatchTypography.caption(12))
-                            .foregroundStyle(DispatchColors.textMuted)
+                            .font(ScoutTypography.caption(12))
+                            .foregroundStyle(ScoutColors.textMuted)
                     }
-                    .padding(.top, DispatchSpacing.xs)
+                    .padding(.top, ScoutSpacing.xs)
                 }
             }
 
             Spacer()
         }
-        .padding(.horizontal, DispatchSpacing.xxl)
+        .padding(.horizontal, ScoutSpacing.xxl)
     }
 
     // MARK: - Bridge Fetch
