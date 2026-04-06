@@ -1,44 +1,61 @@
 import type { ScoutCommandContext } from "../context.ts";
-import { runAskCommand } from "./ask.ts";
-import { runBroadcastCommand } from "./broadcast.ts";
-import { runCardCommand } from "./card.ts";
-import { runDownCommand } from "./down.ts";
-import { runDoctorCommand } from "./doctor.ts";
-import { runEnrollCommand } from "./enroll.ts";
-import { runEnvCommand } from "./env.ts";
-import { runPairCommand } from "./pair.ts";
-import { runPsCommand } from "./ps.ts";
-import { runRestartCommand } from "./restart.ts";
-import { runRuntimesCommand } from "./runtimes.ts";
-import { runSendCommand } from "./send.ts";
-import { runSetupCommand } from "./setup.ts";
-import { runSpeakCommand } from "./speak.ts";
-import { runTuiCommand } from "./tui.ts";
-import { runUpCommand } from "./up.ts";
-import { runWatchCommand } from "./watch.ts";
-import { runWhoCommand } from "./who.ts";
 
 export type ScoutCommandHandler = (context: ScoutCommandContext, args: string[]) => Promise<void>;
 
-export const SCOUT_COMMAND_HANDLERS: Record<string, ScoutCommandHandler> = {
-  ask: runAskCommand,
-  broadcast: runBroadcastCommand,
-  card: runCardCommand,
-  down: runDownCommand,
-  doctor: runDoctorCommand,
-  enroll: runEnrollCommand,
-  env: runEnvCommand,
-  pair: runPairCommand,
-  ps: runPsCommand,
-  restart: runRestartCommand,
-  runtimes: runRuntimesCommand,
-  send: runSendCommand,
-  setup: runSetupCommand,
-  speak: runSpeakCommand,
-  tui: runTuiCommand,
-  up: runUpCommand,
-  watch: runWatchCommand,
-  who: runWhoCommand,
-};
+export type ScoutCommandName =
+  | "ask"
+  | "broadcast"
+  | "card"
+  | "down"
+  | "doctor"
+  | "enroll"
+  | "env"
+  | "pair"
+  | "ps"
+  | "restart"
+  | "runtimes"
+  | "send"
+  | "setup"
+  | "speak"
+  | "up"
+  | "watch"
+  | "who";
 
-export type ScoutCommandName = keyof typeof SCOUT_COMMAND_HANDLERS;
+export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<ScoutCommandHandler> {
+  switch (name) {
+    case "ask":
+      return (await import("./ask.ts")).runAskCommand;
+    case "broadcast":
+      return (await import("./broadcast.ts")).runBroadcastCommand;
+    case "card":
+      return (await import("./card.ts")).runCardCommand;
+    case "down":
+      return (await import("./down.ts")).runDownCommand;
+    case "doctor":
+      return (await import("./doctor.ts")).runDoctorCommand;
+    case "enroll":
+      return (await import("./enroll.ts")).runEnrollCommand;
+    case "env":
+      return (await import("./env.ts")).runEnvCommand;
+    case "pair":
+      return (await import("./pair.ts")).runPairCommand;
+    case "ps":
+      return (await import("./ps.ts")).runPsCommand;
+    case "restart":
+      return (await import("./restart.ts")).runRestartCommand;
+    case "runtimes":
+      return (await import("./runtimes.ts")).runRuntimesCommand;
+    case "send":
+      return (await import("./send.ts")).runSendCommand;
+    case "setup":
+      return (await import("./setup.ts")).runSetupCommand;
+    case "speak":
+      return (await import("./speak.ts")).runSpeakCommand;
+    case "up":
+      return (await import("./up.ts")).runUpCommand;
+    case "watch":
+      return (await import("./watch.ts")).runWatchCommand;
+    case "who":
+      return (await import("./who.ts")).runWhoCommand;
+  }
+}

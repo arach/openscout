@@ -32,14 +32,14 @@ publish() {
   version=$(node -p "require('./$dir/package.json').version")
 
   echo ""
-  echo "Publishing $name@$version…"
+  echo "Publishing ${name}@${version}…"
 
   if $DRY_RUN; then
     echo "  (dry run — skipped)"
     return
   fi
 
-  npm publish --prefix "$dir" --access public --userconfig "$NPMRC"
+  (cd "$dir" && npm publish --access public --userconfig "$NPMRC")
   echo "  ✓ $name@$version"
 }
 

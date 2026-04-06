@@ -19,7 +19,7 @@ Parse the arguments to determine which platforms to ship and whether to bump the
 **Platform detection:**
 - No args or `both` → ship both platforms (use `bun run ship`)
 - `ios` → iOS only (use `bun run ship:ios`)
-- `mac` or `macos` → macOS only (use `bun run ship:mac`)
+- `mac`, `macos`, or `app` → macOS DMG only (use `bun run ship:app`)
 - `npm` → npm packages only (use `bun run ship:npm`)
 - `--same-version` → append `-- --same-version` to the iOS invocation; macOS/npm unaffected
 

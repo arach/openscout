@@ -10,16 +10,20 @@ import {
   resolveElectronAppSource,
 } from "./electron-bundle-lib.mjs";
 
-const runtimePackages = [
-  "express",
-  "lucide-react",
-  "motion",
-  "react",
-  "react-dom",
-  "react-markdown",
-];
-
 const projectRoot = process.cwd();
+
+const workspacePackages = [
+  {
+    name: "@openscout/protocol",
+    sourcePath: path.join(projectRoot, "..", "protocol"),
+    copyPaths: ["dist", "package.json"],
+  },
+  {
+    name: "@openscout/runtime",
+    sourcePath: path.join(projectRoot, "..", "runtime"),
+    copyPaths: ["bin", "dist", "package.json"],
+  },
+];
 const outputRoot = path.join(projectRoot, "dist", "macos");
 const { packageJson: rootPackage, productName, bundleId, bundleIconSource, windowIconSource } = readPackageMetadata(projectRoot);
 const electronAppSource = resolveElectronAppSource(projectRoot);
@@ -29,6 +33,8 @@ const appBundlePath = path.join(outputRoot, `${productName}.app`);
 const appContentsPath = path.join(appBundlePath, "Contents");
 const appResourcesPath = path.join(appContentsPath, "Resources");
 const appRuntimePath = path.join(appResourcesPath, "app");
+const appEntitlementsPath = path.join(projectRoot, "entitlements.mac.plist");
+const helperEntitlementsPath = path.join(projectRoot, "entitlements.mac.inherit.plist");
 const signIdentity = process.env.CODESIGN_IDENTITY?.trim() || "Developer ID Application: Arach Tchoupani (2U83JFPW66)";
 const shouldCodesign = process.env.SKIP_CODESIGN !== "1";
 const shouldNotarize = process.env.SKIP_NOTARIZE !== "1";
@@ -41,6 +47,22 @@ async function copyIntoBundle(source, destination) {
 
   await fs.rm(destination, { recursive: true, force: true });
   await fs.cp(source, destination, { recursive: true });
+}
+
+async function copyWorkspacePackageIntoBundle(packageName, sourcePath, copyPaths) {
+  const packageDestination = path.join(appRuntimePath, "node_modules", ...packageName.split("/"));
+  await fs.rm(packageDestination, { recursive: true, force: true });
+  await fs.mkdir(packageDestination, { recursive: true });
+
+  for (const relativePath of copyPaths) {
+    const source = path.join(sourcePath, relativePath);
+    if (!existsSync(source)) {
+      throw new Error(`Expected workspace package resource at ${source}`);
+    }
+
+    const destination = path.join(packageDestination, relativePath);
+    await fs.cp(source, destination, { recursive: true });
+  }
 }
 
 if (!existsSync(electronAppSource)) {
@@ -73,13 +95,12 @@ await fs.copyFile(
 );
 
 const runtimeDependencies = Object.fromEntries(
-  runtimePackages.map((name) => {
-    const version = rootPackage.dependencies?.[name];
+  Object.entries(rootPackage.dependencies ?? {}).filter(([name, version]) => {
     if (!version) {
       throw new Error(`Missing runtime dependency version for ${name} in package.json`);
     }
 
-    return [name, version];
+    return !name.startsWith("@openscout/");
   }),
 );
 
@@ -104,10 +125,20 @@ execFileSync("bun", ["install", "--production"], {
   env: process.env,
 });
 
+for (const workspacePackage of workspacePackages) {
+  await copyWorkspacePackageIntoBundle(
+    workspacePackage.name,
+    workspacePackage.sourcePath,
+    workspacePackage.copyPaths,
+  );
+}
+
 if (shouldCodesign) {
   codesignAppBundle(appBundlePath, signIdentity, {
     runtime: true,
     timestamp: true,
+    appEntitlementsPath,
+    helperEntitlementsPath,
   });
 }
 

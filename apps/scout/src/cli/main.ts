@@ -2,7 +2,7 @@ import { parseScoutArgv } from "./argv.ts";
 import { createScoutCommandContext, defaultScoutContextDirectory } from "./context.ts";
 import { ScoutCliError } from "./errors.ts";
 import { runAskWithOptions } from "./commands/ask.ts";
-import { SCOUT_COMMAND_HANDLERS } from "./commands/index.ts";
+import { loadScoutCommandHandler } from "./commands/index.ts";
 import { renderScoutHelp } from "./help.ts";
 import { parseImplicitAskCommandOptions } from "./options.ts";
 import { findScoutCommandRegistration } from "./registry.ts";
@@ -53,11 +53,7 @@ async function main() {
   }
 
   const resolvedCommand = registration.canonicalName ?? registration.name;
-  const handler = SCOUT_COMMAND_HANDLERS[resolvedCommand as keyof typeof SCOUT_COMMAND_HANDLERS];
-  if (!handler) {
-    throw new ScoutCliError(`unknown command: ${resolvedCommand}`);
-  }
-
+  const handler = await loadScoutCommandHandler(resolvedCommand as Parameters<typeof loadScoutCommandHandler>[0]);
   await handler(context, commandArgs);
 }
 
