@@ -24,7 +24,13 @@ struct SessionCardView: View {
 
                 Spacer()
 
-                StatusDot(sessionStatus, size: 7)
+                if summary.isCachedOnly {
+                    Image(systemName: "internaldrive")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                } else {
+                    StatusDot(sessionStatus, size: 7)
+                }
             }
 
             Text(summary.name)

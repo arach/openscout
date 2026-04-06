@@ -16,9 +16,13 @@ struct HomeView: View {
         connection.state == .connected
     }
 
+    private var surfacedSummaries: [SessionSummary] {
+        let source = isConnected ? store.summaries.filter { !$0.isCachedOnly } : store.summaries
+        return source.sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
     private var liveSummaries: [SessionSummary] {
-        store.summaries.filter { !$0.isCachedOnly }
-            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+        surfacedSummaries.filter { !$0.isCachedOnly }
     }
 
     private var activeSummaries: [SessionSummary] {
@@ -31,9 +35,13 @@ struct HomeView: View {
     }
 
     private var recentSummaries: [SessionSummary] {
-        liveSummaries.filter { summary in
+        surfacedSummaries.filter { summary in
             !activeSummaries.contains(where: { $0.sessionId == summary.sessionId })
         }
+    }
+
+    private var cachedSummaryCount: Int {
+        store.summaries.filter(\.isCachedOnly).count
     }
 
     var body: some View {
@@ -42,10 +50,6 @@ struct HomeView: View {
                 deviceCard
                     .padding(.horizontal, ScoutSpacing.lg)
                     .padding(.top, ScoutSpacing.lg)
-
-                activityBanner
-                    .padding(.horizontal, ScoutSpacing.lg)
-                    .padding(.top, ScoutSpacing.md)
 
                 if !activeSummaries.isEmpty {
                     activeSessionsSection
@@ -103,7 +107,7 @@ struct HomeView: View {
 
             Spacer()
 
-            if !isConnected && connection.hasTrustedBridge {
+            if !isConnected && connection.statusDetails.allowsRetry {
                 Button {
                     Task { await connection.reconnect() }
                 } label: {
@@ -129,11 +133,7 @@ struct HomeView: View {
     }
 
     private var connectionCardIcon: String {
-        switch connection.state {
-        case .connected: "desktopcomputer"
-        case .connecting, .handshaking, .reconnecting: "arrow.triangle.2.circlepath"
-        case .disconnected, .failed: "wifi.exclamationmark"
-        }
+        connection.statusDetails.symbol
     }
 
     private var connectionCardSubtitle: String {
@@ -141,15 +141,22 @@ struct HomeView: View {
         case .connected:
             let count = liveSummaries.count
             return count == 0 ? "Connected — no active sessions" : "Connected — \(count) session\(count == 1 ? "" : "s")"
-        case .connecting, .handshaking:
-            return "Connecting to your Mac..."
-        case .reconnecting(let attempt):
-            return attempt > 1 ? "Reconnecting (attempt \(attempt))..." : "Reconnecting..."
-        case .failed:
-            return "Connection failed"
-        case .disconnected:
-            return "Disconnected"
+        default:
+            if cachedSummaryCount > 0,
+               connection.state != .connecting,
+               connection.state != .handshaking,
+               !matchesReconnectingState(connection.state) {
+                return "\(connection.statusDetails.shortLabel) — \(cachedSummaryCount) cached session\(cachedSummaryCount == 1 ? "" : "s") available"
+            }
+            return connection.statusDetails.message ?? connection.statusDetails.shortLabel
         }
+    }
+
+    private func matchesReconnectingState(_ state: ConnectionState) -> Bool {
+        if case .reconnecting = state {
+            return true
+        }
+        return false
     }
 
     // MARK: - Activity Banner

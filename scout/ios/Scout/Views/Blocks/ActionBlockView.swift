@@ -6,9 +6,13 @@
 import SwiftUI
 
 struct ActionBlockView: View {
+    let sessionId: String
     let block: Block
 
+    @Environment(ConnectionManager.self) private var connection
     @State private var isOutputExpanded = false
+    @State private var decisionPending: String?
+    @State private var decisionError: String?
 
     private var action: Action? { block.action }
     private var kind: ActionKind { action?.kind ?? .command }
@@ -32,6 +36,10 @@ struct ActionBlockView: View {
                     toolCallBody(action: action)
                 case .subagent:
                     subagentBody(action: action)
+                }
+
+                if action.status == .awaitingApproval, let approval = action.approval {
+                    approvalSection(action: action, approval: approval)
                 }
 
                 if !action.output.isEmpty {
@@ -202,6 +210,71 @@ struct ActionBlockView: View {
         .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
     }
 
+    private func approvalSection(action: Action, approval: ActionApproval) -> some View {
+        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+            Divider()
+                .background(ScoutColors.divider)
+
+            VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
+                HStack(spacing: ScoutSpacing.xs) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(approvalTint(approval))
+                    Text("Approval required")
+                        .font(ScoutTypography.caption(12, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
+                    Spacer()
+                    Text(approvalRiskLabel(approval))
+                        .font(ScoutTypography.caption(11, weight: .medium))
+                        .foregroundStyle(approvalTint(approval))
+                }
+
+                Text(approval.description?.isEmpty == false ? approval.description! : approvalFallbackDescription(action))
+                    .font(ScoutTypography.body(13))
+                    .foregroundStyle(ScoutColors.textSecondary)
+
+                if let decisionError {
+                    Text(decisionError)
+                        .font(ScoutTypography.caption(11, weight: .medium))
+                        .foregroundStyle(ScoutColors.statusError)
+                }
+            }
+            .padding(.horizontal, ScoutSpacing.md)
+            .padding(.top, ScoutSpacing.sm)
+
+            HStack(spacing: ScoutSpacing.sm) {
+                Button {
+                    Task { await decide(approval: approval, decision: "approve") }
+                } label: {
+                    if decisionPending == "approve" {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Label("Approve", systemImage: "checkmark")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ScoutColors.statusActive)
+                .disabled(decisionPending != nil)
+
+                Button {
+                    Task { await decide(approval: approval, decision: "deny") }
+                } label: {
+                    if decisionPending == "deny" {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Label("Deny", systemImage: "xmark")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(decisionPending != nil)
+            }
+            .padding(.horizontal, ScoutSpacing.md)
+            .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
+        }
+    }
+
     // MARK: - Output Section
 
     private func outputSection(action: Action) -> some View {
@@ -281,6 +354,11 @@ struct ActionBlockView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(ScoutColors.statusError)
                 .accessibilityLabel("Failed")
+        case .awaitingApproval:
+            Image(systemName: "hand.raised.circle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(ScoutColors.statusStreaming)
+                .accessibilityLabel("Awaiting approval")
         }
     }
 
@@ -318,6 +396,54 @@ struct ActionBlockView: View {
         case .subagent: return "Subagent"
         }
     }
+
+    private func approvalFallbackDescription(_ action: Action) -> String {
+        switch action.kind {
+        case .command:
+            return action.command ?? "Approve this command"
+        case .fileChange:
+            return action.path ?? "Approve this file change"
+        case .toolCall:
+            return action.toolName ?? "Approve this tool call"
+        case .subagent:
+            return action.agentName ?? action.agentId ?? "Approve this subagent request"
+        }
+    }
+
+    private func approvalRiskLabel(_ approval: ActionApproval) -> String {
+        switch approval.risk ?? .medium {
+        case .low: return "Low risk"
+        case .medium: return "Medium risk"
+        case .high: return "High risk"
+        }
+    }
+
+    private func approvalTint(_ approval: ActionApproval) -> Color {
+        switch approval.risk ?? .medium {
+        case .low: return ScoutColors.statusActive
+        case .medium: return ScoutColors.statusStreaming
+        case .high: return ScoutColors.statusError
+        }
+    }
+
+    @MainActor
+    private func decide(approval: ActionApproval, decision: String) async {
+        decisionPending = decision
+        decisionError = nil
+        defer { decisionPending = nil }
+
+        do {
+            try await connection.decideAction(
+                sessionId: sessionId,
+                turnId: block.turnId,
+                blockId: block.id,
+                version: approval.version,
+                decision: decision
+            )
+        } catch {
+            decisionError = error.localizedDescription
+        }
+    }
 }
 
 // MARK: - Preview
@@ -325,7 +451,7 @@ struct ActionBlockView: View {
 #Preview {
     ScrollView {
         VStack(spacing: 16) {
-            ActionBlockView(block: Block(
+            ActionBlockView(sessionId: "s1", block: Block(
                 id: "1", turnId: "t1", type: .action, status: .completed, index: 0,
                 action: Action(
                     kind: .command, status: .completed, output: "Build succeeded\n2 warnings",
@@ -333,7 +459,7 @@ struct ActionBlockView: View {
                 )
             ))
 
-            ActionBlockView(block: Block(
+            ActionBlockView(sessionId: "s1", block: Block(
                 id: "2", turnId: "t1", type: .action, status: .completed, index: 1,
                 action: Action(
                     kind: .fileChange, status: .completed, output: "",
@@ -342,7 +468,7 @@ struct ActionBlockView: View {
                 )
             ))
 
-            ActionBlockView(block: Block(
+            ActionBlockView(sessionId: "s1", block: Block(
                 id: "3", turnId: "t1", type: .action, status: .streaming, index: 2,
                 action: Action(
                     kind: .toolCall, status: .running, output: "Searching...",

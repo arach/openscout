@@ -1,46 +1,21 @@
-// SplashView — Pre-splash wordmark, then logo reveal video.
+// SplashView — Plays the scout-reveal video, then transitions out.
 //
-// 1. Mono wordmark appears instantly on dark bg.
-// 2. Logo reveal video fades in above the wordmark.
-// 3. After the video ends, calls onFinished so the app can transition.
+// Flash screen (system launch screen) → this splash → home screen.
+// No extra text, no delays. Just the video on a matching dark bg.
 
 import SwiftUI
 import AVKit
 
 struct SplashView: View {
-    var onFinished: () -> Void
-
-    @State private var showVideo = false
-    @State private var videoFinished = false
+    var onFinished: @MainActor @Sendable () -> Void
 
     var body: some View {
         ZStack {
-            ScoutColors.backgroundAdaptive
+            Color("LaunchBackground")
                 .ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                if showVideo {
-                    LogoRevealPlayer(onFinished: {
-                        videoFinished = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            onFinished()
-                        }
-                    })
-                    .frame(width: 180, height: 210)
-                    .transition(.opacity)
-                }
-
-                Text("scout")
-                    .font(.system(size: 18, weight: .medium, design: .monospaced))
-                    .foregroundStyle(ScoutColors.textSecondary)
-                    .opacity(videoFinished ? 0 : 1)
-            }
-        }
-        .task {
-            try? await Task.sleep(for: .seconds(0.3))
-            withAnimation(.easeIn(duration: 0.4)) {
-                showVideo = true
-            }
+            LogoRevealPlayer(onFinished: onFinished)
+                .frame(width: 180, height: 210)
         }
     }
 }
@@ -54,7 +29,10 @@ private struct LogoRevealPlayer: UIViewRepresentable {
         let container = UIView()
         container.backgroundColor = .clear
 
-        guard let url = Bundle.main.url(forResource: "scout-logo-reveal", withExtension: "mp4") else {
+        guard let url = Bundle.main.url(forResource: "scout-reveal", withExtension: "mp4") else {
+            // No video — skip splash immediately.
+            let callback = onFinished
+            DispatchQueue.main.async { callback() }
             return container
         }
 

@@ -1,49 +1,149 @@
-// RPC — JSON-RPC request/response types for the Dispatch bridge protocol.
+// RPC — tRPC WebSocket wire format types for the Dispatch bridge protocol.
 //
-// Canonical source: PROTOCOL.md §3.
-// Note: This is a simplified JSON-RPC dialect — no "jsonrpc" field.
+// Wire format: JSON-RPC 2.0 as spoken by tRPC v11 WebSocket adapter.
+// See: docs/bridge-hono-trpc-migration.md
 
 import Foundation
 import SwiftUI
 
-// MARK: - Request
+// MARK: - tRPC method routing
 
-struct RPCRequest: Encodable, Sendable {
-    let id: String
-    let method: String
-    let params: (any Encodable & Sendable)?
+/// Maps legacy method strings (e.g. "mobile/sessions") to tRPC procedure paths and method types.
+enum TRPCMethodType: String, Sendable {
+    case query
+    case mutation
+    case subscription
+}
 
-    init(method: String, params: (any Encodable & Sendable)? = nil) {
-        self.id = UUID().uuidString
-        self.method = method
-        self.params = params
+struct TRPCRoute: Sendable {
+    let path: String
+    let method: TRPCMethodType
+}
+
+/// Central lookup from legacy RPC method names to tRPC routes.
+/// Add new routes here as procedures are added to the bridge router.
+let trpcRouteMap: [String: TRPCRoute] = [
+    // Mobile surface
+    "mobile/sessions":          TRPCRoute(path: "mobile.sessions",        method: .query),
+    "mobile/session/snapshot":  TRPCRoute(path: "mobile.sessionSnapshot", method: .query),
+    "mobile/message/send":      TRPCRoute(path: "mobile.sendMessage",     method: .mutation),
+    "mobile/activity":          TRPCRoute(path: "mobile.activity",        method: .query),
+    "mobile/home":              TRPCRoute(path: "mobile.home",            method: .query),
+    "mobile/workspaces":        TRPCRoute(path: "mobile.workspaces",      method: .query),
+    "mobile/agents":            TRPCRoute(path: "mobile.agents",          method: .query),
+    "mobile/session/create":    TRPCRoute(path: "mobile.createSession",   method: .mutation),
+
+    // Session management
+    "session/list":             TRPCRoute(path: "session.list",           method: .query),
+    "session/create":           TRPCRoute(path: "session.create",         method: .mutation),
+    "session/close":            TRPCRoute(path: "session.close",          method: .mutation),
+    "session/resume":           TRPCRoute(path: "session.resume",         method: .mutation),
+
+    // Prompt / turn
+    "turn/interrupt":           TRPCRoute(path: "prompt.interrupt",       method: .mutation),
+    "action/decide":            TRPCRoute(path: "actionDecide",           method: .mutation),
+
+    // Sync
+    "sync/status":              TRPCRoute(path: "sync.status",            method: .query),
+    "sync/replay":              TRPCRoute(path: "sync.replay",            method: .query),
+
+    // Bridge
+    "bridge/status":            TRPCRoute(path: "bridge.status",          method: .query),
+
+    // Workspace
+    "workspace/info":           TRPCRoute(path: "workspace.info",         method: .query),
+    "workspace/list":           TRPCRoute(path: "workspace.list",         method: .query),
+    "workspace/open":           TRPCRoute(path: "workspace.open",         method: .mutation),
+
+    // History
+    "history/discover":         TRPCRoute(path: "history.discover",       method: .query),
+    "history/search":           TRPCRoute(path: "history.search",         method: .query),
+    "history/read":             TRPCRoute(path: "history.session",         method: .query),
+]
+
+// MARK: - Request (tRPC wire format)
+
+/// tRPC WebSocket request envelope.
+///
+/// Wire shape:
+/// ```json
+/// {"id": 1, "jsonrpc": "2.0", "method": "query", "params": {"path": "mobile.sessions", "input": {...}}}
+/// ```
+struct TRPCRequest: Encodable, Sendable {
+    let id: Int
+    let jsonrpc: String = "2.0"
+    let method: String              // "query" | "mutation" | "subscription" | "subscription.stop"
+    let params: TRPCRequestParams?
+
+    init(id: Int, method: TRPCMethodType, path: String, input: (any Encodable & Sendable)?) {
+        self.id = id
+        self.method = method.rawValue
+        if let input {
+            self.params = TRPCRequestParams(path: path, input: AnyEncodable(input))
+        } else {
+            self.params = TRPCRequestParams(path: path, input: nil)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, method, params
+        case id, jsonrpc, method, params
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encode(jsonrpc, forKey: .jsonrpc)
         try container.encode(method, forKey: .method)
         if let params {
-            try container.encode(AnyEncodable(params), forKey: .params)
+            try container.encode(params, forKey: .params)
         }
     }
 }
 
-// MARK: - Response
+struct TRPCRequestParams: Encodable, Sendable {
+    let path: String
+    let input: AnyEncodable?
 
-struct RPCResponse: Codable, Sendable {
-    let id: String
-    let result: AnyCodable?
-    let error: RPCError?
+    private enum CodingKeys: String, CodingKey {
+        case path, input
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(path, forKey: .path)
+        if let input {
+            try container.encode(input, forKey: .input)
+        }
+    }
 }
 
-struct RPCError: Codable, Sendable {
+// MARK: - Response (tRPC wire format)
+
+/// tRPC WebSocket response envelope.
+///
+/// Success: `{"id": 1, "jsonrpc": "2.0", "result": {"type": "data", "data": ...}}`
+/// Error:   `{"id": 1, "jsonrpc": "2.0", "error": {"code": -32004, "message": "...", "data": {"code": "NOT_FOUND"}}}`
+struct TRPCResponse: Codable, Sendable {
+    let id: Int
+    let result: TRPCResult?
+    let error: TRPCError?
+}
+
+struct TRPCResult: Codable, Sendable {
+    let type: String            // "data" | "started" | "stopped"
+    let data: AnyCodable?
+    /// Event ID for tracked subscription data — used for reconnect recovery via lastEventId.
+    let id: String?
+}
+
+struct TRPCError: Codable, Sendable {
     let code: Int
     let message: String
+    let data: TRPCErrorData?
+}
+
+struct TRPCErrorData: Codable, Sendable {
+    let code: String?           // e.g. "NOT_FOUND", "BAD_REQUEST"
 }
 
 // MARK: - Typed request params
@@ -92,10 +192,23 @@ struct DirectoryEntry: Codable, Identifiable, Sendable {
     let name: String
     let path: String
     let markers: [String]
+    let currentBranch: String?
 
     var id: String { path }
 
     var isProject: Bool { !markers.isEmpty }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        markers = try container.decode([String].self, forKey: .markers)
+        currentBranch = try container.decodeIfPresent(String.self, forKey: .currentBranch)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, path, markers, currentBranch
+    }
 }
 
 struct WorkspaceListResponse: Codable, Sendable {
@@ -127,6 +240,9 @@ struct MobileCreateSessionParams: Codable, Sendable {
     var agentName: String?
     var worktree: String?
     var profile: String?
+    var branch: String?
+    var model: String?
+    var forceNew: Bool?
 }
 
 struct MobileSessionSnapshotParams: Codable, Sendable {
@@ -142,6 +258,15 @@ struct MobileSendMessageParams: Codable, Sendable {
     var replyToMessageId: String?
     var referenceMessageIds: [String]?
     var harness: String?
+}
+
+struct ActionDecideParams: Codable, Sendable {
+    let sessionId: String
+    let turnId: String
+    let blockId: String
+    let version: Int
+    let decision: String
+    var reason: String?
 }
 
 struct MobileWorkspaceHarnessSummary: Codable, Sendable {
@@ -300,7 +425,7 @@ struct ActivityItem: Codable, Identifiable, Sendable {
 
 // MARK: - Type-erased Encodable wrapper
 
-private struct AnyEncodable: Encodable, @unchecked Sendable {
+struct AnyEncodable: Encodable, @unchecked Sendable {
     let value: any Encodable
 
     init(_ value: any Encodable) {

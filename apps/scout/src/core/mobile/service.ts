@@ -86,12 +86,15 @@ export type ScoutMobileHomeState = {
   };
 };
 
-export type CreateScoutMobileSessionInput = {
+export type CreateScoutSessionInput = {
   workspaceId: string;
   harness?: AgentHarness;
   agentName?: string;
   worktree?: string | null;
   profile?: string | null;
+  branch?: string;
+  model?: string;
+  forceNew?: boolean;
 };
 
 export type ScoutMobileSessionHandle = {
@@ -652,8 +655,8 @@ export async function getScoutMobileSessionSnapshot(
   };
 }
 
-export async function createScoutMobileSession(
-  input: CreateScoutMobileSessionInput,
+export async function createScoutSession(
+  input: CreateScoutSessionInput,
   currentDirectory?: string,
   deviceId?: string,
 ): Promise<ScoutMobileSessionHandle> {
@@ -663,11 +666,32 @@ export async function createScoutMobileSession(
     throw new Error(`Unknown workspace "${input.workspaceId}".`);
   }
 
+  // When forceNew is true, generate a unique agent name so it gets
+  // a fresh agent ID and conversation (the broker derives conversation ID
+  // deterministically from the agent ID).
+  const agentName = input.forceNew
+    ? await deriveNewAgentName(workspace.projectName, input.branch, input.harness)
+    : workspace.projectName;
+
+  // If worktree requested, create a git worktree so the agent works in isolation.
+  let agentCwd = workspace.root;
+  if (input.worktree) {
+    const worktreeResult = await createGitWorktree(workspace.root, agentName);
+    if (worktreeResult) {
+      agentCwd = worktreeResult.path;
+    }
+  }
+
+  // projectPath = original root (for agent config resolution)
+  // cwdOverride = worktree path (agent works here instead of project root)
   const localAgent = await upScoutAgent({
     projectPath: workspace.root,
-    agentName: workspace.projectName,
+    agentName,
     harness: input.harness,
     currentDirectory: currentDirectory ?? workspace.root,
+    cwdOverride: agentCwd !== workspace.root ? agentCwd : undefined,
+    model: input.model,
+    branch: input.branch,
   });
 
   const broker = await loadScoutBrokerContext();
@@ -736,6 +760,112 @@ export async function sendScoutMobileMessage(
     source: "scout-mobile",
     deviceId,
   });
+}
+
+/**
+ * Derive a human-readable agent name for a new session.
+ *
+ * Strategy: project-branch-harness, incrementing if taken.
+ * Examples:
+ *   openscout + main + claude-code  → "openscout"        (first, default harness)
+ *   openscout + feat/trpc + claude  → "openscout-trpc"   (branch suffix)
+ *   openscout + main + codex        → "openscout-codex"  (non-default harness)
+ *   openscout + main + claude-code  → "openscout-2"      (second session, same config)
+ */
+async function deriveNewAgentName(
+  projectName: string,
+  branch?: string,
+  harness?: string,
+): Promise<string> {
+  const parts = [projectName.toLowerCase()];
+
+  // Add shortened branch — take last segment, strip common prefixes
+  if (branch) {
+    const branchPart = branch
+      .split("/").pop()!
+      .replace(/^(feat|fix|chore|release|hotfix)[/-]?/i, "")
+      .slice(0, 20);
+    if (branchPart && branchPart !== "main" && branchPart !== "master") {
+      parts.push(branchPart);
+    }
+  }
+
+  // Add harness only if not the default
+  if (harness && harness !== "claude-code" && harness !== "claude") {
+    parts.push(harness);
+  }
+
+  const base = parts.join("-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
+
+  // Check existing agents in the broker to find the next available number
+  const broker = await loadScoutBrokerContext();
+  if (broker) {
+    const existingIds = Object.keys(broker.snapshot.agents);
+    const matchingCount = existingIds.filter((id) =>
+      id.startsWith(base) || id.includes(`.${base}.`) || id.includes(`.${base}-`)
+    ).length;
+    if (matchingCount > 0) {
+      return `${base}-${matchingCount + 1}`;
+    }
+  }
+
+  return base;
+}
+
+/**
+ * Create a git worktree for an agent session.
+ *
+ * Creates a new branch `scout/<agentName>` and a worktree at
+ * `<projectRoot>/.scout-worktrees/<agentName>`.
+ *
+ * Returns the worktree path, or null if the project isn't a git repo.
+ */
+async function createGitWorktree(
+  projectRoot: string,
+  agentName: string,
+): Promise<{ path: string; branch: string } | null> {
+  const { execSync } = await import("child_process");
+  const { join } = await import("path");
+  const { mkdirSync, existsSync } = await import("fs");
+
+  // Check if this is a git repo
+  try {
+    execSync("git rev-parse --git-dir", { cwd: projectRoot, stdio: "pipe" });
+  } catch {
+    return null;
+  }
+
+  const branchName = `scout/${agentName}`;
+  const worktreeDir = join(projectRoot, ".scout-worktrees");
+  const worktreePath = join(worktreeDir, agentName);
+
+  // If worktree already exists, reuse it
+  if (existsSync(worktreePath)) {
+    return { path: worktreePath, branch: branchName };
+  }
+
+  mkdirSync(worktreeDir, { recursive: true });
+
+  try {
+    // Create worktree with a new branch based on current HEAD
+    execSync(
+      `git worktree add -b "${branchName}" "${worktreePath}"`,
+      { cwd: projectRoot, stdio: "pipe" },
+    );
+    return { path: worktreePath, branch: branchName };
+  } catch (error) {
+    // Branch might already exist — try without -b
+    try {
+      execSync(
+        `git worktree add "${worktreePath}" "${branchName}"`,
+        { cwd: projectRoot, stdio: "pipe" },
+      );
+      return { path: worktreePath, branch: branchName };
+    } catch {
+      // If both fail, fall back to no worktree
+      return null;
+    }
+  }
 }
 
 async function requireMobileRelayContext() {

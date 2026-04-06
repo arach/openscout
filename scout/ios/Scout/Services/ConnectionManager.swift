@@ -38,6 +38,13 @@ enum ConnectionState: Sendable, Equatable {
     }
 }
 
+enum BridgeHealthState: Sendable, Equatable {
+    case healthy
+    case suspect
+    case degraded
+    case offline
+}
+
 // MARK: - Errors
 
 enum ConnectionError: LocalizedError, Sendable {
@@ -46,6 +53,8 @@ enum ConnectionError: LocalizedError, Sendable {
     case rpcTimeout(method: String)
     case rpcError(code: Int, message: String)
     case invalidQRPayload(String)
+    case bridgeOffline
+    case relayUnavailable
     case reconnectExhausted
     case encodingFailed
     case decodingFailed(String)
@@ -63,6 +72,10 @@ enum ConnectionError: LocalizedError, Sendable {
             return "RPC error \(code): \(message)"
         case .invalidQRPayload(let reason):
             return "Invalid QR payload: \(reason)"
+        case .bridgeOffline:
+            return "Scout on your Mac appears to be offline"
+        case .relayUnavailable:
+            return "Scout can't reach the relay right now"
         case .reconnectExhausted:
             return "Reconnect attempts exhausted"
         case .encodingFailed:
@@ -79,27 +92,39 @@ extension Error {
     var scoutUserFacingMessage: String {
         if let connectionError = self as? ConnectionError {
             switch connectionError {
-            case .notConnected, .reconnectExhausted:
-                return "Scout on your Mac is unavailable right now. Make sure the bridge is running and try again."
+            case .bridgeOffline, .reconnectExhausted:
+                return "Your Mac looks offline or asleep. Open Scout on your Mac or wake it, then try again. Cached sessions on this iPhone stay available read-only."
+            case .relayUnavailable:
+                return "Scout can't reach the relay right now. Check your network connection and try again."
+            case .notConnected:
+                return "Scout isn't connected to your Mac right now. Reconnect and try again."
             case .rpcTimeout:
-                return "Scout on your Mac took too long to respond. Check that the bridge is awake and try again."
+                return "Scout on your Mac took too long to respond. It may be asleep or offline. Wake it and try again."
             case .rpcError(_, let message):
                 if message.localizedCaseInsensitiveContains("not connected")
                     || message.localizedCaseInsensitiveContains("bridge")
                     || message.localizedCaseInsensitiveContains("relay is not reachable") {
-                    return "Scout on your Mac is unavailable right now. Make sure the bridge is running and try again."
+                    return "Your Mac looks offline or asleep. Open Scout on your Mac or wake it, then try again. Cached sessions on this iPhone stay available read-only."
                 }
                 return message
             case .handshakeFailed, .identityError:
                 return "Scout couldn't establish a secure connection to your Mac. Reconnect and try again."
             case .invalidQRPayload:
-                return connectionError.localizedDescription ?? "That QR code isn't valid."
+                return connectionError.localizedDescription
             case .encodingFailed, .decodingFailed:
                 return "Scout hit a transport error talking to your Mac. Try again."
             }
         }
         return localizedDescription
     }
+}
+
+struct ConnectionStatusDetails: Sendable {
+    let shortLabel: String
+    let title: String
+    let message: String?
+    let symbol: String
+    let allowsRetry: Bool
 }
 
 // MARK: - Connection info (for reconnect)
@@ -134,12 +159,21 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: Observable state
 
     private(set) var state: ConnectionState = .disconnected
+    private(set) var health: BridgeHealthState = .offline
 
     private func setState(_ newState: ConnectionState) {
         if Thread.isMainThread {
             state = newState
         } else {
             DispatchQueue.main.sync { state = newState }
+        }
+    }
+
+    private func setHealth(_ newHealth: BridgeHealthState) {
+        if Thread.isMainThread {
+            health = newHealth
+        } else {
+            DispatchQueue.main.sync { health = newHealth }
         }
     }
 
@@ -161,6 +195,182 @@ final class ConnectionManager: @unchecked Sendable {
         return 7890
     }
 
+    var pairedBridgeName: String? {
+        currentTrustedBridge?.name?.trimmedNonEmpty
+    }
+
+    var pairedBridgeLastSeen: Date? {
+        currentTrustedBridge?.lastSeen
+    }
+
+    var pairedBridgeFingerprint: String? {
+        currentTrustedBridge?.publicKeyHex
+    }
+
+    var relayRoomId: String? {
+        connectionInfo?.roomId.trimmedNonEmpty
+    }
+
+    var lastConnectedAtDate: Date? {
+        lastConnectedAt
+    }
+
+    var lastSuccessfulRPCAtDate: Date? {
+        lastSuccessfulRPCAt
+    }
+
+    var lastIncomingMessageAtDate: Date? {
+        lastIncomingMessageAt
+    }
+
+    var statusDetails: ConnectionStatusDetails {
+        if !hasTrustedBridge {
+            return ConnectionStatusDetails(
+                shortLabel: "Not Paired",
+                title: "Not Paired",
+                message: "Pair this iPhone with Scout on your Mac to browse live sessions.",
+                symbol: "qrcode.viewfinder",
+                allowsRetry: false
+            )
+        }
+
+        switch health {
+        case .suspect:
+            return ConnectionStatusDetails(
+                shortLabel: "Checking Mac",
+                title: "Checking Your Mac",
+                message: "Scout is reconnecting and checking whether your Mac is reachable over Tailscale.",
+                symbol: "arrow.triangle.2.circlepath",
+                allowsRetry: false
+            )
+        case .degraded:
+            return ConnectionStatusDetails(
+                shortLabel: "Mac Reachable",
+                title: "Scout Not Responding",
+                message: "Your Mac is reachable, but Scout on your Mac is not responding yet. The app will keep retrying.",
+                symbol: "exclamationmark.triangle",
+                allowsRetry: true
+            )
+        case .offline:
+            return ConnectionStatusDetails(
+                shortLabel: "Mac Offline",
+                title: "Mac Offline",
+                message: "Scout could not reach your Mac over Tailscale after retrying. It is probably offline or asleep.",
+                symbol: "wifi.exclamationmark",
+                allowsRetry: true
+            )
+        case .healthy:
+            break
+        }
+
+        switch state {
+        case .connected:
+            return ConnectionStatusDetails(
+                shortLabel: "Connected",
+                title: "Connected",
+                message: nil,
+                symbol: "desktopcomputer",
+                allowsRetry: false
+            )
+        case .connecting, .handshaking:
+            return ConnectionStatusDetails(
+                shortLabel: "Connecting",
+                title: "Connecting to Your Mac",
+                message: "Opening a secure connection to Scout on your Mac.",
+                symbol: "arrow.triangle.2.circlepath",
+                allowsRetry: false
+            )
+        case .reconnecting(let attempt):
+            let attemptSuffix = attempt > 1 ? " Attempt \(attempt) of \(Self.maxReconnectAttempts)." : ""
+            return ConnectionStatusDetails(
+                shortLabel: "Reconnecting",
+                title: "Reconnecting to Your Mac",
+                message: "Trying to reach Scout on your Mac again.\(attemptSuffix)",
+                symbol: "arrow.triangle.2.circlepath",
+                allowsRetry: false
+            )
+        case .disconnected:
+            return ConnectionStatusDetails(
+                shortLabel: "Disconnected",
+                title: "Disconnected",
+                message: "Scout is disconnected from your Mac and checking whether it can reconnect.",
+                symbol: "wifi.exclamationmark",
+                allowsRetry: true
+            )
+        case .failed(let error):
+            if let connectionError = error as? ConnectionError {
+                switch connectionError {
+                case .bridgeOffline, .reconnectExhausted:
+                    return ConnectionStatusDetails(
+                        shortLabel: "Mac Offline",
+                        title: "Mac Offline",
+                        message: error.scoutUserFacingMessage,
+                        symbol: "wifi.exclamationmark",
+                        allowsRetry: true
+                    )
+                case .rpcTimeout:
+                    return ConnectionStatusDetails(
+                        shortLabel: "Checking Mac",
+                        title: "Checking Your Mac",
+                        message: "Scout stopped hearing back from your Mac and is checking whether it is still reachable.",
+                        symbol: "arrow.triangle.2.circlepath",
+                        allowsRetry: false
+                    )
+                case .relayUnavailable:
+                    return ConnectionStatusDetails(
+                        shortLabel: "Relay Offline",
+                        title: "Relay Unavailable",
+                        message: error.scoutUserFacingMessage,
+                        symbol: "exclamationmark.triangle",
+                        allowsRetry: true
+                    )
+                case .handshakeFailed, .identityError:
+                    return ConnectionStatusDetails(
+                        shortLabel: "Secure Connect Failed",
+                        title: "Secure Connection Failed",
+                        message: error.scoutUserFacingMessage,
+                        symbol: "lock.shield",
+                        allowsRetry: true
+                    )
+                case .invalidQRPayload:
+                    return ConnectionStatusDetails(
+                        shortLabel: "Pairing Error",
+                        title: "Pairing Error",
+                        message: error.scoutUserFacingMessage,
+                        symbol: "qrcode.viewfinder",
+                        allowsRetry: false
+                    )
+                case .notConnected, .rpcError, .encodingFailed, .decodingFailed:
+                    break
+                }
+            }
+
+            return ConnectionStatusDetails(
+                shortLabel: "Connection Failed",
+                title: "Connection Failed",
+                message: error.scoutUserFacingMessage,
+                symbol: "exclamationmark.triangle",
+                allowsRetry: hasTrustedBridge
+            )
+        }
+    }
+
+    private var currentTrustedBridge: TrustedBridge? {
+        let bridges = (try? ScoutIdentity.getTrustedBridges()) ?? []
+        guard !bridges.isEmpty else { return nil }
+
+        if let expectedKey = connectionInfo?.publicKeyHex.lowercased(),
+           let matched = bridges.first(where: { $0.publicKeyHex.lowercased() == expectedKey }) {
+            return matched
+        }
+
+        return bridges.sorted { lhs, rhs in
+            let left = lhs.lastSeen ?? lhs.pairedAt
+            let right = rhs.lastSeen ?? rhs.pairedAt
+            return left > right
+        }.first
+    }
+
     // MARK: Dependencies
 
     private let sessionStore: SessionStore
@@ -171,12 +381,32 @@ final class ConnectionManager: @unchecked Sendable {
     private var transport: SecureTransport?
     private var receiveTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
-    private let pendingRequests = OSAllocatedUnfairLock(initialState: [String: PendingRequest]())
+    private let pendingRequests = OSAllocatedUnfairLock(initialState: [Int: PendingRequest]())
     private let urlSession: URLSession
     private let sessionDelegate = TrustAllDelegate()
     private var connectionInfo: BridgeConnectionInfo?
     private var identityKeyPair: NoiseKeyPair?
     private var manualDisconnectRequested = false
+    private var healthProbeTask: Task<Void, Never>?
+    private var lastSuccessfulRPCAt: Date?
+    private var lastIncomingMessageAt: Date?
+    private var lastConnectedAt: Date?
+    private var lastMachineProbeSuccessAt: Date?
+    private var lastBridgeProbeSuccessAt: Date?
+    private var lastResolveSuccessAt: Date?
+    private var lastResolve404At: Date?
+    private var lastForegroundAt: Date?
+    private var consecutiveRPCTimeouts = 0
+    private var consecutiveTransportDrops = 0
+    private var consecutiveMachineProbeFailures = 0
+    private var consecutiveBridgeProbeFailures = 0
+    private let healthProbeGeneration = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Monotonically incrementing tRPC request ID.
+    private let nextRequestId = OSAllocatedUnfairLock(initialState: 1)
+
+    /// Last event ID received from a tRPC tracked subscription (for reconnect recovery).
+    private(set) var lastEventId: String?
 
     private static let logger = Logger(
         subsystem: "com.openscout.scout",
@@ -194,6 +424,7 @@ final class ConnectionManager: @unchecked Sendable {
         self.sessionStore = sessionStore
         self.urlSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
         self.connectionInfo = Self.loadConnectionInfo()
+        self.health = self.connectionInfo == nil ? .offline : .suspect
     }
 
     deinit {
@@ -208,6 +439,84 @@ final class ConnectionManager: @unchecked Sendable {
         let keyPair = try ScoutIdentity.loadOrCreateIdentity()
         identityKeyPair = keyPair
         return keyPair
+    }
+
+    func noteAppDidBecomeActive() {
+        lastForegroundAt = Date()
+        guard hasTrustedBridge, state != .connected else { return }
+        transitionHealth(to: .suspect)
+        scheduleHealthProbe(reason: "app_foreground")
+    }
+
+    private func transitionHealth(to newHealth: BridgeHealthState) {
+        setHealth(newHealth)
+    }
+
+    private func beginHealthProbeGeneration() -> Int {
+        healthProbeGeneration.withLock { generation in
+            generation += 1
+            return generation
+        }
+    }
+
+    private func invalidateHealthProbeGeneration() {
+        _ = healthProbeGeneration.withLock { generation in
+            generation += 1
+            return generation
+        }
+    }
+
+    private func isCurrentHealthProbeGeneration(_ generation: Int) -> Bool {
+        healthProbeGeneration.withLock { current in current == generation }
+    }
+
+    private func noteSuccessfulConnection() {
+        let now = Date()
+        lastConnectedAt = now
+        lastIncomingMessageAt = now
+        lastSuccessfulRPCAt = now
+        consecutiveRPCTimeouts = 0
+        consecutiveTransportDrops = 0
+        consecutiveMachineProbeFailures = 0
+        consecutiveBridgeProbeFailures = 0
+        healthProbeTask?.cancel()
+        healthProbeTask = nil
+        invalidateHealthProbeGeneration()
+        setHealth(.healthy)
+    }
+
+    private func noteIncomingBridgeActivity() {
+        lastIncomingMessageAt = Date()
+        consecutiveTransportDrops = 0
+        consecutiveBridgeProbeFailures = 0
+        if hasTrustedBridge {
+            invalidateHealthProbeGeneration()
+            transitionHealth(to: .healthy)
+        }
+    }
+
+    private func noteSuccessfulRPC() {
+        lastSuccessfulRPCAt = Date()
+        consecutiveRPCTimeouts = 0
+        consecutiveBridgeProbeFailures = 0
+        if hasTrustedBridge {
+            invalidateHealthProbeGeneration()
+            transitionHealth(to: .healthy)
+        }
+    }
+
+    private func noteTransportDrop() {
+        consecutiveTransportDrops += 1
+        transitionHealth(to: .suspect)
+    }
+
+    private func noteRPCTimeout() {
+        consecutiveRPCTimeouts += 1
+        if consecutiveRPCTimeouts >= 2 {
+            transitionHealth(to: .degraded)
+        } else {
+            transitionHealth(to: .suspect)
+        }
     }
 
     // MARK: - Connection lifecycle
@@ -264,6 +573,7 @@ final class ConnectionManager: @unchecked Sendable {
             startMessageLoop()
 
             setState(.connected)
+            noteSuccessfulConnection()
             Self.logger.notice("Connected via QR pairing (XX handshake)")
 
             // Run recovery to sync state.
@@ -299,6 +609,7 @@ final class ConnectionManager: @unchecked Sendable {
         }
 
         manualDisconnectRequested = false
+        transitionHealth(to: .suspect)
 
         let remoteKeyData = info.bridgePublicKeyData
         guard remoteKeyData.count == 32 else {
@@ -324,69 +635,105 @@ final class ConnectionManager: @unchecked Sendable {
 
             // Resolve the current room — don't guess with stale room IDs.
             Self.logger.notice("Resolving room for bridge \(info.publicKeyHex.prefix(12), privacy: .public)... relay=\(info.relayURL, privacy: .public)")
-            guard let roomId = await resolveRoom(relayURL: info.relayURL, publicKeyHex: info.publicKeyHex) else {
+            let resolvedRoom = await resolveRoom(relayURL: info.relayURL, publicKeyHex: info.publicKeyHex)
+
+            switch resolvedRoom {
+            case .bridgeOffline:
                 Self.logger.notice("Resolve returned 404 — bridge offline")
+                transitionHealth(to: .degraded)
+                scheduleHealthProbe(reason: "resolve_404")
                 if attempt < Self.maxReconnectAttempts {
                     let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
                     try? await Task.sleep(for: .seconds(backoff))
                 }
                 continue
-            }
-
-            // Update saved room if it changed.
-            if roomId != info.roomId {
-                Self.logger.notice("Room changed: \(info.roomId, privacy: .public) → \(roomId, privacy: .public)")
-                info.roomId = roomId
-                saveConnectionInfo(info)
-                connectionInfo = info
-            }
-
-            do {
-                let remoteKey = try await performConnection(
-                    relayURL: info.relayURL,
-                    roomId: roomId,
-                    remoteStaticKey: remoteKeyData
-                )
-
-                try verifyRemoteKey(
-                    remoteKey,
-                    matches: remoteKeyData,
-                    failureReason: "Trusted bridge identity changed during reconnect"
-                )
-
-                await MainActor.run {
-                    sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
-                }
-                try? ScoutIdentity.touchTrustedBridge(publicKey: remoteKeyData)
-                startMessageLoop()
-                setState(.connected)
-                Self.logger.notice("Reconnected via IK handshake")
-                await runRecovery()
-                return
-
-            } catch {
-                Self.logger.error("Handshake failed: \(error.localizedDescription, privacy: .public)")
+            case .relayUnavailable:
+                Self.logger.notice("Resolve could not reach relay")
+                transitionHealth(to: .suspect)
+                scheduleHealthProbe(reason: "resolve_unreachable")
                 if attempt < Self.maxReconnectAttempts {
                     let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
                     try? await Task.sleep(for: .seconds(backoff))
+                    continue
+                }
+                setState(.failed(ConnectionError.relayUnavailable))
+                return
+            case .resolved(let roomId):
+                if roomId != info.roomId {
+                    Self.logger.notice("Room changed: \(info.roomId, privacy: .public) → \(roomId, privacy: .public)")
+                    info.roomId = roomId
+                    saveConnectionInfo(info)
+                    connectionInfo = info
+                }
+
+                do {
+                    let remoteKey = try await performConnection(
+                        relayURL: info.relayURL,
+                        roomId: roomId,
+                        remoteStaticKey: remoteKeyData
+                    )
+
+                    try verifyRemoteKey(
+                        remoteKey,
+                        matches: remoteKeyData,
+                        failureReason: "Trusted bridge identity changed during reconnect"
+                    )
+
+                    await MainActor.run {
+                        sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
+                    }
+                    try? ScoutIdentity.touchTrustedBridge(publicKey: remoteKeyData)
+                    startMessageLoop()
+                    setState(.connected)
+                    noteSuccessfulConnection()
+                    Self.logger.notice("Reconnected via IK handshake")
+                    await runRecovery()
+                    return
+
+                } catch {
+                    Self.logger.error("Handshake failed: \(error.localizedDescription, privacy: .public)")
+                    if attempt < Self.maxReconnectAttempts {
+                        let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
+                        try? await Task.sleep(for: .seconds(backoff))
+                    }
                 }
             }
         }
 
         // Exhausted all attempts — keep trust (bridge is just offline), signal failure.
         Self.logger.error("All reconnect attempts exhausted — bridge appears offline")
-        setState(.failed(ConnectionError.reconnectExhausted))
+        let generation = beginHealthProbeGeneration()
+        await runHealthProbe(reason: "reconnect_exhausted", generation: generation)
+        setState(.failed(ConnectionError.bridgeOffline))
     }
 
     /// Resolve the bridge's current room ID via the relay's POST /resolve endpoint.
-    private func resolveRoom(relayURL: String, publicKeyHex: String) async -> String? {
+    private enum ResolveRoomResult: Sendable {
+        case resolved(String)
+        case bridgeOffline
+        case relayUnavailable
+    }
+
+    private struct BridgeHealthProbeResponse: Decodable, Sendable {
+        let ok: Bool
+        let bridgeConnected: Bool
+        let roomId: String?
+    }
+
+    private enum MachineProbeResult: Sendable {
+        case bridgeConnected
+        case bridgeAbsent
+        case unreachable
+    }
+
+    private func resolveRoom(relayURL: String, publicKeyHex: String) async -> ResolveRoomResult {
         // Convert ws(s):// to http(s):// for the REST endpoint.
         let httpURL = relayURL
             .replacingOccurrences(of: "wss://", with: "https://")
             .replacingOccurrences(of: "ws://", with: "http://")
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        guard let url = URL(string: "\(httpURL)/resolve") else { return nil }
+        guard let url = URL(string: "\(httpURL)/resolve") else { return .relayUnavailable }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -395,14 +742,116 @@ final class ConnectionManager: @unchecked Sendable {
 
         do {
             let (data, response) = try await urlSession.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return nil
+            guard let http = response as? HTTPURLResponse else {
+                return .relayUnavailable
             }
-            let result = try JSONDecoder().decode([String: String].self, from: data)
-            return result["room"]
+            switch http.statusCode {
+            case 200:
+                let result = try JSONDecoder().decode([String: String].self, from: data)
+                guard let room = result["room"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !room.isEmpty else {
+                    return .relayUnavailable
+                }
+                lastResolveSuccessAt = Date()
+                return .resolved(room)
+            case 404:
+                lastResolve404At = Date()
+                return .bridgeOffline
+            default:
+                return .relayUnavailable
+            }
         } catch {
             Self.logger.error("Room resolve request failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            return .relayUnavailable
+        }
+    }
+
+    private func machineProbeURL(for info: BridgeConnectionInfo) -> URL? {
+        let httpURL = info.relayURL
+            .replacingOccurrences(of: "wss://", with: "https://")
+            .replacingOccurrences(of: "ws://", with: "http://")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard var components = URLComponents(string: "\(httpURL)/healthz") else { return nil }
+        components.queryItems = [
+            URLQueryItem(name: "bridgePublicKey", value: info.publicKeyHex),
+        ]
+        return components.url
+    }
+
+    private func probeMachineLiveness() async -> MachineProbeResult {
+        guard let info = connectionInfo,
+              let url = machineProbeURL(for: info) else { return .unreachable }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 3
+
+        do {
+            let (data, response) = try await urlSession.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                return .unreachable
+            }
+            let payload = try JSONDecoder().decode(BridgeHealthProbeResponse.self, from: data)
+            guard payload.ok else { return .unreachable }
+            lastMachineProbeSuccessAt = Date()
+            if payload.bridgeConnected {
+                lastBridgeProbeSuccessAt = Date()
+                return .bridgeConnected
+            }
+            return .bridgeAbsent
+        } catch {
+            return .unreachable
+        }
+    }
+
+    private func scheduleHealthProbe(reason: String) {
+        guard hasTrustedBridge else { return }
+        healthProbeTask?.cancel()
+        let generation = beginHealthProbeGeneration()
+        healthProbeTask = Task { [weak self] in
+            await self?.runHealthProbe(reason: reason, generation: generation)
+        }
+    }
+
+    private func runHealthProbe(reason: String, generation: Int) async {
+        for attempt in 1...3 {
+            if Task.isCancelled || !isCurrentHealthProbeGeneration(generation) { return }
+
+            let result = await probeMachineLiveness()
+            if Task.isCancelled || !isCurrentHealthProbeGeneration(generation) { return }
+
+            if state == .connected {
+                transitionHealth(to: .healthy)
+                return
+            }
+
+            switch result {
+            case .bridgeConnected:
+                consecutiveMachineProbeFailures = 0
+                consecutiveBridgeProbeFailures = 0
+                transitionHealth(to: .healthy)
+                Self.logger.notice("Health probe succeeded (\(reason, privacy: .public))")
+                return
+            case .bridgeAbsent:
+                consecutiveBridgeProbeFailures += 1
+                transitionHealth(to: .degraded)
+                if consecutiveBridgeProbeFailures >= 2 {
+                    Self.logger.notice("Health probe found reachable machine but absent bridge")
+                    return
+                }
+            case .unreachable:
+                consecutiveMachineProbeFailures += 1
+                if consecutiveMachineProbeFailures >= 2 {
+                    transitionHealth(to: .offline)
+                    Self.logger.notice("Health probe could not reach machine over Tailscale")
+                    return
+                }
+                transitionHealth(to: .degraded)
+            }
+
+            if attempt < 3 {
+                try? await Task.sleep(for: .seconds(Double(attempt)))
+            }
         }
     }
 
@@ -413,6 +862,8 @@ final class ConnectionManager: @unchecked Sendable {
         receiveTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
+        healthProbeTask?.cancel()
+        healthProbeTask = nil
 
         transport = nil
 
@@ -421,6 +872,10 @@ final class ConnectionManager: @unchecked Sendable {
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
 
         cancelAllPendingRequests(with: ConnectionError.notConnected)
+
+        // Reset request ID counter (new connection = fresh sequence).
+        nextRequestId.withLock { $0 = 1 }
+        // Note: lastEventId is intentionally preserved across reconnects for subscription recovery.
 
         Task { @MainActor in
             sessionStore.connectionState = .disconnected
@@ -479,14 +934,20 @@ final class ConnectionManager: @unchecked Sendable {
         harness: String? = nil,
         agentName: String? = nil,
         worktree: String? = nil,
-        profile: String? = nil
+        profile: String? = nil,
+        branch: String? = nil,
+        model: String? = nil,
+        forceNew: Bool = false
     ) async throws -> MobileSessionHandle {
         let params = MobileCreateSessionParams(
             workspaceId: workspaceId,
             harness: harness,
             agentName: agentName,
             worktree: worktree,
-            profile: profile
+            profile: profile,
+            branch: branch,
+            model: model,
+            forceNew: forceNew ? true : nil
         )
         let data = try await sendRPC(method: "mobile/session/create", params: params)
         return try decodeResult(MobileSessionHandle.self, from: data)
@@ -543,6 +1004,25 @@ final class ConnectionManager: @unchecked Sendable {
     func interruptTurn(_ sessionId: String) async throws {
         let params = SessionIdParams(sessionId: sessionId)
         _ = try await sendRPC(method: "turn/interrupt", params: params)
+    }
+
+    func decideAction(
+        sessionId: String,
+        turnId: String,
+        blockId: String,
+        version: Int,
+        decision: String,
+        reason: String? = nil
+    ) async throws {
+        let params = ActionDecideParams(
+            sessionId: sessionId,
+            turnId: turnId,
+            blockId: blockId,
+            version: version,
+            decision: decision,
+            reason: reason
+        )
+        _ = try await sendRPC(method: "action/decide", params: params)
     }
 
     func getSnapshot(_ sessionId: String, beforeTurnId: String? = nil, limit: Int? = nil) async throws -> SessionState {
@@ -741,6 +1221,8 @@ final class ConnectionManager: @unchecked Sendable {
 
     private func handleDisconnect() async {
         let shouldReconnect = !manualDisconnectRequested && connectionInfo != nil
+        noteTransportDrop()
+        scheduleHealthProbe(reason: "transport_drop")
 
         // Clean up the dead connection state.
         transport = nil
@@ -767,18 +1249,35 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: - Private: Message routing
 
     private func handleDecryptedMessage(_ raw: String) {
+        // Handle tRPC keep-alive: PING → PONG (plain text, not JSON).
+        if raw == "PING" {
+            noteIncomingBridgeActivity()
+            Task {
+                try? await transport?.send("PONG")
+            }
+            return
+        }
+        if raw == "PONG" {
+            noteIncomingBridgeActivity()
+            // Server acknowledged our ping — nothing to do.
+            return
+        }
+
         guard let data = raw.data(using: .utf8) else {
             Self.logger.warning("Received non-UTF8 message, skipping")
             return
         }
 
-        // Try parsing as an RPC response first (has "id" field).
-        if let response = try? JSONDecoder().decode(RPCResponse.self, from: data) {
-            handleRPCResponse(response)
+        noteIncomingBridgeActivity()
+
+        // Try parsing as a tRPC response (has integer "id" field).
+        if let response = try? JSONDecoder().decode(TRPCResponse.self, from: data) {
+            handleTRPCResponse(response)
             return
         }
 
         // Try parsing as a sequenced event (has "seq" and "event" fields).
+        // This handles the transition period before subscriptions are fully adopted.
         if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: data) {
             Task { @MainActor in
                 sessionStore.applyEvent(sequenced)
@@ -790,11 +1289,42 @@ final class ConnectionManager: @unchecked Sendable {
         Self.logger.warning("Unrecognized message format, skipping: \(raw.prefix(200), privacy: .public)")
     }
 
-    private func handleRPCResponse(_ response: RPCResponse) {
+    private func handleTRPCResponse(_ response: TRPCResponse) {
+        // Check if this is subscription data (no pending request, just streamed events).
         let pending = pendingRequests.withLock { $0.removeValue(forKey: response.id) }
 
+        // Track lastEventId from subscription data for future reconnect recovery.
+        if let result = response.result, result.type == "data", let eventId = result.id {
+            lastEventId = eventId
+        }
+
+        // Subscription data with no pending request — it's a streamed event.
+        if pending == nil, let result = response.result, result.type == "data" {
+            if let eventData = result.data {
+                // Try decoding subscription data as a sequenced event.
+                do {
+                    let encoded = try JSONEncoder().encode(eventData)
+                    if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: encoded) {
+                        Task { @MainActor in
+                            sessionStore.applyEvent(sequenced)
+                        }
+                        return
+                    }
+                } catch {
+                    // Not a sequenced event — log and skip.
+                }
+            }
+            Self.logger.debug("Received subscription data for id \(response.id, privacy: .public) with no handler")
+            return
+        }
+
         guard let pending else {
-            Self.logger.warning("Received RPC response for unknown id: \(response.id, privacy: .public)")
+            // Could be a subscription "started"/"stopped" ack — not an error.
+            if let result = response.result, (result.type == "started" || result.type == "stopped") {
+                Self.logger.debug("Subscription \(result.type, privacy: .public) for id \(response.id, privacy: .public)")
+                return
+            }
+            Self.logger.warning("Received tRPC response for unknown id: \(response.id, privacy: .public)")
             return
         }
 
@@ -805,24 +1335,40 @@ final class ConnectionManager: @unchecked Sendable {
                 throwing: ConnectionError.rpcError(code: error.code, message: error.message)
             )
         } else if let result = response.result {
-            // Re-encode the AnyCodable result to Data so callers can decode to their specific type.
-            do {
-                let resultData = try JSONEncoder().encode(result)
-                pending.continuation.resume(returning: resultData)
-            } catch {
-                pending.continuation.resume(
-                    throwing: ConnectionError.decodingFailed("Failed to re-encode result")
-                )
+            noteSuccessfulRPC()
+            // Unwrap tRPC envelope: extract result.data.
+            if let resultData = result.data {
+                do {
+                    let encoded = try JSONEncoder().encode(resultData)
+                    pending.continuation.resume(returning: encoded)
+                } catch {
+                    pending.continuation.resume(
+                        throwing: ConnectionError.decodingFailed("Failed to re-encode tRPC result.data")
+                    )
+                }
+            } else {
+                // Success with null data — encode empty object for callers expecting decodable content.
+                let emptyData = "{}".data(using: .utf8)!
+                pending.continuation.resume(returning: emptyData)
             }
         } else {
-            // Success with no result body (e.g., { "id": "...", "result": null }).
-            // Encode an empty JSON object so decoders expecting { ok: true } still work.
+            noteSuccessfulRPC()
+            // No result and no error — treat as empty success.
             let emptyData = "{}".data(using: .utf8)!
             pending.continuation.resume(returning: emptyData)
         }
     }
 
     // MARK: - Private: RPC sending
+
+    /// Allocate the next monotonic request ID.
+    private func allocateRequestId() -> Int {
+        nextRequestId.withLock { id in
+            let current = id
+            id += 1
+            return current
+        }
+    }
 
     private func sendRPC<P: Encodable & Sendable>(
         method: String,
@@ -832,7 +1378,14 @@ final class ConnectionManager: @unchecked Sendable {
             throw ConnectionError.notConnected
         }
 
-        let request = RPCRequest(method: method, params: params)
+        // Resolve the tRPC route for this legacy method name.
+        guard let route = trpcRouteMap[method] else {
+            Self.logger.error("No tRPC route mapping for method: \(method, privacy: .public)")
+            throw ConnectionError.encodingFailed
+        }
+
+        let requestId = allocateRequestId()
+        let request = TRPCRequest(id: requestId, method: route.method, path: route.path, input: params)
 
         let encoder = JSONEncoder()
         guard let jsonData = try? encoder.encode(request),
@@ -851,9 +1404,11 @@ final class ConnectionManager: @unchecked Sendable {
                 try? await Task.sleep(for: .seconds(timeout))
                 guard !Task.isCancelled else { return }
 
-                let removed = self?.pendingRequests.withLock { $0.removeValue(forKey: request.id) }
+                let removed = self?.pendingRequests.withLock { $0.removeValue(forKey: requestId) }
                 if removed != nil {
                     Self.logger.warning("RPC timeout: \(method, privacy: .public) — connection likely stale")
+                    self?.noteRPCTimeout()
+                    self?.scheduleHealthProbe(reason: "rpc_timeout")
                     continuation.resume(throwing: ConnectionError.rpcTimeout(method: method))
                     // Stale connection — tear down and reconnect
                     await self?.handleDisconnect()
@@ -866,13 +1421,13 @@ final class ConnectionManager: @unchecked Sendable {
                 timeoutTask: timeoutTask
             )
 
-            pendingRequests.withLock { $0[request.id] = pending }
+            pendingRequests.withLock { $0[requestId] = pending }
 
             Task {
                 do {
                     try await transport.send(jsonString)
                 } catch {
-                    let removed = self.pendingRequests.withLock { $0.removeValue(forKey: request.id) }
+                    let removed = self.pendingRequests.withLock { $0.removeValue(forKey: requestId) }
                     if removed != nil {
                         timeoutTask.cancel()
                         continuation.resume(throwing: error)
@@ -883,7 +1438,7 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     private func cancelAllPendingRequests(with error: Error) {
-        let requests = pendingRequests.withLock { dict -> [String: PendingRequest] in
+        let requests = pendingRequests.withLock { dict -> [Int: PendingRequest] in
             let copy = dict
             dict.removeAll()
             return copy

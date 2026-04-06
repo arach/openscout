@@ -13,6 +13,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { findNearestProjectRoot } from "@openscout/runtime/setup";
+import type { SessionState, SessionSummary } from "../../core/pairing/runtime/bridge/state.ts";
+import {
+  extractPendingApprovalRequests,
+  type NormalizedApprovalRequest,
+} from "../../core/pairing/runtime/protocol/approval-normalization.ts";
 
 import { resolveScoutAppRoot } from "../../shared/paths.ts";
 
@@ -74,6 +79,19 @@ export type ScoutPairingTrustedPeer = {
   lastSeenLabel: string | null;
 };
 
+export type ScoutPairingApprovalRequest = NormalizedApprovalRequest;
+
+export type ScoutPairingApprovalDecision = "approve" | "deny";
+
+export type DecideScoutPairingApprovalInput = {
+  sessionId: string;
+  turnId: string;
+  blockId: string;
+  version: number;
+  decision: ScoutPairingApprovalDecision;
+  reason?: string | null;
+};
+
 export type ScoutPairingRuntimeStatus =
   | "unconfigured"
   | "stopped"
@@ -122,6 +140,7 @@ export type ScoutPairingState = {
   identityFingerprint: string | null;
   trustedPeerCount: number;
   trustedPeers: ScoutPairingTrustedPeer[];
+  pendingApprovals: ScoutPairingApprovalRequest[];
   pairing: ScoutPairingSnapshot | null;
   logTail: string;
   logUpdatedAtLabel: string | null;
@@ -161,6 +180,37 @@ type ScoutPairingTrustedPeerRecord = {
   lastSeen?: string;
 };
 
+type ScoutPairingTrpcResultEnvelope<T> =
+  | { type: "data"; data: T }
+  | { type: "started" | "stopped" };
+
+type ScoutPairingTrpcResponse<T> =
+  | {
+      id: number;
+      jsonrpc?: string;
+      result?: ScoutPairingTrpcResultEnvelope<T>;
+      error?: never;
+    }
+  | {
+      id: number | null;
+      jsonrpc?: string;
+      error: {
+        code?: number;
+        message?: string;
+        data?: { code?: string; httpStatus?: number } & Record<string, unknown>;
+      } & Record<string, unknown>;
+      result?: never;
+    };
+
+type ScoutPairingBridgeClient = {
+  query<T>(path: string, input?: Record<string, unknown>): Promise<T>;
+  mutation<T>(path: string, input?: Record<string, unknown>): Promise<T>;
+  close(): void;
+};
+
+const SCOUT_PAIRING_BRIDGE_CONNECT_TIMEOUT_MS = 1_500;
+const SCOUT_PAIRING_BRIDGE_REQUEST_TIMEOUT_MS = 2_500;
+
 export function resolveScoutPairingPaths(): ScoutPairingPaths {
   const rootDir = join(homedir(), SCOUT_PAIRING_HOME_DIRECTORY);
   return {
@@ -172,6 +222,180 @@ export function resolveScoutPairingPaths(): ScoutPairingPaths {
     runtimeStatePath: join(rootDir, SCOUT_PAIRING_RUNTIME_STATE_FILE),
     runtimePidPath: join(rootDir, SCOUT_PAIRING_RUNTIME_PID_FILE),
   };
+}
+
+function createScoutPairingBridgeUrl(port: number): string {
+  return `ws://127.0.0.1:${port}`;
+}
+
+async function createScoutPairingBridgeClient(port: number): Promise<ScoutPairingBridgeClient> {
+  const url = createScoutPairingBridgeUrl(port);
+  const socket = new WebSocket(url);
+  let nextRequestId = 1;
+  const pending = new Map<number, {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+  }>();
+
+  const rejectPending = (error: Error) => {
+    for (const entry of pending.values()) {
+      entry.reject(error);
+    }
+    pending.clear();
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out connecting to Scout pairing bridge at ${url}.`));
+    }, SCOUT_PAIRING_BRIDGE_CONNECT_TIMEOUT_MS);
+
+    const handleOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error(`Unable to connect to Scout pairing bridge at ${url}.`));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.removeEventListener("open", handleOpen);
+      socket.removeEventListener("error", handleError);
+    };
+
+    socket.addEventListener("open", handleOpen);
+    socket.addEventListener("error", handleError);
+  });
+
+  const handleMessage = (event: MessageEvent) => {
+    const raw = typeof event.data === "string" ? event.data : String(event.data);
+    let payload: ScoutPairingTrpcResponse<unknown>;
+    try {
+      payload = JSON.parse(raw) as ScoutPairingTrpcResponse<unknown>;
+    } catch {
+      return;
+    }
+
+    if (typeof payload?.id !== "number") {
+      return;
+    }
+
+    const request = pending.get(payload.id);
+    if (!request) {
+      return;
+    }
+
+    pending.delete(payload.id);
+    if ("error" in payload && payload.error) {
+      request.reject(new Error(payload.error.message || "Scout pairing bridge RPC failed."));
+      return;
+    }
+
+    const result = payload.result;
+    if (!result || result.type !== "data") {
+      request.reject(new Error("Scout pairing bridge returned an unexpected response."));
+      return;
+    }
+
+    request.resolve(result.data);
+  };
+
+  const handleClose = () => {
+    rejectPending(new Error("Scout pairing bridge connection closed."));
+  };
+
+  const handleRuntimeError = () => {
+    rejectPending(new Error("Scout pairing bridge transport error."));
+  };
+
+  socket.addEventListener("message", handleMessage);
+  socket.addEventListener("close", handleClose);
+  socket.addEventListener("error", handleRuntimeError);
+
+  function call<T>(
+    method: "query" | "mutation",
+    path: string,
+    input?: Record<string, unknown>,
+  ): Promise<T> {
+    if (socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error("Scout pairing bridge is not connected."));
+    }
+
+    const id = nextRequestId++;
+    const requestPayload = {
+      id,
+      jsonrpc: "2.0",
+      method,
+      params: {
+        path,
+        ...(input ? { input } : {}),
+      },
+    };
+
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`Scout pairing bridge request timed out for ${path}.`));
+      }, SCOUT_PAIRING_BRIDGE_REQUEST_TIMEOUT_MS);
+
+      pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timeout);
+          resolve(value as T);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+      socket.send(JSON.stringify(requestPayload));
+    });
+  }
+
+  return {
+    query<T>(path: string, input?: Record<string, unknown>) {
+      return call<T>("query", path, input);
+    },
+    mutation<T>(path: string, input?: Record<string, unknown>) {
+      return call<T>("mutation", path, input);
+    },
+    close() {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+      socket.removeEventListener("message", handleMessage);
+      socket.removeEventListener("close", handleClose);
+      socket.removeEventListener("error", handleRuntimeError);
+      rejectPending(new Error("Scout pairing bridge client closed."));
+    },
+  };
+}
+
+async function withScoutPairingBridgeClient<T>(
+  port: number,
+  run: (client: ScoutPairingBridgeClient) => Promise<T>,
+): Promise<T> {
+  const client = await createScoutPairingBridgeClient(port);
+  try {
+    return await run(client);
+  } finally {
+    client.close();
+  }
+}
+
+async function loadScoutPairingPendingApprovals(port: number): Promise<ScoutPairingApprovalRequest[]> {
+  return await withScoutPairingBridgeClient(port, async (client) => {
+    const status = await client.query<{ sessions: SessionSummary[] }>("bridgeStatus");
+    const snapshots = await Promise.all(status.sessions.map((session) =>
+      client.query<SessionState>("session.snapshot", { sessionId: session.sessionId })
+        .catch(() => null)
+    ));
+
+    return snapshots
+      .filter((snapshot): snapshot is SessionState => snapshot !== null)
+      .flatMap((snapshot) => extractPendingApprovalRequests(snapshot));
+  });
 }
 
 function loadScoutPairingConfig(): ScoutPairingConfig {
@@ -496,6 +720,7 @@ function pairingStateFromRuntime(
   log: ScoutPairingLogTail,
   resolvedConfig: ScoutPairingResolvedConfig,
   fallbackWorkspaceRoot: string | null,
+  pendingApprovals: ScoutPairingApprovalRequest[],
 ): ScoutPairingState {
   const relay = snapshot.relay ?? resolvedConfig.relay;
   const effectiveWorkspaceRoot = snapshot.workspaceRoot ?? resolvedConfig.workspaceRoot ?? fallbackWorkspaceRoot;
@@ -519,6 +744,7 @@ function pairingStateFromRuntime(
     identityFingerprint: snapshot.identityFingerprint,
     trustedPeerCount: snapshot.trustedPeerCount,
     trustedPeers,
+    pendingApprovals,
     pairing: snapshot.pairing,
     logTail: log.body,
     logUpdatedAtLabel: log.updatedAtLabel,
@@ -533,6 +759,7 @@ function pairingStateFromConfig(
   resolvedConfig: ScoutPairingResolvedConfig,
   log: ScoutPairingLogTail,
   fallbackWorkspaceRoot: string | null,
+  pendingApprovals: ScoutPairingApprovalRequest[],
 ): ScoutPairingState {
   const hasConfiguredRelay = resolvedConfig.relay !== null;
   const effectiveWorkspaceRoot = resolvedConfig.workspaceRoot ?? fallbackWorkspaceRoot;
@@ -558,6 +785,7 @@ function pairingStateFromConfig(
     identityFingerprint: readScoutPairingIdentityFingerprint(paths.identityPath),
     trustedPeerCount: readScoutPairingTrustedPeerCount(paths.trustedPeersPath),
     trustedPeers,
+    pendingApprovals,
     pairing: null,
     logTail: log.body,
     logUpdatedAtLabel: log.updatedAtLabel,
@@ -576,12 +804,15 @@ async function readScoutPairingState(currentDirectory?: string): Promise<ScoutPa
   const snapshot = readScoutPairingRuntimeSnapshot();
   const runtimeAlive = isScoutPairingRuntimeRunning();
   const fallbackWorkspaceRoot = await resolveDefaultScoutPairingWorkspaceRoot(currentDirectory);
+  const pendingApprovals = snapshot && runtimeAlive
+    ? await loadScoutPairingPendingApprovals(resolvedConfig.port).catch(() => [])
+    : [];
 
   if (snapshot && runtimeAlive) {
-    return pairingStateFromRuntime(snapshot, paths, log, resolvedConfig, fallbackWorkspaceRoot);
+    return pairingStateFromRuntime(snapshot, paths, log, resolvedConfig, fallbackWorkspaceRoot, pendingApprovals);
   }
 
-  return pairingStateFromConfig(paths, resolvedConfig, log, fallbackWorkspaceRoot);
+  return pairingStateFromConfig(paths, resolvedConfig, log, fallbackWorkspaceRoot, pendingApprovals);
 }
 
 async function updateScoutPairingConfig(input: UpdateScoutPairingConfigInput, currentDirectory?: string): Promise<void> {
@@ -720,5 +951,23 @@ export async function updateScoutElectronPairingConfig(
   if (isScoutPairingRuntimeRunning()) {
     await restartScoutPairingRuntime();
   }
+  return readScoutPairingState(currentDirectory);
+}
+
+export async function decideScoutElectronPairingApproval(
+  input: DecideScoutPairingApprovalInput,
+  currentDirectory?: string,
+): Promise<ScoutPairingState> {
+  const resolvedConfig = resolveScoutPairingConfig();
+  await withScoutPairingBridgeClient(resolvedConfig.port, async (client) => {
+    await client.mutation<{ ok: true }>("actionDecide", {
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      blockId: input.blockId,
+      version: input.version,
+      decision: input.decision,
+      ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+    });
+  });
   return readScoutPairingState(currentDirectory);
 }

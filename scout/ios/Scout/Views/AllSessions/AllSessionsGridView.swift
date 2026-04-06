@@ -17,15 +17,15 @@ struct AllSessionsGridView: View {
         GridItem(.flexible(), spacing: ScoutSpacing.md),
     ]
 
-    private var liveSummaries: [SessionSummary] {
-        store.summaries.filter { !$0.isCachedOnly }
-            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    private var visibleSummaries: [SessionSummary] {
+        let source = connection.state == .connected ? store.summaries.filter { !$0.isCachedOnly } : store.summaries
+        return source.sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
     private var filteredSummaries: [SessionSummary] {
         let tokens = searchText.searchTokens
-        guard !tokens.isEmpty else { return liveSummaries }
-        return liveSummaries.filter { summary in
+        guard !tokens.isEmpty else { return visibleSummaries }
+        return visibleSummaries.filter { summary in
             tokens.allSatisfy { token in
                 summary.name.localizedCaseInsensitiveContains(token)
                     || summary.adapterType.localizedCaseInsensitiveContains(token)
@@ -47,9 +47,11 @@ struct AllSessionsGridView: View {
 
         for summary in filteredSummaries {
             let status = SessionStatus(rawValue: summary.status)
-            let isActive = status == .active || status == .connecting
-                || summary.currentTurnStatus == "streaming"
-                || summary.currentTurnStatus == "started"
+            let isActive = !summary.isCachedOnly && (
+                status == .active || status == .connecting
+                    || summary.currentTurnStatus == "streaming"
+                    || summary.currentTurnStatus == "started"
+            )
 
             if isActive {
                 active.append(summary)
@@ -79,6 +81,27 @@ struct AllSessionsGridView: View {
                 emptyState
             } else {
                 LazyVStack(alignment: .leading, spacing: ScoutSpacing.xl) {
+                    if connection.state == .connected {
+                        Button {
+                            let impact = UIImpactFeedbackGenerator(style: .light)
+                            impact.impactOccurred()
+                            router.push(.newSession)
+                        } label: {
+                            HStack(spacing: ScoutSpacing.sm) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(ScoutColors.accent)
+                                Text("New Session")
+                                    .font(ScoutTypography.body(15, weight: .semibold))
+                                    .foregroundStyle(ScoutColors.accent)
+                                Spacer()
+                            }
+                            .padding(.horizontal, ScoutSpacing.lg)
+                            .padding(.vertical, ScoutSpacing.md)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     ForEach(groupedSummaries, id: \.title) { group in
                         VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
                             Text(group.title.uppercased())
@@ -124,6 +147,11 @@ struct AllSessionsGridView: View {
                 Text("Try a different search term.")
                     .font(ScoutTypography.body(14))
                     .foregroundStyle(ScoutColors.textSecondary)
+            } else if connection.state != .connected {
+                Text("Cached sessions on this iPhone remain available while your Mac is offline.")
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.textSecondary)
+                    .multilineTextAlignment(.center)
             }
 
             Spacer()

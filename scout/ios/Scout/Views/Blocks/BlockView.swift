@@ -6,6 +6,7 @@
 import SwiftUI
 
 struct BlockView: View {
+    let sessionId: String
     let block: Block
 
     var body: some View {
@@ -15,7 +16,7 @@ struct BlockView: View {
         case .reasoning:
             ReasoningBlockView(block: block)
         case .action:
-            ActionBlockView(block: block)
+            ActionBlockView(sessionId: sessionId, block: block)
         case .file:
             FileBlockView(block: block)
         case .error:
@@ -56,12 +57,12 @@ struct UnsupportedBlockView: View {
 
 #Preview {
     VStack(spacing: 12) {
-        BlockView(block: Block(
+        BlockView(sessionId: "s1", block: Block(
             id: "1", turnId: "t1", type: .text, status: .completed, index: 0,
             text: "Hello **world**!"
         ))
 
-        BlockView(block: Block(
+        BlockView(sessionId: "s1", block: Block(
             id: "2", turnId: "t1", type: .error, status: .completed, index: 1,
             message: "Something went wrong"
         ))

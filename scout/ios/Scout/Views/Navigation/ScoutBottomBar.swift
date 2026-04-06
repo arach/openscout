@@ -1,7 +1,7 @@
 // ScoutBottomBar — Persistent Liquid Glass toolbar at the bottom of every surface.
 //
 // Two modes:
-// - Chrome mode (non-session): AddressBarPill + back + grid + new + overflow
+// - Chrome mode (non-session): status pill + centered section pill + actions
 // - Composer mode (session detail): ComposerView with address bar
 
 import SwiftUI
@@ -45,24 +45,23 @@ struct ScoutBottomBar: View {
 
     private var chromeMode: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                // Back button
-                backButton
-                    .frame(width: 44, height: 44)
+            ZStack {
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        backButton
+                            .frame(width: 44, height: 44)
+                        ConnectionStatusPill()
+                    }
 
-                Spacer()
+                    Spacer()
+
+                    HStack(spacing: 4) {
+                        gridButton
+                        overflowMenu
+                    }
+                }
 
                 AddressBarPill()
-
-                Spacer()
-
-                // Right side: activity + grid + new + overflow
-                HStack(spacing: 4) {
-                    activityButton
-                    gridButton
-                    newSessionButton
-                    overflowMenu
-                }
             }
             .padding(.horizontal, 10)
             .padding(.top, 10)
@@ -92,6 +91,7 @@ struct ScoutBottomBar: View {
     private func composerMode(sessionId: String) -> some View {
         let session = store.sessions[sessionId]?.session
         let isStreaming = store.sessions[sessionId]?.currentTurnId != nil
+        let isSessionConnected = isConnected && !store.cachedOnlySessionIds.contains(sessionId)
 
         return ComposerView(
             sessionId: sessionId,
@@ -99,7 +99,7 @@ struct ScoutBottomBar: View {
             adapterType: session?.adapterType,
             currentModel: session?.model,
             currentBranch: session?.currentBranch,
-            isConnected: isConnected && !store.cachedOnlySessionIds.contains(sessionId),
+            isConnected: isSessionConnected,
             isStreaming: isStreaming,
             onSend: { request in
                 NotificationCenter.default.post(
@@ -114,12 +114,18 @@ struct ScoutBottomBar: View {
                 }
             },
             navigationLeftButton: AnyView(
-                BottomCircleButton(icon: "square.grid.2x2", isActive: false) {
-                    let impact = UIImpactFeedbackGenerator(style: .light)
-                    impact.impactOccurred()
-                    router.push(.allSessions)
+                Group {
+                    if isSessionConnected {
+                        BottomCircleButton(icon: "square.grid.2x2", isActive: false) {
+                            let impact = UIImpactFeedbackGenerator(style: .light)
+                            impact.impactOccurred()
+                            router.push(.allSessions)
+                        }
+                        .accessibilityLabel("All sessions")
+                    } else {
+                        ConnectionStatusTrayButton()
+                    }
                 }
-                .accessibilityLabel("All sessions")
             )
         )
     }
@@ -141,29 +147,6 @@ struct ScoutBottomBar: View {
         .accessibilityLabel("Back")
     }
 
-    private var isOnActivity: Bool {
-        if case .activity = router.currentSurface { return true }
-        return false
-    }
-
-    private var activityButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            if isOnActivity {
-                router.pop()
-            } else {
-                router.push(.activity)
-            }
-        } label: {
-            Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(isOnActivity ? ScoutColors.accent : ScoutColors.textPrimary)
-                .frame(width: 40, height: 40)
-        }
-        .accessibilityLabel("Activity feed")
-    }
-
     private var gridButton: some View {
         Button {
             let impact = UIImpactFeedbackGenerator(style: .light)
@@ -178,23 +161,16 @@ struct ScoutBottomBar: View {
         .accessibilityLabel("All sessions")
     }
 
-    private var newSessionButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            router.push(.newSession)
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(isConnected ? ScoutColors.accent : ScoutColors.textMuted.opacity(0.4))
-                .frame(width: 40, height: 40)
-        }
-        .disabled(!isConnected)
-        .accessibilityLabel("New session")
-    }
-
     private var overflowMenu: some View {
         Menu {
+            Button {
+                router.push(.activity)
+            } label: {
+                Label("Activity Feed", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+
+            Divider()
+
             Button {
                 showingDiscovery = true
             } label: {
@@ -209,6 +185,12 @@ struct ScoutBottomBar: View {
             }
 
             Divider()
+
+            Button {
+                router.popToRoot()
+            } label: {
+                Label("Home", systemImage: "house")
+            }
 
             Button {
                 router.push(.settings)

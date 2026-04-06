@@ -1,5 +1,7 @@
 import type {
   ScoutDesktopAppInfo,
+  ScoutDesktopHomeState,
+  ScoutDesktopServicesState,
   ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutPhonePreparationState,
@@ -19,7 +21,17 @@ import {
   type ScoutElectronRestartAgentInput,
   type ScoutElectronSendRelayMessageInput,
 } from "./broker-actions.ts";
+import {
+  acquireScoutKeepAliveLease,
+  getScoutKeepAliveState,
+  releaseScoutKeepAliveLease,
+  type AcquireScoutKeepAliveLeaseInput,
+  type ReleaseScoutKeepAliveLeaseInput,
+  type ScoutKeepAliveLease,
+  type ScoutKeepAliveState,
+} from "./keep-alive.ts";
 import type {
+  DecideScoutPairingApprovalInput,
   ScoutPairingControlAction,
   ScoutPairingState,
   UpdateScoutPairingConfigInput,
@@ -43,6 +55,7 @@ import type {
 } from "./diagnostics.ts";
 import {
   controlScoutElectronPairingService,
+  decideScoutElectronPairingApproval,
   getScoutElectronPairingState,
   refreshScoutElectronPairingState,
   updateScoutElectronPairingConfig,
@@ -71,6 +84,8 @@ import {
 } from "./host.ts";
 import {
   getScoutElectronAppInfo,
+  getScoutElectronHomeState,
+  getScoutElectronServicesState,
   getScoutElectronPhonePreparation,
   getScoutElectronShellState,
   refreshScoutElectronShellState,
@@ -90,6 +105,8 @@ export type ScoutElectronIpcRegistrar = (
 
 export type ScoutElectronIpcServices = {
   getAppInfo: () => Promise<ScoutDesktopAppInfo> | ScoutDesktopAppInfo;
+  getServicesState: () => Promise<ScoutDesktopServicesState>;
+  getHomeState: () => Promise<ScoutDesktopHomeState>;
   getShellState: () => Promise<ScoutDesktopShellState>;
   refreshShellState: () => Promise<ScoutDesktopShellState>;
   getAppSettings: () => Promise<AppSettingsState>;
@@ -112,9 +129,13 @@ export type ScoutElectronIpcServices = {
   refreshPairingState: () => Promise<ScoutPairingState>;
   controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
   updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
+  decidePairingApproval: (input: DecideScoutPairingApprovalInput) => Promise<ScoutPairingState>;
   restartAgent: (input: ScoutElectronRestartAgentInput) => Promise<ScoutDesktopShellState>;
   sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
   controlBroker: (action: ScoutElectronBrokerControlAction) => Promise<ScoutDesktopShellState>;
+  getKeepAliveState: () => Promise<ScoutKeepAliveState> | ScoutKeepAliveState;
+  acquireKeepAliveLease: (input: AcquireScoutKeepAliveLeaseInput) => Promise<ScoutKeepAliveLease> | ScoutKeepAliveLease;
+  releaseKeepAliveLease: (input: ReleaseScoutKeepAliveLeaseInput) => Promise<boolean> | boolean;
   getAgentSession: (agentId: string) => Promise<ScoutElectronAgentSessionInspector>;
   openAgentSession: (agentId: string) => Promise<boolean>;
   toggleVoiceCapture: () => Promise<ScoutDesktopShellState>;
@@ -141,6 +162,8 @@ export function createScoutElectronIpcServices(input: {
 
   return {
     getAppInfo: () => getScoutElectronAppInfo(appInfo ?? {}),
+    getServicesState: () => getScoutElectronServicesState({ currentDirectory, appInfo, voice }),
+    getHomeState: () => getScoutElectronHomeState({ currentDirectory, appInfo, voice }),
     getShellState: () => getScoutElectronShellState({ currentDirectory, appInfo, voice }),
     refreshShellState: () => refreshScoutElectronShellState({ currentDirectory, appInfo, voice }),
     getAppSettings: () => getScoutElectronAppSettings(currentDirectory, settings),
@@ -163,6 +186,7 @@ export function createScoutElectronIpcServices(input: {
     refreshPairingState: () => refreshScoutElectronPairingState(currentDirectory),
     controlPairingService: (action) => controlScoutElectronPairingService(action, currentDirectory),
     updatePairingConfig: (input) => updateScoutElectronPairingConfig(input, currentDirectory),
+    decidePairingApproval: (input) => decideScoutElectronPairingApproval(input, currentDirectory),
     restartAgent: async (nextInput) => {
       await restartScoutElectronAgent(nextInput, { currentDirectory, appInfo });
       return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });
@@ -178,6 +202,9 @@ export function createScoutElectronIpcServices(input: {
       });
       return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });
     },
+    getKeepAliveState: () => getScoutKeepAliveState(),
+    acquireKeepAliveLease: (nextInput) => acquireScoutKeepAliveLease(nextInput),
+    releaseKeepAliveLease: (input) => releaseScoutKeepAliveLease(input.leaseId),
     getAgentSession: (agentId) => getScoutElectronAgentSession(agentId),
     openAgentSession: (agentId) => openScoutElectronAgentSession(agentId, agentSessionHost),
     toggleVoiceCapture: () => toggleScoutElectronVoiceCapture({ currentDirectory, appInfo, voice }),
@@ -225,12 +252,19 @@ export function registerScoutElectronIpcHandlers(
     services.controlPairingService(action as ScoutPairingControlAction));
   register(SCOUT_ELECTRON_CHANNELS.updatePairingConfig, (_event, input) =>
     services.updatePairingConfig(input as UpdateScoutPairingConfigInput));
+  register(SCOUT_ELECTRON_CHANNELS.decidePairingApproval, (_event, input) =>
+    services.decidePairingApproval(input as DecideScoutPairingApprovalInput));
   register(SCOUT_ELECTRON_CHANNELS.restartAgent, (_event, input) =>
     services.restartAgent(input as ScoutElectronRestartAgentInput));
   register(SCOUT_ELECTRON_CHANNELS.sendRelayMessage, (_event, input) =>
     services.sendRelayMessage(input as ScoutElectronSendRelayMessageInput));
   register(SCOUT_ELECTRON_CHANNELS.controlBroker, (_event, action) =>
     services.controlBroker(action as ScoutElectronBrokerControlAction));
+  register(SCOUT_ELECTRON_CHANNELS.getKeepAliveState, () => services.getKeepAliveState());
+  register(SCOUT_ELECTRON_CHANNELS.acquireKeepAliveLease, (_event, input) =>
+    services.acquireKeepAliveLease(input as AcquireScoutKeepAliveLeaseInput));
+  register(SCOUT_ELECTRON_CHANNELS.releaseKeepAliveLease, (_event, input) =>
+    services.releaseKeepAliveLease(input as ReleaseScoutKeepAliveLeaseInput));
   register(SCOUT_ELECTRON_CHANNELS.getAgentSession, (_event, agentId) =>
     services.getAgentSession(String(agentId)));
   register(SCOUT_ELECTRON_CHANNELS.openAgentSession, (_event, agentId) =>

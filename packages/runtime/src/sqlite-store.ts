@@ -389,7 +389,7 @@ export class SQLiteControlPlaneStore {
   loadSnapshot(): RuntimeRegistrySnapshot {
     const snapshot = createRuntimeRegistrySnapshot();
 
-    const nodes = this.db.query<NodeRow>("SELECT * FROM nodes").all();
+    const nodes = this.db.query<NodeRow, any[]>("SELECT * FROM nodes").all();
     for (const row of nodes) {
       snapshot.nodes[row.id] = {
         id: row.id,
@@ -407,7 +407,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const actors = this.db.query<ActorRow>("SELECT * FROM actors").all();
+    const actors = this.db.query<ActorRow, any[]>("SELECT * FROM actors").all();
     for (const row of actors) {
       snapshot.actors[row.id] = {
         id: row.id,
@@ -419,7 +419,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const agents = this.db.query<AgentRow>("SELECT * FROM agents").all();
+    const agents = this.db.query<AgentRow, any[]>("SELECT * FROM agents").all();
     for (const row of agents) {
       const actor = snapshot.actors[row.id];
       if (!actor) continue;
@@ -443,7 +443,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const endpoints = this.db.query<EndpointRow>("SELECT * FROM agent_endpoints").all();
+    const endpoints = this.db.query<EndpointRow, any[]>("SELECT * FROM agent_endpoints").all();
     for (const row of endpoints) {
       snapshot.endpoints[row.id] = {
         id: row.id,
@@ -461,8 +461,8 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const conversations = this.db.query<ConversationRow>("SELECT * FROM conversations").all();
-    const members = this.db.query<{ conversation_id: string; actor_id: string }>(
+    const conversations = this.db.query<ConversationRow, any[]>("SELECT * FROM conversations").all();
+    const members = this.db.query<{ conversation_id: string; actor_id: string }, any[]>(
       "SELECT conversation_id, actor_id FROM conversation_members",
     ).all();
     const memberMap = new Map<string, string[]>();
@@ -487,7 +487,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const bindings = this.db.query<BindingRow>("SELECT * FROM bindings").all();
+    const bindings = this.db.query<BindingRow, any[]>("SELECT * FROM bindings").all();
     for (const row of bindings) {
       snapshot.bindings[row.id] = {
         id: row.id,
@@ -500,9 +500,9 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const messages = this.db.query<MessageRow>("SELECT * FROM messages").all();
-    const mentionRows = this.db.query<MentionRow>("SELECT * FROM message_mentions").all();
-    const attachmentRows = this.db.query<AttachmentRow>("SELECT * FROM message_attachments").all();
+    const messages = this.db.query<MessageRow, any[]>("SELECT * FROM messages").all();
+    const mentionRows = this.db.query<MentionRow, any[]>("SELECT * FROM message_mentions").all();
+    const attachmentRows = this.db.query<AttachmentRow, any[]>("SELECT * FROM message_attachments").all();
     const mentionsByMessage = new Map<string, MessageMention[]>();
     const attachmentsByMessage = new Map<string, MessageAttachment[]>();
 
@@ -545,7 +545,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const flights = this.db.query<FlightRow>("SELECT * FROM flights").all();
+    const flights = this.db.query<FlightRow, any[]>("SELECT * FROM flights").all();
     for (const row of flights) {
       snapshot.flights[row.id] = {
         id: row.id,
@@ -562,7 +562,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const collaborationRows = this.db.query<CollaborationRecordRow>(
+    const collaborationRows = this.db.query<CollaborationRecordRow, any[]>(
       "SELECT * FROM collaboration_records",
     ).all();
     for (const row of collaborationRows) {
@@ -574,7 +574,7 @@ export class SQLiteControlPlaneStore {
 
   recentEvents(limit = 100): ControlEvent[] {
     const rows = this.db
-      .query<EventRow>("SELECT * FROM events ORDER BY ts DESC LIMIT ?1")
+      .query<EventRow, any[]>("SELECT * FROM events ORDER BY ts DESC LIMIT ?1")
       .all(limit)
       .reverse();
 
@@ -985,7 +985,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY ts DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<ActivityItemRow>(sql).all(...values, limit);
+    const rows = this.db.query<ActivityItemRow, any[]>(sql).all(...values, limit);
     return rows.map((row) => ({
       id: row.id,
       kind: row.kind,
@@ -1040,7 +1040,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY updated_at DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<CollaborationRecordRow>(sql).all(...values, limit);
+    const rows = this.db.query<CollaborationRecordRow, any[]>(sql).all(...values, limit);
     return rows.map(buildCollaborationRecord);
   }
 
@@ -1060,7 +1060,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY created_at DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<CollaborationEventRow>(sql).all(...values, limit);
+    const rows = this.db.query<CollaborationEventRow, any[]>(sql).all(...values, limit);
     return rows.map((row) => ({
       id: row.id,
       recordId: row.record_id,
@@ -1124,7 +1124,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY created_at ASC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<DeliveryRow>(sql).all(...values, limit);
+    const rows = this.db.query<DeliveryRow, any[]>(sql).all(...values, limit);
     return rows.map((row) => ({
       id: row.id,
       messageId: row.message_id ?? undefined,
@@ -1152,7 +1152,7 @@ export class SQLiteControlPlaneStore {
       leaseExpiresAt?: number | null;
     } = {},
   ): void {
-    const current = this.db.query<Pick<DeliveryRow, "metadata_json">>(
+    const current = this.db.query<Pick<DeliveryRow, "metadata_json">, any[]>(
       "SELECT metadata_json FROM deliveries WHERE id = ?1",
     ).get(deliveryId);
     const mergedMetadata = options.metadata
@@ -1181,7 +1181,7 @@ export class SQLiteControlPlaneStore {
   }
 
   listDeliveryAttempts(deliveryId: string): DeliveryAttempt[] {
-    const rows = this.db.query<DeliveryAttemptRow>(
+    const rows = this.db.query<DeliveryAttemptRow, any[]>(
       "SELECT * FROM delivery_attempts WHERE delivery_id = ?1 ORDER BY attempt ASC, created_at ASC",
     ).all(deliveryId);
 
@@ -1407,7 +1407,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    return this.db.query<{ actor_id: string }>(
+    return this.db.query<{ actor_id: string }, any[]>(
       `SELECT cm.actor_id
       FROM conversation_members cm
       JOIN agents a ON a.id = cm.actor_id
@@ -1420,7 +1420,7 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    return this.db.query<{ actor_id: string }>(
+    return this.db.query<{ actor_id: string }, any[]>(
       "SELECT actor_id FROM conversation_members WHERE conversation_id = ?1",
     ).all(conversationId).map((row) => row.actor_id);
   }
@@ -1430,7 +1430,7 @@ export class SQLiteControlPlaneStore {
       return false;
     }
 
-    const row = this.db.query<{ id: string }>(
+    const row = this.db.query<{ id: string }, any[]>(
       "SELECT id FROM agents WHERE id = ?1 LIMIT 1",
     ).get(actorId);
     return Boolean(row?.id);
@@ -1441,7 +1441,7 @@ export class SQLiteControlPlaneStore {
       return { workspaceRoot: null, sessionId: null };
     }
 
-    const row = this.db.query<Pick<EndpointRow, "project_root" | "cwd" | "session_id">>(
+    const row = this.db.query<Pick<EndpointRow, "project_root" | "cwd" | "session_id">, any[]>(
       `SELECT project_root, cwd, session_id
       FROM agent_endpoints
       WHERE agent_id = ?1

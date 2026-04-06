@@ -39,6 +39,9 @@ export async function upScoutAgent(input: {
   agentName?: string;
   harness?: AgentHarness;
   currentDirectory?: string;
+  cwdOverride?: string;
+  model?: string;
+  branch?: string;
 }): Promise<ScoutAgentStatus> {
   return startLocalAgent(input);
 }

@@ -34,14 +34,14 @@ struct SessionListView: View {
     @State private var sortOrder: SessionSortOrder = .recent
 
     private var visibleSummaries: [SessionSummary] {
-        let liveSummaries = store.summaries.filter { !$0.isCachedOnly }
+        let source = isConnected ? store.summaries.filter { !$0.isCachedOnly } : store.summaries
         switch sortOrder {
         case .recent:
-            return liveSummaries.sorted { $0.lastActivityAt > $1.lastActivityAt }
+            return source.sorted { $0.lastActivityAt > $1.lastActivityAt }
         case .oldest:
-            return liveSummaries.sorted { $0.lastActivityAt < $1.lastActivityAt }
+            return source.sorted { $0.lastActivityAt < $1.lastActivityAt }
         case .name:
-            return liveSummaries.sorted {
+            return source.sorted {
                 let lhs = $0.name.localizedLowercase
                 let rhs = $1.name.localizedLowercase
                 if lhs == rhs {
@@ -60,14 +60,8 @@ struct SessionListView: View {
         switch connection.state {
         case .connected:
             return nil
-        case .connecting, .handshaking:
-            return "Connecting to Scout on your Mac…"
-        case .reconnecting:
-            return "Reconnecting to Scout on your Mac…"
-        case .failed:
-            return "Scout on your Mac is unavailable right now."
-        case .disconnected:
-            return connection.hasTrustedBridge ? "Scout on your Mac is unavailable right now." : nil
+        default:
+            return connection.statusDetails.message
         }
     }
 
@@ -187,7 +181,7 @@ struct SessionListView: View {
                             .foregroundStyle(ScoutColors.textSecondary)
                             .multilineTextAlignment(.center)
                     } else {
-                        Text("Connect to a bridge to see your sessions.")
+                        Text("Recent sessions cached on this iPhone still appear here while your Mac is offline.")
                             .font(ScoutTypography.body(15))
                             .foregroundStyle(ScoutColors.textSecondary)
                             .multilineTextAlignment(.center)
@@ -238,12 +232,12 @@ struct SessionListView: View {
 
     private func connectionBanner(text: String) -> some View {
         HStack(spacing: ScoutSpacing.sm) {
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: connection.statusDetails.symbol)
                 .font(.system(size: 13, weight: .semibold))
             Text(text)
                 .font(ScoutTypography.caption(12, weight: .medium))
             Spacer()
-            if connection.hasTrustedBridge {
+            if connection.statusDetails.allowsRetry {
                 Button("Retry") {
                     Task { await connection.reconnect() }
                 }
@@ -257,23 +251,11 @@ struct SessionListView: View {
     }
 
     private var connectionLabel: String {
-        switch connection.state {
-        case .connected: "Connected"
-        case .connecting: "Connecting"
-        case .handshaking: "Handshaking"
-        case .reconnecting: "Reconnecting"
-        case .disconnected: "Disconnected"
-        case .failed: "Connection Failed"
-        }
+        connection.statusDetails.shortLabel
     }
 
     private var connectionSymbol: String {
-        switch connection.state {
-        case .connected: "dot.radiowaves.left.and.right"
-        case .connecting, .handshaking, .reconnecting: "arrow.triangle.2.circlepath"
-        case .disconnected: "wifi.slash"
-        case .failed: "exclamationmark.triangle"
-        }
+        connection.statusDetails.symbol
     }
 
     private var overflowMenu: some View {

@@ -10,6 +10,8 @@
 
 import type { Bridge } from "./bridge.ts";
 import { handleRPC } from "./server.ts";
+import { bridgeRouter } from "./router.ts";
+import { callTRPCProcedure, getErrorShape, TRPCError } from "@trpc/server";
 import { log } from "./log.ts";
 import {
   SecureTransport,
@@ -215,7 +217,7 @@ export function connectToRelay(
 
         onError: (err) => {
           console.error("[relay-client] secure transport error:", err.message);
-          log.error("transport", "decrypt/transport error — resetting for fresh handshake", err.message);
+          log.error("trns:cry", `decrypt failed — resetting handshake: ${err.message}`);
           events?.onError?.({ relayUrl, room: qrPayload.room, error: err });
           eventUnsub?.();
           eventUnsub = null;
@@ -253,6 +255,52 @@ export function connectToRelay(
     }
   }
 
+  function isTRPCMessage(req: any): boolean {
+    return req.jsonrpc === "2.0" && ["query", "mutation", "subscription", "subscription.stop"].includes(req.method);
+  }
+
+  async function dispatchTRPC(req: any, send: (json: string) => void): Promise<void> {
+    const { id, method, params } = req;
+    const type = method as "query" | "mutation";
+    const path = params?.path;
+    const input = params?.input;
+
+    if (!path) {
+      send(JSON.stringify({ id, jsonrpc: "2.0", error: { code: -32600, message: "Missing path in params" } }));
+      return;
+    }
+
+    try {
+      const ctx = { bridge, deviceId: relayDeviceId, cwd: process.cwd() };
+      const result = await callTRPCProcedure({
+        router: bridgeRouter,
+        path,
+        getRawInput: () => Promise.resolve(input),
+        ctx,
+        type,
+        signal: AbortSignal.timeout(30_000),
+        batchIndex: 0,
+      });
+      send(JSON.stringify({ id, jsonrpc: "2.0", result: { type: "data", data: result } }));
+    } catch (cause) {
+      const errMsg = cause instanceof Error ? cause.message : String(cause);
+      log.error("rpc:err", `✗ ${path} — ${errMsg}`);
+      const error = cause instanceof TRPCError ? cause : new TRPCError({ code: "INTERNAL_SERVER_ERROR", cause });
+      send(JSON.stringify({
+        id,
+        jsonrpc: "2.0",
+        error: getErrorShape({
+          config: bridgeRouter._def._config,
+          error,
+          type,
+          path,
+          input,
+          ctx: undefined,
+        }),
+      }));
+    }
+  }
+
   function handlePlaintextMessage(raw: string): void {
     let req;
     try {
@@ -264,11 +312,15 @@ export function connectToRelay(
       return;
     }
 
-    handleRPC(bridge, req, relayDeviceId).then((res) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(res));
-      }
-    });
+    const send = (json: string) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(json);
+    };
+
+    if (isTRPCMessage(req)) {
+      dispatchTRPC(req, send);
+    } else {
+      handleRPC(bridge, req, relayDeviceId).then((res) => send(JSON.stringify(res)));
+    }
   }
 
   function handleIncomingRPC(message: string): void {
@@ -284,11 +336,15 @@ export function connectToRelay(
       return;
     }
 
-    handleRPC(bridge, req, relayDeviceId).then((res) => {
-      if (transport?.isReady()) {
-        transport.send(JSON.stringify(res));
-      }
-    });
+    const send = (json: string) => {
+      if (transport?.isReady()) transport.send(json);
+    };
+
+    if (isTRPCMessage(req)) {
+      dispatchTRPC(req, send);
+    } else {
+      handleRPC(bridge, req, relayDeviceId).then((res) => send(JSON.stringify(res)));
+    }
   }
 
   function cleanup(): void {

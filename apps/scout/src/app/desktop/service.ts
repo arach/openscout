@@ -3,13 +3,20 @@ import { readOpenScoutSettings, writeOpenScoutSettings } from "@openscout/runtim
 import { SCOUT_APP_VERSION, SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
 import type {
   ScoutDesktopAppInfo,
+  ScoutDesktopHomeState,
+  ScoutDesktopServicesState,
   ScoutDesktopFeatureFlags,
   ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutPhonePreparationState,
   UpdateScoutPhonePreparationInput,
 } from "./state.ts";
-import { composeScoutDesktopRelayShellPatch, composeScoutDesktopShellState } from "./shell.ts";
+import {
+  composeScoutDesktopHomeState,
+  composeScoutDesktopRelayShellPatch,
+  composeScoutDesktopServicesState,
+  composeScoutDesktopShellState,
+} from "./shell.ts";
 
 export function createScoutDesktopFeatureFlags(input: Partial<ScoutDesktopFeatureFlags> = {}): ScoutDesktopFeatureFlags {
   const enableAll = input.enableAll ?? false;
@@ -87,6 +94,18 @@ export async function loadScoutDesktopShellState(input: {
   const appInfo = input.appInfo ?? createScoutDesktopAppInfo();
   return composeScoutDesktopShellState({
     appInfo,
+    currentDirectory: input.currentDirectory,
+  });
+}
+
+export async function loadScoutDesktopServicesState(): Promise<ScoutDesktopServicesState> {
+  return composeScoutDesktopServicesState();
+}
+
+export async function loadScoutDesktopHomeState(input: {
+  currentDirectory: string;
+}): Promise<ScoutDesktopHomeState> {
+  return composeScoutDesktopHomeState({
     currentDirectory: input.currentDirectory,
   });
 }

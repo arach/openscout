@@ -9,7 +9,7 @@ import { Bridge } from "./bridge/bridge";
 import { type AdapterEntry, resolveConfig, type SessionEntry } from "./bridge/config";
 import { startFileServer, type FileServer } from "./bridge/fileserver";
 import { connectToRelay, type RelayConnection, type RelayEventHandlers } from "./bridge/relay-client";
-import { startBridgeServer } from "./bridge/server";
+import { startBridgeServerTRPC as startBridgeServer } from "./bridge/server-trpc";
 import { loadOrCreateIdentity, type KeyPair, type QRPayload } from "./security";
 import type { AdapterFactory } from "./protocol";
 
@@ -67,7 +67,9 @@ export async function startPairingRuntime(options?: {
     adapters,
   });
 
-  const server = startBridgeServer(bridge, config.port, {
+  const server = startBridgeServer({
+    bridge,
+    port: config.port,
     secure: config.secure,
     identity: config.secure ? identity : undefined,
   });

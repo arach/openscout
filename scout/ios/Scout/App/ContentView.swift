@@ -9,6 +9,7 @@ struct ContentView: View {
 
     @Environment(SessionStore.self) private var sessionStore
     @Environment(ConnectionManager.self) private var connectionManager
+    @Environment(\.scenePhase) private var scenePhase
     @State private var reconnectTriggered = false
     @State private var router = ScoutRouter()
 
@@ -31,6 +32,13 @@ struct ContentView: View {
                   connectionManager.hasTrustedBridge else { return }
             reconnectTriggered = true
             await connectionManager.reconnect()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            connectionManager.noteAppDidBecomeActive()
+            guard connectionManager.hasTrustedBridge,
+                  connectionManager.state != .connected else { return }
+            Task { await connectionManager.reconnect() }
         }
     }
 

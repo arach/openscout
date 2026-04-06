@@ -6,8 +6,11 @@
   "productName": "Scout",
   "bundleId": "com.scout.desktop",
   "scripts": {
-    "dev": "node scripts/dev-electron.mjs",
-    "dev:renderer": "vite",
+    "dev": "npm run dev:full-stack",
+    "dev:full-stack": "node scripts/dev-electron.mjs",
+    "dev:web": "node scripts/dev-renderer.mjs",
+    "dev:renderer": "npm run dev:web",
+    "dev:electron": "npm run electron:web",
     "import:v0": "node scripts/import-v0.mjs stage",
     "stage:v0": "node scripts/import-v0.mjs stage",
     "diff:v0": "node scripts/import-v0.mjs diff",

@@ -31,14 +31,8 @@ struct WorkspaceBrowserView: View {
         switch connection.state {
         case .connected:
             return nil
-        case .connecting, .handshaking:
-            return "Connecting to Scout on your Mac…"
-        case .reconnecting:
-            return "Reconnecting to Scout on your Mac…"
-        case .failed:
-            return "Scout on your Mac is unavailable right now."
-        case .disconnected:
-            return connection.hasTrustedBridge ? "Scout on your Mac is unavailable right now." : "Pair with Scout on your Mac first."
+        default:
+            return connection.statusDetails.message
         }
     }
 
@@ -82,9 +76,16 @@ struct WorkspaceBrowserView: View {
         .sheet(item: $selectedProject) { project in
             HarnessPickerView(
                 projectName: project.name,
-                projectPath: project.path
-            ) { config in
-                openProject(project, config: config)
+                projectPath: project.path,
+                projectBranch: project.currentBranch
+            ) { action in
+                switch action {
+                case .createNew(let config):
+                    openProject(project, config: config)
+                case .resume(let sessionId):
+                    selectedProject = nil
+                    onSessionCreated?(sessionId)
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -263,14 +264,14 @@ struct WorkspaceBrowserView: View {
     private func connectionStateView(_ message: String) -> some View {
         VStack(spacing: ScoutSpacing.lg) {
             Spacer()
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: connection.statusDetails.symbol)
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(ScoutColors.statusError)
             Text(message)
                 .font(ScoutTypography.body(14))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
-            if connection.hasTrustedBridge {
+            if connection.statusDetails.allowsRetry {
                 Button("Retry") {
                     Task { await connection.reconnect() }
                 }
@@ -380,7 +381,11 @@ struct WorkspaceBrowserView: View {
                 let session = try await connection.createMobileSession(
                     workspaceId: entry.path,
                     harness: config.harness.id,
-                    agentName: entry.name
+                    agentName: entry.name,
+                    worktree: config.worktree ? "auto" : nil,
+                    branch: config.branch,
+                    model: config.model,
+                    forceNew: true
                 )
                 onSessionCreated?(session.session.conversationId)
             } catch {

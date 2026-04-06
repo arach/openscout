@@ -343,6 +343,9 @@ final class SessionStore: @unchecked Sendable {
         case .blockActionStatus(let sessionId, let turnId, let blockId, let status, let meta):
             handleBlockActionStatus(sessionId: sessionId, turnId: turnId, blockId: blockId, status: status, meta: meta)
 
+        case .blockActionApproval(let sessionId, let turnId, let blockId, let approval):
+            handleBlockActionApproval(sessionId: sessionId, turnId: turnId, blockId: blockId, approval: approval)
+
         case .blockEnd(let sessionId, let turnId, let blockId, let status):
             handleBlockEnd(sessionId: sessionId, turnId: turnId, blockId: blockId, status: status)
 
@@ -567,6 +570,32 @@ final class SessionStore: @unchecked Sendable {
         if state.turns[turnIndex].blocks[blockIndex].block.type == .action,
            var action = state.turns[turnIndex].blocks[blockIndex].block.action {
             action.status = status
+            state.turns[turnIndex].blocks[blockIndex].block.action = action
+            state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
+            sessions[sessionId] = state
+        }
+
+        lock.unlock()
+    }
+
+    private func handleBlockActionApproval(
+        sessionId: String,
+        turnId: String,
+        blockId: String,
+        approval: ActionApproval
+    ) {
+        lock.lock()
+        guard var state = sessions[sessionId],
+              let turnIndex = state.turns.firstIndex(where: { $0.id == turnId }),
+              let blockIndex = state.turns[turnIndex].blocks.firstIndex(where: { $0.block.id == blockId }) else {
+            lock.unlock()
+            return
+        }
+
+        if state.turns[turnIndex].blocks[blockIndex].block.type == .action,
+           var action = state.turns[turnIndex].blocks[blockIndex].block.action {
+            action.status = .awaitingApproval
+            action.approval = approval
             state.turns[turnIndex].blocks[blockIndex].block.action = action
             state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
             sessions[sessionId] = state

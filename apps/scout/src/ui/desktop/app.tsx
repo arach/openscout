@@ -63,6 +63,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { renderSVG } from 'uqr';
 import MachinesView from "@/components/machines-view";
+import { OverviewView } from "@/components/overview-view";
 import PlansView from "@/components/plans-view";
 import { StartupSplashOverlay } from "@/components/startup-splash";
 import { BootLoader } from "@/components/boot-loader";
@@ -203,7 +204,7 @@ type ProductSurface = (typeof PRODUCT_SURFACES)[number];
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
-type CapabilityCard = { icon: React.ReactNode; title: string; desc: string; action: () => void; accent: boolean };
+
 const APP_VIEW_IDS: readonly AppView[] = [
   'overview',
   'activity',
@@ -268,6 +269,26 @@ function pairingTrustedPeersMeaningfullyEqual(left: PairingState['trustedPeers']
   });
 }
 
+function pairingApprovalsMeaningfullyEqual(left: PairingState['pendingApprovals'], right: PairingState['pendingApprovals']) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((approval, index) => {
+    const other = right[index];
+    return approval.sessionId === other?.sessionId
+      && approval.turnId === other?.turnId
+      && approval.blockId === other?.blockId
+      && approval.version === other?.version
+      && approval.risk === other?.risk
+      && approval.title === other?.title
+      && approval.description === other?.description
+      && approval.detail === other?.detail
+      && approval.actionKind === other?.actionKind
+      && approval.actionStatus === other?.actionStatus;
+  });
+}
+
 function pairingStatesMeaningfullyEqual(left: PairingState | null, right: PairingState | null) {
   if (left === right) {
     return true;
@@ -294,6 +315,7 @@ function pairingStatesMeaningfullyEqual(left: PairingState | null, right: Pairin
     && left.identityFingerprint === right.identityFingerprint
     && left.trustedPeerCount === right.trustedPeerCount
     && pairingTrustedPeersMeaningfullyEqual(left.trustedPeers, right.trustedPeers)
+    && pairingApprovalsMeaningfullyEqual(left.pendingApprovals, right.pendingApprovals)
     && left.logTail === right.logTail
     && left.logUpdatedAtLabel === right.logUpdatedAtLabel
     && left.logMissing === right.logMissing
@@ -363,6 +385,7 @@ export default function App() {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingControlPending, setPairingControlPending] = useState(false);
   const [pairingConfigPending, setPairingConfigPending] = useState(false);
+  const [pairingApprovalPendingId, setPairingApprovalPendingId] = useState<string | null>(null);
   const [manualRefreshPending, setManualRefreshPending] = useState(false);
   const [appReloadPending, setAppReloadPending] = useState(false);
   const [pairingConfigFeedback, setPairingConfigFeedback] = useState<string | null>(null);
@@ -1615,7 +1638,7 @@ export default function App() {
     selectedRelayDirectThread?.activeTask,
     lastVisibleRelayMessage?.id,
     lastVisibleRelayMessage?.body,
-    lastVisibleRelayMessage?.deliveryState,
+    lastVisibleRelayMessage?.receipt?.state,
   ]);
 
   const handleRelayTimelineScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -2175,12 +2198,12 @@ export default function App() {
   const activityLeadTask = activityTasks.find((task) => task.status === 'running') ?? activityTasks[0] ?? null;
   const relayRuntimeBooting = isLoadingShell && !shellState && !shellError;
   const relayStatusLabel = relayRuntimeBooting
-    ? 'Starting…'
+    ? 'Syncing…'
     : runtime?.brokerReachable
       ? 'Running'
       : 'Offline';
   const relayStatusTitle = relayRuntimeBooting
-    ? 'Scout is still loading the relay runtime.'
+    ? 'Scout is still syncing with the relay runtime.'
     : runtime?.brokerReachable
       ? 'Open Relay diagnostics'
       : 'Relay is offline. Open diagnostics.';
@@ -2190,7 +2213,7 @@ export default function App() {
       ? 'bg-emerald-500'
       : 'bg-amber-500';
   const relayRuntimeHealthLabel = relayRuntimeBooting
-    ? 'Starting'
+    ? 'Syncing'
     : runtime?.brokerHealthy
       ? 'Healthy'
       : runtime?.brokerReachable
@@ -2415,6 +2438,34 @@ export default function App() {
       throw error;
     } finally {
       setPairingConfigPending(false);
+    }
+  }, [commitPairingState]);
+
+  const handleDecidePairingApproval = React.useCallback(async (
+    approval: NonNullable<PairingState>["pendingApprovals"][number],
+    decision: 'approve' | 'deny',
+  ) => {
+    if (!scoutDesktop?.decidePairingApproval) {
+      return;
+    }
+
+    const approvalId = `${approval.sessionId}:${approval.turnId}:${approval.blockId}:${decision}`;
+    setPairingApprovalPendingId(approvalId);
+    try {
+      const nextState = await scoutDesktop.decidePairingApproval({
+        sessionId: approval.sessionId,
+        turnId: approval.turnId,
+        blockId: approval.blockId,
+        version: approval.version,
+        decision,
+      });
+      commitPairingState(nextState);
+      setPairingError(null);
+      setRelayFeedback(decision === 'approve' ? 'Approval sent.' : 'Action denied.');
+    } catch (error) {
+      setPairingError(asErrorMessage(error));
+    } finally {
+      setPairingApprovalPendingId((current) => current === approvalId ? null : current);
     }
   }, [commitPairingState]);
 
@@ -3974,8 +4025,19 @@ export default function App() {
               style={{ borderColor: C.border }}
               title={relayStatusTitle}
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${relayStatusDotClassName}`}></div>
-              Relay <span className="font-medium" style={s.inkText}>{relayStatusLabel}</span>
+              Relay
+              {relayRuntimeBooting ? (
+                <Spinner
+                  className="text-[11px]"
+                  style={{ color: C.muted }}
+                  aria-label="Syncing relay status"
+                />
+              ) : (
+                <>
+                  <div className={`w-1.5 h-1.5 rounded-full ${relayStatusDotClassName}`}></div>
+                  <span className="font-medium" style={s.inkText}>{relayStatusLabel}</span>
+                </>
+              )}
             </button>
             <div className="flex items-center gap-1.5">
               Agents <span className="font-medium" style={s.inkText}>{runtime?.agentCount ?? 0}</span>
@@ -4045,260 +4107,36 @@ export default function App() {
 
         {/* --- OVERVIEW --- */}
         {activeView === 'overview' ? (
-          <div className="flex-1 flex overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
-              <div className="px-12 pt-16 pb-12 border-b" style={{ borderColor: C.border }}>
-                <div className="max-w-5xl">
-                  <div className="os-fade-in text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>
-                    Command Center
-                  </div>
-                  <h1 className="os-fade-up text-5xl font-bold mb-4 tracking-tight leading-tight" style={s.inkText}>
-                    Your Agents,<br />Connected
-                  </h1>
-                  <p className="os-fade-up os-stagger-1 text-lg mb-8 max-w-xl leading-relaxed" style={s.mutedText}>
-                    Scout gives you and your agents a shared control plane to communicate, collaborate, and coordinate.
-                  </p>
-                  <div className="os-fade-up os-stagger-2 flex items-center gap-3">
-                    {desktopFeatures.relay ? (
-                      <button
-                        onClick={() => setActiveView('relay')}
-                        className="os-btn-primary text-white px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-md flex items-center gap-2"
-                        style={{ backgroundColor: C.accent }}
-                      >
-                        <MessageSquare size={16} />
-                        Open Relay
-                      </button>
-                    ) : null}
-                    {desktopFeatures.interAgent ? (
-                      <button
-                        onClick={() => setActiveView('inter-agent')}
-                        className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
-                        style={{ ...s.surface, borderColor: C.border, color: C.ink }}
-                      >
-                        <InterAgentIcon size={16} />
-                        Open Inter-Agent
-                      </button>
-                    ) : desktopFeatures.sessions ? (
-                      <button
-                        onClick={() => setActiveView('sessions')}
-                        className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
-                        style={{ ...s.surface, borderColor: C.border, color: C.ink }}
-                      >
-                        <Radar size={16} />
-                        Browse Sessions
-                      </button>
-                    ) : null}
-                    <button
-                      onClick={() => void handleRefreshShell()}
-                      className="os-btn border px-5 py-2.5 rounded-lg text-[14px] font-medium shadow-sm flex items-center gap-2"
-                      style={{ ...s.surface, borderColor: C.border, color: C.muted }}
-                    >
-                      <RefreshCw size={16} />
-                      Sync Runtime
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-12 py-6 border-b flex items-center gap-12" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                {[
-                  { value: stats.totalSessions, label: 'Sessions indexed' },
-                  { value: runtime?.messageCount ?? stats.totalMessages, label: 'Messages captured' },
-                  desktopFeatures.machines ? { value: machinesState?.onlineCount ?? 0, label: 'Live nodes' } : null,
-                  desktopFeatures.plans ? { value: plansState?.planCount ?? 0, label: 'Plans tracked' } : null,
-                ].filter((stat): stat is { value: number; label: string } => Boolean(stat)).map((stat, i) => (
-                  <div key={stat.label} className={`os-fade-in os-stagger-${i + 1} flex items-baseline gap-2`}>
-                    <span className="text-2xl font-bold" style={s.inkText}>{stat.value}</span>
-                    <span className="text-[12px]" style={s.mutedText}>{stat.label}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="px-12 py-10">
-                <div className="text-[10px] font-mono tracking-widest uppercase mb-6" style={s.mutedText}>Capabilities</div>
-                <div className="grid grid-cols-3 gap-5 mb-12">
-                  {(() => {
-                    const capabilityCards: CapabilityCard[] = [
-                      {
-                        icon: <MessageSquare size={20} />,
-                        title: 'Relay',
-                        desc: 'Real-time communication hub. Agent-to-agent, human-to-agent, all in one stream.',
-                        action: () => setActiveView('relay'),
-                        accent: true,
-                      },
-                    ];
-                    if (desktopFeatures.interAgent) {
-                      capabilityCards.push({
-                        icon: <InterAgentIcon size={20} />,
-                        title: 'Inter-Agent',
-                        desc: 'Read private agent-to-agent threads and inspect who Fabric, Builder, and others are talking to.',
-                        action: () => setActiveView('inter-agent'),
-                        accent: false,
-                      });
-                    }
-                    if (desktopFeatures.sessions) {
-                      capabilityCards.push({
-                        icon: <Radar size={20} />,
-                        title: 'Sessions',
-                        desc: 'Browse and organize session histories by project. Every conversation, searchable.',
-                        action: () => setActiveView('sessions'),
-                        accent: false,
-                      });
-                    }
-                    if (desktopFeatures.machines) {
-                      capabilityCards.push({
-                        icon: <Network size={20} />,
-                        title: 'Machines',
-                        desc: 'Inspect servers and computers on the mesh, including runtime endpoints and active projects.',
-                        action: () => setActiveView('machines'),
-                        accent: false,
-                      });
-                    }
-                    if (desktopFeatures.plans) {
-                      capabilityCards.push({
-                        icon: <FileText size={20} />,
-                        title: 'Plans',
-                        desc: 'Track recent asks and load Markdown plans from registered agent workspaces.',
-                        action: () => setActiveView('plans'),
-                        accent: false,
-                      });
-                    }
-                    if (desktopFeatures.search) {
-                      capabilityCards.push({
-                        icon: <Search size={20} />,
-                        title: 'Search',
-                        desc: 'Full-text search across all sessions, messages, and metadata. Find anything instantly.',
-                        action: () => setActiveView('search'),
-                        accent: false,
-                      });
-                    }
-                    return capabilityCards;
-                  })().map((card, i) => (
-                    <button
-                      key={card.title}
-                      onClick={card.action}
-                      className={`os-card os-fade-up os-stagger-${i + 1} text-left border rounded-xl p-6 group`}
-                      style={{ ...s.surface, borderColor: C.border }}
-                    >
-                      <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center mb-4 transition-transform duration-200 group-hover:scale-110"
-                        style={card.accent ? { backgroundColor: C.accent, color: '#fff' } : { backgroundColor: C.tagBg, color: C.muted }}
-                      >
-                        {card.icon}
-                      </div>
-                      <h3 className="text-[15px] font-semibold mb-2 flex items-center gap-2" style={s.inkText}>
-                        {card.title}
-                        <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-all duration-200 group-hover:translate-x-0.5" style={s.mutedText} />
-                      </h3>
-                      <p className="text-[13px] leading-relaxed" style={s.mutedText}>{card.desc}</p>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-2 gap-8">
-                  {desktopFeatures.sessions ? (
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4 flex items-center justify-between" style={s.mutedText}>
-                      <span>Recent Activity</span>
-                      <button onClick={() => setActiveView('sessions')} className="flex items-center gap-1 hover:opacity-70" style={{ color: C.accent }}>
-                        View all <ChevronRight size={10} />
-                      </button>
-                    </div>
-                    <div className="border rounded-xl overflow-hidden" style={{ borderColor: C.border }}>
-                      {overviewSessions.length > 0 ? overviewSessions.map((session, i) => (
-                        <div
-                          key={session.id}
-                          className={`os-row px-4 py-3 flex items-center gap-3 cursor-pointer os-fade-in os-stagger-${i + 1}`}
-                          style={{
-                            ...s.surface,
-                            ...(i < overviewSessions.length - 1 ? { borderBottom: `1px solid ${C.border}` } : {}),
-                          }}
-                          onClick={() => openSessionDetail(session)}
-                        >
-                          <div
-                            className="os-avatar w-6 h-6 rounded text-white flex items-center justify-center text-[10px] font-bold shrink-0"
-                            style={{ backgroundColor: colorForIdentity(session.agent) }}
-                          >
-                            {session.agent.charAt(0)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[12px] font-medium truncate" style={s.inkText}>{session.title}</div>
-                            <div className="text-[10px] font-mono" style={s.mutedText}>{session.project}</div>
-                          </div>
-                          <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>{formatDate(session.lastModified)}</div>
-                        </div>
-                      )) : (
-                        <div className="px-4 py-8 text-[12px] text-center" style={{ ...s.surface, color: C.muted }}>
-                          No session history yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  ) : null}
-
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Agents Online</div>
-                    {reachableRelayAgents.length > 0 ? (
-                      <div className="grid grid-cols-5 gap-3 mb-8">
-                        {reachableRelayAgents.slice(0, 5).map((thread) => (
-                          <button
-                            key={thread.id}
-                            onClick={() => {
-                              setSelectedRelayKind('direct');
-                              setSelectedRelayId(thread.id);
-                              setActiveView('relay');
-                            }}
-                            className="flex flex-col items-center gap-2"
-                          >
-                            <div className="os-avatar relative cursor-pointer">
-                              <div
-                                className="w-10 h-10 rounded-lg text-white flex items-center justify-center text-sm font-bold"
-                                style={{ backgroundColor: colorForIdentity(thread.id) }}
-                              >
-                                {thread.title.charAt(0)}
-                              </div>
-                              <div className="os-avatar-ring absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2" style={{ borderColor: C.surface }}></div>
-                            </div>
-                            <span className="text-[10px] font-medium truncate max-w-[4.5rem]" style={s.mutedText}>{cleanDisplayTitle(thread.title)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="border rounded-xl px-4 py-5 mb-8 text-[12px]" style={{ ...s.surface, borderColor: C.border, color: C.muted }}>
-                        No reachable agents detected right now.
-                      </div>
-                    )}
-
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Projects</div>
-                    <div className="flex flex-wrap gap-2">
-                      {overviewProjects.map((project) => (
-                        <button
-                          key={project.name}
-                          onClick={() => openProjectSessions(project.name)}
-                          className="os-btn flex items-center gap-2 px-3 py-2 border rounded-lg text-[12px] font-medium"
-                          style={{ ...s.surface, borderColor: C.border, color: C.ink }}
-                        >
-                          <Folder size={12} style={s.mutedText} />
-                          {project.name}
-                          <span className="os-tag text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>{project.count}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {shellError ? (
-                      <div className="mt-8 pt-8 border-t" style={{ borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-4" style={s.mutedText}>Runtime Error</div>
-                        <div className="flex items-center gap-2 px-3 py-2 text-[12px] border rounded" style={{ ...s.surface, borderColor: C.border, color: C.muted }}>
-                          <X size={12} />
-                          <span>{shellError}</span>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <OverviewView
+            C={C}
+            s={s}
+            features={desktopFeatures}
+            stats={stats}
+            runtime={runtime}
+            machinesOnlineCount={machinesState?.onlineCount ?? 0}
+            reachableAgents={reachableRelayAgents}
+            activityMessages={activityRecentMessages}
+            activityTasks={activityTasks}
+            overviewSessions={overviewSessions}
+            overviewProjects={overviewProjects}
+            runningTaskCount={plansState?.runningTaskCount ?? 0}
+            shellError={shellError}
+            agentLookup={interAgentAgentLookup}
+            onNavigate={setActiveView}
+            onRefresh={() => void handleRefreshShell()}
+            onOpenAgent={openAgentProfile}
+            onOpenSession={openSessionDetail}
+            onOpenProject={openProjectSessions}
+            onSelectRelay={(kind, id) => {
+              setSelectedRelayKind(kind);
+              setSelectedRelayId(id);
+              setActiveView('relay');
+            }}
+            formatDate={formatDate}
+            colorForIdentity={colorForIdentity}
+            cleanDisplayTitle={cleanDisplayTitle}
+            messagePreviewSnippet={messagePreviewSnippet}
+          />
 
         /* --- ACTIVITY --- */
         ) : activeView === 'activity' ? (
@@ -7033,12 +6871,12 @@ export default function App() {
                           </div>
                           <div className="grid grid-cols-4 gap-x-4 gap-y-2.5">
                             {[
-                              ['Node ID', relayRuntimeBooting ? 'Starting…' : (runtime?.nodeId ?? 'Not reported')],
+                              ['Node ID', relayRuntimeBooting ? 'Syncing…' : (runtime?.nodeId ?? 'Not reported')],
                               ['Agents', `${runtime?.agentCount ?? 0}`],
                               ['Conversations', `${runtime?.conversationCount ?? 0}`],
                               ['Flights', `${runtime?.flightCount ?? 0}`],
-                              ['Latest Relay', relayRuntimeBooting ? 'Starting…' : (runtime?.latestRelayLabel ?? 'Not reported')],
-                              ['Updated', relayRuntimeBooting ? 'Starting…' : (runtime?.updatedAtLabel ?? 'Not reported')],
+                              ['Latest Relay', relayRuntimeBooting ? 'Syncing…' : (runtime?.latestRelayLabel ?? 'Not reported')],
+                              ['Updated', relayRuntimeBooting ? 'Syncing…' : (runtime?.updatedAtLabel ?? 'Not reported')],
                             ].map(([label, value]) => (
                               <div key={label} className="min-w-0">
                                 <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
@@ -9339,10 +9177,12 @@ export default function App() {
           pairingLoading={pairingLoading}
           pairingState={pairingState}
           onControlPairing={handlePairingControl}
+          onDecideApproval={handleDecidePairingApproval}
           onOpenFullLogs={() => {
             setProductSurface('relay');
             setActiveView('logs');
           }}
+          pairingApprovalPendingId={pairingApprovalPendingId}
           onUpdateConfig={handleUpdatePairingConfig}
           onRefresh={() => void handleRefreshShell()}
           onRevealPath={(filePath) => void scoutDesktop?.revealPath?.(filePath)}
@@ -9401,24 +9241,28 @@ export default function App() {
 
 function PairingSurfacePlaceholder({
   pairingControlPending,
+  pairingApprovalPendingId,
   pairingConfigFeedback,
   pairingConfigPending,
   pairingError,
   pairingLoading,
   pairingState,
   onControlPairing,
+  onDecideApproval,
   onOpenFullLogs,
   onUpdateConfig,
   onRefresh,
   onRevealPath,
 }: {
   pairingControlPending: boolean;
+  pairingApprovalPendingId: string | null;
   pairingConfigFeedback: string | null;
   pairingConfigPending: boolean;
   pairingError: string | null;
   pairingLoading: boolean;
   pairingState: PairingState | null;
   onControlPairing: (action: 'start' | 'stop' | 'restart') => void;
+  onDecideApproval: (approval: NonNullable<PairingState>["pendingApprovals"][number], decision: 'approve' | 'deny') => void;
   onOpenFullLogs: () => void;
   onUpdateConfig: (input: UpdatePairingConfigInput) => Promise<void>;
   onRefresh: () => void;
@@ -9453,6 +9297,7 @@ function PairingSurfacePlaceholder({
     : null;
   const serviceIsRunning = Boolean(pairingState?.isRunning);
   const trustedPeers = pairingState?.trustedPeers ?? [];
+  const pendingApprovals = pairingState?.pendingApprovals ?? [];
   const connectedPeer = trustedPeers.find((peer) => peer.fingerprint === pairingState?.connectedPeerFingerprint) ?? null;
   const hasConnectedPeer = pairingState?.status === 'paired' && Boolean(pairingState?.connectedPeerFingerprint);
   const activeRelay = pairingState?.pairing?.relay ?? pairingState?.relay ?? null;
@@ -9580,25 +9425,40 @@ function PairingSurfacePlaceholder({
     setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
   }, [configDirty, pairingState?.configuredRelay, pairingState?.workspaceRoot]);
 
+  // Keep a stable ref to onControlPairing so the countdown interval doesn't depend on it
+  // (the inline arrow passed from the parent changes identity every render)
+  const onControlPairingRef = useRef(onControlPairing);
+  useEffect(() => { onControlPairingRef.current = onControlPairing; }, [onControlPairing]);
+
+  // Track whether we've already fired the auto-restart for the current QR so we
+  // don't hammer the backend once per second after expiry
+  const autoRefreshFiredRef = useRef(false);
+
   useEffect(() => {
     if (!pairingState?.pairing?.expiresAt) {
       return;
     }
 
+    // Reset guard whenever a new QR code arrives (new expiresAt)
+    autoRefreshFiredRef.current = false;
     setCountdownNow(Date.now());
+
     const intervalId = window.setInterval(() => {
       const now = Date.now();
       setCountdownNow(now);
-      // Auto-refresh QR when it expires
-      if (now >= pairingState.pairing!.expiresAt) {
-        onRefresh();
+      // Auto-restart pairing when QR expires — generates a fresh QR code.
+      // restart is required because the QR payload is created once per relay
+      // connection; a simple state-read won't produce a new code.
+      if (!autoRefreshFiredRef.current && now >= pairingState.pairing!.expiresAt) {
+        autoRefreshFiredRef.current = true;
+        onControlPairingRef.current('restart');
       }
     }, 1000);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [pairingState?.pairing?.expiresAt, onRefresh]);
+  }, [pairingState?.pairing?.expiresAt]); // intentionally omits onControlPairing — using ref above
 
   return (
     <div className="flex flex-1 overflow-hidden os-fade-in" style={{ backgroundColor: C.bg }}>
@@ -9811,6 +9671,95 @@ function PairingSurfacePlaceholder({
                     ) : null}
                   </div>
                 </section>
+
+                <section className="rounded-[20px] border p-5" style={cardStyle}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
+                        Pending Approvals
+                      </div>
+                      <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
+                        One normalized approval queue for any pairing adapter that can pause and wait.
+                      </div>
+                    </div>
+                    <span
+                      className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
+                      style={pendingApprovals.length > 0
+                        ? { backgroundColor: '#fff7ed', borderColor: '#fed7aa', color: '#c2410c' }
+                        : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
+                    >
+                      {pendingApprovals.length} queued
+                    </span>
+                  </div>
+
+                  {pendingApprovals.length > 0 ? (
+                    <div className="mt-4 flex flex-col gap-3">
+                      {pendingApprovals.map((approval) => {
+                        const approvalIdBase = `${approval.sessionId}:${approval.turnId}:${approval.blockId}`;
+                        const isApprovePending = pairingApprovalPendingId === `${approvalIdBase}:approve`;
+                        const isDenyPending = pairingApprovalPendingId === `${approvalIdBase}:deny`;
+                        return (
+                          <div key={approvalIdBase} className="rounded-2xl border px-4 py-4" style={subtlePanelStyle}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]"
+                                style={approval.risk === 'high'
+                                  ? { backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#be123c' }
+                                  : approval.risk === 'medium'
+                                    ? { backgroundColor: '#fff7ed', borderColor: '#fed7aa', color: '#c2410c' }
+                                    : { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
+                              >
+                                {approval.risk} risk
+                              </span>
+                              <span className="text-[11px] font-medium" style={{ color: C.ink }}>
+                                {approval.title}
+                              </span>
+                              <span className="text-[11px]" style={{ color: C.muted }}>
+                                {approval.sessionName}
+                              </span>
+                            </div>
+                            <div className="mt-3 text-[13px] leading-[1.6]" style={{ color: C.ink }}>
+                              {approval.description}
+                            </div>
+                            {approval.detail && approval.detail !== approval.description ? (
+                              <div
+                                className="mt-3 rounded-xl border px-3 py-2 text-[11px] font-mono break-words"
+                                style={{ backgroundColor: '#ffffff', borderColor: C.border, color: C.ink }}
+                              >
+                                {approval.detail}
+                              </div>
+                            ) : null}
+                            <div className="mt-4 flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => onDecideApproval(approval, 'approve')}
+                                disabled={Boolean(pairingApprovalPendingId)}
+                              >
+                                {isApprovePending ? <Spinner className="text-[12px]" /> : <Check size={14} />}
+                                Approve
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => onDecideApproval(approval, 'deny')}
+                                disabled={Boolean(pairingApprovalPendingId)}
+                              >
+                                {isDenyPending ? <Spinner className="text-[12px]" /> : <X size={14} />}
+                                Deny
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border px-4 py-4 text-[12px] leading-[1.7]" style={subtlePanelStyle}>
+                      No approvals are waiting right now. When an adapter emits `awaiting_approval`, it will appear here.
+                    </div>
+                  )}
+                </section>
               </div>
 
               <div>
@@ -9838,8 +9787,25 @@ function PairingSurfacePlaceholder({
                       />
                     </div>
                     <div className="mt-4 flex items-center justify-between gap-3 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
-                      <div>
-                        Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span>
+                      <div className="flex items-center gap-2">
+                        {expiresIn === 0 ? (
+                          <>
+                            <span style={{ color: '#be123c' }}>Expired</span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onControlPairing('restart')}
+                              disabled={pairingControlPending || pairingLoading}
+                              className="flex items-center gap-1"
+                            >
+                              <RefreshCw size={11} />
+                              Refresh
+                            </Button>
+                          </>
+                        ) : (
+                          <>Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span></>
+                        )}
                       </div>
                       <Button
                         type="button"

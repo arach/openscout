@@ -21,7 +21,7 @@ import type { Bridge } from "./bridge.ts";
 import type { Prompt } from "../protocol/index.ts";
 import { resolveConfig } from "./config.ts";
 import {
-  createScoutMobileSession,
+  createScoutSession,
   getScoutMobileActivity,
   getScoutMobileAgents,
   getScoutMobileHome,
@@ -543,7 +543,7 @@ async function handleRPCInner(
         };
         return {
           id: req.id,
-          result: await createScoutMobileSession(p, resolveMobileCurrentDirectory(), deviceId),
+          result: await createScoutSession(p, resolveMobileCurrentDirectory(), deviceId),
         };
       }
 

@@ -101,12 +101,26 @@ enum ActionStatus: String, Codable, Sendable {
     case running
     case completed
     case failed
+    case awaitingApproval = "awaiting_approval"
+}
+
+enum ApprovalRisk: String, Codable, Sendable {
+    case low
+    case medium
+    case high
+}
+
+struct ActionApproval: Codable, Sendable {
+    var version: Int
+    var description: String?
+    var risk: ApprovalRisk?
 }
 
 struct Action: Codable, Sendable {
     let kind: ActionKind
     var status: ActionStatus
     var output: String
+    var approval: ActionApproval? = nil
 
     // file_change
     var path: String?

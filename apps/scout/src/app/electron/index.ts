@@ -9,6 +9,7 @@ export * from "./bridge.ts";
 export * from "./channels.ts";
 export * from "./config.ts";
 export * from "./ipc.ts";
+export * from "./keep-alive.ts";
 export * from "./telegram.ts";
 export * from "./service.ts";
 export * from "./voice.ts";
