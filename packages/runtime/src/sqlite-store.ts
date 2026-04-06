@@ -48,6 +48,38 @@ function stringify(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
+type SQLiteBinding =
+  | string
+  | bigint
+  | NodeJS.TypedArray
+  | number
+  | boolean
+  | null
+  | Record<string, string | bigint | NodeJS.TypedArray | number | boolean | null>;
+
+type SQLiteStatementLike<Row, Params extends SQLiteBinding[]> = {
+  all(...params: Params): Row[];
+  get(...params: Params): Row | null;
+};
+
+function queryAll<Row, Params extends SQLiteBinding[] = []>(
+  db: Database,
+  sql: string,
+  ...params: Params
+): Row[] {
+  const statement = db.query(sql) as SQLiteStatementLike<Row, Params>;
+  return statement.all(...params);
+}
+
+function queryGet<Row, Params extends SQLiteBinding[] = []>(
+  db: Database,
+  sql: string,
+  ...params: Params
+): Row | null {
+  const statement = db.query(sql) as SQLiteStatementLike<Row, Params>;
+  return statement.get(...params);
+}
+
 function summarizeText(value: string, maxLength = 120): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) {
@@ -389,7 +421,7 @@ export class SQLiteControlPlaneStore {
   loadSnapshot(): RuntimeRegistrySnapshot {
     const snapshot = createRuntimeRegistrySnapshot();
 
-    const nodes = this.db.query<NodeRow, any[]>("SELECT * FROM nodes").all();
+    const nodes = queryAll<NodeRow>(this.db, "SELECT * FROM nodes");
     for (const row of nodes) {
       snapshot.nodes[row.id] = {
         id: row.id,
@@ -407,7 +439,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const actors = this.db.query<ActorRow, any[]>("SELECT * FROM actors").all();
+    const actors = queryAll<ActorRow>(this.db, "SELECT * FROM actors");
     for (const row of actors) {
       snapshot.actors[row.id] = {
         id: row.id,
@@ -419,7 +451,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const agents = this.db.query<AgentRow, any[]>("SELECT * FROM agents").all();
+    const agents = queryAll<AgentRow>(this.db, "SELECT * FROM agents");
     for (const row of agents) {
       const actor = snapshot.actors[row.id];
       if (!actor) continue;
@@ -443,7 +475,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const endpoints = this.db.query<EndpointRow, any[]>("SELECT * FROM agent_endpoints").all();
+    const endpoints = queryAll<EndpointRow>(this.db, "SELECT * FROM agent_endpoints");
     for (const row of endpoints) {
       snapshot.endpoints[row.id] = {
         id: row.id,
@@ -461,10 +493,11 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const conversations = this.db.query<ConversationRow, any[]>("SELECT * FROM conversations").all();
-    const members = this.db.query<{ conversation_id: string; actor_id: string }, any[]>(
+    const conversations = queryAll<ConversationRow>(this.db, "SELECT * FROM conversations");
+    const members = queryAll<{ conversation_id: string; actor_id: string }>(
+      this.db,
       "SELECT conversation_id, actor_id FROM conversation_members",
-    ).all();
+    );
     const memberMap = new Map<string, string[]>();
     for (const row of members) {
       const list = memberMap.get(row.conversation_id) ?? [];
@@ -487,7 +520,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const bindings = this.db.query<BindingRow, any[]>("SELECT * FROM bindings").all();
+    const bindings = queryAll<BindingRow>(this.db, "SELECT * FROM bindings");
     for (const row of bindings) {
       snapshot.bindings[row.id] = {
         id: row.id,
@@ -500,9 +533,9 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const messages = this.db.query<MessageRow, any[]>("SELECT * FROM messages").all();
-    const mentionRows = this.db.query<MentionRow, any[]>("SELECT * FROM message_mentions").all();
-    const attachmentRows = this.db.query<AttachmentRow, any[]>("SELECT * FROM message_attachments").all();
+    const messages = queryAll<MessageRow>(this.db, "SELECT * FROM messages");
+    const mentionRows = queryAll<MentionRow>(this.db, "SELECT * FROM message_mentions");
+    const attachmentRows = queryAll<AttachmentRow>(this.db, "SELECT * FROM message_attachments");
     const mentionsByMessage = new Map<string, MessageMention[]>();
     const attachmentsByMessage = new Map<string, MessageAttachment[]>();
 
@@ -545,7 +578,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const flights = this.db.query<FlightRow, any[]>("SELECT * FROM flights").all();
+    const flights = queryAll<FlightRow>(this.db, "SELECT * FROM flights");
     for (const row of flights) {
       snapshot.flights[row.id] = {
         id: row.id,
@@ -562,9 +595,10 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const collaborationRows = this.db.query<CollaborationRecordRow, any[]>(
+    const collaborationRows = queryAll<CollaborationRecordRow>(
+      this.db,
       "SELECT * FROM collaboration_records",
-    ).all();
+    );
     for (const row of collaborationRows) {
       snapshot.collaborationRecords[row.id] = buildCollaborationRecord(row);
     }
@@ -573,10 +607,11 @@ export class SQLiteControlPlaneStore {
   }
 
   recentEvents(limit = 100): ControlEvent[] {
-    const rows = this.db
-      .query<EventRow, any[]>("SELECT * FROM events ORDER BY ts DESC LIMIT ?1")
-      .all(limit)
-      .reverse();
+    const rows = queryAll<EventRow, [number]>(
+      this.db,
+      "SELECT * FROM events ORDER BY ts DESC LIMIT ?1",
+      limit,
+    ).reverse();
 
     return rows.map((row) => ({
       id: row.id,
@@ -985,7 +1020,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY ts DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<ActivityItemRow, any[]>(sql).all(...values, limit);
+    const rows = queryAll<ActivityItemRow, Array<string | number>>(this.db, sql, ...values, limit);
     return rows.map((row) => ({
       id: row.id,
       kind: row.kind,
@@ -1040,7 +1075,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY updated_at DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<CollaborationRecordRow, any[]>(sql).all(...values, limit);
+    const rows = queryAll<CollaborationRecordRow, Array<string | number>>(this.db, sql, ...values, limit);
     return rows.map(buildCollaborationRecord);
   }
 
@@ -1060,7 +1095,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY created_at DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<CollaborationEventRow, any[]>(sql).all(...values, limit);
+    const rows = queryAll<CollaborationEventRow, Array<string | number>>(this.db, sql, ...values, limit);
     return rows.map((row) => ({
       id: row.id,
       recordId: row.record_id,
@@ -1124,7 +1159,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY created_at ASC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = this.db.query<DeliveryRow, any[]>(sql).all(...values, limit);
+    const rows = queryAll<DeliveryRow, Array<string | number>>(this.db, sql, ...values, limit);
     return rows.map((row) => ({
       id: row.id,
       messageId: row.message_id ?? undefined,
@@ -1152,9 +1187,11 @@ export class SQLiteControlPlaneStore {
       leaseExpiresAt?: number | null;
     } = {},
   ): void {
-    const current = this.db.query<Pick<DeliveryRow, "metadata_json">, any[]>(
+    const current = queryGet<Pick<DeliveryRow, "metadata_json">, [string]>(
+      this.db,
       "SELECT metadata_json FROM deliveries WHERE id = ?1",
-    ).get(deliveryId);
+      deliveryId,
+    );
     const mergedMetadata = options.metadata
       ? {
           ...parseJson<Record<string, unknown>>(current?.metadata_json, {}),
@@ -1181,9 +1218,11 @@ export class SQLiteControlPlaneStore {
   }
 
   listDeliveryAttempts(deliveryId: string): DeliveryAttempt[] {
-    const rows = this.db.query<DeliveryAttemptRow, any[]>(
+    const rows = queryAll<DeliveryAttemptRow, [string]>(
+      this.db,
       "SELECT * FROM delivery_attempts WHERE delivery_id = ?1 ORDER BY attempt ASC, created_at ASC",
-    ).all(deliveryId);
+      deliveryId,
+    );
 
     return rows.map((row) => ({
       id: row.id,
@@ -1407,12 +1446,14 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    return this.db.query<{ actor_id: string }, any[]>(
+    return queryAll<{ actor_id: string }, [string]>(
+      this.db,
       `SELECT cm.actor_id
       FROM conversation_members cm
       JOIN agents a ON a.id = cm.actor_id
       WHERE cm.conversation_id = ?1`,
-    ).all(conversationId).map((row) => row.actor_id);
+      conversationId,
+    ).map((row) => row.actor_id);
   }
 
   private listConversationMemberIds(conversationId: string | undefined): string[] {
@@ -1420,9 +1461,11 @@ export class SQLiteControlPlaneStore {
       return [];
     }
 
-    return this.db.query<{ actor_id: string }, any[]>(
+    return queryAll<{ actor_id: string }, [string]>(
+      this.db,
       "SELECT actor_id FROM conversation_members WHERE conversation_id = ?1",
-    ).all(conversationId).map((row) => row.actor_id);
+      conversationId,
+    ).map((row) => row.actor_id);
   }
 
   private isKnownAgentId(actorId: string | undefined | null): actorId is string {
@@ -1430,9 +1473,11 @@ export class SQLiteControlPlaneStore {
       return false;
     }
 
-    const row = this.db.query<{ id: string }, any[]>(
+    const row = queryGet<{ id: string }, [string]>(
+      this.db,
       "SELECT id FROM agents WHERE id = ?1 LIMIT 1",
-    ).get(actorId);
+      actorId,
+    );
     return Boolean(row?.id);
   }
 
@@ -1441,13 +1486,15 @@ export class SQLiteControlPlaneStore {
       return { workspaceRoot: null, sessionId: null };
     }
 
-    const row = this.db.query<Pick<EndpointRow, "project_root" | "cwd" | "session_id">, any[]>(
+    const row = queryGet<Pick<EndpointRow, "project_root" | "cwd" | "session_id">, [string]>(
+      this.db,
       `SELECT project_root, cwd, session_id
       FROM agent_endpoints
       WHERE agent_id = ?1
       ORDER BY updated_at DESC
       LIMIT 1`,
-    ).get(agentId);
+      agentId,
+    );
 
     return {
       workspaceRoot: row?.project_root ?? row?.cwd ?? null,
