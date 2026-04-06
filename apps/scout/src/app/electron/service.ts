@@ -1,13 +1,18 @@
 import {
   createScoutDesktopAppInfo,
+  loadScoutDesktopHomeState,
+  loadScoutDesktopServicesState,
   loadScoutDesktopShellState,
   loadScoutPhonePreparation,
   updateScoutPhonePreparation,
   type ScoutDesktopAppInfo,
+  type ScoutDesktopHomeState,
+  type ScoutDesktopServicesState,
   type ScoutDesktopShellState,
   type ScoutPhonePreparationState,
   type UpdateScoutPhonePreparationInput,
 } from "../desktop/index.ts";
+import { getScoutElectronPairingState } from "./pairing.ts";
 import type { ScoutElectronVoiceState } from "./voice.ts";
 
 export type ScoutElectronServiceOptions = {
@@ -32,6 +37,53 @@ export function getScoutElectronAppInfo(input: {
   platform?: string;
 } = {}): ScoutDesktopAppInfo {
   return createScoutDesktopAppInfo(input);
+}
+
+export async function getScoutElectronServicesState(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopServicesState> {
+  const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
+  const [servicesState, pairingState] = await Promise.all([
+    loadScoutDesktopServicesState(),
+    getScoutElectronPairingState(currentDirectory),
+  ]);
+
+  const pairingService = {
+    id: "pairing" as const,
+    title: "Pairing",
+    status: pairingState.isRunning
+      ? pairingState.status === "error"
+        ? "degraded" as const
+        : "running" as const
+      : "offline" as const,
+    statusLabel: pairingState.isRunning
+      ? pairingState.status === "error"
+        ? "Degraded"
+        : "Running"
+      : "Offline",
+    healthy: pairingState.isRunning && pairingState.status !== "error",
+    reachable: pairingState.isRunning,
+    detail: pairingState.statusDetail ?? pairingState.statusLabel,
+    lastHeartbeatLabel: pairingState.lastUpdatedLabel,
+    updatedAtLabel: pairingState.lastUpdatedLabel ?? servicesState.updatedAtLabel,
+    url: pairingState.relay,
+    nodeId: null,
+  };
+  const nextServices = [...servicesState.services, pairingService];
+  const runningCount = nextServices.filter((service) => service.status === "running").length;
+
+  return {
+    ...servicesState,
+    subtitle: `${runningCount}/${nextServices.length} running`,
+    services: nextServices,
+  };
+}
+
+export async function getScoutElectronHomeState(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopHomeState> {
+  const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
+  return loadScoutDesktopHomeState({ currentDirectory });
 }
 
 async function applyScoutElectronVoiceState(

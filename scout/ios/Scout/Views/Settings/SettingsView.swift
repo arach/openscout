@@ -215,14 +215,7 @@ struct SettingsView: View {
     }
 
     private var connectionLabel: String {
-        switch connection.state {
-        case .connected: "Connected"
-        case .connecting: "Connecting"
-        case .handshaking: "Handshaking"
-        case .reconnecting: "Reconnecting"
-        case .disconnected: "Disconnected"
-        case .failed: "Failed"
-        }
+        connection.statusDetails.shortLabel
     }
 }
 

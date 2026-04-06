@@ -64,6 +64,13 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
         return handleResolve(req, roomByBridgeKey, rooms);
       }
 
+      // -- HTTP health endpoint -----------------------------------------------
+      // GET /healthz?bridgePublicKey=hex...
+      // Returns relay reachability plus best-effort bridge presence for the key.
+      if (url.pathname === "/healthz" && req.method === "GET") {
+        return handleHealthz(url, roomByBridgeKey, rooms);
+      }
+
       // -- WebSocket upgrade --------------------------------------------------
       const roomId = url.searchParams.get("room");
       const role = url.searchParams.get("role") as "bridge" | "client" | null;
@@ -229,4 +236,23 @@ async function handleResolve(
   } catch {
     return Response.json({ error: "invalid request" }, { status: 400 });
   }
+}
+
+function handleHealthz(
+  url: URL,
+  roomByBridgeKey: Map<string, string>,
+  rooms: Map<string, Room>,
+): Response {
+  const bridgePublicKey = url.searchParams.get("bridgePublicKey")?.trim() || null;
+  const roomId = bridgePublicKey ? roomByBridgeKey.get(bridgePublicKey) ?? null : null;
+  const room = roomId ? rooms.get(roomId) ?? null : null;
+  const bridgeConnected = Boolean(room?.bridge);
+
+  return Response.json({
+    ok: true,
+    ts: Date.now(),
+    bridgePublicKey,
+    bridgeConnected,
+    roomId: bridgeConnected ? roomId : null,
+  });
 }

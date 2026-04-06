@@ -278,6 +278,8 @@ export function connectToRelay(
         getRawInput: () => Promise.resolve(input),
         ctx,
         type,
+        signal: AbortSignal.timeout(30_000),
+        batchIndex: 0,
       });
       send(JSON.stringify({ id, jsonrpc: "2.0", result: { type: "data", data: result } }));
     } catch (cause) {

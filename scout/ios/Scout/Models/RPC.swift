@@ -41,6 +41,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
 
     // Prompt / turn
     "turn/interrupt":           TRPCRoute(path: "prompt.interrupt",       method: .mutation),
+    "action/decide":            TRPCRoute(path: "actionDecide",           method: .mutation),
 
     // Sync
     "sync/status":              TRPCRoute(path: "sync.status",            method: .query),
@@ -257,6 +258,15 @@ struct MobileSendMessageParams: Codable, Sendable {
     var replyToMessageId: String?
     var referenceMessageIds: [String]?
     var harness: String?
+}
+
+struct ActionDecideParams: Codable, Sendable {
+    let sessionId: String
+    let turnId: String
+    let blockId: String
+    let version: Int
+    let decision: String
+    var reason: String?
 }
 
 struct MobileWorkspaceHarnessSummary: Codable, Sendable {

@@ -26,6 +26,65 @@ export type ScoutDesktopAppInfo = {
   features: ScoutDesktopFeatureFlags;
 };
 
+export type ScoutDesktopServiceStatus = "running" | "degraded" | "offline";
+
+export type ScoutDesktopService = {
+  id: "broker" | "pairing" | "helper";
+  title: string;
+  status: ScoutDesktopServiceStatus;
+  statusLabel: string;
+  healthy: boolean;
+  reachable: boolean;
+  detail: string | null;
+  lastHeartbeatLabel: string | null;
+  updatedAtLabel: string | null;
+  url: string | null;
+  nodeId: string | null;
+};
+
+export type ScoutDesktopServicesState = {
+  title: string;
+  subtitle: string;
+  updatedAtLabel: string | null;
+  services: ScoutDesktopService[];
+};
+
+export type ScoutDesktopHomeAgent = {
+  id: string;
+  title: string;
+  role: string | null;
+  summary: string | null;
+  projectRoot: string | null;
+  state: ScoutRelayDirectState;
+  reachable: boolean;
+  statusLabel: string;
+  statusDetail: string | null;
+  activeTask: string | null;
+  timestampLabel: string | null;
+};
+
+export type ScoutDesktopHomeActivityItem = {
+  id: string;
+  kind: "message" | "system";
+  actorId: string;
+  actorName: string;
+  title: string;
+  detail: string | null;
+  conversationId: string;
+  channel: string | null;
+  timestamp: number;
+  timestampLabel: string;
+};
+
+export type ScoutDesktopHomeState = {
+  title: string;
+  subtitle: string;
+  updatedAtLabel: string | null;
+  agents: ScoutDesktopHomeAgent[];
+  activity: ScoutDesktopHomeActivityItem[];
+  recentSessions: ScoutSessionMetadata[];
+};
+
 export type ScoutRelayDestinationKind = "channel" | "filter" | "direct";
 
 export type ScoutRelayNavItem = {

@@ -15,6 +15,13 @@ import type {
   ScoutElectronSendRelayMessageInput,
 } from "./broker-actions.ts";
 import type {
+  AcquireScoutKeepAliveLeaseInput,
+  ReleaseScoutKeepAliveLeaseInput,
+  ScoutKeepAliveLease,
+  ScoutKeepAliveState,
+} from "./keep-alive.ts";
+import type {
+  DecideScoutPairingApprovalInput,
   ScoutPairingControlAction,
   ScoutPairingState,
   UpdateScoutPairingConfigInput,
@@ -62,9 +69,13 @@ export type ScoutElectronBridge = {
   refreshPairingState: () => Promise<ScoutPairingState>;
   controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
   updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
+  decidePairingApproval: (input: DecideScoutPairingApprovalInput) => Promise<ScoutPairingState>;
   restartAgent: (input: ScoutElectronRestartAgentInput) => Promise<ScoutDesktopShellState>;
   sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
   controlBroker: (action: ScoutElectronBrokerControlAction) => Promise<ScoutDesktopShellState>;
+  getKeepAliveState: () => Promise<ScoutKeepAliveState>;
+  acquireKeepAliveLease: (input: AcquireScoutKeepAliveLeaseInput) => Promise<ScoutKeepAliveLease>;
+  releaseKeepAliveLease: (input: ReleaseScoutKeepAliveLeaseInput) => Promise<boolean>;
   getAgentSession: (agentId: string) => Promise<ScoutElectronAgentSessionInspector>;
   openAgentSession: (agentId: string) => Promise<boolean>;
   toggleVoiceCapture: () => Promise<ScoutDesktopShellState>;
@@ -133,6 +144,10 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
       SCOUT_ELECTRON_CHANNELS.updatePairingConfig,
       input,
     ) as Promise<ScoutPairingState>,
+    decidePairingApproval: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.decidePairingApproval,
+      input,
+    ) as Promise<ScoutPairingState>,
     restartAgent: (input) => invoke(
       SCOUT_ELECTRON_CHANNELS.restartAgent,
       input,
@@ -145,6 +160,17 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
       SCOUT_ELECTRON_CHANNELS.controlBroker,
       action,
     ) as Promise<ScoutDesktopShellState>,
+    getKeepAliveState: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.getKeepAliveState,
+    ) as Promise<ScoutKeepAliveState>,
+    acquireKeepAliveLease: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.acquireKeepAliveLease,
+      input,
+    ) as Promise<ScoutKeepAliveLease>,
+    releaseKeepAliveLease: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.releaseKeepAliveLease,
+      input,
+    ) as Promise<boolean>,
     getAgentSession: (agentId) => invoke(
       SCOUT_ELECTRON_CHANNELS.getAgentSession,
       agentId,

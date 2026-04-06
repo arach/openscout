@@ -24,6 +24,7 @@ enum ScoutEvent: Sendable {
     case blockDelta(sessionId: String, turnId: String, blockId: String, text: String)
     case blockActionOutput(sessionId: String, turnId: String, blockId: String, output: String)
     case blockActionStatus(sessionId: String, turnId: String, blockId: String, status: ActionStatus, meta: [String: AnyCodable]?)
+    case blockActionApproval(sessionId: String, turnId: String, blockId: String, approval: ActionApproval)
     case blockEnd(sessionId: String, turnId: String, blockId: String, status: BlockStatus)
     case unknown(discriminator: String)
 }
@@ -36,6 +37,7 @@ extension ScoutEvent: Codable {
         case turn, turnId
         case block, blockId
         case status, text, output, message, meta
+        case approval
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +97,13 @@ extension ScoutEvent: Codable {
             let status = try container.decode(ActionStatus.self, forKey: .status)
             let meta = try container.decodeIfPresent([String: AnyCodable].self, forKey: .meta)
             self = .blockActionStatus(sessionId: sid, turnId: tid, blockId: bid, status: status, meta: meta)
+
+        case "block:action:approval":
+            let sid = try container.decode(String.self, forKey: .sessionId)
+            let tid = try container.decode(String.self, forKey: .turnId)
+            let bid = try container.decode(String.self, forKey: .blockId)
+            let approval = try container.decode(ActionApproval.self, forKey: .approval)
+            self = .blockActionApproval(sessionId: sid, turnId: tid, blockId: bid, approval: approval)
 
         case "block:end":
             let sid = try container.decode(String.self, forKey: .sessionId)

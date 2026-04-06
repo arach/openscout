@@ -27,6 +27,8 @@ import {
 } from "../../core/broker/service.ts";
 import { createScoutVoiceState } from "../../core/voice/index.ts";
 import type {
+  ScoutDesktopHomeActivityItem,
+  ScoutDesktopHomeState,
   ScoutDesktopMachine,
   ScoutDesktopMachineEndpoint,
   ScoutDesktopMachineEndpointState,
@@ -35,6 +37,8 @@ import type {
   ScoutDesktopPlansState,
   ScoutDesktopReconciliationFinding,
   ScoutDesktopRuntimeState,
+  ScoutDesktopService,
+  ScoutDesktopServicesState,
   ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutDesktopTask,
@@ -709,6 +713,59 @@ function latestRelayLabelFromSnapshot(snapshot: RuntimeRegistrySnapshot | null):
   return `${actorDisplayName(snapshot, latestMessage.actorId)} · ${formatTimeLabel(latestMessage.createdAt)}`;
 }
 
+function buildServicesState(
+  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  helper: HelperStatus,
+): ScoutDesktopServicesState {
+  const updatedAtLabel = formatTimeLabel(Math.floor(Date.now() / 1000));
+  const services: ScoutDesktopService[] = [
+    {
+      id: "broker",
+      title: "Broker",
+      status: status.reachable
+        ? status.health.ok
+          ? "running"
+          : "degraded"
+        : "offline",
+      statusLabel: status.reachable
+        ? status.health.ok
+          ? "Running"
+          : "Degraded"
+        : "Offline",
+      healthy: status.health.ok,
+      reachable: status.reachable,
+      detail: status.health.ok
+        ? status.label
+        : status.health.error ?? status.lastLogLine ?? status.label,
+      lastHeartbeatLabel: null,
+      updatedAtLabel,
+      url: status.brokerUrl,
+      nodeId: status.health.nodeId ?? null,
+    },
+    {
+      id: "helper",
+      title: "Helper",
+      status: helper.running ? "running" : "offline",
+      statusLabel: helper.running ? "Running" : "Offline",
+      healthy: helper.running,
+      reachable: helper.running,
+      detail: helper.detail,
+      lastHeartbeatLabel: helper.heartbeatLabel,
+      updatedAtLabel,
+      url: null,
+      nodeId: null,
+    },
+  ];
+
+  const runningCount = services.filter((service) => service.status === "running").length;
+  return {
+    title: "Services",
+    subtitle: `${runningCount}/${services.length} running`,
+    updatedAtLabel,
+    services,
+  };
+}
+
 function buildRuntimeState(
   snapshot: RuntimeRegistrySnapshot | null,
   tmuxSessions: TmuxSession[],
@@ -736,6 +793,87 @@ function buildRuntimeState(
     lastHeartbeatLabel: helper.heartbeatLabel,
     updatedAtLabel: formatTimeLabel(Math.floor(Date.now() / 1000)),
   };
+}
+
+function buildHomeAgents(
+  snapshot: RuntimeRegistrySnapshot,
+  directActivity: Map<string, DirectAgentActivity>,
+  visibleAgentIds: Set<string>,
+): ScoutDesktopHomeState["agents"] {
+  return Object.values(snapshot.agents)
+    .filter((agent) => visibleAgentIds.has(agent.id))
+    .map((agent) => {
+      const endpoint = activeEndpoint(snapshot, agent.id);
+      const activity = directActivity.get(agent.id) ?? {
+        state: "offline" as const,
+        reachable: false,
+        statusLabel: "Offline",
+        statusDetail: "No active endpoint detected.",
+        activeTask: null,
+        lastMessageAt: null,
+      };
+      const projectRoot = endpoint?.projectRoot
+        ?? endpoint?.cwd
+        ?? (typeof agent.metadata?.projectRoot === "string" ? agent.metadata.projectRoot : null);
+      const lastSeenAt = Math.max(
+        activity.lastMessageAt ?? 0,
+        normalizeTimestamp(
+          typeof endpoint?.metadata?.lastCompletedAt === "number"
+            ? endpoint.metadata.lastCompletedAt
+            : typeof endpoint?.metadata?.lastStartedAt === "number"
+              ? endpoint.metadata.lastStartedAt
+              : 0,
+        ),
+      ) || null;
+
+      return {
+        id: agent.id,
+        title: actorDisplayName(snapshot, agent.id),
+        role: typeof agent.metadata?.role === "string" ? agent.metadata.role : null,
+        summary: typeof agent.metadata?.summary === "string" ? agent.metadata.summary : null,
+        projectRoot: compactHomePath(projectRoot) ?? projectRoot,
+        state: activity.state,
+        reachable: activity.reachable,
+        statusLabel: activity.statusLabel,
+        statusDetail: activity.statusDetail,
+        activeTask: activity.activeTask,
+        timestampLabel: lastSeenAt ? formatTimeLabel(lastSeenAt) : null,
+      };
+    })
+    .sort((left, right) => {
+      const rank = (state: typeof left.state) => {
+        switch (state) {
+          case "working":
+            return 0;
+          case "available":
+            return 1;
+          case "offline":
+          default:
+            return 2;
+        }
+      };
+
+      return rank(left.state) - rank(right.state) || left.title.localeCompare(right.title);
+    });
+}
+
+function buildHomeActivity(snapshot: RuntimeRegistrySnapshot): ScoutDesktopHomeActivityItem[] {
+  return buildRelayMessages(snapshot)
+    .filter((message) => !message.isVoice)
+    .sort((left, right) => normalizeTimestamp(right.createdAt) - normalizeTimestamp(left.createdAt))
+    .slice(0, 24)
+    .map((message) => ({
+      id: message.id,
+      kind: message.isSystem ? "system" : "message",
+      actorId: message.authorId,
+      actorName: message.authorName,
+      title: message.authorName,
+      detail: message.body,
+      conversationId: message.conversationId,
+      channel: message.normalizedChannel,
+      timestamp: normalizeTimestamp(message.createdAt),
+      timestampLabel: message.timestampLabel,
+    }));
 }
 
 function machineEndpointState(
@@ -2175,6 +2313,66 @@ function buildSessions(snapshot: RuntimeRegistrySnapshot): ScoutSessionMetadata[
       tokens: undefined,
     };
   }).sort((left, right) => Date.parse(right.lastModified) - Date.parse(left.lastModified));
+}
+
+export async function composeScoutDesktopServicesState(): Promise<ScoutDesktopServicesState> {
+  const [status, helper] = await Promise.all([
+    brokerServiceStatus(),
+    Promise.resolve(readHelperStatus()),
+  ]);
+
+  return buildServicesState(status, helper);
+}
+
+export async function composeScoutDesktopHomeState(input: {
+  currentDirectory: string;
+}): Promise<ScoutDesktopHomeState> {
+  const [status, setup] = await Promise.all([
+    brokerServiceStatus(),
+    loadResolvedRelayAgents({ currentDirectory: input.currentDirectory }),
+  ]);
+
+  if (!status.reachable) {
+    return {
+      title: "Home",
+      subtitle: "Broker unavailable",
+      updatedAtLabel: formatTimeLabel(Math.floor(Date.now() / 1000)),
+      agents: [],
+      activity: [],
+      recentSessions: [],
+    };
+  }
+
+  const broker = await loadScoutBrokerContext(status.brokerUrl);
+  const snapshot = broker?.snapshot ?? null;
+  if (!snapshot) {
+    return {
+      title: "Home",
+      subtitle: "Broker unavailable",
+      updatedAtLabel: formatTimeLabel(Math.floor(Date.now() / 1000)),
+      agents: [],
+      activity: [],
+      recentSessions: [],
+    };
+  }
+
+  const tmuxSessions = readTmuxSessions();
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const configuredAgentIds = new Set(setup.agents.map((agent) => agent.agentId));
+  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
+  const agents = buildHomeAgents(snapshot, directActivity, visibleAgentIds).slice(0, 24);
+  const activity = buildHomeActivity(snapshot);
+  const recentSessions = buildSessions(snapshot).slice(0, 6);
+
+  return {
+    title: "Home",
+    subtitle: `${agents.length} agents · ${activity.length} recent updates`,
+    updatedAtLabel: formatTimeLabel(Math.floor(Date.now() / 1000)),
+    agents,
+    activity,
+    recentSessions,
+  };
 }
 
 export async function composeScoutDesktopShellState(input: {

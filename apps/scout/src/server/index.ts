@@ -17,6 +17,10 @@ import {
 
 const port = Number(process.env.SCOUT_WEB_PORT ?? "3200");
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
+const SHELL_STATE_CACHE_TTL_MS = Number.parseInt(process.env.SCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
+const SERVICES_STATE_CACHE_TTL_MS = Number.parseInt(process.env.SCOUT_WEB_SERVICES_CACHE_TTL_MS ?? "3000", 10);
+const HOME_STATE_CACHE_TTL_MS = Number.parseInt(process.env.SCOUT_WEB_HOME_CACHE_TTL_MS ?? "5000", 10);
+const REQUEST_IDLE_TIMEOUT_SECONDS = Number.parseInt(process.env.SCOUT_WEB_IDLE_TIMEOUT_SECONDS ?? "30", 10);
 
 const appInfo = createScoutDesktopAppInfo({ platform: process.platform });
 const services: ScoutElectronIpcServices = createScoutElectronIpcServices({
@@ -27,10 +31,6 @@ const services: ScoutElectronIpcServices = createScoutElectronIpcServices({
   },
 });
 
-// Coalesce concurrent calls to the same async function so that spawnSync-heavy
-// service methods (brokerServiceStatus → launchctl) don't serialize and starve
-// the event loop.  Concurrent callers share one in-flight promise; the result
-// is cached for `ttlMs` so the next burst is also instant.
 function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
   let inflight: Promise<T> | null = null;
   let cached: { value: T; expiresAt: number } | null = null;
@@ -49,9 +49,92 @@ function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
   };
 }
 
-const getShellState = coalesce(() => services.getShellState());
 const getAppSettings = coalesce(() => services.getAppSettings());
 const getBrokerInspector = coalesce(() => services.getBrokerInspector());
+
+function createCachedSnapshot<T>(load: () => Promise<T>, ttlMs: number) {
+  let inflight: Promise<T> | null = null;
+  let cached: { value: T; expiresAt: number } | null = null;
+
+  const refresh = async () => {
+    if (inflight) {
+      return inflight;
+    }
+
+    inflight = load()
+      .then((value) => {
+        cached = { value, expiresAt: Date.now() + ttlMs };
+        inflight = null;
+        return value;
+      })
+      .catch((error) => {
+        inflight = null;
+        throw error;
+      });
+
+    return inflight;
+  };
+
+  const get = async (options?: { force?: boolean }) => {
+    const force = options?.force ?? false;
+    if (!force && cached && Date.now() < cached.expiresAt) {
+      return cached.value;
+    }
+
+    if (!force && cached && inflight) {
+      return cached.value;
+    }
+
+    if (!force && inflight) {
+      return inflight;
+    }
+
+    return refresh();
+  };
+
+  const invalidate = () => {
+    cached = null;
+  };
+
+  return {
+    get,
+    refresh,
+    invalidate,
+    peek: () => cached?.value ?? null,
+  };
+}
+
+const shellStateCache = createCachedSnapshot(() => services.getShellState(), SHELL_STATE_CACHE_TTL_MS);
+const servicesStateCache = createCachedSnapshot(() => services.getServicesState(), SERVICES_STATE_CACHE_TTL_MS);
+const homeStateCache = createCachedSnapshot(() => services.getHomeState(), HOME_STATE_CACHE_TTL_MS);
+
+async function refreshShellStateCache() {
+  return shellStateCache.refresh();
+}
+
+async function getShellStateCached() {
+  return shellStateCache.get();
+}
+
+function invalidateShellStateCache() {
+  shellStateCache.invalidate();
+}
+
+async function getServicesStateCached() {
+  return servicesStateCache.get();
+}
+
+function invalidateServicesStateCache() {
+  servicesStateCache.invalidate();
+}
+
+async function getHomeStateCached() {
+  return homeStateCache.get();
+}
+
+function invalidateHomeStateCache() {
+  homeStateCache.invalidate();
+}
 
 function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -82,18 +165,32 @@ app.use("/api/*", async (c, next) => {
 
 // --- API routes (mirrors ScoutElectronIpcServices) ---
 
+app.get("/api/app", async (c) => c.json(await services.getAppInfo()));
 app.get("/api/app-info", async (c) => c.json(await services.getAppInfo()));
-app.get("/api/shell-state", async (c) => c.json(await getShellState()));
-app.get("/api/shell-state/refresh", async (c) => c.json(await getShellState()));
+app.get("/api/services", async (c) => c.json(await getServicesStateCached()));
+app.get("/api/home", async (c) => c.json(await getHomeStateCached()));
+app.get("/api/shell-state", async (c) => c.json(await getShellStateCached()));
+app.get("/api/shell-state/refresh", async (c) => c.json(await refreshShellStateCache()));
 app.get("/api/app-settings", async (c) => c.json(await getAppSettings()));
-app.post("/api/app-settings", async (c) => c.json(await services.updateAppSettings(await c.req.json())));
+app.post("/api/app-settings", async (c) => {
+  const result = await services.updateAppSettings(await c.req.json());
+  invalidateShellStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
+});
 app.post("/api/retire-project", async (c) => {
   const { projectRoot } = await c.req.json();
-  return c.json(await services.retireProject(projectRoot));
+  const result = await services.retireProject(projectRoot);
+  invalidateShellStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
 });
 app.post("/api/restore-project", async (c) => {
   const { projectRoot } = await c.req.json();
-  return c.json(await services.restoreProject(projectRoot));
+  const result = await services.restoreProject(projectRoot);
+  invalidateShellStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
 });
 app.post("/api/onboarding/run", async (c) => c.json(await services.runOnboardingCommand(await c.req.json())));
 app.post("/api/onboarding/skip", async (c) => c.json(await services.skipOnboarding()));
@@ -106,15 +203,35 @@ app.get("/api/pairing-state", async (c) => c.json(await services.getPairingState
 app.get("/api/pairing-state/refresh", async (c) => c.json(await services.refreshPairingState()));
 app.post("/api/pairing/control", async (c) => {
   const { action } = await c.req.json();
-  return c.json(await services.controlPairingService(action));
+  const result = await services.controlPairingService(action);
+  invalidateShellStateCache();
+  invalidateServicesStateCache();
+  return c.json(result);
 });
 app.post("/api/pairing/config", async (c) => c.json(await services.updatePairingConfig(await c.req.json())));
-app.post("/api/agent/restart", async (c) => c.json(await services.restartAgent(await c.req.json())));
-app.post("/api/relay/send", async (c) => c.json(await services.sendRelayMessage(await c.req.json())));
+app.post("/api/agent/restart", async (c) => {
+  const result = await services.restartAgent(await c.req.json());
+  invalidateShellStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
+});
+app.post("/api/relay/send", async (c) => {
+  const result = await services.sendRelayMessage(await c.req.json());
+  invalidateShellStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
+});
 app.post("/api/broker/control", async (c) => {
   const { action } = await c.req.json();
-  return c.json(await services.controlBroker(action));
+  const result = await services.controlBroker(action);
+  invalidateShellStateCache();
+  invalidateServicesStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
 });
+app.get("/api/keep-alive", async (c) => c.json(await services.getKeepAliveState()));
+app.post("/api/keep-alive/acquire", async (c) => c.json(await services.acquireKeepAliveLease(await c.req.json())));
+app.post("/api/keep-alive/release", async (c) => c.json(await services.releaseKeepAliveLease(await c.req.json())));
 app.get("/api/agent-session/:agentId", async (c) => c.json(await services.getAgentSession(c.req.param("agentId"))));
 app.post("/api/agent-session/:agentId/open", async (c) => c.json(await services.openAgentSession(c.req.param("agentId"))));
 app.post("/api/voice/toggle-capture", async (c) => c.json(await services.toggleVoiceCapture()));
@@ -189,7 +306,20 @@ if (useViteProxy) {
 
 export default {
   port,
+  idleTimeout: REQUEST_IDLE_TIMEOUT_SECONDS,
   fetch: app.fetch,
 };
 
 console.log(`Scout web → http://localhost:${port}`);
+void Promise.allSettled([
+  refreshShellStateCache(),
+  servicesStateCache.refresh(),
+  homeStateCache.refresh(),
+]).then((results) => {
+  for (const result of results) {
+    if (result.status === "rejected") {
+      const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      console.error("[api] initial cache warmup failed:", message);
+    }
+  }
+});

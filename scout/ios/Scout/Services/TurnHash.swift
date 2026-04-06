@@ -133,6 +133,19 @@ enum TurnHash {
             payload["prompt"] = prompt
         }
 
+        if let approval = action.approval {
+            var approvalPayload: [String: Any] = [
+                "version": approval.version,
+            ]
+            if let description = approval.description {
+                approvalPayload["description"] = description
+            }
+            if let risk = approval.risk?.rawValue {
+                approvalPayload["risk"] = risk
+            }
+            payload["approval"] = approvalPayload
+        }
+
         return payload
     }
 

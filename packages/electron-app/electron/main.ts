@@ -7,12 +7,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import {
+  configureScoutKeepAliveHost,
   createScoutDesktopAppInfo,
   createScoutElectronIpcServices,
   normalizeScoutElectronVoiceState,
   registerScoutElectronIpcHandlers,
   resolveScoutElectronStartUrl,
   SCOUT_ELECTRON_DEFAULT_WINDOW,
+  shutdownScoutKeepAliveManager,
 } from "../../../apps/scout/src/app/index.ts";
 import { SCOUT_ELECTRON_CHANNELS } from "../../../apps/scout/src/app/electron/channels.ts";
 import { SCOUT_PRODUCT_NAME } from "../../../apps/scout/src/shared/product.ts";
@@ -27,6 +29,7 @@ const {
   dialog,
   ipcMain,
   nativeImage,
+  powerSaveBlocker,
   shell,
 } = electron;
 
@@ -139,6 +142,7 @@ async function createMainWindow() {
     frame: !isMac,
     titleBarStyle: isMac ? "hidden" : "default",
     trafficLightPosition: isMac ? { x: -100, y: -100 } : undefined,
+    show: false,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -148,6 +152,12 @@ async function createMainWindow() {
   });
 
   mainWindow = window;
+
+  window.once("ready-to-show", () => {
+    if (!window.isDestroyed()) {
+      window.show();
+    }
+  });
 
   await window.loadURL(getStartUrl(server?.port));
 
@@ -274,11 +284,23 @@ registerScoutElectronIpcHandlers((channel, handler) => {
 }, scoutElectronServices);
 
 app.whenReady().then(async () => {
+  configureScoutKeepAliveHost({
+    startPowerSaveBlocker: (type) => powerSaveBlocker.start(type),
+    stopPowerSaveBlocker: (id) => {
+      if (powerSaveBlocker.isStarted(id)) {
+        powerSaveBlocker.stop(id);
+      }
+    },
+  });
   applyApplicationIcon();
   createAppMenu();
-  await scoutElectronServices.refreshPairingState();
   await createMainWindow();
-  await telegramBridgeService.refreshConfiguration();
+  void scoutElectronServices.refreshPairingState().catch((error) => {
+    console.error("[scout] initial pairing refresh failed:", error);
+  });
+  void telegramBridgeService.refreshConfiguration().catch((error) => {
+    console.error("[scout] initial telegram refresh failed:", error);
+  });
 
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -292,6 +314,7 @@ app.on("window-all-closed", async () => {
     await appServer?.close();
     await relayVoiceBridgeService.shutdown();
     await telegramBridgeService.shutdown();
+    shutdownScoutKeepAliveManager();
     app.quit();
   }
 });
@@ -300,4 +323,5 @@ app.on("before-quit", async () => {
   await appServer?.close();
   await relayVoiceBridgeService.shutdown();
   await telegramBridgeService.shutdown();
+  shutdownScoutKeepAliveManager();
 });

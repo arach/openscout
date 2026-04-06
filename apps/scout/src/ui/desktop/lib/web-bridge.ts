@@ -2,7 +2,7 @@ import { createScoutElectronBridge } from "../../../app/electron/bridge.ts";
 import type { ScoutElectronBridge } from "../../../app/electron/bridge.ts";
 
 const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args: unknown[]) => string) }> = {
-  "scout:get-app-info":            { method: "GET",  path: "/api/app-info" },
+  "scout:get-app-info":            { method: "GET",  path: "/api/app" },
   "scout:get-shell-state":         { method: "GET",  path: "/api/shell-state" },
   "scout:refresh-shell-state":     { method: "GET",  path: "/api/shell-state/refresh" },
   "scout:get-app-settings":        { method: "GET",  path: "/api/app-settings" },
@@ -26,6 +26,9 @@ const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args
   "scout:restart-agent":           { method: "POST", path: "/api/agent/restart" },
   "scout:send-relay-message":      { method: "POST", path: "/api/relay/send" },
   "scout:control-broker":          { method: "POST", path: "/api/broker/control" },
+  "scout:get-keep-alive-state":    { method: "GET",  path: "/api/keep-alive" },
+  "scout:acquire-keep-alive-lease":{ method: "POST", path: "/api/keep-alive/acquire" },
+  "scout:release-keep-alive-lease":{ method: "POST", path: "/api/keep-alive/release" },
   "scout:get-agent-session":       { method: "GET",  path: (args) => `/api/agent-session/${args[0]}` },
   "scout:open-agent-session":      { method: "POST", path: (args) => `/api/agent-session/${args[0]}/open` },
   "scout:toggle-voice-capture":    { method: "POST", path: "/api/voice/toggle-capture" },
@@ -37,12 +40,7 @@ const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args
 
 function resolveBaseUrl(): string {
   if (typeof window !== "undefined" && window.location.origin) {
-    // If served from Vite dev server, use the Hono API server
-    const origin = window.location.origin;
-    if (origin.includes(":43173")) {
-      return "http://localhost:3200";
-    }
-    return origin;
+    return window.location.origin;
   }
   return "http://localhost:3200";
 }

@@ -7,6 +7,9 @@ import { DEFAULT_RENDERER_PORT } from "./scripts/dev-electron-lib.mjs";
 
 const rendererHost = process.env.OPENSCOUT_RENDERER_HOST?.trim() || "127.0.0.1";
 const rendererPort = Number(process.env.OPENSCOUT_RENDERER_PORT?.trim() || String(DEFAULT_RENDERER_PORT));
+const webApiHost = process.env.SCOUT_WEB_HOST?.trim() || "127.0.0.1";
+const webApiPort = Number(process.env.SCOUT_WEB_PORT?.trim() || "3200");
+const webApiTarget = `http://${webApiHost}:${webApiPort}`;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -14,6 +17,12 @@ export default defineConfig({
     host: rendererHost,
     port: rendererPort,
     strictPort: true,
+    proxy: {
+      "/api": {
+        target: webApiTarget,
+        changeOrigin: true,
+      },
+    },
     fs: {
       allow: [path.resolve(__dirname, "../..")],
     },

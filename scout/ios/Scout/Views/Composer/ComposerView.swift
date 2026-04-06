@@ -88,6 +88,9 @@ struct ComposerView: View {
     private let sendButtonTrailing: CGFloat = 14 + 24 - 16 // 38 - half send button width
 
     private static let defaultModelLabel = "Default"
+    private static let keepAliveTrigger = "extra keep alive please"
+    private static let keepAliveReplacement = "use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online"
+    private static let keepAliveAppendix = "If this may run a while, use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online."
 
     init(
         sessionId: String,
@@ -136,6 +139,10 @@ struct ComposerView: View {
 
             // Message field — always visible
             messageField
+
+            if shouldSuggestKeepAlive {
+                keepAliveSuggestionStrip
+            }
 
             if showMetadataStrip {
                 metadataStrip
@@ -516,6 +523,46 @@ struct ComposerView: View {
         return .idle
     }
 
+    private var shouldSuggestKeepAlive: Bool {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.contains(Self.keepAliveTrigger) else { return false }
+        return !normalized.contains("amphetamine")
+            && !normalized.contains("stay awake")
+            && !normalized.contains("keep the mac awake")
+    }
+
+    private var keepAliveSuggestionStrip: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bolt.badge.clock")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(ScoutColors.accent)
+
+            Text("Suggest Amphetamine-style keep alive")
+                .font(ScoutTypography.caption(12, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Button("Use") {
+                applyKeepAliveSuggestion()
+            }
+            .font(ScoutTypography.caption(12, weight: .semibold))
+            .foregroundStyle(ScoutColors.accent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background {
+            composerSurface
+        }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(ScoutColors.border.opacity(0.25))
+                .frame(height: 0.5)
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
     // MARK: - Actions
 
     private func sendIfPossible() {
@@ -632,6 +679,22 @@ struct ComposerView: View {
             effort: selectedEffort.rawValue,
             sessionId: sessionId
         )
+    }
+
+    private func applyKeepAliveSuggestion() {
+        if let range = text.range(of: Self.keepAliveTrigger, options: [.caseInsensitive, .diacriticInsensitive]) {
+            text.replaceSubrange(range, with: Self.keepAliveReplacement)
+        } else {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                text = Self.keepAliveAppendix
+            } else if trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?") {
+                text = "\(trimmed) \(Self.keepAliveAppendix)"
+            } else {
+                text = "\(trimmed). \(Self.keepAliveAppendix)"
+            }
+        }
+        showKeyboard = true
     }
 
     private func startRecording() {

@@ -31,14 +31,8 @@ struct WorkspaceBrowserView: View {
         switch connection.state {
         case .connected:
             return nil
-        case .connecting, .handshaking:
-            return "Connecting to Scout on your Mac…"
-        case .reconnecting:
-            return "Reconnecting to Scout on your Mac…"
-        case .failed:
-            return "Scout on your Mac is unavailable right now."
-        case .disconnected:
-            return connection.hasTrustedBridge ? "Scout on your Mac is unavailable right now." : "Pair with Scout on your Mac first."
+        default:
+            return connection.statusDetails.message
         }
     }
 
@@ -270,14 +264,14 @@ struct WorkspaceBrowserView: View {
     private func connectionStateView(_ message: String) -> some View {
         VStack(spacing: ScoutSpacing.lg) {
             Spacer()
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: connection.statusDetails.symbol)
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(ScoutColors.statusError)
             Text(message)
                 .font(ScoutTypography.body(14))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
-            if connection.hasTrustedBridge {
+            if connection.statusDetails.allowsRetry {
                 Button("Retry") {
                     Task { await connection.reconnect() }
                 }

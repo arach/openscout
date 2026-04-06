@@ -26,6 +26,7 @@ import {
   TRPCError,
   transformTRPCResponse,
   type AnyRouter,
+  type TrackedEnvelope,
 } from "@trpc/server";
 import { parseTRPCMessage } from "@trpc/server/rpc";
 import { isObservable, observableToAsyncIterable } from "@trpc/server/observable";
@@ -245,6 +246,7 @@ export function startBridgeServerTRPC(options: {
             ctx: state.ctx!,
             type,
             signal: abortController.signal,
+            batchIndex: 0,
           });
 
           const isIterableResult =
@@ -325,7 +327,7 @@ export function startBridgeServerTRPC(options: {
                 const value = (raced as IteratorResult<unknown>).value;
 
                 if (isTrackedEnvelope(value)) {
-                  const envelope = value as [string, unknown];
+                  const envelope = value as TrackedEnvelope<unknown>;
                   const eventId = envelope[0];
                   const eventData = envelope[1];
                   send({

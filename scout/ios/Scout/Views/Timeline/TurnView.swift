@@ -53,7 +53,7 @@ struct TurnView: View {
 
             VStack(alignment: .leading, spacing: ScoutSpacing.md) {
                 ForEach(sortedBlocks) { block in
-                    BlockView(block: block)
+                    BlockView(sessionId: turn.sessionId, block: block)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
