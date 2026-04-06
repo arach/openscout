@@ -1,8 +1,10 @@
 import { parseScoutArgv } from "./argv.ts";
-import { createScoutCommandContext } from "./context.ts";
+import { createScoutCommandContext, defaultScoutContextDirectory } from "./context.ts";
 import { ScoutCliError } from "./errors.ts";
+import { runAskWithOptions } from "./commands/ask.ts";
 import { SCOUT_COMMAND_HANDLERS } from "./commands/index.ts";
 import { renderScoutHelp } from "./help.ts";
+import { parseImplicitAskCommandOptions } from "./options.ts";
 import { findScoutCommandRegistration } from "./registry.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
 
@@ -33,7 +35,17 @@ async function main() {
 
   const registration = findScoutCommandRegistration(command);
   if (!registration) {
-    throw new ScoutCliError(`unknown command: ${command}`);
+    const implicitPromptArgs = [command, ...commandArgs];
+    try {
+      const options = parseImplicitAskCommandOptions(implicitPromptArgs, defaultScoutContextDirectory(context));
+      await runAskWithOptions(context, options);
+      return;
+    } catch (error) {
+      if (error instanceof ScoutCliError && error.message.startsWith("implicit ask requires")) {
+        throw new ScoutCliError(`unknown command: ${command}`);
+      }
+      throw error;
+    }
   }
 
   if (registration.status === "deprecated" && registration.deprecationMessage) {
