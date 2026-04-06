@@ -18,7 +18,7 @@ import {
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import { SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
-import { resolveScoutAppRoot, resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
+import { resolveScoutAppRoot } from "../../shared/paths.ts";
 import { syncScoutBrokerBindings } from "../../core/broker/service.ts";
 import type { ScoutTelegramBridgeRuntimeState as ScoutElectronTelegramRuntimeState } from "../../core/telegram/index.ts";
 import {
@@ -746,7 +746,7 @@ export async function runScoutElectronOnboardingCommand(
 
   const result = await new Promise<OnboardingCommandResult>((resolvePromise, reject) => {
     const child = spawn(bunExecutable, execArgs, {
-      cwd: resolveScoutWorkspaceRoot(),
+      cwd: settingsDirectory,
       env: {
         ...process.env,
         OPENSCOUT_SETUP_CWD: contextRoot,
