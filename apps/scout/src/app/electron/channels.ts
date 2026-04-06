@@ -12,6 +12,7 @@ export const SCOUT_ELECTRON_CHANNELS = {
   restartOnboarding: "scout:restart-onboarding",
   getAgentConfig: "scout:get-agent-config",
   updateAgentConfig: "scout:update-agent-config",
+  createAgent: "scout:create-agent",
   pickDirectory: "scout:pick-directory",
   reloadApp: "scout:reload-app",
   quitApp: "scout:quit-app",

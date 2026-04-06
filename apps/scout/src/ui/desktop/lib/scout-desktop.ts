@@ -68,6 +68,8 @@ import type {
 } from "../../../app/electron/diagnostics.ts";
 import type { ScoutElectronAgentSessionInspector } from "../../../app/electron/agent-session.ts";
 import type {
+  ScoutElectronCreateAgentInput,
+  ScoutElectronCreateAgentResult,
   ScoutElectronBrokerControlAction,
   ScoutElectronRestartAgentInput,
   ScoutElectronSendRelayMessageInput,
@@ -112,6 +114,8 @@ export type UpdatePhonePreparationInput = UpdateScoutPhonePreparationInput;
 
 export type AgentConfigState = ScoutElectronAgentConfigState;
 export type UpdateAgentConfigInput = ScoutElectronUpdateAgentConfigInput;
+export type CreateAgentInput = ScoutElectronCreateAgentInput;
+export type CreateAgentResult = ScoutElectronCreateAgentResult;
 export type RestartAgentInput = ScoutElectronRestartAgentInput;
 export type SendRelayMessageInput = ScoutElectronSendRelayMessageInput;
 export type BrokerControlAction = ScoutElectronBrokerControlAction;

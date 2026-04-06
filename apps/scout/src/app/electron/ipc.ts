@@ -14,6 +14,9 @@ import {
   type ScoutElectronUpdateAgentConfigInput,
 } from "./agent-config.ts";
 import {
+  createScoutElectronAgent,
+  type ScoutElectronCreateAgentInput,
+  type ScoutElectronCreateAgentResult,
   controlScoutElectronBroker,
   restartScoutElectronAgent,
   sendScoutElectronRelayMessage,
@@ -119,6 +122,7 @@ export type ScoutElectronIpcServices = {
   restartOnboarding: () => Promise<AppSettingsState>;
   getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
   updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
+  createAgent: (input: ScoutElectronCreateAgentInput) => Promise<ScoutElectronCreateAgentResult>;
   pickDirectory: () => Promise<string | null>;
   reloadApp: () => Promise<boolean>;
   quitApp: () => Promise<boolean>;
@@ -176,6 +180,7 @@ export function createScoutElectronIpcServices(input: {
     restartOnboarding: () => restartScoutElectronOnboarding(currentDirectory, settings),
     getAgentConfig: (agentId) => getScoutElectronAgentConfig(agentId),
     updateAgentConfig: (nextInput) => updateScoutElectronAgentConfig(nextInput),
+    createAgent: (input) => createScoutElectronAgent(input, { currentDirectory, appInfo }),
     pickDirectory: () => pickScoutElectronDirectory(host),
     reloadApp: () => reloadScoutElectronApp(host),
     quitApp: () => quitScoutElectronApp(host),
@@ -238,6 +243,8 @@ export function registerScoutElectronIpcHandlers(
     services.getAgentConfig(String(agentId)));
   register(SCOUT_ELECTRON_CHANNELS.updateAgentConfig, (_event, input) =>
     services.updateAgentConfig(input as ScoutElectronUpdateAgentConfigInput));
+  register(SCOUT_ELECTRON_CHANNELS.createAgent, (_event, input) =>
+    services.createAgent(input as ScoutElectronCreateAgentInput));
   register(SCOUT_ELECTRON_CHANNELS.pickDirectory, () => services.pickDirectory());
   register(SCOUT_ELECTRON_CHANNELS.reloadApp, () => services.reloadApp());
   register(SCOUT_ELECTRON_CHANNELS.quitApp, () => services.quitApp());

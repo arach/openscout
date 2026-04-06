@@ -14,6 +14,7 @@ const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args
   "scout:restart-onboarding":      { method: "POST", path: "/api/onboarding/restart" },
   "scout:get-agent-config":        { method: "GET",  path: (args) => `/api/agent-config/${args[0]}` },
   "scout:update-agent-config":     { method: "POST", path: "/api/agent-config" },
+  "scout:create-agent":            { method: "POST", path: "/api/agent/create" },
   "scout:pick-directory":          { method: "GET",  path: "/api/pick-directory" },
   "scout:quit-app":                { method: "POST", path: "/api/quit" },
   "scout:reveal-path":             { method: "POST", path: "/api/reveal-path" },

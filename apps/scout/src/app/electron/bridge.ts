@@ -10,6 +10,8 @@ import type {
   ScoutElectronUpdateAgentConfigInput,
 } from "./agent-config.ts";
 import type {
+  ScoutElectronCreateAgentInput,
+  ScoutElectronCreateAgentResult,
   ScoutElectronBrokerControlAction,
   ScoutElectronRestartAgentInput,
   ScoutElectronSendRelayMessageInput,
@@ -59,6 +61,7 @@ export type ScoutElectronBridge = {
   restartOnboarding: () => Promise<AppSettingsState>;
   getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
   updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
+  createAgent: (input: ScoutElectronCreateAgentInput) => Promise<ScoutElectronCreateAgentResult>;
   pickDirectory: () => Promise<string | null>;
   reloadApp: () => Promise<boolean>;
   quitApp: () => Promise<boolean>;
@@ -122,6 +125,10 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
       SCOUT_ELECTRON_CHANNELS.updateAgentConfig,
       input,
     ) as Promise<ScoutElectronAgentConfigState>,
+    createAgent: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.createAgent,
+      input,
+    ) as Promise<ScoutElectronCreateAgentResult>,
     pickDirectory: () => invoke(SCOUT_ELECTRON_CHANNELS.pickDirectory) as Promise<string | null>,
     reloadApp: () => invoke(SCOUT_ELECTRON_CHANNELS.reloadApp) as Promise<boolean>,
     quitApp: () => invoke(SCOUT_ELECTRON_CHANNELS.quitApp) as Promise<boolean>,

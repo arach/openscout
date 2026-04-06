@@ -197,6 +197,12 @@ app.post("/api/onboarding/skip", async (c) => c.json(await services.skipOnboardi
 app.post("/api/onboarding/restart", async (c) => c.json(await services.restartOnboarding()));
 app.get("/api/agent-config/:agentId", async (c) => c.json(await services.getAgentConfig(c.req.param("agentId"))));
 app.post("/api/agent-config", async (c) => c.json(await services.updateAgentConfig(await c.req.json())));
+app.post("/api/agent/create", async (c) => {
+  const result = await services.createAgent(await c.req.json());
+  invalidateShellStateCache();
+  invalidateHomeStateCache();
+  return c.json(result);
+});
 app.get("/api/phone-preparation", async (c) => c.json(await services.getPhonePreparation()));
 app.post("/api/phone-preparation", async (c) => c.json(await services.updatePhonePreparation(await c.req.json())));
 app.get("/api/pairing-state", async (c) => c.json(await services.getPairingState()));

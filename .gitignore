@@ -62,6 +62,8 @@ packages/relay/relay-docs/dist/
 
 # iOS derived data / build artifacts
 scout/ios/.derived-iphone/
+scout/ios/.deriveddata/
+scout/ios/$(pwd)/
 scout/ios/.asc/artifacts/
 *.xcuserstate
 *.xcworkspace/xcuserdata/

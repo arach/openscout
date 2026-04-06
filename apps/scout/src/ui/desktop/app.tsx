@@ -71,6 +71,7 @@ import { LogPanel } from "@/components/log-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { getScoutDesktop } from "@/lib/electron";
@@ -204,6 +205,11 @@ type ProductSurface = (typeof PRODUCT_SURFACES)[number];
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
+type CreateAgentDraft = {
+  projectPath: string;
+  agentName: string;
+  harness: "claude" | "codex";
+};
 
 const APP_VIEW_IDS: readonly AppView[] = [
   'overview',
@@ -251,6 +257,26 @@ const ONBOARDING_WIZARD_STEP_ORDER: OnboardingWizardStepId[] = [
 ];
 
 const SOURCE_ROOT_PATH_SUGGESTIONS = ['~/dev', '~/src', '~/code'];
+const AVAILABLE_AGENT_HARNESSES = ['claude', 'codex'] as const;
+
+function normalizeCreateAgentHarness(value: string | null | undefined): CreateAgentDraft["harness"] {
+  return value === 'codex' ? 'codex' : 'claude';
+}
+
+function buildDefaultCreateAgentDraft(
+  projects: SetupProjectSummary[],
+  settings: AppSettingsState | null | undefined,
+): CreateAgentDraft {
+  const preferredProject = projects.find((project) => project.root === settings?.onboardingContextRoot)
+    ?? projects[0]
+    ?? null;
+
+  return {
+    projectPath: preferredProject?.root ?? settings?.onboardingContextRoot ?? '',
+    agentName: '',
+    harness: normalizeCreateAgentHarness(preferredProject?.defaultHarness ?? settings?.defaultHarness),
+  };
+}
 
 function pairingTrustedPeersMeaningfullyEqual(left: PairingState['trustedPeers'], right: PairingState['trustedPeers']) {
   if (left.length !== right.length) {
@@ -424,6 +450,14 @@ export default function App() {
   const [agentConfigFeedback, setAgentConfigFeedback] = useState<string | null>(null);
   const [pendingConfigFocusAgentId, setPendingConfigFocusAgentId] = useState<string | null>(null);
   const [isAgentConfigEditing, setIsAgentConfigEditing] = useState(false);
+  const [isCreateAgentDialogOpen, setIsCreateAgentDialogOpen] = useState(false);
+  const [createAgentDraft, setCreateAgentDraft] = useState<CreateAgentDraft>({
+    projectPath: '',
+    agentName: '',
+    harness: 'claude',
+  });
+  const [createAgentSubmitting, setCreateAgentSubmitting] = useState(false);
+  const [createAgentFeedback, setCreateAgentFeedback] = useState<string | null>(null);
   const [agentSession, setAgentSession] = useState<AgentSessionInspector | null>(null);
   const [agentSessionLoading, setAgentSessionLoading] = useState(false);
   const [agentSessionFeedback, setAgentSessionFeedback] = useState<string | null>(null);
@@ -1827,6 +1861,10 @@ export default function App() {
       : 'Direct line available.';
   const visibleAppSettings = isAppSettingsEditing ? (appSettingsDraft ?? appSettings) : appSettings;
   const agentableProjects = visibleAppSettings?.projectInventory ?? [];
+  const createAgentDefaults = useMemo(
+    () => buildDefaultCreateAgentDraft(agentableProjects, visibleAppSettings),
+    [agentableProjects, visibleAppSettings],
+  );
   const hiddenProjects = visibleAppSettings?.hiddenProjects ?? [];
   const appSettingsDirty = useMemo(
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
@@ -2974,6 +3012,82 @@ export default function App() {
     setIsAgentConfigEditing(focusConfig);
     setPendingConfigFocusAgentId(focusConfig ? agentId : null);
   }, [interAgentThreads]);
+
+  const handleOpenCreateAgentDialog = React.useCallback(() => {
+    setCreateAgentDraft(buildDefaultCreateAgentDraft(agentableProjects, visibleAppSettings));
+    setCreateAgentFeedback(null);
+    setIsCreateAgentDialogOpen(true);
+  }, [agentableProjects, visibleAppSettings]);
+
+  const handleBrowseCreateAgentProject = React.useCallback(() => {
+    void (async () => {
+      try {
+        if (!scoutDesktop?.pickDirectory) {
+          return;
+        }
+        const selectedPath = await scoutDesktop.pickDirectory();
+        if (!selectedPath) {
+          return;
+        }
+        setCreateAgentDraft((current) => ({
+          ...current,
+          projectPath: selectedPath,
+        }));
+        setCreateAgentFeedback(null);
+      } catch (error) {
+        setCreateAgentFeedback(asErrorMessage(error));
+      }
+    })();
+  }, [scoutDesktop]);
+
+  const handleCreateAgent = React.useCallback(() => {
+    void (async () => {
+      if (!scoutDesktop?.createAgent) {
+        setCreateAgentFeedback('Electron desktop bridge is unavailable.');
+        return;
+      }
+
+      const projectPath = createAgentDraft.projectPath.trim();
+      if (!projectPath) {
+        setCreateAgentFeedback('Choose a project path first.');
+        return;
+      }
+
+      setCreateAgentSubmitting(true);
+      setCreateAgentFeedback(null);
+      try {
+        const result = await scoutDesktop.createAgent({
+          projectPath,
+          agentName: createAgentDraft.agentName.trim() || null,
+          harness: createAgentDraft.harness,
+        });
+
+        setShellState(result.shellState);
+        setShellError(null);
+        setRelayFeedback(`Created ${result.agentId}.`);
+        setSelectedInterAgentId(result.agentId);
+        setSelectedInterAgentThreadId(null);
+        setActiveView('agents');
+        setIsCreateAgentDialogOpen(false);
+
+        if (scoutDesktop.refreshSettingsInventory) {
+          try {
+            const nextSettings = await scoutDesktop.refreshSettingsInventory();
+            setAppSettings(nextSettings);
+            if (!isAppSettingsEditing || !appSettingsDirty) {
+              setAppSettingsDraft(nextSettings);
+            }
+          } catch {
+            // Keep the created agent flow successful even if inventory refresh fails.
+          }
+        }
+      } catch (error) {
+        setCreateAgentFeedback(asErrorMessage(error));
+      } finally {
+        setCreateAgentSubmitting(false);
+      }
+    })();
+  }, [appSettingsDirty, createAgentDraft, isAppSettingsEditing, scoutDesktop]);
 
   const handleStartAgentConfigEdit = React.useCallback(() => {
     setActiveView('settings');
@@ -4123,6 +4237,7 @@ export default function App() {
             shellError={shellError}
             agentLookup={interAgentAgentLookup}
             onNavigate={setActiveView}
+            onCreateAgent={handleOpenCreateAgentDialog}
             onRefresh={() => void handleRefreshShell()}
             onOpenAgent={openAgentProfile}
             onOpenSession={openSessionDetail}
@@ -9188,6 +9303,153 @@ export default function App() {
           onRevealPath={(filePath) => void scoutDesktop?.revealPath?.(filePath)}
         />
       )}
+
+      <Dialog open={isCreateAgentDialogOpen} onOpenChange={setIsCreateAgentDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>New Agent</DialogTitle>
+            <DialogDescription>
+              Pick a project, choose a harness, and start a local relay agent without leaving the homepage.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                Project
+              </label>
+              <select
+                className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
+                style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}
+                value={agentableProjects.find((project) => project.root === createAgentDraft.projectPath)?.id ?? ''}
+                onChange={(event) => {
+                  const nextProject = agentableProjects.find((project) => project.id === event.target.value) ?? null;
+                  if (!nextProject) {
+                    return;
+                  }
+                  setCreateAgentDraft((current) => ({
+                    ...current,
+                    projectPath: nextProject.root,
+                    harness: normalizeCreateAgentHarness(nextProject.defaultHarness || current.harness),
+                  }));
+                  setCreateAgentFeedback(null);
+                }}
+              >
+                <option value="">Select a discovered project</option>
+                {agentableProjects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.title} · {compactHomePath(project.root) ?? project.root}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                Path
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={createAgentDraft.projectPath}
+                  onChange={(event) => {
+                    setCreateAgentDraft((current) => ({ ...current, projectPath: event.target.value }));
+                    setCreateAgentFeedback(null);
+                  }}
+                  placeholder={createAgentDefaults.projectPath || "/path/to/project"}
+                  className="h-10"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={handleBrowseCreateAgentProject}
+                >
+                  <FolderOpen size={14} />
+                  Browse
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_160px]">
+              <div className="space-y-2">
+                <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  Agent Name
+                </label>
+                <Input
+                  value={createAgentDraft.agentName}
+                  onChange={(event) => {
+                    setCreateAgentDraft((current) => ({ ...current, agentName: event.target.value }));
+                    setCreateAgentFeedback(null);
+                  }}
+                  placeholder="Optional. Defaults to the project name."
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  Harness
+                </label>
+                <select
+                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
+                  style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}
+                  value={createAgentDraft.harness}
+                  onChange={(event) => {
+                    setCreateAgentDraft((current) => ({
+                      ...current,
+                      harness: normalizeCreateAgentHarness(event.target.value),
+                    }));
+                    setCreateAgentFeedback(null);
+                  }}
+                >
+                  {AVAILABLE_AGENT_HARNESSES.map((harness) => (
+                    <option key={harness} value={harness}>
+                      {harness}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border px-3 py-3 text-[12px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.surface, color: C.muted }}>
+              Scout will create the relay-agent config if needed, start the session, then refresh the desktop shell so the new agent appears immediately.
+            </div>
+
+            {createAgentFeedback ? (
+              <div className="text-[12px] leading-[1.6]" style={{ color: '#b91c1c' }}>
+                {createAgentFeedback}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsCreateAgentDialogOpen(false)}
+              disabled={createAgentSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCreateAgent}
+              disabled={createAgentSubmitting || !createAgentDraft.projectPath.trim()}
+            >
+              {createAgentSubmitting ? (
+                <>
+                  <Spinner className="mr-2" />
+                  Starting…
+                </>
+              ) : (
+                <>
+                  <Bot size={14} />
+                  Create Agent
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Global Bottom Bar */}
       <div className="h-6 border-t flex items-center justify-between px-3 shrink-0 text-[9px] font-mono uppercase tracking-widest" style={{ backgroundColor: C.bg, borderTopColor: C.border, color: C.muted }}>

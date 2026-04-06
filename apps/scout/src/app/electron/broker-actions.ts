@@ -30,6 +30,7 @@ import {
   loadScoutBrokerContext,
   syncScoutBrokerBindings,
 } from "../../core/broker/service.ts";
+import { upScoutAgent } from "../../core/agents/service.ts";
 import {
   createScoutDesktopAppInfo,
   loadScoutDesktopRelayShellPatch,
@@ -47,6 +48,17 @@ export type ScoutElectronBrokerControlAction = "start" | "stop" | "restart";
 export type ScoutElectronRestartAgentInput = {
   agentId: string;
   previousSessionId?: string | null;
+};
+
+export type ScoutElectronCreateAgentInput = {
+  projectPath: string;
+  agentName?: string | null;
+  harness?: AgentHarness | null;
+};
+
+export type ScoutElectronCreateAgentResult = {
+  agentId: string;
+  shellState: ScoutDesktopShellState;
 };
 
 export type ScoutElectronSendRelayMessageInput = {
@@ -622,6 +634,37 @@ export async function restartScoutElectronAgent(
   });
 
   return loadBrokerActionShellState(options);
+}
+
+export async function createScoutElectronAgent(
+  input: ScoutElectronCreateAgentInput,
+  options: ScoutElectronBrokerActionOptions = {},
+): Promise<ScoutElectronCreateAgentResult> {
+  const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
+  const operatorName = await resolveOperatorDisplayName(currentDirectory);
+  const projectPath = input.projectPath.trim();
+
+  if (!projectPath) {
+    throw new Error("Project path is required.");
+  }
+
+  const agent = await upScoutAgent({
+    projectPath,
+    agentName: input.agentName?.trim() || undefined,
+    harness: parseRequestedHarness(input.harness),
+    currentDirectory,
+  });
+
+  await syncScoutBrokerBindings({
+    currentDirectory,
+    operatorId: SCOUT_BROKER_OPERATOR_ID,
+    operatorName,
+  });
+
+  return {
+    agentId: agent.agentId,
+    shellState: await loadBrokerActionShellState(options),
+  };
 }
 
 export async function controlScoutElectronBroker(

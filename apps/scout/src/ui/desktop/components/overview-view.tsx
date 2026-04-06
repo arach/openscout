@@ -2,6 +2,7 @@
 
 import React from "react";
 import {
+  Bot,
   ChevronRight,
   CheckCircle2,
   Clock,
@@ -11,7 +12,6 @@ import {
   Folder,
   MessageSquare,
   Network,
-  Plus,
   Radar,
   RefreshCw,
   Search,
@@ -117,6 +117,7 @@ export type OverviewViewProps = {
   shellError: string | null;
   agentLookup: Map<string, { id: string }>;
   onNavigate: (view: AppView) => void;
+  onCreateAgent: () => void;
   onRefresh: () => void;
   onOpenAgent: (agentId: string) => void;
   onOpenSession: (session: ScoutSessionMetadata) => void;
@@ -148,6 +149,7 @@ export function OverviewView({
   shellError,
   agentLookup,
   onNavigate,
+  onCreateAgent,
   onRefresh,
   onOpenAgent,
   onOpenSession,
@@ -275,53 +277,51 @@ export function OverviewView({
     const actions: {
       icon: React.ReactNode;
       label: string;
-      view: AppView;
       primary: boolean;
+      onClick: () => void;
     }[] = [];
 
-    if (features.sessions) {
-      actions.push({
-        icon: <Plus size={14} />,
-        label: "Start New Task",
-        view: "sessions",
-        primary: true,
-      });
-    }
+    actions.push({
+      icon: <Bot size={14} />,
+      label: "New Agent",
+      primary: true,
+      onClick: onCreateAgent,
+    });
     if (features.plans) {
       actions.push({
         icon: <FileText size={14} />,
         label: "Review Plans",
-        view: "plans",
         primary: false,
+        onClick: () => onNavigate("plans"),
       });
     }
     if (features.relay) {
       actions.push({
         icon: <MessageSquare size={14} />,
         label: "Open Relay",
-        view: "relay",
         primary: false,
+        onClick: () => onNavigate("relay"),
       });
     }
     if (features.machines) {
       actions.push({
         icon: <Network size={14} />,
         label: "View Machines",
-        view: "machines",
         primary: false,
+        onClick: () => onNavigate("machines"),
       });
     }
     if (features.search) {
       actions.push({
         icon: <Search size={14} />,
         label: "Search",
-        view: "search",
         primary: false,
+        onClick: () => onNavigate("search"),
       });
     }
 
     return actions;
-  }, [features]);
+  }, [features, onCreateAgent, onNavigate]);
 
   return (
     <div className="flex-1 flex overflow-hidden">
@@ -392,7 +392,7 @@ export function OverviewView({
                 {quickActions.map((action) => (
                   <button
                     key={action.label}
-                    onClick={() => onNavigate(action.view)}
+                    onClick={action.onClick}
                     className="os-btn flex items-center gap-2 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-colors border"
                     style={
                       action.primary
