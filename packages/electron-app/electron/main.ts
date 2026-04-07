@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import electron from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import {
   configureScoutKeepAliveHost,
   createScoutDesktopAppInfo,
@@ -33,6 +33,7 @@ const {
   powerSaveBlocker,
   shell,
 } = electron;
+const { autoUpdater } = electronUpdater;
 
 type StartedAppServer = {
   port: number;
@@ -51,6 +52,7 @@ let updateCheckTimer: NodeJS.Timeout | null = null;
 let updateIntervalTimer: NodeJS.Timeout | null = null;
 const SCOUT_RELEASE_OWNER = "arach";
 const SCOUT_RELEASE_REPO = "openscout";
+let hasLoggedMissingUpdaterConfig = false;
 
 function resolveProductName() {
   const fromEnv = process.env.SCOUT_PRODUCT_NAME?.trim();
@@ -92,6 +94,28 @@ function resolveDesktopAssetPath(filename: string) {
     : [path.resolve(__dirname, "..", "..", "public", filename)];
 
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function resolveUpdaterConfigPath() {
+  return path.join(process.resourcesPath, "app-update.yml");
+}
+
+function canUseAutoUpdates() {
+  if (!app.isPackaged || process.platform !== "darwin") {
+    return false;
+  }
+
+  const updaterConfigPath = resolveUpdaterConfigPath();
+  if (existsSync(updaterConfigPath)) {
+    return true;
+  }
+
+  if (!hasLoggedMissingUpdaterConfig) {
+    hasLoggedMissingUpdaterConfig = true;
+    updaterLog("info", `skipping auto updates: missing ${updaterConfigPath}`);
+  }
+
+  return false;
 }
 
 function applyApplicationIcon() {
@@ -141,7 +165,7 @@ async function showUpdateDownloadedPrompt(version: string) {
 }
 
 async function checkForAppUpdates(options: { interactive?: boolean } = {}) {
-  if (!app.isPackaged || process.platform !== "darwin") {
+  if (!canUseAutoUpdates()) {
     return;
   }
 
@@ -177,7 +201,7 @@ async function checkForAppUpdates(options: { interactive?: boolean } = {}) {
 }
 
 function configureAutoUpdates() {
-  if (!app.isPackaged || process.platform !== "darwin") {
+  if (!canUseAutoUpdates()) {
     return;
   }
 

@@ -3,9 +3,11 @@
 import React from "react";
 import {
   Bot,
+  ChevronDown,
   ChevronRight,
   CheckCircle2,
   Clock,
+  Copy,
   Cpu,
   FileText,
   Filter,
@@ -15,6 +17,7 @@ import {
   Radar,
   RefreshCw,
   Search,
+  Square,
   Users,
   X,
   Zap,
@@ -212,6 +215,96 @@ export function OverviewView({
     [feedItems, feedFilter],
   );
 
+  // Expanded item + selected index for keyboard nav
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = React.useState<number>(0);
+
+  // Clamp selectedIndex when filter/items change
+  React.useEffect(() => {
+    if (selectedIndex >= filteredFeedItems.length) {
+      setSelectedIndex(Math.max(0, filteredFeedItems.length - 1));
+    }
+  }, [filteredFeedItems.length, selectedIndex]);
+
+  // Keyboard navigation: j/k to move, e to expand, Escape to collapse
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      if (event.key === "j") {
+        event.preventDefault();
+        setSelectedIndex((prev) =>
+          Math.min(prev + 1, Math.max(0, filteredFeedItems.length - 1)),
+        );
+      } else if (event.key === "k") {
+        event.preventDefault();
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+      } else if (event.key === "e") {
+        event.preventDefault();
+        const item = filteredFeedItems[selectedIndex];
+        if (item) {
+          setExpandedId((prev) => (prev === item.id ? null : item.id));
+        }
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const item = filteredFeedItems[selectedIndex];
+        if (item) {
+          setExpandedId((prev) => (prev === item.id ? null : item.id));
+        }
+      } else if (event.key === "Escape") {
+        if (expandedId !== null) {
+          event.preventDefault();
+          setExpandedId(null);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [filteredFeedItems, selectedIndex, expandedId]);
+
+  const cycleFilter = React.useCallback(() => {
+    const order: Array<"all" | "message" | "task" | "session"> = [
+      "all",
+      "message",
+      "task",
+      "session",
+    ];
+    const idx = order.indexOf(feedFilter);
+    setFeedFilter(order[(idx + 1) % order.length]!);
+  }, [feedFilter]);
+
+  const filterLabel =
+    feedFilter === "all"
+      ? "All Events"
+      : feedFilter === "message"
+        ? "Messages"
+        : feedFilter === "task"
+          ? "Tasks"
+          : "Sessions";
+
+  const handleCopy = React.useCallback(
+    (event: React.MouseEvent, text: string) => {
+      event.stopPropagation();
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        void navigator.clipboard.writeText(text).catch(() => {});
+      }
+    },
+    [],
+  );
+
   // Stat cards data
   const statCards = React.useMemo(() => {
     const cards: {
@@ -345,36 +438,25 @@ export function OverviewView({
             </button>
           </div>
 
-          {/* --- 1. STAT CARDS --- */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
+          {/* --- 1. STAT CARDS (compact inline row) --- */}
+          <div className="mb-6 flex flex-wrap items-center gap-6">
             {statCards.map((card) => (
-              <div
-                key={card.label}
-                className="border rounded-xl px-5 py-4"
-                style={{ borderColor: C.border, backgroundColor: C.surface }}
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <span style={{ color: card.color }}>{card.icon}</span>
-                  <span
-                    className="text-[10px] font-semibold tracking-wider uppercase"
-                    style={{ color: card.color }}
-                  >
-                    {card.label}
+              <div key={card.label} className="flex items-center gap-2">
+                <span style={{ color: card.color }}>{card.icon}</span>
+                <span className="text-xs" style={s.mutedText}>
+                  {card.label}
+                </span>
+                <span
+                  className="text-sm font-medium tabular-nums"
+                  style={s.inkText}
+                >
+                  {card.value}
+                </span>
+                {card.sub ? (
+                  <span className="text-xs" style={s.mutedText}>
+                    {card.sub}
                   </span>
-                </div>
-                <div className="flex items-baseline gap-1.5">
-                  <span
-                    className="text-[28px] font-bold tabular-nums leading-none"
-                    style={s.inkText}
-                  >
-                    {card.value}
-                  </span>
-                  {card.sub ? (
-                    <span className="text-[13px]" style={s.mutedText}>
-                      {card.sub}
-                    </span>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -452,12 +534,33 @@ export function OverviewView({
           {/* --- 3. ACTIVITY STREAM --- */}
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h2
-                className="text-[16px] font-semibold"
-                style={s.inkText}
-              >
-                Activity Stream
-              </h2>
+              <div className="flex items-center gap-4">
+                <h2
+                  className="text-[16px] font-semibold"
+                  style={s.inkText}
+                >
+                  Activity Stream
+                </h2>
+                <div
+                  className="hidden items-center gap-2 text-[10px] sm:flex"
+                  style={s.mutedText}
+                >
+                  <span
+                    className="font-mono px-1.5 py-0.5 rounded"
+                    style={s.tagBadge}
+                  >
+                    j k
+                  </span>
+                  <span>navigate</span>
+                  <span
+                    className="font-mono px-1.5 py-0.5 rounded"
+                    style={s.tagBadge}
+                  >
+                    e
+                  </span>
+                  <span>expand</span>
+                </div>
+              </div>
               <button
                 className="os-btn flex items-center gap-2 px-3 py-1.5 border rounded-lg text-[12px] transition-colors"
                 style={{
@@ -465,30 +568,11 @@ export function OverviewView({
                   color: C.muted,
                   backgroundColor: "transparent",
                 }}
-                onClick={() => {
-                  const order: Array<"all" | "message" | "task" | "session"> = [
-                    "all",
-                    "message",
-                    "task",
-                    "session",
-                  ];
-                  const idx = order.indexOf(feedFilter);
-                  setFeedFilter(order[(idx + 1) % order.length]!);
-                }}
+                onClick={cycleFilter}
               >
                 <Filter size={12} />
-                {feedFilter === "all"
-                  ? "All Events"
-                  : feedFilter === "message"
-                    ? "Messages"
-                    : feedFilter === "task"
-                      ? "Tasks"
-                      : "Sessions"}
-                <ChevronRight
-                  size={10}
-                  className="rotate-90"
-                  style={s.mutedText}
-                />
+                {filterLabel}
+                <ChevronDown size={10} />
               </button>
             </div>
 
@@ -502,28 +586,45 @@ export function OverviewView({
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                {filteredFeedItems.map((item) => {
+              <div
+                className="divide-y rounded-xl border overflow-hidden"
+                style={{ borderColor: C.border }}
+              >
+                {filteredFeedItems.map((item, index) => {
+                  const isSelected = index === selectedIndex;
+                  const isExpanded = expandedId === item.id;
+                  const rowBackground = isSelected ? C.surface : "transparent";
+
                   if (item.kind === "message") {
                     const message = item.data as ScoutRelayMessage;
                     const agent = agentLookup.get(message.authorId) ?? null;
+                    const isRunning = false;
                     return (
                       <div
                         key={item.id}
-                        className="os-row flex items-start gap-4 px-5 py-4 rounded-xl border cursor-pointer transition-colors"
-                        style={{
-                          borderColor: C.border,
-                          backgroundColor: C.surface,
-                        }}
+                        className="group relative flex items-start gap-4 px-4 py-3 cursor-pointer transition-colors"
+                        style={{ backgroundColor: rowBackground }}
                         onClick={() => {
+                          setSelectedIndex(index);
+                          setExpandedId((prev) =>
+                            prev === item.id ? null : item.id,
+                          );
                           if (agent) onOpenAgent(agent.id);
                         }}
                       >
-                        <div
-                          className="w-9 h-9 rounded-full text-white flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5"
-                          style={{ backgroundColor: message.avatarColor }}
-                        >
-                          {message.avatarLabel}
+                        {isRunning ? (
+                          <div
+                            className="absolute left-0 top-0 bottom-0 w-0.5"
+                            style={{ backgroundColor: C.accent }}
+                          />
+                        ) : null}
+                        <div className="relative shrink-0 mt-0.5">
+                          <div
+                            className="w-9 h-9 rounded-full text-white flex items-center justify-center text-[12px] font-bold"
+                            style={{ backgroundColor: message.avatarColor }}
+                          >
+                            {message.avatarLabel}
+                          </div>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
@@ -555,11 +656,29 @@ export function OverviewView({
                             </span>
                           </div>
                           <div
-                            className="text-[13px] leading-[1.6]"
+                            className={`text-[13px] leading-[1.6] ${isExpanded ? "" : "line-clamp-2"}`}
                             style={s.mutedText}
                           >
-                            {messagePreviewSnippet(message.body, 280)}
+                            {isExpanded
+                              ? message.body
+                              : messagePreviewSnippet(message.body, 280)}
                           </div>
+                        </div>
+                        <div
+                          className="absolute right-3 top-3 flex items-center gap-0.5 rounded-lg border p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{
+                            backgroundColor: C.bg,
+                            borderColor: C.border,
+                          }}
+                        >
+                          <button
+                            onClick={(event) => handleCopy(event, message.body)}
+                            className="p-1 rounded hover:opacity-70"
+                            style={{ color: C.muted }}
+                            title="Copy"
+                          >
+                            <Copy size={12} />
+                          </button>
                         </div>
                       </div>
                     );
@@ -567,6 +686,7 @@ export function OverviewView({
 
                   if (item.kind === "task") {
                     const task = item.data as ScoutDesktopTask;
+                    const isRunning = task.status === "running";
                     const statusColor =
                       task.status === "running"
                         ? {
@@ -585,24 +705,54 @@ export function OverviewView({
                               }
                             : { bg: C.tagBg, fg: C.muted };
 
+                    const taskBody = [task.title, task.replyPreview ?? ""]
+                      .filter(Boolean)
+                      .join("\n");
+
                     return (
                       <div
                         key={item.id}
-                        className="os-row flex items-start gap-4 px-5 py-4 rounded-xl border cursor-pointer transition-colors"
-                        style={{
-                          borderColor: C.border,
-                          backgroundColor: C.surface,
+                        className="group relative flex items-start gap-4 px-4 py-3 cursor-pointer transition-colors"
+                        style={{ backgroundColor: rowBackground }}
+                        onClick={() => {
+                          setSelectedIndex(index);
+                          setExpandedId((prev) =>
+                            prev === item.id ? null : item.id,
+                          );
+                          onOpenAgent(task.targetAgentId);
                         }}
-                        onClick={() => onOpenAgent(task.targetAgentId)}
                       >
-                        <div
-                          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5"
-                          style={{
-                            backgroundColor: statusColor.bg,
-                            color: statusColor.fg,
-                          }}
-                        >
-                          <Zap size={14} />
+                        {isRunning ? (
+                          <div
+                            className="absolute left-0 top-0 bottom-0 w-0.5"
+                            style={{ backgroundColor: C.accent }}
+                          />
+                        ) : null}
+                        <div className="relative shrink-0 mt-0.5">
+                          <div
+                            className="w-9 h-9 rounded-full flex items-center justify-center"
+                            style={{
+                              backgroundColor: statusColor.bg,
+                              color: statusColor.fg,
+                            }}
+                          >
+                            <Zap size={14} />
+                          </div>
+                          {isRunning ? (
+                            <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
+                              <span
+                                className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                                style={{ backgroundColor: C.accent }}
+                              />
+                              <span
+                                className="relative inline-flex h-3 w-3 rounded-full border-2"
+                                style={{
+                                  backgroundColor: C.accent,
+                                  borderColor: C.bg,
+                                }}
+                              />
+                            </span>
+                          ) : null}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
@@ -634,18 +784,44 @@ export function OverviewView({
                             </span>
                           </div>
                           <div
-                            className="text-[13px] font-medium leading-[1.5]"
+                            className={`text-[13px] font-medium leading-[1.5] ${isExpanded ? "" : "line-clamp-2"}`}
                             style={s.inkText}
                           >
                             {task.title}
                           </div>
                           {task.replyPreview ? (
                             <div
-                              className="text-[12px] mt-1.5 leading-[1.5]"
+                              className={`text-[12px] mt-1.5 leading-[1.5] ${isExpanded ? "" : "line-clamp-2"}`}
                               style={s.mutedText}
                             >
                               {task.replyPreview}
                             </div>
+                          ) : null}
+                        </div>
+                        <div
+                          className="absolute right-3 top-3 flex items-center gap-0.5 rounded-lg border p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{
+                            backgroundColor: C.bg,
+                            borderColor: C.border,
+                          }}
+                        >
+                          <button
+                            onClick={(event) => handleCopy(event, taskBody)}
+                            className="p-1 rounded hover:opacity-70"
+                            style={{ color: C.muted }}
+                            title="Copy"
+                          >
+                            <Copy size={12} />
+                          </button>
+                          {isRunning ? (
+                            <button
+                              onClick={(event) => event.stopPropagation()}
+                              className="p-1 rounded hover:opacity-70"
+                              title="Stop"
+                              style={{ color: "#ef4444" }}
+                            >
+                              <Square size={12} className="fill-current" />
+                            </button>
                           ) : null}
                         </div>
                       </div>
@@ -654,23 +830,29 @@ export function OverviewView({
 
                   if (item.kind === "session") {
                     const session = item.data as ScoutSessionMetadata;
+                    const sessionBody = `${session.title} (${session.project})`;
                     return (
                       <div
                         key={item.id}
-                        className="os-row flex items-start gap-4 px-5 py-4 rounded-xl border cursor-pointer transition-colors"
-                        style={{
-                          borderColor: C.border,
-                          backgroundColor: C.surface,
+                        className="group relative flex items-start gap-4 px-4 py-3 cursor-pointer transition-colors"
+                        style={{ backgroundColor: rowBackground }}
+                        onClick={() => {
+                          setSelectedIndex(index);
+                          setExpandedId((prev) =>
+                            prev === item.id ? null : item.id,
+                          );
+                          onOpenSession(session);
                         }}
-                        onClick={() => onOpenSession(session)}
                       >
-                        <div
-                          className="w-9 h-9 rounded-full text-white flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5"
-                          style={{
-                            backgroundColor: colorForIdentity(session.agent),
-                          }}
-                        >
-                          {session.agent.charAt(0)}
+                        <div className="relative shrink-0 mt-0.5">
+                          <div
+                            className="w-9 h-9 rounded-full text-white flex items-center justify-center text-[11px] font-bold"
+                            style={{
+                              backgroundColor: colorForIdentity(session.agent),
+                            }}
+                          >
+                            {session.agent.charAt(0)}
+                          </div>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
@@ -696,7 +878,7 @@ export function OverviewView({
                             </span>
                           </div>
                           <div
-                            className="text-[12px]"
+                            className={`text-[12px] ${isExpanded ? "" : "line-clamp-2"}`}
                             style={s.mutedText}
                           >
                             {session.messageCount} messages
@@ -707,6 +889,22 @@ export function OverviewView({
                           className="shrink-0 mt-2"
                           style={s.mutedText}
                         />
+                        <div
+                          className="absolute right-3 top-3 flex items-center gap-0.5 rounded-lg border p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{
+                            backgroundColor: C.bg,
+                            borderColor: C.border,
+                          }}
+                        >
+                          <button
+                            onClick={(event) => handleCopy(event, sessionBody)}
+                            className="p-1 rounded hover:opacity-70"
+                            style={{ color: C.muted }}
+                            title="Copy"
+                          >
+                            <Copy size={12} />
+                          </button>
+                        </div>
                       </div>
                     );
                   }

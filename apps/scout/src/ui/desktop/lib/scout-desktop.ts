@@ -6,6 +6,10 @@ import type {
   ScoutDesktopMachineEndpoint,
   ScoutDesktopMachineEndpointState,
   ScoutDesktopMachineStatus,
+  ScoutMessagesState,
+  ScoutMessagesThread,
+  ScoutMessagesThreadGroup,
+  ScoutMessagesThreadKind,
   ScoutDesktopPlan,
   ScoutDesktopPlansState,
   ScoutDesktopPlanStatus,
@@ -80,6 +84,10 @@ import type {
 
 export type DesktopFeatureFlags = ScoutDesktopFeatureFlags;
 export type DesktopAppInfo = ScoutDesktopAppInfo;
+export type MessagesThreadGroup = ScoutMessagesThreadGroup;
+export type MessagesThreadKind = ScoutMessagesThreadKind;
+export type MessagesThread = ScoutMessagesThread;
+export type MessagesState = ScoutMessagesState;
 export type RelayDestinationKind = ScoutRelayDestinationKind;
 export type RelayNavItem = ScoutRelayNavItem;
 export type RelayDirectState = ScoutRelayDirectState;
