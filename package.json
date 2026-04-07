@@ -1,6 +1,6 @@
 {
   "name": "openscout",
-  "version": "0.2.2",
+  "version": "0.2.10",
   "private": true,
   "packageManager": "bun@1.3.11",
   "workspaces": [
@@ -13,7 +13,7 @@
     "dev:web": "npm --prefix packages/electron-app run dev:web",
     "dev:electron": "npm --prefix packages/electron-app run dev:electron",
     "build": "npm run electron:build",
-    "check": "npm run protocol:check && npm run electron:check && npm run runtime:check",
+    "check": "npm run protocol:check && npm run electron:check && npm run runtime:check && bun run api:check",
     "start": "npm run electron",
     "electron": "npm --prefix packages/electron-app run electron",
     "electron:build": "npm run protocol:build && npm run runtime:build && npm --prefix packages/electron-app run build && npm --prefix packages/electron-app run build:electron",
@@ -39,8 +39,17 @@
     "ios:buildPhone": "bash scout/ios/scripts/build-device.sh",
     "ios:devPhone": "bash scout/ios/scripts/install-last-build.sh",
     "ios:pushPhone": "bash scout/ios/scripts/push-device.sh",
+    "ship:ios": "bash scout/ios/scripts/release.sh",
+    "ship:mac": "bash packages/electron-app/scripts/ship-macos.sh",
+    "ship:app": "bash packages/electron-app/scripts/ship-macos.sh",
+    "ship:npm": "bash scripts/ship-npm.sh",
+    "ship": "bun run ship:ios & bun run ship:mac & wait",
     "site:build": "cd site && bun install && bun run build",
-    "site:dev": "cd site && bun install && bun run dev"
+    "site:dev": "cd site && bun install && bun run dev",
+    "api:build": "cd apps/api && bun run build",
+    "api:check": "cd apps/api && bun run check",
+    "api:dev": "cd apps/api && bun run dev",
+    "api:start": "cd apps/api && bun run start"
   },
   "ignoreScripts": [
     "sharp",

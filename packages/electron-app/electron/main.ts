@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import electron from "electron";
 import type { MenuItemConstructorOptions } from "electron";
+import { autoUpdater } from "electron-updater";
 import {
   configureScoutKeepAliveHost,
   createScoutDesktopAppInfo,
@@ -44,6 +45,12 @@ const preloadPath = path.resolve(__dirname, "preload.cjs");
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let appServer: StartedAppServer | null = null;
 const execFile = promisify(execFileCallback);
+let updateCheckInFlight = false;
+let interactiveUpdateCheck = false;
+let updateCheckTimer: NodeJS.Timeout | null = null;
+let updateIntervalTimer: NodeJS.Timeout | null = null;
+const SCOUT_RELEASE_OWNER = "arach";
+const SCOUT_RELEASE_REPO = "openscout";
 
 function resolveProductName() {
   const fromEnv = process.env.SCOUT_PRODUCT_NAME?.trim();
@@ -96,6 +103,154 @@ function applyApplicationIcon() {
   if (!dockIcon.isEmpty()) {
     app.dock.setIcon(dockIcon);
   }
+}
+
+function updaterLog(level: "info" | "warn" | "error", message: string, ...details: unknown[]) {
+  const prefix = `[scout:update:${level}]`;
+  if (level === "error") {
+    console.error(prefix, message, ...details);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(prefix, message, ...details);
+    return;
+  }
+  console.log(prefix, message, ...details);
+}
+
+function consumeInteractiveUpdateCheck() {
+  const nextValue = interactiveUpdateCheck;
+  interactiveUpdateCheck = false;
+  return nextValue;
+}
+
+async function showUpdateDownloadedPrompt(version: string) {
+  const result = await dialog.showMessageBox(mainWindow ?? undefined, {
+    type: "info",
+    buttons: ["Restart and Install", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+    title: resolveProductName(),
+    message: `Scout ${version} is ready to install.`,
+    detail: "Restart now to apply the update, or keep working and let Scout install it when you quit.",
+  });
+
+  if (result.response === 0) {
+    setImmediate(() => autoUpdater.quitAndInstall());
+  }
+}
+
+async function checkForAppUpdates(options: { interactive?: boolean } = {}) {
+  if (!app.isPackaged || process.platform !== "darwin") {
+    return;
+  }
+
+  if (updateCheckInFlight) {
+    if (options.interactive) {
+      consumeInteractiveUpdateCheck();
+      await dialog.showMessageBox(mainWindow ?? undefined, {
+        type: "info",
+        title: resolveProductName(),
+        message: "Scout is already checking for updates.",
+      });
+    }
+    return;
+  }
+
+  interactiveUpdateCheck = options.interactive ?? false;
+  updateCheckInFlight = true;
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    updateCheckInFlight = false;
+    const message = error instanceof Error ? error.message : String(error);
+    updaterLog("error", "update check failed", message);
+    if (consumeInteractiveUpdateCheck()) {
+      await dialog.showMessageBox(mainWindow ?? undefined, {
+        type: "error",
+        title: resolveProductName(),
+        message: "Scout could not check for updates.",
+        detail: message,
+      });
+    }
+  }
+}
+
+function configureAutoUpdates() {
+  if (!app.isPackaged || process.platform !== "darwin") {
+    return;
+  }
+
+  autoUpdater.logger = {
+    info(message, ...details) {
+      updaterLog("info", String(message), ...details);
+    },
+    warn(message, ...details) {
+      updaterLog("warn", String(message), ...details);
+    },
+    error(message, ...details) {
+      updaterLog("error", String(message), ...details);
+    },
+  };
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.previousBlockmapBaseUrlOverride = `https://github.com/${SCOUT_RELEASE_OWNER}/${SCOUT_RELEASE_REPO}/releases/download/v${app.getVersion()}`;
+
+  autoUpdater.on("checking-for-update", () => {
+    updaterLog("info", "checking for updates");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    updateCheckInFlight = false;
+    updaterLog("info", `update available: ${info.version}`);
+    if (consumeInteractiveUpdateCheck()) {
+      void dialog.showMessageBox(mainWindow ?? undefined, {
+        type: "info",
+        title: resolveProductName(),
+        message: `Scout ${info.version} is downloading.`,
+        detail: "The update will install after download completes.",
+      });
+    }
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    updateCheckInFlight = false;
+    updaterLog("info", "no update available");
+    if (consumeInteractiveUpdateCheck()) {
+      void dialog.showMessageBox(mainWindow ?? undefined, {
+        type: "info",
+        title: resolveProductName(),
+        message: "Scout is up to date.",
+      });
+    }
+  });
+
+  autoUpdater.on("error", (error) => {
+    updateCheckInFlight = false;
+    updaterLog("error", "auto updater error", error);
+    if (consumeInteractiveUpdateCheck()) {
+      const message = error instanceof Error ? error.message : String(error);
+      void dialog.showMessageBox(mainWindow ?? undefined, {
+        type: "error",
+        title: resolveProductName(),
+        message: "Scout could not update.",
+        detail: message,
+      });
+    }
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    updaterLog("info", `update downloaded: ${info.version}`);
+    void showUpdateDownloadedPrompt(info.version);
+  });
+
+  updateCheckTimer = setTimeout(() => {
+    void checkForAppUpdates();
+  }, 15_000);
+
+  updateIntervalTimer = setInterval(() => {
+    void checkForAppUpdates();
+  }, 6 * 60 * 60 * 1000);
 }
 
 function getStartUrl(port?: number) {
@@ -230,6 +385,12 @@ function createAppMenu() {
             mainWindow?.webContents.send(SCOUT_ELECTRON_CHANNELS.openKnowledgeBase);
           },
         },
+        {
+          label: "Check for Updates…",
+          click: () => {
+            void checkForAppUpdates({ interactive: true });
+          },
+        },
       ],
     },
   ];
@@ -293,6 +454,7 @@ app.whenReady().then(async () => {
     },
   });
   applyApplicationIcon();
+  configureAutoUpdates();
   createAppMenu();
   await createMainWindow();
   void scoutElectronServices.refreshPairingState().catch((error) => {
@@ -320,6 +482,14 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("before-quit", async () => {
+  if (updateCheckTimer) {
+    clearTimeout(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+  if (updateIntervalTimer) {
+    clearInterval(updateIntervalTimer);
+    updateIntervalTimer = null;
+  }
   await appServer?.close();
   await relayVoiceBridgeService.shutdown();
   await telegramBridgeService.shutdown();

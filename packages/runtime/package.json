@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.2",
+  "version": "0.2.10",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -51,6 +51,11 @@
       "types": "./src/codex-app-server.ts",
       "bun": "./src/codex-app-server.ts",
       "default": "./dist/codex-app-server.js"
+    },
+    "./relay-agent-cards": {
+      "types": "./src/relay-agent-cards.ts",
+      "bun": "./src/relay-agent-cards.ts",
+      "default": "./dist/relay-agent-cards.js"
     }
   },
   "types": "./src/index.ts",
@@ -60,7 +65,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "build": "rm -rf dist && node_modules/.bin/tsc -p tsconfig.json",
     "broker": "node ./bin/openscout-runtime.mjs broker",
     "service": "node ./bin/openscout-runtime.mjs service",
     "discover": "node ./bin/openscout-runtime.mjs discover",

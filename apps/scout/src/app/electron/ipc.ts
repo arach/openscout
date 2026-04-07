@@ -14,6 +14,9 @@ import {
   type ScoutElectronUpdateAgentConfigInput,
 } from "./agent-config.ts";
 import {
+  createScoutElectronAgent,
+  type ScoutElectronCreateAgentInput,
+  type ScoutElectronCreateAgentResult,
   controlScoutElectronBroker,
   restartScoutElectronAgent,
   sendScoutElectronRelayMessage,
@@ -43,15 +46,20 @@ import {
   type ScoutElectronAgentSessionInspector,
 } from "./agent-session.ts";
 import {
+  getScoutElectronFeedbackBundle,
   getScoutElectronBrokerInspector,
   getScoutElectronLogCatalog,
   readScoutElectronLogSource,
+  submitScoutElectronFeedbackReport,
 } from "./diagnostics.ts";
 import type {
   ReadScoutLogSourceInput,
   ScoutDesktopBrokerInspector,
+  ScoutDesktopFeedbackBundle,
+  ScoutDesktopFeedbackSubmission,
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
+  SubmitScoutFeedbackReportInput,
 } from "./diagnostics.ts";
 import {
   controlScoutElectronPairingService,
@@ -119,6 +127,7 @@ export type ScoutElectronIpcServices = {
   restartOnboarding: () => Promise<AppSettingsState>;
   getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
   updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
+  createAgent: (input: ScoutElectronCreateAgentInput) => Promise<ScoutElectronCreateAgentResult>;
   pickDirectory: () => Promise<string | null>;
   reloadApp: () => Promise<boolean>;
   quitApp: () => Promise<boolean>;
@@ -142,6 +151,8 @@ export type ScoutElectronIpcServices = {
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
   getLogCatalog: () => Promise<ScoutDesktopLogCatalog>;
   getBrokerInspector: () => Promise<ScoutDesktopBrokerInspector>;
+  getFeedbackBundle: () => Promise<ScoutDesktopFeedbackBundle>;
+  submitFeedbackReport: (input: SubmitScoutFeedbackReportInput) => Promise<ScoutDesktopFeedbackSubmission>;
   readLogSource: (input: ReadScoutLogSourceInput) => Promise<ScoutDesktopLogContent>;
 };
 
@@ -176,6 +187,7 @@ export function createScoutElectronIpcServices(input: {
     restartOnboarding: () => restartScoutElectronOnboarding(currentDirectory, settings),
     getAgentConfig: (agentId) => getScoutElectronAgentConfig(agentId),
     updateAgentConfig: (nextInput) => updateScoutElectronAgentConfig(nextInput),
+    createAgent: (input) => createScoutElectronAgent(input, { currentDirectory, appInfo }),
     pickDirectory: () => pickScoutElectronDirectory(host),
     reloadApp: () => reloadScoutElectronApp(host),
     quitApp: () => quitScoutElectronApp(host),
@@ -211,6 +223,8 @@ export function createScoutElectronIpcServices(input: {
     setVoiceRepliesEnabled: (enabled) => setScoutElectronVoiceRepliesEnabled(enabled, { currentDirectory, appInfo, voice }),
     getLogCatalog: () => getScoutElectronLogCatalog(currentDirectory),
     getBrokerInspector: () => getScoutElectronBrokerInspector(),
+    getFeedbackBundle: () => getScoutElectronFeedbackBundle(currentDirectory),
+    submitFeedbackReport: (input) => submitScoutElectronFeedbackReport(input, currentDirectory),
     readLogSource: (input) => readScoutElectronLogSource(input, currentDirectory),
   };
 }
@@ -238,6 +252,8 @@ export function registerScoutElectronIpcHandlers(
     services.getAgentConfig(String(agentId)));
   register(SCOUT_ELECTRON_CHANNELS.updateAgentConfig, (_event, input) =>
     services.updateAgentConfig(input as ScoutElectronUpdateAgentConfigInput));
+  register(SCOUT_ELECTRON_CHANNELS.createAgent, (_event, input) =>
+    services.createAgent(input as ScoutElectronCreateAgentInput));
   register(SCOUT_ELECTRON_CHANNELS.pickDirectory, () => services.pickDirectory());
   register(SCOUT_ELECTRON_CHANNELS.reloadApp, () => services.reloadApp());
   register(SCOUT_ELECTRON_CHANNELS.quitApp, () => services.quitApp());
@@ -274,6 +290,9 @@ export function registerScoutElectronIpcHandlers(
     services.setVoiceRepliesEnabled(Boolean(enabled)));
   register(SCOUT_ELECTRON_CHANNELS.getLogCatalog, () => services.getLogCatalog());
   register(SCOUT_ELECTRON_CHANNELS.getBrokerInspector, () => services.getBrokerInspector());
+  register(SCOUT_ELECTRON_CHANNELS.getFeedbackBundle, () => services.getFeedbackBundle());
+  register(SCOUT_ELECTRON_CHANNELS.submitFeedbackReport, (_event, input) =>
+    services.submitFeedbackReport(input as SubmitScoutFeedbackReportInput));
   register(SCOUT_ELECTRON_CHANNELS.readLogSource, (_event, input) =>
     services.readLogSource(input as ReadScoutLogSourceInput));
 }

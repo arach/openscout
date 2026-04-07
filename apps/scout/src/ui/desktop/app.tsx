@@ -71,8 +71,10 @@ import { LogPanel } from "@/components/log-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { getScoutDesktop } from "@/lib/electron";
 import { cn } from "@/lib/utils";
 import {
@@ -90,6 +92,8 @@ import type {
   AppSettingsState,
   BrokerControlAction,
   DesktopBrokerInspector,
+  DesktopFeedbackBundle,
+  DesktopFeedbackSubmission,
   DesktopFeatureFlags,
   HiddenProjectSummary,
   PairingState,
@@ -110,6 +114,7 @@ import type {
   SessionMetadata,
   DesktopAppInfo,
   RelayDirectState,
+  SubmitFeedbackReportInput,
   UpdatePairingConfigInput,
 } from "@/lib/scout-desktop";
 
@@ -204,6 +209,11 @@ type ProductSurface = (typeof PRODUCT_SURFACES)[number];
 type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
+type CreateAgentDraft = {
+  projectPath: string;
+  agentName: string;
+  harness: "claude" | "codex";
+};
 
 const APP_VIEW_IDS: readonly AppView[] = [
   'overview',
@@ -251,6 +261,26 @@ const ONBOARDING_WIZARD_STEP_ORDER: OnboardingWizardStepId[] = [
 ];
 
 const SOURCE_ROOT_PATH_SUGGESTIONS = ['~/dev', '~/src', '~/code'];
+const AVAILABLE_AGENT_HARNESSES = ['claude', 'codex'] as const;
+
+function normalizeCreateAgentHarness(value: string | null | undefined): CreateAgentDraft["harness"] {
+  return value === 'codex' ? 'codex' : 'claude';
+}
+
+function buildDefaultCreateAgentDraft(
+  projects: SetupProjectSummary[],
+  settings: AppSettingsState | null | undefined,
+): CreateAgentDraft {
+  const preferredProject = projects.find((project) => project.root === settings?.onboardingContextRoot)
+    ?? projects[0]
+    ?? null;
+
+  return {
+    projectPath: preferredProject?.root ?? settings?.onboardingContextRoot ?? '',
+    agentName: '',
+    harness: normalizeCreateAgentHarness(preferredProject?.defaultHarness ?? settings?.defaultHarness),
+  };
+}
 
 function pairingTrustedPeersMeaningfullyEqual(left: PairingState['trustedPeers'], right: PairingState['trustedPeers']) {
   if (left.length !== right.length) {
@@ -424,6 +454,14 @@ export default function App() {
   const [agentConfigFeedback, setAgentConfigFeedback] = useState<string | null>(null);
   const [pendingConfigFocusAgentId, setPendingConfigFocusAgentId] = useState<string | null>(null);
   const [isAgentConfigEditing, setIsAgentConfigEditing] = useState(false);
+  const [isCreateAgentDialogOpen, setIsCreateAgentDialogOpen] = useState(false);
+  const [createAgentDraft, setCreateAgentDraft] = useState<CreateAgentDraft>({
+    projectPath: '',
+    agentName: '',
+    harness: 'claude',
+  });
+  const [createAgentSubmitting, setCreateAgentSubmitting] = useState(false);
+  const [createAgentFeedback, setCreateAgentFeedback] = useState<string | null>(null);
   const [agentSession, setAgentSession] = useState<AgentSessionInspector | null>(null);
   const [agentSessionLoading, setAgentSessionLoading] = useState(false);
   const [agentSessionFeedback, setAgentSessionFeedback] = useState<string | null>(null);
@@ -511,6 +549,14 @@ export default function App() {
   const [brokerControlPending, setBrokerControlPending] = useState(false);
   const [brokerControlFeedback, setBrokerControlFeedback] = useState<string | null>(null);
   const [pendingBrokerInspectorFocus, setPendingBrokerInspectorFocus] = useState(false);
+  const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
+  const [feedbackBundle, setFeedbackBundle] = useState<DesktopFeedbackBundle | null>(null);
+  const [feedbackBundleLoading, setFeedbackBundleLoading] = useState(false);
+  const [feedbackBundleError, setFeedbackBundleError] = useState<string | null>(null);
+  const [feedbackDraft, setFeedbackDraft] = useState('');
+  const [feedbackSubmission, setFeedbackSubmission] = useState<DesktopFeedbackSubmission | null>(null);
+  const [feedbackActionPending, setFeedbackActionPending] = useState<'copy' | 'refresh' | 'repair' | 'submit' | null>(null);
+  const [feedbackActionMessage, setFeedbackActionMessage] = useState<string | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsFeedback, setLogsFeedback] = useState<string | null>(null);
   const [logSearchQuery, setLogSearchQuery] = useState('');
@@ -1827,6 +1873,10 @@ export default function App() {
       : 'Direct line available.';
   const visibleAppSettings = isAppSettingsEditing ? (appSettingsDraft ?? appSettings) : appSettings;
   const agentableProjects = visibleAppSettings?.projectInventory ?? [];
+  const createAgentDefaults = useMemo(
+    () => buildDefaultCreateAgentDraft(agentableProjects, visibleAppSettings),
+    [agentableProjects, visibleAppSettings],
+  );
   const hiddenProjects = visibleAppSettings?.hiddenProjects ?? [];
   const appSettingsDirty = useMemo(
     () => serializeAppSettings(appSettingsDraft) !== serializeAppSettings(appSettings),
@@ -2501,6 +2551,11 @@ export default function App() {
     setPendingBrokerInspectorFocus(true);
   }, []);
 
+  const openFeedbackDialog = React.useCallback(() => {
+    setIsFeedbackDialogOpen(true);
+    setFeedbackActionMessage(null);
+  }, []);
+
   const handleStartAppSettingsEdit = React.useCallback(() => {
     setAppSettingsDraft(appSettings);
     setAppSettingsFeedback(null);
@@ -2761,6 +2816,185 @@ export default function App() {
     })();
   }, []);
 
+  const loadFeedbackBundle = React.useCallback(async (options?: { showSpinner?: boolean }) => {
+    if (!scoutDesktop?.getFeedbackBundle) {
+      setFeedbackBundleError('Feedback diagnostics are unavailable in this build.');
+      return null;
+    }
+
+    if (options?.showSpinner) {
+      setFeedbackBundleLoading(true);
+    }
+
+    try {
+      const nextBundle = await scoutDesktop.getFeedbackBundle();
+      setFeedbackBundle(nextBundle);
+      setFeedbackBundleError(null);
+      return nextBundle;
+    } catch (error) {
+      setFeedbackBundleError(asErrorMessage(error));
+      return null;
+    } finally {
+      if (options?.showSpinner) {
+        setFeedbackBundleLoading(false);
+      }
+    }
+  }, [scoutDesktop]);
+
+  useEffect(() => {
+    if (!isFeedbackDialogOpen) {
+      return;
+    }
+
+    void loadFeedbackBundle({ showSpinner: true });
+  }, [isFeedbackDialogOpen, loadFeedbackBundle]);
+
+  const handleRefreshFeedbackBundle = React.useCallback(() => {
+    void (async () => {
+      setFeedbackActionPending('refresh');
+      setFeedbackActionMessage(null);
+      try {
+        await loadFeedbackBundle({ showSpinner: true });
+        setFeedbackActionMessage('Support details refreshed.');
+      } finally {
+        setFeedbackActionPending(null);
+      }
+    })();
+  }, [loadFeedbackBundle]);
+
+  const handleCopyFeedbackBundle = React.useCallback(() => {
+    void (async () => {
+      if (!feedbackBundle?.text) {
+        setFeedbackActionMessage('Support bundle is still loading.');
+        return;
+      }
+
+      setFeedbackActionPending('copy');
+      setFeedbackActionMessage(null);
+      try {
+        await copyTextToClipboard(feedbackBundle.text);
+        setFeedbackActionMessage('Support bundle copied.');
+      } catch (error) {
+        setFeedbackActionMessage(asErrorMessage(error));
+      } finally {
+        setFeedbackActionPending(null);
+      }
+    })();
+  }, [feedbackBundle?.text]);
+
+  const handleSubmitFeedbackReport = React.useCallback(() => {
+    void (async () => {
+      if (!scoutDesktop?.submitFeedbackReport) {
+        setFeedbackActionMessage('Feedback submission is unavailable in this build.');
+        return;
+      }
+
+      const message = feedbackDraft.trim();
+      if (!message) {
+        setFeedbackActionMessage('Add a short description before submitting.');
+        return;
+      }
+
+      setFeedbackActionPending('submit');
+      setFeedbackActionMessage(null);
+      try {
+        const result = await scoutDesktop.submitFeedbackReport({
+          message,
+        } satisfies SubmitFeedbackReportInput);
+        setFeedbackSubmission(result);
+        setFeedbackDraft('');
+        setFeedbackActionMessage(`Feedback submitted as ${result.key}.`);
+      } catch (error) {
+        setFeedbackActionMessage(asErrorMessage(error));
+      } finally {
+        setFeedbackActionPending(null);
+      }
+    })();
+  }, [feedbackDraft, scoutDesktop]);
+
+  const handleRepairSetup = React.useCallback(() => {
+    void (async () => {
+      const notes: string[] = [];
+      setFeedbackActionPending('repair');
+      setFeedbackActionMessage(null);
+
+      try {
+        if (scoutDesktop?.restartOnboarding) {
+          const nextSettings = await scoutDesktop.restartOnboarding();
+          setAppSettings(nextSettings);
+          setAppSettingsDraft(nextSettings);
+          setOnboardingWizardStep('welcome');
+          setOnboardingCommandResult(null);
+          setOnboardingCopiedCommand(null);
+          setIsAppSettingsEditing(true);
+          setStartupOnboardingState('active');
+        } else {
+          notes.push('Onboarding reset unavailable.');
+        }
+
+        setAppSettingsFeedback(null);
+        setRelayFeedback(null);
+        setPairingError(null);
+        setPairingConfigFeedback(null);
+        setBrokerControlFeedback(null);
+        setLogsFeedback(null);
+
+        if (scoutDesktop?.controlBroker) {
+          try {
+            const nextShellState = await scoutDesktop.controlBroker(
+              brokerInspector?.installed ? 'restart' : 'start',
+            );
+            setShellState(nextShellState);
+            setShellError(null);
+          } catch (error) {
+            notes.push(`Relay: ${asErrorMessage(error)}`);
+          }
+        }
+
+        if (scoutDesktop?.controlPairingService) {
+          try {
+            const nextPairingState = await scoutDesktop.controlPairingService(
+              pairingState?.isRunning ? 'restart' : 'start',
+            );
+            commitPairingState(nextPairingState);
+          } catch (error) {
+            notes.push(`Pairing: ${asErrorMessage(error)}`);
+          }
+        }
+
+        if (scoutDesktop?.getBrokerInspector) {
+          try {
+            const nextInspector = await scoutDesktop.getBrokerInspector();
+            setBrokerInspector(nextInspector);
+          } catch (error) {
+            notes.push(`Broker diagnostics: ${asErrorMessage(error)}`);
+          }
+        }
+
+        if (scoutDesktop?.refreshPairingState) {
+          try {
+            const nextPairingState = await scoutDesktop.refreshPairingState();
+            commitPairingState(nextPairingState);
+          } catch (error) {
+            notes.push(`Pairing refresh: ${asErrorMessage(error)}`);
+          }
+        }
+
+        await loadShellState(false);
+        await loadFeedbackBundle();
+        setFeedbackActionMessage(
+          notes.length > 0
+            ? `Repair finished with notes: ${notes.join(' · ')}`
+            : 'Setup repaired. Onboarding was reset and local services were refreshed.',
+        );
+      } catch (error) {
+        setFeedbackActionMessage(asErrorMessage(error));
+      } finally {
+        setFeedbackActionPending(null);
+      }
+    })();
+  }, [brokerInspector?.installed, commitPairingState, loadFeedbackBundle, loadShellState, pairingState?.isRunning, scoutDesktop]);
+
   const handleAddSourceRootSuggestion = React.useCallback((root: string) => {
     setAppSettingsDraft((current) => {
       const base = current ?? appSettings;
@@ -2974,6 +3208,82 @@ export default function App() {
     setIsAgentConfigEditing(focusConfig);
     setPendingConfigFocusAgentId(focusConfig ? agentId : null);
   }, [interAgentThreads]);
+
+  const handleOpenCreateAgentDialog = React.useCallback(() => {
+    setCreateAgentDraft(buildDefaultCreateAgentDraft(agentableProjects, visibleAppSettings));
+    setCreateAgentFeedback(null);
+    setIsCreateAgentDialogOpen(true);
+  }, [agentableProjects, visibleAppSettings]);
+
+  const handleBrowseCreateAgentProject = React.useCallback(() => {
+    void (async () => {
+      try {
+        if (!scoutDesktop?.pickDirectory) {
+          return;
+        }
+        const selectedPath = await scoutDesktop.pickDirectory();
+        if (!selectedPath) {
+          return;
+        }
+        setCreateAgentDraft((current) => ({
+          ...current,
+          projectPath: selectedPath,
+        }));
+        setCreateAgentFeedback(null);
+      } catch (error) {
+        setCreateAgentFeedback(asErrorMessage(error));
+      }
+    })();
+  }, [scoutDesktop]);
+
+  const handleCreateAgent = React.useCallback(() => {
+    void (async () => {
+      if (!scoutDesktop?.createAgent) {
+        setCreateAgentFeedback('Electron desktop bridge is unavailable.');
+        return;
+      }
+
+      const projectPath = createAgentDraft.projectPath.trim();
+      if (!projectPath) {
+        setCreateAgentFeedback('Choose a project path first.');
+        return;
+      }
+
+      setCreateAgentSubmitting(true);
+      setCreateAgentFeedback(null);
+      try {
+        const result = await scoutDesktop.createAgent({
+          projectPath,
+          agentName: createAgentDraft.agentName.trim() || null,
+          harness: createAgentDraft.harness,
+        });
+
+        setShellState(result.shellState);
+        setShellError(null);
+        setRelayFeedback(`Created ${result.agentId}.`);
+        setSelectedInterAgentId(result.agentId);
+        setSelectedInterAgentThreadId(null);
+        setActiveView('agents');
+        setIsCreateAgentDialogOpen(false);
+
+        if (scoutDesktop.refreshSettingsInventory) {
+          try {
+            const nextSettings = await scoutDesktop.refreshSettingsInventory();
+            setAppSettings(nextSettings);
+            if (!isAppSettingsEditing || !appSettingsDirty) {
+              setAppSettingsDraft(nextSettings);
+            }
+          } catch {
+            // Keep the created agent flow successful even if inventory refresh fails.
+          }
+        }
+      } catch (error) {
+        setCreateAgentFeedback(asErrorMessage(error));
+      } finally {
+        setCreateAgentSubmitting(false);
+      }
+    })();
+  }, [appSettingsDirty, createAgentDraft, isAppSettingsEditing, scoutDesktop]);
 
   const handleStartAgentConfigEdit = React.useCallback(() => {
     setActiveView('settings');
@@ -4045,6 +4355,16 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2" style={s.mutedText}>
             <button
+              type="button"
+              onClick={openFeedbackDialog}
+              className="flex items-center gap-1.5 rounded-full border px-2 py-1 transition-opacity hover:opacity-80"
+              style={{ borderColor: C.border }}
+              title="Open Feedback"
+            >
+              <MessageSquare size={11} />
+              <span className="font-medium" style={s.inkText}>Feedback</span>
+            </button>
+            <button
               onClick={() => setDark(d => !d)}
               className="p-1 rounded transition-colors hover:opacity-70"
               title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -4123,6 +4443,7 @@ export default function App() {
             shellError={shellError}
             agentLookup={interAgentAgentLookup}
             onNavigate={setActiveView}
+            onCreateAgent={handleOpenCreateAgentDialog}
             onRefresh={() => void handleRefreshShell()}
             onOpenAgent={openAgentProfile}
             onOpenSession={openSessionDetail}
@@ -4975,35 +5296,46 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {settingsSection === 'profile' ? (
-                      isAppSettingsEditing ? (
-                        <>
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => handleCancelAppSettingsEdit()}
-                            disabled={appSettingsSaving}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => void handleSaveAppSettings()}
-                            disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
-                          >
-                            {appSettingsSaving ? 'Saving…' : 'Save General'}
-                          </button>
-                        </>
-                      ) : (
+                      <>
+                        {isAppSettingsEditing ? (
+                          <>
+                            <button
+                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                              style={{ color: C.ink }}
+                              onClick={() => handleCancelAppSettingsEdit()}
+                              disabled={appSettingsSaving}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                              style={{ color: C.ink }}
+                              onClick={() => void handleSaveAppSettings()}
+                              disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
+                            >
+                              {appSettingsSaving ? 'Saving…' : 'Save General'}
+                            </button>
+                          </>
+                        ) : (
                           <button
                             className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
                             style={{ color: C.ink }}
                             onClick={() => handleStartAppSettingsEdit()}
                             disabled={appSettingsLoading || !visibleAppSettings}
                           >
-                          Edit General
+                            Edit General
+                          </button>
+                        )}
+                        <button
+                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                          style={{ color: C.ink }}
+                          onClick={handleRestartOnboarding}
+                          disabled={appSettingsLoading || !visibleAppSettings}
+                        >
+                          <RefreshCw size={12} />
+                          Restart onboarding
                         </button>
-                      )
+                      </>
                     ) : settingsSection === 'communication' ? (
                       isAppSettingsEditing ? (
                         <>
@@ -9182,12 +9514,301 @@ export default function App() {
             setProductSurface('relay');
             setActiveView('logs');
           }}
+          onOpenFeedback={openFeedbackDialog}
           pairingApprovalPendingId={pairingApprovalPendingId}
           onUpdateConfig={handleUpdatePairingConfig}
           onRefresh={() => void handleRefreshShell()}
           onRevealPath={(filePath) => void scoutDesktop?.revealPath?.(filePath)}
         />
       )}
+
+      <Dialog open={isCreateAgentDialogOpen} onOpenChange={setIsCreateAgentDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>New Agent</DialogTitle>
+            <DialogDescription>
+              Pick a project, choose a harness, and start a local relay agent without leaving the homepage.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                Project
+              </label>
+              <select
+                className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
+                style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}
+                value={agentableProjects.find((project) => project.root === createAgentDraft.projectPath)?.id ?? ''}
+                onChange={(event) => {
+                  const nextProject = agentableProjects.find((project) => project.id === event.target.value) ?? null;
+                  if (!nextProject) {
+                    return;
+                  }
+                  setCreateAgentDraft((current) => ({
+                    ...current,
+                    projectPath: nextProject.root,
+                    harness: normalizeCreateAgentHarness(nextProject.defaultHarness || current.harness),
+                  }));
+                  setCreateAgentFeedback(null);
+                }}
+              >
+                <option value="">Select a discovered project</option>
+                {agentableProjects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.title} · {compactHomePath(project.root) ?? project.root}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                Path
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={createAgentDraft.projectPath}
+                  onChange={(event) => {
+                    setCreateAgentDraft((current) => ({ ...current, projectPath: event.target.value }));
+                    setCreateAgentFeedback(null);
+                  }}
+                  placeholder={createAgentDefaults.projectPath || "/path/to/project"}
+                  className="h-10"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={handleBrowseCreateAgentProject}
+                >
+                  <FolderOpen size={14} />
+                  Browse
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_160px]">
+              <div className="space-y-2">
+                <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  Agent Name
+                </label>
+                <Input
+                  value={createAgentDraft.agentName}
+                  onChange={(event) => {
+                    setCreateAgentDraft((current) => ({ ...current, agentName: event.target.value }));
+                    setCreateAgentFeedback(null);
+                  }}
+                  placeholder="Optional. Defaults to the project name."
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[11px] font-mono uppercase tracking-widest" style={s.mutedText}>
+                  Harness
+                </label>
+                <select
+                  className="w-full rounded-lg border px-3 py-2.5 text-[13px] outline-none"
+                  style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}
+                  value={createAgentDraft.harness}
+                  onChange={(event) => {
+                    setCreateAgentDraft((current) => ({
+                      ...current,
+                      harness: normalizeCreateAgentHarness(event.target.value),
+                    }));
+                    setCreateAgentFeedback(null);
+                  }}
+                >
+                  {AVAILABLE_AGENT_HARNESSES.map((harness) => (
+                    <option key={harness} value={harness}>
+                      {harness}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border px-3 py-3 text-[12px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.surface, color: C.muted }}>
+              Scout will create the relay-agent config if needed, start the session, then refresh the desktop shell so the new agent appears immediately.
+            </div>
+
+            {createAgentFeedback ? (
+              <div className="text-[12px] leading-[1.6]" style={{ color: '#b91c1c' }}>
+                {createAgentFeedback}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsCreateAgentDialogOpen(false)}
+              disabled={createAgentSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCreateAgent}
+              disabled={createAgentSubmitting || !createAgentDraft.projectPath.trim()}
+            >
+              {createAgentSubmitting ? (
+                <>
+                  <Spinner className="mr-2" />
+                  Starting…
+                </>
+              ) : (
+                <>
+                  <Bot size={14} />
+                  Create Agent
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isFeedbackDialogOpen}
+        onOpenChange={(open) => {
+          setIsFeedbackDialogOpen(open);
+          if (!open) {
+            setFeedbackActionMessage(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Feedback</DialogTitle>
+            <DialogDescription>
+              Submit feedback directly, copy a support bundle, inspect the local Scout environment, or repair onboarding and background services without leaving the current screen.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-[12px] font-medium" style={s.inkText}>What should we look at?</div>
+              <Textarea
+                value={feedbackDraft}
+                onChange={(event) => setFeedbackDraft(event.target.value)}
+                placeholder="Describe the issue, what you expected, and what Scout did instead."
+                className="min-h-24 resize-y"
+                disabled={feedbackActionPending === 'submit'}
+              />
+              {feedbackSubmission ? (
+                <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
+                  Latest submission: <a href={feedbackSubmission.adminUrl} target="_blank" rel="noreferrer" className="underline">{feedbackSubmission.key}</a>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                onClick={handleSubmitFeedbackReport}
+                disabled={feedbackBundleLoading || feedbackActionPending !== null}
+              >
+                {feedbackActionPending === 'submit' ? <Spinner className="mr-2" /> : <SendHorizontal size={14} />}
+                Submit Feedback
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleRefreshFeedbackBundle}
+                disabled={feedbackBundleLoading || feedbackActionPending !== null}
+              >
+                {feedbackActionPending === 'refresh' ? <Spinner className="mr-2" /> : <RefreshCw size={14} />}
+                Refresh
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleRepairSetup}
+                disabled={feedbackBundleLoading || feedbackActionPending !== null}
+              >
+                {feedbackActionPending === 'repair' ? <Spinner className="mr-2" /> : <Settings2 size={14} />}
+                Repair Setup
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCopyFeedbackBundle}
+                disabled={feedbackBundleLoading || feedbackActionPending !== null || !feedbackBundle?.text}
+              >
+                {feedbackActionPending === 'copy' ? <Spinner className="mr-2" /> : <Copy size={14} />}
+                Copy Support Bundle
+              </Button>
+            </div>
+
+            {feedbackActionMessage ? (
+              <div className="text-[12px] leading-[1.6]" style={s.inkText}>
+                {feedbackActionMessage}
+              </div>
+            ) : null}
+
+            {feedbackBundleError ? (
+              <div className="text-[12px] leading-[1.6]" style={{ color: '#b91c1c' }}>
+                {feedbackBundleError}
+              </div>
+            ) : null}
+
+            <div
+              className="max-h-[60vh] space-y-3 overflow-y-auto pr-1"
+              style={{ scrollbarGutter: 'stable both-edges' as React.CSSProperties['scrollbarGutter'] }}
+            >
+              {feedbackBundleLoading && !feedbackBundle ? (
+                <div className="flex items-center gap-2 text-[12px]" style={s.mutedText}>
+                  <Spinner className="text-[14px]" />
+                  Loading support details…
+                </div>
+              ) : null}
+
+              {feedbackBundle ? (
+                <>
+                  <div
+                    className="rounded-lg border px-3 py-2.5 text-[11px] leading-[1.6]"
+                    style={{ borderColor: C.border, backgroundColor: C.surface }}
+                  >
+                    <span className="font-mono uppercase tracking-widest" style={s.mutedText}>
+                      Generated
+                    </span>
+                    <div className="mt-1" style={s.inkText}>{feedbackBundle.generatedAtLabel}</div>
+                  </div>
+
+                  {feedbackBundle.sections.map((section) => (
+                    <section
+                      key={section.id}
+                      className="rounded-xl border"
+                      style={{ borderColor: C.border, backgroundColor: C.surface }}
+                    >
+                      <div className="border-b px-4 py-3" style={{ borderBottomColor: C.border }}>
+                        <h3 className="text-[12px] font-semibold tracking-tight" style={s.inkText}>
+                          {section.title}
+                        </h3>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {section.entries.map((entry) => (
+                          <div
+                            key={`${section.id}-${entry.label}`}
+                            className="grid grid-cols-1 gap-1 px-4 py-3 text-[12px] leading-[1.6] sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-3"
+                          >
+                            <div className="font-mono uppercase tracking-widest" style={s.mutedText}>
+                              {entry.label}
+                            </div>
+                            <div className="break-words" style={s.inkText}>
+                              {entry.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </>
+              ) : null}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Global Bottom Bar */}
       <div className="h-6 border-t flex items-center justify-between px-3 shrink-0 text-[9px] font-mono uppercase tracking-widest" style={{ backgroundColor: C.bg, borderTopColor: C.border, color: C.muted }}>
@@ -9204,6 +9825,16 @@ export default function App() {
           </button>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={openFeedbackDialog}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:opacity-80"
+            style={isFeedbackDialogOpen ? s.activePill : s.mutedText}
+            title="Feedback"
+          >
+            <MessageSquare size={9} />
+            <span>Feedback</span>
+          </button>
           <button
             type="button"
             onClick={openKnowledgeBase}
@@ -9249,6 +9880,7 @@ function PairingSurfacePlaceholder({
   pairingState,
   onControlPairing,
   onDecideApproval,
+  onOpenFeedback,
   onOpenFullLogs,
   onUpdateConfig,
   onRefresh,
@@ -9263,6 +9895,7 @@ function PairingSurfacePlaceholder({
   pairingState: PairingState | null;
   onControlPairing: (action: 'start' | 'stop' | 'restart') => void;
   onDecideApproval: (approval: NonNullable<PairingState>["pendingApprovals"][number], decision: 'approve' | 'deny') => void;
+  onOpenFeedback: () => void;
   onOpenFullLogs: () => void;
   onUpdateConfig: (input: UpdatePairingConfigInput) => Promise<void>;
   onRefresh: () => void;
@@ -9362,6 +9995,14 @@ function PairingSurfacePlaceholder({
         <span className={`block h-1.5 w-1.5 rounded-full ${serviceIsRunning ? 'bg-emerald-500' : pairingState?.status === 'error' ? 'bg-rose-500' : 'bg-zinc-400'}`} />
         {dashboardTone.label}
       </span>
+      <button
+        type="button"
+        onClick={onOpenFeedback}
+        className="text-[12px] font-medium transition-opacity hover:opacity-70"
+        style={{ color: C.muted }}
+      >
+        Feedback
+      </button>
       <button
         type="button"
         onClick={() => {

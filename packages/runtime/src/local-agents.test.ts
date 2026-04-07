@@ -21,12 +21,12 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
-    expect(prompt).toContain("bun relay send --as shaper");
-    expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
-    expect(prompt).toContain("bun relay read --as shaper");
+    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper');
+    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" ask --to <agent> --as shaper "your request"');
+    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read --as shaper');
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
-    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/relay-agent-comms/SKILL.md");
+    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
   });
 
   test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
@@ -54,7 +54,7 @@ describe("local agent prompts", () => {
         projectsRoot: "/Users/arach/dev",
         relayHub: "/Users/arach/.openscout/relay",
         openscoutRoot: "/Users/arach/dev/openscout",
-        relayAgentCommsSkill: "/Users/arach/dev/openscout/.agents/skills/relay-agent-comms/SKILL.md",
+        scoutSkill: "/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md",
       },
     );
 
@@ -67,7 +67,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("bun relay send --as shaper");
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");
-    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/relay-agent-comms/SKILL.md");
+    expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
     expect(prompt).toContain("Flag: broker-ready");
   });
 
@@ -93,8 +93,8 @@ describe("local agent prompts", () => {
 
     expect(prompt).toContain("Task: Find the session restore race.");
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
-    expect(prompt).toContain("bun relay read -n 20 --as shaper");
-    expect(prompt).toContain('bun relay send --as shaper "[ask:flt-1] @hudson <your response>"');
+    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read -n 20 --as shaper');
+    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "[ask:flt-1] @hudson <your response>"');
   });
 
   test("tmux launch shell command quotes script paths with spaces", () => {

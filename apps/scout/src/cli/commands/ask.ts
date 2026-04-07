@@ -1,6 +1,6 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
-import { parseAskCommandOptions } from "../options.ts";
+import { parseAskCommandOptions, type ScoutAskCommandOptions } from "../options.ts";
 import {
   askScoutQuestion,
   parseScoutHarness,
@@ -11,6 +11,13 @@ import {
 
 export async function runAskCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   const options = parseAskCommandOptions(args, defaultScoutContextDirectory(context));
+  await runAskWithOptions(context, options);
+}
+
+export async function runAskWithOptions(
+  context: ScoutCommandContext,
+  options: ScoutAskCommandOptions,
+): Promise<void> {
   const result = await askScoutQuestion({
     senderId: resolveScoutAgentName(options.agentName),
     targetLabel: options.targetLabel,

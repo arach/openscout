@@ -1,0 +1,24 @@
+{
+  "name": "@openscout/api",
+  "version": "0.2.10",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3300",
+    "build": "next build",
+    "start": "next start -p 3300",
+    "check": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.3.3",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

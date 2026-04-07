@@ -8,13 +8,15 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const packageDirectory = path.resolve(testDirectory, "..");
 
 test("scout wrapper exposes the new Scout CLI surface", () => {
-  const output = execFileSync("node", ["./bin/scout.mjs", "--help"], {
+  const output = execFileSync("bun", ["./bin/scout.mjs", "--help"], {
     cwd: packageDirectory,
     encoding: "utf8",
   });
 
   assert.match(output, /\bsetup\b/);
   assert.match(output, /\bpair\b/);
+  assert.match(output, /Implicit ask:/);
+  assert.match(output, /scout @agent your request/);
   assert.match(output, /Deprecated aliases:/);
   assert.match(output, /\binit\s+Deprecated alias for setup\b/);
   assert.doesNotMatch(output, /\bscout dev\b/);

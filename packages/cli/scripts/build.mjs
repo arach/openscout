@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,13 +13,21 @@ const outputFile = resolve(outputDirectory, "main.mjs");
 
 mkdirSync(outputDirectory, { recursive: true });
 
-const result = spawnSync("bun", ["build", entryFile, "--target=node", "--outfile", outputFile], {
-  cwd: packageDirectory,
-  stdio: "inherit",
-});
+// Use --outdir so bun can emit WASM/asset side-files alongside the main bundle
+const result = spawnSync(
+  "bun",
+  ["build", entryFile, "--target=node", "--outdir", outputDirectory],
+  { cwd: packageDirectory, stdio: "inherit" },
+);
 
 if ((result.status ?? 1) !== 0) {
   process.exit(result.status ?? 1);
+}
+
+// bun names the entry output after the source file (main.js); rename to main.mjs
+const bunOutput = resolve(outputDirectory, "main.js");
+if (existsSync(bunOutput) && bunOutput !== outputFile) {
+  renameSync(bunOutput, outputFile);
 }
 
 const built = readFileSync(outputFile, "utf8");

@@ -29,6 +29,8 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   message: string;
 };
 
+export type ScoutImplicitAskCommandOptions = ScoutAskCommandOptions;
+
 export type ScoutWatchCommandOptions = ContextRootOptions & {
   agentName: string | null;
   channel?: string;
@@ -97,6 +99,38 @@ function parseContextRootPrefix(
   }
 
   return { currentDirectory, args: rest };
+}
+
+const SCOUT_MENTION_PATTERN = /(^|[\s([{'"`])@([A-Za-z0-9._:-]+)(?=$|[\s)\]}",.!?:;'"`])/g;
+
+type MentionMatch = {
+  label: string;
+  start: number;
+  end: number;
+};
+
+function extractMentionTargets(input: string): MentionMatch[] {
+  const matches: MentionMatch[] = [];
+
+  for (const match of input.matchAll(SCOUT_MENTION_PATTERN)) {
+    const fullMatch = match[0];
+    const prefix = match[1] ?? "";
+    const label = match[2] ?? "";
+    const start = match.index ?? 0;
+    matches.push({
+      label,
+      start: start + prefix.length,
+      end: start + fullMatch.length,
+    });
+  }
+
+  return matches;
+}
+
+function stripMention(input: string, mention: MentionMatch): string {
+  const before = input.slice(0, mention.start);
+  const after = input.slice(mention.end);
+  return `${before}${after}`.replace(/\s+/g, " ").trim();
 }
 
 export function parseSetupCommandOptions(
@@ -253,6 +287,81 @@ export function parseAskCommandOptions(
     args: parsed.args,
     agentName,
     targetLabel,
+    channel,
+    harness,
+    timeoutSeconds,
+    message,
+  };
+}
+
+export function parseImplicitAskCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutImplicitAskCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentName: string | null = null;
+  let channel: string | undefined;
+  let harness: string | undefined;
+  let timeoutSeconds: number | undefined;
+  const messageParts: string[] = [];
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--as" || current.startsWith("--as=")) {
+      const value = parseFlagValue(parsed.args, index, "--as");
+      agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--channel" || current.startsWith("--channel=")) {
+      const value = parseFlagValue(parsed.args, index, "--channel");
+      channel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--harness" || current.startsWith("--harness=")) {
+      const value = parseFlagValue(parsed.args, index, "--harness");
+      harness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--timeout" || current.startsWith("--timeout=")) {
+      const value = parseFlagValue(parsed.args, index, "--timeout");
+      const parsedTimeout = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
+        throw new ScoutCliError(`invalid timeout: ${value.value}`);
+      }
+      timeoutSeconds = parsedTimeout;
+      index = value.nextIndex;
+      continue;
+    }
+    messageParts.push(current);
+  }
+
+  const input = messageParts.join(" ").trim();
+  if (!input) {
+    throw new ScoutCliError("no question provided");
+  }
+
+  const mentions = extractMentionTargets(input);
+  if (mentions.length === 0) {
+    throw new ScoutCliError("implicit ask requires an @agent mention");
+  }
+  if (mentions.length > 1) {
+    throw new ScoutCliError("implicit ask supports exactly one @agent mention");
+  }
+
+  const [target] = mentions;
+  const message = stripMention(input, target);
+  if (!message) {
+    throw new ScoutCliError("no question provided");
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentName,
+    targetLabel: target.label,
     channel,
     harness,
     timeoutSeconds,

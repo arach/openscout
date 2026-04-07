@@ -5,6 +5,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+const EXEC_MAX_BUFFER = 64 * 1024 * 1024;
 
 export const DEFAULT_SIGN_IDENTITY = "Developer ID Application: Arach Tchoupani (2U83JFPW66)";
 
@@ -147,6 +148,7 @@ export function findImmediateChildren(rootPath, suffix) {
 
   return execFileSync("find", [rootPath, "-maxdepth", "1", "-name", `*${suffix}`], {
     encoding: "utf8",
+    maxBuffer: EXEC_MAX_BUFFER,
   })
     .trim()
     .split("\n")
@@ -167,6 +169,7 @@ export function normalizeFrameworks(frameworksPath) {
 
     const versionedEntries = execFileSync("find", [versionA, "-maxdepth", "1", "-mindepth", "1"], {
       encoding: "utf8",
+      maxBuffer: EXEC_MAX_BUFFER,
     })
       .trim()
       .split("\n")
@@ -175,6 +178,7 @@ export function normalizeFrameworks(frameworksPath) {
 
     const topEntries = execFileSync("find", [frameworkPath, "-maxdepth", "1", "-mindepth", "1"], {
       encoding: "utf8",
+      maxBuffer: EXEC_MAX_BUFFER,
     })
       .trim()
       .split("\n")
@@ -197,7 +201,10 @@ export function normalizeFrameworks(frameworksPath) {
 }
 
 export function findBundleMachOFiles(appPath) {
-  const allFiles = execFileSync("find", [appPath, "-type", "f"], { encoding: "utf8" })
+  const allFiles = execFileSync("find", [appPath, "-type", "f"], {
+    encoding: "utf8",
+    maxBuffer: EXEC_MAX_BUFFER,
+  })
     .trim()
     .split("\n")
     .filter(Boolean);
@@ -205,7 +212,10 @@ export function findBundleMachOFiles(appPath) {
 
   for (let index = 0; index < allFiles.length; index += 100) {
     const batch = allFiles.slice(index, index + 100);
-    const output = execFileSync("file", batch, { encoding: "utf8" });
+    const output = execFileSync("file", batch, {
+      encoding: "utf8",
+      maxBuffer: EXEC_MAX_BUFFER,
+    });
     for (const line of output.split("\n")) {
       if (!line.includes("Mach-O")) {
         continue;
@@ -224,6 +234,8 @@ export function findBundleMachOFiles(appPath) {
 export function codesignAppBundle(appPath, identity, options = {}) {
   const frameworksPath = path.join(appPath, "Contents", "Frameworks");
   const extraArgs = [];
+  const appEntitlementsPath = options.appEntitlementsPath || null;
+  const helperEntitlementsPath = options.helperEntitlementsPath || null;
 
   if (options.runtime) {
     extraArgs.push("--options", "runtime");
@@ -242,7 +254,12 @@ export function codesignAppBundle(appPath, identity, options = {}) {
   }
 
   for (const helper of findImmediateChildren(frameworksPath, ".app")) {
-    execFileSync("codesign", ["--force", "--sign", identity, ...extraArgs, helper], {
+    const helperArgs = ["--force", "--sign", identity, ...extraArgs];
+    if (helperEntitlementsPath) {
+      helperArgs.push("--entitlements", helperEntitlementsPath);
+    }
+    helperArgs.push(helper);
+    execFileSync("codesign", helperArgs, {
       stdio: "inherit",
     });
   }
@@ -259,7 +276,12 @@ export function codesignAppBundle(appPath, identity, options = {}) {
     });
   }
 
-  execFileSync("codesign", ["--force", "--sign", identity, ...extraArgs, appPath], {
+  const appArgs = ["--force", "--sign", identity, ...extraArgs];
+  if (appEntitlementsPath) {
+    appArgs.push("--entitlements", appEntitlementsPath);
+  }
+  appArgs.push(appPath);
+  execFileSync("codesign", appArgs, {
     stdio: "inherit",
   });
 

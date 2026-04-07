@@ -18,7 +18,7 @@ import {
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import { SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
-import { resolveScoutAppRoot, resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
+import { resolveScoutAppRoot } from "../../shared/paths.ts";
 import { syncScoutBrokerBindings } from "../../core/broker/service.ts";
 import type { ScoutTelegramBridgeRuntimeState as ScoutElectronTelegramRuntimeState } from "../../core/telegram/index.ts";
 import {
@@ -298,7 +298,19 @@ function basenameLooksLikeBun(filePath: string): boolean {
 }
 
 function resolveScoutElectronOnboardingCliPath(): string {
-  return path.join(resolveScoutAppRoot(), "bin", "scout.ts");
+  const appRoot = resolveScoutAppRoot();
+  const candidates = [
+    path.join(appRoot, "cli", "bin", "scout.mjs"),
+    path.join(appRoot, "bin", "scout.ts"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Unable to locate the Scout onboarding CLI entrypoint.");
 }
 
 function resolveSettingsDirectory(input?: string): string {
@@ -746,7 +758,7 @@ export async function runScoutElectronOnboardingCommand(
 
   const result = await new Promise<OnboardingCommandResult>((resolvePromise, reject) => {
     const child = spawn(bunExecutable, execArgs, {
-      cwd: resolveScoutWorkspaceRoot(),
+      cwd: settingsDirectory,
       env: {
         ...process.env,
         OPENSCOUT_SETUP_CWD: contextRoot,

@@ -17,7 +17,13 @@ function writeDoctorJsonLine(context: ScoutCommandContext, payload: Record<strin
 
 export async function runDoctorCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   const options = parseContextRootCommandOptions("doctor", args, defaultScoutContextDirectory(context));
-  const repoRoot = resolveScoutWorkspaceRoot();
+  const repoRoot = (() => {
+    try {
+      return resolveScoutWorkspaceRoot();
+    } catch {
+      return options.currentDirectory;
+    }
+  })();
 
   if (context.output.mode === "plain") {
     context.output.writeText(

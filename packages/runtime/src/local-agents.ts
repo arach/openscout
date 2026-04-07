@@ -213,15 +213,24 @@ type LocalAgentSystemPromptTemplateContext = {
   projectsRoot: string;
   relayHub: string;
   openscoutRoot: string;
-  relayAgentCommsSkill: string;
+  scoutSkill: string;
 };
 
-function resolveRelayAgentCommsSkillPath(): string {
-  const repoSkillPath = join(OPENSCOUT_REPO_ROOT, ".agents", "skills", "relay-agent-comms", "SKILL.md");
-  if (existsSync(repoSkillPath)) {
-    return repoSkillPath;
+function resolveScoutSkillPath(): string {
+  const candidatePaths = [
+    join(OPENSCOUT_REPO_ROOT, ".agents", "skills", "scout", "SKILL.md"),
+    join(process.env.HOME ?? "", ".agents", "skills", "scout", "SKILL.md"),
+    join(OPENSCOUT_REPO_ROOT, ".agents", "skills", "relay-agent-comms", "SKILL.md"),
+    join(process.env.HOME ?? "", ".agents", "skills", "relay-agent-comms", "SKILL.md"),
+  ];
+
+  for (const path of candidatePaths) {
+    if (existsSync(path)) {
+      return path;
+    }
   }
-  return join(process.env.HOME ?? "", ".agents", "skills", "relay-agent-comms", "SKILL.md");
+
+  return candidatePaths[0]!;
 }
 
 function buildLocalAgentTemplateContext(
@@ -239,7 +248,7 @@ function buildLocalAgentTemplateContext(
     projectsRoot: resolveProjectsRoot(projectPath),
     relayHub: resolveRelayHub(),
     openscoutRoot: OPENSCOUT_REPO_ROOT,
-    relayAgentCommsSkill: resolveRelayAgentCommsSkillPath(),
+    scoutSkill: resolveScoutSkillPath(),
   };
 }
 
@@ -264,7 +273,7 @@ function buildLocalAgentProjectContextPrompt(context: LocalAgentSystemPromptTemp
     `  - Codebase root: ${context.projectPath}`,
     `  - Projects root: ${context.projectsRoot}`,
     `  - Broker URL: ${context.brokerUrl}`,
-    `  - Agent comms skill: ${context.relayAgentCommsSkill}`,
+    `  - Scout skill: ${context.scoutSkill}`,
   ].join("\n");
 }
 
@@ -284,7 +293,7 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "  - Always reply via the broker-backed relay command above so other agents and the app can see your response",
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
     "  - Use the broker-backed relay read command above to inspect recent context before responding",
-    `  - Follow the relay-agent-comms skill at ${context.relayAgentCommsSkill} for agent-to-agent communication`,
+    `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
 }
 
@@ -296,7 +305,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - Do not shell out to send the final answer through relay yourself",
     `  - If you need recent relay context, inspect it with: ${context.relayCommand} read --as ${context.agentId}`,
     `  - If you need another agent to do work, use: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
-    `  - Follow the relay-agent-comms skill at ${context.relayAgentCommsSkill} for agent-to-agent communication`,
+    `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
 }
 
@@ -337,7 +346,8 @@ export function renderLocalAgentSystemPromptTemplate(
     broker_url: context.brokerUrl,
     relay_command: context.relayCommand,
     openscout_root: context.openscoutRoot,
-    relay_agent_comms_skill: context.relayAgentCommsSkill,
+    scout_skill: context.scoutSkill,
+    relay_agent_comms_skill: context.scoutSkill,
     base_prompt: basePrompt,
     project_context: projectContext,
     collaboration_prompt: collaborationPrompt,

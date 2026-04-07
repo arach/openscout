@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { open } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { brokerServiceStatus } from "@openscout/runtime/broker-service";
@@ -8,8 +10,9 @@ import {
   resolveOpenScoutSupportPaths,
 } from "@openscout/runtime/support-paths";
 
-import { resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
-import { resolveScoutPairingPaths } from "./pairing.ts";
+import { resolveScoutAppRoot, resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
+import { getScoutElectronPairingState, resolveScoutPairingPaths } from "./pairing.ts";
+import { getScoutElectronAppSettings } from "./settings.ts";
 
 export type ScoutDesktopLogGroup = "runtime" | "app" | "agents";
 
@@ -58,6 +61,35 @@ export type ScoutDesktopBrokerInspector = {
   feedbackSummary: string;
 };
 
+export type ScoutDesktopFeedbackEntry = {
+  label: string;
+  value: string;
+};
+
+export type ScoutDesktopFeedbackSection = {
+  id: string;
+  title: string;
+  entries: ScoutDesktopFeedbackEntry[];
+};
+
+export type ScoutDesktopFeedbackBundle = {
+  generatedAt: string;
+  generatedAtLabel: string;
+  sections: ScoutDesktopFeedbackSection[];
+  text: string;
+};
+
+export type SubmitScoutFeedbackReportInput = {
+  message: string;
+};
+
+export type ScoutDesktopFeedbackSubmission = {
+  id: string;
+  key: string;
+  endpoint: string;
+  adminUrl: string;
+};
+
 export type ReadScoutLogSourceInput = {
   sourceId: string;
   tailLines?: number;
@@ -81,6 +113,7 @@ type ResolvedScoutLogSource = ScoutDesktopLogSource & {
 
 const LOG_TAIL_CHUNK_BYTES = 64 * 1024;
 const DEFAULT_LOG_TAIL_LINES = 240;
+const DEFAULT_SCOUT_FEEDBACK_REPORT_URL = "https://api.openscout.app/api/report";
 
 function compactHomePath(value: string | null | undefined): string | null {
   if (!value) {
@@ -118,6 +151,93 @@ function runOptionalCommand(command: string, args: string[]): string | null {
   } catch {
     return null;
   }
+}
+
+function readPackageVersion(candidate: string): string | null {
+  if (!existsSync(candidate)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(candidate, "utf8")) as { version?: string };
+    if (typeof payload.version === "string" && payload.version.trim().length > 0) {
+      return payload.version.trim();
+    }
+  } catch {
+    // Ignore malformed package metadata and fall through.
+  }
+
+  return null;
+}
+
+function resolveToolPath(command: string): string | null {
+  return runOptionalCommand("which", [command]);
+}
+
+function resolveToolVersion(command: string, args = ["--version"]): string | null {
+  return runOptionalCommand(command, args);
+}
+
+function yesNo(value: boolean): string {
+  return value ? "Yes" : "No";
+}
+
+function joinValues(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "None";
+}
+
+function serializeFeedbackSections(sections: ScoutDesktopFeedbackSection[]): string {
+  return sections
+    .map((section) => {
+      const body = section.entries.map((entry) => `${entry.label}: ${entry.value}`).join("\n");
+      return `${section.title}\n${body}`;
+    })
+    .join("\n\n");
+}
+
+function resolveScoutFeedbackReportUrl(): string {
+  return (
+    process.env.OPENSCOUT_FEEDBACK_REPORT_URL?.trim()
+    || process.env.SCOUT_FEEDBACK_REPORT_URL?.trim()
+    || DEFAULT_SCOUT_FEEDBACK_REPORT_URL
+  );
+}
+
+function resolveScoutFeedbackAdminUrl(endpoint: string, reportId: string): string {
+  try {
+    const url = new URL(endpoint);
+    return new URL(`/reports/${reportId}`, url.origin).toString();
+  } catch {
+    return `https://api.openscout.app/reports/${reportId}`;
+  }
+}
+
+function detectSystemLabel(platform = process.platform): string {
+  switch (platform) {
+    case "darwin":
+      return "macOS";
+    case "win32":
+      return "Windows";
+    case "linux":
+      return "Linux";
+    default:
+      return platform;
+  }
+}
+
+function formatMemoryLabel(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "Unknown";
+  }
+  return `${Math.round(bytes / (1024 ** 3))} GB`;
+}
+
+function parseOptionalInteger(value: string | null | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function resolveBrokerProcessId(brokerUrl: string, fallbackPid: number | null): number | null {
@@ -213,27 +333,61 @@ function brokerTroubleshootingHints(status: Awaited<ReturnType<typeof brokerServ
 }
 
 function runtimeVersionLabel(): string | null {
-  const workspaceRoot = resolveScoutWorkspaceRoot();
-  const candidates = [
-    path.join(workspaceRoot, "packages", "runtime", "package.json"),
-    path.join(workspaceRoot, "package.json"),
-  ];
+  const candidates: string[] = [];
+
+  try {
+    const appRoot = resolveScoutAppRoot();
+    candidates.push(
+      path.join(appRoot, "node_modules", "@openscout", "runtime", "package.json"),
+      path.join(appRoot, "package.json"),
+    );
+  } catch {
+    // Continue to workspace fallback below.
+  }
+
+  try {
+    const workspaceRoot = resolveScoutWorkspaceRoot();
+    candidates.push(
+      path.join(workspaceRoot, "packages", "runtime", "package.json"),
+      path.join(workspaceRoot, "package.json"),
+    );
+  } catch {
+    // Source checkouts are optional in packaged builds.
+  }
 
   for (const candidate of candidates) {
-    if (!existsSync(candidate)) {
-      continue;
-    }
-    try {
-      const payload = JSON.parse(readFileSync(candidate, "utf8")) as { version?: string };
-      if (typeof payload.version === "string" && payload.version.trim().length > 0) {
-        return payload.version;
-      }
-    } catch {
-      continue;
+    const version = readPackageVersion(candidate);
+    if (version) {
+      return version;
     }
   }
 
   return null;
+}
+
+function appVersionLabel(): string | null {
+  try {
+    return readPackageVersion(path.join(resolveScoutAppRoot(), "package.json"));
+  } catch {
+    return null;
+  }
+}
+
+function appModeLabel(): string {
+  try {
+    const appRoot = resolveScoutAppRoot();
+    const packageJsonPath = path.join(appRoot, "package.json");
+    if (existsSync(packageJsonPath)) {
+      const payload = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
+      if (payload.name === "@scout/electron-app") {
+        return "packaged";
+      }
+    }
+  } catch {
+    // Fall through to source label below.
+  }
+
+  return "source";
 }
 
 function brokerFeedbackSummary(
@@ -470,4 +624,232 @@ export async function readScoutElectronLogSource(
   const MAX_TAIL_LINES = 1000;
   const tailLines = Math.min(input.tailLines ?? DEFAULT_LOG_TAIL_LINES, MAX_TAIL_LINES);
   return tailScoutLogSource(source, tailLines);
+}
+
+export async function getScoutElectronFeedbackBundle(
+  currentDirectory = process.cwd(),
+): Promise<ScoutDesktopFeedbackBundle> {
+  const generatedAt = new Date().toISOString();
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const appSettings = await getScoutElectronAppSettings(currentDirectory);
+  const pairingState = await getScoutElectronPairingState(currentDirectory);
+  const brokerInspector = await getScoutElectronBrokerInspector();
+
+  const appRoot = (() => {
+    try {
+      return compactHomePath(resolveScoutAppRoot()) ?? resolveScoutAppRoot();
+    } catch {
+      return "Unavailable";
+    }
+  })();
+  const workspaceRoot = (() => {
+    try {
+      return compactHomePath(resolveScoutWorkspaceRoot()) ?? resolveScoutWorkspaceRoot();
+    } catch {
+      return "Unavailable";
+    }
+  })();
+
+  const bunPath = resolveToolPath("bun");
+  const nodePath = resolveToolPath("node");
+  const npmPath = resolveToolPath("npm");
+  const scoutPath = resolveToolPath("scout");
+
+  const sections: ScoutDesktopFeedbackSection[] = [
+    {
+      id: "app",
+      title: "App",
+      entries: [
+        { label: "Mode", value: appModeLabel() },
+        { label: "Version", value: appVersionLabel() ?? runtimeVersionLabel() ?? "Unavailable" },
+        { label: "App Root", value: appRoot },
+        { label: "Workspace Root", value: workspaceRoot },
+        { label: "Current Directory", value: compactHomePath(currentDirectory) ?? currentDirectory },
+      ],
+    },
+    {
+      id: "tooling",
+      title: "Tooling",
+      entries: [
+        { label: "bun", value: bunPath ? `${compactHomePath(bunPath) ?? bunPath} (${resolveToolVersion("bun") ?? "version unavailable"})` : "Not found on PATH" },
+        { label: "node", value: nodePath ? `${compactHomePath(nodePath) ?? nodePath} (${resolveToolVersion("node") ?? "version unavailable"})` : "Not found on PATH" },
+        { label: "npm", value: npmPath ? `${compactHomePath(npmPath) ?? npmPath} (${resolveToolVersion("npm") ?? "version unavailable"})` : "Not found on PATH" },
+        { label: "scout", value: scoutPath ? `${compactHomePath(scoutPath) ?? scoutPath} (${resolveToolVersion("scout", ["version"]) ?? "version unavailable"})` : "Not found on PATH" },
+      ],
+    },
+    {
+      id: "support",
+      title: "OpenScout Support",
+      entries: [
+        { label: "Support Directory", value: compactHomePath(supportPaths.supportDirectory) ?? supportPaths.supportDirectory },
+        { label: "Settings", value: compactHomePath(supportPaths.settingsPath) ?? supportPaths.settingsPath },
+        { label: "Relay Agents", value: compactHomePath(supportPaths.relayAgentsRegistryPath) ?? supportPaths.relayAgentsRegistryPath },
+        { label: "Harness Catalog", value: compactHomePath(supportPaths.harnessCatalogPath) ?? supportPaths.harnessCatalogPath },
+        { label: "Relay Hub", value: compactHomePath(supportPaths.relayHubDirectory) ?? supportPaths.relayHubDirectory },
+        { label: "Control Home", value: compactHomePath(supportPaths.controlHome) ?? supportPaths.controlHome },
+      ],
+    },
+    {
+      id: "onboarding",
+      title: "Onboarding",
+      entries: [
+        { label: "Needed", value: yesNo(appSettings.onboarding.needed) },
+        { label: "Title", value: appSettings.onboarding.title },
+        { label: "Detail", value: appSettings.onboarding.detail },
+        { label: "Context Root", value: (compactHomePath(appSettings.onboardingContextRoot) ?? appSettings.onboardingContextRoot) || "Unset" },
+        { label: "Workspace Roots", value: joinValues(appSettings.workspaceRoots.map((root) => compactHomePath(root) ?? root)) },
+        { label: "Current Project Config", value: compactHomePath(appSettings.currentProjectConfigPath) ?? appSettings.currentProjectConfigPath ?? "None" },
+      ],
+    },
+    {
+      id: "pairing",
+      title: "Pairing",
+      entries: [
+        { label: "Status", value: pairingState.statusLabel },
+        { label: "Detail", value: pairingState.statusDetail ?? "None" },
+        { label: "Running", value: yesNo(pairingState.isRunning) },
+        { label: "Relay", value: pairingState.pairing?.relay ?? pairingState.relay ?? "Not set" },
+        { label: "Workspace Root", value: compactHomePath(pairingState.workspaceRoot) ?? pairingState.workspaceRoot ?? "Not set" },
+        { label: "Command", value: pairingState.commandLabel },
+        { label: "Config", value: compactHomePath(pairingState.configPath) ?? pairingState.configPath },
+        { label: "Identity", value: compactHomePath(pairingState.identityPath) ?? pairingState.identityPath },
+        { label: "Trusted Peers", value: compactHomePath(pairingState.trustedPeersPath) ?? pairingState.trustedPeersPath },
+        { label: "Log", value: compactHomePath(pairingState.logPath) ?? pairingState.logPath },
+      ],
+    },
+    {
+      id: "broker",
+      title: "Relay Service",
+      entries: [
+        { label: "Status", value: brokerInspector.statusLabel },
+        { label: "Detail", value: brokerInspector.statusDetail ?? "None" },
+        { label: "Reachable", value: yesNo(brokerInspector.reachable) },
+        { label: "URL", value: brokerInspector.url },
+        { label: "LaunchAgent", value: brokerInspector.launchAgentPath },
+        { label: "stdout", value: brokerInspector.stdoutLogPath },
+        { label: "stderr", value: brokerInspector.stderrLogPath },
+        { label: "Summary", value: brokerInspector.feedbackSummary },
+      ],
+    },
+  ];
+
+  return {
+    generatedAt,
+    generatedAtLabel: generatedAt.replace("T", " ").replace("Z", " UTC"),
+    sections,
+    text: serializeFeedbackSections(sections),
+  };
+}
+
+type TalkieCompatibleReport = {
+  id: string;
+  timestamp: string;
+  system: {
+    os: string;
+    osVersion: string;
+    chip: string;
+    memory: string;
+    locale?: string;
+  };
+  apps: Record<string, {
+    running: boolean;
+    pid?: number;
+    version?: string;
+  }>;
+  context: {
+    source: string;
+    connectionState?: string;
+    lastError?: string;
+    userDescription?: string;
+    reportSections?: ScoutDesktopFeedbackSection[];
+    generatedAt?: string;
+    generatedAtLabel?: string;
+    currentDirectory?: string;
+  };
+  logs: string[];
+  performance?: Record<string, string>;
+};
+
+export async function submitScoutElectronFeedbackReport(
+  input: SubmitScoutFeedbackReportInput,
+  currentDirectory = process.cwd(),
+): Promise<ScoutDesktopFeedbackSubmission> {
+  const message = input.message.trim();
+  if (message.length === 0) {
+    throw new Error("Feedback message is required.");
+  }
+
+  const bundle = await getScoutElectronFeedbackBundle(currentDirectory);
+  const pairingState = await getScoutElectronPairingState(currentDirectory);
+  const brokerInspector = await getScoutElectronBrokerInspector();
+  const endpoint = resolveScoutFeedbackReportUrl();
+  const reportId = randomUUID();
+  const report: TalkieCompatibleReport = {
+    id: reportId,
+    timestamp: bundle.generatedAt,
+    system: {
+      os: detectSystemLabel(),
+      osVersion: typeof os.version === "function" ? os.version() : os.release(),
+      chip: os.cpus()[0]?.model ?? os.arch(),
+      memory: formatMemoryLabel(os.totalmem()),
+      locale: Intl.DateTimeFormat().resolvedOptions().locale,
+    },
+    apps: {
+      "Scout Desktop": {
+        running: true,
+        pid: process.pid,
+        version: appVersionLabel() ?? runtimeVersionLabel() ?? undefined,
+      },
+      "OpenScout Relay": {
+        running: brokerInspector.reachable,
+        pid: parseOptionalInteger(brokerInspector.pid),
+        version: brokerInspector.version ?? undefined,
+      },
+      "Scout Pairing": {
+        running: pairingState.isRunning,
+      },
+    },
+    context: {
+      source: "Scout Desktop",
+      connectionState: `Pairing: ${pairingState.statusLabel}; Relay: ${brokerInspector.statusLabel}`,
+      lastError: !brokerInspector.reachable
+        ? brokerInspector.statusDetail ?? undefined
+        : (!pairingState.isRunning ? pairingState.statusDetail ?? undefined : undefined),
+      userDescription: message,
+      reportSections: bundle.sections,
+      generatedAt: bundle.generatedAt,
+      generatedAtLabel: bundle.generatedAtLabel,
+      currentDirectory: compactHomePath(currentDirectory) ?? currentDirectory,
+    },
+    logs: bundle.text.split("\n"),
+    performance: {
+      "Bundle Generated": bundle.generatedAtLabel,
+      "Section Count": String(bundle.sections.length),
+      "Relay Reachable": brokerInspector.reachable ? "Yes" : "No",
+      "Pairing Running": pairingState.isRunning ? "Yes" : "No",
+    },
+  };
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(report),
+  });
+
+  const payload = await response.json().catch(() => null) as
+    | { success?: boolean; id?: string; key?: string; adminUrl?: string; error?: string }
+    | null;
+
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.error || `Feedback submission failed (${response.status}).`);
+  }
+
+  return {
+    id: payload.id ?? reportId,
+    key: payload.key ?? (payload.id ?? reportId).slice(0, 8),
+    endpoint,
+    adminUrl: payload.adminUrl ?? resolveScoutFeedbackAdminUrl(endpoint, payload.id ?? reportId),
+  };
 }

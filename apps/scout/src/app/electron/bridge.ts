@@ -10,6 +10,8 @@ import type {
   ScoutElectronUpdateAgentConfigInput,
 } from "./agent-config.ts";
 import type {
+  ScoutElectronCreateAgentInput,
+  ScoutElectronCreateAgentResult,
   ScoutElectronBrokerControlAction,
   ScoutElectronRestartAgentInput,
   ScoutElectronSendRelayMessageInput,
@@ -33,7 +35,10 @@ import type {
   UpdateAppSettingsInput,
 } from "./settings.ts";
 import type {
+  ScoutDesktopFeedbackBundle,
+  ScoutDesktopFeedbackSubmission,
   ReadScoutLogSourceInput,
+  SubmitScoutFeedbackReportInput,
   ScoutDesktopBrokerInspector,
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
@@ -59,6 +64,7 @@ export type ScoutElectronBridge = {
   restartOnboarding: () => Promise<AppSettingsState>;
   getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
   updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
+  createAgent: (input: ScoutElectronCreateAgentInput) => Promise<ScoutElectronCreateAgentResult>;
   pickDirectory: () => Promise<string | null>;
   reloadApp: () => Promise<boolean>;
   quitApp: () => Promise<boolean>;
@@ -82,6 +88,8 @@ export type ScoutElectronBridge = {
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
   getLogCatalog: () => Promise<ScoutDesktopLogCatalog>;
   getBrokerInspector: () => Promise<ScoutDesktopBrokerInspector>;
+  getFeedbackBundle: () => Promise<ScoutDesktopFeedbackBundle>;
+  submitFeedbackReport: (input: SubmitScoutFeedbackReportInput) => Promise<ScoutDesktopFeedbackSubmission>;
   readLogSource: (input: ReadScoutLogSourceInput) => Promise<ScoutDesktopLogContent>;
   onOpenKnowledgeBase?: (callback: () => void) => () => void;
 };
@@ -122,6 +130,10 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
       SCOUT_ELECTRON_CHANNELS.updateAgentConfig,
       input,
     ) as Promise<ScoutElectronAgentConfigState>,
+    createAgent: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.createAgent,
+      input,
+    ) as Promise<ScoutElectronCreateAgentResult>,
     pickDirectory: () => invoke(SCOUT_ELECTRON_CHANNELS.pickDirectory) as Promise<string | null>,
     reloadApp: () => invoke(SCOUT_ELECTRON_CHANNELS.reloadApp) as Promise<boolean>,
     quitApp: () => invoke(SCOUT_ELECTRON_CHANNELS.quitApp) as Promise<boolean>,
@@ -192,6 +204,13 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
     getBrokerInspector: () => invoke(
       SCOUT_ELECTRON_CHANNELS.getBrokerInspector,
     ) as Promise<ScoutDesktopBrokerInspector>,
+    getFeedbackBundle: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.getFeedbackBundle,
+    ) as Promise<ScoutDesktopFeedbackBundle>,
+    submitFeedbackReport: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.submitFeedbackReport,
+      input,
+    ) as Promise<ScoutDesktopFeedbackSubmission>,
     readLogSource: (input) => invoke(
       SCOUT_ELECTRON_CHANNELS.readLogSource,
       input,

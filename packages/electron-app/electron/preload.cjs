@@ -36,6 +36,8 @@ const SCOUT_CHANNELS = {
   setVoiceRepliesEnabled: "scout:set-voice-replies-enabled",
   getLogCatalog: "scout:get-log-catalog",
   getBrokerInspector: "scout:get-broker-inspector",
+  getFeedbackBundle: "scout:get-feedback-bundle",
+  submitFeedbackReport: "scout:submit-feedback-report",
   readLogSource: "scout:read-log-source",
   openKnowledgeBase: "scout:open-knowledge-base",
 };
@@ -68,6 +70,8 @@ const scoutDesktop = {
   releaseKeepAliveLease: (input) => ipcRenderer.invoke(SCOUT_CHANNELS.releaseKeepAliveLease, input),
   getLogCatalog: () => ipcRenderer.invoke(SCOUT_CHANNELS.getLogCatalog),
   getBrokerInspector: () => ipcRenderer.invoke(SCOUT_CHANNELS.getBrokerInspector),
+  getFeedbackBundle: () => ipcRenderer.invoke(SCOUT_CHANNELS.getFeedbackBundle),
+  submitFeedbackReport: (input) => ipcRenderer.invoke(SCOUT_CHANNELS.submitFeedbackReport, input),
   readLogSource: (input) => ipcRenderer.invoke(SCOUT_CHANNELS.readLogSource, input),
   onOpenKnowledgeBase: (callback) => {
     if (typeof callback !== "function") {
