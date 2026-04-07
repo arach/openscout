@@ -71,3 +71,7 @@ scout/ios/.asc/artifacts/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 scout/ios/.asc/metadata/
 scout/ios/build/
+
+# hidden files / directories
+/.*
+**/.*

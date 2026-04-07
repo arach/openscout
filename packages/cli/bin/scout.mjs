@@ -20,7 +20,7 @@ if (!process.env.SCOUT_APP_VERSION && existsSync(packageJsonPath)) {
 }
 
 if (!existsSync(distEntry)) {
-  console.error("Scout CLI dist entry is missing. Reinstall @openscout/cli or rebuild the package.");
+  console.error("Scout CLI dist entry is missing. Reinstall @openscout/scout or rebuild the package.");
   process.exit(1);
 }
 
