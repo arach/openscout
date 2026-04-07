@@ -7,6 +7,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowUpDown,
+  Bell,
   Copy,
   Bot,
   BookOpen,
@@ -53,19 +54,64 @@ import {
   Moon,
   Eye,
   GitBranch,
-  Grid3x3,
   List,
-  Plus,
   Settings2,
-  Zap,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { renderSVG } from 'uqr';
 import { MessagesView } from "@/components/messages-view";
 import MachinesView from "@/components/machines-view";
 import { OverviewView } from "@/components/overview-view";
 import PlansView from "@/components/plans-view";
+import { AgentSettingsView } from "@/components/agent-settings-view";
+import { CommunicationSettingsView } from "@/components/communication-settings-view";
+import {
+  PairingSurfacePlaceholder,
+  ProductSurfaceLogo,
+  describePairingSurfaceBadge,
+} from "@/components/pairing-surface-placeholder";
+import {
+  AgentActionButton,
+  InterAgentIcon,
+  RelayTimeline,
+  buildOptimisticRelayMessage,
+  copyTextToClipboard,
+  generateClientMessageId,
+} from "@/components/relay/relay-timeline";
+import {
+  agentRosterFilterLabel,
+  agentRosterSecondaryText,
+  agentRosterSortLabel,
+  asErrorMessage,
+  buildRelayConversationItems,
+  buildRelayFeedItems,
+  cleanDisplayTitle,
+  compactHomePath,
+  compareAgentRoster,
+  filterRelayMessages,
+  findActiveRelayMention,
+  firstInterAgentThreadIdForAgent,
+  formatFooterTime,
+  interAgentCounterparts,
+  interAgentProfileKindLabel,
+  interAgentThreadSubtitle,
+  interAgentThreadTitleForAgent,
+  isAgentRosterActive,
+  messagePreviewSnippet,
+  parseCapabilityText,
+  scoreRelayMentionCandidate,
+  serializeAppSettings,
+  serializeEditableAgentConfig,
+  colorForIdentity,
+  relayPresenceDotClass,
+  relaySecondaryText,
+  resolveRelayDestination,
+} from "@/components/relay/relay-utils";
+import type {
+  AgentRosterFilterMode,
+  AgentRosterSortMode,
+  RelayActiveMention,
+  RelayMentionCandidate,
+} from "@/components/relay/relay-types";
+import { WorkspaceExplorerView } from "@/components/workspace-explorer-view";
 import { StartupSplashOverlay } from "@/components/startup-splash";
 import { BootLoader } from "@/components/boot-loader";
 import { LogPanel } from "@/components/log-panel";
@@ -83,10 +129,6 @@ import {
   settingsPath,
   type SettingsSectionId,
 } from "@/settings/settings-paths";
-import {
-  LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT,
-  LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,
-} from "@openscout/runtime/local-agent-template";
 import { C } from "@/lib/theme";
 import type {
   AgentSessionInspector,
@@ -116,59 +158,32 @@ import type {
   RelayNavItem,
   SessionMetadata,
   DesktopAppInfo,
-  RelayDirectState,
   SubmitFeedbackReportInput,
   UpdatePairingConfigInput,
 } from "@/lib/scout-desktop";
-
-function renderAgentPromptWithPlaceholders(text: string, keyPrefix: string): React.ReactNode {
-  const parts = text.split(/(\{\{[^}]+\}\})/g);
-  return parts.map((part, i) => {
-    if (/^\{\{[^}]+\}\}$/.test(part)) {
-      return (
-        <span
-          key={`${keyPrefix}-${i}`}
-          className="rounded px-0.5"
-          style={{ backgroundColor: C.accentBg, color: C.accent }}
-        >
-          {part}
-        </span>
-      );
-    }
-    return <React.Fragment key={`${keyPrefix}-${i}`}>{part}</React.Fragment>;
-  });
-}
-
-type AgentRosterFilterMode = 'all' | 'active';
-type AgentRosterSortMode = 'chat' | 'code' | 'session' | 'alpha';
 type PendingRelayMessage = {
   clientMessageId: string;
   message: RelayMessage;
 };
 
-type RelayMentionCandidate = {
-  agentId: string;
-  title: string;
-  subtitle: string | null;
-  mentionToken: string;
-  definitionId: string | null;
-  workspaceQualifier: string | null;
-  branch: string | null;
-  harness: string | null;
-  state: RelayDirectState;
-  statusLabel: string;
-  searchText: string;
-};
-
-type RelayActiveMention = {
-  start: number;
-  end: number;
-  query: string;
-};
-
 type OnboardingWizardStepId = 'welcome' | 'source-roots' | 'harness' | 'confirm' | 'setup' | 'doctor' | 'runtimes';
 type WorkspaceExplorerFilterTab = 'all' | 'bound' | 'discovered';
 type WorkspaceExplorerViewMode = 'grid' | 'list';
+type InboxItemTone = 'critical' | 'warning' | 'info';
+type InboxItemKind = 'approval' | 'finding' | 'task';
+type InboxItem = {
+  id: string;
+  kind: InboxItemKind;
+  tone: InboxItemTone;
+  title: string;
+  summary: string;
+  detail: string | null;
+  meta: string;
+  actionLabel: string;
+  onAction: () => void;
+  onSecondaryAction?: () => void;
+  secondaryActionLabel?: string;
+};
 
 type ComposerRelayReference = {
   messageId: string;
@@ -178,9 +193,9 @@ type ComposerRelayReference = {
 
 const PRODUCT_SURFACES = ['relay', 'pairing'] as const;
 type ProductSurface = (typeof PRODUCT_SURFACES)[number];
-type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'messages' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
+type AppView = 'overview' | 'inbox' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'messages' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
 type MessagesDetailTab = 'overview' | 'live' | 'history';
-type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
+type NavViewItem = { id: AppView; icon: React.ReactNode; title: string; badgeCount?: number };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
 type CreateAgentDraft = {
   projectPath: string;
@@ -190,6 +205,7 @@ type CreateAgentDraft = {
 
 const APP_VIEW_IDS: readonly AppView[] = [
   'overview',
+  'inbox',
   'activity',
   'machines',
   'plans',
@@ -207,6 +223,7 @@ const APP_VIEW_IDS: readonly AppView[] = [
 const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
   enableAll: false,
   overview: true,
+  inbox: true,
   relay: true,
   pairing: true,
   interAgent: true,
@@ -368,6 +385,7 @@ function buildDesktopPath(surface: ProductSurface, view: AppView, settingsSectio
 export default function App() {
     const scoutDesktop = getScoutDesktop();
   const [sidebarWidth, setSidebarWidth] = useState(240);
+  const [messagesDetailWidth, setMessagesDetailWidth] = useState(340);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [productSurface, setProductSurface] = useState<ProductSurface>('relay');
   const [activeView, setActiveView] = useState<AppView>('overview');
@@ -456,6 +474,7 @@ export default function App() {
   const [onboardingWizardStep, setOnboardingWizardStep] = useState<OnboardingWizardStepId>('welcome');
   const [onboardingCommandPending, setOnboardingCommandPending] = useState<OnboardingCommandName | null>(null);
   const [onboardingCommandResult, setOnboardingCommandResult] = useState<OnboardingCommandResult | null>(null);
+  const [onboardingCommandHistory, setOnboardingCommandHistory] = useState<Partial<Record<OnboardingCommandName, OnboardingCommandResult>>>({});
   const [onboardingCopiedCommand, setOnboardingCopiedCommand] = useState<OnboardingCommandName | null>(null);
   const [startupOnboardingState, setStartupOnboardingState] = useState<'checking' | 'active' | 'done'>('checking');
   const [startupSplashDismissed, setStartupSplashDismissed] = useState(false);
@@ -541,14 +560,10 @@ export default function App() {
   const [logsRefreshTick, setLogsRefreshTick] = useState(0);
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [dark, setDark] = useState(false);
-  const isDragging = useRef(false);
+  const activeResizeTarget = useRef<"left-sidebar" | "right-sidebar" | null>(null);
   const relayComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const relayTimelineViewportRef = useRef<HTMLDivElement | null>(null);
   const agentRuntimePathRef = useRef<HTMLInputElement | null>(null);
-  const agentSystemPromptRef = useRef<HTMLTextAreaElement | null>(null);
-  const agentSystemPromptViewRef = useRef<HTMLDivElement | null>(null);
-  const pendingAgentPromptSelectionRef = useRef<{ start: number; end: number } | null>(null);
-  const [agentPromptInsertGeneration, setAgentPromptInsertGeneration] = useState(0);
   const agentSessionInlineViewportRef = useRef<HTMLElement | null>(null);
   const agentSessionPeekViewportRef = useRef<HTMLElement | null>(null);
   const agentSessionInlineStickToBottomRef = useRef(true);
@@ -1286,7 +1301,7 @@ export default function App() {
       return;
     }
 
-    const target = agentRuntimePathRef.current ?? agentSystemPromptRef.current ?? agentSystemPromptViewRef.current;
+    const target = agentRuntimePathRef.current;
     if (!target) {
       return;
     }
@@ -1305,20 +1320,6 @@ export default function App() {
       window.cancelAnimationFrame(rafId);
     };
   }, [activeView, pendingConfigFocusAgentId, selectedInterAgentId, agentConfigLoading, agentConfigDraft]);
-
-  useLayoutEffect(() => {
-    const sel = pendingAgentPromptSelectionRef.current;
-    if (!sel) {
-      return;
-    }
-    pendingAgentPromptSelectionRef.current = null;
-    const ta = agentSystemPromptRef.current;
-    if (!ta || !isAgentConfigEditing) {
-      return;
-    }
-    ta.focus();
-    ta.setSelectionRange(sel.start, sel.end);
-  }, [agentPromptInsertGeneration, isAgentConfigEditing]);
 
   useEffect(() => {
     if (activeView !== 'settings' || !isAppSettingsEditing) {
@@ -1982,17 +1983,12 @@ export default function App() {
     [appSettingsDraft, appSettings],
   );
   const selectedAgentableProject = agentableProjects.find((project) => project.id === selectedAgentableProjectId) ?? null;
-  const selectedProjectAgent = selectedAgentableProject
+  const selectedWorkspaceProject = selectedAgentableProject;
+  const selectedWorkspaceAgent = selectedWorkspaceProject
     ? interAgentAgents.find((agent) => (
-      agent.id === selectedAgentableProject.id || agent.id === selectedAgentableProject.definitionId
+      agent.id === selectedWorkspaceProject.id || agent.id === selectedWorkspaceProject.definitionId
     )) ?? null
     : null;
-  const selectedAgentWorkspace = selectedInterAgentId
-    ? agentableProjects.find((project) => (
-      project.id === selectedInterAgentId || project.definitionId === selectedInterAgentId
-    )) ?? null
-    : null;
-  const selectedWorkspaceProject = selectedAgentableProject ?? selectedAgentWorkspace ?? null;
   const workspaceExplorerItems = useMemo(() => agentableProjects.map((project) => {
     const linkedAgent = interAgentAgents.find((agent) => (
       agent.id === project.id || agent.id === project.definitionId
@@ -2042,12 +2038,6 @@ export default function App() {
   const workspaceExplorerDiscoveredCount = useMemo(
     () => workspaceExplorerItems.filter((item) => !item.isBound).length,
     [workspaceExplorerItems],
-  );
-  const unconfiguredAgentableProjects = useMemo(
-    () => agentableProjects.filter((project) => !interAgentAgents.some((agent) => (
-      agent.id === project.id || agent.id === project.definitionId
-    ))),
-    [agentableProjects, interAgentAgents],
   );
   useEffect(() => {
     if (!selectedAgentableProjectId) {
@@ -2180,50 +2170,10 @@ export default function App() {
     ? (agentConfigDraft ?? agentConfig)
     : null;
   const hasEditableAgentConfig = Boolean(agentConfig?.editable && visibleAgentConfig);
-  const insertAgentPromptToken = React.useCallback((token: string) => {
-    if (!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting) {
-      return;
-    }
-    setAgentConfigDraft((current) => {
-      if (!current) {
-        return current;
-      }
-      const ta = agentSystemPromptRef.current;
-      const s0 = typeof ta?.selectionStart === 'number' ? ta.selectionStart : current.systemPrompt.length;
-      const s1 = typeof ta?.selectionEnd === 'number' ? ta.selectionEnd : current.systemPrompt.length;
-      const snippet = `{{${token}}}`;
-      const nextPrompt = current.systemPrompt.slice(0, s0) + snippet + current.systemPrompt.slice(s1);
-      pendingAgentPromptSelectionRef.current = { start: s0 + snippet.length, end: s0 + snippet.length };
-      setAgentConfigFeedback(null);
-      return { ...current, systemPrompt: nextPrompt };
-    });
-    setAgentPromptInsertGeneration((g) => g + 1);
-  }, [hasEditableAgentConfig, agentConfigSaving, agentConfigRestarting]);
-
-  const insertAgentPromptEnvPlaceholder = React.useCallback(() => {
-    if (!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting) {
-      return;
-    }
-    const snippet = "{{env.NAME}}";
-    const nameSelStart = 6;
-    const nameSelEnd = 10;
-    setAgentConfigDraft((current) => {
-      if (!current) {
-        return current;
-      }
-      const ta = agentSystemPromptRef.current;
-      const s0 = typeof ta?.selectionStart === 'number' ? ta.selectionStart : current.systemPrompt.length;
-      const s1 = typeof ta?.selectionEnd === 'number' ? ta.selectionEnd : current.systemPrompt.length;
-      const nextPrompt = current.systemPrompt.slice(0, s0) + snippet + current.systemPrompt.slice(s1);
-      pendingAgentPromptSelectionRef.current = {
-        start: s0 + nameSelStart,
-        end: s0 + nameSelEnd,
-      };
-      setAgentConfigFeedback(null);
-      return { ...current, systemPrompt: nextPrompt };
-    });
-    setAgentPromptInsertGeneration((g) => g + 1);
-  }, [hasEditableAgentConfig, agentConfigSaving, agentConfigRestarting]);
+  const updateAgentConfigDraft = React.useCallback((updater: (current: AgentConfigState) => AgentConfigState) => {
+    setAgentConfigDraft((current) => current ? updater(current) : current);
+    setAgentConfigFeedback(null);
+  }, []);
   const logSources = logCatalog?.sources ?? [];
   const filteredLogSources = useMemo(
     () => {
@@ -2344,6 +2294,12 @@ export default function App() {
       .reverse(),
     [mergedRelayMessages],
   );
+  const pendingApprovals = pairingState?.pendingApprovals ?? [];
+  const inboxFailedTaskCount = useMemo(
+    () => (plansState?.tasks ?? []).filter((task) => task.status === 'failed').length,
+    [plansState],
+  );
+  const inboxAlertCount = pendingApprovals.length + inboxFailedTaskCount;
   const activityLeadTask = activityTasks.find((task) => task.status === 'running') ?? activityTasks[0] ?? null;
   const relayRuntimeBooting = isLoadingShell && !shellState && !shellError;
   const relayStatusLabel = relayRuntimeBooting
@@ -2388,6 +2344,7 @@ export default function App() {
   const footerTimeLabel = formatFooterTime(new Date());
   const navViews: NavViewItem[] = [];
   if (desktopFeatures.overview) navViews.push({ id: 'overview', icon: <LayoutGrid size={16} strokeWidth={1.5} />, title: 'Overview' });
+  if (desktopFeatures.inbox) navViews.push({ id: 'inbox', icon: <Bell size={16} strokeWidth={1.5} />, title: 'Inbox', badgeCount: inboxAlertCount > 0 ? inboxAlertCount : undefined });
   if (desktopFeatures.relay) navViews.push({ id: 'messages', icon: <MessageSquare size={16} strokeWidth={1.5} />, title: 'Messages' });
   if (desktopFeatures.activity) navViews.push({ id: 'activity', icon: <Radio size={16} strokeWidth={1.5} />, title: 'Activity Monitor' });
   if (desktopFeatures.machines) navViews.push({ id: 'machines', icon: <Network size={16} strokeWidth={1.5} />, title: 'Machines' });
@@ -2409,8 +2366,14 @@ export default function App() {
     {
       id: 'agents' as const,
       label: 'Agents',
-      description: 'Agent configuration, runtime definitions, prompts, and restart controls.',
+      description: 'Select an agent, then edit its runtime, capabilities, and restart controls.',
       icon: <Bot size={15} />,
+    },
+    {
+      id: 'workspaces' as const,
+      label: 'Workspaces',
+      description: 'Workspace discovery, repo bindings, and harness readiness.',
+      icon: <FolderOpen size={15} />,
     },
     {
       id: 'communication' as const,
@@ -2461,31 +2424,45 @@ export default function App() {
     }
   }, [settingsSection, settingsSections]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const beginResize = React.useCallback((e: React.MouseEvent, target: "left-sidebar" | "right-sidebar") => {
     e.preventDefault();
-    isDragging.current = true;
+    activeResizeTarget.current = target;
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  };
+  }, []);
 
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isDragging.current) return;
-    const newWidth = e.clientX - 48;
-    if (newWidth > 160 && newWidth < 400) setSidebarWidth(newWidth);
-  };
+  const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
+    beginResize(e, "left-sidebar");
+  }, [beginResize]);
 
-  const handleMouseUp = () => {
-    isDragging.current = false;
+  const handleMessagesDetailResizeStart = React.useCallback((e: React.MouseEvent) => {
+    beginResize(e, "right-sidebar");
+  }, [beginResize]);
+
+  const handleMouseMove = React.useCallback((e: MouseEvent) => {
+    if (activeResizeTarget.current === "left-sidebar") {
+      const newWidth = e.clientX - 48;
+      if (newWidth > 160 && newWidth < 400) setSidebarWidth(newWidth);
+      return;
+    }
+    if (activeResizeTarget.current === "right-sidebar") {
+      const newWidth = window.innerWidth - e.clientX;
+      if (newWidth > 280 && newWidth < 520) setMessagesDetailWidth(newWidth);
+    }
+  }, []);
+
+  const handleMouseUp = React.useCallback(() => {
+    activeResizeTarget.current = null;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
-  };
+  }, [handleMouseMove]);
 
   useEffect(() => {
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, []);
+  }, [handleMouseMove, handleMouseUp]);
 
   const handleRefreshShell = async () => {
     setManualRefreshPending(true);
@@ -2508,7 +2485,7 @@ export default function App() {
 
       if ((activeView === 'settings' || activeView === 'help') && scoutDesktop?.getAppSettings) {
         const nextSettings = activeView === 'settings'
-          && settingsSection === 'agents'
+          && settingsSection === 'workspaces'
           && scoutDesktop?.refreshSettingsInventory
           ? await scoutDesktop.refreshSettingsInventory()
           : await scoutDesktop.getAppSettings();
@@ -2669,6 +2646,11 @@ export default function App() {
     setIsAppSettingsEditing(false);
   }, [appSettings]);
 
+  const updateAppSettingsDraft = React.useCallback((updater: (current: AppSettingsState) => AppSettingsState) => {
+    setAppSettingsDraft((current) => current ? updater(current) : current);
+    setAppSettingsFeedback(null);
+  }, []);
+
   const mergeEditableAppSettingsDraft = React.useCallback((
     currentDraft: AppSettingsState | null,
     nextSettings: AppSettingsState,
@@ -2698,12 +2680,15 @@ export default function App() {
         ? mergeEditableAppSettingsDraft(current, nextSettings)
         : nextSettings
     ));
+    if (nextSettings.workspaceInventoryLoaded) {
+      setWorkspaceInventoryLoading(false);
+    }
   }, [isAppSettingsEditing, mergeEditableAppSettingsDraft]);
 
   useEffect(() => {
     if (
       activeView !== 'settings'
-      || settingsSection !== 'agents'
+      || settingsSection !== 'workspaces'
       || !scoutDesktop?.refreshSettingsInventory
       || !appSettings
       || appSettings.workspaceInventoryLoaded
@@ -2741,7 +2726,6 @@ export default function App() {
     applyNextAppSettings,
     scoutDesktop,
     settingsSection,
-    workspaceInventoryLoading,
   ]);
 
   const handleSaveAppSettings = async (): Promise<boolean> => {
@@ -2787,6 +2771,20 @@ export default function App() {
     }
   };
 
+  const moveOnboardingWizard = React.useCallback((direction: -1 | 1) => {
+    setOnboardingWizardStep((current) => {
+      const currentIndex = ONBOARDING_WIZARD_STEP_ORDER.indexOf(current);
+      if (currentIndex < 0) {
+        return ONBOARDING_WIZARD_STEP_ORDER[0];
+      }
+      const nextIndex = Math.min(
+        ONBOARDING_WIZARD_STEP_ORDER.length - 1,
+        Math.max(0, currentIndex + direction),
+      );
+      return ONBOARDING_WIZARD_STEP_ORDER[nextIndex];
+    });
+  }, []);
+
   const handleRunOnboardingCommand = React.useCallback(async (command: OnboardingCommandName): Promise<OnboardingCommandResult | null> => {
     if (!scoutDesktop?.runOnboardingCommand) {
       return null;
@@ -2802,10 +2800,11 @@ export default function App() {
         sourceRoots: command === 'setup' ? sourceRoots : undefined,
       });
       setOnboardingCommandResult(result);
+      setOnboardingCommandHistory((prev) => ({ ...prev, [command]: result }));
       setAppSettingsFeedback(
-        result.exitCode === 0
-          ? `${command} finished. Review the output below, then continue when you are ready.`
-          : `${command} exited with status ${result.exitCode}. Review the output below before continuing.`,
+        result.exitCode !== 0
+          ? `${command} exited with status ${result.exitCode}. Review the output below before continuing.`
+          : null,
       );
 
       if (scoutDesktop.getAppSettings) {
@@ -2822,6 +2821,11 @@ export default function App() {
         } else if (command === 'runtimes' && result.exitCode === 0 && !nextShellState?.runtime?.brokerReachable) {
           setOnboardingWizardStep('doctor');
           setAppSettingsFeedback('Relay is still offline. Run doctor again and make sure the broker is reachable before onboarding can finish.');
+        } else if (result.exitCode === 0) {
+          // Auto-advance to the next step after a short pause so the success state is visible
+          setTimeout(() => {
+            moveOnboardingWizard(1);
+          }, 1800);
         }
 
         setStartupOnboardingState((current) => current === 'active'
@@ -2835,7 +2839,7 @@ export default function App() {
     } finally {
       setOnboardingCommandPending(null);
     }
-  }, [appSettings, appSettingsDraft, completeOnboardingIntoRelay, loadShellState]);
+  }, [appSettings, appSettingsDraft, completeOnboardingIntoRelay, loadShellState, moveOnboardingWizard]);
 
   const handleRetireProject = React.useCallback(async (projectRoot: string, projectTitle: string) => {
     if (!scoutDesktop?.retireProject) {
@@ -3232,18 +3236,21 @@ export default function App() {
     })();
   }, [handleSetOnboardingContextRoot]);
 
-  const moveOnboardingWizard = React.useCallback((direction: -1 | 1) => {
-    setOnboardingWizardStep((current) => {
-      const currentIndex = ONBOARDING_WIZARD_STEP_ORDER.indexOf(current);
-      if (currentIndex < 0) {
-        return ONBOARDING_WIZARD_STEP_ORDER[0];
+  const dismissStartupOnboarding = React.useCallback(() => {
+    void (async () => {
+      try {
+        if (scoutDesktop?.skipOnboarding) {
+          const nextSettings = await scoutDesktop.skipOnboarding();
+          setAppSettings(nextSettings);
+          setAppSettingsDraft(nextSettings);
+        }
+        setStartupOnboardingState('done');
+        setAppSettingsFeedback(null);
+        setIsAppSettingsEditing(false);
+      } catch (error) {
+        setAppSettingsFeedback(asErrorMessage(error));
       }
-      const nextIndex = Math.min(
-        ONBOARDING_WIZARD_STEP_ORDER.length - 1,
-        Math.max(0, currentIndex + direction),
-      );
-      return ONBOARDING_WIZARD_STEP_ORDER[nextIndex];
-    });
+    })();
   }, []);
 
   const handleOnboardingContinue = React.useCallback(() => {
@@ -3265,22 +3272,19 @@ export default function App() {
     })();
   }, [activeOnboardingStep.id, appSettingsDirty, handleSaveAppSettings, moveOnboardingWizard]);
 
-  const dismissStartupOnboarding = React.useCallback(() => {
-    void (async () => {
-      try {
-        if (scoutDesktop?.skipOnboarding) {
-          const nextSettings = await scoutDesktop.skipOnboarding();
-          setAppSettings(nextSettings);
-          setAppSettingsDraft(nextSettings);
-        }
-        setStartupOnboardingState('done');
-        setAppSettingsFeedback(null);
-        setIsAppSettingsEditing(false);
-      } catch (error) {
-        setAppSettingsFeedback(asErrorMessage(error));
-      }
-    })();
-  }, []);
+  // Auto-run setup/doctor/runtimes when the step activates and it hasn't run yet
+  React.useEffect(() => {
+    const step = activeOnboardingStep.id;
+    if (step !== 'setup' && step !== 'doctor' && step !== 'runtimes') return;
+    if (onboardingCommandPending) return;
+    if (onboardingCommandHistory[step as OnboardingCommandName]) return;
+    if (!visibleAppSettings || appSettingsLoading) return;
+    if (step === 'doctor' && !onboardingHasProjectConfig) return;
+    const timer = setTimeout(() => {
+      void handleRunOnboardingCommand(step as OnboardingCommandName);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [activeOnboardingStep.id, onboardingCommandPending, onboardingCommandHistory, visibleAppSettings, appSettingsLoading, onboardingHasProjectConfig, handleRunOnboardingCommand]);
 
   const skipCurrentOnboardingStep = React.useCallback(() => {
     if (canGoToNextOnboardingStep) {
@@ -3290,9 +3294,13 @@ export default function App() {
     dismissStartupOnboarding();
   }, [canGoToNextOnboardingStep, dismissStartupOnboarding, moveOnboardingWizard]);
 
-  const openAgentProfile = React.useCallback((agentId: string) => {
+  const handleSelectInterAgent = React.useCallback((agentId: string) => {
     setSelectedInterAgentId(agentId);
     setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agentId));
+  }, [interAgentThreads]);
+
+  const openAgentProfile = React.useCallback((agentId: string) => {
+    handleSelectInterAgent(agentId);
     setIsAgentConfigEditing(false);
     setPendingConfigFocusAgentId(null);
     setMessagesDetailOpen(true);
@@ -3305,16 +3313,15 @@ export default function App() {
       ))?.id ?? null,
     );
     setActiveView('messages');
-  }, [interAgentThreads, messagesState]);
+  }, [handleSelectInterAgent, messagesState]);
 
   const openAgentSettings = React.useCallback((agentId: string, focusConfig = false) => {
-    setSelectedInterAgentId(agentId);
-    setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agentId));
+    handleSelectInterAgent(agentId);
     setSettingsSection('agents');
     setActiveView('settings');
     setIsAgentConfigEditing(focusConfig);
     setPendingConfigFocusAgentId(focusConfig ? agentId : null);
-  }, [interAgentThreads]);
+  }, [handleSelectInterAgent]);
 
   const handleOpenCreateAgentDialog = React.useCallback(() => {
     setCreateAgentDraft(buildDefaultCreateAgentDraft(agentableProjects, visibleAppSettings));
@@ -3452,6 +3459,7 @@ export default function App() {
           cwd: visibleAgentConfig.runtime.cwd,
           harness: visibleAgentConfig.runtime.harness,
           sessionId: visibleAgentConfig.runtime.sessionId,
+          transport: visibleAgentConfig.runtime.transport,
         },
         systemPrompt: visibleAgentConfig.systemPrompt,
         toolUse: {
@@ -3486,6 +3494,7 @@ export default function App() {
             cwd: visibleAgentConfig.runtime.cwd,
             harness: visibleAgentConfig.runtime.harness,
             sessionId: visibleAgentConfig.runtime.sessionId,
+            transport: visibleAgentConfig.runtime.transport,
           },
           systemPrompt: visibleAgentConfig.systemPrompt,
           toolUse: {
@@ -3549,13 +3558,12 @@ export default function App() {
     setIsAgentSessionPeekOpen(true);
     setAgentSessionRefreshTick((current) => current + 1);
   }, []);
-  const openAgentableProjectInSettings = React.useCallback((projectId: string) => {
-    setSelectedAgentableProjectId(projectId);
+  const handleInspectWorkspace = React.useCallback((project: SetupProjectSummary) => {
+    setSelectedAgentableProjectId(project.id);
     setSelectedInterAgentId(null);
     setSelectedInterAgentThreadId(null);
-    setProductSurface('relay');
-    setActiveView('settings');
-    setSettingsSection('agents');
+    setIsAgentConfigEditing(false);
+    setAgentConfigFeedback(null);
   }, []);
 
   const handleOpenWorkspace = React.useCallback((project: SetupProjectSummary) => {
@@ -3563,26 +3571,32 @@ export default function App() {
       openAgentProfile(project.id);
       return;
     }
-    openAgentableProjectInSettings(project.id);
-  }, [openAgentProfile, openAgentableProjectInSettings]);
-
-  const handleInspectWorkspace = React.useCallback((project: SetupProjectSummary) => {
-    const linkedAgent = interAgentAgents.find((agent) => (
-      agent.id === project.id || agent.id === project.definitionId
-    )) ?? null;
-    setSelectedAgentableProjectId(project.id);
-    setSelectedInterAgentId(linkedAgent?.id ?? null);
-    setSelectedInterAgentThreadId(linkedAgent ? firstInterAgentThreadIdForAgent(interAgentThreads, linkedAgent.id) : null);
-    setIsAgentConfigEditing(false);
-    setAgentConfigFeedback(null);
-  }, [interAgentAgents, interAgentThreads]);
+    handleInspectWorkspace(project);
+  }, [handleInspectWorkspace, openAgentProfile]);
 
   const handleAddWorkspaceFromExplorer = React.useCallback(() => {
     setActiveView('settings');
     setSettingsSection('profile');
     handleBeginGeneralEdit();
-    setAppSettingsFeedback('Add a scan folder below, then go back to Agents and refresh to discover workspaces.');
+    setAppSettingsFeedback('Add a scan folder below, then go back to Workspaces and refresh to discover workspaces.');
   }, [handleBeginGeneralEdit]);
+
+  const handleLoadWorkspaceInventory = React.useCallback(() => {
+    if (!scoutDesktop?.refreshSettingsInventory) {
+      return;
+    }
+    setWorkspaceInventoryLoading(true);
+    void scoutDesktop.refreshSettingsInventory()
+      .then((nextSettings) => {
+        applyNextAppSettings(nextSettings);
+      })
+      .catch((error) => {
+        setAppSettingsFeedback(asErrorMessage(error));
+      })
+      .finally(() => {
+        setWorkspaceInventoryLoading(false);
+      });
+  }, [applyNextAppSettings, scoutDesktop]);
 
   const applyRelayMentionSuggestion = React.useCallback((candidate: RelayMentionCandidate) => {
     if (!relayActiveMention) {
@@ -3711,6 +3725,54 @@ export default function App() {
     setActiveView('messages');
   }, [messagesState]);
 
+  const inboxFailedTaskItems = useMemo<InboxItem[]>(
+    () => (plansState?.tasks ?? [])
+      .filter((task) => task.status === 'failed')
+      .slice(0, 10)
+      .map((task) => ({
+        id: `task-failed:${task.id}`,
+        kind: 'task',
+        tone: 'critical',
+        title: task.title,
+        summary: `${task.targetAgentName} reported a failed ask.`,
+        detail: task.statusDetail ?? task.replyPreview ?? task.body,
+        meta: [task.project, task.updatedAtLabel, task.ageLabel].filter(Boolean).join(' · ') || task.createdAtLabel,
+        actionLabel: 'Open Agent',
+        onAction: () => openAgentProfile(task.targetAgentId),
+      })),
+    [openAgentProfile, plansState],
+  );
+
+  const inboxApprovalItems = useMemo<InboxItem[]>(
+    () => pendingApprovals.map((approval) => ({
+      id: `approval:${approval.sessionId}:${approval.turnId}:${approval.blockId}`,
+      kind: 'approval',
+      tone: approval.risk === 'high' ? 'critical' : approval.risk === 'medium' ? 'warning' : 'info',
+      title: approval.title,
+      summary: approval.description,
+      detail: approval.detail,
+      meta: `${approval.sessionName} · ${approval.risk} risk`,
+      actionLabel: 'Open Pairing',
+      onAction: () => {
+        setProductSurface('pairing');
+      },
+      onSecondaryAction: () => {
+        void handleDecidePairingApproval(approval, 'approve');
+      },
+      secondaryActionLabel: 'Approve',
+    })),
+    [handleDecidePairingApproval, pendingApprovals],
+  );
+
+  const inboxAwaitingYouItems = useMemo(
+    () => [...inboxApprovalItems, ...inboxFailedTaskItems]
+      .sort((lhs, rhs) => {
+        const rank = (tone: InboxItemTone) => tone === 'critical' ? 0 : tone === 'warning' ? 1 : 2;
+        return rank(lhs.tone) - rank(rhs.tone) || lhs.title.localeCompare(rhs.title);
+      }),
+    [inboxApprovalItems, inboxFailedTaskItems],
+  );
+
   const selectMessageThread = React.useCallback((thread: MessagesThread) => {
     setSelectedMessagesThreadId(thread.id);
     if (thread.kind === 'relay' && thread.relayDestinationKind && thread.relayDestinationId) {
@@ -3807,85 +3869,138 @@ export default function App() {
     commandLine: string,
     running: boolean,
   ) => {
-    const commandResult = onboardingCommandResult?.command === command ? onboardingCommandResult : null;
-    const outputLabel = running
-      ? 'Running…'
-      : commandResult
-        ? `exit ${commandResult.exitCode}`
-        : 'Awaiting run';
-    const outputBody = running
-      ? '$ command started\n… waiting for process output'
-      : commandResult
-        ? commandResult.output
-        : 'Run this command from the button below and its output will appear here.';
+    const commandResult = onboardingCommandHistory[command] ?? (onboardingCommandResult?.command === command ? onboardingCommandResult : null);
+    const succeeded = commandResult && commandResult.exitCode === 0;
+    const failed = commandResult && commandResult.exitCode !== 0;
 
     return (
-      <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.12)', backgroundColor: C.termBg }}>
-        <div
-          className="flex items-center justify-between gap-3 px-3.5 py-2 border-b"
-          style={{ borderBottomColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.03)' }}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex items-center gap-[5px]">
-              <span className="w-[7px] h-[7px] rounded-full bg-[#ff5f57]" />
-              <span className="w-[7px] h-[7px] rounded-full bg-[#febc2e]" />
-              <span className="w-[7px] h-[7px] rounded-full bg-[#28c840]" />
-            </div>
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.38)' }}>
-              Terminal
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span
-              className="text-[10px] font-mono px-2 py-1 rounded"
-              style={running
-                ? { backgroundColor: 'rgba(45, 212, 191, 0.18)', color: '#99f6e4' }
-                : commandResult
-                  ? (commandResult.exitCode === 0
-                    ? { backgroundColor: 'rgba(45, 212, 191, 0.18)', color: '#99f6e4' }
-                    : { backgroundColor: 'rgba(248, 113, 113, 0.18)', color: '#fecaca' })
-                  : { backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.72)' }}
+      <div className="space-y-2">
+        {/* Status banner — only when done */}
+        {succeeded && (() => {
+          const projectCount = visibleAppSettings?.projectInventory?.length ?? 0;
+          const brokerOk = visibleAppSettings?.broker?.reachable;
+          const runtimesReady = (visibleAppSettings?.runtimeCatalog ?? []).filter((r) => r.readinessState === 'ready').length;
+          const runtimesTotal = (visibleAppSettings?.runtimeCatalog ?? []).length;
+
+          const facts: string[] = [];
+          if (command === 'setup' || command === 'doctor') {
+            facts.push(brokerOk ? 'Broker running' : 'Broker installed');
+            if (projectCount > 0) facts.push(`${projectCount} project${projectCount === 1 ? '' : 's'} discovered`);
+          }
+          if (command === 'runtimes' && runtimesTotal > 0) {
+            facts.push(`${runtimesReady} of ${runtimesTotal} runtime${runtimesTotal === 1 ? '' : 's'} ready`);
+          }
+
+          return (
+            <div
+              className="rounded-xl border px-4 py-3"
+              style={{ backgroundColor: 'rgba(34,197,94,0.08)', borderColor: 'rgba(34,197,94,0.25)' }}
             >
-              {outputLabel}
-            </span>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-85"
-              style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.82)', backgroundColor: 'rgba(255,255,255,0.04)' }}
-              onClick={() => {
-                void handleCopyOnboardingCommand(command);
-              }}
-            >
-              {onboardingCopiedCommand === command ? <CheckCheck size={12} /> : <Copy size={12} />}
-              {onboardingCopiedCommand === command ? 'Copied' : 'Quick copy'}
-            </button>
-          </div>
-        </div>
-        <div className="px-4 py-3">
-          <div className="text-[13px] leading-[1.7] font-mono break-all" style={{ color: C.termFg }}>
-            <span style={{ color: 'rgba(153, 246, 228, 0.80)' }}>$</span> {commandLine}
-          </div>
-        </div>
-        <div className="border-t px-4 py-3" style={{ borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(0,0,0,0.08)' }}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.48)' }}>
-              Output
+              <div className="flex items-center gap-2 mb-1.5">
+                <CheckCheck size={14} style={{ color: '#16a34a' }} />
+                <span className="text-[12px] font-semibold" style={{ color: '#16a34a' }}>Done</span>
+              </div>
+              {facts.length > 0 && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {facts.map((fact) => (
+                    <span key={fact} className="text-[11px]" style={{ color: '#16a34a', opacity: 0.85 }}>
+                      {fact}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.48)' }}>
-              cwd: {commandResult?.cwd ?? (onboardingContextRoot || 'pending')}
-            </div>
-          </div>
-          {!running && commandResult ? (
-            <div className="text-[10px] mt-2" style={{ color: commandResult.exitCode === 0 ? '#99f6e4' : '#fecaca' }}>
-              Review this result, then use Continue for the next onboarding step.
-            </div>
-          ) : null}
-          <pre
-            className="mt-3 text-[12px] leading-[1.6] whitespace-pre-wrap break-words overflow-x-auto font-mono"
-            style={{ color: running ? 'rgba(255,255,255,0.68)' : C.termFg, minHeight: '5.5rem' }}
+          );
+        })()}
+        {failed && (
+          <div
+            className="rounded-xl border overflow-hidden"
+            style={{ backgroundColor: 'rgba(239,68,68,0.06)', borderColor: 'rgba(239,68,68,0.25)' }}
           >
-            {outputBody}
-          </pre>
+            <div className="flex items-start gap-3 px-4 py-3">
+              <AlertCircle size={15} className="shrink-0 mt-0.5" style={{ color: '#dc2626' }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-semibold" style={{ color: '#dc2626' }}>
+                  Command failed (exit {commandResult.exitCode})
+                </div>
+                <div className="text-[11px] mt-1 leading-[1.5]" style={{ color: '#dc2626', opacity: 0.8 }}>
+                  Check the output below for details, then try again or run the command in Terminal for more context.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-opacity hover:opacity-80"
+                style={{ borderColor: 'rgba(239,68,68,0.35)', color: '#dc2626', backgroundColor: 'rgba(239,68,68,0.08)' }}
+                onClick={() => void handleRunOnboardingCommand(command)}
+                disabled={Boolean(onboardingCommandPending)}
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Terminal shell */}
+        <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'rgba(15, 23, 42, 0.12)', backgroundColor: C.termBg }}>
+          <div
+            className="flex items-center justify-between gap-3 px-3.5 py-2 border-b"
+            style={{ borderBottomColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.03)' }}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-[5px]">
+                <span className="w-[7px] h-[7px] rounded-full bg-[#ff5f57]" />
+                <span className="w-[7px] h-[7px] rounded-full bg-[#febc2e]" />
+                <span className="w-[7px] h-[7px] rounded-full bg-[#28c840]" />
+              </div>
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                Terminal
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {running && (
+                <span className="text-[10px] font-mono px-2 py-1 rounded animate-pulse"
+                  style={{ backgroundColor: 'rgba(45,212,191,0.18)', color: '#99f6e4' }}>
+                  Running…
+                </span>
+              )}
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-85"
+                style={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.82)', backgroundColor: 'rgba(255,255,255,0.04)' }}
+                onClick={() => void handleCopyOnboardingCommand(command)}
+              >
+                {onboardingCopiedCommand === command ? <CheckCheck size={12} /> : <Copy size={12} />}
+                {onboardingCopiedCommand === command ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            <div className="text-[13px] leading-[1.7] font-mono break-all" style={{ color: C.termFg }}>
+              <span style={{ color: 'rgba(153,246,228,0.80)' }}>$</span> {commandLine}
+            </div>
+          </div>
+          {(running || commandResult) && (
+            <div className="border-t px-4 py-3" style={{ borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(0,0,0,0.08)' }}>
+              <div className="text-[10px] font-mono mb-2" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                cwd: {commandResult?.cwd ?? (onboardingContextRoot || '…')}
+              </div>
+              <pre
+                className="text-[11px] leading-[1.6] whitespace-pre-wrap break-words overflow-x-auto font-mono"
+                style={{ color: failed ? 'rgba(252,165,165,0.85)' : C.termFg, maxHeight: '16rem', overflowY: 'auto' }}
+              >
+                {running
+                  ? '… waiting for output'
+                  : commandResult?.output}
+              </pre>
+            </div>
+          )}
+          {!running && !commandResult && (
+            <div className="px-4 py-4 border-t" style={{ borderTopColor: 'rgba(255,255,255,0.06)' }}>
+              <div className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                Output will appear here after you run the command.
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -4193,57 +4308,78 @@ export default function App() {
     if (activeOnboardingStep.id === 'doctor') {
       const doctorCommandLine = buildOnboardingCommandLine('doctor');
       const doctorRunning = onboardingCommandPending === 'doctor';
+      const brokerOk = visibleAppSettings.broker.reachable;
+      const projectCount = visibleAppSettings.projectInventory.length;
+
+      const statusItems = [
+        {
+          label: 'Broker',
+          value: brokerOk ? 'Reachable' : 'Unavailable',
+          ok: brokerOk,
+          fix: brokerOk ? null : 'Re-run setup to install and start the broker service.',
+        },
+        {
+          label: 'Projects',
+          value: `${projectCount} found`,
+          ok: projectCount > 0,
+          fix: projectCount === 0 ? 'Add workspace roots in Settings → General, then refresh Workspaces.' : null,
+        },
+        {
+          label: 'Context root',
+          value: visibleAppSettings.currentProjectConfigPath ? 'Configured' : 'Missing',
+          ok: Boolean(visibleAppSettings.currentProjectConfigPath),
+          fix: visibleAppSettings.currentProjectConfigPath ? null : 'Run setup again from the previous step.',
+        },
+      ];
+      const hasIssues = statusItems.some((item) => !item.ok);
+
       return (
-        <div className="space-y-6">
-          <div className="space-y-3">
-            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
-              Doctor
+        <div className="space-y-5">
+          <div className="space-y-1.5">
+            <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>Doctor</div>
+            <div className="text-[14px] leading-[1.6]" style={s.mutedText}>
+              Verify broker health, project discovery, and relay context.
             </div>
-            <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
-              Check broker health, scanned folders, and the resulting project inventory.
-            </div>
+          </div>
+
+          {/* Status grid — live from app settings */}
+          <div className="grid grid-cols-3 gap-3">
+            {statusItems.map((item) => (
+              <div
+                key={item.label}
+                className="rounded-xl border px-4 py-3"
+                style={{
+                  borderColor: item.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)',
+                  backgroundColor: item.ok ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)',
+                }}
+              >
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span style={{ color: item.ok ? '#16a34a' : '#dc2626', fontSize: 13 }}>
+                    {item.ok ? '✓' : '✗'}
+                  </span>
+                  <div className="text-[10px] font-mono uppercase tracking-widest" style={{ color: item.ok ? '#16a34a' : '#dc2626' }}>
+                    {item.label}
+                  </div>
+                </div>
+                <div className="text-[13px] font-medium" style={s.inkText}>{item.value}</div>
+                {item.fix && (
+                  <div className="text-[11px] mt-1.5 leading-[1.5]" style={{ color: '#dc2626', opacity: 0.8 }}>
+                    {item.fix}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
           {renderOnboardingCommandShell('doctor', doctorCommandLine, doctorRunning)}
 
-          <div className="rounded-xl border px-5 py-5" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                ['1. Broker', 'Checks the broker is installed and reachable.'],
-                ['2. Discovery', 'Scans the chosen folders for repos and local manifests.'],
-                ['3. Inventory', 'Merges scanned repos and context inputs into one inventory.'],
-              ].map(([label, detail]) => (
-                <div key={label} className="rounded-lg border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                  <div className="text-[11px] font-mono font-medium tracking-wide" style={{ color: C.accent }}>{label}</div>
-                  <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>{detail}</div>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-              {[
-                ['Projects', `${visibleAppSettings.projectInventory.length}`],
-                ['Broker', visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'],
-                ['Relay context root', visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot || 'Not created')],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-lg px-4 py-3" style={{ backgroundColor: C.bg }}>
-                  <div className="text-[10px] font-mono uppercase tracking-widest mb-2" style={{ color: C.accent }}>{label}</div>
-                  <div className="text-[15px] font-medium leading-[1.5] break-words" style={s.inkText}>
-                    {label === 'Relay context root'
-                      ? renderLocalPathValue(String(value), { className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity' })
-                      : value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <button
             className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
-            style={{ backgroundColor: C.accent, color: '#fff' }}
+            style={{ backgroundColor: hasIssues ? '#dc2626' : C.accent, color: '#fff' }}
             onClick={() => { void handleRunOnboardingCommand('doctor'); }}
             disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
           >
-            {doctorRunning ? 'Running Doctor…' : 'Run Doctor'}
+            {doctorRunning ? 'Running Doctor…' : hasIssues ? 'Run Doctor to diagnose' : 'Run Doctor'}
           </button>
         </div>
       );
@@ -4252,37 +4388,61 @@ export default function App() {
     const runtimesCommandLine = buildOnboardingCommandLine('runtimes');
     return (
       <div className="space-y-6">
-        <div className="space-y-3">
-          <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
-            Runtimes
-          </div>
-          <div className="text-[15px] leading-[1.7] max-w-2xl" style={s.mutedText}>
+        <div className="space-y-1.5">
+          <div className="text-[28px] font-semibold tracking-tight" style={s.inkText}>Runtimes</div>
+          <div className="text-[14px] leading-[1.6]" style={s.mutedText}>
             Verify each harness has a working local runtime.
           </div>
         </div>
 
-        {renderOnboardingCommandShell('runtimes', runtimesCommandLine, onboardingCommandPending === 'runtimes')}
-
-        <div className="grid grid-cols-1 gap-3">
-          {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
-            <div key={runtimeEntry.name} className="os-card rounded-xl border px-5 py-4" style={{ borderColor: runtimeEntry.readinessState === 'ready' ? C.accent : C.border, backgroundColor: C.surface }}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center mt-0.5" style={{ backgroundColor: runtimeEntry.readinessState === 'ready' ? C.accentBg : C.bg }}>
-                    <span className="text-[14px]" style={{ color: runtimeEntry.readinessState === 'ready' ? C.accent : C.muted }}>&#9654;</span>
+        {/* Runtime status cards — always visible, live from settings */}
+        {(visibleAppSettings.runtimeCatalog ?? []).length > 0 && (
+          <div className="grid grid-cols-1 gap-2">
+            {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => {
+              const ready = runtimeEntry.readinessState === 'ready';
+              return (
+                <div
+                  key={runtimeEntry.name}
+                  className="rounded-xl border px-4 py-3 flex items-start justify-between gap-3"
+                  style={{
+                    borderColor: ready ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)',
+                    backgroundColor: ready ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)',
+                  }}
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="mt-0.5 text-[14px]" style={{ color: ready ? '#16a34a' : '#dc2626' }}>
+                      {ready ? '✓' : '✗'}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold" style={s.inkText}>{runtimeEntry.label}</div>
+                      <div className="text-[11px] mt-0.5 leading-[1.5]" style={ready ? s.mutedText : { color: '#dc2626', opacity: 0.85 }}>
+                        {runtimeEntry.readinessDetail}
+                      </div>
+                      {!ready && runtimeEntry.readinessState === 'missing' && (
+                        <div className="text-[10px] font-mono mt-1.5 px-2 py-1 rounded inline-block" style={{ backgroundColor: 'rgba(239,68,68,0.08)', color: '#dc2626' }}>
+                          {runtimeEntry.name === 'claude' ? 'brew install claude' : runtimeEntry.name === 'codex' ? 'npm install -g @openai/codex' : `install ${runtimeEntry.name}`}
+                        </div>
+                      )}
+                      {!ready && runtimeEntry.readinessState === 'configured' && (
+                        <div className="text-[10px] font-mono mt-1.5 px-2 py-1 rounded inline-block" style={{ backgroundColor: 'rgba(239,68,68,0.08)', color: '#dc2626' }}>
+                          {runtimeEntry.name === 'claude' ? 'claude login' : runtimeEntry.name === 'codex' ? 'codex login' : `${runtimeEntry.name} login`}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[16px] font-semibold tracking-tight" style={s.inkText}>{runtimeEntry.label}</div>
-                    <div className="text-[13px] mt-1 leading-[1.6]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
-                  </div>
+                  <span
+                    className="text-[10px] font-mono px-2.5 py-1 rounded-full shrink-0"
+                    style={ready ? s.activePill : { backgroundColor: 'rgba(239,68,68,0.12)', color: '#dc2626' }}
+                  >
+                    {runtimeEntry.readinessState}
+                  </span>
                 </div>
-                <span className="text-[10px] font-mono px-2.5 py-1 rounded-full shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
-                  {runtimeEntry.readinessState}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
+
+        {renderOnboardingCommandShell('runtimes', runtimesCommandLine, onboardingCommandPending === 'runtimes')}
 
         <button
           className="os-btn-primary flex items-center gap-2 text-[13px] font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all"
@@ -4532,15 +4692,23 @@ export default function App() {
         {/* Sidebar Nav (Leftmost) */}
         <div className="w-12 border-r flex flex-col items-center py-2 gap-3 shrink-0 z-10" style={s.navBar}>
           <div className="flex flex-col gap-1 w-full px-2 mt-2" style={s.mutedText}>
-            {navViews.map(({ id, icon, title }) => (
+            {navViews.map(({ id, icon, title, badgeCount }) => (
               <button
                 key={id}
                 onClick={() => setActiveView(id)}
                 title={title}
-                className="p-1.5 rounded flex items-center justify-center transition-colors"
+                className="relative p-1.5 rounded flex items-center justify-center transition-colors"
                 style={activeView === id ? s.activePill : undefined}
               >
                 {icon}
+                {badgeCount ? (
+                  <span
+                    className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-mono flex items-center justify-center"
+                    style={{ backgroundColor: '#f97316', color: '#fff7ed' }}
+                  >
+                    {badgeCount > 9 ? '9+' : badgeCount}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -4597,6 +4765,189 @@ export default function App() {
             cleanDisplayTitle={cleanDisplayTitle}
             messagePreviewSnippet={messagePreviewSnippet}
           />
+
+        ) : activeView === 'inbox' ? (
+          <>
+            {!isCollapsed && (
+              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
+                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
+                <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                  <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Inbox</div>
+                  <div className="text-[13px] font-semibold tracking-tight mt-1" style={s.inkText}>Subscribed updates</div>
+                  <div className="text-[11px] leading-[1.5] mt-1" style={s.mutedText}>
+                    Only updates worth notifying about belong here.
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                    <div className="text-[9px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Summary</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Needs You', value: `${inboxAlertCount}` },
+                        { label: 'Approvals', value: `${pendingApprovals.length}` },
+                        { label: 'Failures', value: `${inboxFailedTaskCount}` },
+                        { label: 'Policy', value: 'Opt-in' },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
+                          <div className="text-[18px] font-semibold mt-1" style={s.inkText}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
+                    <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>V1 Scope</div>
+                    <div className="space-y-2 text-[11px] leading-[1.5]" style={s.mutedText}>
+                      <div>Pairing approvals surface here first.</div>
+                      <div>Failed asks count as attention.</div>
+                      <div>Progress and troubleshooting stay elsewhere.</div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 flex flex-col min-w-0" style={s.surface}>
+              <div className="border-b shrink-0 px-6 py-5" style={{ borderBottomColor: C.border }}>
+                <div className="flex items-start justify-between gap-6">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Inbox</div>
+                    <h1 className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
+                      What You Asked To Know About
+                    </h1>
+                    <p className="text-[13px] mt-2 max-w-3xl leading-[1.65]" style={s.mutedText}>
+                      A first-pass desktop notification inbox for Scout. No delivery yet, just the small set of subscribed updates that are worth surfacing inside Electron.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleRefreshShell()}
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                    >
+                      <RefreshCw size={14} />
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('plans')}
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                      style={{ color: C.ink }}
+                    >
+                      <FileText size={14} />
+                      Open Plans
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-3 mt-5">
+                  {[
+                    { label: 'Needs You', value: `${inboxAlertCount}`, detail: `${pendingApprovals.length} approvals · ${inboxFailedTaskCount} failed asks` },
+                    { label: 'Approvals', value: `${pendingApprovals.length}`, detail: 'Inline pairing actions' },
+                    { label: 'Failures', value: `${inboxFailedTaskCount}`, detail: 'Failed asks from plans' },
+                    { label: 'Policy', value: 'Opt-in', detail: 'Progress and watchlists stay elsewhere' },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-xl border px-4 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                      <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
+                      <div className="text-[24px] font-semibold mt-2" style={s.inkText}>{item.value}</div>
+                      <div className="text-[11px] mt-1" style={s.mutedText}>{item.detail}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
+                  <section className="border rounded-xl overflow-hidden min-w-0" style={{ ...s.surface, borderColor: C.border }}>
+                    <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+                      <div>
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Needs You</div>
+                        <div className="text-[11px] mt-1" style={s.mutedText}>Approvals and failed asks that are worth interrupting for.</div>
+                      </div>
+                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={inboxAlertCount > 0 ? s.activePill : s.tagBadge}>
+                        {inboxAlertCount} items
+                      </span>
+                    </div>
+                    <div className="divide-y" style={{ borderColor: C.border }}>
+                      {inboxAwaitingYouItems.length > 0 ? inboxAwaitingYouItems.map((item) => (
+                        <div key={item.id} className="px-4 py-4" style={{ backgroundColor: C.surface }}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span
+                                  className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
+                                  style={
+                                    item.tone === 'critical'
+                                      ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
+                                      : item.tone === 'warning'
+                                        ? { backgroundColor: 'rgba(251, 191, 36, 0.16)', color: '#92400e' }
+                                        : s.activePill
+                                  }
+                                >
+                                  {item.kind}
+                                </span>
+                                <span className="text-[9px] font-mono" style={s.mutedText}>{item.meta}</span>
+                              </div>
+                              <div className="text-[13px] font-medium mt-2 leading-[1.5]" style={s.inkText}>
+                                {item.title}
+                              </div>
+                              <div className="text-[11px] mt-1 leading-[1.6]" style={s.mutedText}>
+                                {item.summary}
+                              </div>
+                              {item.detail && item.detail !== item.summary ? (
+                                <div className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.bg, color: C.muted }}>
+                                  {item.detail}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-col items-end gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={item.onAction}
+                                className="text-[10px] font-medium hover:opacity-80"
+                                style={{ color: C.accent }}
+                              >
+                                {item.actionLabel}
+                              </button>
+                              {item.onSecondaryAction && item.secondaryActionLabel ? (
+                                <button
+                                  type="button"
+                                  onClick={item.onSecondaryAction}
+                                  className="text-[10px] font-medium hover:opacity-80"
+                                  style={s.mutedText}
+                                >
+                                  {item.secondaryActionLabel}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
+                          Nothing urgent right now.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <div className="space-y-4 min-w-0">
+                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
+                      <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
+                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Notes</div>
+                        <div className="text-[11px] mt-1" style={s.mutedText}>This is UI-only for now, backed by existing desktop state instead of durable broker attention events.</div>
+                      </div>
+                      <div className="px-4 py-4 text-[11px] leading-[1.7]" style={s.mutedText}>
+                        Inbox is currently limited to approvals and failed asks. Agent progress, stale/problem states, and cleanup flows stay in other parts of Scout.
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
 
         /* --- ACTIVITY --- */
         ) : activeView === 'activity' ? (
@@ -5603,230 +5954,171 @@ export default function App() {
                                 Restart onboarding
                               </button>
                               <span
-                                className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                                style={visibleAppSettings.onboarding.needed ? s.tagBadge : s.activePill}
+                                className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                                style={s.tagBadge}
                               >
-                                {visibleAppSettings.onboarding.needed ? 'needs setup' : 'ready'}
+                                {`${activeOnboardingStepIndex + 1}/${ONBOARDING_WIZARD_STEP_ORDER.length}`}
                               </span>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 xl:grid-cols-[220px_minmax(0,1fr)] gap-4 mt-4">
+                          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
                             <div className="space-y-2">
-                              {onboardingWizardSteps.map((step) => {
-                                const isActive = step.id === activeOnboardingStep.id;
+                              {ONBOARDING_WIZARD_STEP_ORDER.map((stepId, index) => {
+                                const step = ONBOARDING_WIZARD_STEPS.find((entry) => entry.id === stepId);
+                                if (!step) {
+                                  return null;
+                                }
+                                const active = onboardingWizardStep === step.id;
+                                const complete = index < activeOnboardingStepIndex;
                                 return (
                                   <button
                                     key={step.id}
-                                    className="w-full text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90"
-                                    style={{ borderColor: C.border, backgroundColor: isActive ? C.bg : C.surface }}
+                                    type="button"
+                                    className="w-full rounded-lg border px-3 py-2 text-left transition-opacity hover:opacity-90"
+                                    style={{
+                                      borderColor: active ? C.accent : C.border,
+                                      backgroundColor: active ? C.accentBg : C.surface,
+                                      color: active ? C.accent : C.ink,
+                                    }}
                                     onClick={() => setOnboardingWizardStep(step.id)}
                                   >
-                                    <div className="flex items-start gap-3">
-                                      <span
-                                        className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                                        style={step.complete ? s.activePill : (isActive ? s.tagBadge : s.mutedText)}
-                                      >
-                                        {step.number}
-                                      </span>
+                                    <div className="flex items-center justify-between gap-3">
                                       <div className="min-w-0">
-                                        <div className="text-[12px] font-medium" style={s.inkText}>{step.title}</div>
-                                        <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{step.detail}</div>
+                                        <div className="text-[10px] font-mono uppercase tracking-widest">{step.title}</div>
+                                        <div className="text-[10px] mt-1 leading-[1.5]" style={active ? { color: C.accent } : s.mutedText}>
+                                          {step.detail}
+                                        </div>
                                       </div>
+                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={complete ? s.activePill : s.tagBadge}>
+                                        {complete ? 'done' : index + 1}
+                                      </span>
                                     </div>
                                   </button>
                                 );
                               })}
                             </div>
 
-                            <div className="rounded-xl border px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                                    Step {activeOnboardingStep.number} of {onboardingWizardSteps.length}
-                                  </div>
-                                  <div className="text-[16px] font-semibold mt-1 tracking-tight" style={s.inkText}>{activeOnboardingStep.title}</div>
-                                  <div className="text-[11px] mt-2 leading-[1.6]" style={s.mutedText}>{activeOnboardingStep.detail}</div>
-                                </div>
-                                <span
-                                  className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                                  style={activeOnboardingStep.complete ? s.activePill : s.tagBadge}
-                                >
-                                  {activeOnboardingStep.complete ? 'done' : 'focus'}
-                                </span>
+                            <div className="rounded-xl border p-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
+                              <div className="text-[10px] font-mono uppercase tracking-widest" style={{ color: C.accent }}>{activeOnboardingStep.title}</div>
+                              <div className="text-[13px] font-medium mt-1" style={s.inkText}>{activeOnboardingStep.detail}</div>
+                              <div className="text-[11px] mt-2 leading-[1.6]" style={s.mutedText}>
+                                {activeOnboardingStep.helper}
                               </div>
 
-                              {!visibleAppSettings.onboarding.needed ? (
-                                <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                  <div className="text-[12px] font-medium" style={s.inkText}>Scout is ready.</div>
-                                  <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                    Setup complete. You can revisit this wizard at any time.
-                                  </div>
-                                  <div className="flex flex-wrap gap-2 mt-3">
-                                    <button
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-                                      style={{ color: C.ink }}
-                                      onClick={() => setActiveView('overview')}
-                                    >
-                                      Open Overview
-                                    </button>
-                                    <button
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-                                      style={{ color: C.ink }}
-                                      onClick={() => setActiveView('agents')}
-                                    >
-                                      Open Agents
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : activeOnboardingStep.id === 'welcome' ? (
+                              {activeOnboardingStep.id === 'welcome' ? (
                                 <div className="mt-4 space-y-4">
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="flex items-center gap-2">
-                                      <User size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>What should Scout call you?</div>
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Your display name across Relay and the desktop shell. Prefilled from this machine.
+                                    <div className="text-[12px] font-medium" style={s.inkText}>Before you start</div>
+                                    <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                      Scout discovers workspaces from scan folders, stores local config under a context root, and needs a default harness before it can broker local runs.
                                     </div>
                                   </div>
-
-                                  {isAppSettingsEditing ? (
-                                    <input
-                                      ref={settingsOperatorNameRef}
-                                      value={visibleAppSettings.operatorName ?? ''}
-                                      onChange={(event) => {
-                                        setAppSettingsDraft((current) => current ? {
-                                          ...current,
-                                          operatorName: event.target.value,
-                                        } : current);
-                                        setAppSettingsFeedback(null);
-                                      }}
-                                      readOnly={appSettingsSaving}
-                                      placeholder={visibleAppSettings.operatorNameDefault || 'Operator'}
-                                      className="w-full rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
-                                      style={{ borderColor: C.border, color: C.ink }}
-                                    />
-                                  ) : (
-                                    <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                      <div className="text-[13px] font-medium" style={s.inkText}>
-                                        {visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {[
+                                      ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
+                                      ['Context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
+                                      ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
+                                      ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
+                                    ].map(([label, value]) => (
+                                      <div key={label}>
+                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
+                                        <div className="text-[11px] leading-[1.45]" style={s.inkText}>{value}</div>
                                       </div>
-                                    </div>
-                                  )}
+                                    ))}
+                                  </div>
                                 </div>
                               ) : activeOnboardingStep.id === 'source-roots' ? (
                                 <div className="mt-4 space-y-4">
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="flex items-center gap-2">
-                                      <Folder size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>Which folders should Scout scan?</div>
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Parent folders to scan for repos and projects (e.g. `~/dev`, `~/src`).
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Read-only scan. Nothing is written to these folders.
+                                    <div className="text-[12px] font-medium" style={s.inkText}>Project scan folders</div>
+                                    <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
+                                      Scout recursively scans these folders to find repos, manifests, and harness evidence.
                                     </div>
                                   </div>
 
-                                  {isAppSettingsEditing ? (
-                                    <div className="space-y-3">
-                                      {(visibleAppSettings.workspaceRoots ?? []).map((root, index) => (
-                                        <div key={`settings-source-root-${index}`} className="flex items-center gap-2">
-                                          <input
-                                            value={root}
-                                            onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
-                                            readOnly={appSettingsSaving}
-                                            className="flex-1 rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
-                                            style={{ borderColor: C.border, color: C.ink }}
-                                            placeholder={index === 0 ? "~/dev" : "Add another source root"}
-                                          />
-                                          <button
-                                            type="button"
-                                            className="os-toolbar-button text-[10px] font-medium px-2 py-2 rounded"
-                                            style={{ color: C.ink }}
-                                            onClick={() => handleBrowseForSourceRoot(index)}
-                                            disabled={appSettingsSaving}
-                                          >
-                                            Finder
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="os-toolbar-button text-[12px] font-medium w-8 h-8 rounded disabled:opacity-50"
-                                            style={{ color: C.ink }}
-                                            onClick={() => handleRemoveSourceRootRow(index)}
-                                            disabled={appSettingsSaving || ((visibleAppSettings.workspaceRoots ?? []).length <= 1 && !root)}
-                                            aria-label={`Remove source root ${index + 1}`}
-                                          >
-                                            -
-                                          </button>
-                                        </div>
-                                      ))}
-                                      {(visibleAppSettings.workspaceRoots ?? []).length === 0 ? (
-                                        <div className="rounded-lg border border-dashed px-3 py-3 text-[11px] leading-[1.5]" style={{ borderColor: C.border, color: C.muted }}>
-                                          No scan folders yet. Add one to let Scout discover repos and projects.
-                                        </div>
-                                      ) : null}
+                                  <div className="space-y-2">
+                                    {(visibleAppSettings.workspaceRoots ?? []).map((root, index) => (
+                                      <div key={`onboarding-source-root-${index}`} className="flex items-center gap-1.5">
+                                        <input
+                                          value={root}
+                                          onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
+                                          readOnly={!isAppSettingsEditing || appSettingsSaving}
+                                          className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
+                                          style={{ borderColor: C.border, color: C.ink }}
+                                          placeholder={index === 0 ? '~/dev' : 'Add another scan folder'}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
+                                          style={{ color: C.ink }}
+                                          onClick={() => handleBrowseForSourceRoot(index)}
+                                          disabled={!isAppSettingsEditing || appSettingsSaving}
+                                        >
+                                          Finder
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded-md disabled:opacity-50"
+                                          style={{ color: C.ink }}
+                                          onClick={() => handleRemoveSourceRootRow(index)}
+                                          disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings.workspaceRoots ?? []).length <= 1 && !root)}
+                                          aria-label={`Remove source root ${index + 1}`}
+                                        >
+                                          -
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
+                                      style={{ color: C.ink }}
+                                      onClick={() => {
+                                        handleBeginGeneralEdit();
+                                        handleAddSourceRootRow();
+                                      }}
+                                      disabled={appSettingsSaving}
+                                    >
+                                      <span className="text-[12px] leading-none">+</span>
+                                      Add path
+                                    </button>
+                                    <span className="text-[10px]" style={s.mutedText}>or</span>
+                                    {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
                                       <button
+                                        key={root}
                                         type="button"
-                                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
+                                        className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded-md disabled:opacity-50"
                                         style={{ color: C.ink }}
-                                        onClick={handleAddSourceRootRow}
+                                        onClick={() => {
+                                          handleBeginGeneralEdit();
+                                          handleAddSourceRootSuggestion(root);
+                                        }}
                                         disabled={appSettingsSaving}
                                       >
-                                        <span className="text-[12px] leading-none">+</span>
-                                        Add path
+                                        {root}
                                       </button>
-                                    </div>
-                                  ) : (
-                                    <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                      <div className="flex flex-wrap gap-2">
-                                        {(visibleAppSettings.workspaceRoots ?? []).length > 0 ? visibleAppSettings.workspaceRoots.map((root) => (
-                                          <span key={root} className="text-[10px] font-mono px-2 py-1 rounded" style={s.tagBadge}>{root}</span>
-                                        )) : (
-                                          <span className="text-[11px]" style={s.mutedText}>No source roots configured yet.</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <div>
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Quick Picks</div>
-                                    <div className="flex flex-wrap gap-2">
-                                      {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
-                                        <button
-                                          key={root}
-                                          className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                          style={{ color: C.ink }}
-                                          onClick={() => handleAddSourceRootSuggestion(root)}
-                                          disabled={appSettingsSaving}
-                                        >
-                                          Add {root}
-                                        </button>
-                                      ))}
-                                    </div>
+                                    ))}
                                   </div>
 
                                   <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Relay Context Root</div>
-                                    <div className="text-[10px] mb-2 leading-[1.5]" style={s.mutedText}>
-                                      This is where Scout will save `.openscout/project.json` for this context.
-                                    </div>
+                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Context root</div>
                                     {isAppSettingsEditing ? (
                                       <>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 max-w-md">
                                           <input
                                             value={visibleAppSettings.onboardingContextRoot ?? ''}
                                             onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
                                             readOnly={appSettingsSaving}
-                                            className="flex-1 rounded-lg border px-3 py-2.5 text-[13px] leading-[1.5] bg-transparent outline-none"
+                                            className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
                                             style={{ borderColor: C.border, color: C.ink }}
                                             placeholder="Choose where .openscout should live"
                                           />
                                           <button
                                             type="button"
-                                            className="os-toolbar-button text-[10px] font-medium px-2 py-2 rounded"
+                                            className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
                                             style={{ color: C.ink }}
                                             onClick={handleBrowseForOnboardingContextRoot}
                                             disabled={appSettingsSaving}
@@ -5926,7 +6218,7 @@ export default function App() {
                                         onClick={handleStartAppSettingsEdit}
                                         disabled={appSettingsLoading || appSettingsSaving}
                                       >
-                                          Edit Inputs
+                                        Edit Inputs
                                       </button>
                                     ) : null}
                                     <div className="text-[10px] leading-[1.5]" style={s.mutedText}>
@@ -6114,7 +6406,6 @@ export default function App() {
                         <div className="text-[11px]" style={s.mutedText}>Loading settings…</div>
                       ) : (
                         <div className="space-y-5">
-
                           <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="p-4 border-b" style={{ borderColor: C.border }}>
                               <div className="flex items-start justify-between gap-3">
@@ -6193,11 +6484,8 @@ export default function App() {
                             </div>
                           </section>
 
-                          {/* --- Grouped Settings --- */}
                           <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
                             <div className="divide-y" style={{ borderColor: C.border }}>
-
-                              {/* Display Name */}
                               <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                                 <div className="sm:w-1/3">
                                   <div className="text-[12px] font-medium" style={s.inkText}>Display Name</div>
@@ -6222,7 +6510,6 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Default Harness / Runtimes */}
                               <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
                                 <div className="sm:w-1/3">
                                   <div className="text-[12px] font-medium" style={s.inkText}>Default Harness</div>
@@ -6270,7 +6557,6 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Context Root */}
                               <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
                                 <div className="sm:w-1/3">
                                   <div className="text-[12px] font-medium" style={s.inkText}>Context Root</div>
@@ -6328,7 +6614,6 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Scan Folders */}
                               <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
                                 <div className="sm:w-1/3">
                                   <div className="text-[12px] font-medium" style={s.inkText}>Scan Folders</div>
@@ -6406,11 +6691,9 @@ export default function App() {
                                   </div>
                                 </div>
                               </div>
-
                             </div>
                           </section>
 
-                          {/* --- Feedback & Doctor Output --- */}
                           {appSettingsFeedback ? (
                             <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
                           ) : null}
@@ -6425,1029 +6708,114 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                ) : settingsSection === 'knowledge' ? (
-                  <div className="max-w-3xl">
-                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[13px] font-medium" style={s.inkText}>Knowledge Base moved</div>
-                      <div className="text-[12px] mt-1 leading-[1.6]" style={s.mutedText}>
-                        Open Help for the dedicated Knowledge Base and CLI guide.
-                      </div>
-                      <div className="mt-4">
-                        <button
-                          type="button"
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
-                          style={{ color: C.ink }}
-                          onClick={openKnowledgeBase}
-                        >
-                          <BookOpen size={12} />
-                          Open Help
-                        </button>
-                      </div>
-                    </section>
-                  </div>
                 ) : settingsSection === 'agents' ? (
-                  <div className="space-y-4 min-w-0">
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Workspace discovery</div>
-                            <div className="text-[18px] font-semibold tracking-tight" style={s.inkText}>Workspace Explorer</div>
-                            <div className="text-[12px] mt-1 leading-[1.6]" style={s.mutedText}>
-                              Discover local projects, bind agents, and inspect harness readiness. Inventory loads on demand so this page stays responsive.
-                            </div>
-                          </div>
-                          <div className="hidden xl:flex items-center gap-2 shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-2"
-                              onClick={() => { void handleRunOnboardingCommand('doctor'); }}
-                              disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
-                            >
-                              {onboardingCommandPending === 'doctor' ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
-                              {onboardingCommandPending === 'doctor' ? 'Scanning…' : 'Refresh'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="gap-2"
-                              onClick={handleAddWorkspaceFromExplorer}
-                            >
-                              <Plus className="h-4 w-4" />
-                              Add Workspace
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="px-6 py-4 border-b" style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 82%, transparent)' }}>
-                        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                          <div className="flex flex-1 flex-col gap-3 xl:flex-row xl:items-center">
-                            <div className="relative w-full xl:w-80">
-                              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: C.muted }} />
-                              <Input
-                                placeholder="Search workspaces..."
-                                value={workspaceExplorerQuery}
-                                onChange={(event) => setWorkspaceExplorerQuery(event.target.value)}
-                                className="pl-9"
-                              />
-                            </div>
-
-                            <div className="flex items-center gap-1 rounded-lg border p-1" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              {[
-                                ['all', 'All', workspaceExplorerItems.length],
-                                ['bound', 'Bound', workspaceExplorerBoundCount],
-                                ['discovered', 'Discovered', workspaceExplorerDiscoveredCount],
-                              ].map(([id, label, count]) => {
-                                const active = workspaceExplorerFilter === id;
-                                return (
-                                  <button
-                                    key={id}
-                                    type="button"
-                                    className="rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors"
-                                    style={{
-                                      backgroundColor: active ? C.surface : 'transparent',
-                                      color: active ? C.ink : C.muted,
-                                      boxShadow: active ? C.shadowXs : 'none',
-                                    }}
-                                    onClick={() => setWorkspaceExplorerFilter(id as WorkspaceExplorerFilterTab)}
-                                  >
-                                    <span className="flex items-center gap-1.5">
-                                      {id === 'bound' ? <span className="h-2 w-2 rounded-full bg-emerald-500" /> : null}
-                                      {label}
-                                      <span style={{ color: C.muted }}>{count}</span>
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-0.5 rounded-lg border p-0.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <button
-                                type="button"
-                                className="rounded-md p-1.5 transition-colors"
-                                style={{ backgroundColor: workspaceExplorerViewMode === 'grid' ? C.surface : 'transparent', color: workspaceExplorerViewMode === 'grid' ? C.ink : C.muted }}
-                                onClick={() => setWorkspaceExplorerViewMode('grid')}
-                                title="Grid view"
-                              >
-                                <Grid3x3 className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-md p-1.5 transition-colors"
-                                style={{ backgroundColor: workspaceExplorerViewMode === 'list' ? C.surface : 'transparent', color: workspaceExplorerViewMode === 'list' ? C.ink : C.muted }}
-                                onClick={() => setWorkspaceExplorerViewMode('list')}
-                                title="List view"
-                              >
-                                <List className="h-4 w-4" />
-                              </button>
-                            </div>
-
-                            <div className="xl:hidden flex items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-2"
-                                onClick={() => { void handleRunOnboardingCommand('doctor'); }}
-                                disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
-                              >
-                                {onboardingCommandPending === 'doctor' ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
-                                Refresh
-                              </Button>
-                              <Button
-                                size="sm"
-                                className="gap-2"
-                                onClick={handleAddWorkspaceFromExplorer}
-                              >
-                                <Plus className="h-4 w-4" />
-                                Add
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-6">
-                        {!visibleAppSettings?.workspaceInventoryLoaded ? (
-                          <div
-                            className="flex flex-col items-stretch rounded-xl border border-dashed px-6 py-10 text-center"
-                            style={{ borderColor: C.border }}
-                            aria-busy={workspaceInventoryLoading}
-                          >
-                            <div className="flex flex-col items-center max-w-lg mx-auto">
-                              {workspaceInventoryLoading ? <Spinner className="text-[28px] mb-3" style={{ color: C.muted, opacity: 0.7 }} /> : <FolderOpen className="h-8 w-8 mb-3" style={{ color: C.muted, opacity: 0.5 }} />}
-                              <div className="text-[13px] font-medium mb-1" style={s.inkText}>
-                                {workspaceInventoryLoading ? 'Loading workspaces…' : 'Workspace inventory is not loaded yet'}
-                              </div>
-                              <div className="text-[11px] mb-5 max-w-md leading-[1.6]" style={s.mutedText}>
-                                Scan folders and project manifests are read when you load this list. Use General to edit scan roots first if discovery looks empty.
-                              </div>
-                              <Button
-                                variant="default"
-                                size="sm"
-                                className="gap-2"
-                                onClick={() => {
-                                  if (!scoutDesktop?.refreshSettingsInventory) {
-                                    return;
-                                  }
-                                  setWorkspaceInventoryLoading(true);
-                                  void scoutDesktop.refreshSettingsInventory()
-                                    .then((nextSettings) => {
-                                      applyNextAppSettings(nextSettings);
-                                    })
-                                    .catch((error) => {
-                                      setAppSettingsFeedback(asErrorMessage(error));
-                                    })
-                                    .finally(() => {
-                                      setWorkspaceInventoryLoading(false);
-                                    });
-                                }}
-                                disabled={workspaceInventoryLoading || !scoutDesktop?.refreshSettingsInventory}
-                              >
-                                {workspaceInventoryLoading ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
-                                Load Workspaces
-                              </Button>
-                            </div>
-                            {workspaceInventoryLoading ? (
-                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3 mt-8 w-full">
-                                {[0, 1, 2].map((slot) => (
-                                  <div
-                                    key={`ws-skel-${slot}`}
-                                    className="h-[88px] rounded-xl border animate-pulse"
-                                    style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 70%, transparent)' }}
-                                  />
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : filteredWorkspaceExplorerItems.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center" style={{ borderColor: C.border }}>
-                            <FolderOpen className="h-8 w-8 mb-3" style={{ color: C.muted, opacity: 0.5 }} />
-                            <div className="text-[13px] font-medium mb-1" style={s.inkText}>No workspaces found</div>
-                            <div className="text-[11px] mb-4 max-w-md leading-[1.6]" style={s.mutedText}>
-                              {workspaceExplorerQuery
-                                ? 'Try a different search term or filter.'
-                                : 'Add scan directories in General settings, then refresh to discover workspaces.'}
-                            </div>
-                            <Button
-                              variant="outline"
-                              className="gap-2"
-                              onClick={() => { void handleRunOnboardingCommand('doctor'); }}
-                              disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || appSettingsDirty}
-                            >
-                              {onboardingCommandPending === 'doctor' ? <Spinner className="text-[14px]" /> : <RefreshCw className="h-4 w-4" />}
-                              Scan Workspaces
-                            </Button>
-                          </div>
-                        ) : workspaceExplorerViewMode === 'grid' ? (
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                            {filteredWorkspaceExplorerItems.map((item) => (
-                              <WorkspaceExplorerCard
-                                key={item.project.id}
-                                item={item}
-                                isSelected={selectedWorkspaceProject?.id === item.project.id}
-                                onSelect={() => handleInspectWorkspace(item.project)}
-                                onPrimaryAction={() => handleOpenWorkspace(item.project)}
-                                onSecondaryAction={() => { void handleRetireProject(item.project.root, item.project.title); }}
-                                secondaryActionPending={projectRetirementPendingRoot === item.project.root}
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <WorkspaceExplorerTable
-                            items={filteredWorkspaceExplorerItems}
-                            selectedWorkspaceId={selectedWorkspaceProject?.id ?? null}
-                            onSelectWorkspace={handleInspectWorkspace}
-                            onPrimaryAction={handleOpenWorkspace}
-                            onSecondaryAction={(project) => { void handleRetireProject(project.root, project.title); }}
-                            projectRetirementPendingRoot={projectRetirementPendingRoot}
-                          />
-                        )}
-                      </div>
-                    </section>
-
-                    {appSettingsFeedback ? (
-                      <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
-                    ) : null}
-
-                    {onboardingCommandResult?.command === 'doctor' ? (
-                      <div className="space-y-2">
-                        <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Scan Results</div>
-                        {renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor')}
-                      </div>
-                    ) : null}
-
-                    <div className="space-y-4 min-w-0">
-                      {!selectedInterAgent && !selectedWorkspaceProject ? (
-                        <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="text-[13px] font-medium mb-1" style={s.inkText}>Select a workspace</div>
-                          <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                            Choose a workspace above to inspect its project details or open its bound agent.
-                          </div>
-                        </section>
-                      ) : !selectedInterAgent && selectedWorkspaceProject ? (
-                        <>
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="min-w-0">
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Workspace Details</div>
-                                <div className="text-[18px] font-semibold tracking-tight mt-1.5" style={s.inkText}>{selectedWorkspaceProject.title}</div>
-                                <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
-                                  Discovered workspace. No bound agent is attached yet.
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="os-toolbar-button text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50 shrink-0"
-                                style={{ color: C.ink }}
-                                onClick={() => { void handleRetireProject(selectedWorkspaceProject.root, selectedWorkspaceProject.title); }}
-                                disabled={Boolean(projectRetirementPendingRoot)}
-                              >
-                                {projectRetirementPendingRoot === selectedWorkspaceProject.root ? 'Retiring…' : 'Retire Workspace'}
-                              </button>
-                            </div>
-                          </section>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
-                            <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Workspace Summary</div>
-                              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                                {[
-                                  ['Workspace', selectedWorkspaceProject.projectName],
-                                  ['Agent ID', selectedWorkspaceProject.definitionId],
-                                  ['Root', compactHomePath(selectedWorkspaceProject.root) ?? selectedWorkspaceProject.root],
-                                  ['Source Root', compactHomePath(selectedWorkspaceProject.sourceRoot) ?? selectedWorkspaceProject.sourceRoot],
-                                  ['Relative Path', selectedWorkspaceProject.relativePath],
-                                  ['Default Harness', selectedWorkspaceProject.defaultHarness],
-                                  ['Registration', selectedWorkspaceProject.registrationKind],
-                                  ['Manifest', selectedWorkspaceProject.projectConfigPath ?? 'Not created'],
-                                ].map(([label, value]) => (
-                                  <div key={label} className="min-w-0">
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                    <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>
-                                      {label === 'Root' || label === 'Source Root' || label === 'Manifest'
-                                        ? renderLocalPathValue(String(value), {
-                                          className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                        })
-                                        : value}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-
-                            <div className="space-y-4 min-w-0">
-                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Harness Evidence</div>
-                                <div className="space-y-2">
-                                  {selectedWorkspaceProject.harnesses.map((entry) => (
-                                    <div key={`${entry.harness}-${entry.source}`} className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                      <div className="flex items-center justify-between gap-3">
-                                        <div className="text-[12px] font-medium" style={s.inkText}>{entry.harness}</div>
-                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={entry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
-                                          {entry.source}
-                                        </span>
-                                      </div>
-                                      <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>{entry.detail}</div>
-                                      {entry.readinessDetail ? (
-                                        <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>{entry.readinessDetail}</div>
-                                      ) : null}
-                                    </div>
-                                  ))}
-                                </div>
-                              </section>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="min-w-0">
-                                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Selected Agent</div>
-                                <div className="text-[18px] font-semibold tracking-tight mt-1.5" style={s.inkText}>{selectedInterAgent!.title}</div>
-                                <div className="text-[12px] mt-2 leading-[1.6]" style={s.mutedText}>
-                                  {interAgentProfileKindLabel(selectedInterAgent!.profileKind)} · {selectedInterAgent!.statusDetail ?? selectedInterAgent!.summary ?? 'No status reported.'}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <button
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                  style={{ color: C.ink }}
-                                  onClick={() => openRelayAgentThread(selectedInterAgent!.id, { focusComposer: true })}
-                                >
-                                  Message
-                                </button>
-                                <button
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                  style={{ color: C.ink }}
-                                  onClick={() => openAgentProfile(selectedInterAgent!.id)}
-                                >
-                                  Show in Agents
-                                </button>
-                              </div>
-                            </div>
-                          </section>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
-                            <section className="border rounded-xl p-5 min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                              <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>System Prompt</div>
-                              {isAgentConfigEditing && hasEditableAgentConfig && !agentConfigLoading ? (
-                                <div
-                                  className="mb-3 rounded-lg border p-3 max-h-[200px] overflow-y-auto"
-                                  style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 90%, transparent)' }}
-                                >
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>Insert at caret</div>
-                                  {([
-                                    ['Prompt blocks', LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS.slice(0, LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT)],
-                                    ['Substitutions', LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS.slice(LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT)],
-                                  ] as const).map(([groupLabel, tokens]) => (
-                                    <div key={groupLabel} className="mb-2 last:mb-0">
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1 opacity-80" style={s.mutedText}>{groupLabel}</div>
-                                      <div className="flex flex-wrap gap-1">
-                                        {tokens.map((token) => (
-                                          <button
-                                            key={token}
-                                            type="button"
-                                            className="rounded border px-1.5 py-0.5 text-[9px] font-mono leading-none transition-opacity hover:opacity-90 disabled:opacity-40"
-                                            style={{ borderColor: C.border, color: C.accent, backgroundColor: C.surface }}
-                                            disabled={agentConfigSaving || agentConfigRestarting}
-                                            title={`Insert {{${token}}}`}
-                                            onClick={() => insertAgentPromptToken(token)}
-                                          >
-                                            {`{{${token}}}`}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  <div className="mt-2 pt-2 border-t" style={{ borderColor: C.border }}>
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1 opacity-80" style={s.mutedText}>Environment</div>
-                                    <button
-                                      type="button"
-                                      className="rounded border px-1.5 py-0.5 text-[9px] font-mono leading-none transition-opacity hover:opacity-90 disabled:opacity-40"
-                                      style={{ borderColor: C.border, color: C.accent, backgroundColor: C.surface }}
-                                      disabled={agentConfigSaving || agentConfigRestarting}
-                                      title="Insert {{env.NAME}} (replace NAME)"
-                                      onClick={insertAgentPromptEnvPlaceholder}
-                                    >
-                                      {'{{env.NAME}}'}
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : null}
-                              {agentConfigLoading ? (
-                                <div className="text-[11px]" style={s.mutedText}>Loading system prompt…</div>
-                              ) : isAgentConfigEditing ? (
-                                <textarea
-                                  ref={agentSystemPromptRef}
-                                  value={visibleAgentConfig?.systemPrompt ?? ''}
-                                  onChange={(event) => {
-                                    setAgentConfigDraft((current) => current ? {
-                                      ...current,
-                                      systemPrompt: event.target.value,
-                                    } : current);
-                                    setAgentConfigFeedback(null);
-                                  }}
-                                  readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                  className="w-full min-h-[460px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] resize-y bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div
-                                  ref={agentSystemPromptViewRef}
-                                  tabIndex={0}
-                                  className="w-full min-h-[460px] max-h-[760px] overflow-auto rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.6] whitespace-pre-wrap break-words outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                >
-                                  {renderAgentPromptWithPlaceholders(
-                                    visibleAgentConfig?.systemPrompt ?? 'System prompt unavailable.',
-                                    `agent-prompt-${selectedInterAgent?.id ?? 'none'}`,
-                                  )}
-                                </div>
-                              )}
-                              {visibleAgentConfig?.systemPromptHint ? (
-                                <details className="mt-3 group rounded-lg border text-left" style={{ borderColor: C.border, backgroundColor: 'color-mix(in srgb, var(--os-bg) 88%, transparent)' }}>
-                                  <summary className="cursor-pointer select-none list-none px-3 py-2 text-[11px] font-medium [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2" style={s.inkText}>
-                                    <span>Template variables</span>
-                                    <span className="text-[10px] font-normal shrink-0" style={s.mutedText}>
-                                      <span className="group-open:hidden">Show</span>
-                                      <span className="hidden group-open:inline">Hide</span>
-                                    </span>
-                                  </summary>
-                                  <div className="px-3 pb-3 text-[11px] leading-[1.55] border-t" style={{ borderColor: C.border, ...s.mutedText }}>
-                                    {visibleAgentConfig.systemPromptHint}
-                                  </div>
-                                </details>
-                              ) : null}
-                              {agentConfigFeedback ? (
-                                <div className="text-[11px] mt-2 leading-[1.5]" style={s.inkText}>{agentConfigFeedback}</div>
-                              ) : null}
-                            </section>
-
-                            <div className="space-y-4 min-w-0">
-                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Runtime</div>
-                                {agentConfigLoading ? (
-                                  <div className="text-[11px]" style={s.mutedText}>Loading runtime…</div>
-                                ) : isAgentConfigEditing ? (
-                                  <div className="space-y-3">
-                                    <div>
-                                      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Path</div>
-                                      <input
-                                        ref={agentRuntimePathRef}
-                                        value={visibleAgentConfig?.runtime.cwd ?? ''}
-                                        onChange={(event) => {
-                                          setAgentConfigDraft((current) => current ? {
-                                            ...current,
-                                            runtime: {
-                                              ...current.runtime,
-                                              cwd: event.target.value,
-                                            },
-                                          } : current);
-                                          setAgentConfigFeedback(null);
-                                        }}
-                                        readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                        className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                        style={{ borderColor: C.border, color: C.ink }}
-                                      />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div>
-                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Harness</div>
-                                        <select
-                                          value={visibleAgentConfig?.runtime.harness ?? ''}
-                                          onChange={(event) => {
-                                            setAgentConfigDraft((current) => current ? {
-                                              ...current,
-                                              runtime: {
-                                                ...current.runtime,
-                                                harness: event.target.value,
-                                              },
-                                            } : current);
-                                            setAgentConfigFeedback(null);
-                                          }}
-                                          disabled={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                          className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                          style={{ borderColor: C.border, color: C.ink }}
-                                        >
-                                          {visibleAgentConfig?.availableHarnesses.map((harness) => (
-                                            <option key={harness} value={harness}>{harness}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Session</div>
-                                        <input
-                                          value={visibleAgentConfig?.runtime.sessionId ?? ''}
-                                          onChange={(event) => {
-                                            setAgentConfigDraft((current) => current ? {
-                                              ...current,
-                                              runtime: {
-                                                ...current.runtime,
-                                                sessionId: event.target.value,
-                                              },
-                                            } : current);
-                                            setAgentConfigFeedback(null);
-                                          }}
-                                          readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                          className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                          style={{ borderColor: C.border, color: C.ink }}
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <dl>
-                                    {[
-                                      ['Path', visibleAgentConfig?.runtime.cwd ?? compactHomePath(selectedInterAgent!.projectRoot ?? selectedInterAgent!.cwd) ?? 'Not reported'],
-                                      ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent!.harness ?? 'Not reported'],
-                                      ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent!.sessionId ?? 'Not reported'],
-                                      ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent!.transport ?? 'Not reported'],
-                                      ['Wake policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent!.wakePolicy || 'Not reported'],
-                                      ['Live runtime', compactHomePath(selectedInterAgent!.projectRoot ?? selectedInterAgent!.cwd) ?? 'Not reported'],
-                                    ].map(([label, value]) => (
-                                      <div key={label} className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 py-2.5 border-b last:border-b-0" style={{ borderColor: C.border }}>
-                                        <dt className="text-[9px] font-mono uppercase tracking-widest shrink-0 sm:w-[7.5rem]" style={s.mutedText}>{label}</dt>
-                                        <dd className="text-[11px] leading-[1.45] break-words min-w-0 text-left sm:text-right sm:max-w-[70%]">
-                                          <span style={s.inkText}>
-                                            {label === 'Path' || label === 'Live runtime'
-                                              ? renderLocalPathValue(String(value), {
-                                                className: 'text-left sm:text-right underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                              })
-                                              : value}
-                                          </span>
-                                        </dd>
-                                      </div>
-                                    ))}
-                                  </dl>
-                                )}
-                              </section>
-
-                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Tool Use</div>
-                                {isAgentConfigEditing ? (
-                                  <textarea
-                                    value={visibleAgentConfig?.toolUse.launchArgsText ?? ''}
-                                    onChange={(event) => {
-                                      setAgentConfigDraft((current) => current ? {
-                                        ...current,
-                                        toolUse: {
-                                          ...current.toolUse,
-                                          launchArgsText: event.target.value,
-                                        },
-                                      } : current);
-                                      setAgentConfigFeedback(null);
-                                    }}
-                                    readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                    className="w-full min-h-[132px] rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.5] resize-y bg-transparent outline-none"
-                                    style={{ borderColor: C.border, color: C.ink }}
-                                  />
-                                ) : (
-                                  <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words min-h-[88px]" style={{ borderColor: C.border, color: C.ink }}>
-                                    {normalizeDraftText(visibleAgentConfig?.toolUse.launchArgsText ?? '') || 'No launch args configured.'}
-                                  </div>
-                                )}
-                              </section>
-
-                              <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                                <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Capabilities</div>
-                                {isAgentConfigEditing ? (
-                                  <input
-                                    value={visibleAgentConfig?.capabilitiesText ?? ''}
-                                    onChange={(event) => {
-                                      setAgentConfigDraft((current) => current ? {
-                                        ...current,
-                                        capabilitiesText: event.target.value,
-                                      } : current);
-                                      setAgentConfigFeedback(null);
-                                    }}
-                                    readOnly={!hasEditableAgentConfig || agentConfigSaving || agentConfigRestarting}
-                                    className="w-full rounded-lg border px-3 py-2.5 text-[11px] leading-[1.5] bg-transparent outline-none"
-                                    style={{ borderColor: C.border, color: C.ink }}
-                                  />
-                                ) : null}
-                                {agentCapabilitiesPreview.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1.5 mt-2">
-                                    {agentCapabilitiesPreview.map((capability) => (
-                                      <span key={capability} className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                        {capability}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="text-[11px]" style={s.mutedText}>No capabilities configured.</div>
-                                )}
-                              </section>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                  <AgentSettingsView
+                    styles={{
+                      surface: s.surface,
+                      inkText: s.inkText,
+                      mutedText: s.mutedText,
+                      tagBadge: s.tagBadge,
+                      activePill: s.activePill,
+                    }}
+                    selectedInterAgent={selectedInterAgent}
+                    availableAgents={rosterInterAgentAgents}
+                    isAgentConfigEditing={isAgentConfigEditing}
+                    hasEditableAgentConfig={hasEditableAgentConfig}
+                    agentConfigLoading={agentConfigLoading}
+                    agentConfigSaving={agentConfigSaving}
+                    agentConfigRestarting={agentConfigRestarting}
+                    visibleAgentConfig={visibleAgentConfig}
+                    agentConfigFeedback={agentConfigFeedback}
+                    agentCapabilitiesPreview={agentCapabilitiesPreview}
+                    agentRuntimePathRef={agentRuntimePathRef}
+                    onOpenAgents={() => setActiveView('agents')}
+                    onOpenAgentProfile={openAgentProfile}
+                    onOpenAgentThread={(agentId) => openRelayAgentThread(agentId, { focusComposer: true })}
+                    onUpdateAgentConfigDraft={updateAgentConfigDraft}
+                    renderLocalPathValue={renderLocalPathValue}
+                    interAgentProfileKindLabel={interAgentProfileKindLabel}
+                    onSelectAgent={handleSelectInterAgent}
+                  />
+                ) : settingsSection === 'workspaces' ? (
+                  <WorkspaceExplorerView
+                    styles={{
+                      surface: s.surface,
+                      inkText: s.inkText,
+                      mutedText: s.mutedText,
+                      tagBadge: s.tagBadge,
+                      activePill: s.activePill,
+                    }}
+                    selectedWorkspaceProject={selectedWorkspaceProject}
+                    selectedWorkspaceAgent={selectedWorkspaceAgent}
+                    workspaceExplorerQuery={workspaceExplorerQuery}
+                    setWorkspaceExplorerQuery={setWorkspaceExplorerQuery}
+                    workspaceExplorerFilter={workspaceExplorerFilter}
+                    setWorkspaceExplorerFilter={setWorkspaceExplorerFilter}
+                    workspaceExplorerViewMode={workspaceExplorerViewMode}
+                    setWorkspaceExplorerViewMode={setWorkspaceExplorerViewMode}
+                    workspaceExplorerItems={workspaceExplorerItems}
+                    workspaceExplorerBoundCount={workspaceExplorerBoundCount}
+                    workspaceExplorerDiscoveredCount={workspaceExplorerDiscoveredCount}
+                    filteredWorkspaceExplorerItems={filteredWorkspaceExplorerItems}
+                    workspaceInventoryLoaded={workspaceInventoryLoaded}
+                    workspaceInventoryLoading={workspaceInventoryLoading}
+                    canRefreshWorkspaceInventory={canRefreshWorkspaceInventory}
+                    onboardingCommandPending={onboardingCommandPending}
+                    appSettingsLoading={appSettingsLoading}
+                    appSettingsSaving={appSettingsSaving}
+                    appSettingsDirty={appSettingsDirty}
+                    appSettingsFeedback={appSettingsFeedback}
+                    showDoctorOutput={showDoctorOutput}
+                    doctorOutput={renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor')}
+                    projectRetirementPendingRoot={projectRetirementPendingRoot}
+                    onRefreshWorkspaceDiscovery={() => {
+                      void handleRunOnboardingCommand('doctor');
+                    }}
+                    onLoadWorkspaceInventory={handleLoadWorkspaceInventory}
+                    onAddWorkspace={handleAddWorkspaceFromExplorer}
+                    onInspectWorkspace={handleInspectWorkspace}
+                    onOpenWorkspace={handleOpenWorkspace}
+                    onRetireWorkspace={(project) => {
+                      void handleRetireProject(project.root, project.title);
+                    }}
+                    onOpenAgentProfile={openAgentProfile}
+                    onOpenAgentSettings={(agentId) => openAgentSettings(agentId, true)}
+                    renderLocalPathValue={renderLocalPathValue}
+                  />
                 ) : settingsSection === 'communication' ? (
-                  <div className="max-w-3xl space-y-5">
-                    <div className="space-y-5 min-w-0">
-                      {desktopFeatures.telegram ? (
-                      <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="flex items-center justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Telegram Bridge</div>
-                            <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={visibleAppSettings?.telegram.running ? s.activePill : s.tagBadge}>
-                              {visibleAppSettings?.telegram.running ? 'Running' : visibleAppSettings?.telegram.enabled ? 'Stopped' : 'Disabled'}
-                            </span>
-                          </div>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <span className="text-[11px]" style={s.mutedText}>Enabled</span>
-                            <input
-                              type="checkbox"
-                              checked={visibleAppSettings?.telegram.enabled ?? false}
-                              disabled={!isAppSettingsEditing || appSettingsSaving}
-                              onChange={(event) => {
-                                setAppSettingsDraft((current) => current ? {
-                                  ...current,
-                                  telegram: {
-                                    ...current.telegram,
-                                    enabled: event.target.checked,
-                                  },
-                                } : current);
-                                setAppSettingsFeedback(null);
-                              }}
-                            />
-                          </label>
-                        </div>
-
-                        <div className="space-y-3">
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Mode</div>
-                              {isAppSettingsEditing ? (
-                                <select
-                                  value={visibleAppSettings?.telegram.mode ?? 'polling'}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      telegram: {
-                                        ...current.telegram,
-                                        mode: event.target.value as 'auto' | 'webhook' | 'polling',
-                                      },
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  disabled={appSettingsSaving}
-                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                >
-                                  <option value="polling">polling</option>
-                                  <option value="auto">auto</option>
-                                  <option value="webhook">webhook</option>
-                                </select>
-                              ) : (
-                                <div className="text-[12px] font-medium" style={s.inkText}>{visibleAppSettings?.telegram.mode ?? 'polling'}</div>
-                              )}
-                            </div>
-
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Telegram Target</div>
-                              {isAppSettingsEditing ? (
-                                <input
-                                  value={visibleAppSettings?.telegram.defaultConversationId ?? 'dm.scout.primary'}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      telegram: {
-                                        ...current.telegram,
-                                        defaultConversationId: event.target.value,
-                                      },
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="text-[13px] font-medium" style={s.inkText}>{visibleAppSettings?.telegram.defaultConversationId ?? 'dm.scout.primary'}</div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Bot Username</div>
-                              {isAppSettingsEditing ? (
-                                <input
-                                  value={visibleAppSettings?.telegram.userName ?? ''}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      telegram: {
-                                        ...current.telegram,
-                                        userName: event.target.value,
-                                      },
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="text-[12px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.userName || 'Not set'}</div>
-                              )}
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Owner Node</div>
-                              {isAppSettingsEditing ? (
-                                <input
-                                  value={visibleAppSettings?.telegram.ownerNodeId ?? ''}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      telegram: {
-                                        ...current.telegram,
-                                        ownerNodeId: event.target.value,
-                                      },
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  placeholder="Automatic"
-                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="text-[12px] font-medium break-words" style={s.inkText}>
-                                  {visibleAppSettings?.telegram.ownerNodeId || 'Automatic'}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Bot Token</div>
-                              {isAppSettingsEditing ? (
-                                <input
-                                  type="password"
-                                  value={visibleAppSettings?.telegram.botToken ?? ''}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      telegram: {
-                                        ...current.telegram,
-                                        botToken: event.target.value,
-                                      },
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  placeholder="Telegram bot token"
-                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="text-[11px]" style={s.inkText}>
-                                  {visibleAppSettings?.telegram.botToken ? 'Configured' : 'Not set'}
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Webhook Secret</div>
-                              {isAppSettingsEditing ? (
-                                <input
-                                  type="password"
-                                  value={visibleAppSettings?.telegram.secretToken ?? ''}
-                                  onChange={(event) => {
-                                    setAppSettingsDraft((current) => current ? {
-                                      ...current,
-                                      telegram: {
-                                        ...current.telegram,
-                                        secretToken: event.target.value,
-                                      },
-                                    } : current);
-                                    setAppSettingsFeedback(null);
-                                  }}
-                                  readOnly={appSettingsSaving}
-                                  placeholder="Optional"
-                                  className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                  style={{ borderColor: C.border, color: C.ink }}
-                                />
-                              ) : (
-                                <div className="text-[11px]" style={s.inkText}>
-                                  {visibleAppSettings?.telegram.secretToken ? 'Configured' : 'Not set'}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>API Base URL</div>
-                            {isAppSettingsEditing ? (
-                              <input
-                                value={visibleAppSettings?.telegram.apiBaseUrl ?? ''}
-                                onChange={(event) => {
-                                  setAppSettingsDraft((current) => current ? {
-                                    ...current,
-                                    telegram: {
-                                      ...current.telegram,
-                                      apiBaseUrl: event.target.value,
-                                    },
-                                  } : current);
-                                  setAppSettingsFeedback(null);
-                                }}
-                                readOnly={appSettingsSaving}
-                                className="w-full rounded-md border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                                style={{ borderColor: C.border, color: C.ink }}
-                              />
-                            ) : (
-                              <div className="text-[12px] font-medium break-words" style={s.inkText}>{visibleAppSettings?.telegram.apiBaseUrl || 'Default Telegram API'}</div>
-                            )}
-                          </div>
-
-                          {appSettingsFeedback ? (
-                            <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
-                          ) : null}
-                        </div>
-                      </section>
-                      ) : null}
-
-                      {/* --- Relay Service + Runtime --- */}
-                      <section ref={relayServiceInspectorRef} className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                        {brokerInspector ? (
-                          <>
-                            <div className="p-4">
-                              <div className="flex items-center justify-between gap-3 mb-4">
-                                <div className="flex items-center gap-2.5">
-                                  <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Relay Service</div>
-                                  <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={brokerInspector.reachable ? s.activePill : s.tagBadge}>
-                                    {brokerInspector.statusLabel}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <Button
-                                    type="button"
-                                    variant={brokerInspector.reachable ? 'outline' : 'default'}
-                                    size="sm"
-                                    onClick={() => void handleBrokerControl(brokerInspector.reachable ? 'restart' : 'start')}
-                                    disabled={brokerControlPending}
-                                  >
-                                    {brokerInspector.reachable ? 'Restart' : 'Start'}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => void handleBrokerControl('stop')}
-                                    disabled={brokerControlPending || !brokerInspector.loaded}
-                                  >
-                                    Stop
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="text-[11px] mb-4 leading-[1.5]" style={s.mutedText}>
-                                {brokerInspector.statusDetail ?? 'Service status not reported yet.'}
-                              </div>
-                              <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                                {[
-                                  ['Relay URL', brokerInspector.url],
-                                  ['Version', brokerInspector.version ?? 'Not reported'],
-                                  ['Mode', brokerInspector.mode],
-                                  ['Service Label', brokerInspector.label],
-                                  ['PID', brokerInspector.pid ?? 'Not reported'],
-                                  ['Last Restart', brokerInspector.lastRestartLabel ?? 'Not reported'],
-                                  ['Launch State', brokerInspector.launchdState ?? 'Not reported'],
-                                  ['Mesh', brokerInspector.meshId ?? 'Not reported'],
-                                  ['Last Exit', brokerInspector.lastExitStatus ?? 'Not reported'],
-                                ].map(([label, value]) => (
-                                  <div key={label} className="min-w-0">
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
-                                    <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                                  </div>
-                                ))}
-                              </div>
-                              {brokerInspector.processCommand ? (
-                                <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Process</div>
-                                  <div className="text-[10px] font-mono leading-[1.45] break-all" style={s.mutedText}>{brokerInspector.processCommand}</div>
-                                </div>
-                              ) : null}
-                              {brokerControlFeedback ? (
-                                <div className="mt-3 pt-3 border-t text-[11px] leading-[1.45]" style={{ borderTopColor: C.border, color: C.ink }}>
-                                  {brokerControlFeedback}
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="border-t" style={{ borderTopColor: C.border }} />
-                          </>
-                        ) : null}
-                        <div className="px-4 py-3" style={{ backgroundColor: C.bg }}>
-                          <div className="flex items-center gap-2.5 mb-2.5">
-                            <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Runtime</div>
-                            <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={relayRuntimeBooting || runtime?.brokerHealthy ? s.activePill : s.tagBadge}>
-                              {relayRuntimeHealthLabel}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-4 gap-x-4 gap-y-2.5">
-                            {[
-                              ['Node ID', relayRuntimeBooting ? 'Syncing…' : (runtime?.nodeId ?? 'Not reported')],
-                              ['Agents', `${runtime?.agentCount ?? 0}`],
-                              ['Conversations', `${runtime?.conversationCount ?? 0}`],
-                              ['Flights', `${runtime?.flightCount ?? 0}`],
-                              ['Latest Relay', relayRuntimeBooting ? 'Syncing…' : (runtime?.latestRelayLabel ?? 'Not reported')],
-                              ['Updated', relayRuntimeBooting ? 'Syncing…' : (runtime?.updatedAtLabel ?? 'Not reported')],
-                            ].map(([label, value]) => (
-                              <div key={label} className="min-w-0">
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
-                                <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </section>
-
-                      {/* --- Relay Paths --- */}
-                      {brokerInspector ? (
-                        <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Relay Paths</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {[
-                              ['Support', brokerInspector.supportDirectory],
-                              ['Control Home', brokerInspector.controlHome],
-                              ['LaunchAgent', brokerInspector.launchAgentPath],
-                              ['Stdout Log', brokerInspector.stdoutLogPath],
-                              ['Stderr Log', brokerInspector.stderrLogPath],
-                            ].map(([label, value]) => (
-                              <div key={label}>
-                                <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>{label}</div>
-                                <div className="text-[10px] font-mono leading-[1.45] truncate" style={s.mutedText}>
-                                  {renderLocalPathValue(String(value), {
-                                    className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          {brokerInspector.lastLogLine ? (
-                            <div className="mt-3 pt-3 border-t" style={{ borderTopColor: C.border }}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Last Service Log</div>
-                              <div className="text-[10px] font-mono leading-[1.45] break-words" style={s.mutedText}>{brokerInspector.lastLogLine}</div>
-                            </div>
-                          ) : null}
-                        </section>
-                      ) : null}
-
-                      {/* --- Diagnostics --- */}
-                      {brokerInspector && (brokerInspector.troubleshooting.length > 0 || brokerInspector.feedbackSummary) ? (
-                        <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Diagnostics</div>
-                          {brokerInspector.troubleshooting.length > 0 ? (
-                            <div className="space-y-2 mb-4">
-                              {brokerInspector.troubleshooting.map((item) => (
-                                <div key={item} className="text-[11px] leading-[1.5]" style={s.inkText}>{item}</div>
-                              ))}
-                            </div>
-                          ) : null}
-                          {brokerInspector.feedbackSummary ? (
-                            <div className="rounded-md border px-3 py-3 text-[10px] font-mono leading-[1.55] whitespace-pre-wrap break-words" style={{ borderColor: C.border, color: C.ink }}>
-                              {brokerInspector.feedbackSummary}
-                            </div>
-                          ) : null}
-                        </section>
-                      ) : null}
-
-                      {/* --- Voice & Delivery --- */}
-                      {desktopFeatures.voice ? (
-                        <section className="border rounded-lg p-4" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="text-[9px] font-mono uppercase tracking-widest mb-3" style={s.mutedText}>Voice & Delivery</div>
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Capture</div>
-                              <div className="text-[11px]" style={s.inkText}>{relayState?.voice.captureTitle ?? 'Not reported'}</div>
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Reachable Directs</div>
-                              <div className="text-[11px]" style={s.inkText}>{reachableRelayAgents.length}</div>
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={s.mutedText}>Replies</div>
-                              <button
-                                className="os-toolbar-button text-[10px] font-medium px-2 py-0.5 rounded-md"
-                                style={{ color: C.ink }}
-                                onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
-                              >
-                                {relayState?.voice.repliesEnabled ? 'Disable' : 'Enable'}
-                              </button>
-                            </div>
-                          </div>
-                        </section>
-                      ) : null}
-
-                    </div>
-                  </div>
+                  <CommunicationSettingsView
+                    styles={{
+                      surface: s.surface,
+                      inkText: s.inkText,
+                      mutedText: s.mutedText,
+                      tagBadge: s.tagBadge,
+                      activePill: s.activePill,
+                    }}
+                    showTelegram={desktopFeatures.telegram}
+                    showVoice={desktopFeatures.voice}
+                    visibleAppSettings={visibleAppSettings}
+                    isAppSettingsEditing={isAppSettingsEditing}
+                    appSettingsSaving={appSettingsSaving}
+                    appSettingsFeedback={appSettingsFeedback}
+                    onUpdateAppSettingsDraft={updateAppSettingsDraft}
+                    brokerInspector={brokerInspector}
+                    brokerControlPending={brokerControlPending}
+                    brokerControlFeedback={brokerControlFeedback}
+                    onBrokerControl={(action) => {
+                      void handleBrokerControl(action);
+                    }}
+                    relayServiceInspectorRef={relayServiceInspectorRef}
+                    relayRuntimeBooting={relayRuntimeBooting}
+                    relayRuntimeHealthLabel={relayRuntimeHealthLabel}
+                    runtime={runtime}
+                    reachableRelayAgentCount={reachableRelayAgents.length}
+                    voiceCaptureTitle={relayState?.voice.captureTitle ?? 'Not reported'}
+                    voiceRepliesEnabled={relayState?.voice.repliesEnabled ?? false}
+                    onSetVoiceRepliesEnabled={(enabled) => {
+                      void handleSetVoiceRepliesEnabled(enabled);
+                    }}
+                    renderLocalPathValue={renderLocalPathValue}
+                  />
                 ) : settingsSection === 'database' ? (
                   <div className="space-y-4">
                     <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
@@ -7714,10 +7082,7 @@ export default function App() {
                         return (
                           <button
                             key={agent.id}
-                            onClick={() => {
-                              setSelectedInterAgentId(agent.id);
-                              setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
-                            }}
+                            onClick={() => handleSelectInterAgent(agent.id)}
                             className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left"
                             style={active ? s.activeItem : s.mutedText}
                           >
@@ -7748,53 +7113,6 @@ export default function App() {
                       }) : (
                         <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
                           No agents match this view yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="px-2 pb-3">
-                    <div className="flex items-center justify-between gap-2 px-2 mb-1.5">
-                      <button
-                        type="button"
-                        className="font-mono text-[9px] tracking-widest uppercase hover:opacity-70 transition-opacity"
-                        style={{ color: C.muted }}
-                        onClick={() => { setActiveView('settings'); setSettingsSection('agents'); }}
-                      >
-                        Projects
-                      </button>
-                      {unconfiguredAgentableProjects.length > 0 ? (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                          {unconfiguredAgentableProjects.length}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-col gap-px">
-                      {unconfiguredAgentableProjects.length > 0 ? unconfiguredAgentableProjects.slice(0, 8).map((project) => (
-                        <button
-                          key={project.id}
-                          onClick={() => openAgentableProjectInSettings(project.id)}
-                          className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left hover:opacity-90"
-                          style={s.mutedText}
-                        >
-                          <div
-                            className="w-6 h-6 rounded text-white flex items-center justify-center text-[9px] font-bold shrink-0"
-                            style={{ backgroundColor: colorForIdentity(project.id) }}
-                          >
-                            {project.title.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate" style={s.inkText}>{project.title}</div>
-                            <div className="text-[10px] truncate" style={s.mutedText}>
-                              {project.relativePath} · add agent
-                            </div>
-                          </div>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                            {project.defaultHarness}
-                          </span>
-                        </button>
-                      )) : (
-                        <div className="px-2 py-2 text-[11px]" style={s.mutedText}>
-                          No additional projects ready to add right now.
                         </div>
                       )}
                     </div>
@@ -8476,10 +7794,7 @@ export default function App() {
                         return (
                           <button
                             key={agent.id}
-                            onClick={() => {
-                              setSelectedInterAgentId(agent.id);
-                              setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agent.id));
-                            }}
+                            onClick={() => handleSelectInterAgent(agent.id)}
                             className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left"
                             style={active ? s.activeItem : s.mutedText}
                           >
@@ -9039,8 +8354,10 @@ export default function App() {
         ) : activeView === 'messages' || activeView === 'relay' ? (
           <MessagesView
             sidebarWidth={sidebarWidth}
+            messagesDetailWidth={messagesDetailWidth}
             isCollapsed={isCollapsed}
             onResizeStart={handleMouseDown}
+            onMessagesDetailResizeStart={handleMessagesDetailResizeStart}
             styles={{
               sidebar: s.sidebar,
               surface: s.surface,
@@ -9616,2832 +8933,3 @@ export default function App() {
   );
 }
 
-function PairingSurfacePlaceholder({
-  pairingControlPending,
-  pairingApprovalPendingId,
-  pairingConfigFeedback,
-  pairingConfigPending,
-  pairingError,
-  pairingLoading,
-  pairingState,
-  onControlPairing,
-  onDecideApproval,
-  onOpenFeedback,
-  onOpenFullLogs,
-  onUpdateConfig,
-  onRefresh,
-  onRevealPath,
-}: {
-  pairingControlPending: boolean;
-  pairingApprovalPendingId: string | null;
-  pairingConfigFeedback: string | null;
-  pairingConfigPending: boolean;
-  pairingError: string | null;
-  pairingLoading: boolean;
-  pairingState: PairingState | null;
-  onControlPairing: (action: 'start' | 'stop' | 'restart') => void;
-  onDecideApproval: (approval: NonNullable<PairingState>["pendingApprovals"][number], decision: 'approve' | 'deny') => void;
-  onOpenFeedback: () => void;
-  onOpenFullLogs: () => void;
-  onUpdateConfig: (input: UpdatePairingConfigInput) => Promise<void>;
-  onRefresh: () => void;
-  onRevealPath?: (path: string) => void;
-}) {
-  const [copied, setCopied] = useState<string | null>(null);
-  const [relayDraft, setRelayDraft] = useState('');
-  const [workspaceDraft, setWorkspaceDraft] = useState('');
-  const [workspaceEditing, setWorkspaceEditing] = useState(false);
-  const [configDirty, setConfigDirty] = useState(false);
-  const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const [qrExpanded, setQrExpanded] = useState(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [pairingLogsExpanded, setPairingLogsExpanded] = useState(false);
-  const logsRef = useRef<HTMLDivElement | null>(null);
-  const settingsRef = useRef<HTMLDivElement | null>(null);
-  const pairingPairingSvg = useMemo(() => {
-    const qrValue = pairingState?.pairing?.qrValue;
-    if (!qrValue) {
-      return null;
-    }
-    return renderSVG(qrValue, {
-      border: 2,
-      ecc: 'M',
-      pixelSize: qrExpanded ? 12 : 6,
-      blackColor: '#111111',
-      whiteColor: '#ffffff',
-    });
-  }, [pairingState?.pairing?.qrValue, qrExpanded]);
-  const expiresIn = pairingState?.pairing
-    ? Math.max(0, Math.floor((pairingState.pairing.expiresAt - countdownNow) / 1000))
-    : null;
-  const serviceIsRunning = Boolean(pairingState?.isRunning);
-  const trustedPeers = pairingState?.trustedPeers ?? [];
-  const pendingApprovals = pairingState?.pendingApprovals ?? [];
-  const connectedPeer = trustedPeers.find((peer) => peer.fingerprint === pairingState?.connectedPeerFingerprint) ?? null;
-  const hasConnectedPeer = pairingState?.status === 'paired' && Boolean(pairingState?.connectedPeerFingerprint);
-  const activeRelay = pairingState?.pairing?.relay ?? pairingState?.relay ?? null;
-  const dashboardTone = pairingState?.status === 'paired' || pairingState?.status === 'connected' || pairingState?.status === 'connecting'
-    ? { label: 'Relay Active', backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
-    : pairingState?.status === 'error' || pairingState?.status === 'closed'
-      ? { label: 'Attention', backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#be123c' }
-      : { label: 'Ready', backgroundColor: '#eff6ff', borderColor: '#bfdbfe', color: '#1d4ed8' };
-  const connectionTone = pairingState?.status === 'paired'
-    ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
-    : pairingState?.status === 'error' || pairingState?.status === 'closed'
-      ? { backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#be123c' }
-      : { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', color: '#1d4ed8' };
-  const cardStyle = {
-    backgroundColor: '#ffffff',
-    borderColor: 'rgba(15, 23, 42, 0.08)',
-    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
-  } as const;
-  const subtlePanelStyle = {
-    backgroundColor: '#f7f8fb',
-    borderColor: 'rgba(15, 23, 42, 0.08)',
-  } as const;
-  const simpleTableStyle = {
-    backgroundColor: '#fbfbfd',
-    borderColor: 'rgba(15, 23, 42, 0.06)',
-  } as const;
-  const pairCommand = pairingState?.commandLabel ?? 'scout pair';
-  const connectionLabel = hasConnectedPeer
-    ? 'Device Connected'
-    : pairingState?.pairing
-    ? 'Pairing Ready'
-    : pairingState?.status === 'error' || pairingState?.status === 'closed'
-      ? pairingState.statusLabel
-      : serviceIsRunning
-        ? pairingState?.statusLabel ?? 'Running'
-        : 'Ready to Start';
-  const connectionDetail = pairingError
-    ?? (hasConnectedPeer
-      ? `${formatPairingTrustedPeerLabel(connectedPeer)} is connected through the pairing relay.`
-      : null)
-    ?? pairingState?.statusDetail
-    ?? 'Start Pairing to launch a local pairing relay, generate a fresh QR code, and wait for your phone to connect.';
-  const runtimeRows = [
-    ['Expires In', expiresIn !== null ? formatDurationShort(expiresIn) : '—'],
-    ['Secure Mode', pairingState?.secure ? 'Yes' : 'No'],
-    ['Active Sessions', `${pairingState?.sessionCount ?? 0}`],
-    ['Trusted Peers', `${pairingState?.trustedPeerCount ?? 0}`],
-    ['Last Updated', pairingState?.lastUpdatedLabel ?? '—'],
-  ] as const;
-  const statusRows = [
-    ['Relay', activeRelay ?? 'Not set'],
-    ['Client ID', pairingState?.identityFingerprint ?? 'Not created'],
-    ['Room', pairingState?.pairing?.room ?? 'Pending'],
-    ['Connected Device', hasConnectedPeer ? formatPairingTrustedPeerLabel(connectedPeer) : 'None'],
-  ] as const;
-  const topActions = (
-    <>
-      <span
-        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-medium"
-        style={dashboardTone}
-      >
-        <span className={`block h-1.5 w-1.5 rounded-full ${serviceIsRunning ? 'bg-emerald-500' : pairingState?.status === 'error' ? 'bg-rose-500' : 'bg-zinc-400'}`} />
-        {dashboardTone.label}
-      </span>
-      <button
-        type="button"
-        onClick={onOpenFeedback}
-        className="text-[12px] font-medium transition-opacity hover:opacity-70"
-        style={{ color: C.muted }}
-      >
-        Feedback
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setPairingLogsExpanded(true);
-          window.setTimeout(() => {
-            logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 0);
-        }}
-        className="text-[12px] font-medium transition-opacity hover:opacity-70"
-        style={{ color: C.muted }}
-      >
-        Logs
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setShowAdvancedSettings(true);
-          window.setTimeout(() => {
-            settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 0);
-        }}
-        className="text-[12px] font-medium transition-opacity hover:opacity-70"
-        style={{ color: C.muted }}
-      >
-        Advanced
-      </button>
-    </>
-  );
-
-  const handleCopy = React.useCallback(async (label: string, value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(label);
-      window.setTimeout(() => {
-        setCopied((current) => current === label ? null : current);
-      }, 1_200);
-    } catch {
-      setCopied(null);
-    }
-  }, []);
-
-  const savePairingConfig = React.useCallback(async () => {
-    try {
-      await onUpdateConfig({
-        relay: relayDraft,
-        workspaceRoot: workspaceDraft || null,
-      });
-      setConfigDirty(false);
-      setWorkspaceEditing(false);
-    } catch {
-      // Feedback is surfaced via pairingConfigFeedback.
-    }
-  }, [onUpdateConfig, relayDraft, workspaceDraft]);
-
-  useEffect(() => {
-    if (configDirty) {
-      return;
-    }
-
-    setRelayDraft(pairingState?.configuredRelay ?? '');
-    setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
-  }, [configDirty, pairingState?.configuredRelay, pairingState?.workspaceRoot]);
-
-  // Keep a stable ref to onControlPairing so the countdown interval doesn't depend on it
-  // (the inline arrow passed from the parent changes identity every render)
-  const onControlPairingRef = useRef(onControlPairing);
-  useEffect(() => { onControlPairingRef.current = onControlPairing; }, [onControlPairing]);
-
-  // Track whether we've already fired the auto-restart for the current QR so we
-  // don't hammer the backend once per second after expiry
-  const autoRefreshFiredRef = useRef(false);
-
-  useEffect(() => {
-    if (!pairingState?.pairing?.expiresAt) {
-      return;
-    }
-
-    // Reset guard whenever a new QR code arrives (new expiresAt)
-    autoRefreshFiredRef.current = false;
-    setCountdownNow(Date.now());
-
-    const intervalId = window.setInterval(() => {
-      const now = Date.now();
-      setCountdownNow(now);
-      // Auto-restart pairing when QR expires — generates a fresh QR code.
-      // restart is required because the QR payload is created once per relay
-      // connection; a simple state-read won't produce a new code.
-      if (!autoRefreshFiredRef.current && now >= pairingState.pairing!.expiresAt) {
-        autoRefreshFiredRef.current = true;
-        onControlPairingRef.current('restart');
-      }
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [pairingState?.pairing?.expiresAt]); // intentionally omits onControlPairing — using ref above
-
-  return (
-    <div className="flex flex-1 overflow-hidden os-fade-in" style={{ backgroundColor: C.bg }}>
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-8 py-10" style={{ backgroundColor: '#FAFAFA' }}>
-          <div className="mx-auto flex max-w-[980px] flex-col gap-8">
-            <div className="sticky top-0 z-10 -mx-8 flex items-center justify-between gap-6 border-b px-8 py-4 backdrop-blur" style={{ borderBottomColor: C.border, backgroundColor: 'rgba(250,250,250,0.92)' }}>
-              <div className="flex items-center gap-3">
-                <div
-                  className="flex h-8 w-8 items-center justify-center rounded-lg"
-                  style={{ backgroundColor: '#4f46e5', color: '#ffffff' }}
-                >
-                  <Activity size={15} strokeWidth={1.6} />
-                </div>
-                <div className="text-[18px] font-medium tracking-tight" style={{ color: C.ink }}>
-                  Pairing Relay
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                {topActions}
-              </div>
-            </div>
-
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_320px] items-start">
-              <div className="flex flex-col gap-5">
-                <section className="rounded-[20px] border p-5" style={cardStyle}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-2 text-[17px] font-medium tracking-tight" style={{ color: C.ink }}>
-                          <Server size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
-                          Pairing Status
-                        </span>
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-normal uppercase tracking-wide"
-                          style={connectionTone}
-                        >
-                          {!serviceIsRunning && (pairingState?.status === 'error' || pairingState?.status === 'closed') ? <AlertCircle size={13} strokeWidth={1.5} /> : null}
-                          {connectionLabel}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-[15px] leading-[1.75] font-light" style={{ color: C.muted }}>
-                        {connectionDetail}
-                      </p>
-                      {pairingState?.statusDetail && (pairingState.status === 'error' || pairingState.status === 'closed') ? (
-                        <div
-                          className="mt-4 rounded-2xl border px-4 py-3 text-[12px] leading-[1.7] font-mono whitespace-pre-wrap break-words"
-                          style={{ backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#9f1239' }}
-                        >
-                          {pairingState.statusDetail}
-                        </div>
-                      ) : null}
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={pairingControlPending || pairingLoading}>
-                      <RefreshCw size={14} />
-                      Refresh
-                    </Button>
-                  </div>
-
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                    {runtimeRows.map(([label, value]) => (
-                      <div key={label} className="rounded-2xl border px-3 py-3" style={subtlePanelStyle}>
-                        <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
-                          {label}
-                        </div>
-                        <div className="mt-2 text-[14px] font-medium tracking-tight" style={{ color: C.ink }}>
-                          {value}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="rounded-[20px] border p-5" style={cardStyle}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
-                        Bridge Details
-                      </div>
-                      <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                        Relay identity, room state, workspace binding, and control actions.
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowAdvancedSettings(true);
-                        window.setTimeout(() => {
-                          settingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 0);
-                      }}
-                    >
-                      <Settings size={14} />
-                      Advanced
-                    </Button>
-                  </div>
-
-                  <div className="mt-4 overflow-hidden rounded-xl border" style={simpleTableStyle}>
-                    {statusRows.map(([label, value], index) => (
-                      <div
-                        key={label}
-                        className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)] md:items-start"
-                        style={index === 0 ? undefined : { borderTop: `1px solid ${C.border}` }}
-                      >
-                        <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
-                          {label}:
-                        </div>
-                        <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
-                          {value}
-                        </div>
-                      </div>
-                    ))}
-                    <div
-                      className="grid gap-2 px-3 py-2.5 md:grid-cols-[112px_minmax(0,1fr)_auto] md:items-center"
-                      style={{ borderTop: `1px solid ${C.border}` }}
-                    >
-                      <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: C.muted }}>
-                        Workspace:
-                      </div>
-                      {workspaceEditing ? (
-                        <input
-                          type="text"
-                          value={workspaceDraft}
-                          onChange={(event) => {
-                            setWorkspaceDraft(event.target.value);
-                            setConfigDirty(true);
-                          }}
-                          placeholder="/Users/arach/dev/openscout"
-                          className="w-full rounded-lg border px-2.5 py-1.5 text-[12px] bg-transparent outline-none"
-                          style={{ borderColor: C.border, color: C.ink }}
-                        />
-                      ) : (
-                        <div className="text-[12px] leading-[1.5] break-words" style={{ color: C.ink }}>
-                          {pairingState?.workspaceRoot || 'Not set'}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 md:justify-end">
-                        {workspaceEditing ? (
-                          <>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => {
-                                void savePairingConfig();
-                              }}
-                              disabled={pairingConfigPending}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
-                                setConfigDirty(false);
-                                setWorkspaceEditing(false);
-                              }}
-                              disabled={pairingConfigPending}
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setWorkspaceDraft(pairingState?.workspaceRoot ?? '');
-                              setWorkspaceEditing(true);
-                            }}
-                            className="text-[12px] font-medium transition-opacity hover:opacity-70"
-                            style={{ color: C.muted }}
-                          >
-                            [edit]
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {pairingConfigFeedback ? (
-                      <div
-                        className="px-4 py-3 text-[11px] leading-[1.6]"
-                        style={{ borderTop: `1px solid ${C.border}`, color: C.ink }}
-                      >
-                        {pairingConfigFeedback}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => onControlPairing(serviceIsRunning ? 'stop' : 'start')}
-                      disabled={pairingControlPending}
-                    >
-                      {serviceIsRunning ? 'Stop Pairing' : 'Start Pairing'}
-                    </Button>
-                    {serviceIsRunning ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onControlPairing('restart')}
-                        disabled={pairingControlPending}
-                      >
-                        Restart
-                      </Button>
-                    ) : null}
-                  </div>
-                </section>
-
-                <section className="rounded-[20px] border p-5" style={cardStyle}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
-                        Pending Approvals
-                      </div>
-                      <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                        One normalized approval queue for any pairing adapter that can pause and wait.
-                      </div>
-                    </div>
-                    <span
-                      className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
-                      style={pendingApprovals.length > 0
-                        ? { backgroundColor: '#fff7ed', borderColor: '#fed7aa', color: '#c2410c' }
-                        : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
-                    >
-                      {pendingApprovals.length} queued
-                    </span>
-                  </div>
-
-                  {pendingApprovals.length > 0 ? (
-                    <div className="mt-4 flex flex-col gap-3">
-                      {pendingApprovals.map((approval) => {
-                        const approvalIdBase = `${approval.sessionId}:${approval.turnId}:${approval.blockId}`;
-                        const isApprovePending = pairingApprovalPendingId === `${approvalIdBase}:approve`;
-                        const isDenyPending = pairingApprovalPendingId === `${approvalIdBase}:deny`;
-                        return (
-                          <div key={approvalIdBase} className="rounded-2xl border px-4 py-4" style={subtlePanelStyle}>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]"
-                                style={approval.risk === 'high'
-                                  ? { backgroundColor: '#fff1f2', borderColor: '#fecdd3', color: '#be123c' }
-                                  : approval.risk === 'medium'
-                                    ? { backgroundColor: '#fff7ed', borderColor: '#fed7aa', color: '#c2410c' }
-                                    : { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
-                              >
-                                {approval.risk} risk
-                              </span>
-                              <span className="text-[11px] font-medium" style={{ color: C.ink }}>
-                                {approval.title}
-                              </span>
-                              <span className="text-[11px]" style={{ color: C.muted }}>
-                                {approval.sessionName}
-                              </span>
-                            </div>
-                            <div className="mt-3 text-[13px] leading-[1.6]" style={{ color: C.ink }}>
-                              {approval.description}
-                            </div>
-                            {approval.detail && approval.detail !== approval.description ? (
-                              <div
-                                className="mt-3 rounded-xl border px-3 py-2 text-[11px] font-mono break-words"
-                                style={{ backgroundColor: '#ffffff', borderColor: C.border, color: C.ink }}
-                              >
-                                {approval.detail}
-                              </div>
-                            ) : null}
-                            <div className="mt-4 flex flex-wrap items-center gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => onDecideApproval(approval, 'approve')}
-                                disabled={Boolean(pairingApprovalPendingId)}
-                              >
-                                {isApprovePending ? <Spinner className="text-[12px]" /> : <Check size={14} />}
-                                Approve
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onDecideApproval(approval, 'deny')}
-                                disabled={Boolean(pairingApprovalPendingId)}
-                              >
-                                {isDenyPending ? <Spinner className="text-[12px]" /> : <X size={14} />}
-                                Deny
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border px-4 py-4 text-[12px] leading-[1.7]" style={subtlePanelStyle}>
-                      No approvals are waiting right now. When an adapter emits `awaiting_approval`, it will appear here.
-                    </div>
-                  )}
-                </section>
-              </div>
-
-              <div>
-                {pairingPairingSvg ? (
-                  <section className="rounded-[20px] border p-5" style={cardStyle}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Scan QR Code</div>
-                        <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                          Point Pairing on your phone at this code.
-                        </div>
-                      </div>
-                      <span
-                        className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
-                        style={{ backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }}
-                      >
-                        Ready to Pair
-                      </span>
-                    </div>
-                    <div className="mt-5 rounded-[22px] border p-4" style={{ backgroundColor: '#ffffff', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
-                      <div
-                        aria-label="Pairing pairing QR code"
-                        className={`mx-auto w-full ${qrExpanded ? 'max-w-[480px]' : 'max-w-[248px]'}`}
-                        dangerouslySetInnerHTML={{ __html: pairingPairingSvg }}
-                      />
-                    </div>
-                    <div className="mt-4 flex items-center justify-between gap-3 text-[11px] leading-[1.65] font-light" style={{ color: C.muted }}>
-                      <div className="flex items-center gap-2">
-                        {expiresIn === 0 ? (
-                          <>
-                            <span style={{ color: '#be123c' }}>Expired</span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => onControlPairing('restart')}
-                              disabled={pairingControlPending || pairingLoading}
-                              className="flex items-center gap-1"
-                            >
-                              <RefreshCw size={11} />
-                              Refresh
-                            </Button>
-                          </>
-                        ) : (
-                          <>Refreshes in <span style={{ color: C.ink }}>{expiresIn !== null ? formatDurationShort(expiresIn) : '—'}</span></>
-                        )}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setQrExpanded((current) => !current)}
-                      >
-                        {qrExpanded ? 'Compact QR' : 'Larger QR'}
-                      </Button>
-                    </div>
-                  </section>
-                ) : (
-                  <section className="rounded-[20px] border bg-[rgba(250,250,250,0.65)] p-5" style={cardStyle}>
-                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-3" style={{ color: C.muted }}>
-                      CLI Equivalent
-                    </div>
-                    <div className="rounded-2xl border px-3 py-3 flex items-center gap-3" style={subtlePanelStyle}>
-                      <code className="min-w-0 flex-1 truncate text-[11px]" style={{ color: C.ink }}>
-                        {pairCommand}
-                      </code>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        onClick={() => void handleCopy('command', pairCommand)}
-                      >
-                        {copied === 'command' ? <Check size={14} /> : <Copy size={14} />}
-                      </Button>
-                    </div>
-                    <div className="mt-4 text-[11px] leading-[1.6] font-light" style={{ color: C.muted }}>
-                      <div className="inline-flex items-center gap-1.5">
-                        <Key size={13} strokeWidth={1.5} />
-                        Same backend as the command line, with QR rotation and log access.
-                      </div>
-                    </div>
-                  </section>
-                )}
-              </div>
-            </div>
-
-            <section className="rounded-[20px] border p-5" style={cardStyle}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>Trusted Devices</div>
-                  <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                    Saved phone identities that have paired with this bridge.
-                  </div>
-                </div>
-                <span
-                  className="rounded-full border px-2.5 py-1 text-[10px] font-medium whitespace-nowrap"
-                  style={hasConnectedPeer
-                    ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
-                    : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
-                >
-                  {trustedPeers.length} saved
-                </span>
-              </div>
-              {trustedPeers.length > 0 ? (
-                <div className="mt-4 overflow-hidden rounded-xl border" style={simpleTableStyle}>
-                  <div
-                    className="hidden gap-3 px-4 py-2 text-[9px] font-mono uppercase tracking-[0.16em] md:grid md:grid-cols-[minmax(0,1.8fr)_140px_140px_140px]"
-                    style={{ color: C.muted }}
-                  >
-                    <div>Device</div>
-                    <div>Status</div>
-                    <div>Last Seen</div>
-                    <div>Paired</div>
-                  </div>
-                  {trustedPeers.map((peer, index) => {
-                    const peerConnected = peer.fingerprint === pairingState?.connectedPeerFingerprint;
-                    return (
-                      <div
-                        key={peer.publicKey}
-                        className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.8fr)_140px_140px_140px] md:items-center"
-                        style={index === 0 ? undefined : { borderTop: `1px solid ${C.border}` }}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-[13px] font-medium tracking-tight" style={{ color: C.ink }}>
-                            {formatPairingTrustedPeerLabel(peer)}
-                          </div>
-                          <div className="mt-1 truncate text-[11px] font-mono" style={{ color: C.muted }}>
-                            {formatPairingTrustedPeerKey(peer.publicKey)}
-                          </div>
-                        </div>
-                        <div>
-                          <span
-                            className="inline-flex rounded-full border px-2 py-1 text-[10px] font-medium whitespace-nowrap"
-                            style={peerConnected
-                              ? { backgroundColor: '#ecfdf3', borderColor: '#bbf7d0', color: '#15803d' }
-                              : { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }}
-                          >
-                            {peerConnected ? 'Connected now' : 'Trusted'}
-                          </span>
-                        </div>
-                        <div className="text-[12px]" style={{ color: C.ink }}>
-                          {peer.lastSeenLabel ?? 'Unknown'}
-                        </div>
-                        <div className="text-[12px]" style={{ color: C.ink }}>
-                          {peer.pairedAtLabel ?? 'Unknown'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-4 rounded-2xl border px-4 py-4 text-[12px] leading-[1.7]" style={subtlePanelStyle}>
-                  No trusted devices yet. Start Pairing and scan the QR code from your phone to add one.
-                </div>
-              )}
-            </section>
-
-            <div className={`grid gap-5 items-start ${showAdvancedSettings ? 'lg:grid-cols-[minmax(0,1.5fr)_320px]' : 'lg:grid-cols-1'}`}>
-              <section id="pairing-live-logs" ref={logsRef}>
-                <Collapsible open={pairingLogsExpanded} onOpenChange={setPairingLogsExpanded}>
-                  <div className="rounded-[20px] border overflow-hidden" style={cardStyle}>
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="w-full px-5 py-4 border-b flex items-center justify-between gap-3 text-left hover:opacity-95 transition-opacity"
-                        style={{ borderBottomColor: pairingLogsExpanded ? C.border : 'transparent', backgroundColor: '#ffffff' }}
-                      >
-                        <div className="min-w-0">
-                          <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
-                            <Terminal size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
-                            Pairing Logs
-                          </div>
-                          <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                            {pairingLogsExpanded
-                              ? 'Live bridge output and runtime diagnostics.'
-                              : 'Hidden by default. Expand only when debugging pairing.'}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          {pairingState?.logUpdatedAtLabel ? (
-                            <span className="text-[10px] font-mono" style={{ color: C.muted }}>
-                              {pairingState.logUpdatedAtLabel}
-                            </span>
-                          ) : null}
-                          <ChevronRight
-                            size={14}
-                            className="transition-transform duration-150"
-                            style={{ color: C.muted, transform: pairingLogsExpanded ? 'rotate(90deg)' : undefined }}
-                          />
-                        </div>
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="px-5 pt-4 flex items-center justify-between gap-3">
-                        <div className="text-[11px] font-light" style={{ color: C.muted }}>
-                          Open the full Logs view if you want the broader app and relay log catalog.
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={onOpenFullLogs}
-                        >
-                          Open Full Logs
-                        </Button>
-                      </div>
-                      <div className="px-5 pb-5 pt-4">
-                        <LogPanel
-                          title="Pairing"
-                          pathLabel={pairingState?.logPath ?? null}
-                          body={pairingState?.logTail ?? null}
-                          truncated={pairingState?.logTruncated}
-                          missing={pairingState?.logMissing}
-                          loading={!pairingState}
-                          updatedAtLabel={pairingState?.logUpdatedAtLabel}
-                          maxHeight={320}
-                          minHeight={160}
-                          onRevealPath={onRevealPath}
-                        />
-                      </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
-              </section>
-
-              {showAdvancedSettings ? (
-              <section id="pairing-settings-card" ref={settingsRef} className="rounded-[20px] border overflow-hidden" style={cardStyle}>
-                <div className="px-5 py-4 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <div className="inline-flex items-center gap-2 text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
-                      <Settings size={15} style={{ color: '#9ca3af' }} strokeWidth={1.5} />
-                      Advanced Settings
-                    </div>
-                    <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                      You usually do not need these. Pairing can auto-launch a local relay for pairing.
-                    </div>
-                  </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy('config', pairingState?.configPath ?? '')} disabled={!pairingState?.configPath}>
-                    {copied === 'config' ? <Check size={14} /> : <Copy size={14} />}
-                    Config Path
-                  </Button>
-                </div>
-                <div className="divide-y" style={{ borderColor: C.border }}>
-                  <div className="px-5 py-4 space-y-3">
-                    {runtimeRows.map(([label, value]) => (
-                      <div key={label} className="flex items-center justify-between gap-3 text-[12px]">
-                        <span className="font-light" style={{ color: C.muted }}>
-                          {label === 'Secure Mode' ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <Shield size={13} strokeWidth={1.5} />
-                              {label}
-                            </span>
-                          ) : label === 'Last Updated' ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <Clock size={13} strokeWidth={1.5} />
-                              {label}
-                            </span>
-                          ) : label}
-                        </span>
-                        <span className="text-right break-words font-normal" style={{ color: C.ink }}>{value}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="px-5 py-4 space-y-4">
-                    <label className="block">
-                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
-                        Custom Pairing Relay URL
-                      </div>
-                      <input
-                        type="text"
-                        value={relayDraft}
-                        onChange={(event) => {
-                          setRelayDraft(event.target.value);
-                          setConfigDirty(true);
-                        }}
-                        placeholder="Leave blank to auto-select a local relay"
-                        className="w-full rounded-xl border px-3 py-2 text-[13px] bg-transparent outline-none"
-                        style={{ borderColor: C.border, color: C.ink }}
-                      />
-                    </label>
-                    <label className="block">
-                      <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: C.muted }}>
-                        Workspace Root
-                      </div>
-                      <input
-                        type="text"
-                        value={workspaceDraft}
-                        onChange={(event) => {
-                          setWorkspaceDraft(event.target.value);
-                          setConfigDirty(true);
-                        }}
-                        placeholder="/Users/arach/dev/openscout"
-                        className="w-full rounded-xl border px-3 py-2 text-[13px] bg-transparent outline-none"
-                        style={{ borderColor: C.border, color: C.ink }}
-                      />
-                    </label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          void savePairingConfig();
-                        }}
-                        disabled={pairingConfigPending}
-                      >
-                        Save
-                      </Button>
-                    </div>
-                    {pairingConfigFeedback ? (
-                      <div className="text-[11px] leading-[1.6]" style={{ color: C.ink }}>
-                        {pairingConfigFeedback}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function formatPairingTrustedPeerLabel(peer: PairingState['trustedPeers'][number] | null | undefined) {
-  if (!peer) {
-    return 'Unknown device';
-  }
-
-  return peer.name ?? `Device ${peer.fingerprint}`;
-}
-
-function formatPairingTrustedPeerKey(publicKey: string) {
-  if (publicKey.length <= 16) {
-    return publicKey;
-  }
-
-  return `${publicKey.slice(0, 8)}...${publicKey.slice(-8)}`;
-}
-
-function describePairingSurfaceBadge(
-  pairingState: PairingState | null,
-  pairingLoading: boolean,
-  pairingError: string | null,
-) {
-  if (pairingError) {
-    return {
-      label: 'Error',
-      backgroundColor: '#fff1f2',
-      borderColor: '#fecdd3',
-      color: '#be123c',
-    };
-  }
-
-  if (pairingLoading && !pairingState) {
-    return {
-      label: 'Loading',
-      backgroundColor: '#f8fafc',
-      borderColor: '#e2e8f0',
-      color: '#475569',
-    };
-  }
-
-  if (pairingState?.status === 'paired' && pairingState.connectedPeerFingerprint) {
-    return {
-      label: 'Connected',
-      backgroundColor: '#ecfdf3',
-      borderColor: '#bbf7d0',
-      color: '#15803d',
-    };
-  }
-
-  if (pairingState?.isRunning && pairingState?.pairing) {
-    return {
-      label: 'Waiting',
-      backgroundColor: '#eff6ff',
-      borderColor: '#bfdbfe',
-      color: '#1d4ed8',
-    };
-  }
-
-  if ((pairingState?.trustedPeerCount ?? 0) > 0) {
-    return {
-      label: `${pairingState!.trustedPeerCount} trusted`,
-      backgroundColor: '#f8fafc',
-      borderColor: '#e2e8f0',
-      color: '#475569',
-    };
-  }
-
-  return null;
-}
-
-function ProductSurfaceLogo({
-  active,
-  surface,
-}: {
-  active: boolean;
-  surface: 'relay' | 'pairing';
-}) {
-  if (surface === 'relay') {
-    return (
-      <div
-        className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-mono font-bold"
-        style={active
-          ? { backgroundColor: C.ink, color: '#fff' }
-          : { backgroundColor: C.surface, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.border}` }}
-      >
-        {'>_'}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="w-5 h-5 rounded-full flex items-center justify-center"
-      style={active
-        ? { backgroundColor: C.accentBg, boxShadow: `inset 0 0 0 1px ${C.accentBorder}` }
-        : { backgroundColor: C.tagBg, boxShadow: `inset 0 0 0 1px ${C.border}` }}
-    >
-      <span
-        className="block w-1.5 h-1.5 rounded-full"
-        style={{ backgroundColor: active ? C.accent : C.muted }}
-      />
-    </div>
-  );
-}
-
-function formatDurationShort(totalSeconds: number) {
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`;
-  }
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) {
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
-function RelayPresenceBadge({ thread }: { thread: RelayDirectThread }) {
-  if (thread.state === "available") {
-    return null;
-  }
-
-  if (thread.state === "working") {
-    return (
-      <span className="inline-flex items-center gap-1 shrink-0" style={{ color: C.muted }}>
-        <TypingDots />
-      </span>
-    );
-  }
-
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 text-[9px] font-mono tracking-wide shrink-0"
-      style={{ color: C.muted }}
-    >
-      <span className={`w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(thread.state)}`}></span>
-      <span>{thread.statusLabel}</span>
-    </span>
-  );
-}
-
-function TypingDots({ className = '' }: { className?: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1 ${className}`} aria-hidden="true">
-      <span className="os-thinking-dot"></span>
-      <span className="os-thinking-dot"></span>
-      <span className="os-thinking-dot"></span>
-    </span>
-  );
-}
-
-function RelayTimeline({
-  messages,
-  showAnnotations,
-  showStatusMessages,
-  inkStyle,
-  mutedStyle,
-  tagStyle,
-  annotStyle,
-  agentLookup,
-  directThreadLookup,
-  onOpenAgentProfile,
-  onOpenAgentChat,
-  onNudgeMessage,
-}: {
-  messages: RelayMessage[];
-  showAnnotations: boolean;
-  showStatusMessages: boolean;
-  inkStyle: React.CSSProperties;
-  mutedStyle: React.CSSProperties;
-  tagStyle: React.CSSProperties;
-  annotStyle: React.CSSProperties;
-  agentLookup: Map<string, InterAgentAgent>;
-  directThreadLookup: Map<string, RelayDirectThread>;
-  onOpenAgentProfile: (agentId: string) => void;
-  onOpenAgentChat: (agentId: string, draft?: string | null) => void;
-  onNudgeMessage?: (message: RelayMessage) => void;
-}) {
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const [nudgedMessageId, setNudgedMessageId] = useState<string | null>(null);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  const rows: React.ReactNode[] = [];
-  let lastDayLabel = '';
-  let index = 0;
-  const timelineMessages = useMemo(
-    () => showStatusMessages ? messages : messages.filter((message) => message.messageClass !== 'status'),
-    [messages, showStatusMessages],
-  );
-  const messageById = useMemo(
-    () => new Map(timelineMessages.map((message) => [message.id, message])),
-    [timelineMessages],
-  );
-  const latestDirectReceiptMessageId = useMemo(() => {
-    let latestMessageId: string | null = null;
-    for (const message of timelineMessages) {
-      if (message.isOperator && message.isDirectConversation && message.receipt) {
-        latestMessageId = message.id;
-      }
-    }
-    return latestMessageId;
-  }, [timelineMessages]);
-
-  useEffect(() => {
-    if (!copiedMessageId) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCopiedMessageId((current) => (current === copiedMessageId ? null : current));
-    }, 1400);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [copiedMessageId]);
-
-  useEffect(() => {
-    if (!nudgedMessageId) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setNudgedMessageId((current) => (current === nudgedMessageId ? null : current));
-    }, 1400);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [nudgedMessageId]);
-
-  useEffect(() => {
-    if (!highlightedMessageId) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setHighlightedMessageId((current) => (current === highlightedMessageId ? null : current));
-    }, 2200);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [highlightedMessageId]);
-
-  const handleCopyMessageRef = React.useCallback(async (messageId: string) => {
-    try {
-      await copyTextToClipboard(shortMessageRef(messageId));
-      setCopiedMessageId(messageId);
-    } catch {
-      setCopiedMessageId(null);
-    }
-  }, []);
-
-  const handleNudge = React.useCallback((message: RelayMessage) => {
-    onNudgeMessage?.(message);
-    setNudgedMessageId(message.id);
-  }, [onNudgeMessage]);
-
-  const handleJumpToMessage = React.useCallback((messageId: string) => {
-    if (typeof document === 'undefined') {
-      return;
-    }
-
-    const target = document.getElementById(messageDomId(messageId));
-    if (!target) {
-      return;
-    }
-
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setHighlightedMessageId(messageId);
-  }, []);
-
-  while (index < timelineMessages.length) {
-    const message = timelineMessages[index];
-    const visibleRole = shouldRenderRole(message.authorRole) ? message.authorRole : null;
-    const authorAgent = message.isOperator ? null : agentLookup.get(message.authorId) ?? null;
-    const authorDirectThread = authorAgent ? directThreadLookup.get(authorAgent.id) ?? null : null;
-
-    if (message.dayLabel !== lastDayLabel) {
-      rows.push(
-        <div key={`day-${message.dayLabel}`} className="flex items-center gap-3 mb-5 mt-2">
-          <div className="flex-1 h-px" style={{ backgroundColor: C.border }} />
-          <div className="px-2 font-mono text-[9px] tracking-widest uppercase shrink-0" style={mutedStyle}>{message.dayLabel}</div>
-          <div className="flex-1 h-px" style={{ backgroundColor: C.border }} />
-        </div>,
-      );
-      lastDayLabel = message.dayLabel;
-    }
-
-    if (message.isSystem || message.messageClass === 'status') {
-      rows.push(
-        <div key={message.id} className="flex gap-3 mb-3 group rounded-lg px-2 py-2 -mx-2 bg-[var(--os-hover)]">
-          <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5" style={{ backgroundColor: message.avatarColor, color: 'white', opacity: 0.85 }}>
-            {message.avatarLabel}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-baseline justify-between mb-0.5">
-              <div className="flex items-baseline gap-2">
-                {authorAgent ? (
-                  <AgentIdentityInline
-                    agent={authorAgent}
-                    directThread={authorDirectThread}
-                    visibleRole={visibleRole}
-                    timestampLabel={message.timestampLabel}
-                    inkStyle={inkStyle}
-                    mutedStyle={mutedStyle}
-                    tagStyle={tagStyle}
-                    onOpenProfile={onOpenAgentProfile}
-                    onOpenChat={onOpenAgentChat}
-                  />
-                ) : (
-                  <>
-                    <span className="font-semibold text-[12px]" style={inkStyle}>{message.authorName}</span>
-                    <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
-                  </>
-                )}
-              </div>
-            </div>
-            <div
-              id={messageDomId(message.id)}
-              className="group/message relative text-[12px] leading-relaxed rounded-lg px-2 py-1.5 pr-12 -mx-2"
-              style={highlightedMessageId === message.id ? highlightedMessageStyle() : inkStyle}
-            >
-              <div className="flex items-center gap-2 px-2 py-1.5 border rounded font-mono text-[10px] w-fit" style={tagStyle}>
-                <Spinner className="text-[10px]" />
-                <span><span style={mutedStyle}>TASK //</span> {message.body}</span>
-                <span className="ml-2 px-1 rounded" style={{ backgroundColor: 'rgba(99,102,241,0.12)', color: 'var(--os-accent)' }}>IN PROGRESS</span>
-              </div>
-              <MessageReferenceControls
-                message={message}
-                copied={copiedMessageId === message.id}
-                nudged={nudgedMessageId === message.id}
-                canNudge={Boolean(onNudgeMessage && !message.isOperator)}
-                mutedStyle={mutedStyle}
-                onCopyRef={handleCopyMessageRef}
-                onNudge={() => handleNudge(message)}
-              />
-            </div>
-          </div>
-        </div>,
-      );
-      index += 1;
-      continue;
-    }
-
-    const grouped: RelayMessage[] = [message];
-    let cursor = index + 1;
-    while (
-      cursor < timelineMessages.length &&
-      timelineMessages[cursor].authorId === message.authorId &&
-      timelineMessages[cursor].dayLabel === message.dayLabel &&
-      !timelineMessages[cursor].isSystem &&
-      timelineMessages[cursor].messageClass !== 'status'
-    ) {
-      grouped.push(timelineMessages[cursor]);
-      cursor += 1;
-    }
-
-    const isAgent = Boolean(authorAgent);
-
-    rows.push(
-      <div key={message.id} className={cn("flex gap-3 mb-4 group rounded-lg px-2 py-2 -mx-2", isAgent && "bg-[var(--os-hover)]")}>
-        <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5" style={{ backgroundColor: message.avatarColor, color: 'white', opacity: 0.85 }}>
-          {message.avatarLabel}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between mb-1">
-            <div className="flex items-baseline gap-2">
-              {authorAgent ? (
-                <AgentIdentityInline
-                  agent={authorAgent}
-                  directThread={authorDirectThread}
-                  visibleRole={visibleRole}
-                  timestampLabel={message.timestampLabel}
-                  inkStyle={inkStyle}
-                  mutedStyle={mutedStyle}
-                  tagStyle={tagStyle}
-                  onOpenProfile={onOpenAgentProfile}
-                  onOpenChat={onOpenAgentChat}
-                />
-              ) : (
-                <>
-                  <span className="font-semibold text-[12px]" style={inkStyle}>{message.authorName}</span>
-                  {visibleRole ? (
-                    <span className="text-[9px] font-mono border px-1 py-0.5 rounded" style={tagStyle}>{visibleRole}</span>
-                  ) : null}
-                  <span className="text-[9px] font-mono" style={mutedStyle}>{message.timestampLabel}</span>
-                </>
-              )}
-            </div>
-            {showAnnotations && (message.routingSummary || message.provenanceSummary) ? (
-              <div className="flex items-center gap-1">
-                {message.routingSummary ? (
-                  <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{message.routingSummary}</span>
-                ) : null}
-                {message.provenanceSummary ? (
-                  <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{message.provenanceSummary}</span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex flex-col gap-2 mt-0.5">
-            {grouped.map((entry) => {
-              const replyTarget = entry.replyToMessageId ? messageById.get(entry.replyToMessageId) ?? null : null;
-              const showReceipt = Boolean(
-                entry.receipt && (
-                  !entry.isOperator
-                  || !entry.isDirectConversation
-                  || latestDirectReceiptMessageId === entry.id
-                )
-              );
-              const renderReceiptInline = showReceipt && canInlineRelayReceipt(entry.body);
-              return (
-                <div
-                  key={entry.id}
-                  id={messageDomId(entry.id)}
-                  className="group/message relative text-[12px] leading-relaxed rounded-lg px-2 py-1.5 pr-12 -mx-2"
-                  style={highlightedMessageId === entry.id ? highlightedMessageStyle() : inkStyle}
-                >
-                  {entry.replyToMessageId ? (
-                    replyTarget ? (
-                      <ReplyReferenceLine
-                        messageId={entry.replyToMessageId}
-                        preview={messagePreviewSnippet(replyTarget.body, 64)}
-                        mutedStyle={mutedStyle}
-                        onJump={() => handleJumpToMessage(entry.replyToMessageId!)}
-                      />
-                    ) : (
-                      <ReplyReferenceLine
-                        messageId={entry.replyToMessageId}
-                        mutedStyle={mutedStyle}
-                      />
-                    )
-                  ) : null}
-                  {renderReceiptInline && entry.receipt ? (
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <span className="min-w-0 max-w-full whitespace-pre-wrap break-words" style={inkStyle}>
-                        {entry.body}
-                      </span>
-                      <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} inline />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex flex-col gap-2">{renderMessageBody(entry.body, inkStyle, mutedStyle, tagStyle)}</div>
-                      {showReceipt && entry.receipt ? (
-                        <RelayReceiptInline receipt={entry.receipt} mutedStyle={mutedStyle} />
-                      ) : null}
-                    </>
-                  )}
-                  {showAnnotations && (entry.routingSummary || entry.provenanceSummary || entry.provenanceDetail) ? (
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      {entry.routingSummary ? (
-                        <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{entry.routingSummary}</span>
-                      ) : null}
-                      {entry.provenanceSummary ? (
-                        <span className="text-[9px] font-mono border px-1 rounded" style={annotStyle}>{entry.provenanceSummary}</span>
-                      ) : null}
-                      {entry.provenanceDetail ? (
-                        <span className="text-[9px]" style={mutedStyle}>{entry.provenanceDetail}</span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <MessageReferenceControls
-                    message={entry}
-                    copied={copiedMessageId === entry.id}
-                    nudged={nudgedMessageId === entry.id}
-                    canNudge={Boolean(onNudgeMessage && !entry.isOperator)}
-                    mutedStyle={mutedStyle}
-                    onCopyRef={handleCopyMessageRef}
-                    onNudge={() => handleNudge(entry)}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>,
-    );
-
-    index = cursor;
-  }
-
-  return <>{rows}</>;
-}
-
-function MessageReferenceControls({
-  message,
-  copied,
-  nudged,
-  canNudge,
-  mutedStyle,
-  onCopyRef,
-  onNudge,
-}: {
-  message: RelayMessage;
-  copied: boolean;
-  nudged: boolean;
-  canNudge: boolean;
-  mutedStyle: React.CSSProperties;
-  onCopyRef: (messageId: string) => void;
-  onNudge: () => void;
-}) {
-  return (
-    <div className="absolute top-1.5 right-2 flex items-center gap-2 opacity-0 pointer-events-none transition-opacity group-hover/message:opacity-100 group-hover/message:pointer-events-auto group-focus-within/message:opacity-100 group-focus-within/message:pointer-events-auto">
-      {canNudge ? (
-        <button
-          type="button"
-          onClick={onNudge}
-          className="text-[9px] font-mono lowercase tracking-wide transition-colors hover:opacity-80"
-          style={nudged ? { color: C.accent } : mutedStyle}
-          title={`Follow up with ${message.authorName}`}
-        >
-          {nudged ? 'drafted' : 'nudge'}
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => void onCopyRef(message.id)}
-        className="text-[9px] font-mono lowercase tracking-wide transition-colors hover:opacity-80"
-        style={copied ? { color: C.accent } : mutedStyle}
-        title={stableMessageRef(message.id)}
-      >
-        {copied ? 'copied' : messageRefSuffix(message.id)}
-      </button>
-    </div>
-  );
-}
-
-function AgentIdentityInline({
-  agent,
-  directThread,
-  visibleRole,
-  timestampLabel,
-  inkStyle,
-  mutedStyle,
-  tagStyle,
-  onOpenProfile,
-  onOpenChat,
-}: {
-  agent: InterAgentAgent;
-  directThread: RelayDirectThread | null;
-  visibleRole: string | null;
-  timestampLabel: string;
-  inkStyle: React.CSSProperties;
-  mutedStyle: React.CSSProperties;
-  tagStyle: React.CSSProperties;
-  onOpenProfile: (agentId: string) => void;
-  onOpenChat: (agentId: string, draft?: string | null) => void;
-}) {
-  const handleTriggerClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.metaKey || event.ctrlKey) {
-      onOpenChat(agent.id);
-      return;
-    }
-    onOpenProfile(agent.id);
-  };
-
-  return (
-    <div className="relative group/agent inline-flex items-baseline gap-2 min-w-0">
-      <button
-        type="button"
-        onClick={handleTriggerClick}
-        className="inline-flex items-baseline gap-2 min-w-0 text-left hover:opacity-90 transition-opacity"
-        title="Click for overview. Cmd-click to open direct chat."
-      >
-        <span className="font-semibold text-[12px] truncate" style={inkStyle}>{agent.title}</span>
-        {visibleRole ? (
-          <span className="text-[9px] font-mono border px-1 py-0.5 rounded shrink-0" style={tagStyle}>{visibleRole}</span>
-        ) : null}
-      </button>
-      <span className="text-[9px] font-mono shrink-0" style={mutedStyle}>{timestampLabel}</span>
-      <AgentHoverCard
-        agent={agent}
-        directThread={directThread}
-        mutedStyle={mutedStyle}
-        onOpenProfile={onOpenProfile}
-        onOpenChat={onOpenChat}
-      />
-    </div>
-  );
-}
-
-function AgentIdentityCard({
-  agent,
-  directThread = null,
-  variant = 'hero',
-  mutedStyle = { color: C.muted },
-  borderColor = C.bg,
-  actions = null,
-}: {
-  agent: InterAgentAgent;
-  directThread?: RelayDirectThread | null;
-  variant?: 'hero' | 'hover';
-  mutedStyle?: React.CSSProperties;
-  borderColor?: string;
-  actions?: React.ReactNode;
-}) {
-  const compact = variant === 'hover';
-  const role = normalizeLegacyAgentCopy(agent.role);
-  const summary = normalizeLegacyAgentCopy(agent.summary);
-  const detail = directThread?.statusDetail ?? agent.statusDetail ?? summary ?? 'Available as a local relay channel.';
-
-  return (
-    <>
-      <div className="flex items-start gap-3">
-        <div className="relative shrink-0">
-          <div
-            className={`${compact ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-[13px]'} rounded text-white flex items-center justify-center font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-            style={{ backgroundColor: colorForIdentity(agent.id) }}
-          >
-            {agent.title.charAt(0).toUpperCase()}
-          </div>
-          <div
-            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${relayPresenceDotClass(agent.state)}`}
-            style={{ border: `1px solid ${borderColor}` }}
-          ></div>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className={compact ? 'text-[12px] font-semibold truncate' : 'text-[15px] font-semibold tracking-tight'} style={{ color: C.ink }}>
-              {agent.title}
-            </div>
-            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: C.tagBg, color: C.muted }}>
-              {interAgentProfileKindLabel(agent.profileKind)}
-            </span>
-          </div>
-          {compact ? (
-            <div className="text-[10px] mt-1" style={mutedStyle}>
-              {detail}
-            </div>
-          ) : (
-            <>
-              {role ? (
-                <div className="text-[11px] mt-1" style={{ color: C.ink }}>{role}</div>
-              ) : null}
-              {summary ? (
-                <div className="text-[12px] leading-[1.55] mt-2" style={{ color: C.muted }}>{summary}</div>
-              ) : null}
-            </>
-          )}
-          <div className={`text-[10px] ${compact ? 'mt-2 flex flex-wrap gap-x-3 gap-y-1' : 'mt-3 flex items-center gap-2 flex-wrap'}`} style={mutedStyle}>
-            {compact ? (
-              <>
-                <span>{agent.harness ?? 'runtime'}</span>
-                <span>{compactHomePath(agent.projectRoot ?? agent.cwd) ?? 'no path'}</span>
-                {agent.lastChatLabel ? <span>last chat {agent.lastChatLabel}</span> : null}
-              </>
-            ) : (
-              <>
-                <span>{agent.lastChatLabel ? `Last chat ${agent.lastChatLabel}` : 'No direct chat yet.'}</span>
-                {agent.lastSessionLabel ? (
-                  <>
-                    <span className="w-1 h-1 rounded-full" style={{ backgroundColor: C.border }}></span>
-                    <span>Last session {agent.lastSessionLabel}</span>
-                  </>
-                ) : null}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-      {actions ? (
-        <div className="mt-3 flex items-center gap-2">
-          {actions}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function AgentActionButton({
-  children,
-  icon,
-  tone = 'neutral',
-  ...props
-}: React.ComponentProps<typeof Button> & {
-  icon?: React.ReactNode;
-  tone?: 'neutral' | 'primary';
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-8 rounded-xl px-3 text-[10px] font-medium shadow-none"
-      style={tone === 'primary'
-        ? {
-            backgroundColor: C.accentBg,
-            borderColor: C.accentBorder,
-            color: C.accent,
-          }
-        : {
-            backgroundColor: C.surface,
-            borderColor: C.border,
-            color: C.ink,
-          }}
-      {...props}
-    >
-      {icon}
-      {children}
-    </Button>
-  );
-}
-
-function AgentHoverCard({
-  agent,
-  directThread,
-  mutedStyle,
-  onOpenProfile,
-  onOpenChat,
-}: {
-  agent: InterAgentAgent;
-  directThread: RelayDirectThread | null;
-  mutedStyle: React.CSSProperties;
-  onOpenProfile: (agentId: string) => void;
-  onOpenChat: (agentId: string, draft?: string | null) => void;
-}) {
-  return (
-    <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border p-3 shadow-lg opacity-0 pointer-events-none translate-y-1 transition-all duration-150 group-hover/agent:opacity-100 group-hover/agent:pointer-events-auto group-hover/agent:translate-y-0 group-focus-within/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:translate-y-0" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-      <AgentIdentityCard
-        agent={agent}
-        directThread={directThread}
-        variant="hover"
-        mutedStyle={mutedStyle}
-        borderColor={C.surface}
-        actions={(
-          <>
-            <button
-              type="button"
-              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-              style={{ color: C.ink }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onOpenChat(agent.id);
-              }}
-            >
-              Message
-            </button>
-            <button
-              type="button"
-              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-              style={{ color: C.ink }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onOpenProfile(agent.id);
-              }}
-            >
-              Overview
-            </button>
-            <span className="ml-auto text-[9px] font-mono" style={mutedStyle}>Cmd-click to DM</span>
-          </>
-        )}
-      />
-    </div>
-  );
-}
-
-function ReplyReferenceLine({
-  messageId,
-  preview,
-  mutedStyle,
-  onJump,
-}: {
-  messageId: string;
-  preview?: string | null;
-  mutedStyle: React.CSSProperties;
-  onJump?: () => void;
-}) {
-  return (
-    <div className="mb-1 flex items-center gap-1.5 text-[9px] leading-none min-w-0" style={{ ...mutedStyle, opacity: 0.7 }}>
-      <CornerUpLeft size={9} className="shrink-0" />
-      {onJump ? (
-        <button
-          type="button"
-          onClick={onJump}
-          className="hover:underline underline-offset-2 truncate min-w-0"
-          title={stableMessageRef(messageId)}
-        >
-          {preview || shortMessageRef(messageId)}
-        </button>
-      ) : (
-        <span className="font-mono shrink-0">{shortMessageRef(messageId)}</span>
-      )}
-    </div>
-  );
-}
-
-function RelayReceiptInline({
-  receipt,
-  mutedStyle,
-  inline = false,
-}: {
-  receipt: NonNullable<RelayMessage['receipt']>;
-  mutedStyle: React.CSSProperties;
-  inline?: boolean;
-}) {
-  const tone = relayReceiptTone(receipt.state);
-  return (
-    <div
-      className={`${inline ? '' : 'mt-1.5 '}inline-flex items-center gap-1.5 text-[10px] leading-none shrink-0`}
-      style={{ ...mutedStyle, color: tone.color }}
-      title={receipt.detail ?? receipt.label}
-    >
-      <RelayReceiptIcon state={receipt.state} />
-      <span className="font-mono uppercase tracking-[0.14em]">{receipt.label}</span>
-      {receipt.state === 'replied' && receipt.detail ? (
-        <span style={mutedStyle}>{receipt.detail}</span>
-      ) : null}
-    </div>
-  );
-}
-
-function RelayReceiptIcon({ state }: { state: NonNullable<RelayMessage['receipt']>['state'] }) {
-  switch (state) {
-    case 'replied':
-      return <Reply size={11} />;
-    case 'working':
-      return <TypingDots className="text-[var(--os-accent)]" />;
-    case 'seen':
-      return <CheckCheck size={11} />;
-    case 'delivered':
-      return <CheckCheck size={11} />;
-    case 'sent':
-    default:
-      return <Check size={11} />;
-  }
-}
-
-function relaySecondaryText(thread: RelayDirectThread) {
-  if (thread.state === 'working') {
-    return thread.activeTask ?? thread.statusDetail ?? thread.subtitle;
-  }
-
-  if (thread.statusDetail) {
-    return `${thread.subtitle} · ${thread.statusDetail}`;
-  }
-
-  return thread.subtitle;
-}
-
-function relayPresenceDotClass(state: RelayDirectThread['state']) {
-  if (state === 'working') {
-    return 'bg-[var(--os-accent)] os-presence-pulse';
-  }
-  if (state === 'available') {
-    return 'bg-emerald-500';
-  }
-  return 'bg-zinc-400/50';
-}
-
-function relayPresencePillStyle(state: RelayDirectThread['state']): React.CSSProperties {
-  if (state === 'working') {
-    return {
-      borderColor: 'rgba(0,102,255,0.2)',
-      backgroundColor: 'rgba(0,102,255,0.08)',
-      color: 'var(--os-accent)',
-    };
-  }
-
-  if (state === 'available') {
-    return {
-      borderColor: 'rgba(16,185,129,0.18)',
-      backgroundColor: 'rgba(16,185,129,0.08)',
-      color: '#059669',
-    };
-  }
-
-  return {
-    borderColor: 'var(--os-border)',
-    backgroundColor: 'var(--os-tag-bg)',
-    color: 'var(--os-muted)',
-  };
-}
-
-function relayPresenceIndicatorLabel(state: RelayDirectThread['state']) {
-  return state === 'offline' ? 'Off' : 'On';
-}
-
-function relayReceiptTone(state: NonNullable<RelayMessage['receipt']>['state']) {
-  switch (state) {
-    case 'replied':
-      return { color: '#059669' };
-    case 'working':
-      return { color: 'var(--os-accent)' };
-    case 'seen':
-      return { color: 'var(--os-accent)' };
-    case 'delivered':
-      return { color: '#64748b' };
-    case 'sent':
-    default:
-      return { color: 'var(--os-muted)' };
-  }
-}
-
-function canInlineRelayReceipt(body: string) {
-  const trimmed = body.trim();
-  if (!trimmed || trimmed.includes('\n')) {
-    return false;
-  }
-
-  if (/```|`|\[[^\]]+\]\([^)]+\)|^>\s|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|\|/.test(trimmed)) {
-    return false;
-  }
-
-  return true;
-}
-
-function firstInterAgentThreadIdForAgent(threads: InterAgentThread[], agentId: string) {
-  return threads.find((thread) => thread.participants.some((participant) => participant.id === agentId))?.id ?? null;
-}
-
-function interAgentCounterparts(thread: InterAgentThread, perspectiveId: string | null) {
-  const others = perspectiveId
-    ? thread.participants.filter((participant) => participant.id !== perspectiveId)
-    : thread.participants;
-  return others.length > 0 ? others : thread.participants;
-}
-
-function interAgentThreadTitleForAgent(thread: InterAgentThread, perspectiveId: string | null) {
-  return interAgentCounterparts(thread, perspectiveId).map((participant) => participant.title).join(", ");
-}
-
-function interAgentThreadSubtitle(thread: InterAgentThread, perspectiveId: string | null) {
-  const sourceLabel = thread.sourceKind === 'private' ? 'Private thread' : 'Targeted relay traffic';
-  const participantLine = thread.participants.map((participant) => participant.title).join(" ↔ ");
-  if (!perspectiveId) {
-    return `${sourceLabel} · ${participantLine}`;
-  }
-
-  const others = interAgentCounterparts(thread, perspectiveId).map((participant) => participant.title).join(", ");
-  return thread.latestAuthorName
-    ? `${sourceLabel} · ${others} · Last from ${thread.latestAuthorName}`
-    : `${sourceLabel} · ${participantLine}`;
-}
-
-function agentThreadFollowUpDraft(thread: InterAgentThread, perspectiveId: string | null) {
-  const others = interAgentCounterparts(thread, perspectiveId).map((participant) => participant.title).join(", ");
-  return others
-    ? `Can you catch me up on your thread with ${others}?`
-    : "Can you catch me up on this thread?";
-}
-
-function interAgentProfileKindLabel(profileKind: InterAgentAgent['profileKind']) {
-  if (profileKind === 'project') {
-    return 'Relay Agent';
-  }
-  if (profileKind === 'system') {
-    return 'System';
-  }
-  return 'Built-in Role';
-}
-
-function agentRosterFilterLabel(mode: AgentRosterFilterMode) {
-  return mode === 'active' ? 'active' : 'all';
-}
-
-function agentRosterSortLabel(mode: AgentRosterSortMode) {
-  if (mode === 'code') {
-    return 'code';
-  }
-  if (mode === 'session') {
-    return 'session';
-  }
-  if (mode === 'alpha') {
-    return 'a-z';
-  }
-  return 'chat';
-}
-
-function isAgentRosterActive(agent: InterAgentAgent) {
-  return agent.threadCount > 0
-    || agent.reachable
-    || Boolean(agent.lastChatAt || agent.lastCodeChangeAt || agent.lastSessionAt);
-}
-
-function agentRosterTimestamp(agent: InterAgentAgent, mode: AgentRosterSortMode) {
-  if (mode === 'code') {
-    return agent.lastCodeChangeAt ?? 0;
-  }
-  if (mode === 'session') {
-    return agent.lastSessionAt ?? 0;
-  }
-  return agent.lastChatAt ?? 0;
-}
-
-function compareAgentRoster(lhs: InterAgentAgent, rhs: InterAgentAgent, mode: AgentRosterSortMode) {
-  if (mode === 'alpha') {
-    return lhs.title.localeCompare(rhs.title);
-  }
-
-  const delta = agentRosterTimestamp(rhs, mode) - agentRosterTimestamp(lhs, mode);
-  if (delta !== 0) {
-    return delta;
-  }
-
-  return rhs.threadCount - lhs.threadCount || lhs.title.localeCompare(rhs.title);
-}
-
-function agentRosterSecondaryText(agent: InterAgentAgent, mode: AgentRosterSortMode) {
-  if (mode === 'chat' && agent.lastChatLabel) {
-    return `${agent.subtitle} · chat ${agent.lastChatLabel}`;
-  }
-  if (mode === 'code' && agent.lastCodeChangeLabel) {
-    return `${agent.subtitle} · code ${agent.lastCodeChangeLabel}`;
-  }
-  if (mode === 'session' && agent.lastSessionLabel) {
-    return `${agent.subtitle} · session ${agent.lastSessionLabel}`;
-  }
-  return agent.subtitle;
-}
-
-function normalizeDraftText(value: string) {
-  return value.replace(/\r\n/g, '\n').trim();
-}
-
-function serializeEditableAgentConfig(config: AgentConfigState | null) {
-  if (!config) {
-    return '';
-  }
-
-  return JSON.stringify({
-    cwd: normalizeDraftText(config.runtime.cwd),
-    harness: config.runtime.harness,
-    sessionId: normalizeDraftText(config.runtime.sessionId),
-    systemPrompt: normalizeDraftText(config.systemPrompt),
-    launchArgsText: normalizeDraftText(config.toolUse.launchArgsText),
-    capabilitiesText: normalizeDraftText(config.capabilitiesText),
-  });
-}
-
-function serializeAppSettings(settings: AppSettingsState | null) {
-  if (!settings) {
-    return '';
-  }
-
-  return JSON.stringify({
-    operatorName: normalizeDraftText(settings.operatorName),
-    onboardingContextRoot: normalizeDraftText(settings.onboardingContextRoot),
-    workspaceRoots: settings.workspaceRoots.map((entry) => normalizeDraftText(entry)),
-    includeCurrentRepo: settings.includeCurrentRepo,
-    defaultHarness: settings.defaultHarness,
-    defaultCapabilities: settings.defaultCapabilities.map((entry) => normalizeDraftText(entry)),
-    sessionPrefix: normalizeDraftText(settings.sessionPrefix),
-    telegram: {
-      enabled: settings.telegram.enabled,
-      mode: settings.telegram.mode,
-      botToken: normalizeDraftText(settings.telegram.botToken),
-      secretToken: normalizeDraftText(settings.telegram.secretToken),
-      apiBaseUrl: normalizeDraftText(settings.telegram.apiBaseUrl),
-      userName: normalizeDraftText(settings.telegram.userName),
-      defaultConversationId: normalizeDraftText(settings.telegram.defaultConversationId),
-      ownerNodeId: normalizeDraftText(settings.telegram.ownerNodeId),
-    },
-  });
-}
-
-function parseCapabilityText(value: string) {
-  return Array.from(
-    new Set(
-      value
-        .split(/[\n,]/g)
-        .map((entry) => entry.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function normalizeLegacyAgentCopy(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  return value;
-}
-
-function compactHomePath(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  return value
-    .replace(/^\/Users\/[^/]+/, "~")
-    .replace(/^\/home\/[^/]+/, "~");
-}
-
-type WorkspaceExplorerItem = {
-  project: SetupProjectSummary;
-  linkedAgent: InterAgentAgent | null;
-  isBound: boolean;
-  primaryHarness: string;
-  pathLabel: string;
-  branchLabel: string;
-  activityLabel: string;
-  statusLabel: string;
-};
-
-const sStatic = {
-  ink: { color: C.ink } as React.CSSProperties,
-  muted: { color: C.muted } as React.CSSProperties,
-};
-
-function WorkspaceExplorerCard({
-  item,
-  isSelected,
-  onSelect,
-  onPrimaryAction,
-  onSecondaryAction,
-  secondaryActionPending,
-}: {
-  item: WorkspaceExplorerItem;
-  isSelected: boolean;
-  onSelect: () => void;
-  onPrimaryAction: () => void;
-  onSecondaryAction: () => void;
-  secondaryActionPending: boolean;
-}) {
-  const { project, isBound, primaryHarness, pathLabel, branchLabel, activityLabel, statusLabel } = item;
-  const initial = project.title.trim().charAt(0).toUpperCase() || "W";
-  const statusTone = isBound
-    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
-    : project.registrationKind === "configured"
-      ? "border-amber-500/20 bg-amber-500/10 text-amber-700"
-      : "border-border bg-secondary text-secondary-foreground";
-
-  return (
-    <div
-      className={cn(
-        "os-card rounded-xl border p-4 cursor-pointer",
-        isSelected ? "ring-1 ring-[color:var(--os-accent)]" : "",
-      )}
-      style={{ borderColor: isSelected ? C.accent : C.border, backgroundColor: C.surface, boxShadow: isSelected ? C.shadowSm : undefined }}
-      onClick={onSelect}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[12px] font-semibold",
-            isBound ? "bg-emerald-500/10 text-emerald-700" : "bg-secondary text-secondary-foreground",
-          )}
-        >
-          {initial}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold leading-tight tracking-tight" style={sStatic.ink}>{project.title}</div>
-          <div className="mt-0.5 truncate text-[10px] font-mono" style={sStatic.muted}>{pathLabel}</div>
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <Badge variant="outline" className="font-mono text-[10px] capitalize">{primaryHarness}</Badge>
-        <Badge className={cn("text-[10px]", statusTone)}>
-          {isBound ? <Zap className="h-3 w-3" /> : null}
-          {statusLabel}
-        </Badge>
-      </div>
-
-      <div className="mt-3 flex items-center gap-3 text-[10px]" style={sStatic.muted}>
-        <div className="flex items-center gap-1">
-          <GitBranch className="h-3 w-3" />
-          {branchLabel}
-        </div>
-        <div className="flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          {activityLabel}
-        </div>
-      </div>
-
-      <div className="mt-3 border-t pt-3" style={{ borderColor: C.border }}>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={isBound ? "outline" : "default"}
-            size="sm"
-            className="flex-1 text-[11px]"
-            onClick={(e) => { e.stopPropagation(); onPrimaryAction(); }}
-          >
-            {isBound ? "Open Agent" : "Configure"}
-          </Button>
-          {isBound ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-[11px]"
-              onClick={(e) => { e.stopPropagation(); onSecondaryAction(); }}
-              disabled={secondaryActionPending}
-            >
-              {secondaryActionPending ? "Retiring…" : "Retire"}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceExplorerTable({
-  items,
-  selectedWorkspaceId,
-  onSelectWorkspace,
-  onPrimaryAction,
-  onSecondaryAction,
-  projectRetirementPendingRoot,
-}: {
-  items: WorkspaceExplorerItem[];
-  selectedWorkspaceId: string | null;
-  onSelectWorkspace: (project: SetupProjectSummary) => void;
-  onPrimaryAction: (project: SetupProjectSummary) => void;
-  onSecondaryAction: (project: SetupProjectSummary) => void;
-  projectRetirementPendingRoot: string | null;
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-      <table className="w-full">
-        <thead>
-          <tr style={{ backgroundColor: "color-mix(in srgb, var(--os-bg) 82%, transparent)" }}>
-            <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Workspace</th>
-            <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Harness</th>
-            <th className="px-4 py-3 text-left text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Status</th>
-            <th className="px-4 py-3 text-right text-[10px] font-mono uppercase tracking-widest" style={sStatic.muted}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => {
-            const active = selectedWorkspaceId === item.project.id;
-            return (
-              <tr
-                key={item.project.id}
-                className="border-t"
-                style={{ borderColor: C.border, backgroundColor: active ? "color-mix(in srgb, var(--os-surface) 80%, white)" : "transparent" }}
-              >
-                <td className="px-4 py-3">
-                  <button type="button" onClick={() => onSelectWorkspace(item.project)} className="flex min-w-0 items-center gap-3 text-left">
-                    <div
-                      className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold",
-                        item.isBound ? "bg-emerald-500/10 text-emerald-700" : "bg-secondary text-secondary-foreground",
-                      )}
-                    >
-                      {item.project.title.trim().charAt(0).toUpperCase() || "W"}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] font-medium" style={sStatic.ink}>{item.project.title}</div>
-                      <div className="truncate text-[11px]" style={sStatic.muted}>{item.pathLabel}</div>
-                    </div>
-                  </button>
-                </td>
-                <td className="px-4 py-3">
-                  <Badge variant="outline" className="font-mono text-[11px] capitalize">{item.primaryHarness}</Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <Badge
-                    className={cn(
-                      "text-[11px]",
-                      item.isBound
-                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
-                        : item.project.registrationKind === "configured"
-                          ? "border-amber-500/20 bg-amber-500/10 text-amber-700"
-                          : "border-border bg-secondary text-secondary-foreground",
-                    )}
-                  >
-                    {item.isBound ? <Zap className="h-3 w-3" /> : null}
-                    {item.statusLabel}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1.5">
-                    <Button variant={item.isBound ? "outline" : "default"} size="sm" onClick={() => onPrimaryAction(item.project)}>
-                      {item.isBound ? "Open" : "Inspect"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => onSecondaryAction(item.project)}
-                      disabled={projectRetirementPendingRoot === item.project.root}
-                    >
-                      <Settings2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function InterAgentIcon({
-  size = 16,
-  strokeWidth = 1.35,
-  style,
-}: {
-  size?: number;
-  strokeWidth?: number;
-  style?: React.CSSProperties;
-}) {
-  return <Network size={size} strokeWidth={strokeWidth} className="shrink-0" style={style} aria-hidden="true" />;
-}
-
-function shouldRenderRole(role: string | null) {
-  if (!role) {
-    return false;
-  }
-  return role.trim().toLowerCase() !== 'operator';
-}
-
-function RelayRailIcon({ id, active, size = 12 }: { id: string; active: boolean; size?: number }) {
-  const iconStyle = active ? { color: C.accent } : undefined;
-
-  if (id === 'voice') {
-    return <Radio size={size} className="os-row-icon shrink-0" style={iconStyle} />;
-  }
-  if (id === 'system') {
-    return <Settings size={size} className="os-row-icon shrink-0" style={iconStyle} />;
-  }
-  if (id === 'mentions') {
-    return <AtSign size={size} className="os-row-icon shrink-0" style={iconStyle} />;
-  }
-  if (id === 'coordination') {
-    return <MessageSquare size={size} className="os-row-icon shrink-0" style={iconStyle} />;
-  }
-  if (id === 'all-traffic') {
-    return <Radar size={size} className="os-row-icon shrink-0" style={iconStyle} />;
-  }
-  return <Hash size={size} className="os-row-icon shrink-0" style={iconStyle} />;
-}
-
-function isRelaySharedConversationMessage(message: RelayMessage) {
-  return (
-    !message.isDirectConversation &&
-    !message.isSystem &&
-    !message.isVoice &&
-    message.messageClass !== 'status' &&
-    (!message.normalizedChannel || message.normalizedChannel === 'shared')
-  );
-}
-
-function isRelaySystemMessage(message: RelayMessage) {
-  return message.isSystem;
-}
-
-function isRelayVoiceMessage(message: RelayMessage) {
-  return message.isVoice;
-}
-
-function isRelayAllTrafficMessage(message: RelayMessage) {
-  return !message.isVoice;
-}
-
-function isRelayCoordinationMessage(message: RelayMessage) {
-  return (
-    !message.isVoice &&
-    !message.isSystem &&
-    (message.isDirectConversation || message.recipients.length > 0 || message.messageClass === 'status')
-  );
-}
-
-function isRelayMentionMessage(message: RelayMessage) {
-  return (
-    !message.isDirectConversation &&
-    !message.isSystem &&
-    !message.isVoice &&
-    message.messageClass !== 'status' &&
-    message.recipients.length > 0
-  );
-}
-
-function relayMessageCount(messages: RelayMessage[], predicate: (message: RelayMessage) => boolean) {
-  return messages.filter(predicate).length;
-}
-
-function buildRelayFeedItems(relayState: DesktopShellState['relay'] | null): RelayNavItem[] {
-  if (!relayState) {
-    return [];
-  }
-
-  const viewById = new Map(relayState.views.map((item) => [item.id, item]));
-  const channelById = new Map(relayState.channels.map((item) => [item.id, item]));
-
-  return [
-    viewById.get('all-traffic') ?? {
-      kind: 'filter',
-      id: 'all-traffic',
-      title: 'All Traffic',
-      subtitle: 'Every non-voice message across the workspace.',
-      count: relayMessageCount(relayState.messages, isRelayAllTrafficMessage),
-    },
-    viewById.get('coordination') ?? {
-      kind: 'filter',
-      id: 'coordination',
-      title: 'Coordination',
-      subtitle: 'Targeted messages, direct threads, and task handoffs.',
-      count: relayMessageCount(relayState.messages, isRelayCoordinationMessage),
-    },
-    viewById.get('mentions') ?? {
-      kind: 'filter',
-      id: 'mentions',
-      title: 'Mentions',
-      subtitle: 'Focused view over shared-channel targeted messages.',
-      count: relayMessageCount(relayState.messages, isRelayMentionMessage),
-    },
-    channelById.get('system') ?? {
-      kind: 'channel',
-      id: 'system',
-      title: '# system',
-      subtitle: 'Infrastructure, lifecycle, and broker state events.',
-      count: relayMessageCount(relayState.messages, isRelaySystemMessage),
-    },
-    channelById.get('voice') ?? {
-      kind: 'channel',
-      id: 'voice',
-      title: '# voice',
-      subtitle: 'Voice-related chat, transcripts, and spoken updates.',
-      count: relayMessageCount(relayState.messages, isRelayVoiceMessage),
-    },
-  ];
-}
-
-function buildRelayConversationItems(relayState: DesktopShellState['relay'] | null): RelayNavItem[] {
-  if (!relayState) {
-    return [];
-  }
-
-  const sharedChannel = relayState.channels.find((item) => item.id === 'shared');
-  return [
-    sharedChannel ?? {
-      kind: 'channel',
-      id: 'shared',
-      title: '# shared-channel',
-      subtitle: 'Broadcast updates and shared context.',
-      count: relayMessageCount(relayState.messages, isRelaySharedConversationMessage),
-    },
-  ];
-}
-
-function resolveRelayDestination(
-  relayState: DesktopShellState['relay'],
-  feedItems: RelayNavItem[],
-  kind: RelayDestinationKind,
-  id: string,
-) {
-  if (kind === 'channel') {
-    return relayState.channels.find((item) => item.id === id) ?? null;
-  }
-  if (kind === 'filter') {
-    return feedItems.find((item) => item.id === id) ?? null;
-  }
-  return relayState.directs.find((item) => item.id === id) ?? null;
-}
-
-function filterRelayMessages(messages: RelayMessage[], kind: RelayDestinationKind, id: string) {
-  if (kind === 'direct') {
-    return messages.filter(
-      (message) =>
-        message.isDirectConversation &&
-        (message.authorId === id || message.recipients.includes(id)),
-    );
-  }
-
-  if (kind === 'filter' && id === 'all-traffic') {
-    return messages.filter(isRelayAllTrafficMessage);
-  }
-
-  if (kind === 'filter' && id === 'coordination') {
-    return messages.filter(isRelayCoordinationMessage);
-  }
-
-  if (kind === 'filter' && id === 'mentions') {
-    return messages.filter(isRelayMentionMessage);
-  }
-
-  if (kind === 'channel' && id === 'voice') {
-    return messages.filter(isRelayVoiceMessage);
-  }
-
-  if (kind === 'channel' && id === 'system') {
-    return messages.filter(isRelaySystemMessage);
-  }
-
-  return messages.filter(isRelaySharedConversationMessage);
-}
-
-function placeholderForDestination(kind: RelayDestinationKind, id: string) {
-  if (kind === 'direct') {
-    return 'Message direct thread...';
-  }
-  if (kind === 'filter' && id === 'coordination') {
-    return 'Message #shared-channel or @agent...';
-  }
-  if (kind === 'channel' && id === 'voice') {
-    return 'Message #voice...';
-  }
-  if (kind === 'channel' && id === 'system') {
-    return 'Message #system...';
-  }
-  return 'Message #shared-channel...';
-}
-
-function cleanDisplayTitle(title: string) {
-  return title.replace(/^[@#]\s*/, '');
-}
-
-function normalizeRelayTimestamp(value: number) {
-  return value > 10_000_000_000 ? value : value * 1000;
-}
-
-function formatRelayTimestamp(value: number) {
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(normalizeRelayTimestamp(value)));
-}
-
-function formatRelayDayLabel(value: number) {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(normalizeRelayTimestamp(value))).toUpperCase();
-}
-
-function formatFooterTime(date: Date) {
-  return new Intl.DateTimeFormat([], {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function colorForIdentity(identity: string) {
-  const palette = ['#3b82f6', '#14b8a6', '#fb923c', '#f43f5e', '#8b5cf6', '#10b981'];
-  let seed = 0;
-  for (const character of identity) {
-    seed += character.charCodeAt(0);
-  }
-  return palette[seed % palette.length];
-}
-
-function generateClientMessageId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `client-${crypto.randomUUID()}`;
-  }
-
-  return `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function resolveOperatorDisplayName(
-  relayState: DesktopShellState['relay'] | null,
-  appSettings: AppSettingsState | null,
-) {
-  const configuredName = appSettings?.operatorName?.trim();
-  if (configuredName) {
-    return configuredName;
-  }
-
-  const operatorId = relayState?.operatorId ?? 'operator';
-  const messages = relayState?.messages ?? [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.authorId === operatorId && message.authorName.trim()) {
-      return message.authorName.trim();
-    }
-  }
-
-  return appSettings?.operatorNameDefault ?? 'Operator';
-}
-
-function relayMessageMentionRecipients(body: string) {
-  const matches = body.match(/@[a-z0-9][\w.-]*(?:@[a-z0-9][\w.-]*)?(?:#[a-z0-9][\w.-]*)?/gi) ?? [];
-  return Array.from(new Set(matches.map((match) => match.slice(1))));
-}
-
-function normalizeRelayMentionQuery(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function pathLeaf(value: string | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const trimmed = value.replace(/[\\/]+$/, '');
-  if (!trimmed) {
-    return null;
-  }
-
-  const parts = trimmed.split(/[\\/]/).filter(Boolean);
-  return parts.at(-1) ?? null;
-}
-
-function findActiveRelayMention(text: string, cursor: number): RelayActiveMention | null {
-  const safeCursor = Math.max(0, Math.min(cursor, text.length));
-  let start = safeCursor - 1;
-
-  while (start >= 0 && /[\w.@#-]/.test(text[start] ?? '')) {
-    start -= 1;
-  }
-
-  const mentionStart = start + 1;
-  if (text[mentionStart] !== '@') {
-    return null;
-  }
-
-  if (start >= 0 && !/[\s([{,]/.test(text[start] ?? '')) {
-    return null;
-  }
-
-  return {
-    start: mentionStart,
-    end: safeCursor,
-    query: normalizeRelayMentionQuery(text.slice(mentionStart + 1, safeCursor)),
-  };
-}
-
-function scoreRelayMentionCandidate(
-  candidate: RelayMentionCandidate,
-  query: string,
-  selectedDirectAgentId: string | null,
-): number {
-  const normalizedToken = candidate.mentionToken.replace(/^@/, '').toLowerCase();
-  const normalizedTitle = candidate.title.toLowerCase();
-  const normalizedQuery = normalizeRelayMentionQuery(query);
-  let score = 0;
-
-  if (candidate.agentId === selectedDirectAgentId) {
-    score += 100;
-  }
-
-  if (!normalizedQuery) {
-    if (candidate.state === 'working') score += 10;
-    else if (candidate.state === 'available') score += 6;
-    return score;
-  }
-
-  if (normalizedToken === normalizedQuery) score += 120;
-  else if (normalizedToken.startsWith(normalizedQuery)) score += 80;
-  else if (normalizedTitle.startsWith(normalizedQuery)) score += 72;
-  else if (candidate.searchText.includes(normalizedQuery)) score += 28;
-
-  if (candidate.state === 'working') score += 8;
-  else if (candidate.state === 'available') score += 4;
-
-  return score;
-}
-
-function mentionWorkspaceLabel(candidate: RelayMentionCandidate) {
-  return pathLeaf(candidate.subtitle) ?? candidate.workspaceQualifier ?? null;
-}
-
-function mentionWorktreeLabel(candidate: RelayMentionCandidate) {
-  const branch = candidate.branch?.trim();
-  if (branch && branch !== 'HEAD') {
-    return branch;
-  }
-  return candidate.workspaceQualifier?.trim() || null;
-}
-
-function optimisticRelayConversationId(kind: RelayDestinationKind, id: string) {
-  if (kind === 'direct') {
-    if (id === 'scout') {
-      return 'dm.scout.primary';
-    }
-    return `dm.operator.${id}`;
-  }
-  if (kind === 'channel' && id === 'voice') {
-    return 'channel.voice';
-  }
-  if (kind === 'channel' && id === 'system') {
-    return 'channel.system';
-  }
-  return 'channel.shared';
-}
-
-function normalizedMessageRefKey(messageId: string) {
-  return messageId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-}
-
-function messageRefTokenPattern() {
-  return /\b(?:message:[a-zA-Z0-9._:-]+|m:[a-z0-9]{4,12})\b/gi;
-}
-
-function arraysEqual(values: string[], other: string[]) {
-  if (values.length !== other.length) {
-    return false;
-  }
-
-  return values.every((value, index) => value === other[index]);
-}
-
-function resolveRelayMessageRefToken(token: string, messages: RelayMessage[]) {
-  const normalizedToken = token.trim().toLowerCase();
-  if (!normalizedToken) {
-    return null;
-  }
-
-  if (normalizedToken.startsWith('message:')) {
-    const messageId = token.slice(token.indexOf(':') + 1).trim();
-    return messages.find((message) => message.id === messageId) ?? null;
-  }
-
-  if (!normalizedToken.startsWith('m:')) {
-    return null;
-  }
-
-  const suffix = normalizedToken.slice(2);
-  if (!suffix) {
-    return null;
-  }
-
-  const matches = messages.filter((message) => normalizedMessageRefKey(message.id).endsWith(suffix));
-  return matches.length === 1 ? matches[0] : null;
-}
-
-function stripResolvedRelayRefTokens(body: string, resolvedTokens: string[]) {
-  if (resolvedTokens.length === 0) {
-    return body;
-  }
-
-  const tokenSet = new Set(resolvedTokens.map((token) => token.toLowerCase()));
-  const withoutTokens = body.replace(messageRefTokenPattern(), (match) => (
-    tokenSet.has(match.toLowerCase()) ? ' ' : match
-  ));
-
-  return withoutTokens
-    .split(/\r?\n/g)
-    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trim())
-    .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
-    .join('\n')
-    .trim();
-}
-
-function ingestRelayMessageRefs(
-  body: string,
-  messages: RelayMessage[],
-  currentReferenceMessageIds: string[],
-) {
-  const tokens = body.match(messageRefTokenPattern()) ?? [];
-  if (tokens.length === 0) {
-    return {
-      body,
-      nextReferenceMessageIds: currentReferenceMessageIds,
-    };
-  }
-
-  const nextReferenceMessageIds = [...currentReferenceMessageIds];
-  const resolvedTokens: string[] = [];
-  for (const token of tokens) {
-    const match = resolveRelayMessageRefToken(token, messages);
-    if (!match) {
-      continue;
-    }
-    resolvedTokens.push(token);
-    if (!nextReferenceMessageIds.includes(match.id)) {
-      nextReferenceMessageIds.push(match.id);
-    }
-  }
-
-  if (resolvedTokens.length === 0) {
-    return {
-      body,
-      nextReferenceMessageIds: currentReferenceMessageIds,
-    };
-  }
-
-  const cleanedBody = stripResolvedRelayRefTokens(body, resolvedTokens);
-  return {
-    body: cleanedBody,
-    nextReferenceMessageIds: arraysEqual(nextReferenceMessageIds, currentReferenceMessageIds)
-      ? currentReferenceMessageIds
-      : nextReferenceMessageIds,
-  };
-}
-
-function buildOptimisticRelayMessage({
-  relayState,
-  appSettings,
-  destinationKind,
-  destinationId,
-  body,
-  replyToMessageId,
-  clientMessageId,
-}: {
-  relayState: DesktopShellState['relay'] | null;
-  appSettings: AppSettingsState | null;
-  destinationKind: RelayDestinationKind;
-  destinationId: string;
-  body: string;
-  replyToMessageId: string | null;
-  clientMessageId: string;
-}): RelayMessage {
-  const createdAt = Date.now();
-  const operatorId = relayState?.operatorId ?? 'operator';
-  const operatorName = resolveOperatorDisplayName(relayState, appSettings);
-  const recipients = destinationKind === 'direct'
-    ? Array.from(new Set([destinationId, ...relayMessageMentionRecipients(body)]))
-    : relayMessageMentionRecipients(body);
-  const normalizedChannel = destinationKind === 'channel'
-    ? destinationId
-    : destinationKind === 'direct'
-      ? null
-      : 'shared';
-  const isVoice = destinationKind === 'channel' && destinationId === 'voice';
-  const isSystem = destinationKind === 'channel' && destinationId === 'system';
-
-  return {
-    id: `pending-${clientMessageId}`,
-    clientMessageId,
-    conversationId: optimisticRelayConversationId(destinationKind, destinationId),
-    createdAt,
-    replyToMessageId,
-    authorId: operatorId,
-    authorName: operatorName,
-    authorRole: null,
-    body,
-    timestampLabel: formatRelayTimestamp(createdAt),
-    dayLabel: formatRelayDayLabel(createdAt),
-    normalizedChannel,
-    recipients,
-    isDirectConversation: destinationKind === 'direct',
-    isSystem,
-    isVoice,
-    messageClass: isSystem ? 'system' : 'agent',
-    routingSummary: recipients.length > 0 ? `Targets ${recipients.join(', ')}` : null,
-    provenanceSummary: 'via electron · sending',
-    provenanceDetail: null,
-    isOperator: true,
-    avatarLabel: operatorName.slice(0, 1).toUpperCase() || 'A',
-    avatarColor: colorForIdentity(operatorId),
-    receipt: {
-      state: 'sent',
-      label: 'Sending…',
-      detail: null,
-    },
-  };
-}
-
-function renderMessageBody(
-  body: string,
-  inkStyle: React.CSSProperties,
-  mutedStyle: React.CSSProperties,
-  tagStyle: React.CSSProperties,
-) {
-  const markdownStyle = {
-    '--os-markdown-ink': String(inkStyle.color ?? C.ink),
-    '--os-markdown-muted': String(mutedStyle.color ?? C.muted),
-    '--os-markdown-link': C.accent,
-    '--os-markdown-border': C.border,
-    '--os-markdown-surface': String(tagStyle.backgroundColor ?? C.tagBg),
-    '--os-markdown-inline-border': String(tagStyle.borderColor ?? C.border),
-    '--os-markdown-code-bg': C.termBg,
-    '--os-markdown-code-fg': C.termFg,
-  } as React.CSSProperties;
-
-  return (
-    <div className="os-markdown" style={markdownStyle}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote>{children}</blockquote>
-          ),
-          code: ({ className, children, ...props }) => {
-            const language = /language-([\w-]+)/.exec(className ?? '')?.[1];
-            const value = String(children).replace(/\n$/, '');
-            const isInline = !language && !value.includes('\n');
-
-            if (isInline) {
-              return (
-                <code className="os-markdown-inline-code" {...props}>
-                  {value}
-                </code>
-              );
-            }
-
-            return (
-              <div className="os-markdown-code-block">
-                <div className="os-markdown-code-header">
-                  <span>{language ?? 'code'}</span>
-                </div>
-                <pre className="os-markdown-pre">
-                  <code className={className} {...props}>
-                    {value}
-                  </code>
-                </pre>
-              </div>
-            );
-          },
-          h1: ({ children }) => <h1>{children}</h1>,
-          h2: ({ children }) => <h2>{children}</h2>,
-          h3: ({ children }) => <h3>{children}</h3>,
-          hr: () => <hr />,
-          pre: ({ children }) => <>{children}</>,
-          table: ({ children }) => (
-            <div className="os-markdown-table-wrap">
-              <table>{children}</table>
-            </div>
-          ),
-        }}
-      >
-        {body}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-function shortMessageRef(messageId: string) {
-  const normalized = messageId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-  const suffix = normalized.slice(-7) || normalized.slice(0, 7) || 'message';
-  return `m:${suffix}`;
-}
-
-function messageRefSuffix(messageId: string) {
-  const normalized = messageId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-  return normalized.slice(-4) || normalized.slice(0, 4) || 'ref';
-}
-
-function stableMessageRef(messageId: string) {
-  return `message:${messageId}`;
-}
-
-function messageDomId(messageId: string) {
-  return `message-${messageId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-}
-
-function messagePreviewSnippet(body: string, maxLength = 88) {
-  const compact = body.replace(/\s+/g, ' ').trim();
-  if (compact.length <= maxLength) {
-    return compact;
-  }
-  return `${compact.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
-}
-
-function highlightedMessageStyle(): React.CSSProperties {
-  return {
-    color: C.ink,
-    backgroundColor: C.accentBg,
-    boxShadow: 'inset 0 0 0 1px rgba(0,102,255,0.16)',
-  };
-}
-
-async function copyTextToClipboard(text: string) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  if (typeof document !== 'undefined') {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', 'true');
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    const copied = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    if (copied) {
-      return;
-    }
-  }
-
-  throw new Error('Clipboard unavailable.');
-}
-
-function asErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return 'Action failed.';
-}
