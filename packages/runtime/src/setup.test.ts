@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initializeOpenScoutSetup, writeOpenScoutSettings } from "./setup.js";
+import { encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -56,6 +57,24 @@ describe("setup inventory", () => {
     mkdirSync(join(repoAlpha, ".git"), { recursive: true });
     writeFileSync(join(repoAlpha, "AGENTS.md"), "# Alpha\n", "utf8");
     writeFileSync(join(repoAlpha, "CLAUDE.md"), "# Alpha\n", "utf8");
+    mkdirSync(join(repoAlpha, ".codex", "environments"), { recursive: true });
+    writeFileSync(
+      join(repoAlpha, ".codex", "environments", "environment.toml"),
+      [
+        "version = 1",
+        'name = "Alpha Workspace"',
+        "",
+        "[setup]",
+        'script = "npm install\\nnpm run build"',
+        "",
+        "[[actions]]",
+        'name = "Run"',
+        'icon = "play"',
+        'command = "npm start"',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
 
     mkdirSync(repoBeta, { recursive: true });
     writeFileSync(join(repoBeta, "AGENTS.md"), "# Beta\n", "utf8");
@@ -69,6 +88,17 @@ describe("setup inventory", () => {
     process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
     process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
     process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
+    mkdirSync(join(home, ".claude", "projects", encodeClaudeProjectsSlug(repoAlpha), "memory"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", "projects", encodeClaudeProjectsSlug(repoAlpha), "session.jsonl"),
+      `${JSON.stringify({ cwd: join(repoAlpha, "apps", "desktop"), gitBranch: "feature/alpha" })}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(home, ".claude", "projects", encodeClaudeProjectsSlug(repoAlpha), "memory", "MEMORY.md"),
+      "# Alpha memory\n",
+      "utf8",
+    );
 
     await writeOpenScoutSettings({
       discovery: {
@@ -88,6 +118,28 @@ describe("setup inventory", () => {
     const alpha = setup.projectInventory.find((project) => project.relativePath === "alpha");
     expect(alpha?.registrationKind).toBe("configured");
     expect(alpha?.harnesses.map((harness) => harness.harness).sort()).toEqual(["claude", "codex"]);
+    const alphaManifest = JSON.parse(readFileSync(join(repoAlpha, ".openscout", "project.json"), "utf8")) as {
+      project: { name: string };
+      environment?: {
+        setup?: { default?: string };
+        actions?: Array<{ name: string; scripts?: { default?: string } }>;
+      };
+      imports?: {
+        codex?: { sourcePath?: string; environment?: { actions?: Array<{ name: string }> } };
+        claude?: { sourcePath?: string; memoryPath?: string; gitBranches?: string[] };
+      };
+    };
+    expect(alphaManifest.project.name).toBe("Alpha Workspace");
+    expect(alphaManifest.environment?.setup?.default).toBe("npm install\nnpm run build");
+    expect(alphaManifest.environment?.actions?.map((action) => action.name)).toEqual(["Run"]);
+    expect(alphaManifest.environment?.actions?.[0]?.scripts?.default).toBe("npm start");
+    expect(alphaManifest.imports?.codex?.sourcePath).toBe(join(repoAlpha, ".codex", "environments", "environment.toml"));
+    expect(alphaManifest.imports?.codex?.environment?.actions?.map((action) => action.name)).toEqual(["Run"]);
+    expect(alphaManifest.imports?.claude?.sourcePath).toBe(join(home, ".claude", "projects", encodeClaudeProjectsSlug(repoAlpha)));
+    expect(alphaManifest.imports?.claude?.memoryPath).toBe(
+      join(home, ".claude", "projects", encodeClaudeProjectsSlug(repoAlpha), "memory", "MEMORY.md"),
+    );
+    expect(alphaManifest.imports?.claude?.gitBranches).toEqual(["feature/alpha"]);
 
     const beta = setup.projectInventory.find((project) => project.relativePath === "group/beta");
     expect(beta?.defaultHarness).toBe("codex");

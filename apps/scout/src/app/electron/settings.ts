@@ -18,7 +18,6 @@ import {
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import { SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
-import { resolveScoutAppRoot } from "../../shared/paths.ts";
 import { syncScoutBrokerBindings } from "../../core/broker/service.ts";
 import type { ScoutTelegramBridgeRuntimeState as ScoutElectronTelegramRuntimeState } from "../../core/telegram/index.ts";
 import {
@@ -267,50 +266,59 @@ function defaultOnboardingContextRoot(
   return path.resolve(expandHomePath(chosenRoot));
 }
 
-function resolveScoutElectronBunExecutable(): string {
-  const explicit = process.env.OPENSCOUT_BUN_BIN ?? process.env.BUN_BIN;
+function isExecutable(candidate: string): boolean {
+  return existsSync(candidate);
+}
+
+function resolveScoutElectronScoutExecutable(): string {
+  const explicit = process.env.OPENSCOUT_SCOUT_BIN ?? process.env.SCOUT_BIN;
   if (explicit?.trim()) {
     return explicit.trim();
   }
 
-  if (basenameLooksLikeBun(process.execPath) && existsSync(process.execPath)) {
-    return process.execPath;
-  }
-
   const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
-  for (const entry of pathEntries) {
-    const candidate = path.join(entry, "bun");
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const homeBun = path.join(homedir(), ".bun", "bin", "bun");
-  if (existsSync(homeBun)) {
-    return homeBun;
-  }
-
-  return "bun";
-}
-
-function basenameLooksLikeBun(filePath: string): boolean {
-  return path.basename(filePath).startsWith("bun");
-}
-
-function resolveScoutElectronOnboardingCliPath(): string {
-  const appRoot = resolveScoutAppRoot();
-  const candidates = [
-    path.join(appRoot, "cli", "bin", "scout.mjs"),
-    path.join(appRoot, "bin", "scout.ts"),
+  const commonDirectories = [
+    path.join(homedir(), ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
   ];
 
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
+  for (const directory of [...pathEntries, ...commonDirectories]) {
+    const candidate = path.join(directory.replace(/^~(?=$|\/)/, homedir()), SCOUT_ELECTRON_OPENER);
+    if (isExecutable(candidate)) {
       return candidate;
     }
   }
 
-  throw new Error("Unable to locate the Scout onboarding CLI entrypoint.");
+  throw new Error(buildMissingScoutCliMessage());
+}
+
+function resolveScoutElectronBunInstallCommand(): string {
+  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
+  const brewCandidates = [
+    ...pathEntries.map((entry) => path.join(entry, "brew")),
+    "/opt/homebrew/bin/brew",
+    "/usr/local/bin/brew",
+  ];
+
+  for (const candidate of brewCandidates) {
+    if (isExecutable(candidate)) {
+      return "brew install bun";
+    }
+  }
+
+  return "curl -fsSL https://bun.sh/install | bash";
+}
+
+function buildMissingScoutCliMessage(): string {
+  const bunInstallCommand = resolveScoutElectronBunInstallCommand();
+  return [
+    "Scout CLI was not found on this Mac.",
+    "Install Bun, then install the Scout package globally:",
+    `1. ${bunInstallCommand}`,
+    "2. bun add -g @openscout/scout",
+    "3. scout version",
+  ].join("\n");
 }
 
 function resolveSettingsDirectory(input?: string): string {
@@ -738,8 +746,7 @@ export async function runScoutElectronOnboardingCommand(
     input.contextRoot?.trim()
     || defaultOnboardingContextRoot(null, input.sourceRoots ?? [], settingsDirectory),
   ));
-  const cliScriptPath = resolveScoutElectronOnboardingCliPath();
-  const bunExecutable = resolveScoutElectronBunExecutable();
+  const scoutExecutable = resolveScoutElectronScoutExecutable();
   const cliCommand = input.command === "setup" ? "setup" : input.command;
   const normalizedSourceRoots = Array.from(new Set(
     (input.sourceRoots ?? [])
@@ -748,7 +755,7 @@ export async function runScoutElectronOnboardingCommand(
   ));
 
   const displayArgs = [SCOUT_ELECTRON_OPENER, input.command, "--context-root", compactHomePath(contextRoot) ?? contextRoot];
-  const execArgs = [cliScriptPath, cliCommand, "--context-root", contextRoot];
+  const execArgs = [cliCommand, "--context-root", contextRoot];
   if (input.command === "setup") {
     for (const sourceRoot of normalizedSourceRoots) {
       displayArgs.push("--source-root", compactHomePath(sourceRoot) ?? sourceRoot);
@@ -757,7 +764,7 @@ export async function runScoutElectronOnboardingCommand(
   }
 
   const result = await new Promise<OnboardingCommandResult>((resolvePromise, reject) => {
-    const child = spawn(bunExecutable, execArgs, {
+    const child = spawn(scoutExecutable, execArgs, {
       cwd: settingsDirectory,
       env: {
         ...process.env,

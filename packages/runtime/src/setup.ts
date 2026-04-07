@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { parse as parseToml } from "smol-toml";
 
 import {
   formatAgentSelector,
@@ -18,7 +19,7 @@ import {
 
 import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
-import { collectUserLevelProjectRootHints } from "./user-project-hints.js";
+import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "tmux";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
@@ -43,12 +44,53 @@ export type RelayHarnessProfileInput = {
   launchArgs?: string[];
 };
 
+export type OpenScoutProjectScriptSet = {
+  default?: string;
+  macos?: string;
+  linux?: string;
+  windows?: string;
+};
+
+export type OpenScoutProjectAction = {
+  name: string;
+  icon?: string;
+  scripts: OpenScoutProjectScriptSet;
+};
+
+export type OpenScoutProjectEnvironment = {
+  setup?: OpenScoutProjectScriptSet;
+  actions?: OpenScoutProjectAction[];
+};
+
+export type OpenScoutCodexImport = {
+  sourcePath: string;
+  importedAt: number;
+  version?: number;
+  name?: string;
+  environment?: OpenScoutProjectEnvironment;
+};
+
+export type OpenScoutClaudeImport = {
+  sourcePath: string;
+  importedAt: number;
+  slug: string;
+  memoryPath?: string;
+  recentDirectories?: string[];
+  gitBranches?: string[];
+  sessionCount?: number;
+};
+
 export type OpenScoutProjectConfig = {
   version: 1;
   project: {
     id: string;
     name: string;
     root?: string;
+  };
+  environment?: OpenScoutProjectEnvironment;
+  imports?: {
+    codex?: OpenScoutCodexImport;
+    claude?: OpenScoutClaudeImport;
   };
   agent?: {
     id?: string;
@@ -944,6 +986,328 @@ async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
+function codexEnvironmentPath(projectRoot: string): string {
+  return join(projectRoot, ".codex", "environments", "environment.toml");
+}
+
+function currentHomeDirectory(): string {
+  return process.env.HOME?.trim() || homedir();
+}
+
+function normalizeProjectScriptSet(value: unknown): OpenScoutProjectScriptSet | undefined {
+  if (typeof value !== "object" || !value) {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const next: OpenScoutProjectScriptSet = {};
+  const defaults = [
+    normalizeOptionalString(candidate.default),
+    normalizeOptionalString(candidate.script),
+    normalizeOptionalString(candidate.command),
+  ].find(Boolean);
+  const macos = [
+    normalizeOptionalString(candidate.macos),
+    normalizeOptionalString(candidate.macosScript),
+    normalizeOptionalString(candidate.macosCommand),
+    normalizeOptionalString((candidate.macos as Record<string, unknown> | undefined)?.script),
+    normalizeOptionalString((candidate.macos as Record<string, unknown> | undefined)?.command),
+  ].find(Boolean);
+  const linux = [
+    normalizeOptionalString(candidate.linux),
+    normalizeOptionalString(candidate.linuxScript),
+    normalizeOptionalString(candidate.linuxCommand),
+    normalizeOptionalString((candidate.linux as Record<string, unknown> | undefined)?.script),
+    normalizeOptionalString((candidate.linux as Record<string, unknown> | undefined)?.command),
+  ].find(Boolean);
+  const windows = [
+    normalizeOptionalString(candidate.windows),
+    normalizeOptionalString(candidate.windowsScript),
+    normalizeOptionalString(candidate.windowsCommand),
+    normalizeOptionalString((candidate.windows as Record<string, unknown> | undefined)?.script),
+    normalizeOptionalString((candidate.windows as Record<string, unknown> | undefined)?.command),
+  ].find(Boolean);
+
+  if (defaults) {
+    next.default = defaults;
+  }
+  if (macos) {
+    next.macos = macos;
+  }
+  if (linux) {
+    next.linux = linux;
+  }
+  if (windows) {
+    next.windows = windows;
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function normalizeProjectActions(value: unknown): OpenScoutProjectAction[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const actions: OpenScoutProjectAction[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || !entry) {
+      continue;
+    }
+    const candidate = entry as Record<string, unknown>;
+    const name = normalizeOptionalString(candidate.name);
+    if (!name) {
+      continue;
+    }
+    const scripts = normalizeProjectScriptSet(candidate);
+    if (!scripts) {
+      continue;
+    }
+    actions.push({
+      name,
+      icon: normalizeOptionalString(candidate.icon) || undefined,
+      scripts,
+    });
+  }
+
+  return actions.length > 0 ? actions : undefined;
+}
+
+function normalizeProjectEnvironment(value: unknown): OpenScoutProjectEnvironment | undefined {
+  if (typeof value !== "object" || !value) {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const setup = normalizeProjectScriptSet(candidate.setup);
+  const actions = normalizeProjectActions(candidate.actions);
+  if (!setup && !actions) {
+    return undefined;
+  }
+
+  return {
+    ...(setup ? { setup } : {}),
+    ...(actions ? { actions } : {}),
+  };
+}
+
+function normalizeCodexImport(value: unknown): OpenScoutCodexImport | undefined {
+  if (typeof value !== "object" || !value) {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const sourcePath = normalizeOptionalString(candidate.sourcePath);
+  if (!sourcePath) {
+    return undefined;
+  }
+
+  return {
+    sourcePath,
+    importedAt: Number.isFinite(candidate.importedAt) ? Number(candidate.importedAt) : nowSeconds(),
+    version: Number.isFinite(candidate.version) ? Number(candidate.version) : undefined,
+    name: normalizeOptionalString(candidate.name) || undefined,
+    ...(normalizeProjectEnvironment(candidate.environment) ? { environment: normalizeProjectEnvironment(candidate.environment) } : {}),
+  };
+}
+
+function normalizeClaudeImport(value: unknown): OpenScoutClaudeImport | undefined {
+  if (typeof value !== "object" || !value) {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const sourcePath = normalizeOptionalString(candidate.sourcePath);
+  const slug = normalizeOptionalString(candidate.slug);
+  if (!sourcePath || !slug) {
+    return undefined;
+  }
+
+  const recentDirectories = Array.isArray(candidate.recentDirectories)
+    ? candidate.recentDirectories.map((entry) => normalizeOptionalString(entry)).filter(Boolean)
+    : [];
+  const gitBranches = Array.isArray(candidate.gitBranches)
+    ? candidate.gitBranches.map((entry) => normalizeOptionalString(entry)).filter(Boolean)
+    : [];
+
+  return {
+    sourcePath,
+    importedAt: Number.isFinite(candidate.importedAt) ? Number(candidate.importedAt) : nowSeconds(),
+    slug,
+    memoryPath: normalizeOptionalString(candidate.memoryPath) || undefined,
+    ...(recentDirectories.length > 0 ? { recentDirectories } : {}),
+    ...(gitBranches.length > 0 ? { gitBranches } : {}),
+    ...(Number.isFinite(candidate.sessionCount) ? { sessionCount: Number(candidate.sessionCount) } : {}),
+  };
+}
+
+async function readCodexEnvironmentImport(projectRoot: string): Promise<OpenScoutCodexImport | null> {
+  const sourcePath = codexEnvironmentPath(projectRoot);
+  let body: string;
+  try {
+    body = await readFile(sourcePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseToml(body) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const environment = normalizeProjectEnvironment({
+    setup: parsed.setup,
+    actions: parsed.actions,
+  });
+
+  return {
+    sourcePath,
+    importedAt: nowSeconds(),
+    version: Number.isFinite(parsed.version) ? Number(parsed.version) : undefined,
+    name: normalizeOptionalString(parsed.name) || undefined,
+    ...(environment ? { environment } : {}),
+  };
+}
+
+async function readClaudeProjectImport(projectRoot: string): Promise<OpenScoutClaudeImport | null> {
+  const slug = encodeClaudeProjectsSlug(projectRoot);
+  const sourcePath = join(currentHomeDirectory(), ".claude", "projects", slug);
+  if (!(await isDirectory(sourcePath))) {
+    return null;
+  }
+
+  const memoryPath = await pathExists(join(sourcePath, "memory", "MEMORY.md"))
+    ? join(sourcePath, "memory", "MEMORY.md")
+    : undefined;
+
+  let entries: string[] = [];
+  try {
+    entries = await readdir(sourcePath, { withFileTypes: false });
+  } catch {
+    entries = [];
+  }
+
+  const recentDirectories = new Set<string>();
+  const gitBranches = new Set<string>();
+  let sessionCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".jsonl")) {
+      continue;
+    }
+    sessionCount += 1;
+    const sessionPath = join(sourcePath, entry);
+    let body: string;
+    try {
+      body = await readFile(sessionPath, "utf8");
+    } catch {
+      continue;
+    }
+
+    let lineCount = 0;
+    for (const line of body.split("\n")) {
+      if (lineCount++ >= 200) {
+        break;
+      }
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+        const cwd = normalizeOptionalString(parsed.cwd);
+        if (cwd) {
+          recentDirectories.add(cwd);
+        }
+        const gitBranch = normalizeOptionalString(parsed.gitBranch);
+        if (gitBranch) {
+          gitBranches.add(gitBranch);
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return {
+    sourcePath,
+    importedAt: nowSeconds(),
+    slug,
+    ...(memoryPath ? { memoryPath } : {}),
+    ...(recentDirectories.size > 0 ? { recentDirectories: Array.from(recentDirectories).sort() } : {}),
+    ...(gitBranches.size > 0 ? { gitBranches: Array.from(gitBranches).sort() } : {}),
+    ...(sessionCount > 0 ? { sessionCount } : {}),
+  };
+}
+
+function applyImportedEnvironmentSeeds(
+  config: OpenScoutProjectConfig,
+  codexImport: OpenScoutCodexImport | null,
+  projectRoot: string,
+): OpenScoutProjectConfig {
+  const { imports: _ignoredImports, ...configWithoutImports } = config;
+  const nextImports = { ...(config.imports ?? {}) };
+  if (codexImport) {
+    nextImports.codex = codexImport;
+  } else {
+    delete nextImports.codex;
+  }
+
+  const next: OpenScoutProjectConfig = {
+    ...configWithoutImports,
+    ...(Object.keys(nextImports).length > 0 ? { imports: nextImports } : {}),
+  };
+
+  const importedEnvironment = codexImport?.environment;
+  if (importedEnvironment) {
+    next.environment = {
+      ...(config.environment ?? {}),
+      ...(!(config.environment?.setup) && importedEnvironment.setup ? { setup: importedEnvironment.setup } : {}),
+      ...((config.environment?.actions?.length ?? 0) === 0 && importedEnvironment.actions
+        ? { actions: importedEnvironment.actions }
+        : {}),
+    };
+  }
+
+  const defaultProjectName = titleCase(basename(projectRoot));
+  if (codexImport?.name?.trim() && (!config.project.name?.trim() || config.project.name === defaultProjectName)) {
+    next.project = {
+      ...config.project,
+      name: codexImport.name.trim(),
+    };
+  }
+
+  return next;
+}
+
+async function syncProjectConfigFromLocalSources(
+  projectRoot: string,
+  config: OpenScoutProjectConfig,
+): Promise<{ config: OpenScoutProjectConfig; changed: boolean }> {
+  const [codexImport, claudeImport] = await Promise.all([
+    readCodexEnvironmentImport(projectRoot),
+    readClaudeProjectImport(projectRoot),
+  ]);
+
+  const seeded = applyImportedEnvironmentSeeds(config, codexImport, projectRoot);
+  const { imports: _ignoredImports, ...seededWithoutImports } = seeded;
+  const nextImports = { ...(seeded.imports ?? {}) };
+  if (claudeImport) {
+    nextImports.claude = claudeImport;
+  } else {
+    delete nextImports.claude;
+  }
+  const nextConfig: OpenScoutProjectConfig = {
+    ...seededWithoutImports,
+    ...(Object.keys(nextImports).length > 0 ? { imports: nextImports } : {}),
+  };
+
+  const changed = JSON.stringify(config) !== JSON.stringify(nextConfig);
+  return { config: nextConfig, changed };
+}
+
 async function ensureProjectConfigIgnored(projectRoot: string): Promise<void> {
   const gitignorePath = projectGitignorePath(projectRoot);
   const ignoreRule = ".openscout/project.json";
@@ -1366,7 +1730,30 @@ export async function readProjectConfig(projectRoot: string): Promise<OpenScoutP
     return null;
   }
 
-  return raw;
+  const candidate = raw as OpenScoutProjectConfig & {
+    environment?: unknown;
+    imports?: unknown;
+  };
+  const { environment: _ignoredEnvironment, imports: _ignoredImports, ...candidateWithoutImported } = candidate;
+  const imports = typeof candidate.imports === "object" && candidate.imports
+    ? candidate.imports as Record<string, unknown>
+    : {};
+  const environment = normalizeProjectEnvironment(candidate.environment);
+  const codexImport = normalizeCodexImport(imports.codex);
+  const claudeImport = normalizeClaudeImport(imports.claude);
+
+  return {
+    ...candidateWithoutImported,
+    ...(environment ? { environment } : {}),
+    ...(codexImport || claudeImport
+      ? {
+          imports: {
+            ...(codexImport ? { codex: codexImport } : {}),
+            ...(claudeImport ? { claude: claudeImport } : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 export async function writeProjectConfig(projectRoot: string, config: OpenScoutProjectConfig): Promise<void> {
@@ -1387,6 +1774,10 @@ export async function ensureProjectConfigForDirectory(currentDirectory: string, 
 
   const existing = await readProjectConfig(projectRoot);
   if (existing) {
+    const synced = await syncProjectConfigFromLocalSources(projectRoot, existing);
+    if (synced.changed) {
+      await writeProjectConfig(projectRoot, synced.config);
+    }
     await ensureProjectConfigIgnored(projectRoot);
     return {
       projectRoot,
@@ -1397,7 +1788,11 @@ export async function ensureProjectConfigForDirectory(currentDirectory: string, 
 
   const effectiveSettings = settings ?? await readOpenScoutSettings({ currentDirectory });
   const preferredHarness = await detectPreferredHarness(projectRoot, effectiveSettings.agents.defaultHarness);
-  await writeProjectConfig(projectRoot, defaultProjectConfig(projectRoot, effectiveSettings, preferredHarness));
+  const synced = await syncProjectConfigFromLocalSources(
+    projectRoot,
+    defaultProjectConfig(projectRoot, effectiveSettings, preferredHarness),
+  );
+  await writeProjectConfig(projectRoot, synced.config);
   await removeLegacyRelayLink(projectRoot);
 
   return {

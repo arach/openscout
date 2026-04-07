@@ -33,6 +33,8 @@ import type {
   ScoutDesktopMachineEndpoint,
   ScoutDesktopMachineEndpointState,
   ScoutDesktopMachinesState,
+  ScoutMessagesState,
+  ScoutMessagesThread,
   ScoutDesktopPlan,
   ScoutDesktopPlansState,
   ScoutDesktopReconciliationFinding,
@@ -2315,6 +2317,89 @@ function buildSessions(snapshot: RuntimeRegistrySnapshot): ScoutSessionMetadata[
   }).sort((left, right) => Date.parse(right.lastModified) - Date.parse(left.lastModified));
 }
 
+function buildMessagesState(
+  relay: ScoutRelayState,
+  interAgent: ScoutInterAgentState,
+): ScoutMessagesState {
+  const inboxThreads: ScoutMessagesThread[] = relay.views.map((item) => ({
+    id: `relay:${item.kind}:${item.id}`,
+    group: "inbox",
+    kind: "relay",
+    title: item.title,
+    subtitle: item.subtitle,
+    preview: null,
+    timestampLabel: relay.lastUpdatedLabel,
+    count: item.count,
+    state: null,
+    reachable: true,
+    relayDestinationKind: item.kind,
+    relayDestinationId: item.id,
+    interAgentThreadId: null,
+  }));
+
+  const channelThreads: ScoutMessagesThread[] = relay.channels.map((item) => ({
+    id: `relay:${item.kind}:${item.id}`,
+    group: "channels",
+    kind: "relay",
+    title: item.title,
+    subtitle: item.subtitle,
+    preview: null,
+    timestampLabel: relay.lastUpdatedLabel,
+    count: item.count,
+    state: null,
+    reachable: true,
+    relayDestinationKind: item.kind,
+    relayDestinationId: item.id,
+    interAgentThreadId: null,
+  }));
+
+  const agentThreads: ScoutMessagesThread[] = relay.directs.map((thread) => ({
+    id: `relay:direct:${thread.id}`,
+    group: "agents",
+    kind: "relay",
+    title: thread.title,
+    subtitle: thread.subtitle,
+    preview: thread.preview,
+    timestampLabel: thread.timestampLabel,
+    count: null,
+    state: thread.state,
+    reachable: thread.reachable,
+    relayDestinationKind: "direct",
+    relayDestinationId: thread.id,
+    interAgentThreadId: null,
+  }));
+
+  const internalThreads: ScoutMessagesThread[] = interAgent.threads.map((thread) => ({
+    id: `internal:${thread.id}`,
+    group: "internal",
+    kind: "internal",
+    title: thread.title,
+    subtitle: thread.subtitle,
+    preview: thread.preview,
+    timestampLabel: thread.timestampLabel,
+    count: thread.messageCount,
+    state: null,
+    reachable: true,
+    relayDestinationKind: null,
+    relayDestinationId: null,
+    interAgentThreadId: thread.id,
+  }));
+
+  const threads = [
+    ...inboxThreads,
+    ...channelThreads,
+    ...agentThreads,
+    ...internalThreads,
+  ];
+
+  return {
+    title: "Messages",
+    subtitle: `${threads.length} threads · ${relay.messages.length} messages`,
+    lastUpdatedLabel: relay.lastUpdatedLabel ?? interAgent.lastUpdatedLabel,
+    threads,
+  };
+}
+
 export async function composeScoutDesktopServicesState(): Promise<ScoutDesktopServicesState> {
   const [status, helper] = await Promise.all([
     brokerServiceStatus(),
@@ -2398,6 +2483,32 @@ export async function composeScoutDesktopShellState(input: {
     : setup.agents.length;
   const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
   const plans = await buildPlansState(input.currentDirectory, snapshot, tmuxSessions);
+  const sessions = snapshot ? buildSessions(snapshot) : [];
+  const interAgent = snapshot
+    ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+    : {
+        title: "Inter-Agent",
+        subtitle: "Broker unavailable",
+        agents: [],
+        threads: [],
+        lastUpdatedLabel: null,
+      };
+  const relay = snapshot
+    ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+    : {
+        title: "Relay",
+        subtitle: "Broker unavailable",
+        transportTitle: "Broker-backed",
+        meshTitle: "Local mesh",
+        syncLine: "Disconnected",
+        operatorId: OPERATOR_ID,
+        channels: [],
+        views: [],
+        directs: [],
+        messages: [],
+        voice: createScoutVoiceState(),
+        lastUpdatedLabel: null,
+      };
 
   return {
     appInfo: input.appInfo,
@@ -2406,32 +2517,10 @@ export async function composeScoutDesktopShellState(input: {
       ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null)
       : buildEmptyMachinesState(),
     plans,
-    sessions: snapshot ? buildSessions(snapshot) : [],
-    interAgent: snapshot
-      ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
-      : {
-          title: "Inter-Agent",
-          subtitle: "Broker unavailable",
-          agents: [],
-          threads: [],
-          lastUpdatedLabel: null,
-        },
-    relay: snapshot
-      ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
-      : {
-          title: "Relay",
-          subtitle: "Broker unavailable",
-          transportTitle: "Broker-backed",
-          meshTitle: "Local mesh",
-          syncLine: "Disconnected",
-          operatorId: OPERATOR_ID,
-          channels: [],
-          views: [],
-          directs: [],
-          messages: [],
-          voice: createScoutVoiceState(),
-          lastUpdatedLabel: null,
-        },
+    messages: buildMessagesState(relay, interAgent),
+    sessions,
+    interAgent,
+    relay,
   };
 }
 

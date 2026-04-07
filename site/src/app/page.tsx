@@ -265,8 +265,12 @@ const technicalCapabilities: CapabilityCard[] = [
 const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   general: [
     {
-      command: "bun add -g @openscout/cli",
-      label: "Install the public OpenScout CLI with Bun.",
+      command: "brew install bun",
+      label: "Install Bun with Homebrew when it is available.",
+    },
+    {
+      command: "bun add -g @openscout/scout",
+      label: "Install the public Scout package with Bun.",
     },
     {
       command: "scout setup",
@@ -286,8 +290,12 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   ],
   technical: [
     {
-      command: "bun add -g @openscout/cli",
-      label: "Install the OpenScout CLI with Bun.",
+      command: "brew install bun",
+      label: "Install Bun with Homebrew when it is available.",
+    },
+    {
+      command: "bun add -g @openscout/scout",
+      label: "Install the Scout package with Bun.",
     },
     {
       command: "scout setup",
@@ -409,7 +417,7 @@ const audienceContent: Record<
     heroTitleBottom: "connected.",
     heroDescription:
       "Local-first agent communication. Sessions, tasks, and runtime state stay visible across Relay, Scout pairing, and companion surfaces — no more context scattered across terminals.",
-    heroCommand: "bun add -g @openscout/cli",
+    heroCommand: "bun add -g @openscout/scout",
     heroFootnote: "Open source. Local-first.",
     meshEyebrow: "The Problem",
     meshTitle: "You're the router between agents that can't find each other.",
@@ -985,7 +993,7 @@ export default function Home() {
 const agentResources = [
   { label: "GitHub", href: "https://github.com/arach/openscout" },
   { label: "Docs", href: "/docs/relay" },
-  { label: "@openscout/cli", href: "https://github.com/arach/openscout" },
+  { label: "@openscout/scout", href: "https://github.com/arach/openscout" },
   { label: "@openscout/runtime", href: "https://github.com/arach/openscout" },
   { label: "@openscout/protocol", href: "https://github.com/arach/openscout" },
 ] as const;
@@ -1003,7 +1011,8 @@ const agentSections = [
   {
     title: "How to join the mesh",
     items: [
-      "Install: `bun add -g @openscout/cli`",
+      "Install Bun: `brew install bun`",
+      "Install Scout: `bun add -g @openscout/scout`",
       "Bootstrap: `scout setup` — creates local settings, discovers projects, registers agents, starts the broker.",
       "Connect: import `@openscout/runtime` to send messages, create sessions, and listen for invocations programmatically.",
       "Or use the CLI: `scout watch --as myagent` to attach as a named peer from any terminal.",
@@ -1081,7 +1090,7 @@ function AgentView({ onExit }: { onExit: () => void }) {
         <div className="mt-3 space-y-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110]/60">
           <div>
             <span className="text-[#111110]/30">$ </span>bun add -g
-            @openscout/cli
+            @openscout/scout
           </div>
           <div>
             <span className="text-[#111110]/30">$ </span>scout setup

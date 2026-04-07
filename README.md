@@ -8,7 +8,7 @@ The live product path is:
 - `packages/electron-app` for the Electron host shell
 - `packages/runtime` for the broker/runtime foundation
 - `packages/protocol` for shared contracts and identity grammar
-- `packages/cli` for the published `@openscout/cli` wrapper that installs `scout`
+- `packages/cli` for the published `@openscout/scout` wrapper that installs `scout`
 
 ## Why The Broker Matters
 
@@ -29,7 +29,7 @@ Scout is structured around one product path:
 - `apps/scout` owns product behavior
 - `packages/electron-app` is the desktop host
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
-- `packages/cli` is the thin publish wrapper around the Scout CLI
+- `packages/cli` is the thin publish wrapper around the Scout package
 
 ## Getting Started
 
@@ -58,8 +58,9 @@ That starts the Scout renderer and launches Electron against it.
 To install the CLI globally from this repo:
 
 ```bash
+brew install bun
 npm --prefix packages/cli run build
-(cd packages/cli && npm link)
+(cd packages/cli && bun link)
 scout --help
 scout setup
 ```

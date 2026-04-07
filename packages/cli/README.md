@@ -5,11 +5,12 @@ Published CLI package for Scout.
 Install:
 
 ```bash
-npm install -g @openscout/cli
+brew install bun
+bun add -g @openscout/scout
 scout --help
 ```
 
-`@openscout/cli` is the npm package name. It installs the `scout` command.
+`@openscout/scout` is the published package name. It installs the `scout` command.
 
 ## Canonical Flow
 

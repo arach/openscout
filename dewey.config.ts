@@ -44,7 +44,7 @@ export default {
       'Bun >= 1.0 or Node.js >= 20',
     ],
     steps: [
-      { description: 'Install the CLI globally', command: 'bun add -g @openscout/cli' },
+      { description: 'Install the Scout package globally', command: 'bun add -g @openscout/scout' },
       { description: 'Bootstrap local settings and broker', command: 'scout setup' },
       { description: 'Verify broker health', command: 'scout doctor' },
     ],

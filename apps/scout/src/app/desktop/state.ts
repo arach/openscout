@@ -170,6 +170,33 @@ export type ScoutRelayState = {
   lastUpdatedLabel: string | null;
 };
 
+export type ScoutMessagesThreadGroup = "inbox" | "channels" | "agents" | "internal";
+
+export type ScoutMessagesThreadKind = "relay" | "internal";
+
+export type ScoutMessagesThread = {
+  id: string;
+  group: ScoutMessagesThreadGroup;
+  kind: ScoutMessagesThreadKind;
+  title: string;
+  subtitle: string | null;
+  preview: string | null;
+  timestampLabel: string | null;
+  count: number | null;
+  state: ScoutRelayDirectState | null;
+  reachable: boolean;
+  relayDestinationKind: ScoutRelayDestinationKind | null;
+  relayDestinationId: string | null;
+  interAgentThreadId: string | null;
+};
+
+export type ScoutMessagesState = {
+  title: string;
+  subtitle: string;
+  lastUpdatedLabel: string | null;
+  threads: ScoutMessagesThread[];
+};
+
 export type ScoutInterAgentParticipant = {
   id: string;
   title: string;
@@ -430,6 +457,7 @@ export type ScoutDesktopShellState = {
   runtime: ScoutDesktopRuntimeState;
   machines: ScoutDesktopMachinesState;
   plans: ScoutDesktopPlansState;
+  messages: ScoutMessagesState;
   sessions: ScoutSessionMetadata[];
   relay: ScoutRelayState;
   interAgent: ScoutInterAgentState;

@@ -62,6 +62,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { renderSVG } from 'uqr';
+import { MessagesView } from "@/components/messages-view";
 import MachinesView from "@/components/machines-view";
 import { OverviewView } from "@/components/overview-view";
 import PlansView from "@/components/plans-view";
@@ -86,6 +87,7 @@ import {
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT,
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,
 } from "@openscout/runtime/local-agent-template";
+import { C } from "@/lib/theme";
 import type {
   AgentSessionInspector,
   AgentConfigState,
@@ -104,6 +106,7 @@ import type {
   SetupProjectSummary,
   InterAgentAgent,
   InterAgentThread,
+  MessagesThread,
   OnboardingCommandName,
   OnboardingCommandResult,
   PhonePreparationState,
@@ -117,37 +120,6 @@ import type {
   SubmitFeedbackReportInput,
   UpdatePairingConfigInput,
 } from "@/lib/scout-desktop";
-
-// Semantic CSS variable shortcuts as inline style helpers
-const C = {
-  // Color
-  bg:        'var(--os-bg)',
-  surface:   'var(--os-surface)',
-  border:    'var(--os-border)',
-  ink:       'var(--os-ink)',
-  muted:     'var(--os-muted)',
-  accent:    'var(--os-accent)',
-  accentBg:  'var(--os-accent-bg)',
-  accentBorder: 'var(--os-accent-border)',
-  tagBg:     'var(--os-tag-bg)',
-  logoBg:    'var(--os-logo-bg)',
-  logoBorder:'var(--os-logo-border)',
-  termBg:    'var(--os-terminal-bg)',
-  termFg:    'var(--os-terminal-fg)',
-  markBg:    'var(--os-mark-bg)',
-  markFg:    'var(--os-mark-fg)',
-  // Shape
-  radiusXs:  'var(--os-radius-xs)',
-  radiusSm:  'var(--os-radius-sm)',
-  radiusMd:  'var(--os-radius-md)',
-  radiusLg:  'var(--os-radius-lg)',
-  radiusXl:  'var(--os-radius-xl)',
-  // Elevation
-  shadowXs:  'var(--os-shadow-xs)',
-  shadowSm:  'var(--os-shadow-sm)',
-  shadowMd:  'var(--os-shadow-md)',
-  shadowLg:  'var(--os-shadow-lg)',
-};
 
 function renderAgentPromptWithPlaceholders(text: string, keyPrefix: string): React.ReactNode {
   const parts = text.split(/(\{\{[^}]+\}\})/g);
@@ -206,7 +178,8 @@ type ComposerRelayReference = {
 
 const PRODUCT_SURFACES = ['relay', 'pairing'] as const;
 type ProductSurface = (typeof PRODUCT_SURFACES)[number];
-type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
+type AppView = 'overview' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'messages' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
+type MessagesDetailTab = 'overview' | 'live' | 'history';
 type NavViewItem = { id: AppView; icon: React.ReactNode; title: string };
 type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
 type CreateAgentDraft = {
@@ -222,6 +195,7 @@ const APP_VIEW_IDS: readonly AppView[] = [
   'plans',
   'sessions',
   'search',
+  'messages',
   'relay',
   'inter-agent',
   'agents',
@@ -400,6 +374,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<SessionMetadata | null>(null);
+  const [selectedMessagesThreadId, setSelectedMessagesThreadId] = useState<string | null>(null);
+  const [messagesDetailOpen, setMessagesDetailOpen] = useState(true);
+  const [messagesDetailTab, setMessagesDetailTab] = useState<MessagesDetailTab>('overview');
   const [phonePreparation, setPhonePreparation] = useState<PhonePreparationState | null>(null);
   const [phonePreparationLoading, setPhonePreparationLoading] = useState(false);
   const [phonePreparationSaving, setPhonePreparationSaving] = useState(false);
@@ -586,6 +563,7 @@ export default function App() {
   const sessions = shellState?.sessions ?? [];
   const machinesState = shellState?.machines ?? null;
   const plansState = shellState?.plans ?? null;
+  const messagesState = shellState?.messages ?? null;
   const runtime = shellState?.runtime ?? null;
   const relayState = shellState?.relay ?? null;
   const interAgentState = shellState?.interAgent ?? null;
@@ -658,7 +636,7 @@ export default function App() {
   const completeOnboardingIntoRelay = React.useCallback((nextShellState: DesktopShellState | null) => {
     setProductSurface('relay');
     if (nextShellState?.runtime?.brokerReachable) {
-      setActiveView('relay');
+      setActiveView('messages');
       setSelectedRelayKind('channel');
       setSelectedRelayId('shared');
       setRelayFeedback('Relay is running.');
@@ -744,6 +722,39 @@ export default function App() {
   }, [activeView, agentRosterFilter, agentRosterSort, interAgentState, selectedInterAgentId, selectedInterAgentThreadId]);
 
   useEffect(() => {
+    const threads = messagesState?.threads ?? [];
+    if (threads.length === 0) {
+      if (selectedMessagesThreadId !== null) {
+        setSelectedMessagesThreadId(null);
+      }
+      return;
+    }
+
+    if (selectedMessagesThreadId && threads.some((thread) => thread.id === selectedMessagesThreadId)) {
+      return;
+    }
+
+    const preferredThread = threads.find((thread) => (
+      thread.relayDestinationKind === selectedRelayKind
+      && thread.relayDestinationId === selectedRelayId
+    )) ?? threads.find((thread) => thread.interAgentThreadId === selectedInterAgentThreadId)
+      ?? threads[0];
+
+    if (preferredThread && preferredThread.id !== selectedMessagesThreadId) {
+      setSelectedMessagesThreadId(preferredThread.id);
+    }
+  }, [messagesState, selectedInterAgentThreadId, selectedMessagesThreadId, selectedRelayId, selectedRelayKind]);
+
+  useEffect(() => {
+    if (!selectedMessagesThreadId) {
+      return;
+    }
+
+    setMessagesDetailOpen(true);
+    setMessagesDetailTab('overview');
+  }, [selectedMessagesThreadId]);
+
+  useEffect(() => {
     if (!selectedInterAgentId || !scoutDesktop?.getAgentConfig) {
       setAgentConfig(null);
       setAgentConfigDraft(null);
@@ -790,7 +801,13 @@ export default function App() {
   }, [pendingConfigFocusAgentId, selectedInterAgentId]);
 
   useEffect(() => {
-    if (activeView !== 'agents' || !selectedInterAgentId || !scoutDesktop?.getAgentSession) {
+    const sessionTargetAgentId = activeView === 'messages'
+      ? (selectedMessagesThread?.kind === 'relay' && selectedRelayKind === 'direct' ? selectedRelayId : null)
+      : activeView === 'agents'
+        ? selectedInterAgentId
+        : null;
+
+    if (!sessionTargetAgentId || !scoutDesktop?.getAgentSession) {
       setAgentSession(null);
       setAgentSessionFeedback(null);
       setAgentSessionCopied(false);
@@ -801,7 +818,7 @@ export default function App() {
     const loadAgentSession = async () => {
       setAgentSessionLoading((current) => current || !agentSession);
       try {
-        const nextSession = await scoutDesktop!.getAgentSession(selectedInterAgentId);
+        const nextSession = await scoutDesktop!.getAgentSession(sessionTargetAgentId);
         if (cancelled) {
           return;
         }
@@ -824,21 +841,27 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeView, agentSessionRefreshTick, selectedInterAgentId]);
+  }, [activeView, agentSessionRefreshTick, agentSession, scoutDesktop, selectedInterAgentId, selectedMessagesThreadId, selectedRelayId, selectedRelayKind]);
 
   useEffect(() => {
     setAgentSessionFeedback(null);
     setAgentSessionCopied(false);
-  }, [selectedInterAgentId]);
+  }, [selectedInterAgentId, selectedMessagesThreadId, selectedRelayId, selectedRelayKind]);
 
   useEffect(() => {
-    if (activeView !== 'agents') {
+    if (activeView !== 'agents' && activeView !== 'messages') {
       setIsAgentSessionPeekOpen(false);
     }
   }, [activeView]);
 
   useEffect(() => {
-    if (activeView !== 'agents' || !isAgentSessionPeekOpen || !selectedInterAgentId) {
+    const peekTargetAgentId = activeView === 'messages'
+      ? (selectedMessagesThread?.kind === 'relay' && selectedRelayKind === 'direct' ? selectedRelayId : null)
+      : activeView === 'agents'
+        ? selectedInterAgentId
+        : null;
+
+    if (!isAgentSessionPeekOpen || !peekTargetAgentId) {
       return;
     }
 
@@ -847,7 +870,7 @@ export default function App() {
     }, 1600);
 
     return () => window.clearInterval(intervalId);
-  }, [activeView, isAgentSessionPeekOpen, selectedInterAgentId]);
+  }, [activeView, isAgentSessionPeekOpen, selectedInterAgentId, selectedMessagesThreadId, selectedRelayId, selectedRelayKind]);
 
   useEffect(() => {
     if (!isAgentSessionPeekOpen) {
@@ -1175,7 +1198,13 @@ export default function App() {
   }, [activeView]);
 
   useEffect(() => {
-    if (activeView !== 'agents' || !selectedInterAgentId) {
+    const refreshTargetAgentId = activeView === 'messages'
+      ? (selectedMessagesThread?.kind === 'relay' && selectedRelayKind === 'direct' ? selectedRelayId : null)
+      : activeView === 'agents'
+        ? selectedInterAgentId
+        : null;
+
+    if (!refreshTargetAgentId) {
       return;
     }
 
@@ -1186,7 +1215,7 @@ export default function App() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [activeView, selectedInterAgentId]);
+  }, [activeView, selectedInterAgentId, selectedMessagesThreadId, selectedRelayId, selectedRelayKind]);
 
   useEffect(() => {
     if (!agentSessionCopied) {
@@ -1216,7 +1245,7 @@ export default function App() {
   }, [relayDraft]);
 
   useEffect(() => {
-    if (activeView !== 'relay' || pendingRelayComposerFocusTick === 0) {
+    if ((activeView !== 'relay' && activeView !== 'messages') || pendingRelayComposerFocusTick === 0) {
       return;
     }
 
@@ -1612,6 +1641,9 @@ export default function App() {
     ? relaySecondaryText(selectedRelayDirectThread)
     : relayCurrentDestination?.subtitle
       ?? null;
+  const relayThreadCount = relayCurrentDestination && 'count' in relayCurrentDestination && relayCurrentDestination.count > 0
+    ? relayCurrentDestination.count
+    : null;
   const lastVisibleRelayMessage = visibleRelayMessages.at(-1) ?? null;
   const relaySelectionIsFeed = relayFeedItems.some(
     (item) => item.kind === selectedRelayKind && item.id === selectedRelayId,
@@ -1759,6 +1791,11 @@ export default function App() {
     }
     return counts;
   }, [rosterInterAgentAgents]);
+  const messageThreads = messagesState?.threads ?? [];
+  const selectedMessagesThread = useMemo(
+    () => messageThreads.find((thread) => thread.id === selectedMessagesThreadId) ?? null,
+    [messageThreads, selectedMessagesThreadId],
+  );
   const selectedInterAgent = interAgentAgents.find((agent) => agent.id === selectedInterAgentId) ?? null;
   const visibleInterAgentThreads = useMemo(
     () => interAgentThreads.filter((thread) => thread.participants.some((participant) => participant.id === selectedInterAgentId)),
@@ -1842,7 +1879,69 @@ export default function App() {
   const selectedInterAgentChatActionLabel = selectedInterAgentDirectThread?.preview || selectedInterAgentDirectThread?.timestampLabel
     ? 'Open Chat'
     : 'Start Chat';
-  const visibleAgentSession = agentSession?.agentId === selectedInterAgent?.id ? agentSession : null;
+  const selectedMessagesInternalThread = useMemo(
+    () => selectedMessagesThread?.interAgentThreadId
+      ? interAgentThreads.find((thread) => thread.id === selectedMessagesThread.interAgentThreadId) ?? null
+      : null,
+    [interAgentThreads, selectedMessagesThread],
+  );
+  const selectedMessagesInternalMessages = useMemo(
+    () => {
+      if (!selectedMessagesInternalThread) {
+        return [];
+      }
+
+      const messageIds = new Set(selectedMessagesInternalThread.messageIds);
+      return mergedRelayMessages.filter((message) => messageIds.has(message.id));
+    },
+    [mergedRelayMessages, selectedMessagesInternalThread],
+  );
+  const selectedMessagesInternalTarget = useMemo(
+    () => {
+      if (!selectedMessagesInternalThread) {
+        return null;
+      }
+
+      const participantIds = selectedMessagesInternalThread.participants.map((participant) => participant.id);
+      const relayDirectId = relayState?.directs.find((thread) => participantIds.includes(thread.id))?.id ?? null;
+      return relayDirectId
+        ? interAgentAgents.find((agent) => agent.id === relayDirectId) ?? null
+        : null;
+    },
+    [interAgentAgents, relayState, selectedMessagesInternalThread],
+  );
+  const selectedMessagesDetailAgentId = selectedMessagesThread?.kind === 'relay' && selectedRelayKind === 'direct'
+    ? selectedRelayId
+    : selectedMessagesInternalTarget?.id ?? null;
+  const selectedMessagesDetailAgent = selectedMessagesDetailAgentId
+    ? interAgentAgents.find((agent) => agent.id === selectedMessagesDetailAgentId) ?? null
+    : null;
+  const selectedMessagesSessions = useMemo(
+    () => {
+      if (selectedMessagesDetailAgent) {
+        return sessions.filter((session) => (
+          session.project === selectedMessagesDetailAgent.id
+          || session.agent === selectedMessagesDetailAgent.title
+        ));
+      }
+
+      if (selectedMessagesInternalThread) {
+        const participantIds = new Set(selectedMessagesInternalThread.participants.map((participant) => participant.id));
+        const participantTitles = new Set(selectedMessagesInternalThread.participants.map((participant) => participant.title));
+        return sessions.filter((session) => participantIds.has(session.project) || participantTitles.has(session.agent));
+      }
+
+      if (selectedMessagesThread?.relayDestinationKind === 'channel' && selectedMessagesThread.relayDestinationId) {
+        return sessions.filter((session) => session.tags?.includes(selectedMessagesThread.relayDestinationId ?? '') ?? false);
+      }
+
+      return sessions.slice(0, 8);
+    },
+    [selectedMessagesDetailAgent, selectedMessagesInternalThread, selectedMessagesThread, sessions],
+  );
+  const visibleAgentSession = agentSession?.agentId === selectedMessagesDetailAgentId || agentSession?.agentId === selectedInterAgent?.id
+    ? agentSession
+    : null;
   const agentSessionPending = agentSessionLoading && !visibleAgentSession;
   useEffect(() => {
     if (!visibleAgentSession?.body) {
@@ -2289,13 +2388,10 @@ export default function App() {
   const footerTimeLabel = formatFooterTime(new Date());
   const navViews: NavViewItem[] = [];
   if (desktopFeatures.overview) navViews.push({ id: 'overview', icon: <LayoutGrid size={16} strokeWidth={1.5} />, title: 'Overview' });
-  if (desktopFeatures.interAgent) navViews.push({ id: 'inter-agent', icon: <InterAgentIcon size={16} />, title: 'Inter-Agent' });
-  if (desktopFeatures.relay) navViews.push({ id: 'relay', icon: <MessageSquare size={16} strokeWidth={1.5} />, title: 'Relay' });
-  if (desktopFeatures.agents) navViews.push({ id: 'agents', icon: <Bot size={16} strokeWidth={1.5} />, title: 'Agents' });
+  if (desktopFeatures.relay) navViews.push({ id: 'messages', icon: <MessageSquare size={16} strokeWidth={1.5} />, title: 'Messages' });
   if (desktopFeatures.activity) navViews.push({ id: 'activity', icon: <Radio size={16} strokeWidth={1.5} />, title: 'Activity Monitor' });
   if (desktopFeatures.machines) navViews.push({ id: 'machines', icon: <Network size={16} strokeWidth={1.5} />, title: 'Machines' });
   if (desktopFeatures.plans) navViews.push({ id: 'plans', icon: <FileText size={16} strokeWidth={1.5} />, title: 'Plans' });
-  if (desktopFeatures.sessions) navViews.push({ id: 'sessions', icon: <Radar size={16} strokeWidth={1.5} />, title: 'Sessions' });
   if (desktopFeatures.search) navViews.push({ id: 'search', icon: <Search size={16} strokeWidth={1.5} />, title: 'Search' });
 
   const collapsibleViews = new Set<AppView>(navViews.map((item) => item.id).filter((view) => view !== 'overview'));
@@ -2348,14 +2444,16 @@ export default function App() {
 
     const enabledViews = new Set<AppView>([
       ...navViews.map((item) => item.id),
+      ...(desktopFeatures.relay ? ['relay' as const, 'inter-agent' as const, 'agents' as const] : []),
+      ...(desktopFeatures.sessions ? ['sessions' as const] : []),
       ...(desktopFeatures.settings ? ['settings' as const] : []),
       ...(desktopFeatures.logs ? ['logs' as const] : []),
     ]);
 
     if (!enabledViews.has(activeView)) {
-      setActiveView(desktopFeatures.interAgent ? 'inter-agent' : desktopFeatures.relay ? 'relay' : 'overview');
+      setActiveView(desktopFeatures.relay ? 'messages' : 'overview');
     }
-  }, [activeView, desktopFeatures.interAgent, desktopFeatures.logs, desktopFeatures.relay, desktopFeatures.settings, navViews, productSurface]);
+  }, [activeView, desktopFeatures.logs, desktopFeatures.relay, desktopFeatures.sessions, desktopFeatures.settings, navViews, productSurface]);
 
   useEffect(() => {
     if (!settingsSections.some((section) => section.id === settingsSection)) {
@@ -3197,8 +3295,17 @@ export default function App() {
     setSelectedInterAgentThreadId(firstInterAgentThreadIdForAgent(interAgentThreads, agentId));
     setIsAgentConfigEditing(false);
     setPendingConfigFocusAgentId(null);
-    setActiveView('agents');
-  }, [interAgentThreads]);
+    setMessagesDetailOpen(true);
+    setMessagesDetailTab('overview');
+    setSelectedRelayKind('direct');
+    setSelectedRelayId(agentId);
+    setSelectedMessagesThreadId(
+      messagesState?.threads.find((thread) => (
+        thread.relayDestinationKind === 'direct' && thread.relayDestinationId === agentId
+      ))?.id ?? null,
+    );
+    setActiveView('messages');
+  }, [interAgentThreads, messagesState]);
 
   const openAgentSettings = React.useCallback((agentId: string, focusConfig = false) => {
     setSelectedInterAgentId(agentId);
@@ -3408,17 +3515,20 @@ export default function App() {
   };
 
   const handleOpenAgentSession = React.useCallback(async () => {
-    if (!selectedInterAgentId || !scoutDesktop?.openAgentSession) {
+    const targetAgentId = activeView === 'messages'
+      ? selectedMessagesDetailAgentId
+      : selectedInterAgentId;
+    if (!targetAgentId || !scoutDesktop?.openAgentSession) {
       return;
     }
 
     try {
-      await scoutDesktop.openAgentSession(selectedInterAgentId);
+      await scoutDesktop.openAgentSession(targetAgentId);
       setAgentSessionFeedback(agentSession?.mode === 'tmux' ? 'Opening tmux session in Terminal.' : 'Opening session logs.');
     } catch (error) {
       setAgentSessionFeedback(asErrorMessage(error));
     }
-  }, [agentSession?.mode, selectedInterAgentId]);
+  }, [activeView, agentSession?.mode, scoutDesktop, selectedInterAgentId, selectedMessagesDetailAgentId]);
 
   const handleCopyAgentSessionCommand = React.useCallback(async () => {
     if (!agentSession?.commandLabel) {
@@ -3573,10 +3683,55 @@ export default function App() {
   };
 
   const openSessionDetail = (session: SessionMetadata) => {
-    setSelectedProject(null);
     setSelectedSession(session);
-    setActiveView('sessions');
+    setMessagesDetailOpen(true);
+    setMessagesDetailTab('history');
+    const relatedThread = messagesState?.threads.find((thread) => (
+      thread.relayDestinationKind === 'direct' && thread.relayDestinationId === session.project
+    )) ?? null;
+    if (relatedThread) {
+      selectMessageThread(relatedThread);
+    }
+    setSelectedProject(null);
+    setActiveView('messages');
   };
+
+  const openMessagesRelayDestination = React.useCallback((
+    kind: RelayDestinationKind,
+    id: string,
+  ) => {
+    setSelectedRelayKind(kind);
+    setSelectedRelayId(id);
+    setSelectedMessagesThreadId(
+      messagesState?.threads.find((thread) => (
+        thread.relayDestinationKind === kind
+        && thread.relayDestinationId === id
+      ))?.id ?? null,
+    );
+    setActiveView('messages');
+  }, [messagesState]);
+
+  const selectMessageThread = React.useCallback((thread: MessagesThread) => {
+    setSelectedMessagesThreadId(thread.id);
+    if (thread.kind === 'relay' && thread.relayDestinationKind && thread.relayDestinationId) {
+      setSelectedRelayKind(thread.relayDestinationKind);
+      setSelectedRelayId(thread.relayDestinationId);
+      return;
+    }
+
+    if (!thread.interAgentThreadId) {
+      return;
+    }
+
+    setSelectedInterAgentThreadId(thread.interAgentThreadId);
+    const internalThread = interAgentThreads.find((item) => item.id === thread.interAgentThreadId) ?? null;
+    const nextAgentId = internalThread?.participants.find((participant) => (
+      interAgentAgents.some((agent) => agent.id === participant.id)
+    ))?.id ?? null;
+    if (nextAgentId) {
+      setSelectedInterAgentId(nextAgentId);
+    }
+  }, [interAgentAgents, interAgentThreads]);
 
   const openRelayAgentThread = React.useCallback((
     agentId: string,
@@ -3586,9 +3741,7 @@ export default function App() {
       focusComposer?: boolean;
     },
   ) => {
-    setSelectedRelayKind('direct');
-    setSelectedRelayId(agentId);
-    setActiveView('relay');
+    openMessagesRelayDestination('direct', agentId);
     setRelayContextMessageIds([]);
     setRelayReplyTarget(options?.replyToMessage ? {
       messageId: options.replyToMessage.id,
@@ -3602,7 +3755,7 @@ export default function App() {
     if (options?.focusComposer) {
       setPendingRelayComposerFocusTick((current) => current + 1);
     }
-  }, []);
+  }, [openMessagesRelayDestination]);
 
   const handleNudgeMessage = React.useCallback((message: RelayMessage) => {
     if (message.isOperator) {
@@ -4355,16 +4508,6 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2" style={s.mutedText}>
             <button
-              type="button"
-              onClick={openFeedbackDialog}
-              className="flex items-center gap-1.5 rounded-full border px-2 py-1 transition-opacity hover:opacity-80"
-              style={{ borderColor: C.border }}
-              title="Open Feedback"
-            >
-              <MessageSquare size={11} />
-              <span className="font-medium" style={s.inkText}>Feedback</span>
-            </button>
-            <button
               onClick={() => setDark(d => !d)}
               className="p-1 rounded transition-colors hover:opacity-70"
               title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -4448,11 +4591,7 @@ export default function App() {
             onOpenAgent={openAgentProfile}
             onOpenSession={openSessionDetail}
             onOpenProject={openProjectSessions}
-            onSelectRelay={(kind, id) => {
-              setSelectedRelayKind(kind);
-              setSelectedRelayId(id);
-              setActiveView('relay');
-            }}
+            onSelectRelay={openMessagesRelayDestination}
             formatDate={formatDate}
             colorForIdentity={colorForIdentity}
             cleanDisplayTitle={cleanDisplayTitle}
@@ -4566,12 +4705,12 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setActiveView('relay')}
+                      onClick={() => setActiveView('messages')}
                       className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
                       style={{ color: C.ink }}
                     >
                       <MessageSquare size={14} />
-                      Open Relay
+                      Open Messages
                     </button>
                   </div>
                 </div>
@@ -5265,7 +5404,7 @@ export default function App() {
               <div className="px-4 py-3 border-b" style={{ borderColor: C.border }}>
                 <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Settings</div>
               </div>
-              <div className="px-2 py-2 flex flex-col gap-0.5">
+              <div className="px-2 py-2 flex flex-col gap-0.5 flex-1">
                 {settingsSections.map((section) => {
                   const active = settingsSection === section.id;
                   return (
@@ -5281,6 +5420,17 @@ export default function App() {
                     </button>
                   );
                 })}
+              </div>
+              <div className="px-3 py-3 border-t" style={{ borderColor: C.border }}>
+                <button
+                  type="button"
+                  onClick={openFeedbackDialog}
+                  className="flex items-center gap-2 px-3 py-2 w-full rounded-lg transition-colors hover:opacity-70"
+                  style={s.mutedText}
+                >
+                  <MessageSquare size={13} style={{ color: C.muted }} />
+                  <span className="text-[12px] font-medium">Feedback</span>
+                </button>
               </div>
             </div>
 
@@ -8885,496 +9035,92 @@ export default function App() {
             </div>
           </>
 
-        /* --- RELAY --- */
-        ) : (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-3 py-2.5 flex items-center justify-between">
-                  <div>
-                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>{relayState?.title ?? 'Relay'}</h1>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {relayState ? `${relayState.messages.length} msg / ${relayState.directs.length} agt` : 'Broker unavailable'}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto py-2">
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Feeds</div>
-                    <div className="flex flex-col gap-px">
-                      {relayFeedItems.map((item) => {
-                        const active = selectedRelayKind === item.kind && selectedRelayId === item.id;
-                        return (
-                          <button
-                            key={`${item.kind}:${item.id}`}
-                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
-                            style={active ? s.activeItem : s.mutedText}
-                            onClick={() => {
-                              setSelectedRelayKind(item.kind);
-                              setSelectedRelayId(item.id);
-                            }}
-                          >
-                            <RelayRailIcon id={item.id} active={active} />
-                            <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(item.title)}</span>
-                            {item.count > 0 ? (
-                              <span className="os-row-count text-[9px] font-mono px-1 rounded" style={active ? s.activePill : s.tagBadge}>
-                                {item.count}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Conversations</div>
-                    <div className="flex flex-col gap-px">
-                      {relayConversationItems.map((item) => {
-                        const active = selectedRelayKind === item.kind && selectedRelayId === item.id;
-                        return (
-                          <button
-                            key={`${item.kind}:${item.id}`}
-                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
-                            style={active ? s.activeItem : s.mutedText}
-                            onClick={() => {
-                              setSelectedRelayKind(item.kind);
-                              setSelectedRelayId(item.id);
-                            }}
-                          >
-                            <RelayRailIcon id={item.id} active={active} />
-                            <span className="font-medium text-[12px] flex-1 truncate">{cleanDisplayTitle(item.title)}</span>
-                            {item.count > 0 ? (
-                              <span className="os-row-count text-[9px] font-mono px-1 rounded" style={active ? s.activePill : s.tagBadge}>
-                                {item.count}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-
-                      {relayState?.directs.length ? (
-                        <div className="px-1.5 pt-2 pb-1 font-mono text-[8px] tracking-[0.22em] uppercase" style={s.mutedText}>
-                          Direct Threads
-                        </div>
-                      ) : null}
-
-                      {relayState?.directs.map((dm) => {
-                        const active = selectedRelayKind === 'direct' && selectedRelayId === dm.id;
-                        return (
-                          <button
-                            key={dm.id}
-                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
-                            style={active ? s.activeItem : s.mutedText}
-                            onClick={() => {
-                              setSelectedRelayKind('direct');
-                              setSelectedRelayId(dm.id);
-                            }}
-                          >
-                            <div className="relative shrink-0">
-                              <div
-                                className={`os-rail-avatar w-4 h-4 rounded text-white flex items-center justify-center font-bold text-[8px] ${dm.reachable ? '' : 'opacity-40 grayscale'}`}
-                                style={{ backgroundColor: colorForIdentity(dm.id) }}
-                              >
-                                {dm.title.charAt(0).toUpperCase()}
-                              </div>
-                              <div
-                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(dm.state)}`}
-                                style={{ border: `1px solid ${C.bg}` }}
-                              ></div>
-                            </div>
-                            <div className={`flex-1 min-w-0 ${dm.reachable ? '' : 'opacity-50'}`}>
-                              <div className="flex items-center gap-1.5">
-                                <div className="font-medium text-[12px] truncate">{cleanDisplayTitle(dm.title)}</div>
-                                {dm.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
-                              </div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{relaySecondaryText(dm)}</div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Agents</div>
-                    <div className="flex flex-col gap-px">
-                      {relayState?.directs.map((dm) => {
-                        const active = selectedRelayKind === 'direct' && selectedRelayId === dm.id;
-                        return (
-                          <button
-                            key={`agent-${dm.id}`}
-                            className={`os-rail-row flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer w-full text-left${active ? ' os-rail-row-active' : ''}`}
-                            style={active ? s.activeItem : s.mutedText}
-                            onClick={() => {
-                              setSelectedRelayKind('direct');
-                              setSelectedRelayId(dm.id);
-                            }}
-                          >
-                            <div className="relative shrink-0">
-                              <div
-                                className={`os-rail-avatar w-4 h-4 rounded text-white flex items-center justify-center font-bold text-[8px] ${dm.reachable ? '' : 'opacity-40 grayscale'}`}
-                                style={{ backgroundColor: colorForIdentity(dm.id) }}
-                              >
-                                {dm.title.charAt(0).toUpperCase()}
-                              </div>
-                              <div
-                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(dm.state)}`}
-                                style={{ border: `1px solid ${C.bg}` }}
-                              ></div>
-                            </div>
-                            <div className={`flex-1 min-w-0 ${dm.reachable ? '' : 'opacity-50'}`}>
-                              <div className="font-medium text-[12px] truncate">{cleanDisplayTitle(dm.title)}</div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{dm.subtitle}</div>
-                            </div>
-                            {dm.state === 'working' ? <TypingDots className="text-[var(--os-accent)]" /> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Main Chat Area */}
-            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              {/* Channel Header */}
-              <div className="border-b flex items-center justify-between px-4 py-2 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="shrink-0">
-                    {selectedRelayKind === 'direct' ? (
-                      <AtSign size={14} style={s.mutedText} />
-                    ) : (
-                      <RelayRailIcon id={selectedRelayId} active={false} size={14} />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <h2 className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>{relayThreadTitle}</h2>
-                      {relayCurrentDestination && 'count' in relayCurrentDestination && relayCurrentDestination.count > 0 ? (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.tagBadge}>
-                          {relayCurrentDestination.count}
-                        </span>
-                      ) : null}
-                      {selectedRelayDirectThread ? <RelayPresenceBadge thread={selectedRelayDirectThread} /> : null}
-                    </div>
-                    {relayThreadSubtitle ? (
-                      <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
-                        {relayThreadSubtitle}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {selectedRelayDirectThread ? (
-                    <button
-                      className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                      onClick={() => openAgentProfile(selectedRelayDirectThread.id)}
-                    >
-                      <Bot size={11} />
-                      <span>Agent</span>
-                    </button>
-                  ) : null}
-                  <button
-                    onClick={() => setShowAnnotations(!showAnnotations)}
-                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                    style={showAnnotations ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
-                  >
-                    Annotations <span className="font-mono uppercase">{showAnnotations ? 'On' : 'Off'}</span>
-                  </button>
-                  {desktopFeatures.voice ? (
-                    <>
-                      <button
-                        className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
-                        style={relayState?.voice.isCapturing ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
-                        onClick={() => void handleToggleVoiceCapture()}
-                        title={relayState?.voice.detail ?? undefined}
-                      >
-                        {relayState?.voice.captureTitle ?? 'Capture'} <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.captureState ?? 'Off'}</span>
-                      </button>
-                      <button
-                        className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
-                        style={relayState?.voice.repliesEnabled ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
-                        onClick={() => void handleSetVoiceRepliesEnabled(!(relayState?.voice.repliesEnabled ?? false))}
-                        title={relayState?.voice.detail ?? undefined}
-                      >
-                        Playback <span className="font-mono uppercase" style={{ color: C.accent }}>{relayState?.voice.speaking ? 'Speaking' : relayState?.voice.repliesEnabled ? 'On' : 'Off'}</span>
-                      </button>
-                    </>
-                  ) : null}
-                  <button className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded" style={{ color: C.ink }} onClick={() => void handleRefreshShell()}>
-                    Sync
-                  </button>
-                </div>
-              </div>
-
-              {/* Messages */}
-              <div
-                ref={relayTimelineViewportRef}
-                className="flex-1 overflow-y-auto px-4 py-3 pb-6"
-                onScroll={handleRelayTimelineScroll}
-              >
-                {visibleRelayMessages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <MessageSquare size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No relay traffic yet</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      Send a message into this lane to wake an agent or start a broker-backed conversation.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <RelayTimeline
-                      messages={visibleRelayMessages}
-                      showAnnotations={showAnnotations}
-                      showStatusMessages={selectedRelayKind === 'channel' && selectedRelayId === 'system'}
-                      inkStyle={s.inkText}
-                      mutedStyle={s.mutedText}
-                      tagStyle={s.tagBadge}
-                      annotStyle={s.annotBadge}
-                      agentLookup={interAgentAgentLookup}
-                      directThreadLookup={relayDirectLookup}
-                      onOpenAgentProfile={openAgentProfile}
-                      onOpenAgentChat={openAgentDirectMessage}
-                      onNudgeMessage={handleNudgeMessage}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Compose */}
-              <div className="px-4 py-3 shrink-0" style={s.surface}>
-                {relayReplyTarget ? (
-                  <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                    <div className="min-w-0">
-                      <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                        Replying to {relayReplyTarget.authorName} · {shortMessageRef(relayReplyTarget.messageId)}
-                      </div>
-                      <div className="text-[11px] truncate mt-1" style={s.mutedText}>{relayReplyTarget.preview}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setRelayReplyTarget(null)}
-                      className="shrink-0 rounded p-1 transition-opacity hover:opacity-70"
-                      style={s.mutedText}
-                      title="Clear reply context"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ) : null}
-                {relayContextReferences.length > 0 ? (
-                  <div className="mb-2 space-y-2">
-                    {relayContextReferences.map((reference) => (
-                      <div
-                        key={reference.messageId}
-                        className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                        style={{ borderColor: C.border, backgroundColor: C.bg }}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                            Context · {reference.authorName} · {shortMessageRef(reference.messageId)}
-                          </div>
-                          <div className="text-[11px] truncate mt-1" style={s.mutedText}>{reference.preview}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setRelayContextMessageIds((current) => current.filter((messageId) => messageId !== reference.messageId))}
-                          className="shrink-0 rounded p-1 transition-opacity hover:opacity-70"
-                          style={s.mutedText}
-                          title="Clear referenced context"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="relative">
-                  {relayMentionMenuOpen ? (
-                    <div
-                      className="absolute inset-x-0 bottom-full mb-2 rounded-xl border shadow-lg overflow-hidden z-20"
-                      style={{ backgroundColor: C.surface, borderColor: C.border, boxShadow: C.shadowLg }}
-                    >
-                      <div className="px-3 py-2 border-b text-[9px] font-mono uppercase tracking-widest" style={{ ...s.mutedText, borderColor: C.border }}>
-                        Mention an agent
-                      </div>
-                      <div className="max-h-64 overflow-y-auto">
-                        {relayMentionSuggestions.map((candidate, index) => {
-                          const active = index === relayMentionSelectionIndex;
-                          const workspaceLabel = mentionWorkspaceLabel(candidate);
-                          const worktreeLabel = mentionWorktreeLabel(candidate);
-                          const duplicateTitle = (relayMentionDuplicateTitleCounts.get(candidate.title) ?? 0) > 1;
-                          const showWorkspace = duplicateTitle || Boolean(candidate.harness) || Boolean(worktreeLabel);
-                          const showWorktree = Boolean(worktreeLabel && worktreeLabel !== workspaceLabel);
-                          return (
-                            <button
-                              key={candidate.agentId}
-                              type="button"
-                              className="w-full flex items-start justify-between gap-3 px-3 py-2.5 text-left transition-colors"
-                              style={{
-                                backgroundColor: active ? C.bg : 'transparent',
-                                color: C.ink,
-                              }}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                applyRelayMentionSuggestion(candidate);
-                              }}
-                            >
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                                  <span className="text-[11px] font-medium truncate">{candidate.title}</span>
-                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                    {candidate.statusLabel}
-                                  </span>
-                                  {showWorkspace && workspaceLabel ? (
-                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {workspaceLabel}
-                                    </span>
-                                  ) : null}
-                                  {candidate.harness ? (
-                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {candidate.harness}
-                                    </span>
-                                  ) : null}
-                                  {showWorktree && worktreeLabel ? (
-                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {worktreeLabel}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="text-[10px] mt-1 truncate" style={s.mutedText}>
-                                  {candidate.mentionToken}
-                                  {duplicateTitle && candidate.subtitle ? ` · ${compactHomePath(candidate.subtitle) ?? candidate.subtitle}` : ''}
-                                </div>
-                              </div>
-                              <span className="text-[9px] font-mono shrink-0" style={s.mutedText}>
-                                {active ? '↵' : ''}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                <div className="border rounded flex items-center px-2 py-1 transition-all focus-within:ring-1" style={{ backgroundColor: C.bg, borderColor: C.border }}>
-                  <textarea
-                    ref={relayComposerRef}
-                    className="flex-1 bg-transparent outline-none resize-none h-[20px] min-h-[20px] max-h-[80px] text-[12px] leading-tight py-0.5"
-                    style={{ color: C.ink }}
-                    placeholder={placeholderForDestination(selectedRelayKind, selectedRelayId)}
-                    rows={1}
-                    value={relayDraft}
-                    onChange={(event) => {
-                      const nextDraft = ingestRelayMessageRefs(
-                        event.currentTarget.value,
-                        mergedRelayMessages,
-                        relayContextMessageIds,
-                      );
-                      setRelayDraft(nextDraft.body);
-                      setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? nextDraft.body.length);
-                      if (nextDraft.nextReferenceMessageIds !== relayContextMessageIds) {
-                        setRelayContextMessageIds(nextDraft.nextReferenceMessageIds);
-                      }
-                    }}
-                    onClick={(event) => setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? relayDraft.length)}
-                    onKeyUp={(event) => setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? relayDraft.length)}
-                    onSelect={(event) => setRelayComposerSelectionStart(event.currentTarget.selectionStart ?? relayDraft.length)}
-                    onKeyDown={(event) => {
-                      if (relayMentionMenuOpen) {
-                        if (event.key === 'ArrowDown') {
-                          event.preventDefault();
-                          setRelayMentionSelectionIndex((current) => (
-                            relayMentionSuggestions.length === 0 ? 0 : (current + 1) % relayMentionSuggestions.length
-                          ));
-                          return;
-                        }
-                        if (event.key === 'ArrowUp') {
-                          event.preventDefault();
-                          setRelayMentionSelectionIndex((current) => (
-                            relayMentionSuggestions.length === 0
-                              ? 0
-                              : (current - 1 + relayMentionSuggestions.length) % relayMentionSuggestions.length
-                          ));
-                          return;
-                        }
-                        if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.shiftKey) || event.key === 'Tab') {
-                          event.preventDefault();
-                          const candidate = relayMentionSuggestions[relayMentionSelectionIndex] ?? relayMentionSuggestions[0];
-                          if (candidate) {
-                            applyRelayMentionSuggestion(candidate);
-                          }
-                          return;
-                        }
-                        if (event.key === 'Escape') {
-                          event.preventDefault();
-                          setRelayComposerSelectionStart(relayDraft.length);
-                          return;
-                        }
-                      }
-                      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                        event.preventDefault();
-                        void handleRelaySend();
-                      }
-                    }}
-                  />
-                  <div className="shrink-0 flex items-center gap-1 ml-2">
-                    {desktopFeatures.voice ? (
-                      <button className="p-1 opacity-50 cursor-default transition-opacity" style={s.mutedText} title={relayState?.voice.detail ?? 'Voice unavailable in Electron'}>
-                        <Mic size={12} />
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="shrink-0 flex h-[26px] w-[26px] items-center justify-center rounded-md border transition-opacity hover:opacity-85 disabled:opacity-30 disabled:cursor-not-allowed"
-                      style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}
-                      onClick={() => void handleRelaySend()}
-                      disabled={relaySending || !relayDraft.trim()}
-                      title="Send"
-                      aria-label="Send message"
-                    >
-                      <SendHorizontal size={14} />
-                    </button>
-                  </div>
-                </div>
-                </div>
-              </div>
-
-              {/* Channel Footer */}
-              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <div className="flex items-center gap-3 text-[9px] font-mono" style={s.mutedText}>
-                  <span className="flex items-center gap-1"><span style={s.inkText}>@</span> mention agents</span>
-                  {relayMentionMenuOpen ? (
-                    <>
-                      <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
-                      <span>↑↓ select · ↵ or Tab insert</span>
-                    </>
-                  ) : null}
-                  <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
-                  <span className="flex items-center gap-1">
-                    <kbd className="font-sans px-1 py-0.5 rounded border text-[9px] font-medium leading-none shadow-sm" style={s.kbd}>Cmd+Enter</kbd> send
-                  </span>
-                  {relayFeedback ? (
-                    <>
-                      <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
-                      <span>{relayFeedback}</span>
-                    </>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>
-                  {selectedRelayDirectThread?.state === 'offline' ? (
-                    <span>Offline</span>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+        /* --- MESSAGES --- */
+        ) : activeView === 'messages' || activeView === 'relay' ? (
+          <MessagesView
+            sidebarWidth={sidebarWidth}
+            isCollapsed={isCollapsed}
+            onResizeStart={handleMouseDown}
+            styles={{
+              sidebar: s.sidebar,
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              annotBadge: s.annotBadge,
+              activeItem: s.activeItem,
+              activePill: s.activePill,
+              kbd: s.kbd,
+            }}
+            messagesState={messagesState}
+            messageThreads={messageThreads}
+            selectedMessagesThread={selectedMessagesThread}
+            onSelectMessageThread={selectMessageThread}
+            showAnnotations={showAnnotations}
+            setShowAnnotations={setShowAnnotations}
+            onRefresh={() => void handleRefreshShell()}
+            selectedMessagesInternalThread={selectedMessagesInternalThread}
+            selectedMessagesInternalMessages={selectedMessagesInternalMessages}
+            selectedMessagesInternalTarget={selectedMessagesInternalTarget}
+            selectedMessagesDetailAgentId={selectedMessagesDetailAgentId}
+            selectedMessagesDetailAgent={selectedMessagesDetailAgent}
+            selectedMessagesSessions={selectedMessagesSessions}
+            selectedSession={selectedSession}
+            setSelectedSession={setSelectedSession}
+            formatDate={formatDate}
+            interAgentAgents={interAgentAgents}
+            interAgentAgentLookup={interAgentAgentLookup}
+            relayDirectLookup={relayDirectLookup}
+            openAgentProfile={openAgentProfile}
+            openAgentDirectMessage={openAgentDirectMessage}
+            onNudgeMessage={handleNudgeMessage}
+            messagesDetailOpen={messagesDetailOpen}
+            setMessagesDetailOpen={setMessagesDetailOpen}
+            messagesDetailTab={messagesDetailTab}
+            setMessagesDetailTab={setMessagesDetailTab}
+            selectedRelayKind={selectedRelayKind}
+            selectedRelayId={selectedRelayId}
+            relayThreadTitle={relayThreadTitle}
+            relayThreadSubtitle={relayThreadSubtitle}
+            relayThreadCount={relayThreadCount}
+            selectedRelayDirectThread={selectedRelayDirectThread}
+            relayVoiceState={relayState?.voice}
+            visibleRelayMessages={visibleRelayMessages}
+            relayTimelineViewportRef={relayTimelineViewportRef}
+            onRelayTimelineScroll={handleRelayTimelineScroll}
+            relayReplyTarget={relayReplyTarget}
+            setRelayReplyTarget={setRelayReplyTarget}
+            relayContextReferences={relayContextReferences}
+            relayContextMessageIds={relayContextMessageIds}
+            setRelayContextMessageIds={setRelayContextMessageIds}
+            relayComposerRef={relayComposerRef}
+            relayDraft={relayDraft}
+            setRelayDraft={setRelayDraft}
+            relaySending={relaySending}
+            relayFeedback={relayFeedback}
+            relayComposerSelectionStart={relayComposerSelectionStart}
+            setRelayComposerSelectionStart={setRelayComposerSelectionStart}
+            mergedRelayMessages={mergedRelayMessages}
+            relayMentionMenuOpen={relayMentionMenuOpen}
+            relayMentionSuggestions={relayMentionSuggestions}
+            relayMentionSelectionIndex={relayMentionSelectionIndex}
+            setRelayMentionSelectionIndex={setRelayMentionSelectionIndex}
+            relayMentionDuplicateTitleCounts={relayMentionDuplicateTitleCounts}
+            applyRelayMentionSuggestion={applyRelayMentionSuggestion}
+            onRelaySend={() => void handleRelaySend()}
+            onToggleVoiceCapture={() => void handleToggleVoiceCapture()}
+            onSetVoiceRepliesEnabled={(enabled) => void handleSetVoiceRepliesEnabled(enabled)}
+            visibleAgentSession={visibleAgentSession}
+            agentSessionPending={agentSessionPending}
+            agentSessionFeedback={agentSessionFeedback}
+            agentSessionCopied={agentSessionCopied}
+            onCopyAgentSessionCommand={() => void handleCopyAgentSessionCommand()}
+            onOpenAgentSession={() => void handleOpenAgentSession()}
+            onPeekAgentSession={handlePeekAgentSession}
+            onOpenAgentSettings={openAgentSettings}
+            desktopVoiceEnabled={desktopFeatures.voice}
+          />
+        ) : null}
       </div>
 
       {isAgentSessionPeekOpen && selectedInterAgent ? (
