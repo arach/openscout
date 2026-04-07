@@ -21,6 +21,8 @@ struct BlockView: View {
             FileBlockView(block: block)
         case .error:
             ErrorBlockView(block: block)
+        case .question:
+            QuestionBlockView(sessionId: sessionId, block: block)
         }
     }
 }

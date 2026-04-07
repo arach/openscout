@@ -24,6 +24,7 @@ export function createScoutDesktopFeatureFlags(input: Partial<ScoutDesktopFeatur
   return {
     enableAll,
     overview: input.overview ?? true,
+    inbox: input.inbox ?? true,
     relay: input.relay ?? true,
     pairing: input.pairing ?? true,
     interAgent: input.interAgent ?? true,

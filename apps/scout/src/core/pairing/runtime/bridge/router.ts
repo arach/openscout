@@ -813,6 +813,18 @@ export const bridgeRouter = t.router({
       return { ok: true };
     }),
 
+  // question/answer — routes a user's answer back to the adapter
+  questionAnswer: procedure
+    .input(z.object({
+      sessionId: z.string(),
+      blockId: z.string(),
+      answer: z.array(z.string()),
+    }))
+    .mutation(({ input, ctx }) => {
+      ctx.bridge.answerQuestion(input);
+      return { ok: true };
+    }),
+
   // action/decide
   actionDecide: procedure
     .input(

@@ -35,6 +35,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "../../apps/scout/src/ui/desktop"),
+      "@openscout/runtime": path.resolve(__dirname, "../runtime/src"),
+      "@openscout/protocol": path.resolve(__dirname, "../protocol/src"),
     },
   },
 });

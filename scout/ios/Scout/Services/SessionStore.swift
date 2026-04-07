@@ -346,6 +346,9 @@ final class SessionStore: @unchecked Sendable {
         case .blockActionApproval(let sessionId, let turnId, let blockId, let approval):
             handleBlockActionApproval(sessionId: sessionId, turnId: turnId, blockId: blockId, approval: approval)
 
+        case .blockQuestionAnswer(let sessionId, let turnId, let blockId, let questionStatus, let answer):
+            handleBlockQuestionAnswer(sessionId: sessionId, turnId: turnId, blockId: blockId, questionStatus: questionStatus, answer: answer)
+
         case .blockEnd(let sessionId, let turnId, let blockId, let status):
             handleBlockEnd(sessionId: sessionId, turnId: turnId, blockId: blockId, status: status)
 
@@ -601,6 +604,28 @@ final class SessionStore: @unchecked Sendable {
             sessions[sessionId] = state
         }
 
+        lock.unlock()
+    }
+
+    private func handleBlockQuestionAnswer(
+        sessionId: String,
+        turnId: String,
+        blockId: String,
+        questionStatus: QuestionBlockStatus,
+        answer: [String]?
+    ) {
+        lock.lock()
+        guard var state = sessions[sessionId],
+              let turnIndex = state.turns.firstIndex(where: { $0.id == turnId }),
+              let blockIndex = state.turns[turnIndex].blocks.firstIndex(where: { $0.block.id == blockId }) else {
+            lock.unlock()
+            return
+        }
+
+        state.turns[turnIndex].blocks[blockIndex].block.questionStatus = questionStatus
+        state.turns[turnIndex].blocks[blockIndex].block.answer = answer
+        state.turns[turnIndex] = TurnHash.normalize(state.turns[turnIndex])
+        sessions[sessionId] = state
         lock.unlock()
     }
 

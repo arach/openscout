@@ -290,6 +290,12 @@ async function handleRPCInner(
         return { id: req.id, result: { ok: true } };
       }
 
+      case "question/answer": {
+        const answer = req.params as import("../../protocol/primitives.ts").QuestionAnswer;
+        bridge.answerQuestion(answer);
+        return { id: req.id, result: { ok: true } };
+      }
+
       // -- Reconnect / buffer ------------------------------------------------
 
       case "sync/replay": {

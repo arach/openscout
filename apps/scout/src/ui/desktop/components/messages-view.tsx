@@ -81,8 +81,10 @@ type RelayReplyTarget = {
 
 export function MessagesView({
   sidebarWidth,
+  messagesDetailWidth,
   isCollapsed,
   onResizeStart,
+  onMessagesDetailResizeStart,
   styles,
   messagesState,
   messageThreads,
@@ -153,8 +155,10 @@ export function MessagesView({
   desktopVoiceEnabled,
 }: {
   sidebarWidth: number;
+  messagesDetailWidth: number;
   isCollapsed: boolean;
   onResizeStart: React.MouseEventHandler<HTMLDivElement>;
+  onMessagesDetailResizeStart: React.MouseEventHandler<HTMLDivElement>;
   styles: MessagesViewStyles;
   messagesState: MessagesState | null;
   messageThreads: MessagesThread[];
@@ -310,6 +314,7 @@ export function MessagesView({
       {messagesDetailOpen && selectedMessagesThread ? (
         <MessagesDetailDrawer
           styles={styles}
+          messagesDetailWidth={messagesDetailWidth}
           selectedMessagesThread={selectedMessagesThread}
           selectedMessagesInternalThread={selectedMessagesInternalThread}
           selectedMessagesDetailAgentId={selectedMessagesDetailAgentId}
@@ -322,6 +327,7 @@ export function MessagesView({
           messagesDetailTab={messagesDetailTab}
           setMessagesDetailTab={setMessagesDetailTab}
           setMessagesDetailOpen={setMessagesDetailOpen}
+          onResizeStart={onMessagesDetailResizeStart}
           openAgentProfile={openAgentProfile}
           openAgentDirectMessage={openAgentDirectMessage}
           visibleAgentSession={visibleAgentSession}
@@ -674,6 +680,38 @@ function RelayThreadPane({
   onNudgeMessage: (message: RelayMessage) => void;
   desktopVoiceEnabled: boolean;
 }) {
+  const lastVisibleMessageAt = visibleRelayMessages.at(-1)?.createdAt ?? null;
+  const [workingIndicatorNow, setWorkingIndicatorNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (selectedRelayDirectThread?.state !== "working") {
+      return;
+    }
+
+    setWorkingIndicatorNow(Date.now());
+    const intervalId = window.setInterval(() => {
+      setWorkingIndicatorNow(Date.now());
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    lastVisibleMessageAt,
+    selectedRelayDirectThread?.activeTask,
+    selectedRelayDirectThread?.id,
+    selectedRelayDirectThread?.state,
+    selectedRelayDirectThread?.statusDetail,
+  ]);
+
+  const workingSilenceMs = selectedRelayDirectThread?.state === "working" && lastVisibleMessageAt
+    ? Math.max(0, workingIndicatorNow - lastVisibleMessageAt)
+    : 0;
+  const workingSilenceLabel = workingSilenceMs > 0 ? formatWorkingSilence(workingSilenceMs) : null;
+  const showStallHint = workingSilenceMs >= 90_000;
+  const workingDetail = selectedRelayDirectThread?.activeTask
+    ?? selectedRelayDirectThread?.statusDetail
+    ?? relayThreadSubtitle
+    ?? "Agent is still working.";
+
   return (
     <>
       <div className="border-b flex items-center justify-between px-4 py-2 shrink-0 gap-4" style={{ ...styles.surface, borderBottomColor: C.border }}>
@@ -788,6 +826,41 @@ function RelayThreadPane({
         )}
       </div>
 
+      {selectedRelayDirectThread?.state === "working" ? (
+        <div className="px-4 pb-1 shrink-0" style={styles.surface}>
+          <div
+            className="rounded-xl border px-3 py-2.5 flex items-start justify-between gap-3"
+            style={{
+              borderColor: showStallHint ? "rgba(245,158,11,0.32)" : C.border,
+              backgroundColor: showStallHint ? "rgba(245,158,11,0.08)" : C.bg,
+            }}
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <TypingDots className="text-[var(--os-accent)] shrink-0" />
+                <span className="text-[11px] font-medium truncate" style={styles.inkText}>
+                  {showStallHint ? "Still working" : "Working"}
+                </span>
+                {workingSilenceLabel ? (
+                  <span
+                    className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                    style={showStallHint ? {
+                      color: "#b45309",
+                      backgroundColor: "rgba(245,158,11,0.14)",
+                    } : styles.tagBadge}
+                  >
+                    {showStallHint ? `No update for ${workingSilenceLabel}` : `${workingSilenceLabel} ago`}
+                  </span>
+                ) : null}
+              </div>
+              <div className="text-[10px] mt-1 truncate" style={styles.mutedText}>
+                {workingDetail}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <RelayComposer
         styles={styles}
         selectedRelayKind={selectedRelayKind}
@@ -802,7 +875,6 @@ function RelayThreadPane({
         relayDraft={relayDraft}
         setRelayDraft={setRelayDraft}
         relaySending={relaySending}
-        relayFeedback={relayFeedback}
         relayComposerSelectionStart={relayComposerSelectionStart}
         setRelayComposerSelectionStart={setRelayComposerSelectionStart}
         mergedRelayMessages={mergedRelayMessages}
@@ -1099,6 +1171,7 @@ function RelayComposer({
 
 function MessagesDetailDrawer({
   styles,
+  messagesDetailWidth,
   selectedMessagesThread,
   selectedMessagesInternalThread,
   selectedMessagesDetailAgentId,
@@ -1111,6 +1184,7 @@ function MessagesDetailDrawer({
   messagesDetailTab,
   setMessagesDetailTab,
   setMessagesDetailOpen,
+  onResizeStart,
   openAgentProfile,
   openAgentDirectMessage,
   visibleAgentSession,
@@ -1123,6 +1197,7 @@ function MessagesDetailDrawer({
   onOpenAgentSettings,
 }: {
   styles: MessagesViewStyles;
+  messagesDetailWidth: number;
   selectedMessagesThread: MessagesThread;
   selectedMessagesInternalThread: InterAgentThread | null;
   selectedMessagesDetailAgentId: string | null;
@@ -1135,6 +1210,7 @@ function MessagesDetailDrawer({
   messagesDetailTab: MessagesDetailTab;
   setMessagesDetailTab: React.Dispatch<React.SetStateAction<MessagesDetailTab>>;
   setMessagesDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  onResizeStart: React.MouseEventHandler<HTMLDivElement>;
   openAgentProfile: (agentId: string) => void;
   openAgentDirectMessage: (agentId: string, draft?: string | null) => void;
   visibleAgentSession: AgentSessionInspector | null;
@@ -1147,7 +1223,11 @@ function MessagesDetailDrawer({
   onOpenAgentSettings: (agentId: string, isProjectAgent: boolean) => void;
 }) {
   return (
-    <div className="w-[340px] border-l shrink-0 overflow-y-auto flex flex-col" style={{ ...styles.surface, borderLeftColor: C.border }}>
+    <div
+      className="relative border-l shrink-0 overflow-y-auto flex flex-col"
+      style={{ width: messagesDetailWidth, ...styles.surface, borderLeftColor: C.border }}
+    >
+      <div className="absolute left-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={onResizeStart} />
       <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1164,11 +1244,12 @@ function MessagesDetailDrawer({
           <button
             type="button"
             onClick={() => setMessagesDetailOpen(false)}
-            className="rounded p-1 transition-opacity hover:opacity-70"
-            style={styles.mutedText}
+            className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded shrink-0"
+            style={{ color: C.ink }}
             title="Hide details"
           >
-            <X size={12} />
+            <X size={11} />
+            <span>Hide</span>
           </button>
         </div>
         <div className="flex items-center gap-1 mt-3">
@@ -1256,7 +1337,7 @@ function MessagesDetailDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => openAgentSettings(selectedMessagesDetailAgent.id, selectedMessagesDetailAgent.profileKind === "project")}
+                    onClick={() => onOpenAgentSettings(selectedMessagesDetailAgent.id, selectedMessagesDetailAgent.profileKind === "project")}
                     className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded"
                     style={{ color: C.ink }}
                   >
@@ -1395,6 +1476,16 @@ function MessagesDetailDrawer({
       </div>
     </div>
   );
+}
+
+function formatWorkingSilence(durationMs: number) {
+  const minutes = Math.floor(durationMs / 60_000);
+  if (minutes >= 1) {
+    return `${minutes}m`;
+  }
+
+  const seconds = Math.max(1, Math.floor(durationMs / 1000));
+  return `${seconds}s`;
 }
 
 function placeholderForDestination(kind: RelayDestinationKind, id: string) {

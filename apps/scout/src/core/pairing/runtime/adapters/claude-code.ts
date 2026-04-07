@@ -23,6 +23,7 @@ import type {
   Block,
   BlockStatus,
   Prompt,
+  QuestionAnswer,
   Turn,
   TurnStatus,
 } from "../protocol/primitives.ts";
@@ -42,6 +43,12 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
   // Track active blocks by tool call ID for result correlation.
   private toolBlockMap = new Map<string, string>();
+
+  // Track pending question blocks: toolCallId → blockId
+  private questionBlockMap = new Map<string, string>();
+
+  // Resolvers waiting for the user's answer: blockId → resolve fn
+  private pendingAnswers = new Map<string, (answer: string[]) => void>();
 
   constructor(config: AdapterConfig) {
     super(config);
@@ -227,6 +234,29 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       }
 
       case "result": {
+        // Surface any permission-denied AskUserQuestion calls as denied blocks.
+        const denials: any[] = Array.isArray(event.permission_denials) ? event.permission_denials : [];
+        for (const denial of denials) {
+          if (denial.tool_name === "AskUserQuestion" && this.currentTurn) {
+            const input = denial.tool_input ?? {};
+            const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
+            const first = questions[0] ?? {};
+            const options = Array.isArray(first.options)
+              ? first.options.map((o: any) => ({ label: o.label ?? String(o), description: o.description }))
+              : [];
+            const block = this.startBlock(this.currentTurn, {
+              type: "question",
+              header: first.header,
+              question: first.question ?? "",
+              options,
+              multiSelect: first.multiSelect ?? false,
+              questionStatus: "denied",
+              status: "completed",
+            });
+            this.emitBlockEnd(this.currentTurn, block, "completed");
+          }
+        }
+
         // Turn complete — the stream continues for the next turn.
         if (this.currentTurn && this.currentTurn.status !== "stopped") {
           this.endTurn(this.currentTurn, event.subtype === "error" ? "failed" : "completed");
@@ -282,6 +312,33 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     const toolCallId: string = event.tool_use_id ?? event.id ?? crypto.randomUUID();
 
     let action: Action;
+
+    if (toolName === "AskUserQuestion") {
+      const input = event.input ?? {};
+      const questions: any[] = Array.isArray(input.questions) ? input.questions : [];
+      const first = questions[0] ?? {};
+      const options = Array.isArray(first.options)
+        ? first.options.map((o: any) => ({ label: o.label ?? String(o), description: o.description }))
+        : [];
+
+      const block = this.startBlock(this.currentTurn, {
+        type: "question",
+        header: first.header,
+        question: first.question ?? "",
+        options,
+        multiSelect: first.multiSelect ?? false,
+        questionStatus: "awaiting_answer",
+        answer: undefined,
+        status: "streaming",
+      });
+
+      this.toolBlockMap.set(toolCallId, block.id);
+      this.questionBlockMap.set(toolCallId, block.id);
+
+      // Wait asynchronously for the user's answer, then write it back to stdin.
+      void this.awaitAndSendAnswer(block.id, toolCallId);
+      return;
+    }
 
     if (toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit") {
       action = {
@@ -362,6 +419,54 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       blockId,
       status: status === "failed" ? "failed" : "completed",
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interactive question handling
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Called by the bridge when the user answers a QuestionBlock.
+   * Resolves the pending promise so awaitAndSendAnswer can write stdin.
+   */
+  answerQuestion(answer: QuestionAnswer): void {
+    const resolve = this.pendingAnswers.get(answer.blockId);
+    if (!resolve) return;
+    this.pendingAnswers.delete(answer.blockId);
+    resolve(answer.answer);
+
+    // Emit the answer delta so all surfaces update.
+    const turn = this.currentTurn;
+    if (turn) {
+      this.emit("event", {
+        event: "block:question:answer",
+        sessionId: this.session.id,
+        turnId: turn.id,
+        blockId: answer.blockId,
+        questionStatus: "answered",
+        answer: answer.answer,
+      });
+    }
+  }
+
+  private async awaitAndSendAnswer(blockId: string, toolCallId: string): Promise<void> {
+    const answer = await new Promise<string[]>((resolve) => {
+      this.pendingAnswers.set(blockId, resolve);
+    });
+
+    // Write the answer back to Claude Code's stdin as a tool_result.
+    if (!this.process?.stdin) return;
+    const response = JSON.stringify({
+      type: "tool_result",
+      tool_use_id: toolCallId,
+      content: answer.join(", "),
+    });
+    const writer = this.process.stdin.getWriter();
+    try {
+      await writer.write(new TextEncoder().encode(response + "\n"));
+    } finally {
+      writer.releaseLock();
+    }
   }
 
   // ---------------------------------------------------------------------------

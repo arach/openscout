@@ -29,6 +29,7 @@
 /native/engine/.swiftpm
 
 # relay data (local state, not source)
+.openscout/
 .openscout/project.json
 .openscout/relay/
 .openscout/relay.json

@@ -140,6 +140,13 @@ export class Bridge {
     adapter.interrupt();
   }
 
+  /** Route a user's answer to a QuestionBlock back to the adapter. */
+  answerQuestion(answer: import("../../protocol/primitives.ts").QuestionAnswer): void {
+    const adapter = this.sessions.get(answer.sessionId) as any;
+    if (!adapter) return;
+    adapter.answerQuestion?.(answer);
+  }
+
   /** Shut down a single session. */
   async closeSession(sessionId: string): Promise<void> {
     const adapter = this.sessions.get(sessionId);

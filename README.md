@@ -1,5 +1,7 @@
 # OpenScout
 
+> **Requires [Bun](https://bun.sh).** Scout uses Bun as its JavaScript runtime and package manager. Install it first: `brew install bun` or `curl -fsSL https://bun.sh/install | bash`
+
 OpenScout is the active Scout codebase: desktop app, CLI, broker runtime, and shared protocol.
 
 The live product path is:

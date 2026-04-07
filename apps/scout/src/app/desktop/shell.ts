@@ -1859,9 +1859,9 @@ function attachRelayReceipts(
       return {
         ...message,
         receipt: {
-          state: "seen",
-          label: "Seen",
-          detail: null,
+          state: "working",
+          label: "Working",
+          detail: activity.activeTask ?? activity.statusDetail ?? null,
         },
       };
     }

@@ -54,6 +54,7 @@
 		CCFF56AC0101E94DC30A7EF5 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6940B82A6F6FB299D5556A /* SessionStore.swift */; };
 		DF22D6C8EE12251B47279018 /* SecureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2043B28142C57D92E9226882 /* SecureTransport.swift */; };
 		E87A5CDE5849A4D43F98E0D7 /* ErrorBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */; };
+		FA3C8E21B094D56A7E2F1C84 /* QuestionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4D72E63A1F08C5BD390E47 /* QuestionBlockView.swift */; };
 		ECEDCF709BDAE4260FDE7161 /* ReasoningBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */; };
 		EEC617F0495EAE3F9D6F3A58 /* QRPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97263B8D58CE2A2D5B8FEF46 /* QRPayload.swift */; };
 		EF36CE2CE7EE4F684BABD283 /* SessionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */; };
@@ -113,6 +114,7 @@
 		4CD01439D63376EE86259929 /* BlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockView.swift; sourceTree = "<group>"; };
 		522FEFECE7DDB6B166CE1546 /* ScoutLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutLog.swift; sourceTree = "<group>"; };
 		5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBlockView.swift; sourceTree = "<group>"; };
+		9B4D72E63A1F08C5BD390E47 /* QuestionBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionBlockView.swift; sourceTree = "<group>"; };
 		6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessPickerView.swift; sourceTree = "<group>"; };
 		6D678FD46C36DEE704DF0493 /* RPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPC.swift; sourceTree = "<group>"; };
 		71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionBlockView.swift; sourceTree = "<group>"; };
@@ -384,6 +386,7 @@
 				71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */,
 				4CD01439D63376EE86259929 /* BlockView.swift */,
 				5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */,
+				9B4D72E63A1F08C5BD390E47 /* QuestionBlockView.swift */,
 				1CB1259D202C983314D17199 /* FileBlockView.swift */,
 				411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */,
 				1111361D907783103CAF1029 /* TextBlockView.swift */,
@@ -537,6 +540,7 @@
 				9DCC249E9763BF09A039B86D /* ScoutTextField.swift in Sources */,
 				34AC269DEB1981DF20AF6EA4 /* ScoutVoice.swift in Sources */,
 				E87A5CDE5849A4D43F98E0D7 /* ErrorBlockView.swift in Sources */,
+				FA3C8E21B094D56A7E2F1C84 /* QuestionBlockView.swift in Sources */,
 				A50AB845B5B69E8F3839348C /* Events.swift in Sources */,
 				4C4D0937368EECDAE8EFC76B /* FileBlockView.swift in Sources */,
 				C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */,

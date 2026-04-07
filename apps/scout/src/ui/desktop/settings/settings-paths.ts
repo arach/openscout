@@ -6,6 +6,7 @@ export const SETTINGS_SECTION_IDS = [
   "profile",
   "knowledge",
   "agents",
+  "workspaces",
   "communication",
   "database",
   "appearance",

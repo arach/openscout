@@ -25,6 +25,7 @@ enum ScoutEvent: Sendable {
     case blockActionOutput(sessionId: String, turnId: String, blockId: String, output: String)
     case blockActionStatus(sessionId: String, turnId: String, blockId: String, status: ActionStatus, meta: [String: AnyCodable]?)
     case blockActionApproval(sessionId: String, turnId: String, blockId: String, approval: ActionApproval)
+    case blockQuestionAnswer(sessionId: String, turnId: String, blockId: String, questionStatus: QuestionBlockStatus, answer: [String]?)
     case blockEnd(sessionId: String, turnId: String, blockId: String, status: BlockStatus)
     case unknown(discriminator: String)
 }
@@ -38,6 +39,7 @@ extension ScoutEvent: Codable {
         case block, blockId
         case status, text, output, message, meta
         case approval
+        case questionStatus, answer
     }
 
     init(from decoder: Decoder) throws {
@@ -104,6 +106,14 @@ extension ScoutEvent: Codable {
             let bid = try container.decode(String.self, forKey: .blockId)
             let approval = try container.decode(ActionApproval.self, forKey: .approval)
             self = .blockActionApproval(sessionId: sid, turnId: tid, blockId: bid, approval: approval)
+
+        case "block:question:answer":
+            let sid = try container.decode(String.self, forKey: .sessionId)
+            let tid = try container.decode(String.self, forKey: .turnId)
+            let bid = try container.decode(String.self, forKey: .blockId)
+            let qs = try container.decode(QuestionBlockStatus.self, forKey: .questionStatus)
+            let ans = try container.decodeIfPresent([String].self, forKey: .answer)
+            self = .blockQuestionAnswer(sessionId: sid, turnId: tid, blockId: bid, questionStatus: qs, answer: ans)
 
         case "block:end":
             let sid = try container.decode(String.self, forKey: .sessionId)

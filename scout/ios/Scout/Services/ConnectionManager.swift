@@ -1006,6 +1006,15 @@ final class ConnectionManager: @unchecked Sendable {
         _ = try await sendRPC(method: "turn/interrupt", params: params)
     }
 
+    func answerQuestion(sessionId: String, blockId: String, answer: [String]) async throws {
+        struct Params: Encodable {
+            let sessionId: String
+            let blockId: String
+            let answer: [String]
+        }
+        _ = try await sendRPC(method: "question/answer", params: Params(sessionId: sessionId, blockId: blockId, answer: answer))
+    }
+
     func decideAction(
         sessionId: String,
         turnId: String,

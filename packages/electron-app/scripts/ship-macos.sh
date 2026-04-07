@@ -3,16 +3,29 @@
 # Patch version is bumped automatically (use --same-version to skip).
 #
 # Usage:
-#   ./scripts/ship-macos.sh                # bump patch + build + sign + notarize + tag + upload
-#   ./scripts/ship-macos.sh --same-version # keep version, bump nothing
-#   ./scripts/ship-macos.sh --skip-build   # skip build, re-tag/upload existing DMG
+#   ./scripts/ship-macos.sh                # bump patch + build + sign + notarize + tag + upload (with update artifacts)
+#   ./scripts/ship-macos.sh --same-version # keep version, skip patch bump
+#   ./scripts/ship-macos.sh --skip-build   # skip build, re-tag/upload existing assets
+#   ./scripts/ship-macos.sh --no-update    # skip update zip/yml/blockmap — DMG only (patch releases)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Parse flags
+SKIP_BUILD=false
+SAME_VERSION=false
+BUILD_UPDATES=true
+for arg in "$@"; do
+  case "$arg" in
+    --skip-build)   SKIP_BUILD=true ;;
+    --same-version) SAME_VERSION=true ;;
+    --no-update)    BUILD_UPDATES=false ;;
+  esac
+done
+
 # ── Version bump ──────────────────────────────────────────────────────────────
 
-if [[ "${1:-}" != "--same-version" && "${1:-}" != "--skip-build" ]]; then
+if [[ "$SAME_VERSION" == "false" && "$SKIP_BUILD" == "false" ]]; then
   CURRENT=$(node -p "require('./package.json').version")
   IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
   NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
@@ -35,23 +48,19 @@ shopt -s nullglob
 
 # ── Build, sign, notarize ──────────────────────────────────────────────────────
 
-if [[ "${1:-}" != "--skip-build" ]]; then
+if [[ "$SKIP_BUILD" == "false" ]]; then
   echo "Building, signing, and notarizing…"
 
-  # Build each package directly — bun's nested npm --prefix resolution is unreliable
-  echo "  runtime…"
-  (cd ../runtime && npm run build)
-  echo "  cli…"
-  (cd ../cli && node ./scripts/build.mjs)
   echo "  electron…"
   npm run build
   npm run build:electron
 
   # Package, sign, notarize — skip the build steps already done above
   echo "  packaging…"
-  node scripts/package-macos-app.mjs
+  SCOUT_BUILD_UPDATES=$([[ "$BUILD_UPDATES" == "true" ]] && echo "1" || echo "0") \
+    node scripts/package-macos-app.mjs
 else
-  echo "Skipping build — using existing DMG."
+  echo "Skipping build — using existing assets."
 fi
 
 if [[ ! -f "$DMG_PATH" ]]; then
@@ -59,7 +68,12 @@ if [[ ! -f "$DMG_PATH" ]]; then
   exit 1
 fi
 
-RELEASE_ASSETS=("$DMG_PATH" dist/macos/*.zip dist/macos/*.yml dist/macos/*.blockmap)
+if [[ "$BUILD_UPDATES" == "true" ]]; then
+  RELEASE_ASSETS=("$DMG_PATH" dist/macos/*.zip dist/macos/*.yml dist/macos/*.blockmap)
+else
+  RELEASE_ASSETS=("$DMG_PATH")
+  echo "Skipping update artifacts (--no-update)."
+fi
 
 echo ""
 echo "Release assets ready:"

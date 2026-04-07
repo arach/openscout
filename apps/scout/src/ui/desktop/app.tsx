@@ -112,6 +112,11 @@ import type {
   RelayMentionCandidate,
 } from "@/components/relay/relay-types";
 import { WorkspaceExplorerView } from "@/components/workspace-explorer-view";
+import { OverviewInboxActivityView } from "@/components/views/overview-inbox-activity-view";
+import { OpsViews } from "@/components/views/ops-views";
+import { SettingsHelpView } from "@/components/views/settings-help-view";
+import { AgentViews } from "@/components/views/agent-views";
+import { MessagesRelayView } from "@/components/views/messages-relay-view";
 import { StartupSplashOverlay } from "@/components/startup-splash";
 import { BootLoader } from "@/components/boot-loader";
 import { LogPanel } from "@/components/log-panel";
@@ -126,10 +131,33 @@ import { getScoutDesktop } from "@/lib/electron";
 import { cn } from "@/lib/utils";
 import {
   parseSettingsPath,
-  settingsPath,
   type SettingsSectionId,
 } from "@/settings/settings-paths";
 import { C } from "@/lib/theme";
+import {
+  type AppView,
+  type ComposerRelayReference,
+  type CreateAgentDraft,
+  type InboxItem,
+  type InboxItemTone,
+  type MessagesDetailTab,
+  type NavViewItem,
+  type OnboardingWizardStepId,
+  type PendingRelayMessage,
+  type ProductSurface,
+  type SettingsSectionMeta,
+  type WorkspaceExplorerFilterTab,
+  type WorkspaceExplorerViewMode,
+} from "@/app-types";
+import {
+  buildDesktopPath,
+  parseRelayViewPath,
+} from "@/app-routing";
+import {
+  buildDefaultCreateAgentDraft,
+  normalizeCreateAgentHarness,
+  pairingStatesMeaningfullyEqual,
+} from "@/app-utils";
 import type {
   AgentSessionInspector,
   AgentConfigState,
@@ -161,65 +189,6 @@ import type {
   SubmitFeedbackReportInput,
   UpdatePairingConfigInput,
 } from "@/lib/scout-desktop";
-type PendingRelayMessage = {
-  clientMessageId: string;
-  message: RelayMessage;
-};
-
-type OnboardingWizardStepId = 'welcome' | 'source-roots' | 'harness' | 'confirm' | 'setup' | 'doctor' | 'runtimes';
-type WorkspaceExplorerFilterTab = 'all' | 'bound' | 'discovered';
-type WorkspaceExplorerViewMode = 'grid' | 'list';
-type InboxItemTone = 'critical' | 'warning' | 'info';
-type InboxItemKind = 'approval' | 'finding' | 'task';
-type InboxItem = {
-  id: string;
-  kind: InboxItemKind;
-  tone: InboxItemTone;
-  title: string;
-  summary: string;
-  detail: string | null;
-  meta: string;
-  actionLabel: string;
-  onAction: () => void;
-  onSecondaryAction?: () => void;
-  secondaryActionLabel?: string;
-};
-
-type ComposerRelayReference = {
-  messageId: string;
-  authorName: string;
-  preview: string;
-};
-
-const PRODUCT_SURFACES = ['relay', 'pairing'] as const;
-type ProductSurface = (typeof PRODUCT_SURFACES)[number];
-type AppView = 'overview' | 'inbox' | 'activity' | 'machines' | 'plans' | 'sessions' | 'search' | 'messages' | 'relay' | 'inter-agent' | 'agents' | 'logs' | 'settings' | 'help';
-type MessagesDetailTab = 'overview' | 'live' | 'history';
-type NavViewItem = { id: AppView; icon: React.ReactNode; title: string; badgeCount?: number };
-type SettingsSectionMeta = { id: SettingsSectionId; label: string; description: string; icon: React.ReactNode };
-type CreateAgentDraft = {
-  projectPath: string;
-  agentName: string;
-  harness: "claude" | "codex";
-};
-
-const APP_VIEW_IDS: readonly AppView[] = [
-  'overview',
-  'inbox',
-  'activity',
-  'machines',
-  'plans',
-  'sessions',
-  'search',
-  'messages',
-  'relay',
-  'inter-agent',
-  'agents',
-  'logs',
-  'settings',
-  'help',
-];
-
 const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
   enableAll: false,
   overview: true,
@@ -253,134 +222,6 @@ const ONBOARDING_WIZARD_STEP_ORDER: OnboardingWizardStepId[] = [
 
 const SOURCE_ROOT_PATH_SUGGESTIONS = ['~/dev', '~/src', '~/code'];
 const AVAILABLE_AGENT_HARNESSES = ['claude', 'codex'] as const;
-
-function normalizeCreateAgentHarness(value: string | null | undefined): CreateAgentDraft["harness"] {
-  return value === 'codex' ? 'codex' : 'claude';
-}
-
-function buildDefaultCreateAgentDraft(
-  projects: SetupProjectSummary[],
-  settings: AppSettingsState | null | undefined,
-): CreateAgentDraft {
-  const preferredProject = projects.find((project) => project.root === settings?.onboardingContextRoot)
-    ?? projects[0]
-    ?? null;
-
-  return {
-    projectPath: preferredProject?.root ?? settings?.onboardingContextRoot ?? '',
-    agentName: '',
-    harness: normalizeCreateAgentHarness(preferredProject?.defaultHarness ?? settings?.defaultHarness),
-  };
-}
-
-function pairingTrustedPeersMeaningfullyEqual(left: PairingState['trustedPeers'], right: PairingState['trustedPeers']) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((peer, index) => {
-    const other = right[index];
-    return peer.publicKey === other?.publicKey
-      && peer.fingerprint === other?.fingerprint
-      && peer.name === other?.name
-      && peer.pairedAt === other?.pairedAt
-      && peer.pairedAtLabel === other?.pairedAtLabel
-      && peer.lastSeen === other?.lastSeen
-      && peer.lastSeenLabel === other?.lastSeenLabel;
-  });
-}
-
-function pairingApprovalsMeaningfullyEqual(left: PairingState['pendingApprovals'], right: PairingState['pendingApprovals']) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((approval, index) => {
-    const other = right[index];
-    return approval.sessionId === other?.sessionId
-      && approval.turnId === other?.turnId
-      && approval.blockId === other?.blockId
-      && approval.version === other?.version
-      && approval.risk === other?.risk
-      && approval.title === other?.title
-      && approval.description === other?.description
-      && approval.detail === other?.detail
-      && approval.actionKind === other?.actionKind
-      && approval.actionStatus === other?.actionStatus;
-  });
-}
-
-function pairingStatesMeaningfullyEqual(left: PairingState | null, right: PairingState | null) {
-  if (left === right) {
-    return true;
-  }
-  if (!left || !right) {
-    return left === right;
-  }
-
-  return left.status === right.status
-    && left.statusLabel === right.statusLabel
-    && left.statusDetail === right.statusDetail
-    && left.connectedPeerFingerprint === right.connectedPeerFingerprint
-    && left.isRunning === right.isRunning
-    && left.commandLabel === right.commandLabel
-    && left.configPath === right.configPath
-    && left.identityPath === right.identityPath
-    && left.trustedPeersPath === right.trustedPeersPath
-    && left.logPath === right.logPath
-    && left.relay === right.relay
-    && left.configuredRelay === right.configuredRelay
-    && left.secure === right.secure
-    && left.workspaceRoot === right.workspaceRoot
-    && left.sessionCount === right.sessionCount
-    && left.identityFingerprint === right.identityFingerprint
-    && left.trustedPeerCount === right.trustedPeerCount
-    && pairingTrustedPeersMeaningfullyEqual(left.trustedPeers, right.trustedPeers)
-    && pairingApprovalsMeaningfullyEqual(left.pendingApprovals, right.pendingApprovals)
-    && left.logTail === right.logTail
-    && left.logUpdatedAtLabel === right.logUpdatedAtLabel
-    && left.logMissing === right.logMissing
-    && left.logTruncated === right.logTruncated
-    && left.pairing?.relay === right.pairing?.relay
-    && left.pairing?.room === right.pairing?.room
-    && left.pairing?.publicKey === right.pairing?.publicKey
-    && left.pairing?.expiresAt === right.pairing?.expiresAt
-    && left.pairing?.qrValue === right.pairing?.qrValue
-    && left.pairing?.qrArt === right.pairing?.qrArt;
-}
-
-function isProductSurface(value: string | null): value is ProductSurface {
-  return value !== null && (PRODUCT_SURFACES as readonly string[]).includes(value);
-}
-
-function isAppView(value: string | null): value is AppView {
-  return value !== null && (APP_VIEW_IDS as readonly string[]).includes(value);
-}
-
-function parseRelayViewPath(pathname: string): AppView | null {
-  if (pathname === '/') {
-    return 'overview';
-  }
-
-  const segment = pathname.slice(1).split('/')[0] ?? '';
-  if (!segment || segment === 'pairing' || segment === 'settings') {
-    return null;
-  }
-
-  return isAppView(segment) ? segment : null;
-}
-
-function buildDesktopPath(surface: ProductSurface, view: AppView, settingsSection: SettingsSectionId): string {
-  if (surface === 'pairing') {
-    return '/pairing';
-  }
-
-  if (view === 'settings') {
-    return settingsPath(settingsSection);
-  }
-
-  return view === 'overview' ? '/' : `/${view}`;
-}
 
 export default function App() {
     const scoutDesktop = getScoutDesktop();
@@ -8932,4 +8773,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -77,6 +77,14 @@ struct Block: Codable, Identifiable, Sendable {
     // Error fields
     var message: String?
     var code: String?
+
+    // Question fields
+    var header: String?
+    var question: String?
+    var options: [QuestionOption]?
+    var multiSelect: Bool?
+    var questionStatus: QuestionBlockStatus?
+    var answer: [String]?
 }
 
 enum BlockType: String, Codable, Sendable {
@@ -85,6 +93,20 @@ enum BlockType: String, Codable, Sendable {
     case action
     case file
     case error
+    case question
+}
+
+// MARK: - Question
+
+enum QuestionBlockStatus: String, Codable, Sendable {
+    case awaitingAnswer = "awaiting_answer"
+    case answered
+    case denied
+}
+
+struct QuestionOption: Codable, Sendable {
+    let label: String
+    let description: String?
 }
 
 // MARK: - Action

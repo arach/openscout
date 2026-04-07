@@ -49,6 +49,7 @@ export type ScoutElectronUpdateAgentConfigInput = {
     cwd: string;
     harness: string;
     sessionId: string;
+    transport?: string;
   };
   systemPrompt: string;
   toolUse: ScoutElectronAgentConfigToolUse;
@@ -253,6 +254,7 @@ export async function updateScoutElectronAgentConfig(
       cwd: input.runtime.cwd,
       harness: normalizeLocalAgentHarness(input.runtime.harness),
       sessionId: input.runtime.sessionId,
+      transport: input.runtime.transport,
     },
     systemPrompt: input.systemPrompt,
     launchArgs: splitLines(input.toolUse.launchArgsText),

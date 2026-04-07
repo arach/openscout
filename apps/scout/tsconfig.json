@@ -9,7 +9,9 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/ui/desktop/*"]
+      "@/*": ["src/ui/desktop/*"],
+      "@openscout/runtime/*": ["../../packages/runtime/src/*"],
+      "@openscout/protocol/*": ["../../packages/protocol/src/*"]
     },
     "rootDir": "src",
     "noEmit": true,

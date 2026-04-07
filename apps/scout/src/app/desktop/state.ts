@@ -1,6 +1,7 @@
 export type ScoutDesktopFeatureFlags = {
   enableAll: boolean;
   overview: boolean;
+  inbox: boolean;
   relay: boolean;
   pairing: boolean;
   interAgent: boolean;

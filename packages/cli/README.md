@@ -1,16 +1,15 @@
 # scout
 
-Published CLI package for Scout.
+> **Requires [Bun](https://bun.sh).** Scout uses Bun as its runtime. If you don't have it: `brew install bun`
 
 Install:
 
 ```bash
-brew install bun
 bun add -g @openscout/scout
 scout --help
 ```
 
-`@openscout/scout` is the published package name. It installs the `scout` command.
+`@openscout/scout` is the published package name. It installs the `scout` command and depends on `@openscout/runtime` for the local broker service.
 
 ## Canonical Flow
 
@@ -59,5 +58,18 @@ scout down
 scout ps
 scout restart
 scout pair
+scout server start
 scout tui
 ```
+
+### Web UI (`scout server start`)
+
+Runs the same Scout desktop web stack as the repo’s `bun run web` entry (Hono + shared IPC services). **Bun must be on your PATH**; the published package ships a bundled `scout-web-server.mjs` next to the CLI.
+
+```bash
+scout server start
+scout server start --port 3200 --static --static-root /path/to/electron-app/dist/client
+scout server start --vite-url http://127.0.0.1:43173   # dev proxy (default when not --static)
+```
+
+Use `scout server` or `scout server help` for full flags.

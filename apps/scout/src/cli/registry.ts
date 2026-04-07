@@ -26,6 +26,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "ps", summary: "List configured local agents" },
   { name: "restart", summary: "Restart configured local agents" },
   { name: "pair", summary: "Pair a companion device via QR" },
+  { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start)" },
   {
     name: "init",
     summary: "Deprecated alias for setup",

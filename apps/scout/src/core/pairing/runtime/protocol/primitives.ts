@@ -62,11 +62,12 @@ export interface Turn {
 //   action     → LanguageModelV3ToolCall + ToolResult (unified)
 //   file       → LanguageModelV3FileContent
 //   error      → (no direct equivalent — Pairing addition)
+//   question   → AskUserQuestion interactive prompt (Pairing addition)
 // ---------------------------------------------------------------------------
 
 export type BlockStatus = "started" | "streaming" | "completed" | "failed";
 
-export type Block = TextBlock | ReasoningBlock | ActionBlock | FileBlock | ErrorBlock;
+export type Block = TextBlock | ReasoningBlock | ActionBlock | FileBlock | ErrorBlock | QuestionBlock;
 
 interface BlockBase {
   /** Unique block identifier within the turn. */
@@ -120,6 +121,36 @@ export interface ErrorBlock extends BlockBase {
   type: "error";
   message: string;
   code?: string;
+}
+
+/**
+ * The agent is asking the user a question (AskUserQuestion tool call).
+ * Status lifecycle:
+ *   "awaiting_answer" → user sees the card and picks an option
+ *   "answered"        → user replied; answer is recorded
+ *   "denied"          → the tool was blocked (permission denial)
+ */
+export type QuestionBlockStatus = "awaiting_answer" | "answered" | "denied";
+
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface QuestionBlock extends BlockBase {
+  type: "question";
+  /** Short header shown above the question (e.g. "Next surface"). */
+  header?: string;
+  /** The question text. */
+  question: string;
+  /** Selectable options, if any. */
+  options: QuestionOption[];
+  /** Whether multiple options can be selected. */
+  multiSelect: boolean;
+  /** Current question lifecycle status. */
+  questionStatus: QuestionBlockStatus;
+  /** The user's chosen answer label(s), set once answered. */
+  answer?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +227,7 @@ export type Delta =
   | BlockActionOutputDelta
   | BlockActionStatusDelta
   | BlockActionApprovalDelta
+  | BlockQuestionAnswerDelta
   | BlockEndDelta;
 
 /** A new block has started within a turn. */
@@ -248,6 +280,16 @@ export interface BlockActionApprovalDelta {
   };
 }
 
+/** User answered a question block — updates questionStatus + answer. */
+export interface BlockQuestionAnswerDelta {
+  event: "block:question:answer";
+  sessionId: string;
+  turnId: string;
+  blockId: string;
+  questionStatus: QuestionBlockStatus;
+  answer?: string[];
+}
+
 /** A block has reached a terminal state. */
 export interface BlockEndDelta {
   event: "block:end";
@@ -295,4 +337,13 @@ export interface Prompt {
   images?: Array<{ mimeType: string; data: string }>;
   /** Provider-specific options pass-through. */
   providerOptions?: Record<string, unknown>;
+}
+
+/** User answering a QuestionBlock. Sent from phone → bridge → adapter. */
+export interface QuestionAnswer {
+  sessionId: string;
+  /** The block ID of the QuestionBlock being answered. */
+  blockId: string;
+  /** Selected option labels. */
+  answer: string[];
 }

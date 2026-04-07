@@ -14,7 +14,9 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../../apps/scout/src/ui/desktop/*"]
+      "@/*": ["../../apps/scout/src/ui/desktop/*"],
+      "@openscout/runtime/*": ["../runtime/src/*"],
+      "@openscout/protocol/*": ["../protocol/src/*"]
     }
   },
   "include": ["electron", "server", "vite.config.ts"]
