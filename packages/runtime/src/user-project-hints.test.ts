@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { loadResolvedRelayAgents, writeOpenScoutSettings } from "./setup.js";
-import { collectUserLevelProjectRootHints, decodeClaudeProjectsSlug } from "./user-project-hints.js";
+import {
+  collectUserLevelProjectRootHints,
+  decodeClaudeProjectsSlug,
+  encodeClaudeProjectsSlug,
+} from "./user-project-hints.js";
 
 const hintTestDirs = new Set<string>();
 
@@ -14,11 +18,6 @@ afterEach(() => {
   }
   hintTestDirs.clear();
 });
-
-function claudeProjectsSlugForAbsolutePath(absolutePath: string): string {
-  const normalized = resolve(absolutePath);
-  return `-${normalized.replace(/^\//, "").replace(/\//g, "-")}`;
-}
 
 describe("decodeClaudeProjectsSlug", () => {
   test("inverts Claude Code slash-to-hyphen encoding", () => {
@@ -38,7 +37,7 @@ describe("collectUserLevelProjectRootHints", () => {
     hintTestDirs.add(base);
     const repo = join(base, "from_claude_slug");
     const projectsRoot = join(base, ".claude", "projects");
-    const slug = claudeProjectsSlugForAbsolutePath(repo);
+    const slug = encodeClaudeProjectsSlug(repo);
     mkdirSync(join(repo, ".git"), { recursive: true });
     writeFileSync(join(repo, "CLAUDE.md"), "# x\n", "utf8");
     mkdirSync(projectsRoot, { recursive: true });
@@ -46,6 +45,27 @@ describe("collectUserLevelProjectRootHints", () => {
 
     const hints = await collectUserLevelProjectRootHints({ home: base });
     expect(hints.some((p) => resolve(p) === resolve(repo))).toBe(true);
+  });
+
+  test("parses Claude session cwd values and normalizes them to the enclosing project root", async () => {
+    const base = join(tmpdir(), `cc_session_hints_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+    hintTestDirs.add(base);
+    const repo = join(base, "from_claude_session");
+    const nested = join(repo, "packages", "ui");
+    const slug = encodeClaudeProjectsSlug(repo);
+
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(base, ".claude", "projects", slug), { recursive: true });
+    writeFileSync(
+      join(base, ".claude", "projects", slug, "session.jsonl"),
+      `${JSON.stringify({ cwd: nested, gitBranch: "feature/ui" })}\n`,
+      "utf8",
+    );
+
+    const hints = await collectUserLevelProjectRootHints({ home: base });
+    expect(hints.some((p) => resolve(p) === resolve(repo))).toBe(true);
+    expect(hints.some((p) => resolve(p) === resolve(nested))).toBe(false);
   });
 
   test("parses Codex history.jsonl for absolute directory paths", async () => {
@@ -85,7 +105,7 @@ describe("loadResolvedRelayAgents + user hints", () => {
       mkdirSync(join(hintedRepo, ".git"), { recursive: true });
       writeFileSync(join(hintedRepo, "CLAUDE.md"), "# sidecar\n", "utf8");
 
-      const slug = claudeProjectsSlugForAbsolutePath(hintedRepo);
+      const slug = encodeClaudeProjectsSlug(hintedRepo);
       mkdirSync(join(base, ".claude", "projects", slug), { recursive: true });
 
       await writeOpenScoutSettings({

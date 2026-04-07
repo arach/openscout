@@ -74,7 +74,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@openscout/protocol": "workspace:*"
+    "@openscout/protocol": "workspace:*",
+    "smol-toml": "^1.6.1"
   },
   "publishConfig": {
     "access": "public"

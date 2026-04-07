@@ -3,6 +3,17 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const PROJECT_HINT_MARKERS = [
+  ".git",
+  ".openscout/project.json",
+  "package.json",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "CODEX.md",
+  ".claude",
+  ".codex",
+] as const;
+
 /**
  * Best-effort decode of Claude Code's ~/.claude/projects slug (path slashes → hyphens).
  * Wrong when any single path segment contained `-` at session time (same limitation as Claude's encoding).
@@ -22,12 +33,64 @@ export function decodeClaudeProjectsSlug(name: string): string | null {
   return `/${tail.replace(/-/g, "/")}`;
 }
 
-async function isExistingDirectory(absolutePath: string): Promise<boolean> {
+export function encodeClaudeProjectsSlug(absolutePath: string): string {
+  const normalized = resolve(absolutePath);
+  return `-${normalized.replace(/^\//, "").replace(/\//g, "-")}`;
+}
+
+async function resolveExistingDirectoryHint(pathLike: string): Promise<string | null> {
+  const absolutePath = resolve(pathLike);
   try {
-    return (await stat(absolutePath)).isDirectory();
+    const info = await stat(absolutePath);
+    if (info.isDirectory()) {
+      return absolutePath;
+    }
+    if (info.isFile()) {
+      return dirname(absolutePath);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function pathExists(pathLike: string): Promise<boolean> {
+  try {
+    await stat(pathLike);
+    return true;
   } catch {
     return false;
   }
+}
+
+async function findLikelyProjectRoot(absolutePath: string): Promise<string> {
+  let current = resolve(absolutePath);
+  let lastCandidate: string | null = null;
+
+  while (true) {
+    for (const marker of PROJECT_HINT_MARKERS) {
+      if (await pathExists(join(current, marker))) {
+        lastCandidate = current;
+        if (marker === ".git" || marker === ".openscout/project.json") {
+          return current;
+        }
+      }
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return lastCandidate ?? absolutePath;
+    }
+    current = parent;
+  }
+}
+
+async function appendPathHint(pathLike: string, roots: Set<string>): Promise<void> {
+  const existingDirectory = await resolveExistingDirectoryHint(pathLike);
+  if (!existingDirectory) {
+    return;
+  }
+  roots.add(await findLikelyProjectRoot(existingDirectory));
 }
 
 function cursorWorkspaceStoragePath(home: string): string {
@@ -107,9 +170,7 @@ async function appendCodexHistoryPaths(home: string, roots: Set<string>): Promis
         const extracted = new Set<string>();
         collectPathLikeStrings(parsed, extracted, 0);
         for (const p of extracted) {
-          if (await isExistingDirectory(p)) {
-            roots.add(p);
-          }
+          await appendPathHint(p, roots);
         }
       } catch {
         continue;
@@ -146,9 +207,7 @@ async function appendCursorWorkspacePaths(home: string, roots: Set<string>): Pro
     if (typeof doc.folder === "string" && doc.folder.startsWith("file://")) {
       try {
         const folderPath = fileURLToPath(doc.folder);
-        if (await isExistingDirectory(folderPath)) {
-          roots.add(folderPath);
-        }
+        await appendPathHint(folderPath, roots);
       } catch {
         /* ignore */
       }
@@ -177,9 +236,7 @@ async function appendCursorWorkspacePaths(home: string, roots: Set<string>): Pro
             continue;
           }
           const resolvedPath = resolve(wsDir, f.path);
-          if (await isExistingDirectory(resolvedPath)) {
-            roots.add(resolvedPath);
-          }
+          await appendPathHint(resolvedPath, roots);
         }
       } catch {
         /* ignore */
@@ -202,8 +259,81 @@ async function appendClaudeProjectSlugs(home: string, roots: Set<string>): Promi
     if (!decoded) {
       continue;
     }
-    if (await isExistingDirectory(decoded)) {
-      roots.add(decoded);
+    await appendPathHint(decoded, roots);
+  }
+}
+
+async function appendClaudeSessionPaths(home: string, roots: Set<string>): Promise<void> {
+  const projectsDir = join(home, ".claude", "projects");
+  const maxProjectDirectories = 200;
+  const maxSessionFiles = 400;
+  const maxLinesPerFile = 400;
+  const maxBytesPerFile = 2 * 1024 * 1024;
+
+  let projectNames: string[] = [];
+  try {
+    projectNames = (await readdir(projectsDir, { withFileTypes: false })).slice(0, maxProjectDirectories);
+  } catch {
+    return;
+  }
+
+  let seenFiles = 0;
+  for (const projectName of projectNames) {
+    let entries: string[] = [];
+    try {
+      entries = await readdir(join(projectsDir, projectName), { withFileTypes: false });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (seenFiles >= maxSessionFiles) {
+        return;
+      }
+      if (!entry.endsWith(".jsonl")) {
+        continue;
+      }
+
+      const sessionPath = join(projectsDir, projectName, entry);
+      let info;
+      try {
+        info = await stat(sessionPath);
+      } catch {
+        continue;
+      }
+      if (!info.isFile() || info.size > maxBytesPerFile) {
+        continue;
+      }
+      seenFiles += 1;
+
+      let body: string;
+      try {
+        body = await readFile(sessionPath, "utf8");
+      } catch {
+        continue;
+      }
+
+      let lineCount = 0;
+      for (const line of body.split("\n")) {
+        if (lineCount++ >= maxLinesPerFile) {
+          break;
+        }
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) {
+          continue;
+        }
+
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          const extracted = new Set<string>();
+          collectPathLikeStrings(parsed, extracted, 0);
+          for (const p of extracted) {
+            await appendPathHint(p, roots);
+          }
+        } catch {
+          continue;
+        }
+      }
     }
   }
 }
@@ -225,6 +355,11 @@ export async function collectUserLevelProjectRootHints(
 
   try {
     await appendClaudeProjectSlugs(home, roots);
+  } catch {
+    /* best-effort */
+  }
+  try {
+    await appendClaudeSessionPaths(home, roots);
   } catch {
     /* best-effort */
   }
