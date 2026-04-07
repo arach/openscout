@@ -61,10 +61,13 @@ import type {
 import type {
   ReadScoutLogSourceInput,
   ScoutDesktopBrokerInspector,
+  ScoutDesktopFeedbackBundle,
+  ScoutDesktopFeedbackSubmission,
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
   ScoutDesktopLogGroup,
   ScoutDesktopLogSource,
+  SubmitScoutFeedbackReportInput,
 } from "../../../app/electron/diagnostics.ts";
 import type { ScoutElectronAgentSessionInspector } from "../../../app/electron/agent-session.ts";
 import type {
@@ -126,9 +129,12 @@ export type DesktopLogGroup = ScoutDesktopLogGroup;
 export type DesktopLogSource = ScoutDesktopLogSource;
 export type DesktopLogCatalog = ScoutDesktopLogCatalog;
 export type DesktopBrokerInspector = ScoutDesktopBrokerInspector;
+export type DesktopFeedbackBundle = ScoutDesktopFeedbackBundle;
+export type DesktopFeedbackSubmission = ScoutDesktopFeedbackSubmission;
 export type ReadLogSourceInput = ReadScoutLogSourceInput;
 export type DesktopLogContent = ScoutDesktopLogContent;
 export type AgentSessionInspector = ScoutElectronAgentSessionInspector;
+export type SubmitFeedbackReportInput = SubmitScoutFeedbackReportInput;
 
 export type {
   AppSettingsState,

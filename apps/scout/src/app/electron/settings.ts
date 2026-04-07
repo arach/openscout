@@ -298,7 +298,19 @@ function basenameLooksLikeBun(filePath: string): boolean {
 }
 
 function resolveScoutElectronOnboardingCliPath(): string {
-  return path.join(resolveScoutAppRoot(), "bin", "scout.ts");
+  const appRoot = resolveScoutAppRoot();
+  const candidates = [
+    path.join(appRoot, "cli", "bin", "scout.mjs"),
+    path.join(appRoot, "bin", "scout.ts"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Unable to locate the Scout onboarding CLI entrypoint.");
 }
 
 function resolveSettingsDirectory(input?: string): string {

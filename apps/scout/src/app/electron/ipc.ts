@@ -46,15 +46,20 @@ import {
   type ScoutElectronAgentSessionInspector,
 } from "./agent-session.ts";
 import {
+  getScoutElectronFeedbackBundle,
   getScoutElectronBrokerInspector,
   getScoutElectronLogCatalog,
   readScoutElectronLogSource,
+  submitScoutElectronFeedbackReport,
 } from "./diagnostics.ts";
 import type {
   ReadScoutLogSourceInput,
   ScoutDesktopBrokerInspector,
+  ScoutDesktopFeedbackBundle,
+  ScoutDesktopFeedbackSubmission,
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
+  SubmitScoutFeedbackReportInput,
 } from "./diagnostics.ts";
 import {
   controlScoutElectronPairingService,
@@ -146,6 +151,8 @@ export type ScoutElectronIpcServices = {
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
   getLogCatalog: () => Promise<ScoutDesktopLogCatalog>;
   getBrokerInspector: () => Promise<ScoutDesktopBrokerInspector>;
+  getFeedbackBundle: () => Promise<ScoutDesktopFeedbackBundle>;
+  submitFeedbackReport: (input: SubmitScoutFeedbackReportInput) => Promise<ScoutDesktopFeedbackSubmission>;
   readLogSource: (input: ReadScoutLogSourceInput) => Promise<ScoutDesktopLogContent>;
 };
 
@@ -216,6 +223,8 @@ export function createScoutElectronIpcServices(input: {
     setVoiceRepliesEnabled: (enabled) => setScoutElectronVoiceRepliesEnabled(enabled, { currentDirectory, appInfo, voice }),
     getLogCatalog: () => getScoutElectronLogCatalog(currentDirectory),
     getBrokerInspector: () => getScoutElectronBrokerInspector(),
+    getFeedbackBundle: () => getScoutElectronFeedbackBundle(currentDirectory),
+    submitFeedbackReport: (input) => submitScoutElectronFeedbackReport(input, currentDirectory),
     readLogSource: (input) => readScoutElectronLogSource(input, currentDirectory),
   };
 }
@@ -281,6 +290,9 @@ export function registerScoutElectronIpcHandlers(
     services.setVoiceRepliesEnabled(Boolean(enabled)));
   register(SCOUT_ELECTRON_CHANNELS.getLogCatalog, () => services.getLogCatalog());
   register(SCOUT_ELECTRON_CHANNELS.getBrokerInspector, () => services.getBrokerInspector());
+  register(SCOUT_ELECTRON_CHANNELS.getFeedbackBundle, () => services.getFeedbackBundle());
+  register(SCOUT_ELECTRON_CHANNELS.submitFeedbackReport, (_event, input) =>
+    services.submitFeedbackReport(input as SubmitScoutFeedbackReportInput));
   register(SCOUT_ELECTRON_CHANNELS.readLogSource, (_event, input) =>
     services.readLogSource(input as ReadScoutLogSourceInput));
 }

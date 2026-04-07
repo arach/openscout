@@ -36,6 +36,8 @@ export const SCOUT_ELECTRON_CHANNELS = {
   setVoiceRepliesEnabled: "scout:set-voice-replies-enabled",
   getLogCatalog: "scout:get-log-catalog",
   getBrokerInspector: "scout:get-broker-inspector",
+  getFeedbackBundle: "scout:get-feedback-bundle",
+  submitFeedbackReport: "scout:submit-feedback-report",
   readLogSource: "scout:read-log-source",
   openKnowledgeBase: "scout:open-knowledge-base",
 } as const;

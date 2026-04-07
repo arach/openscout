@@ -247,6 +247,8 @@ app.post("/api/voice/replies", async (c) => {
 });
 app.get("/api/log-catalog", async (c) => c.json(await services.getLogCatalog()));
 app.get("/api/broker-inspector", async (c) => c.json(await getBrokerInspector()));
+app.get("/api/feedback-bundle", async (c) => c.json(await services.getFeedbackBundle()));
+app.post("/api/feedback-report", async (c) => c.json(await services.submitFeedbackReport(await c.req.json())));
 app.post("/api/log-source", async (c) => c.json(await services.readLogSource(await c.req.json())));
 app.get("/api/mobile/home", async (c) => c.json(await getScoutMobileHome({
   currentDirectory,

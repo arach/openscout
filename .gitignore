@@ -17,6 +17,7 @@
 /.next/
 /out/
 /site/.next/
+/apps/*/.next/
 /site/out/
 /site/node_modules/
 

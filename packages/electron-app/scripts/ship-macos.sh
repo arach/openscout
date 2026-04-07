@@ -31,6 +31,7 @@ DMG_PATH="dist/macos/Scout.dmg"
 VERSION=$(node -p "require('./package.json').version")
 TAG="v$VERSION"
 RELEASE_TITLE="OpenScout $TAG"
+shopt -s nullglob
 
 # ── Build, sign, notarize ──────────────────────────────────────────────────────
 
@@ -58,8 +59,13 @@ if [[ ! -f "$DMG_PATH" ]]; then
   exit 1
 fi
 
+RELEASE_ASSETS=("$DMG_PATH" dist/macos/*.zip dist/macos/*.yml dist/macos/*.blockmap)
+
 echo ""
-echo "DMG ready: $DMG_PATH"
+echo "Release assets ready:"
+for asset in "${RELEASE_ASSETS[@]}"; do
+  echo "  - $asset"
+done
 
 # ── Git tag ────────────────────────────────────────────────────────────────────
 
@@ -75,11 +81,11 @@ fi
 
 echo ""
 if gh release view "$TAG" >/dev/null 2>&1; then
-  echo "Release $TAG exists — uploading DMG…"
-  gh release upload "$TAG" "$DMG_PATH" --clobber
+  echo "Release $TAG exists — uploading assets…"
+  gh release upload "$TAG" "${RELEASE_ASSETS[@]}" --clobber
 else
   echo "Creating release ${TAG}…"
-  gh release create "$TAG" "$DMG_PATH" \
+  gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
     --title "$RELEASE_TITLE" \
     --notes "Scout for macOS $VERSION"
 fi

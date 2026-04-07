@@ -9,6 +9,10 @@ import {
   readPackageMetadata,
   resolveElectronAppSource,
 } from "./electron-bundle-lib.mjs";
+import {
+  buildMacUpdateArtifacts,
+  writeAppUpdateConfiguration,
+} from "./electron-updater-lib.mjs";
 
 const projectRoot = process.cwd();
 
@@ -39,6 +43,7 @@ const signIdentity = process.env.CODESIGN_IDENTITY?.trim() || "Developer ID Appl
 const shouldCodesign = process.env.SKIP_CODESIGN !== "1";
 const shouldNotarize = process.env.SKIP_NOTARIZE !== "1";
 const notaryProfile = process.env.NOTARY_PROFILE?.trim() || "notarytool";
+const appVersion = rootPackage.version;
 
 async function copyIntoBundle(source, destination) {
   if (!existsSync(source)) {
@@ -83,6 +88,7 @@ await prepareAppBundleMetadata(appBundlePath, {
 
 await fs.mkdir(appRuntimePath, { recursive: true });
 await fs.mkdir(path.join(appRuntimePath, "dist"), { recursive: true });
+await writeAppUpdateConfiguration(appResourcesPath);
 
 await copyIntoBundle(path.join(projectRoot, "dist", "client"), path.join(appRuntimePath, "dist", "client"));
 await copyIntoBundle(path.join(projectRoot, "dist", "electron"), path.join(appRuntimePath, "dist", "electron"));
@@ -142,6 +148,29 @@ if (shouldCodesign) {
   });
 }
 
+let appNotarized = false;
+if (shouldCodesign && shouldNotarize) {
+  console.log("Submitting app bundle for notarization...");
+  execFileSync("xcrun", [
+    "notarytool", "submit", appBundlePath,
+    "--keychain-profile", notaryProfile,
+    "--wait",
+  ], { stdio: "inherit" });
+
+  console.log("Stapling app bundle notarization ticket...");
+  execFileSync("xcrun", ["stapler", "staple", appBundlePath], { stdio: "inherit" });
+  appNotarized = true;
+}
+
+const updateArtifacts = await buildMacUpdateArtifacts({
+  projectRoot,
+  appBundlePath,
+  outputRoot,
+  bundleId,
+  productName,
+  version: appVersion,
+});
+
 const dmgPath = path.join(outputRoot, `${productName}.dmg`);
 await fs.rm(dmgPath, { force: true });
 
@@ -181,9 +210,11 @@ console.log(
     {
       appBundle: appBundlePath,
       dmg: dmgPath,
+      updateArtifacts,
       executable: path.join(appContentsPath, "MacOS", productName),
       appRuntime: appRuntimePath,
       codesigned: shouldCodesign,
+      appNotarized,
       notarized,
       signIdentity,
     },

@@ -36,6 +36,8 @@ const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args
   "scout:set-voice-replies-enabled":{ method: "POST", path: "/api/voice/replies" },
   "scout:get-log-catalog":         { method: "GET",  path: "/api/log-catalog" },
   "scout:get-broker-inspector":    { method: "GET",  path: "/api/broker-inspector" },
+  "scout:get-feedback-bundle":     { method: "GET",  path: "/api/feedback-bundle" },
+  "scout:submit-feedback-report":  { method: "POST", path: "/api/feedback-report" },
   "scout:read-log-source":         { method: "POST", path: "/api/log-source" },
 };
 

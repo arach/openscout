@@ -1,0 +1,257 @@
+:root {
+  color-scheme: dark;
+  --bg: #06090d;
+  --panel: rgba(14, 20, 28, 0.88);
+  --panel-strong: rgba(10, 15, 22, 0.96);
+  --border: rgba(132, 158, 194, 0.18);
+  --text: #f4f7fb;
+  --muted: #a0aec0;
+  --soft: #7f8da1;
+  --accent: #7dd3fc;
+  --accent-strong: #0ea5e9;
+  --danger: #fca5a5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.16), transparent 38%),
+    linear-gradient(180deg, #081019 0%, #06090d 45%, #04070a 100%);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.reports-shell {
+  min-height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+
+.reports-hero,
+.detail-header {
+  margin-bottom: 28px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.reports-hero h1,
+.detail-header h1 {
+  margin: 10px 0 10px;
+  font-size: clamp(36px, 4vw, 60px);
+  line-height: 0.96;
+}
+
+.reports-hero p,
+.detail-header p,
+.empty-state p,
+.detail-callout p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.stats-grid,
+.detail-grid,
+.apps-grid,
+.sections-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 24px;
+}
+
+.detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin-bottom: 24px;
+}
+
+.apps-grid,
+.sections-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.stat-card,
+.report-card,
+.detail-card,
+.empty-state,
+.app-card,
+.section-card {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+}
+
+.stat-card,
+.detail-card,
+.empty-state,
+.app-card,
+.section-card {
+  padding: 22px;
+}
+
+.report-list {
+  display: grid;
+  gap: 16px;
+}
+
+.report-card {
+  display: block;
+  padding: 22px;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.report-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.38);
+  background: rgba(16, 24, 34, 0.92);
+}
+
+.report-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.report-card h2,
+.detail-card h2,
+.app-card h3,
+.section-card h3,
+.empty-state h2 {
+  margin: 0;
+}
+
+.report-card h2 {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.report-card-header p,
+.back-link,
+.stat-label,
+.report-meta dt,
+.detail-list dt {
+  color: var(--soft);
+}
+
+.report-card-header p {
+  margin: 8px 0 0;
+}
+
+.report-key {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.12);
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.report-meta,
+.detail-list {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0 0;
+}
+
+.report-meta {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.detail-list.compact {
+  gap: 10px;
+}
+
+.report-meta dt,
+.detail-list dt {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+
+.report-meta dd,
+.detail-list dd {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.report-error,
+.detail-callout {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(127, 29, 29, 0.25);
+  border: 1px solid rgba(252, 165, 165, 0.26);
+  color: #ffd7d7;
+}
+
+.detail-callout strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 18px;
+}
+
+.back-link:hover {
+  color: var(--text);
+}
+
+.log-block {
+  margin: 0;
+  padding: 18px;
+  overflow-x: auto;
+  border-radius: 18px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  color: #d9e4f2;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .reports-shell {
+    padding: 28px 16px 64px;
+  }
+
+  .report-card-header {
+    flex-direction: column;
+  }
+}

@@ -700,9 +700,11 @@ function resolveScoutBunExecutable(): string {
 }
 
 function resolveScoutPairingRuntimeScriptPath(): string {
+  const appRoot = resolveScoutAppRoot();
   const candidates = [
-    join(resolveScoutAppRoot(), "bin", SCOUT_PAIRING_RUNTIME_SCRIPT),
-    join(resolveScoutAppRoot(), "..", "..", "packages", "electron-app", "dist", "electron", SCOUT_PAIRING_RUNTIME_SCRIPT.replace(/\.ts$/, ".js")),
+    join(appRoot, "dist", "electron", SCOUT_PAIRING_RUNTIME_SCRIPT.replace(/\.ts$/, ".js")),
+    join(appRoot, "bin", SCOUT_PAIRING_RUNTIME_SCRIPT),
+    join(appRoot, "..", "..", "packages", "electron-app", "dist", "electron", SCOUT_PAIRING_RUNTIME_SCRIPT.replace(/\.ts$/, ".js")),
   ];
 
   for (const candidate of candidates) {

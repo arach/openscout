@@ -35,7 +35,10 @@ import type {
   UpdateAppSettingsInput,
 } from "./settings.ts";
 import type {
+  ScoutDesktopFeedbackBundle,
+  ScoutDesktopFeedbackSubmission,
   ReadScoutLogSourceInput,
+  SubmitScoutFeedbackReportInput,
   ScoutDesktopBrokerInspector,
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
@@ -85,6 +88,8 @@ export type ScoutElectronBridge = {
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
   getLogCatalog: () => Promise<ScoutDesktopLogCatalog>;
   getBrokerInspector: () => Promise<ScoutDesktopBrokerInspector>;
+  getFeedbackBundle: () => Promise<ScoutDesktopFeedbackBundle>;
+  submitFeedbackReport: (input: SubmitScoutFeedbackReportInput) => Promise<ScoutDesktopFeedbackSubmission>;
   readLogSource: (input: ReadScoutLogSourceInput) => Promise<ScoutDesktopLogContent>;
   onOpenKnowledgeBase?: (callback: () => void) => () => void;
 };
@@ -199,6 +204,13 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
     getBrokerInspector: () => invoke(
       SCOUT_ELECTRON_CHANNELS.getBrokerInspector,
     ) as Promise<ScoutDesktopBrokerInspector>,
+    getFeedbackBundle: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.getFeedbackBundle,
+    ) as Promise<ScoutDesktopFeedbackBundle>,
+    submitFeedbackReport: (input) => invoke(
+      SCOUT_ELECTRON_CHANNELS.submitFeedbackReport,
+      input,
+    ) as Promise<ScoutDesktopFeedbackSubmission>,
     readLogSource: (input) => invoke(
       SCOUT_ELECTRON_CHANNELS.readLogSource,
       input,
