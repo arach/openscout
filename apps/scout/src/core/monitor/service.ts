@@ -1,6 +1,7 @@
-import { brokerServiceStatus, type BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 
 import { loadScoutAgentStatuses, type ScoutAgentStatus } from "../agents/service.ts";
+import { getRuntimeBrokerServiceStatus } from "../../app/host/runtime-service-client.ts";
 import {
   listScoutAgents,
   loadScoutMessages,
@@ -39,13 +40,13 @@ export async function loadScoutMonitorSnapshot(
   const errors: string[] = [];
 
   const [brokerStatusResult, localAgentsResult] = await Promise.allSettled([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     loadScoutAgentStatuses({ currentDirectory: input.currentDirectory }),
   ]);
 
   const brokerStatus = brokerStatusResult.status === "fulfilled"
     ? brokerStatusResult.value
-    : await brokerServiceStatus();
+    : await getRuntimeBrokerServiceStatus();
 
   const localAgents = localAgentsResult.status === "fulfilled"
     ? localAgentsResult.value

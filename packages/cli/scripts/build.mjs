@@ -5,13 +5,24 @@ import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  buildControlPlaneClientAndCopy,
+  bundleScoutControlPlaneWebServerBun,
+  bundleScoutWebServerBun,
+  buildElectronClientAndCopy,
+  getOpenScoutRepoRoot,
+} from "../../../scripts/bundle-scout-web.mjs";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const packageDirectory = resolve(scriptDirectory, "..");
+const repoRoot = getOpenScoutRepoRoot();
 const entryFile = resolve(packageDirectory, "src/main.ts");
 const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
-const scoutAppServerEntry = resolve(packageDirectory, "../../apps/scout/src/server/index.ts");
 const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
+const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
+const vendoredClientDir = resolve(outputDirectory, "client");
+const controlPlaneClientDir = resolve(outputDirectory, "control-plane-client");
 
 mkdirSync(outputDirectory, { recursive: true });
 
@@ -26,21 +37,20 @@ if ((result.status ?? 1) !== 0) {
   process.exit(result.status ?? 1);
 }
 
-const webResult = spawnSync(
-  "bun",
-  [
-    "build",
-    scoutAppServerEntry,
-    "--target=bun",
-    "--format=esm",
-    "--outfile",
-    webServerOutput,
-  ],
-  { cwd: packageDirectory, stdio: "inherit" },
-);
+if (!bundleScoutWebServerBun(repoRoot, webServerOutput)) {
+  process.exit(1);
+}
 
-if ((webResult.status ?? 1) !== 0) {
-  process.exit(webResult.status ?? 1);
+if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
+  process.exit(1);
+}
+
+if (!buildElectronClientAndCopy(repoRoot, vendoredClientDir)) {
+  process.exit(1);
+}
+
+if (!buildControlPlaneClientAndCopy(repoRoot, controlPlaneClientDir)) {
+  process.exit(1);
 }
 
 // bun names the entry output after the source file (main.js); rename to main.mjs

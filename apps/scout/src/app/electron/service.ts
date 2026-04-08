@@ -36,7 +36,7 @@ export function getScoutElectronAppInfo(input: {
   isPackaged?: boolean;
   platform?: string;
 } = {}): ScoutDesktopAppInfo {
-  return createScoutDesktopAppInfo(input);
+  return createScoutDesktopAppInfo({ ...input, surface: "electron" });
 }
 
 export async function getScoutElectronServicesState(

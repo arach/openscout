@@ -95,7 +95,7 @@ interface AgentsViewModel {
   selectedInterAgent: InterAgentAgent | null;
   selectedInterAgentDirectThread: RelayDirectThread | null;
   selectedInterAgentChatActionLabel: string;
-  onOpenAgentThread: (agentId: string, options?: { draft?: string; focusComposer?: boolean }) => void;
+  onOpenAgentThread: (agentId: string, options?: { draft?: string | null; focusComposer?: boolean }) => void;
   onPeekAgentSession: () => void;
   onOpenAgentSettings: (agentId: string, preferProjectAgent?: boolean) => void;
   visibleAgentSession: AgentSessionInspector | null;
@@ -117,7 +117,7 @@ interface AgentsViewModel {
   interAgentAgentLookup: Map<string, InterAgentAgent>;
   relayDirectLookup: Map<string, RelayDirectThread>;
   onOpenAgentProfile: (agentId: string) => void;
-  onNudgeMessage: (messageId: string) => void;
+  onNudgeMessage: (message: RelayMessage) => void;
   selectedInterAgentInboundTasks: Array<{
     id: string;
   }>;
@@ -181,7 +181,7 @@ interface InterAgentViewModel {
   interAgentAgentLookup: Map<string, InterAgentAgent>;
   relayDirectLookup: Map<string, RelayDirectThread>;
   onOpenAgentProfile: (agentId: string) => void;
-  onNudgeMessage: (messageId: string) => void;
+  onNudgeMessage: (message: RelayMessage) => void;
 }
 
 interface SessionsViewModel {

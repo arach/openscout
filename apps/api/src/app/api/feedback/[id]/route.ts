@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOpenScoutReport } from "@/lib/reports";
-import { isReportsAdminAuthorized } from "@/lib/reports-auth";
+import { getOpenScoutFeedbackReport } from "@/lib/feedback";
+import { isFeedbackAdminAuthorized } from "@/lib/feedback-auth";
 
 type RouteContext = {
   params: Promise<{
@@ -10,20 +10,20 @@ type RouteContext = {
 
 export async function GET(request: NextRequest, context: RouteContext) {
   const token = request.nextUrl.searchParams.get("token");
-  if (!isReportsAdminAuthorized(token)) {
+  if (!isFeedbackAdminAuthorized(token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const { id } = await context.params;
-    const report = await getOpenScoutReport(id);
+    const report = await getOpenScoutFeedbackReport(id);
     if (!report) {
-      return NextResponse.json({ error: "Report not found" }, { status: 404 });
+      return NextResponse.json({ error: "Feedback not found" }, { status: 404 });
     }
 
     return NextResponse.json({ report });
   } catch (error) {
-    console.error("Failed to read OpenScout report:", error);
-    return NextResponse.json({ error: "Failed to load report" }, { status: 500 });
+    console.error("Failed to read OpenScout feedback report:", error);
+    return NextResponse.json({ error: "Failed to load feedback" }, { status: 500 });
   }
 }

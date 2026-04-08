@@ -28,7 +28,6 @@ import {
   SCOUT_AGENT_ID,
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
-import { resolveBrokerServiceConfig } from "@openscout/runtime/broker-service";
 import {
   ensureLocalAgentBindingOnline,
   inferLocalAgentBinding,
@@ -145,13 +144,25 @@ const BROKER_SHARED_CHANNEL_ID = "channel.shared";
 const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
+const DEFAULT_BROKER_HOST = "127.0.0.1";
+const DEFAULT_BROKER_PORT = 65535;
+
+function buildScoutBrokerUrlFromEnv(): string {
+  const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
+  const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
+  const fromEnv = process.env.OPENSCOUT_BROKER_URL?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return `http://${host}:${port}`;
+}
 
 function relayHubDirectory(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
 }
 
 export function resolveScoutBrokerUrl(): string {
-  return resolveBrokerServiceConfig().brokerUrl;
+  return buildScoutBrokerUrlFromEnv();
 }
 
 export function resolveScoutAgentName(agentName?: string | null): string {

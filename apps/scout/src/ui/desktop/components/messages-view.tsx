@@ -27,6 +27,7 @@ import type {
   SessionMetadata,
 } from "@/lib/scout-desktop";
 import { C } from "@/lib/theme";
+import type { RelayMentionCandidate } from "@/components/relay/relay-types";
 import {
   cleanDisplayTitle,
   compactHomePath,
@@ -59,17 +60,6 @@ type RelayContextReference = {
   messageId: string;
   authorName: string;
   preview: string;
-};
-
-type RelayMentionCandidateView = {
-  agentId: string;
-  title: string;
-  subtitle: string | null;
-  mentionToken: string;
-  workspaceQualifier: string | null;
-  branch: string | null;
-  harness: string | null;
-  statusLabel: string;
 };
 
 type RelayReplyTarget = {
@@ -210,11 +200,11 @@ export function MessagesView({
   setRelayComposerSelectionStart: React.Dispatch<React.SetStateAction<number>>;
   mergedRelayMessages: RelayMessage[];
   relayMentionMenuOpen: boolean;
-  relayMentionSuggestions: RelayMentionCandidateView[];
+  relayMentionSuggestions: RelayMentionCandidate[];
   relayMentionSelectionIndex: number;
   setRelayMentionSelectionIndex: React.Dispatch<React.SetStateAction<number>>;
   relayMentionDuplicateTitleCounts: Map<string, number>;
-  applyRelayMentionSuggestion: (candidate: RelayMentionCandidateView) => void;
+  applyRelayMentionSuggestion: (candidate: RelayMentionCandidate) => void;
   onRelaySend: () => void | Promise<void>;
   onToggleVoiceCapture: () => void | Promise<void>;
   onSetVoiceRepliesEnabled: (enabled: boolean) => void | Promise<void>;
@@ -660,11 +650,11 @@ function RelayThreadPane({
   setRelayComposerSelectionStart: React.Dispatch<React.SetStateAction<number>>;
   mergedRelayMessages: RelayMessage[];
   relayMentionMenuOpen: boolean;
-  relayMentionSuggestions: RelayMentionCandidateView[];
+  relayMentionSuggestions: RelayMentionCandidate[];
   relayMentionSelectionIndex: number;
   setRelayMentionSelectionIndex: React.Dispatch<React.SetStateAction<number>>;
   relayMentionDuplicateTitleCounts: Map<string, number>;
-  applyRelayMentionSuggestion: (candidate: RelayMentionCandidateView) => void;
+  applyRelayMentionSuggestion: (candidate: RelayMentionCandidate) => void;
   showAnnotations: boolean;
   setShowAnnotations: React.Dispatch<React.SetStateAction<boolean>>;
   setMessagesDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -961,11 +951,11 @@ function RelayComposer({
   setRelayComposerSelectionStart: React.Dispatch<React.SetStateAction<number>>;
   mergedRelayMessages: RelayMessage[];
   relayMentionMenuOpen: boolean;
-  relayMentionSuggestions: RelayMentionCandidateView[];
+  relayMentionSuggestions: RelayMentionCandidate[];
   relayMentionSelectionIndex: number;
   setRelayMentionSelectionIndex: React.Dispatch<React.SetStateAction<number>>;
   relayMentionDuplicateTitleCounts: Map<string, number>;
-  applyRelayMentionSuggestion: (candidate: RelayMentionCandidateView) => void;
+  applyRelayMentionSuggestion: (candidate: RelayMentionCandidate) => void;
   onRelaySend: () => void | Promise<void>;
   desktopVoiceEnabled: boolean;
 }) {
@@ -1504,11 +1494,11 @@ function placeholderForDestination(kind: RelayDestinationKind, id: string) {
   return "Message #shared-channel...";
 }
 
-function mentionWorkspaceLabel(candidate: RelayMentionCandidateView) {
+function mentionWorkspaceLabel(candidate: RelayMentionCandidate) {
   return pathLeaf(candidate.subtitle) ?? candidate.workspaceQualifier ?? null;
 }
 
-function mentionWorktreeLabel(candidate: RelayMentionCandidateView) {
+function mentionWorktreeLabel(candidate: RelayMentionCandidate) {
   const branch = candidate.branch?.trim();
   if (branch && branch !== "HEAD") {
     return branch;

@@ -16,21 +16,24 @@ export default function HomePage() {
         </div>
         <h1 style={{ margin: "12px 0 8px", fontSize: 36, lineHeight: 1.1 }}>API Surface</h1>
         <p style={{ margin: 0, color: "#a7b2c2", lineHeight: 1.7 }}>
-          This deployment accepts desktop feedback reports and exposes a small report review surface.
+          This deployment accepts Scout app feedback submissions and exposes a small feedback review surface.
         </p>
 
         <div style={{ marginTop: 28, display: "grid", gap: 12 }}>
           <EndpointCard
             method="POST"
-            path="/api/report"
-            description="Public report ingestion endpoint for Scout desktop builds."
+            path="/api/feedback"
+            description="Public feedback submission endpoint for Scout desktop builds."
           />
           <EndpointCard
             method="GET"
-            path="/reports?token=..."
-            description="Token-gated report list and detail viewer."
+            path="/feedback?token=..."
+            description="Token-gated feedback inbox and detail viewer."
           />
         </div>
+        <p style={{ margin: "16px 0 0", color: "#7b8aa0", lineHeight: 1.6, fontSize: 14 }}>
+          Legacy <code>/api/report</code> and <code>/reports</code> paths still resolve for older Scout builds.
+        </p>
       </div>
     </main>
   );

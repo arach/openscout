@@ -12,6 +12,11 @@ export function renderServerCommandHelp(): string {
     "",
     "Usage:",
     "  scout server start [options]",
+    "  scout server control-plane start [options]",
+    "",
+    "Subcommands:",
+    "  start              Full desktop web API + UI assets (default stack).",
+    "  control-plane start Pairing + relay/shell activity only (`@openscout/web` surface).",
     "",
     "Options:",
     "  --port <n>        Listen port (default 3200; env SCOUT_WEB_PORT)",
@@ -20,7 +25,10 @@ export function renderServerCommandHelp(): string {
     "  --vite-url URL    Dev proxy target for non-API routes (env SCOUT_VITE_URL)",
     "  --cwd DIR         Workspace / setup root (env OPENSCOUT_SETUP_CWD)",
     "",
-    "Requires `bun` on PATH. Published installs ship a bundled server next to the CLI.",
+    "Requires `bun` on PATH.",
+    "Published installs include dist/client for the full web UI and dist/control-plane-client",
+    "for the minimal control-plane UI; if present and you do not pass --vite-url, the matching",
+    "static assets are used by default.",
   ].join("\n");
 }
 
@@ -40,6 +48,21 @@ export function resolveScoutWebServerEntry(): string {
   }
   throw new ScoutCliError(
     "Could not find Scout web server entry. Rebuild @openscout/scout or run from the OpenScout repository.",
+  );
+}
+
+export function resolveScoutControlPlaneWebServerEntry(): string {
+  const mainDir = dirname(fileURLToPath(import.meta.url));
+  const bundled = join(mainDir, "scout-control-plane-web.mjs");
+  if (existsSync(bundled)) {
+    return bundled;
+  }
+  const source = fileURLToPath(new URL("../../server/control-plane-index.ts", import.meta.url));
+  if (existsSync(source)) {
+    return source;
+  }
+  throw new ScoutCliError(
+    "Could not find Scout control-plane web server entry. Rebuild @openscout/scout or run from the OpenScout repository.",
   );
 }
 
@@ -82,19 +105,52 @@ function parseServerStartFlags(args: string[]): {
   return { env };
 }
 
+function resolveBundledStaticClientRoot(entry: string, mode: "full" | "control-plane"): string | null {
+  const entryDir = dirname(entry);
+  const clientDirectory = mode === "control-plane"
+    ? join(entryDir, "control-plane-client")
+    : join(entryDir, "client");
+  const indexPath = join(clientDirectory, "index.html");
+  return existsSync(indexPath) ? clientDirectory : null;
+}
+
 export async function runServerCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   if (args.length === 0 || args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
     context.output.writeText(renderServerCommandHelp());
     return;
   }
 
-  if (args[0] !== "start") {
+  let flagArgs: string[];
+  let entry: string;
+  let mode: "full" | "control-plane";
+  if (args[0] === "start") {
+    flagArgs = args.slice(1);
+    entry = resolveScoutWebServerEntry();
+    mode = "full";
+  } else if (args[0] === "control-plane") {
+    if (args[1] !== "start") {
+      throw new ScoutCliError("expected: scout server control-plane start");
+    }
+    flagArgs = args.slice(2);
+    entry = resolveScoutControlPlaneWebServerEntry();
+    mode = "control-plane";
+  } else {
     throw new ScoutCliError(`unknown subcommand: ${args[0]} (try: scout server start)`);
   }
 
-  const { env: flagEnv } = parseServerStartFlags(args.slice(1));
-  const entry = resolveScoutWebServerEntry();
-  const mergedEnv = { ...process.env, ...flagEnv } as NodeJS.ProcessEnv;
+  const { env: flagEnv } = parseServerStartFlags(flagArgs);
+  const bundledStaticClientRoot = resolveBundledStaticClientRoot(entry, mode);
+
+  const autoEnv: Record<string, string> = {};
+  if (bundledStaticClientRoot) {
+    const wantsVite = Boolean(flagEnv.SCOUT_VITE_URL ?? process.env.SCOUT_VITE_URL);
+    if (!wantsVite) {
+      autoEnv.SCOUT_STATIC = "1";
+      autoEnv.SCOUT_STATIC_ROOT = bundledStaticClientRoot;
+    }
+  }
+
+  const mergedEnv = { ...process.env, ...autoEnv, ...flagEnv } as NodeJS.ProcessEnv;
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn("bun", ["run", entry], {

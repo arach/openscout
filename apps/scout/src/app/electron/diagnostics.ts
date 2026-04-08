@@ -5,11 +5,12 @@ import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { brokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 import {
   resolveOpenScoutSupportPaths,
 } from "@openscout/runtime/support-paths";
 
+import { getRuntimeBrokerServiceStatus } from "../host/runtime-service-client.ts";
 import { resolveScoutAppRoot, resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
 import { getScoutElectronPairingState, resolveScoutPairingPaths } from "./pairing.ts";
 import { getScoutElectronAppSettings } from "./settings.ts";
@@ -113,7 +114,7 @@ type ResolvedScoutLogSource = ScoutDesktopLogSource & {
 
 const LOG_TAIL_CHUNK_BYTES = 64 * 1024;
 const DEFAULT_LOG_TAIL_LINES = 240;
-const DEFAULT_SCOUT_FEEDBACK_REPORT_URL = "https://api.openscout.app/api/report";
+const DEFAULT_SCOUT_FEEDBACK_REPORT_URL = "https://api.openscout.app/api/feedback";
 
 function compactHomePath(value: string | null | undefined): string | null {
   if (!value) {
@@ -206,9 +207,9 @@ function resolveScoutFeedbackReportUrl(): string {
 function resolveScoutFeedbackAdminUrl(endpoint: string, reportId: string): string {
   try {
     const url = new URL(endpoint);
-    return new URL(`/reports/${reportId}`, url.origin).toString();
+    return new URL(`/feedback/${reportId}`, url.origin).toString();
   } catch {
-    return `https://api.openscout.app/reports/${reportId}`;
+    return `https://api.openscout.app/feedback/${reportId}`;
   }
 }
 
@@ -284,7 +285,7 @@ function readProcessCommand(pid: number | null): string | null {
 }
 
 function brokerStatusLabel(
-  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  status: BrokerServiceStatus,
 ): { label: string; detail: string | null } {
   if (status.reachable && status.health.ok) {
     return {
@@ -310,7 +311,7 @@ function brokerStatusLabel(
   };
 }
 
-function brokerTroubleshootingHints(status: Awaited<ReturnType<typeof brokerServiceStatus>>): string[] {
+function brokerTroubleshootingHints(status: BrokerServiceStatus): string[] {
   const hints: string[] = [];
 
   if (!status.installed) {
@@ -391,7 +392,7 @@ function appModeLabel(): string {
 }
 
 function brokerFeedbackSummary(
-  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  status: BrokerServiceStatus,
   processId: number | null,
   processCommand: string | null,
   startedLabel: string | null,
@@ -571,7 +572,7 @@ export async function getScoutElectronLogCatalog(
 }
 
 export async function getScoutElectronBrokerInspector(): Promise<ScoutDesktopBrokerInspector> {
-  const status = await brokerServiceStatus();
+  const status = await getRuntimeBrokerServiceStatus();
   const processId = resolveBrokerProcessId(status.brokerUrl, status.pid);
   const processCommand = readProcessCommand(processId);
   const lastRestartLabel = formatProcessStartLabel(processId);

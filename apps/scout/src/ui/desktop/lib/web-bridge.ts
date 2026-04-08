@@ -6,6 +6,7 @@ const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args
   "scout:get-shell-state":         { method: "GET",  path: "/api/shell-state" },
   "scout:refresh-shell-state":     { method: "GET",  path: "/api/shell-state/refresh" },
   "scout:get-app-settings":        { method: "GET",  path: "/api/app-settings" },
+  "scout:refresh-settings-inventory": { method: "GET", path: "/api/app-settings/refresh" },
   "scout:update-app-settings":     { method: "POST", path: "/api/app-settings" },
   "scout:retire-project":          { method: "POST", path: "/api/retire-project" },
   "scout:restore-project":         { method: "POST", path: "/api/restore-project" },
@@ -48,6 +49,32 @@ function resolveBaseUrl(): string {
   return "http://localhost:3200";
 }
 
+async function readApiResponse(res: Response, url: string): Promise<unknown> {
+  const text = await res.text();
+  if (!res.ok) {
+    let message = text.trim() || `HTTP ${res.status}`;
+    if (text.length > 0) {
+      try {
+        const body = JSON.parse(text) as { error?: string; detail?: string };
+        if (typeof body.error === "string" && body.error.trim()) {
+          message = body.detail ? `${body.error}: ${body.detail}` : body.error;
+        }
+      } catch {
+        // use raw text
+      }
+    }
+    throw new Error(`${url} → ${message}`);
+  }
+  if (!text.length) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${url} → response is not JSON`);
+  }
+}
+
 async function webInvoke(channel: string, ...args: unknown[]): Promise<unknown> {
   if (channel === "scout:reload-app") {
     if (typeof window !== "undefined") {
@@ -68,7 +95,7 @@ async function webInvoke(channel: string, ...args: unknown[]): Promise<unknown> 
 
   if (route.method === "GET") {
     const res = await fetch(url);
-    return res.json();
+    return readApiResponse(res, url);
   }
 
   const body = args[0] !== undefined ? args[0] : {};
@@ -77,7 +104,7 @@ async function webInvoke(channel: string, ...args: unknown[]): Promise<unknown> 
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.json();
+  return readApiResponse(res, url);
 }
 
 export function createWebBridge(): ScoutElectronBridge {

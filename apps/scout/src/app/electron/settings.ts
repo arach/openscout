@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { type AgentHarness } from "@openscout/protocol";
-import { brokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   SUPPORTED_LOCAL_AGENT_HARNESSES,
@@ -17,6 +17,7 @@ import {
 } from "@openscout/runtime/setup";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
+import { getRuntimeBrokerServiceStatus } from "../host/runtime-service-client.ts";
 import { SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
 import { syncScoutBrokerBindings } from "../../core/broker/service.ts";
 import type { ScoutTelegramBridgeRuntimeState as ScoutElectronTelegramRuntimeState } from "../../core/telegram/index.ts";
@@ -167,7 +168,7 @@ type ScoutElectronSettingsBase = {
   currentProjectConfigPath: string | null;
   supportPaths: ReturnType<typeof resolveOpenScoutSupportPaths>;
   record: Awaited<ReturnType<typeof readOpenScoutSettings>>;
-  status: Awaited<ReturnType<typeof brokerServiceStatus>>;
+  status: BrokerServiceStatus;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
   readinessByHarness: Map<string, Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>["entries"][number]["readinessReport"]>;
   workspaceRoots: string[];
@@ -427,7 +428,7 @@ async function loadScoutElectronSettingsBase(
   );
   const currentProjectConfigPath = resolveCurrentProjectConfigPath(onboardingContextRoot);
   const [status, catalog] = await Promise.all([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     loadHarnessCatalogSnapshot(),
   ]);
 
@@ -804,7 +805,7 @@ export async function runScoutElectronOnboardingCommand(
   if (result.exitCode === 0) {
     const now = Date.now();
     const brokerStatus = input.command === "runtimes"
-      ? await brokerServiceStatus()
+      ? await getRuntimeBrokerServiceStatus()
       : null;
     await writeOpenScoutSettings({
       onboarding: input.command === "setup"
@@ -923,7 +924,7 @@ export async function updateScoutElectronAppSettings(
     await services.refreshTelegramConfiguration();
   }
 
-  const broker = await brokerServiceStatus();
+  const broker = await getRuntimeBrokerServiceStatus();
   if (broker.reachable) {
     try {
       await syncScoutBrokerBindings({
@@ -963,7 +964,7 @@ async function updateHiddenProjectRoots(
     currentSettings.discovery.workspaceRoots,
     settingsDirectory,
   );
-  const broker = await brokerServiceStatus();
+  const broker = await getRuntimeBrokerServiceStatus();
   if (broker.reachable) {
     try {
       await syncScoutBrokerBindings({

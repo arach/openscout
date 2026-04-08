@@ -1,6 +1,8 @@
 import type {
   ScoutDesktopAppInfo,
   ScoutDesktopFeatureFlags,
+  ScoutHostSurface,
+  ScoutSurfaceCapabilities,
   ScoutDesktopMachine,
   ScoutDesktopMachinesState,
   ScoutDesktopMachineEndpoint,
@@ -84,6 +86,8 @@ import type {
 
 export type DesktopFeatureFlags = ScoutDesktopFeatureFlags;
 export type DesktopAppInfo = ScoutDesktopAppInfo;
+export type DesktopHostSurface = ScoutHostSurface;
+export type DesktopSurfaceCapabilities = ScoutSurfaceCapabilities;
 export type MessagesThreadGroup = ScoutMessagesThreadGroup;
 export type MessagesThreadKind = ScoutMessagesThreadKind;
 export type MessagesThread = ScoutMessagesThread;

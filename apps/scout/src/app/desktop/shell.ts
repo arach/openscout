@@ -13,7 +13,7 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
-import { brokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import {
   DEFAULT_OPERATOR_NAME,
@@ -21,6 +21,7 @@ import {
 } from "@openscout/runtime/setup";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
+import { getRuntimeBrokerServiceStatus } from "../host/runtime-service-client.ts";
 import {
   loadScoutBrokerContext,
   type ScoutBrokerContext,
@@ -716,7 +717,7 @@ function latestRelayLabelFromSnapshot(snapshot: RuntimeRegistrySnapshot | null):
 }
 
 function buildServicesState(
-  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  status: BrokerServiceStatus,
   helper: HelperStatus,
 ): ScoutDesktopServicesState {
   const updatedAtLabel = formatTimeLabel(Math.floor(Date.now() / 1000));
@@ -773,7 +774,7 @@ function buildRuntimeState(
   tmuxSessions: TmuxSession[],
   latestRelayLabel: string | null,
   helper: HelperStatus,
-  status: Awaited<ReturnType<typeof brokerServiceStatus>>,
+  status: BrokerServiceStatus,
   visibleAgentCount: number,
 ): ScoutDesktopRuntimeState {
   return {
@@ -2402,7 +2403,7 @@ function buildMessagesState(
 
 export async function composeScoutDesktopServicesState(): Promise<ScoutDesktopServicesState> {
   const [status, helper] = await Promise.all([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     Promise.resolve(readHelperStatus()),
   ]);
 
@@ -2413,7 +2414,7 @@ export async function composeScoutDesktopHomeState(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopHomeState> {
   const [status, setup] = await Promise.all([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     loadResolvedRelayAgents({ currentDirectory: input.currentDirectory }),
   ]);
 
@@ -2465,7 +2466,7 @@ export async function composeScoutDesktopShellState(input: {
   appInfo: ScoutDesktopShellState["appInfo"];
 }): Promise<ScoutDesktopShellState> {
   const [status, helper, setup] = await Promise.all([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     Promise.resolve(readHelperStatus()),
     loadResolvedRelayAgents({ currentDirectory: input.currentDirectory }),
   ]);
@@ -2528,7 +2529,7 @@ export async function composeScoutDesktopRelayShellPatch(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopShellPatch> {
   const [status, helper] = await Promise.all([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     Promise.resolve(readHelperStatus()),
   ]);
 

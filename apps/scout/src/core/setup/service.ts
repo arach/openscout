@@ -4,18 +4,19 @@ import {
   writeOpenScoutSettings,
   type ProjectInventoryEntry,
 } from "@openscout/runtime/setup";
-import {
-  brokerServiceStatus,
-  startBrokerService,
-} from "@openscout/runtime/broker-service";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import {
+  getRuntimeBrokerServiceStatus,
+  runRuntimeBrokerService,
+} from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 export type ScoutDoctorReport = {
   currentDirectory: string;
   repoRoot: string;
   supportPaths: ReturnType<typeof resolveOpenScoutSupportPaths>;
-  broker: Awaited<ReturnType<typeof brokerServiceStatus>>;
+  broker: BrokerServiceStatus;
   setup: Awaited<ReturnType<typeof loadResolvedRelayAgents>>;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
 };
@@ -23,7 +24,7 @@ export type ScoutDoctorReport = {
 export type ScoutSetupReport = {
   currentDirectory: string;
   setup: Awaited<ReturnType<typeof initializeOpenScoutSetup>>;
-  broker: Awaited<ReturnType<typeof brokerServiceStatus>>;
+  broker: BrokerServiceStatus;
   brokerWarning: string | null;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
 };
@@ -42,7 +43,7 @@ export async function loadScoutDoctorReport(input: {
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
 }): Promise<ScoutDoctorReport> {
   const [broker, setup, catalog] = await Promise.all([
-    brokerServiceStatus(),
+    getRuntimeBrokerServiceStatus(),
     loadResolvedRelayAgents({
       currentDirectory: input.currentDirectory,
       onProjectInventoryEntry: input.onProjectInventoryEntry,
@@ -76,13 +77,13 @@ export async function runScoutSetup(input: {
 
   const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
   const catalog = await loadHarnessCatalogSnapshot();
-  let broker = await brokerServiceStatus();
+  let broker = await getRuntimeBrokerServiceStatus();
   let brokerWarning: string | null = null;
   try {
-    broker = await startBrokerService();
+    broker = await runRuntimeBrokerService("start");
   } catch (error) {
     brokerWarning = error instanceof Error ? error.message : String(error);
-    broker = await brokerServiceStatus();
+    broker = await getRuntimeBrokerServiceStatus();
   }
 
   return {

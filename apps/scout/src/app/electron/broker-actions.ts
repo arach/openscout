@@ -24,7 +24,7 @@ import {
   readOpenScoutSettings,
   resolveRelayAgentConfig,
 } from "@openscout/runtime/setup";
-import { restartBrokerService, startBrokerService, stopBrokerService } from "@openscout/runtime/broker-service";
+import { runRuntimeBrokerService } from "../host/runtime-service-client.ts";
 
 import {
   loadScoutBrokerContext,
@@ -676,7 +676,7 @@ export async function controlScoutElectronBroker(
 
   switch (action) {
     case "start":
-      await startBrokerService();
+      await runRuntimeBrokerService("start");
       await options.telegram?.refreshConfiguration?.();
       await syncScoutBrokerBindings({
         currentDirectory,
@@ -685,10 +685,10 @@ export async function controlScoutElectronBroker(
       });
       break;
     case "stop":
-      await stopBrokerService();
+      await runRuntimeBrokerService("stop");
       break;
     case "restart":
-      await restartBrokerService();
+      await runRuntimeBrokerService("restart");
       await options.telegram?.refreshConfiguration?.();
       await syncScoutBrokerBindings({
         currentDirectory,

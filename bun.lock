@@ -97,7 +97,7 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.10",
+      "version": "0.2.13",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
@@ -107,7 +107,7 @@
     },
     "packages/electron-app": {
       "name": "@scout/electron-app",
-      "version": "0.2.10",
+      "version": "0.2.13",
       "dependencies": {
         "@chat-adapter/state-memory": "^4.20.2",
         "@chat-adapter/telegram": "^4.20.2",
@@ -115,8 +115,6 @@
         "@noble/ciphers": "^2.1.1",
         "@noble/curves": "^2.0.1",
         "@noble/hashes": "^2.0.1",
-        "@openscout/protocol": "workspace:*",
-        "@openscout/runtime": "workspace:*",
         "@radix-ui/react-accordion": "1.2.12",
         "@radix-ui/react-alert-dialog": "1.1.15",
         "@radix-ui/react-aspect-ratio": "1.1.8",
@@ -190,14 +188,14 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.2.10",
+      "version": "0.2.13",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.2.10",
+      "version": "0.2.13",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
@@ -209,6 +207,32 @@
         "@types/node": "^22",
         "typescript": "^5",
       },
+    },
+    "packages/web": {
+      "name": "@openscout/web",
+      "version": "0.2.13",
+      "bin": {
+        "openscout-web": "./bin/openscout-web.mjs",
+      },
+      "dependencies": {
+        "react": "19.2.3",
+        "react-dom": "19.2.3",
+        "uqr": "^0.1.2",
+      },
+      "devDependencies": {
+        "@openscout/scout": "workspace:*",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "@vitejs/plugin-react": "^5.0.0",
+        "typescript": "^5",
+        "vite": "^7.0.0",
+      },
+      "peerDependencies": {
+        "@openscout/scout": ">=0.2.0",
+      },
+      "optionalPeers": [
+        "@openscout/scout",
+      ],
     },
   },
   "trustedDependencies": [
@@ -507,6 +531,8 @@
     "@openscout/runtime": ["@openscout/runtime@workspace:packages/runtime"],
 
     "@openscout/scout": ["@openscout/scout@workspace:packages/cli"],
+
+    "@openscout/web": ["@openscout/web@workspace:packages/web"],
 
     "@opentui/core": ["@opentui/core@0.1.96", "", { "dependencies": { "bun-ffi-structs": "0.1.2", "diff": "8.0.2", "jimp": "1.6.0", "marked": "17.0.1", "yoga-layout": "3.2.1" }, "optionalDependencies": { "@dimforge/rapier2d-simd-compat": "^0.17.3", "@opentui/core-darwin-arm64": "0.1.96", "@opentui/core-darwin-x64": "0.1.96", "@opentui/core-linux-arm64": "0.1.96", "@opentui/core-linux-x64": "0.1.96", "@opentui/core-win32-arm64": "0.1.96", "@opentui/core-win32-x64": "0.1.96", "bun-webgpu": "0.1.5", "planck": "^1.4.2", "three": "0.177.0" }, "peerDependencies": { "web-tree-sitter": "0.25.10" } }, "sha512-VBO5zRiGM6fhibG3AwTMpf0JgbYWG0sXP5AsSJAYw8tQ18OCPj+EDLXGZ1DFmMnJWEi+glKYjmqnIp4yRCqi+Q=="],
 

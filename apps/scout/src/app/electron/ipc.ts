@@ -172,7 +172,7 @@ export function createScoutElectronIpcServices(input: {
   const host = input.host ?? {};
 
   return {
-    getAppInfo: () => getScoutElectronAppInfo(appInfo ?? {}),
+    getAppInfo: () => appInfo ?? getScoutElectronAppInfo(),
     getServicesState: () => getScoutElectronServicesState({ currentDirectory, appInfo, voice }),
     getHomeState: () => getScoutElectronHomeState({ currentDirectory, appInfo, voice }),
     getShellState: () => getScoutElectronShellState({ currentDirectory, appInfo, voice }),

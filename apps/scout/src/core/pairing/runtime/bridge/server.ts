@@ -18,7 +18,7 @@ import { basename, isAbsolute, join, relative } from "path";
 import { homedir } from "os";
 import type { AgentHarness } from "@openscout/protocol";
 import type { Bridge } from "./bridge.ts";
-import type { Prompt } from "../protocol/index.ts";
+import type { Prompt, QuestionAnswer } from "../protocol/index.ts";
 import { resolveConfig } from "./config.ts";
 import {
   createScoutSession,
@@ -291,7 +291,7 @@ async function handleRPCInner(
       }
 
       case "question/answer": {
-        const answer = req.params as import("../../protocol/primitives.ts").QuestionAnswer;
+        const answer = req.params as QuestionAnswer;
         bridge.answerQuestion(answer);
         return { id: req.id, result: { ok: true } };
       }

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { MessagesView } from '@/components/messages-view';
 import type { AppView } from '@/app-types';
+import type { RelayMentionCandidate } from '@/components/relay/relay-types';
 
 type MessagesViewProps = React.ComponentProps<typeof MessagesView>;
 
@@ -45,9 +46,9 @@ export interface MessagesRelayThreadingProps extends Pick<
   | 'setMessagesDetailTab'
 > {}
 
-export interface MessagesRelayComposerProps extends Pick<
+type MessagesRelayComposerPropsBase = Pick<
   MessagesViewProps,
-  'selectedRelayKind'
+  | 'selectedRelayKind'
   | 'selectedRelayId'
   | 'relayThreadTitle'
   | 'relayThreadSubtitle'
@@ -71,15 +72,19 @@ export interface MessagesRelayComposerProps extends Pick<
   | 'setRelayComposerSelectionStart'
   | 'mergedRelayMessages'
   | 'relayMentionMenuOpen'
-  | 'relayMentionSuggestions'
   | 'relayMentionSelectionIndex'
   | 'setRelayMentionSelectionIndex'
   | 'relayMentionDuplicateTitleCounts'
-  | 'applyRelayMentionSuggestion'
   | 'onRelaySend'
   | 'onToggleVoiceCapture'
   | 'onSetVoiceRepliesEnabled'
-> {}
+>;
+
+/** Mention fields use canonical `RelayMentionCandidate` (same as scoring in `app.tsx`). */
+export type MessagesRelayComposerProps = MessagesRelayComposerPropsBase & {
+  relayMentionSuggestions: RelayMentionCandidate[];
+  applyRelayMentionSuggestion: (candidate: RelayMentionCandidate) => void;
+};
 
 export interface MessagesRelayAgentSessionProps extends Pick<
   MessagesViewProps,

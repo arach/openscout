@@ -1,3 +1,7 @@
+import type { ScoutHostSurface, ScoutSurfaceCapabilities } from "../../shared/surface-capabilities.ts";
+
+export type { ScoutHostSurface, ScoutSurfaceCapabilities } from "../../shared/surface-capabilities.ts";
+
 export type ScoutDesktopFeatureFlags = {
   enableAll: boolean;
   overview: boolean;
@@ -24,6 +28,10 @@ export type ScoutDesktopAppInfo = {
   appVersion: string;
   isPackaged: boolean;
   platform: string;
+  /** Which distribution is serving this shell (electron app, browser web server, CLI context). */
+  surface: ScoutHostSurface;
+  /** What this host is allowed to do; UI should gate native / provisioning actions on these flags. */
+  capabilities: ScoutSurfaceCapabilities;
   features: ScoutDesktopFeatureFlags;
 };
 

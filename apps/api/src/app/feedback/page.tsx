@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { listOpenScoutReports } from "@/lib/reports";
-import { getReportsAdminToken, isReportsAdminAuthorized } from "@/lib/reports-auth";
+import { listOpenScoutFeedbackReports } from "@/lib/feedback";
+import { getFeedbackAdminToken, isFeedbackAdminAuthorized } from "@/lib/feedback-auth";
 
-type ReportsPageProps = {
+type FeedbackPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
@@ -25,22 +25,22 @@ function formatTimestamp(value: string): string {
   }).format(parsed);
 }
 
-export default async function ReportsPage({ searchParams }: ReportsPageProps) {
+export default async function FeedbackPage({ searchParams }: FeedbackPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const token = readToken(resolvedSearchParams.token);
-  const isAuthorized = isReportsAdminAuthorized(token);
-  const requiresToken = Boolean(getReportsAdminToken());
-  const reports = isAuthorized ? await listOpenScoutReports() : [];
+  const isAuthorized = isFeedbackAdminAuthorized(token);
+  const requiresToken = Boolean(getFeedbackAdminToken());
+  const reports = isAuthorized ? await listOpenScoutFeedbackReports() : [];
   const reportCount = reports.length;
   const errorCount = reports.filter((report) => Boolean(report.contextInfo.lastError)).length;
 
   return (
     <main className="reports-shell">
       <section className="reports-hero">
-        <div className="eyebrow">OpenScout Reports</div>
+        <div className="eyebrow">OpenScout Feedback</div>
         <h1>Desktop feedback inbox</h1>
         <p>
-          Review direct submissions from packaged Scout builds. Each report contains the user note,
+          Review direct submissions from packaged Scout builds. Each feedback item contains the user note,
           environment details, and the structured support bundle captured at submit time.
         </p>
       </section>
@@ -50,7 +50,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           <h2>Access required</h2>
           <p>
             Append <code>?token=...</code> to this URL with the configured admin token to review
-            reports.
+            feedback submissions.
           </p>
           {!requiresToken ? (
             <p>No admin token is configured, so this should already be accessible. Check deployment env vars.</p>
@@ -60,7 +60,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <>
           <section className="stats-grid">
             <article className="stat-card">
-              <span className="stat-label">Reports</span>
+              <span className="stat-label">Feedback</span>
               <strong>{reportCount}</strong>
             </article>
             <article className="stat-card">
@@ -76,19 +76,19 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           <section className="report-list">
             {reports.length === 0 ? (
               <div className="empty-state">
-                <h2>No reports yet</h2>
+                <h2>No feedback yet</h2>
                 <p>The API is live, but no desktop submissions have landed yet.</p>
               </div>
             ) : (
               reports.map((report) => {
                 const href = token
-                  ? `/reports/${report.id}?token=${encodeURIComponent(token)}`
-                  : `/reports/${report.id}`;
+                  ? `/feedback/${report.id}?token=${encodeURIComponent(token)}`
+                  : `/feedback/${report.id}`;
                 return (
                   <Link key={report.id} href={href} className="report-card">
                     <div className="report-card-header">
                       <div>
-                        <h2>{report.userDescription ?? "Untitled report"}</h2>
+                        <h2>{report.userDescription ?? "Untitled feedback"}</h2>
                         <p>{report.source}</p>
                       </div>
                       <span className="report-key">{report.id.slice(0, 8)}</span>

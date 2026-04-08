@@ -81,6 +81,7 @@ function createScoutHostAppInfo(): ScoutDesktopAppInfo {
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     platform: process.platform,
+    surface: "electron",
     features: { enableAll },
   });
 }

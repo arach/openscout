@@ -43,7 +43,7 @@ interface HelpViewModel {
   onboardingCopiedCommand: OnboardingCommandName | null;
   onboardingCommandPending: OnboardingCommandName | null;
   onCopyOnboardingCommand: (command: OnboardingCommandName) => Promise<void>;
-  onRunOnboardingCommand: (command: OnboardingCommandName) => Promise<void>;
+  onRunOnboardingCommand: (command: OnboardingCommandName) => Promise<OnboardingCommandResult | null>;
   onOpenGeneralSettings: () => void;
 }
 
@@ -95,7 +95,7 @@ interface ProfileSettingsViewModel {
   setAppSettingsFeedback: React.Dispatch<React.SetStateAction<string | null>>;
   buildOnboardingCommandLine: (command: OnboardingCommandName) => string;
   handleCopyOnboardingCommand: (command: OnboardingCommandName) => Promise<void>;
-  handleRunOnboardingCommand: (command: OnboardingCommandName) => Promise<void>;
+  handleRunOnboardingCommand: (command: OnboardingCommandName) => Promise<OnboardingCommandResult | null>;
   renderOnboardingCommandShell: (
     command: OnboardingCommandName,
     commandLine: string,

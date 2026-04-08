@@ -13,6 +13,7 @@ import type {
   AdapterFactory,
   PairingEvent,
   Prompt,
+  QuestionAnswer,
   Session,
 } from "../protocol/index.ts";
 import { OutboundBuffer, type SequencedEvent } from "./buffer.ts";
@@ -141,7 +142,7 @@ export class Bridge {
   }
 
   /** Route a user's answer to a QuestionBlock back to the adapter. */
-  answerQuestion(answer: import("../../protocol/primitives.ts").QuestionAnswer): void {
+  answerQuestion(answer: QuestionAnswer): void {
     const adapter = this.sessions.get(answer.sessionId) as any;
     if (!adapter) return;
     adapter.answerQuestion?.(answer);

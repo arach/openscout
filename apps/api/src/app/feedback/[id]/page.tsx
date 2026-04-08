@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOpenScoutReport } from "@/lib/reports";
-import { getReportsAdminToken, isReportsAdminAuthorized } from "@/lib/reports-auth";
+import { getOpenScoutFeedbackReport } from "@/lib/feedback";
+import { getFeedbackAdminToken, isFeedbackAdminAuthorized } from "@/lib/feedback-auth";
 
-type ReportDetailPageProps = {
+type FeedbackDetailPageProps = {
   params: Promise<{
     id: string;
   }>;
@@ -33,21 +33,21 @@ function formatLogLines(lines: string[]): string {
   return lines.join("\n");
 }
 
-export default async function ReportDetailPage({ params, searchParams }: ReportDetailPageProps) {
+export default async function FeedbackDetailPage({ params, searchParams }: FeedbackDetailPageProps) {
   const { id } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const token = readToken(resolvedSearchParams.token);
 
-  if (!isReportsAdminAuthorized(token)) {
+  if (!isFeedbackAdminAuthorized(token)) {
     return (
       <main className="reports-shell">
         <section className="empty-state">
           <h1>Access required</h1>
           <p>
-            Append <code>?token=...</code> to this report URL with the configured admin token to
+            Append <code>?token=...</code> to this feedback URL with the configured admin token to
             review the submission.
           </p>
-          {!getReportsAdminToken() ? (
+          {!getFeedbackAdminToken() ? (
             <p>No admin token is configured, so this should already be accessible. Check deployment env vars.</p>
           ) : null}
         </section>
@@ -55,19 +55,19 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
     );
   }
 
-  const report = await getOpenScoutReport(id);
+  const report = await getOpenScoutFeedbackReport(id);
   if (!report) {
     notFound();
   }
 
-  const backHref = token ? `/reports?token=${encodeURIComponent(token)}` : "/reports";
+  const backHref = token ? `/feedback?token=${encodeURIComponent(token)}` : "/feedback";
 
   return (
     <main className="reports-shell">
       <section className="detail-header">
-        <Link href={backHref} className="back-link">Back to reports</Link>
-        <div className="eyebrow">Report {report.id.slice(0, 8)}</div>
-        <h1>{report.context.userDescription ?? "Untitled report"}</h1>
+        <Link href={backHref} className="back-link">Back to feedback</Link>
+        <div className="eyebrow">Feedback {report.id.slice(0, 8)}</div>
+        <h1>{report.context.userDescription ?? "Untitled feedback"}</h1>
         <p>{formatTimestamp(report.timestamp)}</p>
       </section>
 

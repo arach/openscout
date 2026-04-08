@@ -1,6 +1,10 @@
 import { readOpenScoutSettings, writeOpenScoutSettings } from "@openscout/runtime/setup";
 
 import { SCOUT_APP_VERSION, SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
+import {
+  resolveScoutSurfaceCapabilities,
+  type ScoutHostSurface,
+} from "../../shared/surface-capabilities.ts";
 import type {
   ScoutDesktopAppInfo,
   ScoutDesktopHomeState,
@@ -48,16 +52,20 @@ export function createScoutDesktopAppInfo(input: {
   appVersion?: string;
   isPackaged?: boolean;
   platform?: string;
+  surface?: ScoutHostSurface;
   features?: Partial<ScoutDesktopFeatureFlags>;
 } = {}): ScoutDesktopAppInfo {
   const configuredProductName = process.env.SCOUT_PRODUCT_NAME?.trim();
   const configuredAppVersion = process.env.SCOUT_APP_VERSION?.trim();
+  const surface = input.surface ?? "electron";
 
   return {
     productName: input.productName ?? configuredProductName ?? SCOUT_PRODUCT_NAME,
     appVersion: input.appVersion ?? configuredAppVersion ?? SCOUT_APP_VERSION,
     isPackaged: input.isPackaged ?? false,
     platform: input.platform ?? process.platform,
+    surface,
+    capabilities: resolveScoutSurfaceCapabilities(surface),
     features: createScoutDesktopFeatureFlags(input.features),
   };
 }

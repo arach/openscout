@@ -116,7 +116,7 @@ import { OverviewInboxActivityView } from "@/components/views/overview-inbox-act
 import { OpsViews } from "@/components/views/ops-views";
 import { SettingsHelpView } from "@/components/views/settings-help-view";
 import { AgentViews } from "@/components/views/agent-views";
-import { MessagesRelayView } from "@/components/views/messages-relay-view";
+import { MessagesRelayView, type MessagesRelayComposerProps } from "@/components/views/messages-relay-view";
 import { StartupSplashOverlay } from "@/components/startup-splash";
 import { BootLoader } from "@/components/boot-loader";
 import { LogPanel } from "@/components/log-panel";
@@ -424,6 +424,7 @@ export default function App() {
   const relayState = shellState?.relay ?? null;
   const interAgentState = shellState?.interAgent ?? null;
   const desktopFeatures = scoutAppInfo?.features ?? shellState?.appInfo.features ?? DEFAULT_DESKTOP_FEATURES;
+  const surfaceCaps = scoutAppInfo?.capabilities ?? shellState?.appInfo.capabilities;
   const pairingSurfaceBadge = describePairingSurfaceBadge(pairingState, pairingLoading, pairingError);
 
   const loadShellState = React.useCallback(async (withSpinner = false) => {
@@ -656,6 +657,7 @@ export default function App() {
     };
   }, [pendingConfigFocusAgentId, selectedInterAgentId]);
 
+  /** Loads agent session for the focused direct thread / agents roster. Omit `agentSession` from deps: a successful fetch updates it and would otherwise rerun this effect in a tight loop. */
   useEffect(() => {
     const sessionTargetAgentId = activeView === 'messages'
       ? (selectedMessagesThread?.kind === 'relay' && selectedRelayKind === 'direct' ? selectedRelayId : null)
@@ -672,7 +674,7 @@ export default function App() {
 
     let cancelled = false;
     const loadAgentSession = async () => {
-      setAgentSessionLoading((current) => current || !agentSession);
+      setAgentSessionLoading(true);
       try {
         const nextSession = await scoutDesktop!.getAgentSession(sessionTargetAgentId);
         if (cancelled) {
@@ -697,7 +699,15 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeView, agentSessionRefreshTick, agentSession, scoutDesktop, selectedInterAgentId, selectedMessagesThreadId, selectedRelayId, selectedRelayKind]);
+  }, [
+    activeView,
+    agentSessionRefreshTick,
+    scoutDesktop,
+    selectedInterAgentId,
+    selectedMessagesThreadId,
+    selectedRelayId,
+    selectedRelayKind,
+  ]);
 
   useEffect(() => {
     setAgentSessionFeedback(null);
@@ -1880,6 +1890,13 @@ export default function App() {
     () => workspaceExplorerItems.filter((item) => !item.isBound).length,
     [workspaceExplorerItems],
   );
+  const workspaceInventoryLoaded = Boolean(visibleAppSettings?.workspaceInventoryLoaded);
+  const canRefreshWorkspaceInventory = Boolean(appSettings && scoutDesktop?.refreshSettingsInventory);
+  const showDoctorOutput = Boolean(
+    onboardingCommandPending === 'doctor'
+    || onboardingCommandHistory.doctor
+    || onboardingCommandResult?.command === 'doctor',
+  );
   useEffect(() => {
     if (!selectedAgentableProjectId) {
       return;
@@ -1986,7 +2003,7 @@ export default function App() {
         style={options?.style ?? { color: C.ink }}
         onClick={(event) => {
           event.preventDefault();
-          if (!scoutDesktop?.revealPath) {
+          if (!surfaceCaps?.canRevealPath || !scoutDesktop?.revealPath) {
             return;
           }
           void scoutDesktop.revealPath(filePath).catch((error) => {
@@ -1998,7 +2015,7 @@ export default function App() {
         {label}
       </button>
     );
-  }, []);
+  }, [scoutDesktop, surfaceCaps]);
   const handleCopyOnboardingCommand = React.useCallback(async (command: OnboardingCommandName) => {
     const commandLine = buildOnboardingCommandLine(command);
     await navigator.clipboard.writeText(commandLine);
@@ -2436,7 +2453,7 @@ export default function App() {
   }, [commitPairingState]);
 
   const handleBrokerControl = React.useCallback(async (action: BrokerControlAction) => {
-    if (!scoutDesktop?.controlBroker) {
+    if (!surfaceCaps?.canManageBroker || !scoutDesktop?.controlBroker) {
       return;
     }
 
@@ -2458,7 +2475,7 @@ export default function App() {
     } finally {
       setBrokerControlPending(false);
     }
-  }, []);
+  }, [surfaceCaps, scoutDesktop]);
 
   const openRelayDiagnostics = React.useCallback(() => {
     setProductSurface('relay');
@@ -2627,7 +2644,12 @@ export default function App() {
   }, []);
 
   const handleRunOnboardingCommand = React.useCallback(async (command: OnboardingCommandName): Promise<OnboardingCommandResult | null> => {
-    if (!scoutDesktop?.runOnboardingCommand) {
+    if (!surfaceCaps?.canProvisionRuntime || !scoutDesktop?.runOnboardingCommand) {
+      setAppSettingsFeedback(
+        surfaceCaps && !surfaceCaps.canProvisionRuntime
+          ? 'Setup and doctor commands must be run from the Scout CLI (`scout setup`, `scout doctor`) on this host.'
+          : null,
+      );
       return null;
     }
 
@@ -2680,9 +2702,13 @@ export default function App() {
     } finally {
       setOnboardingCommandPending(null);
     }
-  }, [appSettings, appSettingsDraft, completeOnboardingIntoRelay, loadShellState, moveOnboardingWizard]);
+  }, [appSettings, appSettingsDraft, completeOnboardingIntoRelay, loadShellState, moveOnboardingWizard, scoutDesktop, surfaceCaps]);
 
   const handleRetireProject = React.useCallback(async (projectRoot: string, projectTitle: string) => {
+    if (!surfaceCaps?.canEditFilesystem) {
+      setAppSettingsFeedback('Project retirement is not available in this host. Use the Scout CLI or desktop app.');
+      return;
+    }
     if (!scoutDesktop?.retireProject) {
       setAppSettingsFeedback('Project retirement is unavailable in this build.');
       return;
@@ -2704,9 +2730,13 @@ export default function App() {
     } finally {
       setProjectRetirementPendingRoot(null);
     }
-  }, [applyNextAppSettings, loadShellState, scoutDesktop, selectedAgentableProject?.root]);
+  }, [applyNextAppSettings, loadShellState, scoutDesktop, selectedAgentableProject?.root, surfaceCaps]);
 
   const handleRestoreProject = React.useCallback(async (project: HiddenProjectSummary) => {
+    if (!surfaceCaps?.canEditFilesystem) {
+      setAppSettingsFeedback('Project restore is not available in this host. Use the Scout CLI or desktop app.');
+      return;
+    }
     if (!scoutDesktop?.restoreProject) {
       setAppSettingsFeedback('Project restore is unavailable in this build.');
       return;
@@ -2723,11 +2753,14 @@ export default function App() {
     } finally {
       setProjectRetirementPendingRoot(null);
     }
-  }, [applyNextAppSettings, loadShellState, scoutDesktop]);
+  }, [applyNextAppSettings, loadShellState, scoutDesktop, surfaceCaps]);
 
   const handleQuitApp = React.useCallback(() => {
     void (async () => {
       try {
+        if (!surfaceCaps?.canQuitHost) {
+          return;
+        }
         if (scoutDesktop?.quitApp) {
           await scoutDesktop.quitApp();
         }
@@ -2735,7 +2768,7 @@ export default function App() {
         setAppSettingsFeedback(asErrorMessage(error));
       }
     })();
-  }, []);
+  }, [scoutDesktop, surfaceCaps]);
 
   const handleRestartOnboarding = React.useCallback(() => {
     void (async () => {
@@ -2882,7 +2915,7 @@ export default function App() {
         setBrokerControlFeedback(null);
         setLogsFeedback(null);
 
-        if (scoutDesktop?.controlBroker) {
+        if (surfaceCaps?.canManageBroker && scoutDesktop?.controlBroker) {
           try {
             const nextShellState = await scoutDesktop.controlBroker(
               brokerInspector?.installed ? 'restart' : 'start',
@@ -2936,7 +2969,7 @@ export default function App() {
         setFeedbackActionPending(null);
       }
     })();
-  }, [brokerInspector?.installed, commitPairingState, loadFeedbackBundle, loadShellState, pairingState?.isRunning, scoutDesktop]);
+  }, [brokerInspector?.installed, commitPairingState, loadFeedbackBundle, loadShellState, pairingState?.isRunning, scoutDesktop, surfaceCaps]);
 
   const handleAddSourceRootSuggestion = React.useCallback((root: string) => {
     setAppSettingsDraft((current) => {
@@ -3029,7 +3062,7 @@ export default function App() {
   const handleBrowseForSourceRoot = React.useCallback((index: number) => {
     void (async () => {
       try {
-        if (!scoutDesktop?.pickDirectory) {
+        if (!surfaceCaps?.canPickDirectory || !scoutDesktop?.pickDirectory) {
           return;
         }
         const selectedPath = await scoutDesktop.pickDirectory();
@@ -3042,7 +3075,7 @@ export default function App() {
         setAppSettingsFeedback(asErrorMessage(error));
       }
     })();
-  }, [handleSetSourceRootAt]);
+  }, [handleSetSourceRootAt, scoutDesktop, surfaceCaps]);
 
   const handleSetOnboardingContextRoot = React.useCallback((value: string) => {
     setAppSettingsDraft((current) => {
@@ -3063,7 +3096,7 @@ export default function App() {
   const handleBrowseForOnboardingContextRoot = React.useCallback(() => {
     void (async () => {
       try {
-        if (!scoutDesktop?.pickDirectory) {
+        if (!surfaceCaps?.canPickDirectory || !scoutDesktop?.pickDirectory) {
           return;
         }
         const selectedPath = await scoutDesktop.pickDirectory();
@@ -3075,7 +3108,7 @@ export default function App() {
         setAppSettingsFeedback(asErrorMessage(error));
       }
     })();
-  }, [handleSetOnboardingContextRoot]);
+  }, [handleSetOnboardingContextRoot, scoutDesktop, surfaceCaps]);
 
   const dismissStartupOnboarding = React.useCallback(() => {
     void (async () => {
@@ -3173,7 +3206,7 @@ export default function App() {
   const handleBrowseCreateAgentProject = React.useCallback(() => {
     void (async () => {
       try {
-        if (!scoutDesktop?.pickDirectory) {
+        if (!surfaceCaps?.canPickDirectory || !scoutDesktop?.pickDirectory) {
           return;
         }
         const selectedPath = await scoutDesktop.pickDirectory();
@@ -3189,7 +3222,7 @@ export default function App() {
         setCreateAgentFeedback(asErrorMessage(error));
       }
     })();
-  }, [scoutDesktop]);
+  }, [scoutDesktop, surfaceCaps]);
 
   const handleCreateAgent = React.useCallback(() => {
     void (async () => {
@@ -3368,7 +3401,7 @@ export default function App() {
     const targetAgentId = activeView === 'messages'
       ? selectedMessagesDetailAgentId
       : selectedInterAgentId;
-    if (!targetAgentId || !scoutDesktop?.openAgentSession) {
+    if (!surfaceCaps?.canOpenNativeSession || !targetAgentId || !scoutDesktop?.openAgentSession) {
       return;
     }
 
@@ -3378,7 +3411,7 @@ export default function App() {
     } catch (error) {
       setAgentSessionFeedback(asErrorMessage(error));
     }
-  }, [activeView, agentSession?.mode, scoutDesktop, selectedInterAgentId, selectedMessagesDetailAgentId]);
+  }, [activeView, agentSession?.mode, scoutDesktop, selectedInterAgentId, selectedMessagesDetailAgentId, surfaceCaps]);
 
   const handleCopyAgentSessionCommand = React.useCallback(async () => {
     if (!agentSession?.commandLabel) {
@@ -4577,623 +4610,86 @@ export default function App() {
           </div>
         </div>
 
-        {/* --- OVERVIEW --- */}
-        {activeView === 'overview' ? (
-          <OverviewView
-            C={C}
-            s={s}
-            features={desktopFeatures}
-            stats={stats}
-            runtime={runtime}
-            machinesOnlineCount={machinesState?.onlineCount ?? 0}
-            reachableAgents={reachableRelayAgents}
-            activityMessages={activityRecentMessages}
-            activityTasks={activityTasks}
-            overviewSessions={overviewSessions}
-            overviewProjects={overviewProjects}
-            runningTaskCount={plansState?.runningTaskCount ?? 0}
-            shellError={shellError}
-            agentLookup={interAgentAgentLookup}
-            onNavigate={setActiveView}
-            onCreateAgent={handleOpenCreateAgentDialog}
-            onRefresh={() => void handleRefreshShell()}
-            onOpenAgent={openAgentProfile}
-            onOpenSession={openSessionDetail}
-            onOpenProject={openProjectSessions}
-            onSelectRelay={openMessagesRelayDestination}
-            formatDate={formatDate}
-            colorForIdentity={colorForIdentity}
-            cleanDisplayTitle={cleanDisplayTitle}
-            messagePreviewSnippet={messagePreviewSnippet}
-          />
-
-        ) : activeView === 'inbox' ? (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                  <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Inbox</div>
-                  <div className="text-[13px] font-semibold tracking-tight mt-1" style={s.inkText}>Subscribed updates</div>
-                  <div className="text-[11px] leading-[1.5] mt-1" style={s.mutedText}>
-                    Only updates worth notifying about belong here.
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                    <div className="text-[9px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Summary</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { label: 'Needs You', value: `${inboxAlertCount}` },
-                        { label: 'Approvals', value: `${pendingApprovals.length}` },
-                        { label: 'Failures', value: `${inboxFailedTaskCount}` },
-                        { label: 'Policy', value: 'Opt-in' },
-                      ].map((item) => (
-                        <div key={item.label} className="rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
-                          <div className="text-[18px] font-semibold mt-1" style={s.inkText}>{item.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                    <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>V1 Scope</div>
-                    <div className="space-y-2 text-[11px] leading-[1.5]" style={s.mutedText}>
-                      <div>Pairing approvals surface here first.</div>
-                      <div>Failed asks count as attention.</div>
-                      <div>Progress and troubleshooting stay elsewhere.</div>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 flex flex-col min-w-0" style={s.surface}>
-              <div className="border-b shrink-0 px-6 py-5" style={{ borderBottomColor: C.border }}>
-                <div className="flex items-start justify-between gap-6">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Inbox</div>
-                    <h1 className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
-                      What You Asked To Know About
-                    </h1>
-                    <p className="text-[13px] mt-2 max-w-3xl leading-[1.65]" style={s.mutedText}>
-                      A first-pass desktop notification inbox for Scout. No delivery yet, just the small set of subscribed updates that are worth surfacing inside Electron.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => void handleRefreshShell()}
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                    >
-                      <RefreshCw size={14} />
-                      Refresh
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveView('plans')}
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                    >
-                      <FileText size={14} />
-                      Open Plans
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-3 mt-5">
-                  {[
-                    { label: 'Needs You', value: `${inboxAlertCount}`, detail: `${pendingApprovals.length} approvals · ${inboxFailedTaskCount} failed asks` },
-                    { label: 'Approvals', value: `${pendingApprovals.length}`, detail: 'Inline pairing actions' },
-                    { label: 'Failures', value: `${inboxFailedTaskCount}`, detail: 'Failed asks from plans' },
-                    { label: 'Policy', value: 'Opt-in', detail: 'Progress and watchlists stay elsewhere' },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-xl border px-4 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                      <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
-                      <div className="text-[24px] font-semibold mt-2" style={s.inkText}>{item.value}</div>
-                      <div className="text-[11px] mt-1" style={s.mutedText}>{item.detail}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
-                  <section className="border rounded-xl overflow-hidden min-w-0" style={{ ...s.surface, borderColor: C.border }}>
-                    <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                      <div>
-                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Needs You</div>
-                        <div className="text-[11px] mt-1" style={s.mutedText}>Approvals and failed asks that are worth interrupting for.</div>
-                      </div>
-                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={inboxAlertCount > 0 ? s.activePill : s.tagBadge}>
-                        {inboxAlertCount} items
-                      </span>
-                    </div>
-                    <div className="divide-y" style={{ borderColor: C.border }}>
-                      {inboxAwaitingYouItems.length > 0 ? inboxAwaitingYouItems.map((item) => (
-                        <div key={item.id} className="px-4 py-4" style={{ backgroundColor: C.surface }}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span
-                                  className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                                  style={
-                                    item.tone === 'critical'
-                                      ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
-                                      : item.tone === 'warning'
-                                        ? { backgroundColor: 'rgba(251, 191, 36, 0.16)', color: '#92400e' }
-                                        : s.activePill
-                                  }
-                                >
-                                  {item.kind}
-                                </span>
-                                <span className="text-[9px] font-mono" style={s.mutedText}>{item.meta}</span>
-                              </div>
-                              <div className="text-[13px] font-medium mt-2 leading-[1.5]" style={s.inkText}>
-                                {item.title}
-                              </div>
-                              <div className="text-[11px] mt-1 leading-[1.6]" style={s.mutedText}>
-                                {item.summary}
-                              </div>
-                              {item.detail && item.detail !== item.summary ? (
-                                <div className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.bg, color: C.muted }}>
-                                  {item.detail}
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="flex flex-col items-end gap-2 shrink-0">
-                              <button
-                                type="button"
-                                onClick={item.onAction}
-                                className="text-[10px] font-medium hover:opacity-80"
-                                style={{ color: C.accent }}
-                              >
-                                {item.actionLabel}
-                              </button>
-                              {item.onSecondaryAction && item.secondaryActionLabel ? (
-                                <button
-                                  type="button"
-                                  onClick={item.onSecondaryAction}
-                                  className="text-[10px] font-medium hover:opacity-80"
-                                  style={s.mutedText}
-                                >
-                                  {item.secondaryActionLabel}
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      )) : (
-                        <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
-                          Nothing urgent right now.
-                        </div>
-                      )}
-                    </div>
-                  </section>
-
-                  <div className="space-y-4 min-w-0">
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Notes</div>
-                        <div className="text-[11px] mt-1" style={s.mutedText}>This is UI-only for now, backed by existing desktop state instead of durable broker attention events.</div>
-                      </div>
-                      <div className="px-4 py-4 text-[11px] leading-[1.7]" style={s.mutedText}>
-                        Inbox is currently limited to approvals and failed asks. Agent progress, stale/problem states, and cleanup flows stay in other parts of Scout.
-                      </div>
-                    </section>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-
-        /* --- ACTIVITY --- */
-        ) : activeView === 'activity' ? (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                  <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Activity Monitor</div>
-                  <div className="text-[13px] font-semibold tracking-tight mt-1" style={s.inkText}>System-wide watch</div>
-                  <div className="text-[11px] leading-[1.5] mt-1" style={s.mutedText}>
-                    Asks, blockers, runtime signals, and recent coordination across Scout.
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                    <div className="text-[9px] font-mono tracking-widest uppercase mb-3" style={s.mutedText}>Right Now</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { label: 'Running', value: `${plansState?.runningTaskCount ?? 0}` },
-                        { label: 'Watchlist', value: `${plansState?.findingCount ?? 0}` },
-                        { label: 'Agents', value: `${runtime?.agentCount ?? 0}` },
-                        { label: 'Nodes', value: `${machinesState?.onlineCount ?? 0}` },
-                      ].map((item) => (
-                        <div key={item.label} className="rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                          <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
-                          <div className="text-[18px] font-semibold mt-1" style={s.inkText}>{item.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                    <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Lead Task</div>
-                    {activityLeadTask ? (
-                      <>
-                        <div className="text-[12px] font-medium leading-[1.5]" style={s.inkText}>{activityLeadTask.title}</div>
-                        <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                          {activityLeadTask.targetAgentName} · {activityLeadTask.statusLabel} · {activityLeadTask.ageLabel ?? activityLeadTask.updatedAtLabel ?? 'now'}
-                        </div>
-                        {activityLeadTask.statusDetail ? (
-                          <div className="text-[11px] mt-2 leading-[1.55]" style={s.mutedText}>
-                            {activityLeadTask.statusDetail}
-                          </div>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openAgentProfile(activityLeadTask.targetAgentId)}
-                          className="mt-3 text-[10px] font-medium hover:opacity-80"
-                          style={{ color: C.accent }}
-                        >
-                          Open {activityLeadTask.targetAgentName}
-                        </button>
-                      </>
-                    ) : (
-                      <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                        No active asks are visible yet.
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                    <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>View Model</div>
-                    <div className="space-y-2 text-[11px] leading-[1.5]" style={s.mutedText}>
-                      <div>Task-first rows, not micro chat.</div>
-                      <div>Watchlist surfaces blockers and stale work.</div>
-                      <div>Runtime stays visible without becoming the main story.</div>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 flex flex-col min-w-0" style={s.surface}>
-              <div className="border-b shrink-0 px-6 py-5" style={{ borderBottomColor: C.border }}>
-                <div className="flex items-start justify-between gap-6">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Activity Monitor</div>
-                    <h1 className="text-[28px] font-semibold tracking-tight" style={s.inkText}>
-                      Everything Scout Is Coordinating
-                    </h1>
-                    <p className="text-[13px] mt-2 max-w-3xl leading-[1.65]" style={s.mutedText}>
-                      A system-wide operational picture of asks, handoffs, runtime signals, human interventions, and recent coordination.
-                      This is the control-room view, not just the mesh view.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => void handleRefreshShell()}
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                    >
-                      <RefreshCw size={14} />
-                      Refresh
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveView('plans')}
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                    >
-                      <FileText size={14} />
-                      Open Plans
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveView('messages')}
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                    >
-                      <MessageSquare size={14} />
-                      Open Messages
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-3 mt-5">
-                  {[
-                    { label: 'Work In Flight', value: `${plansState?.runningTaskCount ?? 0}`, detail: `${plansState?.taskCount ?? 0} total asks` },
-                    { label: 'Watchlist', value: `${plansState?.findingCount ?? 0}`, detail: `${plansState?.errorCount ?? 0} errors · ${plansState?.warningCount ?? 0} warnings` },
-                    { label: 'Live Runtime', value: `${activityEndpoints.filter((entry) => entry.endpoint.state === 'running').length}`, detail: `${runtime?.tmuxSessionCount ?? 0} sessions visible` },
-                    { label: 'Recent Coordination', value: `${activityRecentMessages.length}`, detail: `${runtime?.messageCount ?? 0} broker messages captured` },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-xl border px-4 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                      <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>{item.label}</div>
-                      <div className="text-[24px] font-semibold mt-2" style={s.inkText}>{item.value}</div>
-                      <div className="text-[11px] mt-1" style={s.mutedText}>{item.detail}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] gap-4">
-                  <div className="space-y-4 min-w-0">
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                        <div>
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Work Feed</div>
-                          <div className="text-[11px] mt-1" style={s.mutedText}>Task-level asks and routed work, newest first.</div>
-                        </div>
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
-                          {activityTasks.length} rows
-                        </span>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: C.border }}>
-                        {activityTasks.length > 0 ? activityTasks.map((task) => (
-                          <div key={task.id} className="px-4 py-4" style={{ backgroundColor: C.surface }}>
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span
-                                    className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                                    style={
-                                      task.status === 'running'
-                                        ? s.activePill
-                                        : task.status === 'failed'
-                                          ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
-                                          : task.status === 'completed'
-                                            ? { backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#166534' }
-                                            : s.tagBadge
-                                    }
-                                  >
-                                    {task.statusLabel}
-                                  </span>
-                                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                    {task.targetAgentName}
-                                  </span>
-                                  {task.project ? (
-                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      {task.project}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="text-[13px] font-medium mt-2 leading-[1.5]" style={s.inkText}>
-                                  {task.title}
-                                </div>
-                                {task.statusDetail ? (
-                                  <div className="text-[11px] mt-1 leading-[1.6]" style={s.mutedText}>
-                                    {task.statusDetail}
-                                  </div>
-                                ) : null}
-                                {task.replyPreview ? (
-                                  <div className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.bg, color: C.muted }}>
-                                    {task.replyPreview}
-                                  </div>
-                                ) : null}
-                              </div>
-                              <div className="flex flex-col items-end gap-2 shrink-0">
-                                <span className="text-[10px] font-mono" style={s.mutedText}>
-                                  {task.ageLabel ?? task.updatedAtLabel ?? task.createdAtLabel}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => openAgentProfile(task.targetAgentId)}
-                                  className="text-[10px] font-medium hover:opacity-80"
-                                  style={{ color: C.accent }}
-                                >
-                                  Open
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )) : (
-                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
-                            No task-level activity has been indexed yet.
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                        <div>
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Recent Coordination</div>
-                          <div className="text-[11px] mt-1" style={s.mutedText}>The latest human, bridge, and agent interactions crossing the system.</div>
-                        </div>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: C.border }}>
-                        {activityRecentMessages.length > 0 ? activityRecentMessages.map((message) => {
-                          const agent = interAgentAgentLookup.get(message.authorId) ?? null;
-                          const counterparts = message.recipients.filter((recipient) => recipient !== message.authorId).slice(0, 2).join(', ');
-                          return (
-                            <div key={message.id} className="px-4 py-3 flex items-start gap-3" style={{ backgroundColor: C.surface }}>
-                              <div
-                                className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-[10px] font-bold shrink-0"
-                                style={{ backgroundColor: message.avatarColor }}
-                              >
-                                {message.avatarLabel}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[12px] font-medium" style={s.inkText}>{message.authorName}</span>
-                                  {message.messageClass ? (
-                                    <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={message.messageClass === 'status' ? s.activePill : s.tagBadge}>
-                                      {message.messageClass}
-                                    </span>
-                                  ) : null}
-                                  {counterparts ? (
-                                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                      to {counterparts}
-                                    </span>
-                                  ) : null}
-                                  <span className="text-[9px] font-mono" style={s.mutedText}>{message.timestampLabel}</span>
-                                </div>
-                                <div className="text-[11px] mt-1 leading-[1.6]" style={s.mutedText}>
-                                  {messagePreviewSnippet(message.body, 220)}
-                                </div>
-                              </div>
-                              {agent ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openAgentProfile(agent.id)}
-                                  className="text-[10px] font-medium shrink-0 hover:opacity-80"
-                                  style={{ color: C.accent }}
-                                >
-                                  Open
-                                </button>
-                              ) : null}
-                            </div>
-                          );
-                        }) : (
-                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
-                            No coordination events yet.
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  </div>
-
-                  <div className="space-y-4 min-w-0">
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                        <div>
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Watchlist</div>
-                          <div className="text-[11px] mt-1" style={s.mutedText}>Blocked, stale, or otherwise suspicious coordination.</div>
-                        </div>
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={activityFindings.length > 0 ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' } : s.tagBadge}>
-                          {activityFindings.length}
-                        </span>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: C.border }}>
-                        {activityFindings.length > 0 ? activityFindings.map((finding) => (
-                          <div key={finding.id} className="px-4 py-3" style={{ backgroundColor: C.surface }}>
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-[12px] font-medium" style={s.inkText}>{finding.title}</div>
-                              <span
-                                className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded shrink-0"
-                                style={finding.severity === 'error'
-                                  ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
-                                  : { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' }}
-                              >
-                                {finding.severity}
-                              </span>
-                            </div>
-                            <div className="text-[11px] mt-1 leading-[1.55]" style={s.mutedText}>{finding.summary}</div>
-                            {finding.detail ? (
-                              <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>{finding.detail}</div>
-                            ) : null}
-                          </div>
-                        )) : (
-                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
-                            No blockers are visible right now.
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Runtime Signals</div>
-                        <div className="text-[11px] mt-1" style={s.mutedText}>Active and waiting endpoints across the current mesh.</div>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: C.border }}>
-                        {activityEndpoints.length > 0 ? activityEndpoints.map((entry) => (
-                          <div key={entry.endpoint.id} className="px-4 py-3 flex items-start justify-between gap-3" style={{ backgroundColor: C.surface }}>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[12px] font-medium" style={s.inkText}>{entry.endpoint.agentName}</span>
-                                <span
-                                  className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                                  style={
-                                    entry.endpoint.state === 'running'
-                                      ? s.activePill
-                                      : entry.endpoint.state === 'waiting'
-                                        ? { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' }
-                                        : s.tagBadge
-                                  }
-                                >
-                                  {entry.endpoint.stateLabel}
-                                </span>
-                              </div>
-                              <div className="text-[10px] mt-1" style={s.mutedText}>
-                                {entry.machineTitle} · {entry.endpoint.transport ?? 'runtime'} · {entry.endpoint.project ?? 'no project'}
-                              </div>
-                              {entry.endpoint.activeTask ? (
-                                <div className="text-[11px] mt-2 leading-[1.55]" style={s.mutedText}>
-                                  {entry.endpoint.activeTask}
-                                </div>
-                              ) : null}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => openAgentProfile(entry.endpoint.agentId)}
-                              className="text-[10px] font-medium shrink-0 hover:opacity-80"
-                              style={{ color: C.accent }}
-                            >
-                              Open
-                            </button>
-                          </div>
-                        )) : (
-                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
-                            No runtime endpoints are visible yet.
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Recent Sessions</div>
-                        <div className="text-[11px] mt-1" style={s.mutedText}>Fresh session history from local workspaces and harnesses.</div>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: C.border }}>
-                        {overviewSessions.length > 0 ? overviewSessions.map((session) => (
-                          <button
-                            key={session.id}
-                            type="button"
-                            onClick={() => openSessionDetail(session)}
-                            className="w-full text-left px-4 py-3 transition-opacity hover:opacity-90"
-                            style={{ backgroundColor: C.surface }}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="text-[12px] font-medium truncate" style={s.inkText}>{session.title}</div>
-                                <div className="text-[10px] mt-1" style={s.mutedText}>{session.project} · {session.agent}</div>
-                              </div>
-                              <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>{formatDate(session.lastModified)}</span>
-                            </div>
-                          </button>
-                        )) : (
-                          <div className="px-4 py-10 text-[12px] text-center" style={s.mutedText}>
-                            No session history is available yet.
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  </div>
-                </div>
-              </div>
-
-              <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>
-                  System-wide activity view: tasks first, watchlist second, runtime and coordination side by side
-                </span>
-              </div>
-            </div>
-          </>
-
-        /* --- MACHINES --- */
-        ) : activeView === 'machines' ? (
-          <MachinesView
-            machinesState={machinesState ?? {
+        <OverviewInboxActivityView
+          activeView={activeView}
+          overviewViewProps={{
+            C,
+            s,
+            features: desktopFeatures,
+            stats,
+            runtime,
+            machinesOnlineCount: machinesState?.onlineCount ?? 0,
+            reachableAgents: reachableRelayAgents,
+            activityMessages: activityRecentMessages,
+            activityTasks,
+            overviewSessions,
+            overviewProjects,
+            runningTaskCount: plansState?.runningTaskCount ?? 0,
+            shellError,
+            agentLookup: interAgentAgentLookup,
+            onNavigate: setActiveView,
+            onCreateAgent: handleOpenCreateAgentDialog,
+            onRefresh: () => void handleRefreshShell(),
+            onOpenAgent: openAgentProfile,
+            onOpenSession: openSessionDetail,
+            onOpenProject: openProjectSessions,
+            onSelectRelay: openMessagesRelayDestination,
+            formatDate,
+            colorForIdentity,
+            cleanDisplayTitle,
+            messagePreviewSnippet,
+          }}
+          inbox={{
+            isCollapsed,
+            sidebarWidth,
+            onResizeStart: handleMouseDown,
+            styles: {
+              sidebar: s.sidebar,
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              activePill: s.activePill,
+            },
+            inboxAlertCount,
+            pendingApprovalsCount: pendingApprovals.length,
+            inboxFailedTaskCount,
+            inboxAwaitingYouItems,
+          }}
+          activity={{
+            isCollapsed,
+            sidebarWidth,
+            onResizeStart: handleMouseDown,
+            styles: {
+              sidebar: s.sidebar,
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              activePill: s.activePill,
+            },
+            plansState,
+            machinesState,
+            runtime,
+            activityLeadTask,
+            activityTasks,
+            activityFindings,
+            activityEndpoints,
+            activityRecentMessages,
+            interAgentAgentLookup,
+            overviewSessions,
+            formatDate,
+            onRefresh: () => void handleRefreshShell(),
+            onOpenPlans: () => setActiveView('plans'),
+            onOpenMessages: () => setActiveView('messages'),
+            onOpenAgentProfile: openAgentProfile,
+            onOpenSessionDetail: openSessionDetail,
+          }}
+        />
+        <OpsViews
+          activeView={activeView}
+          machinesViewProps={{
+            machinesState: machinesState ?? {
               title: 'Machines',
               subtitle: 'Broker unavailable',
               totalMachines: 0,
@@ -5202,21 +4698,18 @@ export default function App() {
               offlineCount: 0,
               lastUpdatedLabel: null,
               machines: [],
-            }}
-            C={C}
-            s={s}
-            isCollapsed={isCollapsed}
-            sidebarWidth={sidebarWidth}
-            onResizeStart={handleMouseDown}
-            onOpenRelayAgent={openRelayAgentThread}
-            onRefresh={() => void handleRefreshShell()}
-            identityColor={colorForIdentity}
-          />
-
-        /* --- PLANS --- */
-        ) : activeView === 'plans' ? (
-          <PlansView
-            plansState={plansState ?? {
+            },
+            C,
+            s,
+            isCollapsed,
+            sidebarWidth,
+            onResizeStart: handleMouseDown,
+            onOpenRelayAgent: openRelayAgentThread,
+            onRefresh: () => void handleRefreshShell(),
+            identityColor: colorForIdentity,
+          }}
+          plansViewProps={{
+            plansState: plansState ?? {
               title: 'Plans',
               subtitle: 'No broker snapshot yet',
               taskCount: 0,
@@ -5232,2974 +4725,549 @@ export default function App() {
               tasks: [],
               findings: [],
               plans: [],
-            }}
-            C={C}
-            s={s}
-            isCollapsed={isCollapsed}
-            sidebarWidth={sidebarWidth}
-            onResizeStart={handleMouseDown}
-            onOpenRelayAgent={openRelayAgentThread}
-            onRefresh={() => void handleRefreshShell()}
-            identityColor={colorForIdentity}
-          />
-
-        /* --- SEARCH --- */
-        ) : activeView === 'search' ? (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-3 py-2.5 flex items-center justify-between border-b" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Search</h1>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>Full-text search</div>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto py-2">
-                  {/* Scope */}
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Scope</div>
-                    <div className="flex flex-col gap-px">
-                      <button className="flex items-center gap-2 px-1.5 py-1 shadow-sm border rounded text-[12px]" style={s.activeItem}>
-                        <LayoutGrid size={12} style={{ color: C.accent }} />
-                        <span className="font-medium flex-1 truncate text-left">All Sessions</span>
-                      </button>
-                      {[['Content Only', <FileText size={12} />], ['Tags Only', <Tag size={12} />]].map(([label, icon]) => (
-                        <button key={label as string} className="flex items-center gap-2 px-1.5 py-1 rounded text-[12px] hover:opacity-80 transition-opacity" style={s.mutedText}>
-                          {icon as React.ReactNode}
-                          <span className="font-medium flex-1 truncate text-left">{label as string}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Time Range */}
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Time Range</div>
-                    <div className="flex flex-col gap-px">
-                      <button className="flex items-center gap-2 px-1.5 py-1 shadow-sm border rounded text-[12px]" style={s.activeItem}>
-                        <Calendar size={12} style={{ color: C.accent }} />
-                        <span className="font-medium flex-1 truncate text-left">All Time</span>
-                      </button>
-                      {['Last 7 Days', 'Last 30 Days'].map(label => (
-                        <button key={label} className="flex items-center gap-2 px-1.5 py-1 rounded text-[12px] hover:opacity-80 transition-opacity" style={s.mutedText}>
-                          <Clock size={12} />
-                          <span className="font-medium flex-1 truncate text-left">{label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Agents */}
-                  <div className="mb-3 px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Agents</div>
-                    <div className="flex flex-col gap-px">
-                      {availableAgentNames.map(agent => (
-                        <label key={agent} className="flex items-center gap-2 px-1.5 py-1 rounded text-[12px] hover:opacity-80 transition-opacity cursor-pointer" style={s.mutedText}>
-                          <input type="checkbox" defaultChecked className="w-3 h-3 rounded" />
-                          <div
-                            className="w-3 h-3 rounded text-white flex items-center justify-center text-[7px] font-bold"
-                            style={{ backgroundColor: colorForIdentity(agent) }}
-                          >
-                            {agent.charAt(0)}
-                          </div>
-                          <span className="font-medium flex-1 truncate text-left">{agent}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Quick Filters */}
-                  <div className="px-1.5">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1 px-1.5" style={s.mutedText}>Quick Filters</div>
-                    <div className="flex flex-wrap gap-1 px-1.5">
-                      {['code-review', 'debugging', 'docs', 'architecture', 'performance', 'testing'].map(tag => (
-                        <button key={tag} className="text-[9px] font-mono border px-1.5 py-0.5 rounded hover:opacity-70 transition-opacity" style={s.tagBadge}>
-                          {tag}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Main Search Area */}
-            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="border-b shrink-0 p-4" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-3 border rounded-lg px-3 py-2 transition-all focus-within:ring-1" style={{ backgroundColor: C.bg, borderColor: C.border }}>
-                  <Search size={16} className="shrink-0" style={s.mutedText} />
-                  <input
-                    type="text"
-                    placeholder="Search across all sessions, messages, and metadata..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 bg-transparent border-none outline-none text-[13px]"
-                    style={{ color: C.ink }}
-                  />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery('')} className="p-1 hover:opacity-70" style={s.mutedText}>
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center gap-2 text-[10px] font-mono" style={s.mutedText}>
-                    <span>Press</span>
-                    <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-medium" style={s.kbd}>Enter</kbd>
-                    <span>to search</span>
-                  </div>
-                  <div className="text-[10px] font-mono" style={s.mutedText}>
-                    {searchQuery ? `${filteredSessions.length} results` : `${stats.totalSessions} sessions indexed`}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                {!searchQuery ? (
-                  <div className="p-6">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-3" style={s.mutedText}>Recent Searches</div>
-                    <div className="flex flex-col gap-2">
-                      {['authentication refactor', 'database migration', 'API performance'].map((term, i) => (
-                        <button key={i} onClick={() => setSearchQuery(term)} className="flex items-center gap-2 text-left text-[12px] hover:opacity-70 transition-opacity" style={s.mutedText}>
-                          <Clock size={12} /><span>{term}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-3 mt-8" style={s.mutedText}>Popular Tags</div>
-                    <div className="flex flex-wrap gap-2">
-                      {['code-review', 'auth', 'security', 'database', 'migration', 'api', 'performance', 'testing', 'docs'].map(tag => (
-                        <button key={tag} onClick={() => setSearchQuery(tag)} className="text-[11px] font-mono border px-2 py-1 rounded hover:opacity-70 transition-opacity" style={s.tagBadge}>
-                          #{tag}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-3 mt-8" style={s.mutedText}>Search Tips</div>
-                    <div className="text-[12px] space-y-2" style={s.mutedText}>
-                      {[
-                        ['project:openscout-core', 'Search within a project'],
-                        ['agent:claude', 'Filter by agent'],
-                        ['tag:security', 'Search by tag'],
-                        ['"exact phrase"', 'Match exact phrase'],
-                      ].map(([code, desc]) => (
-                        <p key={code}><code className="border rounded px-1 font-mono text-[10px]" style={s.tagBadge}>{code}</code>{' -- '}{desc}</p>
-                      ))}
-                    </div>
-                  </div>
-                ) : filteredSessions.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <Search size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No results found</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>Try different keywords or adjust your filters</p>
-                  </div>
-                ) : (
-                  <div style={{ borderColor: C.border }} className="divide-y">
-                    {filteredSessions.map(session => (
-                      <div
-                        key={session.id}
-                        className="px-4 py-4 cursor-pointer transition-opacity hover:opacity-90"
-                        style={{ borderBottomColor: C.border }}
-                        onClick={() => { setSelectedSession(session); setActiveView('sessions'); }}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-5 h-5 rounded text-white flex items-center justify-center text-[9px] font-bold"
-                              style={{ backgroundColor: colorForIdentity(session.agent) }}
-                            >
-                              {session.agent.charAt(0)}
-                            </div>
-                            <span className="text-[13px] font-medium" style={s.inkText}>{session.title}</span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0 ml-2">
-                            <span className="text-[9px] font-mono border px-1.5 py-0.5 rounded" style={s.tagBadge}>{session.project}</span>
-                            <span className="text-[10px] font-mono" style={s.mutedText}>{formatDate(session.lastModified)}</span>
-                          </div>
-                        </div>
-                        <div className="text-[12px] mb-2 pl-7 leading-relaxed" style={s.mutedText}>
-                          {session.preview.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
-                            part.toLowerCase() === searchQuery.toLowerCase() ? (
-                              <mark key={i} className="px-0.5 rounded" style={{ backgroundColor: C.markBg, color: C.markFg }}>{part}</mark>
-                            ) : (
-                              <span key={i}>{part}</span>
-                            )
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 pl-7">
-                          <span className="text-[10px]" style={s.mutedText}>{session.messageCount} messages</span>
-                          {session.tokens && <span className="text-[10px]" style={s.mutedText}>{(session.tokens / 1000).toFixed(1)}k tokens</span>}
-                          {session.model && <span className="text-[9px] font-mono text-indigo-400 bg-indigo-950/30 px-1.5 py-0.5 rounded">{session.model}</span>}
-                        </div>
-                        {session.tags && session.tags.length > 0 && (
-                          <div className="flex items-center gap-1.5 mt-2 pl-7">
-                            {session.tags.map(tag => (
-                              <span key={tag} className="text-[9px] font-mono border px-1.5 py-0.5 rounded" style={
-                                tag.toLowerCase().includes(searchQuery.toLowerCase())
-                                  ? { backgroundColor: C.markBg, borderColor: C.border, color: C.markFg }
-                                  : s.tagBadge
-                              }>{tag}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Indexed: {stats.totalSessions} sessions / {stats.totalMessages} messages</span>
-                <span className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Index Ready</span>
-              </div>
-            </div>
-          </>
-
-        /* --- HELP --- */
-        ) : activeView === 'help' ? (
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-5xl px-8 py-6">
-              <div className="flex items-start justify-between gap-6 mb-5">
-                <div>
-                  <div className="text-[10px] font-mono tracking-widest uppercase mb-1.5" style={{ color: C.accent }}>Help</div>
-                  <h1 className="text-[22px] font-semibold tracking-tight" style={s.inkText}>Knowledge Base</h1>
-                  <p className="text-[12px] mt-1.5 max-w-2xl leading-[1.6]" style={s.mutedText}>
-                    Core Scout terms and the main CLI commands you can use here or in Terminal.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
-                    style={{ color: C.ink }}
-                    onClick={() => {
-                      setActiveView('settings');
-                      setSettingsSection('profile');
-                    }}
-                  >
-                    <Settings size={12} />
-                    General
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                  <div className="flex items-start justify-between gap-4 mb-5">
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Vocabulary</div>
-                      <div className="text-[14px] font-medium mt-1" style={s.inkText}>What Scout means by each term</div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {[
-                      [
-                        'Project Path',
-                        'A folder Scout scans recursively to discover repos, project roots, and harness evidence.',
-                      ],
-                      [
-                        'Context Root',
-                        'The directory where Scout saves `.openscout/project.json` for the current local context.',
-                      ],
-                      [
-                        'Harness',
-                        'The assistant family a project prefers by default, such as `claude` or `codex`.',
-                      ],
-                      [
-                        'Runtime',
-                        'The installed local program or persistent session Scout uses to launch a chosen harness.',
-                      ],
-                    ].map(([label, value]) => (
-                      <article
-                        key={label}
-                        className="rounded-xl border px-4 py-3.5"
-                        style={{ borderColor: C.border, backgroundColor: C.bg }}
-                      >
-                        <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>{label}</div>
-                        <div className="text-[12px] mt-2 leading-[1.6]" style={s.inkText}>{value}</div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                  <div className="flex items-start justify-between gap-4 mb-5">
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>CLI Basics</div>
-                      <div className="text-[14px] font-medium mt-1" style={s.inkText}>The same commands the app runs for you</div>
-                      <div className="text-[12px] mt-1 leading-[1.6] max-w-2xl" style={s.mutedText}>
-                        Run them from here for guidance, or copy them into your shell when you want the direct Scout workflow.
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {([
-                      {
-                        command: 'setup' as const,
-                        title: 'Setup',
-                        detail: 'Writes a local `.openscout/project.json` for the chosen context.',
-                      },
-                      {
-                        command: 'doctor' as const,
-                        title: 'Doctor',
-                        detail: 'Checks broker health and whether Scout can discover workspaces from your scan roots.',
-                      },
-                      {
-                        command: 'runtimes' as const,
-                        title: 'Runtimes',
-                        detail: 'Shows whether Claude and Codex are installed, authenticated, and ready.',
-                      },
-                    ]).map((item) => (
-                      <article
-                        key={item.command}
-                        className="rounded-xl border px-4 py-3.5"
-                        style={{ borderColor: C.border, backgroundColor: C.bg }}
-                      >
-                        <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>{item.title}</div>
-                        <div className="text-[12px] mt-2 leading-[1.6]" style={s.inkText}>{item.detail}</div>
-                        <div className="text-[10px] font-mono mt-3 break-all" style={s.mutedText}>
-                          {buildOnboardingCommandLine(item.command)}
-                        </div>
-                        <div className="flex items-center gap-2 mt-3">
-                          <button
-                            type="button"
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
-                            style={{ color: C.ink }}
-                            onClick={() => { void handleCopyOnboardingCommand(item.command); }}
-                          >
-                            {onboardingCopiedCommand === item.command ? <Check size={12} /> : <Copy size={12} />}
-                            Copy
-                          </button>
-                          <button
-                            type="button"
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => { void handleRunOnboardingCommand(item.command); }}
-                            disabled={Boolean(onboardingCommandPending)}
-                          >
-                            <Terminal size={12} />
-                            Run
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              </div>
-            </div>
-          </div>
-
-        /* --- SETTINGS --- */
-        ) : activeView === 'settings' ? (
-          <div className="flex-1 flex overflow-hidden" style={s.surface}>
-            <div className="w-56 border-r flex flex-col shrink-0" style={{ backgroundColor: C.bg, borderColor: C.border }}>
-              <div className="px-4 py-3 border-b" style={{ borderColor: C.border }}>
-                <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Settings</div>
-              </div>
-              <div className="px-2 py-2 flex flex-col gap-0.5 flex-1">
-                {settingsSections.map((section) => {
-                  const active = settingsSection === section.id;
-                  return (
-                    <button
-                      key={section.id}
-                      onClick={() => setSettingsSection(section.id)}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors"
-                      style={active ? { backgroundColor: C.surface, borderColor: C.border, color: C.ink, boxShadow: C.shadowXs } : s.mutedText}
-                    >
-                      <span style={{ color: active ? C.accent : C.muted }}>{section.icon}</span>
-                      <span className="text-[12px] font-medium" style={active ? s.inkText : undefined}>{section.label}</span>
-                      {active ? <ChevronRight size={12} className="ml-auto" style={s.mutedText} /> : null}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="px-3 py-3 border-t" style={{ borderColor: C.border }}>
-                <button
-                  type="button"
-                  onClick={openFeedbackDialog}
-                  className="flex items-center gap-2 px-3 py-2 w-full rounded-lg transition-colors hover:opacity-70"
-                  style={s.mutedText}
-                >
-                  <MessageSquare size={13} style={{ color: C.muted }} />
-                  <span className="text-[12px] font-medium">Feedback</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              <div className="max-w-6xl px-8 py-6">
-                <div className="flex items-start justify-between gap-6 mb-5">
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Settings</div>
-                    <h1 className="text-[18px] font-semibold tracking-tight" style={s.inkText}>{activeSettingsMeta.label}</h1>
-                    <p className="text-[11px] mt-1 max-w-2xl leading-[1.6]" style={s.mutedText}>
-                      {activeSettingsMeta.description}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {settingsSection === 'profile' ? (
-                      <>
-                        {isAppSettingsEditing ? (
-                          <>
-                            <button
-                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                              style={{ color: C.ink }}
-                              onClick={() => handleCancelAppSettingsEdit()}
-                              disabled={appSettingsSaving}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                              style={{ color: C.ink }}
-                              onClick={() => void handleSaveAppSettings()}
-                              disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
-                            >
-                              {appSettingsSaving ? 'Saving…' : 'Save General'}
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => handleStartAppSettingsEdit()}
-                            disabled={appSettingsLoading || !visibleAppSettings}
-                          >
-                            Edit General
-                          </button>
-                        )}
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                          style={{ color: C.ink }}
-                          onClick={handleRestartOnboarding}
-                          disabled={appSettingsLoading || !visibleAppSettings}
-                        >
-                          <RefreshCw size={12} />
-                          Restart onboarding
-                        </button>
-                      </>
-                    ) : settingsSection === 'communication' ? (
-                      isAppSettingsEditing ? (
-                        <>
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => handleCancelAppSettingsEdit()}
-                            disabled={appSettingsSaving}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => void handleSaveAppSettings()}
-                            disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
-                          >
-                            {appSettingsSaving ? 'Saving…' : desktopFeatures.telegram ? 'Save Telegram' : 'Save Communication'}
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                          style={{ color: C.ink }}
-                          onClick={() => handleStartAppSettingsEdit()}
-                          disabled={appSettingsLoading || !visibleAppSettings}
-                        >
-                          {desktopFeatures.telegram ? 'Edit Telegram' : 'Edit Communication'}
-                        </button>
-                      )
-                    ) : settingsSection === 'agents' ? (
-                      <>
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => setActiveView('agents')}
-                        >
-                          Open Agents
-                        </button>
-                        {selectedInterAgent && hasEditableAgentConfig ? (
-                          isAgentConfigEditing ? (
-                            <>
-                              <button
-                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                                style={{ color: C.ink }}
-                                onClick={() => handleCancelAgentConfigEdit()}
-                                disabled={agentConfigSaving || agentConfigRestarting}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                                style={{ color: C.ink }}
-                                onClick={() => void handleSaveAgentConfig()}
-                                disabled={!agentConfigDirty || agentConfigLoading || agentConfigSaving || agentConfigRestarting}
-                              >
-                                {agentConfigSaving ? 'Saving…' : 'Save Changes'}
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                              style={{ color: C.ink }}
-                              onClick={() => handleStartAgentConfigEdit()}
-                              disabled={agentConfigLoading || agentConfigRestarting}
-                            >
-                              Edit Agent
-                            </button>
-                          )
-                        ) : null}
-                        {selectedInterAgent && hasEditableAgentConfig ? (
-                          <button
-                            className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
-                            style={{ color: C.ink }}
-                            onClick={() => void handleRestartAgent()}
-                            disabled={agentConfigLoading || agentConfigRestarting || !visibleAgentConfig}
-                          >
-                            {agentConfigRestarting ? 'Restarting…' : agentRestartActionLabel}
-                          </button>
-                        ) : null}
-                      </>
-                    ) : settingsSection === 'database' ? (
-                      <button
-                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                        style={{ color: C.ink }}
-                        onClick={() => setActiveView('sessions')}
-                      >
-                        Browse Sessions
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {settingsSection === 'profile' ? (
-                  <div className="max-w-3xl">
-                    <div className="space-y-5 min-w-0">
-                      {visibleAppSettings?.onboarding?.needed ? (
-                        <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Onboarding</div>
-                              <div className="text-[13px] font-medium mt-1" style={s.inkText}>{visibleAppSettings.onboarding.title}</div>
-                              <div className="text-[11px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                {visibleAppSettings.onboarding.detail}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                type="button"
-                                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-                                style={{ color: C.ink }}
-                                onClick={handleRestartOnboarding}
-                              >
-                                <RefreshCw size={12} />
-                                Restart onboarding
-                              </button>
-                              <span
-                                className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
-                                style={s.tagBadge}
-                              >
-                                {`${activeOnboardingStepIndex + 1}/${ONBOARDING_WIZARD_STEP_ORDER.length}`}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
-                            <div className="space-y-2">
-                              {ONBOARDING_WIZARD_STEP_ORDER.map((stepId, index) => {
-                                const step = ONBOARDING_WIZARD_STEPS.find((entry) => entry.id === stepId);
-                                if (!step) {
-                                  return null;
-                                }
-                                const active = onboardingWizardStep === step.id;
-                                const complete = index < activeOnboardingStepIndex;
-                                return (
-                                  <button
-                                    key={step.id}
-                                    type="button"
-                                    className="w-full rounded-lg border px-3 py-2 text-left transition-opacity hover:opacity-90"
-                                    style={{
-                                      borderColor: active ? C.accent : C.border,
-                                      backgroundColor: active ? C.accentBg : C.surface,
-                                      color: active ? C.accent : C.ink,
-                                    }}
-                                    onClick={() => setOnboardingWizardStep(step.id)}
-                                  >
-                                    <div className="flex items-center justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <div className="text-[10px] font-mono uppercase tracking-widest">{step.title}</div>
-                                        <div className="text-[10px] mt-1 leading-[1.5]" style={active ? { color: C.accent } : s.mutedText}>
-                                          {step.detail}
-                                        </div>
-                                      </div>
-                                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={complete ? s.activePill : s.tagBadge}>
-                                        {complete ? 'done' : index + 1}
-                                      </span>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            <div className="rounded-xl border p-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="text-[10px] font-mono uppercase tracking-widest" style={{ color: C.accent }}>{activeOnboardingStep.title}</div>
-                              <div className="text-[13px] font-medium mt-1" style={s.inkText}>{activeOnboardingStep.detail}</div>
-                              <div className="text-[11px] mt-2 leading-[1.6]" style={s.mutedText}>
-                                {activeOnboardingStep.helper}
-                              </div>
-
-                              {activeOnboardingStep.id === 'welcome' ? (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="text-[12px] font-medium" style={s.inkText}>Before you start</div>
-                                    <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                      Scout discovers workspaces from scan folders, stores local config under a context root, and needs a default harness before it can broker local runs.
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {[
-                                      ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
-                                      ['Context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
-                                      ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
-                                      ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
-                                    ].map(([label, value]) => (
-                                      <div key={label}>
-                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                        <div className="text-[11px] leading-[1.45]" style={s.inkText}>{value}</div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ) : activeOnboardingStep.id === 'source-roots' ? (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="text-[12px] font-medium" style={s.inkText}>Project scan folders</div>
-                                    <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                      Scout recursively scans these folders to find repos, manifests, and harness evidence.
-                                    </div>
-                                  </div>
-
-                                  <div className="space-y-2">
-                                    {(visibleAppSettings.workspaceRoots ?? []).map((root, index) => (
-                                      <div key={`onboarding-source-root-${index}`} className="flex items-center gap-1.5">
-                                        <input
-                                          value={root}
-                                          onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
-                                          readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                          className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
-                                          style={{ borderColor: C.border, color: C.ink }}
-                                          placeholder={index === 0 ? '~/dev' : 'Add another scan folder'}
-                                        />
-                                        <button
-                                          type="button"
-                                          className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
-                                          style={{ color: C.ink }}
-                                          onClick={() => handleBrowseForSourceRoot(index)}
-                                          disabled={!isAppSettingsEditing || appSettingsSaving}
-                                        >
-                                          Finder
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded-md disabled:opacity-50"
-                                          style={{ color: C.ink }}
-                                          onClick={() => handleRemoveSourceRootRow(index)}
-                                          disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings.workspaceRoots ?? []).length <= 1 && !root)}
-                                          aria-label={`Remove source root ${index + 1}`}
-                                        >
-                                          -
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
-                                      style={{ color: C.ink }}
-                                      onClick={() => {
-                                        handleBeginGeneralEdit();
-                                        handleAddSourceRootRow();
-                                      }}
-                                      disabled={appSettingsSaving}
-                                    >
-                                      <span className="text-[12px] leading-none">+</span>
-                                      Add path
-                                    </button>
-                                    <span className="text-[10px]" style={s.mutedText}>or</span>
-                                    {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
-                                      <button
-                                        key={root}
-                                        type="button"
-                                        className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded-md disabled:opacity-50"
-                                        style={{ color: C.ink }}
-                                        onClick={() => {
-                                          handleBeginGeneralEdit();
-                                          handleAddSourceRootSuggestion(root);
-                                        }}
-                                        disabled={appSettingsSaving}
-                                      >
-                                        {root}
-                                      </button>
-                                    ))}
-                                  </div>
-
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Context root</div>
-                                    {isAppSettingsEditing ? (
-                                      <>
-                                        <div className="flex items-center gap-1.5 max-w-md">
-                                          <input
-                                            value={visibleAppSettings.onboardingContextRoot ?? ''}
-                                            onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
-                                            readOnly={appSettingsSaving}
-                                            className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
-                                            style={{ borderColor: C.border, color: C.ink }}
-                                            placeholder="Choose where .openscout should live"
-                                          />
-                                          <button
-                                            type="button"
-                                            className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
-                                            style={{ color: C.ink }}
-                                            onClick={handleBrowseForOnboardingContextRoot}
-                                            disabled={appSettingsSaving}
-                                          >
-                                            Finder
-                                          </button>
-                                        </div>
-                                        <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                          Project manifest will be saved here.
-                                        </div>
-                                      </>
-                                    ) : (
-                                      <div className="text-[11px] leading-[1.45]" style={s.inkText}>
-                                        {visibleAppSettings.onboardingContextRoot || 'Not set'}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : activeOnboardingStep.id === 'harness' ? (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="flex items-center gap-2">
-                                      <Key size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>Harness vs runtime</div>
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      The harness is the assistant family (e.g. Claude, Codex). The runtime is the local program that launches it.
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {(['claude', 'codex'] as const).map((harness) => {
-                                      const runtimeEntry = (visibleAppSettings.runtimeCatalog ?? []).find((entry) => entry.name === harness) ?? null;
-                                      const selected = visibleAppSettings.defaultHarness === harness;
-                                      return (
-                                        <button
-                                          key={harness}
-                                          className="text-left rounded-lg border px-3 py-3 transition-opacity hover:opacity-90 disabled:opacity-60"
-                                          style={{ borderColor: C.border, backgroundColor: selected ? C.bg : C.surface }}
-                                          disabled={!isAppSettingsEditing || appSettingsSaving}
-                                          onClick={() => {
-                                            setAppSettingsDraft((current) => current ? {
-                                              ...current,
-                                              defaultHarness: harness,
-                                            } : current);
-                                            setAppSettingsFeedback(null);
-                                          }}
-                                        >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                              <div className="text-[12px] font-medium capitalize" style={s.inkText}>{harness}</div>
-                                              <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                                {harness === 'claude'
-                                                  ? 'Use Claude as the default responder for new project agents.'
-                                                  : 'Use Codex as the default responder for new project agents.'}
-                                              </div>
-                                              <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                                Runtime: {runtimeEntry?.label ?? harness} · {runtimeEntry?.readinessDetail ?? 'Not reported yet.'}
-                                              </div>
-                                            </div>
-                                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={selected ? s.activePill : s.tagBadge}>
-                                              {selected ? 'selected' : 'available'}
-                                            </span>
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : activeOnboardingStep.id === 'confirm' ? (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="text-[12px] font-medium" style={s.inkText}>Confirm this context</div>
-                                    <div className="text-[10px] mt-1 leading-[1.5]" style={s.mutedText}>
-                                      Review your scan folders and context root before continuing.
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                      {[
-                                        ['Source roots', (visibleAppSettings.workspaceRoots ?? []).join(', ') || 'None yet'],
-                                        ['Default harness', visibleAppSettings.defaultHarness ?? 'Not set'],
-                                        ['Relay context root', visibleAppSettings.onboardingContextRoot || 'Not set'],
-                                        ['Operator', visibleAppSettings.operatorName || visibleAppSettings.operatorNameDefault],
-                                      ].map(([label, value]) => (
-                                        <div key={label}>
-                                          <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                          <div className="text-[11px] leading-[1.45]" style={s.inkText}>{value}</div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-2 items-center">
-                                    {!isAppSettingsEditing ? (
-                                      <button
-                                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded"
-                                        style={{ color: C.ink }}
-                                        onClick={handleStartAppSettingsEdit}
-                                        disabled={appSettingsLoading || appSettingsSaving}
-                                      >
-                                        Edit Inputs
-                                      </button>
-                                    ) : null}
-                                    <div className="text-[10px] leading-[1.5]" style={s.mutedText}>
-                                      {appSettingsDirty
-                                        ? 'Next confirms and saves these choices locally.'
-                                        : 'Everything here is already saved locally.'}
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : activeOnboardingStep.id === 'setup' ? (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="flex items-center gap-2">
-                                      <FileJson size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>Create the local project manifest</div>
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Initialize the project manifest at your context root.
-                                    </div>
-                                    <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>
-                                      {buildOnboardingCommandLine('setup')}
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Project config path:{' '}
-                                      {renderLocalPathValue(
-                                        visibleAppSettings.currentProjectConfigPath ?? (visibleAppSettings.onboardingContextRoot ? `${visibleAppSettings.onboardingContextRoot}/.openscout/project.json` : 'Not created yet.'),
-                                        { className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity', style: s.mutedText },
-                                      )}
-                                    </div>
-                                  </div>
-                                  <button
-                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                    style={{ color: C.ink }}
-                                    onClick={() => { void handleRunOnboardingCommand('setup'); }}
-                                    disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsDirty}
-                                  >
-                                    {onboardingCommandPending === 'setup' ? 'Running Setup…' : 'Run Setup'}
-                                  </button>
-                                </div>
-                              ) : activeOnboardingStep.id === 'doctor' ? (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="flex items-center gap-2">
-                                      <Shield size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>Review the current inventory</div>
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Check broker connectivity, source roots, and discovered projects.
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3 mt-3">
-                                      <div>
-                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Projects</div>
-                                        <div className="text-[12px] font-medium" style={s.inkText}>{visibleAppSettings.projectInventory.length}</div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Broker</div>
-                                        <div className="text-[12px] font-medium" style={s.inkText}>{visibleAppSettings.broker.reachable ? 'Reachable' : 'Unavailable'}</div>
-                                      </div>
-                                    </div>
-                                    <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>scout doctor</div>
-                                  </div>
-                                  <button
-                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                    style={{ color: C.ink }}
-                                    onClick={() => { void handleRunOnboardingCommand('doctor'); }}
-                                    disabled={Boolean(onboardingCommandPending) || appSettingsLoading || !onboardingHasProjectConfig}
-                                  >
-                                    {onboardingCommandPending === 'doctor' ? 'Running Doctor…' : 'Run Doctor'}
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="mt-4 space-y-4">
-                                  <div className="rounded-lg border px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-                                    <div className="flex items-center gap-2">
-                                      <Terminal size={14} style={{ color: C.accent }} />
-                                      <div className="text-[12px] font-medium" style={s.inkText}>Check runtime readiness</div>
-                                    </div>
-                                    <div className="text-[10px] mt-2 leading-[1.5]" style={s.mutedText}>
-                                      Verify each harness runtime is installed and ready.
-                                    </div>
-                                    <div className="grid grid-cols-1 gap-2 mt-3">
-                                      {(visibleAppSettings.runtimeCatalog ?? []).map((runtimeEntry) => (
-                                        <div key={runtimeEntry.name} className="rounded-lg border px-3 py-2.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                              <div className="text-[11px] font-medium" style={s.inkText}>{runtimeEntry.label}</div>
-                                              <div className="text-[10px] mt-1 leading-[1.4]" style={s.mutedText}>{runtimeEntry.readinessDetail}</div>
-                                            </div>
-                                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={runtimeEntry.readinessState === 'ready' ? s.activePill : s.tagBadge}>
-                                              {runtimeEntry.readinessState}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                    <div className="text-[10px] mt-3 leading-[1.5]" style={s.mutedText}>
-                                      Default harness: {visibleAppSettings.defaultHarness}. {onboardingRuntimeMatch ? `${onboardingRuntimeMatch.label} currently reports ${onboardingRuntimeMatch.readinessState}.` : 'No matching runtime is reported yet.'}
-                                    </div>
-                                    <div className="text-[11px] font-mono mt-3 break-all" style={s.inkText}>scout runtimes</div>
-                                  </div>
-                                  <button
-                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                    style={{ color: C.ink }}
-                                    onClick={() => void handleRunOnboardingCommand('runtimes')}
-                                    disabled={Boolean(onboardingCommandPending) || appSettingsLoading}
-                                  >
-                                    {onboardingCommandPending === 'runtimes' ? 'Running Runtimes…' : 'Run Runtimes'}
-                                  </button>
-                                </div>
-                              )}
-
-                              <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t" style={{ borderColor: C.border }}>
-                                <button
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                  style={{ color: C.ink }}
-                                  onClick={() => moveOnboardingWizard(-1)}
-                                  disabled={!canGoToPreviousOnboardingStep}
-                                >
-                                  Back
-                                </button>
-                                <button
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded disabled:opacity-50"
-                                  style={{ color: C.ink }}
-                                  onClick={handleOnboardingContinue}
-                                  disabled={!canGoToNextOnboardingStep || appSettingsSaving || appSettingsLoading}
-                                >
-                                  {activeOnboardingStep.id === 'confirm'
-                                    ? (appSettingsSaving ? 'Confirming…' : 'Confirm')
-                                    : 'Next'}
-                                  {activeOnboardingStep.id === 'confirm' ? null : <ChevronRight size={12} />}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-2" style={s.mutedText}>CLI Equivalent</div>
-                            <div className="space-y-1">
-                              {visibleAppSettings.onboarding.commands.map((command) => (
-                                <div key={command} className="text-[11px] font-mono break-all" style={s.inkText}>{command}</div>
-                              ))}
-                            </div>
-                            <div className="text-[10px] mt-3 leading-[1.5]" style={s.mutedText}>
-                              Each wizard step runs the corresponding CLI command above.
-                            </div>
-                          </div>
-
-                          {appSettingsFeedback ? (
-                            <div className="text-[11px] mt-3 leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
-                          ) : null}
-
-                          {onboardingCommandResult ? (
-                            <div className="rounded-lg border px-3 py-3 mt-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>Last Command</div>
-                                  <div className="text-[11px] font-mono break-all" style={s.inkText}>{onboardingCommandResult.commandLine}</div>
-                                  <div className="text-[10px] mt-1" style={s.mutedText}>
-                                    cwd:{' '}
-                                    {renderLocalPathValue(onboardingCommandResult.cwd, {
-                                      className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                      style: s.mutedText,
-                                    })}
-                                  </div>
-                                </div>
-                                <span
-                                  className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                                  style={onboardingCommandResult.exitCode === 0 ? s.activePill : s.tagBadge}
-                                >
-                                  exit {onboardingCommandResult.exitCode}
-                                </span>
-                              </div>
-                              <pre
-                                className="mt-3 text-[10px] leading-[1.45] whitespace-pre-wrap break-words overflow-x-auto"
-                                style={{ color: C.ink }}
-                              >
-                                {onboardingCommandResult.output}
-                              </pre>
-                            </div>
-                          ) : null}
-                        </section>
-                      ) : null}
-
-                      {appSettingsLoading && !visibleAppSettings ? (
-                        <div className="text-[11px]" style={s.mutedText}>Loading settings…</div>
-                      ) : (
-                        <div className="space-y-5">
-                          <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="p-4 border-b" style={{ borderColor: C.border }}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Scout CLI</div>
-                                  <div className="text-[14px] font-medium mt-1" style={s.inkText}>Use the same commands here and in Terminal</div>
-                                  <div className="text-[11px] mt-1 leading-[1.6] max-w-2xl" style={s.mutedText}>
-                                    General is for local Scout setup. Workspace discovery lives in Workspace Explorer so this screen can stay fast.
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <button
-                                    type="button"
-                                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
-                                    style={{ color: C.ink }}
-                                    onClick={openKnowledgeBase}
-                                  >
-                                    <BookOpen size={12} />
-                                    Knowledge Base
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 p-4">
-                              {([
-                                {
-                                  command: 'setup' as const,
-                                  title: 'scout setup',
-                                  detail: 'Create or refresh the local project manifest for this context.',
-                                },
-                                {
-                                  command: 'doctor' as const,
-                                  title: 'scout doctor',
-                                  detail: 'Check broker health, scan roots, and discovery readiness.',
-                                },
-                                {
-                                  command: 'runtimes' as const,
-                                  title: 'scout runtimes',
-                                  detail: 'Verify Claude and Codex runtimes are installed and ready.',
-                                },
-                              ]).map((item) => (
-                                <article
-                                  key={item.command}
-                                  className="rounded-xl border px-4 py-4"
-                                  style={{ borderColor: C.border, backgroundColor: C.bg }}
-                                >
-                                  <div className="text-[11px] font-mono font-medium" style={{ color: C.accent }}>{item.title}</div>
-                                  <div className="text-[11px] mt-2 leading-[1.6]" style={s.mutedText}>{item.detail}</div>
-                                  <div className="text-[10px] font-mono mt-3 break-all" style={s.inkText}>
-                                    {buildOnboardingCommandLine(item.command)}
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-4">
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
-                                      style={{ color: C.ink }}
-                                      onClick={() => { void handleRunOnboardingCommand(item.command); }}
-                                      disabled={Boolean(onboardingCommandPending) || appSettingsLoading || appSettingsSaving || (item.command === 'doctor' && appSettingsDirty)}
-                                    >
-                                      <Terminal size={12} />
-                                      Run
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
-                                      style={{ color: C.ink }}
-                                      onClick={() => { void handleCopyOnboardingCommand(item.command); }}
-                                    >
-                                      {onboardingCopiedCommand === item.command ? <Check size={12} /> : <Copy size={12} />}
-                                      Copy
-                                    </button>
-                                  </div>
-                                </article>
-                              ))}
-                            </div>
-                          </section>
-
-                          <section className="border rounded-lg overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                            <div className="divide-y" style={{ borderColor: C.border }}>
-                              <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-                                <div className="sm:w-1/3">
-                                  <div className="text-[12px] font-medium" style={s.inkText}>Display Name</div>
-                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Used across Scout and Relay.</div>
-                                </div>
-                                <div className="sm:w-2/3">
-                                  <input
-                                    ref={settingsOperatorNameRef}
-                                    value={isAppSettingsEditing ? (visibleAppSettings?.operatorName ?? '') : (visibleAppSettings?.operatorName ?? visibleAppSettings?.operatorNameDefault ?? '')}
-                                    onChange={(event) => {
-                                      setAppSettingsDraft((current) => current ? {
-                                        ...current,
-                                        operatorName: event.target.value,
-                                      } : current);
-                                      setAppSettingsFeedback(null);
-                                    }}
-                                    readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                    placeholder={appSettings?.operatorNameDefault ?? 'Operator'}
-                                    className="w-full max-w-md rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none"
-                                    style={{ borderColor: C.border, color: C.ink }}
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
-                                <div className="sm:w-1/3">
-                                  <div className="text-[12px] font-medium" style={s.inkText}>Default Harness</div>
-                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Fallback assistant family.</div>
-                                </div>
-                                <div className="sm:w-2/3">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    {(['claude', 'codex'] as const).map((harness) => {
-                                      const selected = visibleAppSettings?.defaultHarness === harness;
-                                      const runtime = (visibleAppSettings?.runtimeCatalog ?? []).find((r) => r.name === harness);
-                                      return (
-                                        <button
-                                          key={harness}
-                                          type="button"
-                                          className="rounded-md border px-3 py-1.5 text-[12px] font-medium capitalize transition-colors disabled:opacity-60 flex items-center gap-1.5"
-                                          style={{ borderColor: selected ? C.accentBorder : C.border, backgroundColor: selected ? C.accentBg : C.bg, color: selected ? C.accent : C.ink }}
-                                          disabled={!isAppSettingsEditing || appSettingsSaving}
-                                          onClick={() => {
-                                            setAppSettingsDraft((current) => current ? {
-                                              ...current,
-                                              defaultHarness: harness,
-                                            } : current);
-                                            setAppSettingsFeedback(null);
-                                          }}
-                                        >
-                                          {harness}
-                                          {runtime ? (
-                                            <span className="text-[8px] font-mono uppercase tracking-wider px-1 py-px rounded-sm" style={runtime.readinessState === 'ready' ? s.activePill : s.tagBadge}>
-                                              {runtime.readinessState}
-                                            </span>
-                                          ) : null}
-                                        </button>
-                                      );
-                                    })}
-                                    <button
-                                      type="button"
-                                      className="rounded-md border border-dashed w-8 h-8 flex items-center justify-center text-[14px] transition-colors disabled:opacity-40"
-                                      style={{ borderColor: C.border, color: C.muted }}
-                                      disabled={!isAppSettingsEditing || appSettingsSaving}
-                                      title="Add runtime"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
-                                <div className="sm:w-1/3">
-                                  <div className="text-[12px] font-medium" style={s.inkText}>Context Root</div>
-                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Where Scout stores workspace config.</div>
-                                </div>
-                                <div className="sm:w-2/3">
-                                  <div className="flex items-center gap-1.5 max-w-md mb-2">
-                                    <input
-                                      value={visibleAppSettings?.onboardingContextRoot ?? ''}
-                                      onChange={(event) => handleSetOnboardingContextRoot(event.target.value)}
-                                      readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                      className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
-                                      style={{ borderColor: C.border, color: C.ink }}
-                                      placeholder="Choose where .openscout should live"
-                                    />
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
-                                      style={{ color: C.ink }}
-                                      onClick={handleBrowseForOnboardingContextRoot}
-                                      disabled={!isAppSettingsEditing || appSettingsSaving}
-                                    >
-                                      Finder
-                                    </button>
-                                  </div>
-                                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={visibleAppSettings?.includeCurrentRepo ?? true}
-                                        disabled={!isAppSettingsEditing || appSettingsSaving}
-                                        onChange={(event) => {
-                                          setAppSettingsDraft((current) => current ? {
-                                            ...current,
-                                            includeCurrentRepo: event.target.checked,
-                                          } : current);
-                                          setAppSettingsFeedback(null);
-                                        }}
-                                      />
-                                      <span className="text-[10px]" style={s.inkText}>Include root in discovery</span>
-                                    </label>
-                                    {visibleAppSettings?.currentProjectConfigPath ? (
-                                      <>
-                                        <div className="hidden sm:block w-px h-3" style={{ backgroundColor: C.border }} />
-                                        <span className="text-[9px] font-mono truncate" style={s.mutedText} title={visibleAppSettings.currentProjectConfigPath}>
-                                          {renderLocalPathValue(visibleAppSettings.currentProjectConfigPath, {
-                                            compact: true,
-                                            className: 'text-left hover:opacity-80 transition-opacity',
-                                            style: s.mutedText,
-                                          })}
-                                        </span>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="p-4 flex flex-col sm:flex-row sm:items-start gap-3">
-                                <div className="sm:w-1/3">
-                                  <div className="text-[12px] font-medium" style={s.inkText}>Scan Folders</div>
-                                  <div className="text-[10px] mt-0.5" style={s.mutedText}>Parent directories for repos.</div>
-                                </div>
-                                <div className="sm:w-2/3">
-                                  <div className="space-y-1.5">
-                                    {(visibleAppSettings?.workspaceRoots ?? []).map((root, index) => (
-                                      <div key={`general-source-root-${index}`} className="flex items-center gap-1.5 max-w-md">
-                                        <input
-                                          value={root}
-                                          onChange={(event) => handleSetSourceRootAt(index, event.target.value)}
-                                          readOnly={!isAppSettingsEditing || appSettingsSaving}
-                                          className="flex-1 rounded-md border px-2.5 py-1.5 text-[12px] leading-[1.5] bg-transparent outline-none font-mono"
-                                          style={{ borderColor: C.border, color: C.ink }}
-                                          placeholder={index === 0 ? '~/dev' : 'Add another path'}
-                                        />
-                                        <button
-                                          type="button"
-                                          className="os-toolbar-button text-[10px] font-medium px-2 py-1.5 rounded-md"
-                                          style={{ color: C.ink }}
-                                          onClick={() => handleBrowseForSourceRoot(index)}
-                                          disabled={!isAppSettingsEditing || appSettingsSaving}
-                                        >
-                                          Finder
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="os-toolbar-button text-[12px] font-medium w-7 h-7 rounded-md disabled:opacity-50"
-                                          style={{ color: C.ink }}
-                                          onClick={() => handleRemoveSourceRootRow(index)}
-                                          disabled={!isAppSettingsEditing || appSettingsSaving || ((visibleAppSettings?.workspaceRoots ?? []).length <= 1 && !root)}
-                                          aria-label={`Remove project path ${index + 1}`}
-                                        >
-                                          -
-                                        </button>
-                                      </div>
-                                    ))}
-                                    {(visibleAppSettings?.workspaceRoots?.length ?? 0) === 0 ? (
-                                      <div className="rounded-md border border-dashed px-2.5 py-2.5 text-[11px] leading-[1.5] max-w-md" style={{ borderColor: C.border, color: C.muted }}>
-                                        No scan folders configured. Add one to discover projects.
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                    <button
-                                      type="button"
-                                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md disabled:opacity-50"
-                                      style={{ color: C.ink }}
-                                      onClick={() => {
-                                        handleBeginGeneralEdit();
-                                        handleAddSourceRootRow();
-                                      }}
-                                      disabled={appSettingsSaving}
-                                    >
-                                      <span className="text-[12px] leading-none">+</span>
-                                      Add path
-                                    </button>
-                                    <span className="text-[10px]" style={s.mutedText}>or</span>
-                                    {SOURCE_ROOT_PATH_SUGGESTIONS.map((root) => (
-                                      <button
-                                        key={root}
-                                        type="button"
-                                        className="os-toolbar-button text-[10px] font-mono px-2 py-1 rounded-md disabled:opacity-50"
-                                        style={{ color: C.ink }}
-                                        onClick={() => {
-                                          handleBeginGeneralEdit();
-                                          handleAddSourceRootSuggestion(root);
-                                        }}
-                                        disabled={appSettingsSaving}
-                                      >
-                                        {root}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </section>
-
-                          {appSettingsFeedback ? (
-                            <div className="text-[11px] leading-[1.5]" style={s.inkText}>{appSettingsFeedback}</div>
-                          ) : null}
-
-                          {onboardingCommandResult?.command === 'doctor' ? (
-                            <div className="space-y-2">
-                              <div className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Doctor Output</div>
-                              {renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor')}
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : settingsSection === 'agents' ? (
-                  <AgentSettingsView
-                    styles={{
-                      surface: s.surface,
-                      inkText: s.inkText,
-                      mutedText: s.mutedText,
-                      tagBadge: s.tagBadge,
-                      activePill: s.activePill,
-                    }}
-                    selectedInterAgent={selectedInterAgent}
-                    availableAgents={rosterInterAgentAgents}
-                    isAgentConfigEditing={isAgentConfigEditing}
-                    hasEditableAgentConfig={hasEditableAgentConfig}
-                    agentConfigLoading={agentConfigLoading}
-                    agentConfigSaving={agentConfigSaving}
-                    agentConfigRestarting={agentConfigRestarting}
-                    visibleAgentConfig={visibleAgentConfig}
-                    agentConfigFeedback={agentConfigFeedback}
-                    agentCapabilitiesPreview={agentCapabilitiesPreview}
-                    agentRuntimePathRef={agentRuntimePathRef}
-                    onOpenAgents={() => setActiveView('agents')}
-                    onOpenAgentProfile={openAgentProfile}
-                    onOpenAgentThread={(agentId) => openRelayAgentThread(agentId, { focusComposer: true })}
-                    onUpdateAgentConfigDraft={updateAgentConfigDraft}
-                    renderLocalPathValue={renderLocalPathValue}
-                    interAgentProfileKindLabel={interAgentProfileKindLabel}
-                    onSelectAgent={handleSelectInterAgent}
-                  />
-                ) : settingsSection === 'workspaces' ? (
-                  <WorkspaceExplorerView
-                    styles={{
-                      surface: s.surface,
-                      inkText: s.inkText,
-                      mutedText: s.mutedText,
-                      tagBadge: s.tagBadge,
-                      activePill: s.activePill,
-                    }}
-                    selectedWorkspaceProject={selectedWorkspaceProject}
-                    selectedWorkspaceAgent={selectedWorkspaceAgent}
-                    workspaceExplorerQuery={workspaceExplorerQuery}
-                    setWorkspaceExplorerQuery={setWorkspaceExplorerQuery}
-                    workspaceExplorerFilter={workspaceExplorerFilter}
-                    setWorkspaceExplorerFilter={setWorkspaceExplorerFilter}
-                    workspaceExplorerViewMode={workspaceExplorerViewMode}
-                    setWorkspaceExplorerViewMode={setWorkspaceExplorerViewMode}
-                    workspaceExplorerItems={workspaceExplorerItems}
-                    workspaceExplorerBoundCount={workspaceExplorerBoundCount}
-                    workspaceExplorerDiscoveredCount={workspaceExplorerDiscoveredCount}
-                    filteredWorkspaceExplorerItems={filteredWorkspaceExplorerItems}
-                    workspaceInventoryLoaded={workspaceInventoryLoaded}
-                    workspaceInventoryLoading={workspaceInventoryLoading}
-                    canRefreshWorkspaceInventory={canRefreshWorkspaceInventory}
-                    onboardingCommandPending={onboardingCommandPending}
-                    appSettingsLoading={appSettingsLoading}
-                    appSettingsSaving={appSettingsSaving}
-                    appSettingsDirty={appSettingsDirty}
-                    appSettingsFeedback={appSettingsFeedback}
-                    showDoctorOutput={showDoctorOutput}
-                    doctorOutput={renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor')}
-                    projectRetirementPendingRoot={projectRetirementPendingRoot}
-                    onRefreshWorkspaceDiscovery={() => {
-                      void handleRunOnboardingCommand('doctor');
-                    }}
-                    onLoadWorkspaceInventory={handleLoadWorkspaceInventory}
-                    onAddWorkspace={handleAddWorkspaceFromExplorer}
-                    onInspectWorkspace={handleInspectWorkspace}
-                    onOpenWorkspace={handleOpenWorkspace}
-                    onRetireWorkspace={(project) => {
-                      void handleRetireProject(project.root, project.title);
-                    }}
-                    onOpenAgentProfile={openAgentProfile}
-                    onOpenAgentSettings={(agentId) => openAgentSettings(agentId, true)}
-                    renderLocalPathValue={renderLocalPathValue}
-                  />
-                ) : settingsSection === 'communication' ? (
-                  <CommunicationSettingsView
-                    styles={{
-                      surface: s.surface,
-                      inkText: s.inkText,
-                      mutedText: s.mutedText,
-                      tagBadge: s.tagBadge,
-                      activePill: s.activePill,
-                    }}
-                    showTelegram={desktopFeatures.telegram}
-                    showVoice={desktopFeatures.voice}
-                    visibleAppSettings={visibleAppSettings}
-                    isAppSettingsEditing={isAppSettingsEditing}
-                    appSettingsSaving={appSettingsSaving}
-                    appSettingsFeedback={appSettingsFeedback}
-                    onUpdateAppSettingsDraft={updateAppSettingsDraft}
-                    brokerInspector={brokerInspector}
-                    brokerControlPending={brokerControlPending}
-                    brokerControlFeedback={brokerControlFeedback}
-                    onBrokerControl={(action) => {
-                      void handleBrokerControl(action);
-                    }}
-                    relayServiceInspectorRef={relayServiceInspectorRef}
-                    relayRuntimeBooting={relayRuntimeBooting}
-                    relayRuntimeHealthLabel={relayRuntimeHealthLabel}
-                    runtime={runtime}
-                    reachableRelayAgentCount={reachableRelayAgents.length}
-                    voiceCaptureTitle={relayState?.voice.captureTitle ?? 'Not reported'}
-                    voiceRepliesEnabled={relayState?.voice.repliesEnabled ?? false}
-                    onSetVoiceRepliesEnabled={(enabled) => {
-                      void handleSetVoiceRepliesEnabled(enabled);
-                    }}
-                    renderLocalPathValue={renderLocalPathValue}
-                  />
-                ) : settingsSection === 'database' ? (
-                  <div className="space-y-4">
-                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Session Index</div>
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          ['Sessions', `${stats.totalSessions}`],
-                          ['Messages', `${stats.totalMessages}`],
-                          ['Projects', `${stats.projects}`],
-                          ['Tokens', `${Math.round(stats.totalTokens / 1000)}k`],
-                          ['Runtime Messages', `${runtime?.messageCount ?? 0}`],
-                          ['tmux Sessions', `${runtime?.tmuxSessionCount ?? 0}`],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-lg border px-3 py-2.5" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                            <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                            <div className="text-[16px] font-semibold" style={s.inkText}>{value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-
-                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Storage</div>
-                      <div className="space-y-3">
-                        {visibleAppSettings?.controlPlaneSqlitePath ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-[12px] font-medium" style={s.inkText}>Control plane database</div>
-                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>
-                                {renderLocalPathValue(visibleAppSettings.controlPlaneSqlitePath, {
-                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
-                                  style: s.mutedText,
-                                })}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="os-toolbar-button text-[11px] font-medium px-3 py-1.5 rounded-lg border shrink-0"
-                              style={{ color: C.ink, borderColor: C.border }}
-                              onClick={() => scoutDesktop?.revealPath(visibleAppSettings.controlPlaneSqlitePath)}
-                            >
-                              Reveal in Finder
-                            </button>
-                          </div>
-                        ) : null}
-                        {visibleAppSettings?.settingsPath ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-[12px] font-medium" style={s.inkText}>Settings</div>
-                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>
-                                {renderLocalPathValue(visibleAppSettings.settingsPath, {
-                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
-                                  style: s.mutedText,
-                                })}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="os-toolbar-button text-[11px] font-medium px-3 py-1.5 rounded-lg border shrink-0"
-                              style={{ color: C.ink, borderColor: C.border }}
-                              onClick={() => scoutDesktop?.revealPath(visibleAppSettings.settingsPath)}
-                            >
-                              Reveal in Finder
-                            </button>
-                          </div>
-                        ) : null}
-                        {visibleAppSettings?.supportDirectory ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-[12px] font-medium" style={s.inkText}>Support directory</div>
-                              <div className="text-[11px] font-mono mt-1 truncate" style={s.mutedText}>
-                                {renderLocalPathValue(visibleAppSettings.supportDirectory, {
-                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity truncate',
-                                  style: s.mutedText,
-                                })}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="os-toolbar-button text-[11px] font-medium px-3 py-1.5 rounded-lg border shrink-0"
-                              style={{ color: C.ink, borderColor: C.border }}
-                              onClick={() => scoutDesktop?.revealPath(visibleAppSettings.supportDirectory)}
-                            >
-                              Reveal in Finder
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </section>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-[minmax(0,1.05fr)_minmax(320px,0.85fr)] gap-4">
-                    <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Color Mode</div>
-                      <div className="flex gap-3 mb-5">
-                        {[
-                          { id: 'light', label: 'Light' },
-                          { id: 'dark', label: 'Dark' },
-                        ].map((mode) => {
-                          const active = mode.id === (dark ? 'dark' : 'light');
-                          return (
-                            <button
-                              key={mode.id}
-                              onClick={() => setDark(mode.id === 'dark')}
-                              className="flex-1 border rounded-xl px-4 py-4 text-left"
-                              style={{
-                                borderColor: active ? C.accent : C.border,
-                                backgroundColor: active ? C.bg : C.surface,
-                              }}
-                            >
-                              <div className="flex items-center gap-2 mb-1" style={{ color: active ? C.accent : C.muted }}>
-                                {mode.id === 'dark' ? <Moon size={15} /> : <Sun size={15} />}
-                                <span className="text-[12px] font-medium" style={active ? { color: C.accent } : s.inkText}>{mode.label}</span>
-                              </div>
-                              <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                {mode.id === 'dark' ? 'Deep shell contrast for low-light work.' : 'Warm neutral shell with higher paper-like contrast.'}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div className="border rounded-xl px-4 py-4" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={{ color: C.accent }}>Annotations</div>
-                            <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                              Show routing and provenance tags in timelines.
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => setShowAnnotations((current) => !current)}
-                            className="os-toolbar-button text-[11px] font-medium px-2 py-1 rounded"
-                            style={{ color: C.ink }}
-                          >
-                            {showAnnotations ? 'Hide annotations' : 'Show annotations'}
-                          </button>
-                        </div>
-                      </div>
-                    </section>
-
-                    <div className="space-y-4 min-w-0">
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Current Surface</div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          {[
-                            ['Mode', dark ? 'Dark' : 'Light'],
-                            ['Annotations', showAnnotations ? 'Visible' : 'Hidden'],
-                            ['Sidebar', isCollapsed ? 'Collapsed' : 'Expanded'],
-                            ['Section', activeSettingsMeta.label],
-                          ].map(([label, value]) => (
-                            <div key={label}>
-                              <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                              <div className="text-[12px]" style={s.inkText}>{value}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </section>
-
-                      <section className="border rounded-xl p-5" style={{ ...s.surface, borderColor: C.border }}>
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-3" style={{ color: C.accent }}>Coming Soon</div>
-                        <div className="text-[12px] leading-[1.6]" style={s.mutedText}>
-                          Theme, density, and typography controls.
-                        </div>
-                      </section>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-        /* --- AGENTS --- */
-        ) : activeView === 'agents' ? (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-4 h-14 flex items-center justify-between border-b" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Agents</h1>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {rosterInterAgentAgents.length === interAgentAgents.length
-                        ? `${interAgentAgents.length} agents`
-                        : `${rosterInterAgentAgents.length} visible · ${interAgentAgents.length} total`}
-                    </div>
-                  </div>
-                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-y-auto py-3">
-                  <div className="mb-3 px-2">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>Roster</div>
-                    <div className="flex items-center justify-end gap-2 px-2 mb-2 relative">
-                      <div className="relative">
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => setAgentRosterMenu((current) => current === 'filter' ? null : 'filter')}
-                          title="Filter roster"
-                        >
-                          <Filter size={11} />
-                          <span style={s.mutedText}>{agentRosterFilterLabel(agentRosterFilter)}</span>
-                        </button>
-                        {agentRosterMenu === 'filter' ? (
-                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
-                            {([
-                              ['all', 'All Agents'],
-                              ['active', 'Active Only'],
-                            ] as const).map(([value, label]) => (
-                              <button
-                                key={value}
-                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
-                                style={value === agentRosterFilter ? s.activeItem : s.inkText}
-                                onClick={() => {
-                                  setAgentRosterFilter(value);
-                                  setAgentRosterMenu(null);
-                                }}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="relative">
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => setAgentRosterMenu((current) => current === 'sort' ? null : 'sort')}
-                          title="Sort roster"
-                        >
-                          <ArrowUpDown size={11} />
-                          <span style={s.mutedText}>{agentRosterSortLabel(agentRosterSort)}</span>
-                        </button>
-                        {agentRosterMenu === 'sort' ? (
-                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
-                            {([
-                              ['chat', 'Recent Chat'],
-                              ['code', 'Code Changes'],
-                              ['session', 'Dev Sessions'],
-                              ['alpha', 'A-Z'],
-                            ] as const).map(([value, label]) => (
-                              <button
-                                key={value}
-                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
-                                style={value === agentRosterSort ? s.activeItem : s.inkText}
-                                onClick={() => {
-                                  setAgentRosterSort(value);
-                                  setAgentRosterMenu(null);
-                                }}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-px">
-                      {rosterInterAgentAgents.length > 0 ? rosterInterAgentAgents.map((agent) => {
-                        const active = selectedInterAgentId === agent.id;
-                        return (
-                          <button
-                            key={agent.id}
-                            onClick={() => handleSelectInterAgent(agent.id)}
-                            className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left"
-                            style={active ? s.activeItem : s.mutedText}
-                          >
-                            <div className="relative shrink-0">
-                              <div
-                                className={`w-6 h-6 rounded text-white flex items-center justify-center text-[9px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-                                style={{ backgroundColor: colorForIdentity(agent.id) }}
-                              >
-                                {agent.title.charAt(0).toUpperCase()}
-                              </div>
-                              <div
-                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(agent.state)}`}
-                                style={{ border: `1px solid ${C.bg}` }}
-                              ></div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate" style={s.inkText}>
-                                {agent.title}
-                                {(rosterAgentTitleCounts.get(agent.title) ?? 0) > 1 && agent.branch ? (
-                                  <span className="font-normal ml-1 text-[10px]" style={s.mutedText}>{agent.branch}</span>
-                                ) : null}
-                              </div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{agentRosterSecondaryText(agent, agentRosterSort)}</div>
-                            </div>
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
-                          </button>
-                        );
-                      }) : (
-                        <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
-                          No agents match this view yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="border-b px-4 py-3 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
-                {selectedInterAgent ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="relative shrink-0">
-                        <div
-                          className={`w-9 h-9 rounded-xl text-[13px] text-white flex items-center justify-center font-bold ${selectedInterAgent.reachable ? '' : 'opacity-40 grayscale'}`}
-                          style={{ backgroundColor: colorForIdentity(selectedInterAgent.id) }}
-                        >
-                          {selectedInterAgent.title.charAt(0).toUpperCase()}
-                        </div>
-                        <div
-                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${relayPresenceDotClass(selectedInterAgent.state)}`}
-                          style={{ border: `1px solid ${C.surface}` }}
-                        ></div>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <div className="text-[15px] font-semibold tracking-tight truncate" style={s.inkText}>
-                            {selectedInterAgent.title}
-                          </div>
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={selectedInterAgent.state === 'working' ? s.activePill : s.tagBadge}>
-                            {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
-                          </span>
-                        </div>
-                        <div className="text-[11px] mt-0.5 truncate max-w-2xl" style={s.mutedText}>
-                          {selectedInterAgent.statusDetail ?? selectedInterAgent.summary ?? null}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <AgentActionButton
-                        icon={<MessageSquare size={13} />}
-                        tone={selectedInterAgentDirectThread ? 'primary' : 'neutral'}
-                        onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
-                      >
-                        {selectedInterAgentChatActionLabel}
-                      </AgentActionButton>
-                      <AgentActionButton
-                        icon={<Eye size={13} />}
-                        onClick={() => handlePeekAgentSession()}
-                      >
-                        Peek
-                      </AgentActionButton>
-                      <AgentActionButton
-                        icon={<Settings size={13} />}
-                        onClick={() => openAgentSettings(selectedInterAgent.id, selectedInterAgent.profileKind === 'project')}
-                      >
-                        {selectedInterAgent.profileKind === 'project' ? 'Configure' : 'Settings'}
-                      </AgentActionButton>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Bot size={14} style={s.mutedText} />
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
-                        Agents
-                      </div>
-                      <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
-                        Select an agent to inspect its operational snapshot and recent threads.
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                {!selectedInterAgent ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <Bot size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No agent selected</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      Pick an agent from the left rail to inspect its profile, runtime binding, and recent communication.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    {/* 1. Live Session */}
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div
-                        className="px-4 py-3 border-b flex items-center justify-between gap-3"
-                        style={{ backgroundColor: C.surface, borderBottomColor: C.border }}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Live Session</div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {visibleAgentSession?.commandLabel ? (
-                            <AgentActionButton
-                              icon={<Copy size={13} />}
-                              onClick={() => void handleCopyAgentSessionCommand()}
-                            >
-                              {agentSessionCopied ? 'Copied' : 'Copy'}
-                            </AgentActionButton>
-                          ) : null}
-                          {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
-                            <AgentActionButton
-                              icon={<FolderOpen size={13} />}
-                              onClick={() => void handleOpenAgentSession()}
-                            >
-                              {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
-                            </AgentActionButton>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {/* Messages — primary content */}
-                      <div className="px-4 py-4 max-h-[320px] overflow-y-auto" style={{ backgroundColor: C.bg }}>
-                        {selectedInterAgentActivityMessages.length > 0 ? (
-                          <RelayTimeline
-                            messages={selectedInterAgentActivityMessages.slice(-8)}
-                            showAnnotations={false}
-                            showStatusMessages={false}
-                            inkStyle={s.inkText}
-                            mutedStyle={s.mutedText}
-                            tagStyle={s.tagBadge}
-                            annotStyle={s.annotBadge}
-                            agentLookup={interAgentAgentLookup}
-                            directThreadLookup={relayDirectLookup}
-                            onOpenAgentProfile={openAgentProfile}
-                            onOpenAgentChat={(agentId, draft) => openRelayAgentThread(agentId, { draft, focusComposer: true })}
-                            onNudgeMessage={handleNudgeMessage}
-                          />
-                        ) : (
-                          <div className="text-[11px] leading-[1.6]" style={s.mutedText}>
-                            No messages yet. Use the broker to send this agent a task.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Logs — collapsible secondary */}
-                      <Collapsible open={agentSessionLogsExpanded} onOpenChange={setAgentSessionLogsExpanded}>
-                        <CollapsibleTrigger asChild>
-                          <button
-                            className="w-full px-4 py-2 border-t flex items-center justify-between gap-2 text-[10px] hover:opacity-90 transition-opacity text-left"
-                            style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <ChevronRight size={10} className="transition-transform duration-150" style={{ transform: agentSessionLogsExpanded ? 'rotate(90deg)' : undefined }} />
-                              <span className="font-mono uppercase tracking-wider">Logs</span>
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
-                                {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
-                              </span>
-                              {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
-                            </div>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div style={{ backgroundColor: C.termBg }}>
-                            {agentSessionLoading && !visibleAgentSession ? (
-                              <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
-                                Loading live session…
-                              </div>
-                            ) : visibleAgentSession?.body ? (
-                              <pre
-                                ref={(element) => {
-                                  agentSessionInlineViewportRef.current = element;
-                                }}
-                                onScroll={(event) => {
-                                  agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
-                                }}
-                                className="px-4 py-4 text-[11px] leading-[1.6] overflow-x-auto whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto"
-                                style={{ color: C.termFg, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-                              >
-                                {visibleAgentSession.body}
-                              </pre>
-                            ) : (
-                              <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
-                                {agentSessionPending
-                                  ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
-                                  : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
-                              </div>
-                            )}
-                          </div>
-                          <div
-                            className="px-4 h-10 border-t flex items-center justify-between gap-3 text-[10px]"
-                            style={{ borderTopColor: C.border, backgroundColor: C.bg, color: C.muted }}
-                          >
-                            <div className="truncate min-w-0 font-mono">
-                              {renderLocalPathValue(
-                                visibleAgentSession?.pathLabel ?? compactHomePath(selectedInterAgent?.cwd ?? selectedInterAgent?.projectRoot) ?? 'No stable session path yet.',
-                                {
-                                  className: 'text-left underline underline-offset-2 decoration-dotted hover:opacity-80 transition-opacity',
-                                },
-                              )}
-                            </div>
-                            {agentSessionFeedback ? (
-                              <div className="shrink-0" style={s.inkText}>{agentSessionFeedback}</div>
-                            ) : null}
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </section>
-
-                    {/* 2. Recent Activity */}
-                    <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border, backgroundColor: C.surface }}>
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Recent Activity</div>
-                        </div>
-                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                              {selectedInterAgentActivityMessages.length} events
-                            </span>
-                            {selectedInterAgentInboundTasks.length > 0 ? (
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
-                                {selectedInterAgentInboundTasks.length} asks
-                              </span>
-                            ) : null}
-                            {selectedInterAgentOutboundFindings.length > 0 ? (
-                              <span
-                                className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                                style={{
-                                  backgroundColor: 'rgba(248, 113, 113, 0.14)',
-                                  color: '#b91c1c',
-                                }}
-                              >
-                                {selectedInterAgentOutboundFindings.length} waiting
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {selectedInterAgentFindings.length > 0 ? (
-                          <div className="px-4 py-3 border-b flex flex-col gap-2" style={{ borderBottomColor: C.border, backgroundColor: C.bg }}>
-                            {selectedInterAgentFindings.slice(0, 2).map((finding) => (
-                              <div
-                                key={finding.id}
-                                className="rounded-lg border px-3 py-2"
-                                style={{
-                                  borderColor: finding.severity === 'error' ? 'rgba(248, 113, 113, 0.28)' : 'rgba(245, 158, 11, 0.28)',
-                                  backgroundColor: finding.severity === 'error' ? 'rgba(248, 113, 113, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-                                }}
-                              >
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="text-[11px] font-medium" style={s.inkText}>{finding.title}</div>
-                                  <span className="text-[9px] font-mono uppercase" style={s.mutedText}>
-                                    {finding.ageLabel ?? finding.updatedAtLabel ?? 'Open'}
-                                  </span>
-                                </div>
-                                <div className="text-[11px] mt-1" style={s.mutedText}>
-                                  {finding.summary}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                      <div className="px-4 py-4 max-h-[280px] overflow-y-auto" style={{ backgroundColor: C.bg }}>
-                        {selectedInterAgentActivityMessages.length > 0 ? (
-                          <RelayTimeline
-                            messages={agentActivityExpanded ? selectedInterAgentActivityMessages : selectedInterAgentActivityMessages.slice(-5)}
-                            showAnnotations={true}
-                            showStatusMessages={true}
-                            inkStyle={s.inkText}
-                            mutedStyle={s.mutedText}
-                            tagStyle={s.tagBadge}
-                            annotStyle={s.annotBadge}
-                            agentLookup={interAgentAgentLookup}
-                            directThreadLookup={relayDirectLookup}
-                            onOpenAgentProfile={openAgentProfile}
-                            onOpenAgentChat={(agentId, draft) => openRelayAgentThread(agentId, { draft, focusComposer: true })}
-                            onNudgeMessage={handleNudgeMessage}
-                          />
-                        ) : (
-                          <div className="text-[11px] leading-[1.6]" style={s.mutedText}>
-                            No broker-visible activity for this agent yet.
-                          </div>
-                        )}
-                        {selectedInterAgentActivityMessages.length > 5 && !agentActivityExpanded ? (
-                          <button
-                            className="w-full text-center py-2 text-[11px] font-medium hover:opacity-80 transition-opacity"
-                            style={{ color: C.accent }}
-                            onClick={() => setAgentActivityExpanded(true)}
-                          >
-                            Show all {selectedInterAgentActivityMessages.length} events
-                          </button>
-                        ) : null}
-                      </div>
-                    </section>
-
-                    {/* 3. Open Threads (collapsible) */}
-                    <Collapsible open={agentThreadsExpanded} onOpenChange={setAgentThreadsExpanded}>
-                      <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                        <CollapsibleTrigger asChild>
-                          <button className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:opacity-90 transition-opacity text-left" style={{ backgroundColor: C.surface }}>
-                            <div className="flex items-center gap-2">
-                              <ChevronRight size={12} className="transition-transform duration-150" style={{ color: C.muted, transform: agentThreadsExpanded ? 'rotate(90deg)' : undefined }} />
-                              <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Open Threads</div>
-                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>{visibleInterAgentThreads.length + 1}</span>
-                            </div>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-4 py-3 border-t flex flex-col gap-3" style={{ borderTopColor: C.border }}>
-                            <div className="border rounded-lg px-3 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-[13px] font-medium truncate" style={s.inkText}>Direct Line</div>
-                                  <div className="text-[10px] truncate mt-1" style={s.mutedText}>You and {selectedInterAgent.title}</div>
-                                </div>
-                                <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                                  {selectedInterAgentDirectThread?.timestampLabel ?? selectedInterAgent.lastChatLabel ?? ''}
-                                </span>
-                              </div>
-                              <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
-                                {selectedAgentDirectLinePreview}
-                              </div>
-                              <div className="flex items-center justify-between gap-3 mt-3">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.activePill}>
-                                    Direct
-                                  </span>
-                                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                    {selectedInterAgent.state === 'working' ? 'Working' : selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
-                                  </span>
-                                </div>
-                                <button
-                                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded shrink-0"
-                                  style={{ color: C.ink }}
-                                  onClick={() => openRelayAgentThread(selectedInterAgent.id, { focusComposer: true })}
-                                >
-                                  {selectedInterAgentChatActionLabel}
-                                </button>
-                              </div>
-                            </div>
-                            {visibleInterAgentThreads.length > 0 ? (
-                              <div className="flex flex-col gap-3">
-                                {visibleInterAgentThreads.map((thread) => (
-                                  <div
-                                    key={thread.id}
-                                    className="border rounded-lg px-3 py-3"
-                                    style={{ borderColor: C.border, backgroundColor: selectedInterAgentThreadId === thread.id ? C.bg : C.surface }}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <div className="text-[13px] font-medium truncate" style={s.inkText}>
-                                          {interAgentThreadTitleForAgent(thread, selectedInterAgent.id)}
-                                        </div>
-                                        <div className="text-[10px] truncate mt-1" style={s.mutedText}>
-                                          {interAgentThreadSubtitle(thread, selectedInterAgent.id)}
-                                        </div>
-                                      </div>
-                                      <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                                        {thread.timestampLabel ?? ''}
-                                      </span>
-                                    </div>
-                                    <div className="text-[12px] leading-[1.55] mt-3" style={s.mutedText}>
-                                      {thread.preview ?? 'No message preview yet.'}
-                                    </div>
-                                    <div className="flex items-center justify-between gap-3 mt-3">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
-                                          {thread.sourceKind === 'private' ? 'Private' : 'Targeted'}
-                                        </span>
-                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={s.tagBadge}>
-                                          {thread.messageCount} msgs
-                                        </span>
-                                      </div>
-                                      <button
-                                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                                        style={{ color: C.ink }}
-                                        onClick={() => {
-                                          setSelectedInterAgentThreadId(thread.id);
-                                          setActiveView('inter-agent');
-                                        }}
-                                      >
-                                        Open
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex flex-col items-start gap-3">
-                                <div className="text-[11px] leading-[1.5]" style={s.mutedText}>
-                                  No other active channels for this agent yet.
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </CollapsibleContent>
-                      </section>
-                    </Collapsible>
-
-                    {/* 4. Operational Snapshot (collapsible) */}
-                    <Collapsible open={agentSnapshotExpanded} onOpenChange={setAgentSnapshotExpanded}>
-                      <section className="border rounded-xl overflow-hidden" style={{ ...s.surface, borderColor: C.border }}>
-                        <CollapsibleTrigger asChild>
-                          <button className="w-full px-4 py-3 flex items-center gap-2 hover:opacity-90 transition-opacity text-left" style={{ backgroundColor: C.surface }}>
-                            <ChevronRight size={12} className="transition-transform duration-150" style={{ color: C.muted, transform: agentSnapshotExpanded ? 'rotate(90deg)' : undefined }} />
-                            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: C.accent }}>Operational Snapshot</div>
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <div className="px-4 py-3 border-t" style={{ borderTopColor: C.border }}>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                              {[
-                                ['Harness', visibleAgentConfig?.runtime.harness ?? selectedInterAgent.harness ?? 'Not reported'],
-                                ['Session', visibleAgentConfig?.runtime.sessionId ?? selectedInterAgent.sessionId ?? 'Not reported'],
-                                ['Transport', visibleAgentConfig?.runtime.transport ?? selectedInterAgent.transport ?? 'Not reported'],
-                                ['Wake Policy', visibleAgentConfig?.runtime.wakePolicy || selectedInterAgent.wakePolicy || 'Not reported'],
-                                ['Last Chat', selectedInterAgent.lastChatLabel ?? 'Not reported'],
-                                ['Last Dev Session', selectedInterAgent.lastSessionLabel ?? 'Not reported'],
-                                ['Last Code Change', selectedInterAgent.lastCodeChangeLabel ?? 'Not reported'],
-                              ].map(([label, value]) => (
-                                <div key={label} className="min-w-0">
-                                  <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={s.mutedText}>{label}</div>
-                                  <div className="text-[11px] leading-[1.45] break-words" style={s.inkText}>{value}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </CollapsibleContent>
-                      </section>
-                    </Collapsible>
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-
-        /* --- LOGS --- */
-        ) : activeView === 'logs' ? (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-4 h-14 flex items-center border-b" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Logs</h1>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {logSources.length} sources
-                    </div>
-                  </div>
-                </div>
-                <div className="px-3 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                  <input
-                    type="text"
-                    value={logSourceQuery}
-                    onChange={(event) => setLogSourceQuery(event.target.value)}
-                    placeholder="Filter sources…"
-                    className="w-full rounded-lg border px-3 py-2 text-[11px] bg-transparent outline-none"
-                    style={{ borderColor: C.border, color: C.ink }}
-                  />
-                </div>
-                <div className="flex-1 overflow-y-auto py-3">
-                  {logSources.length === 0 ? (
-                    <div className="px-4 py-6 text-center">
-                      <div className="flex justify-center gap-1 mb-2">
-                        <span className="os-thinking-dot" style={{ color: C.accent }} />
-                        <span className="os-thinking-dot" style={{ color: C.accent }} />
-                        <span className="os-thinking-dot" style={{ color: C.accent }} />
-                      </div>
-                      <div className="text-[11px]" style={s.mutedText}>Loading sources…</div>
-                    </div>
-                  ) : (['runtime', 'app', 'agents'] as const).map((group) => {
-                    const groupSources = filteredLogSources.filter((source) => source.group === group);
-                    if (groupSources.length === 0) {
-                      return null;
-                    }
-                    const label = group === 'runtime' ? 'Runtime' : group === 'app' ? 'App' : 'Agents';
-                    return (
-                      <div key={group} className="mb-3 px-2">
-                        <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>{label}</div>
-                        <div className="flex flex-col gap-px">
-                          {groupSources.map((source) => {
-                            const active = selectedLogSourceId === source.id;
-                            return (
-                              <button
-                                key={source.id}
-                                onClick={() => {
-                                  setSelectedLogSourceId(source.id);
-                                  setLogSearchQuery('');
-                                }}
-                                className="w-full text-left px-2 py-2 rounded transition-opacity hover:opacity-90"
-                                style={active ? s.activeItem : s.mutedText}
-                              >
-                                <div className="text-[12px] font-medium truncate" style={s.inkText}>{source.title}</div>
-                                <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>{source.subtitle}</div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="border-b flex items-center justify-between px-4 h-14 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileJson size={14} style={s.mutedText} />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>
-                      {selectedLogSource?.title ?? 'Logs'}
-                    </div>
-                    <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
-                      {logContent?.updatedAtLabel
-                        ? `${selectedLogSource?.subtitle ?? 'Log tail'} · Updated ${logContent.updatedAtLabel}`
-                        : selectedLogSource?.subtitle ?? 'Relay runtime, app, and relay agent logs.'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-b px-4 py-3 flex items-center gap-3" style={{ borderBottomColor: C.border }}>
-                <input
-                  type="text"
-                  value={logSearchQuery}
-                  onChange={(event) => setLogSearchQuery(event.target.value)}
-                  placeholder="Filter visible lines…"
-                  className="flex-1 rounded-lg border px-3 py-2 text-[11px] bg-transparent outline-none"
-                  style={{ borderColor: C.border, color: C.ink }}
-                />
-                <div className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                  {logContent
-                    ? logContent.truncated
-                      ? `Tail ${logContent.lineCount} lines`
-                      : `${logContent.lineCount} lines`
-                    : 'No file'}
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                {!selectedLogSource ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    {!logCatalog ? (
-                      <>
-                        <div className="flex justify-center gap-1 mb-3">
-                          <span className="os-thinking-dot" style={{ color: C.accent }} />
-                          <span className="os-thinking-dot" style={{ color: C.accent }} />
-                          <span className="os-thinking-dot" style={{ color: C.accent }} />
-                        </div>
-                        <p className="text-[13px]" style={s.mutedText}>Loading log sources…</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                          <FileJson size={24} style={{ color: C.accent }} />
-                        </div>
-                        <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No log selected</h3>
-                        <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                          Pick a relay runtime, app, or relay agent source from the left rail.
-                        </p>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <LogPanel
-                    title={selectedLogSource.title}
-                    pathLabel={logContent?.pathLabel ?? selectedLogSource.pathLabel}
-                    body={logContent?.body ?? null}
-                    truncated={logContent?.truncated}
-                    lineCount={logContent?.lineCount}
-                    missing={logContent?.missing}
-                    loading={logsLoading}
-                    searchQuery={logSearchQuery}
-                    updatedAtLabel={logContent?.updatedAtLabel}
-                    minHeight={360}
-                  />
-                )}
-                {logsFeedback ? (
-                  <div className="text-[11px] leading-[1.5] mt-3" style={s.inkText}>{logsFeedback}</div>
-                ) : null}
-              </div>
-
-              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Canonical relay runtime, app, and relay agent log tails</span>
-              </div>
-            </div>
-          </>
-
-        /* --- INTER-AGENT --- */
-        ) : activeView === 'inter-agent' ? (
-          <>
-            {!isCollapsed && (
-              <div style={{ width: sidebarWidth, ...s.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-                <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={handleMouseDown} />
-                <div className="px-4 h-14 flex items-center justify-between border-b" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <h1 className="text-[13px] font-semibold tracking-tight" style={s.inkText}>{interAgentState?.title ?? 'Inter-Agent'}</h1>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {rosterInterAgentAgents.length === interAgentAgents.length
-                        ? interAgentState?.subtitle ?? 'Agent-to-agent traffic'
-                        : `${rosterInterAgentAgents.length} visible · ${interAgentState?.subtitle ?? `${interAgentAgents.length} agents`}`}
-                    </div>
-                  </div>
-                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-y-auto py-3">
-                  <div className="mb-3 px-2">
-                    <div className="font-mono text-[9px] tracking-widest uppercase mb-1.5 px-2" style={s.mutedText}>Agents</div>
-                    <div className="flex items-center justify-end gap-2 px-2 mb-2 relative">
-                      <div className="relative">
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => setAgentRosterMenu((current) => current === 'filter' ? null : 'filter')}
-                          title="Filter roster"
-                        >
-                          <Filter size={11} />
-                          <span style={s.mutedText}>{agentRosterFilterLabel(agentRosterFilter)}</span>
-                        </button>
-                        {agentRosterMenu === 'filter' ? (
-                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
-                            {([
-                              ['all', 'All Agents'],
-                              ['active', 'Active Only'],
-                            ] as const).map(([value, label]) => (
-                              <button
-                                key={value}
-                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
-                                style={value === agentRosterFilter ? s.activeItem : s.inkText}
-                                onClick={() => {
-                                  setAgentRosterFilter(value);
-                                  setAgentRosterMenu(null);
-                                }}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="relative">
-                        <button
-                          className="os-toolbar-button flex items-center gap-1 text-[10px] px-2 py-1 rounded"
-                          style={{ color: C.ink }}
-                          onClick={() => setAgentRosterMenu((current) => current === 'sort' ? null : 'sort')}
-                          title="Sort roster"
-                        >
-                          <ArrowUpDown size={11} />
-                          <span style={s.mutedText}>{agentRosterSortLabel(agentRosterSort)}</span>
-                        </button>
-                        {agentRosterMenu === 'sort' ? (
-                          <div className="absolute right-0 top-full mt-1 w-36 rounded-lg border shadow-sm z-20" style={{ backgroundColor: C.surface, borderColor: C.border }}>
-                            {([
-                              ['chat', 'Recent Chat'],
-                              ['code', 'Code Changes'],
-                              ['session', 'Dev Sessions'],
-                              ['alpha', 'A-Z'],
-                            ] as const).map(([value, label]) => (
-                              <button
-                                key={value}
-                                className="w-full text-left px-3 py-2 text-[11px] transition-opacity hover:opacity-80"
-                                style={value === agentRosterSort ? s.activeItem : s.inkText}
-                                onClick={() => {
-                                  setAgentRosterSort(value);
-                                  setAgentRosterMenu(null);
-                                }}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-px">
-                      {rosterInterAgentAgents.length > 0 ? rosterInterAgentAgents.map((agent) => {
-                        const active = selectedInterAgentId === agent.id;
-                        return (
-                          <button
-                            key={agent.id}
-                            onClick={() => handleSelectInterAgent(agent.id)}
-                            className="flex items-center gap-2 px-2 py-2 rounded text-[12px] transition-opacity w-full text-left"
-                            style={active ? s.activeItem : s.mutedText}
-                          >
-                            <div className="relative shrink-0">
-                              <div
-                                className={`w-6 h-6 rounded text-white flex items-center justify-center text-[9px] font-bold ${agent.reachable ? '' : 'opacity-40 grayscale'}`}
-                                style={{ backgroundColor: colorForIdentity(agent.id) }}
-                              >
-                                {agent.title.charAt(0).toUpperCase()}
-                              </div>
-                              <div
-                                className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${relayPresenceDotClass(agent.state)}`}
-                                style={{ border: `1px solid ${C.bg}` }}
-                              ></div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate" style={s.inkText}>
-                                {agent.title}
-                                {(rosterAgentTitleCounts.get(agent.title) ?? 0) > 1 && agent.branch ? (
-                                  <span className="font-normal ml-1 text-[10px]" style={s.mutedText}>{agent.branch}</span>
-                                ) : null}
-                              </div>
-                              <div className="text-[10px] truncate" style={s.mutedText}>{agentRosterSecondaryText(agent, agentRosterSort)}</div>
-                            </div>
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={active ? s.activePill : s.tagBadge}>{agent.threadCount}</span>
-                          </button>
-                        );
-                      }) : (
-                        <div className="px-3 py-8 text-[12px] text-center" style={s.mutedText}>
-                          No agents match this view yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="w-[336px] border-r shrink-0 overflow-hidden flex flex-col" style={{ ...s.surface, borderRightColor: C.border }}>
-              <div className="px-4 h-14 border-b flex flex-col justify-center" style={{ borderBottomColor: C.border }}>
-                <div className="text-[10px] font-mono tracking-widest uppercase" style={s.mutedText}>Agent Threads</div>
-                <div className="text-[12px] mt-1" style={s.inkText}>
-                  {selectedInterAgent
-                    ? `${selectedInterAgent.title} · ${visibleInterAgentThreads.length} thread${visibleInterAgentThreads.length === 1 ? '' : 's'}`
-                    : 'Select an agent'}
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto">
-                {selectedInterAgent && visibleInterAgentThreads.length > 0 ? (
-                  <div className="divide-y" style={{ borderColor: C.border }}>
-                    {visibleInterAgentThreads.map((thread) => {
-                      const active = selectedInterAgentThreadId === thread.id;
-                      return (
-                        <button
-                          key={thread.id}
-                          onClick={() => setSelectedInterAgentThreadId(thread.id)}
-                          className="w-full text-left px-4 py-3.5 transition-opacity hover:opacity-90"
-                          style={active ? { backgroundColor: C.bg } : undefined}
-                        >
-                          <div className="flex items-start justify-between gap-2 mb-1.5">
-                            <div className="min-w-0">
-                              <div className="text-[12px] font-medium truncate" style={s.inkText}>
-                                {interAgentThreadTitleForAgent(thread, selectedInterAgentId)}
-                              </div>
-                              <div className="mt-1">
-                                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={thread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
-                                  {thread.sourceKind === 'private' ? 'Private' : 'Relay'}
-                                </span>
-                              </div>
-                            </div>
-                            <span className="text-[10px] font-mono shrink-0" style={s.mutedText}>
-                              {thread.timestampLabel ?? ''}
-                            </span>
-                          </div>
-                          <div className="text-[10px] mb-1.5 truncate" style={s.mutedText}>
-                            {interAgentThreadSubtitle(thread, selectedInterAgentId)}
-                          </div>
-                          <div className="text-[12px] leading-[1.45] line-clamp-2" style={s.mutedText}>
-                            {thread.preview ?? 'No message preview yet.'}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex h-full items-center justify-center px-6 text-center">
-                    <div>
-                      <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ backgroundColor: C.accentBg }}>
-                        <InterAgentIcon size={22} style={{ color: C.accent }} />
-                      </div>
-                      <div className="text-[14px] font-medium mb-1" style={s.inkText}>No agent threads</div>
-                      <div className="text-[12px]" style={s.mutedText}>
-                        {selectedInterAgent ? `No inter-agent traffic for ${selectedInterAgent.title} yet.` : 'Pick an agent to inspect its thread network.'}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="border-b flex items-center justify-between px-4 h-14 shrink-0 gap-4" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <InterAgentIcon size={14} style={s.mutedText} />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <h2 className="text-[13px] font-semibold tracking-tight truncate" style={s.inkText}>{interAgentThreadTitle}</h2>
-                      {selectedInterAgentThread ? (
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded shrink-0" style={selectedInterAgentThread.sourceKind === 'private' ? s.tagBadge : s.activePill}>
-                          {selectedInterAgentThread.sourceKind === 'private' ? 'Private' : 'Relay'}
-                        </span>
-                      ) : null}
-                      {selectedInterAgentThread ? (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0" style={s.tagBadge}>
-                          {selectedInterAgentThread.messageCount}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="text-[10px] truncate mt-0.5" style={s.mutedText}>
-                      {selectedInterAgentThreadSubtitle}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {selectedRelayDirectThread ? (
-                    <button
-                      className="os-toolbar-button flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                      onClick={() => openAgentProfile(selectedRelayDirectThread.id)}
-                    >
-                      <Bot size={11} />
-                      <span>Agent</span>
-                    </button>
-                  ) : null}
-                  <button
-                    onClick={() => setShowAnnotations(!showAnnotations)}
-                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                    style={showAnnotations ? { backgroundColor: C.accentBg, color: C.accent } : { color: C.ink }}
-                  >
-                    Annotations <span className="font-mono uppercase">{showAnnotations ? 'On' : 'Off'}</span>
-                  </button>
-                  {interAgentMessageTarget ? (
-                    <button
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                      onClick={() => openAgentDirectMessage(interAgentMessageTarget.id)}
-                      title={`Open direct chat with ${interAgentMessageTarget.title}`}
-                    >
-                      Message
-                    </button>
-                  ) : null}
-                  {interAgentConfigureTarget ? (
-                    <button
-                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                      style={{ color: C.ink }}
-                      onClick={() => openAgentSettings(interAgentConfigureTarget.id, interAgentConfigureTarget.profileKind === 'project')}
-                      title={interAgentConfigureTarget.profileKind === 'project'
-                        ? `Configure ${interAgentConfigureTarget.title}`
-                        : `Open ${interAgentConfigureTarget.title} profile`}
-                    >
-                      {interAgentConfigureLabel}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-4 py-3 pb-6">
-                {!selectedInterAgent ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <InterAgentIcon size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No agent selected</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      Choose an agent from the left rail to inspect their traffic with other agents.
-                    </p>
-                  </div>
-                ) : !selectedInterAgentThread ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <MessageSquare size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No thread selected</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      Pick one of {selectedInterAgent.title}&apos;s agent threads to read it.
-                    </p>
-                  </div>
-                ) : visibleInterAgentMessages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <MessageSquare size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>Thread is quiet</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      This agent thread exists, but there are no visible messages in it yet.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <RelayTimeline
-                      messages={visibleInterAgentMessages}
-                      showAnnotations={showAnnotations}
-                      showStatusMessages={false}
-                      inkStyle={s.inkText}
-                      mutedStyle={s.mutedText}
-                      tagStyle={s.tagBadge}
-                      annotStyle={s.annotBadge}
-                      agentLookup={interAgentAgentLookup}
-                      directThreadLookup={relayDirectLookup}
-                      onOpenAgentProfile={openAgentProfile}
-                      onOpenAgentChat={openAgentDirectMessage}
-                      onNudgeMessage={handleNudgeMessage}
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Read-only monitor over inter-agent traffic</span>
-              </div>
-            </div>
-          </>
-
-        /* --- SESSIONS --- */
-        ) : activeView === 'sessions' ? (
-          <>
-            {/* Main Sessions Area */}
-            <div className="flex-1 flex flex-col relative min-w-0" style={s.surface}>
-              <div className="h-10 border-b flex items-center justify-between px-4 shrink-0" style={{ ...s.surface, borderBottomColor: C.border }}>
-                <div className="flex items-center gap-4 min-w-0 flex-1">
-                  <div className="min-w-0 shrink-0">
-                    <div className="text-[13px] font-semibold tracking-tight" style={s.inkText}>Sessions</div>
-                    <div className="text-[10px] font-mono mt-0.5" style={s.mutedText}>
-                      {searchQuery ? `${filteredSessions.length} results` : `${stats.totalSessions} total`}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <Search size={14} style={s.mutedText} />
-                    <input
-                      type="text"
-                      placeholder="Search sessions by title, content, tags, or agent..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="flex-1 bg-transparent border-none outline-none text-[12px]"
-                      style={{ color: C.ink }}
-                    />
-                    {searchQuery && (
-                      <button onClick={() => setSearchQuery('')} className="hover:opacity-70" style={s.mutedText}><X size={14} /></button>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button className="p-1.5 rounded transition-opacity hover:opacity-70" style={s.mutedText} onClick={() => void handleRefreshShell()}>
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                {isLoadingShell && !shellState ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="flex flex-col items-center gap-3">
-                      <Spinner className="text-[28px]" style={{ color: C.accent }} />
-                      <span className="text-[13px]" style={s.mutedText}>Loading broker workspace…</span>
-                    </div>
-                  </div>
-                ) : filteredSessions.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-                      <FolderOpen size={24} style={{ color: C.accent }} />
-                    </div>
-                    <h3 className="text-[15px] font-medium mb-1" style={s.inkText}>No sessions found</h3>
-                    <p className="text-[13px] max-w-sm" style={s.mutedText}>
-                      {searchQuery ? 'Try adjusting your search query' : 'No conversations are in the broker yet.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y" style={{ borderColor: C.border }}>
-                    {filteredSessions.map(session => (
-                      <button
-                        key={session.id}
-                        onClick={() => setSelectedSession(session)}
-                        draggable
-                        onDragStart={() => {
-                          setDraggedSessionId(session.id);
-                          setDraggedPhoneSection(null);
-                        }}
-                        onDragEnd={() => {
-                          setDraggedSessionId(null);
-                          setDraggedPhoneSection(null);
-                        }}
-                        className="w-full text-left px-4 py-3 transition-opacity hover:opacity-90"
-                        style={selectedSession?.id === session.id ? { backgroundColor: C.bg } : undefined}
-                      >
-                        <div className="flex items-start justify-between mb-1">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-5 h-5 rounded text-white flex items-center justify-center text-[9px] font-bold"
-                              style={{ backgroundColor: colorForIdentity(session.agent) }}
-                            >
-                              {session.agent.charAt(0)}
-                            </div>
-                            <span className="text-[13px] font-medium line-clamp-1" style={s.inkText}>{session.title}</span>
-                            {phonePreparationState.favorites.includes(session.id) && (
-                              <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ backgroundColor: C.accentBg, color: C.accent }}>
-                                <Star size={9} />
-                                Fav
-                              </span>
-                            )}
-                            {!phonePreparationState.favorites.includes(session.id) && phonePreparationState.quickHits.includes(session.id) && (
-                              <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ backgroundColor: C.tagBg, color: C.ink }}>
-                                <Smartphone size={9} />
-                                My List
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] font-mono shrink-0 ml-2" style={s.mutedText}>{formatDate(session.lastModified)}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mb-1.5 pl-7">
-                          <span className="text-[10px] font-mono" style={s.mutedText}>{session.project}</span>
-                          <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
-                          <span className="text-[10px]" style={s.mutedText}>{session.messageCount} messages</span>
-                          {session.tokens && (
-                            <>
-                              <span className="w-px h-3" style={{ backgroundColor: C.border }}></span>
-                              <span className="text-[10px]" style={s.mutedText}>{(session.tokens / 1000).toFixed(1)}k tokens</span>
-                            </>
-                          )}
-                        </div>
-                        <p className="text-[12px] line-clamp-1 pl-7" style={s.mutedText}>{session.preview}</p>
-                        {session.tags && session.tags.length > 0 && (
-                          <div className="flex items-center gap-1.5 mt-2 pl-7">
-                            {session.tags.slice(0, 3).map(tag => (
-                              <span key={tag} className="text-[9px] font-mono border px-1.5 py-0.5 rounded" style={s.tagBadge}>{tag}</span>
-                            ))}
-                            {session.tags.length > 3 && <span className="text-[9px]" style={s.mutedText}>+{session.tags.length - 3}</span>}
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="h-7 border-t flex items-center justify-between px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-                <span className="text-[9px] font-mono" style={s.mutedText}>Drag sessions into My List or click one for quick actions.</span>
-                <span className="text-[9px] font-mono uppercase tracking-widest" style={s.mutedText}>Index Ready</span>
-              </div>
-            </div>
-
-            <div className="w-80 border-l shrink-0 overflow-y-auto flex flex-col" style={{ ...s.surface, borderLeftColor: C.border }}>
-              <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-mono tracking-widest uppercase mb-1" style={s.mutedText}>My List</div>
-                        <div className="text-[12px] font-medium" style={s.inkText}>My List first, then browse and search.</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleClearPhoneQuickHits}
-                    disabled={phonePreparationSaving || phonePreparationState.quickHits.length === 0}
-                    className="rounded px-2 py-1 text-[10px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ backgroundColor: C.bg, color: C.ink, border: `1px solid ${C.border}` }}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-4 flex-1 flex flex-col gap-4">
-                {phonePreparationLoading ? (
-                  <div className="flex items-center gap-2 text-[12px]" style={s.mutedText}>
-                    <Spinner className="text-[12px]" />
-                    Loading list…
-                  </div>
-                ) : (
+            },
+            C,
+            s,
+            isCollapsed,
+            sidebarWidth,
+            onResizeStart: handleMouseDown,
+            onOpenRelayAgent: openRelayAgentThread,
+            onRefresh: () => void handleRefreshShell(),
+            identityColor: colorForIdentity,
+          }}
+          search={{
+            isCollapsed,
+            sidebarWidth,
+            onResizeStart: handleMouseDown,
+            styles: {
+              sidebar: s.sidebar,
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              activeItem: s.activeItem,
+              kbd: s.kbd,
+            },
+            availableAgentNames,
+            searchQuery,
+            setSearchQuery,
+            filteredSessions,
+            stats: {
+              totalSessions: stats.totalSessions,
+              totalMessages: stats.totalMessages,
+            },
+            formatDate,
+            onOpenSession: (session) => {
+              setSelectedSession(session);
+              setActiveView('sessions');
+            },
+          }}
+        />
+        <SettingsHelpView
+          activeView={activeView}
+          help={{
+            styles: {
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              activePill: s.activePill,
+            },
+            buildOnboardingCommandLine,
+            onboardingCopiedCommand,
+            onboardingCommandPending,
+            onCopyOnboardingCommand: handleCopyOnboardingCommand,
+            onRunOnboardingCommand: handleRunOnboardingCommand,
+            onOpenGeneralSettings: () => {
+              setActiveView('settings');
+              setSettingsSection('profile');
+            },
+          }}
+          settings={{
+            styles: {
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              activePill: s.activePill,
+            },
+            settingsSection,
+            settingsSections,
+            activeSettingsMeta,
+            onSetSettingsSection: setSettingsSection,
+            onOpenFeedbackDialog: openFeedbackDialog,
+            headerActions: settingsSection === 'profile' ? (
+              <>
+                {isAppSettingsEditing ? (
                   <>
-                    <div
-                      className="rounded-lg border p-3"
-                      style={{ borderColor: C.border, backgroundColor: C.bg }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        handleDropIntoFavorites();
-                      }}
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                      style={{ color: C.ink }}
+                      onClick={() => handleCancelAppSettingsEdit()}
+                      disabled={appSettingsSaving}
                     >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <Star size={12} style={{ color: C.accent }} />
-                          <div className="text-[11px] font-semibold" style={s.inkText}>Favorites</div>
-                        </div>
-                        <div className="text-[10px] font-mono" style={s.mutedText}>{favoritePhoneSessions.length}</div>
-                      </div>
-                      {favoritePhoneSessions.length === 0 ? (
-                        <div className="rounded border border-dashed px-3 py-4 text-[11px]" style={{ borderColor: C.border, color: C.muted }}>
-                          Drop sessions here to keep them pinned in your list.
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          {favoritePhoneSessions.map((session) => (
-                            <div
-                              key={`favorite-${session.id}`}
-                              draggable
-                              onDragStart={() => {
-                                setDraggedSessionId(session.id);
-                                setDraggedPhoneSection('favorites');
-                              }}
-                              onDragEnd={() => {
-                                setDraggedSessionId(null);
-                                setDraggedPhoneSection(null);
-                              }}
-                              className="rounded border px-3 py-2"
-                              style={{ borderColor: C.border, backgroundColor: C.surface }}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="text-[12px] font-medium line-clamp-1" style={s.inkText}>{session.title}</div>
-                                  <div className="text-[10px] mt-1" style={s.mutedText}>{session.project} · {formatDate(session.lastModified)}</div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveSessionFromPhoneSection(session.id, 'favorites')}
-                                  className="text-[10px] hover:opacity-70"
-                                  style={s.mutedText}
-                                >
-                                  <X size={12} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div
-                      className="rounded-lg border p-3"
-                      style={{ borderColor: C.border, backgroundColor: C.bg }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        handleDropIntoQuickHits();
-                      }}
+                      Cancel
+                    </button>
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                      style={{ color: C.ink }}
+                      onClick={() => void handleSaveAppSettings()}
+                      disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
                     >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <List size={12} style={{ color: C.accent }} />
-                          <div className="text-[11px] font-semibold" style={s.inkText}>My List</div>
-                        </div>
-                        <div className="text-[10px] font-mono" style={s.mutedText}>{quickHitPhoneSessions.length}</div>
-                      </div>
-                      {quickHitPhoneSessions.length === 0 ? (
-                        <div className="rounded border border-dashed px-3 py-4 text-[11px]" style={{ borderColor: C.border, color: C.muted }}>
-                          Drag sessions here and order them however you want.
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          {quickHitPhoneSessions.map((session, index) => (
-                            <div
-                              key={`quick-hit-${session.id}`}
-                              draggable
-                              onDragStart={() => {
-                                setDraggedSessionId(session.id);
-                                setDraggedPhoneSection('quickHits');
-                              }}
-                              onDragEnd={() => {
-                                setDraggedSessionId(null);
-                                setDraggedPhoneSection(null);
-                              }}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                handleDropIntoQuickHits(index);
-                              }}
-                              className="rounded border px-3 py-2"
-                              style={{ borderColor: C.border, backgroundColor: C.surface }}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="text-[11px] font-mono mb-1" style={s.mutedText}>#{index + 1}</div>
-                                  <div className="text-[12px] font-medium line-clamp-1" style={s.inkText}>{session.title}</div>
-                                  <div className="text-[10px] mt-1" style={s.mutedText}>{session.project} · {formatDate(session.lastModified)}</div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveSessionFromPhoneSection(session.id, 'quickHits')}
-                                  className="text-[10px] hover:opacity-70"
-                                  style={s.mutedText}
-                                >
-                                  <X size={12} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {phonePreparationFeedback && (
-                      <div className="rounded border px-3 py-2 text-[11px]" style={{ borderColor: C.border, backgroundColor: C.surface, color: C.ink }}>
-                        {phonePreparationFeedback}
-                      </div>
-                    )}
-
-                    <div className="rounded-lg border p-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                      <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={s.mutedText}>Selected Session</div>
-                      {selectedSession ? (
-                        <>
-                          <div className="flex items-center gap-2 mb-3">
-                            <div
-                              className="w-8 h-8 rounded text-white flex items-center justify-center text-[12px] font-bold"
-                              style={{ backgroundColor: colorForIdentity(selectedSession.agent) }}
-                            >
-                              {selectedSession.agent.charAt(0)}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="text-[12px] font-medium line-clamp-1" style={s.inkText}>{selectedSession.title}</div>
-                              <div className="text-[10px]" style={s.mutedText}>{selectedSession.project} · {selectedSession.messageCount} messages</div>
-                            </div>
-                          </div>
-                          <p className="text-[11px] leading-relaxed mb-3" style={s.mutedText}>{selectedSession.preview}</p>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleAddSessionToPhoneSection(selectedSession.id, 'favorites')}
-                              disabled={phonePreparationSaving || phonePreparationState.favorites.includes(selectedSession.id)}
-                              className="flex-1 rounded px-3 py-2 text-[11px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                              style={{ backgroundColor: C.accentBg, color: C.accent }}
-                            >
-                              {phonePreparationState.favorites.includes(selectedSession.id) ? 'Pinned' : 'Add to Favorites'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleAddSessionToPhoneSection(selectedSession.id, 'quickHits')}
-                              disabled={phonePreparationSaving || phonePreparationState.quickHits.includes(selectedSession.id) || phonePreparationState.favorites.includes(selectedSession.id)}
-                              className="flex-1 rounded px-3 py-2 text-[11px] font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-                              style={{ backgroundColor: C.surface, color: C.ink, border: `1px solid ${C.border}` }}
-                            >
-                              {phonePreparationState.quickHits.includes(selectedSession.id) || phonePreparationState.favorites.includes(selectedSession.id)
-                                ? 'Already Added'
-                                : 'Add to My List'}
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="text-[11px]" style={s.mutedText}>
-                          Select a session to pin it or add it to My List.
-                        </div>
-                      )}
-                    </div>
+                      {appSettingsSaving ? 'Saving…' : 'Save General'}
+                    </button>
                   </>
+                ) : (
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                    style={{ color: C.ink }}
+                    onClick={() => handleStartAppSettingsEdit()}
+                    disabled={appSettingsLoading || !visibleAppSettings}
+                  >
+                    Edit General
+                  </button>
                 )}
-              </div>
-            </div>
-          </>
-
-        /* --- MESSAGES --- */
-        ) : activeView === 'messages' || activeView === 'relay' ? (
-          <MessagesView
-            sidebarWidth={sidebarWidth}
-            messagesDetailWidth={messagesDetailWidth}
-            isCollapsed={isCollapsed}
-            onResizeStart={handleMouseDown}
-            onMessagesDetailResizeStart={handleMessagesDetailResizeStart}
-            styles={{
+                <button
+                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                  style={{ color: C.ink }}
+                  onClick={handleRestartOnboarding}
+                  disabled={appSettingsLoading || !visibleAppSettings}
+                >
+                  <RefreshCw size={12} />
+                  Restart onboarding
+                </button>
+              </>
+            ) : settingsSection === 'communication' ? (
+              isAppSettingsEditing ? (
+                <>
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                    style={{ color: C.ink }}
+                    onClick={() => handleCancelAppSettingsEdit()}
+                    disabled={appSettingsSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                    style={{ color: C.ink }}
+                    onClick={() => void handleSaveAppSettings()}
+                    disabled={!appSettingsDirty || appSettingsSaving || appSettingsLoading}
+                  >
+                    {appSettingsSaving ? 'Saving…' : desktopFeatures.telegram ? 'Save Telegram' : 'Save Communication'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                  style={{ color: C.ink }}
+                  onClick={() => handleStartAppSettingsEdit()}
+                  disabled={appSettingsLoading || !visibleAppSettings}
+                >
+                  {desktopFeatures.telegram ? 'Edit Telegram' : 'Edit Communication'}
+                </button>
+              )
+            ) : settingsSection === 'agents' ? (
+              <>
+                <button
+                  className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                  style={{ color: C.ink }}
+                  onClick={() => setActiveView('agents')}
+                >
+                  Open Agents
+                </button>
+                {selectedInterAgent && hasEditableAgentConfig ? (
+                  isAgentConfigEditing ? (
+                    <>
+                      <button
+                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                        style={{ color: C.ink }}
+                        onClick={() => handleCancelAgentConfigEdit()}
+                        disabled={agentConfigSaving || agentConfigRestarting}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                        style={{ color: C.ink }}
+                        onClick={() => void handleSaveAgentConfig()}
+                        disabled={!agentConfigDirty || agentConfigLoading || agentConfigSaving || agentConfigRestarting}
+                      >
+                        {agentConfigSaving ? 'Saving…' : 'Save Changes'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                      style={{ color: C.ink }}
+                      onClick={() => handleStartAgentConfigEdit()}
+                      disabled={agentConfigLoading || agentConfigRestarting}
+                    >
+                      Edit Agent
+                    </button>
+                  )
+                ) : null}
+                {selectedInterAgent && hasEditableAgentConfig ? (
+                  <button
+                    className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded disabled:opacity-50"
+                    style={{ color: C.ink }}
+                    onClick={() => void handleRestartAgent()}
+                    disabled={agentConfigLoading || agentConfigRestarting || !visibleAgentConfig}
+                  >
+                    {agentConfigRestarting ? 'Restarting…' : agentRestartActionLabel}
+                  </button>
+                ) : null}
+              </>
+            ) : settingsSection === 'database' ? (
+              <button
+                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+                style={{ color: C.ink }}
+                onClick={() => setActiveView('sessions')}
+              >
+                Browse Sessions
+              </button>
+            ) : null,
+            profile: {
+              styles: {
+                surface: s.surface,
+                inkText: s.inkText,
+                mutedText: s.mutedText,
+                tagBadge: s.tagBadge,
+                activePill: s.activePill,
+              },
+              visibleAppSettings,
+              appSettings,
+              isAppSettingsEditing,
+              appSettingsSaving,
+              appSettingsLoading,
+              appSettingsDirty,
+              appSettingsFeedback,
+              settingsOperatorNameRef,
+              onboardingWizardStep,
+              setOnboardingWizardStep,
+              activeOnboardingStepIndex: onboardingWizardIndex,
+              activeOnboardingStep,
+              onboardingWizardSteps,
+              sourceRootPathSuggestions: SOURCE_ROOT_PATH_SUGGESTIONS,
+              onboardingRuntimeMatch,
+              onboardingHasProjectConfig,
+              onboardingCopiedCommand,
+              onboardingCommandPending,
+              onboardingCommandResult,
+              canGoToPreviousOnboardingStep,
+              canGoToNextOnboardingStep,
+              moveOnboardingWizard,
+              handleOnboardingContinue,
+              handleRestartOnboarding,
+              handleStartAppSettingsEdit,
+              handleBeginGeneralEdit,
+              handleSetSourceRootAt,
+              handleBrowseForSourceRoot,
+              handleRemoveSourceRootRow,
+              handleAddSourceRootRow,
+              handleAddSourceRootSuggestion,
+              handleSetOnboardingContextRoot,
+              handleBrowseForOnboardingContextRoot,
+              setAppSettingsDraft,
+              setAppSettingsFeedback,
+              buildOnboardingCommandLine,
+              handleCopyOnboardingCommand,
+              handleRunOnboardingCommand,
+              renderOnboardingCommandShell,
+              renderLocalPathValue,
+              openKnowledgeBase,
+            },
+            agentSettingsViewProps: {
+              styles: {
+                surface: s.surface,
+                inkText: s.inkText,
+                mutedText: s.mutedText,
+                tagBadge: s.tagBadge,
+                activePill: s.activePill,
+              },
+              selectedInterAgent,
+              availableAgents: rosterInterAgentAgents,
+              isAgentConfigEditing,
+              hasEditableAgentConfig,
+              agentConfigLoading,
+              agentConfigSaving,
+              agentConfigRestarting,
+              visibleAgentConfig,
+              agentConfigFeedback,
+              agentCapabilitiesPreview,
+              agentRuntimePathRef,
+              onOpenAgents: () => setActiveView('agents'),
+              onOpenAgentProfile: openAgentProfile,
+              onOpenAgentThread: (agentId) => openRelayAgentThread(agentId, { focusComposer: true }),
+              onUpdateAgentConfigDraft: updateAgentConfigDraft,
+              renderLocalPathValue,
+              interAgentProfileKindLabel,
+              onSelectAgent: handleSelectInterAgent,
+            },
+            workspaceExplorerViewProps: {
+              styles: {
+                surface: s.surface,
+                inkText: s.inkText,
+                mutedText: s.mutedText,
+                tagBadge: s.tagBadge,
+                activePill: s.activePill,
+              },
+              selectedWorkspaceProject,
+              selectedWorkspaceAgent,
+              workspaceExplorerQuery,
+              setWorkspaceExplorerQuery,
+              workspaceExplorerFilter,
+              setWorkspaceExplorerFilter,
+              workspaceExplorerViewMode,
+              setWorkspaceExplorerViewMode,
+              workspaceExplorerItems,
+              workspaceExplorerBoundCount,
+              workspaceExplorerDiscoveredCount,
+              filteredWorkspaceExplorerItems,
+              workspaceInventoryLoaded,
+              workspaceInventoryLoading,
+              canRefreshWorkspaceInventory,
+              onboardingCommandPending,
+              appSettingsLoading,
+              appSettingsSaving,
+              appSettingsDirty,
+              appSettingsFeedback,
+              showDoctorOutput,
+              doctorOutput: renderOnboardingCommandShell('doctor', buildOnboardingCommandLine('doctor'), onboardingCommandPending === 'doctor'),
+              projectRetirementPendingRoot,
+              onRefreshWorkspaceDiscovery: () => {
+                void handleRunOnboardingCommand('doctor');
+              },
+              onLoadWorkspaceInventory: handleLoadWorkspaceInventory,
+              onAddWorkspace: handleAddWorkspaceFromExplorer,
+              onInspectWorkspace: handleInspectWorkspace,
+              onOpenWorkspace: handleOpenWorkspace,
+              onRetireWorkspace: (project) => {
+                void handleRetireProject(project.root, project.title);
+              },
+              onOpenAgentProfile: openAgentProfile,
+              onOpenAgentSettings: (agentId) => openAgentSettings(agentId, true),
+              renderLocalPathValue,
+            },
+            communicationSettingsViewProps: {
+              styles: {
+                surface: s.surface,
+                inkText: s.inkText,
+                mutedText: s.mutedText,
+                tagBadge: s.tagBadge,
+                activePill: s.activePill,
+              },
+              showTelegram: desktopFeatures.telegram,
+              showVoice: desktopFeatures.voice,
+              visibleAppSettings,
+              isAppSettingsEditing,
+              appSettingsSaving,
+              appSettingsFeedback,
+              onUpdateAppSettingsDraft: updateAppSettingsDraft,
+              brokerInspector,
+              brokerControlPending,
+              brokerControlFeedback,
+              onBrokerControl: (action) => {
+                void handleBrokerControl(action);
+              },
+              relayServiceInspectorRef,
+              relayRuntimeBooting,
+              relayRuntimeHealthLabel,
+              runtime,
+              reachableRelayAgentCount: reachableRelayAgents.length,
+              voiceCaptureTitle: relayState?.voice.captureTitle ?? 'Not reported',
+              voiceRepliesEnabled: relayState?.voice.repliesEnabled ?? false,
+              onSetVoiceRepliesEnabled: (enabled) => {
+                void handleSetVoiceRepliesEnabled(enabled);
+              },
+              renderLocalPathValue,
+            },
+            database: {
+              styles: {
+                surface: s.surface,
+                inkText: s.inkText,
+                mutedText: s.mutedText,
+                tagBadge: s.tagBadge,
+                activePill: s.activePill,
+              },
+              stats,
+              runtime,
+              visibleAppSettings,
+              renderLocalPathValue,
+              onRevealPath: (filePath) => {
+                if (!surfaceCaps?.canRevealPath) {
+                  return;
+                }
+                void scoutDesktop?.revealPath?.(filePath);
+              },
+            },
+            appearance: {
+              styles: {
+                surface: s.surface,
+                inkText: s.inkText,
+                mutedText: s.mutedText,
+                tagBadge: s.tagBadge,
+                activePill: s.activePill,
+              },
+              dark,
+              setDark,
+              showAnnotations,
+              setShowAnnotations,
+              isCollapsed,
+              activeSettingsLabel: activeSettingsMeta.label,
+            },
+          }}
+        />
+        <AgentViews
+          activeView={activeView}
+          layout={{
+            isCollapsed,
+            sidebarWidth,
+            onResizeStart: handleMouseDown,
+            styles: {
+              sidebar: s.sidebar,
+              surface: s.surface,
+              inkText: s.inkText,
+              mutedText: s.mutedText,
+              tagBadge: s.tagBadge,
+              activePill: s.activePill,
+              activeItem: s.activeItem,
+              annotBadge: s.annotBadge,
+            },
+          }}
+          roster={{
+            interAgentStateTitle: interAgentState?.title ?? 'Inter-Agent',
+            interAgentStateSubtitle: interAgentState?.subtitle ?? 'Agent-to-agent traffic',
+            rosterInterAgentAgents,
+            interAgentAgents,
+            selectedInterAgentId,
+            onSelectInterAgent: handleSelectInterAgent,
+            agentRosterMenu,
+            setAgentRosterMenu,
+            agentRosterFilter,
+            setAgentRosterFilter,
+            agentRosterSort,
+            setAgentRosterSort,
+            rosterAgentTitleCounts,
+            onRefresh: () => void handleRefreshShell(),
+          }}
+          agents={{
+            selectedInterAgent,
+            selectedInterAgentDirectThread,
+            selectedInterAgentChatActionLabel,
+            onOpenAgentThread: openRelayAgentThread,
+            onPeekAgentSession: handlePeekAgentSession,
+            onOpenAgentSettings: openAgentSettings,
+            visibleAgentSession,
+            agentSessionPending,
+            agentSessionLoading,
+            agentSessionFeedback,
+            agentSessionCopied,
+            onCopyAgentSessionCommand: () => void handleCopyAgentSessionCommand(),
+            onOpenAgentSession: () => void handleOpenAgentSession(),
+            agentSessionLogsExpanded,
+            setAgentSessionLogsExpanded,
+            agentSessionInlineViewportRef,
+            onInlineAgentSessionScroll: (event) => {
+              agentSessionInlineStickToBottomRef.current = agentSessionShouldStickToBottom(event.currentTarget);
+            },
+            renderLocalPathValue,
+            selectedInterAgentActivityMessages,
+            interAgentAgentLookup,
+            relayDirectLookup,
+            onOpenAgentProfile: openAgentProfile,
+            onNudgeMessage: handleNudgeMessage,
+            selectedInterAgentInboundTasks,
+            selectedInterAgentOutboundFindings,
+            selectedInterAgentFindings,
+            agentActivityExpanded,
+            setAgentActivityExpanded,
+            agentThreadsExpanded,
+            setAgentThreadsExpanded,
+            visibleInterAgentThreads,
+            selectedInterAgentThreadId,
+            onOpenThreadInTrafficView: (threadId) => {
+              setSelectedInterAgentThreadId(threadId);
+              setActiveView('inter-agent');
+            },
+            selectedAgentDirectLinePreview,
+            agentSnapshotExpanded,
+            setAgentSnapshotExpanded,
+            visibleAgentConfig,
+          }}
+          logs={{
+            logSources,
+            filteredLogSources,
+            selectedLogSourceId,
+            setSelectedLogSourceId,
+            selectedLogSource,
+            logCatalog,
+            logContent,
+            logsLoading,
+            logsFeedback,
+            logSearchQuery,
+            setLogSearchQuery,
+            logSourceQuery,
+            setLogSourceQuery,
+          }}
+          interAgent={{
+            selectedInterAgent,
+            visibleInterAgentThreads,
+            selectedInterAgentThreadId,
+            setSelectedInterAgentThreadId,
+            interAgentThreadTitle,
+            selectedInterAgentThread,
+            selectedInterAgentThreadSubtitle,
+            selectedRelayDirectThread,
+            showAnnotations,
+            setShowAnnotations,
+            interAgentMessageTarget,
+            openAgentDirectMessage,
+            interAgentConfigureTarget,
+            onOpenAgentSettings: openAgentSettings,
+            interAgentConfigureLabel,
+            visibleInterAgentMessages,
+            interAgentAgentLookup,
+            relayDirectLookup,
+            onOpenAgentProfile: openAgentProfile,
+            onNudgeMessage: handleNudgeMessage,
+          }}
+          sessions={{
+            searchQuery,
+            setSearchQuery,
+            filteredSessions,
+            stats: {
+              totalSessions: stats.totalSessions,
+            },
+            onRefresh: () => void handleRefreshShell(),
+            loadingSessions: isLoadingShell && !shellState,
+            selectedSession,
+            setSelectedSession,
+            phonePreparationState,
+            phonePreparationLoading,
+            phonePreparationSaving,
+            phonePreparationFeedback,
+            setDraggedSessionId,
+            setDraggedPhoneSection,
+            favoritePhoneSessions,
+            quickHitPhoneSessions,
+            formatDate,
+            onClearPhoneQuickHits: handleClearPhoneQuickHits,
+            onDropIntoFavorites: handleDropIntoFavorites,
+            onDropIntoQuickHits: handleDropIntoQuickHits,
+            onRemoveSessionFromPhoneSection: handleRemoveSessionFromPhoneSection,
+            onAddSessionToPhoneSection: handleAddSessionToPhoneSection,
+          }}
+        />
+        <MessagesRelayView
+          activeView={activeView}
+          layout={{
+            sidebarWidth,
+            messagesDetailWidth,
+            isCollapsed,
+            onResizeStart: handleMouseDown,
+            onMessagesDetailResizeStart: handleMessagesDetailResizeStart,
+            styles: {
               sidebar: s.sidebar,
               surface: s.surface,
               inkText: s.inkText,
@@ -8209,76 +5277,84 @@ export default function App() {
               activeItem: s.activeItem,
               activePill: s.activePill,
               kbd: s.kbd,
-            }}
-            messagesState={messagesState}
-            messageThreads={messageThreads}
-            selectedMessagesThread={selectedMessagesThread}
-            onSelectMessageThread={selectMessageThread}
-            showAnnotations={showAnnotations}
-            setShowAnnotations={setShowAnnotations}
-            onRefresh={() => void handleRefreshShell()}
-            selectedMessagesInternalThread={selectedMessagesInternalThread}
-            selectedMessagesInternalMessages={selectedMessagesInternalMessages}
-            selectedMessagesInternalTarget={selectedMessagesInternalTarget}
-            selectedMessagesDetailAgentId={selectedMessagesDetailAgentId}
-            selectedMessagesDetailAgent={selectedMessagesDetailAgent}
-            selectedMessagesSessions={selectedMessagesSessions}
-            selectedSession={selectedSession}
-            setSelectedSession={setSelectedSession}
-            formatDate={formatDate}
-            interAgentAgents={interAgentAgents}
-            interAgentAgentLookup={interAgentAgentLookup}
-            relayDirectLookup={relayDirectLookup}
-            openAgentProfile={openAgentProfile}
-            openAgentDirectMessage={openAgentDirectMessage}
-            onNudgeMessage={handleNudgeMessage}
-            messagesDetailOpen={messagesDetailOpen}
-            setMessagesDetailOpen={setMessagesDetailOpen}
-            messagesDetailTab={messagesDetailTab}
-            setMessagesDetailTab={setMessagesDetailTab}
-            selectedRelayKind={selectedRelayKind}
-            selectedRelayId={selectedRelayId}
-            relayThreadTitle={relayThreadTitle}
-            relayThreadSubtitle={relayThreadSubtitle}
-            relayThreadCount={relayThreadCount}
-            selectedRelayDirectThread={selectedRelayDirectThread}
-            relayVoiceState={relayState?.voice}
-            visibleRelayMessages={visibleRelayMessages}
-            relayTimelineViewportRef={relayTimelineViewportRef}
-            onRelayTimelineScroll={handleRelayTimelineScroll}
-            relayReplyTarget={relayReplyTarget}
-            setRelayReplyTarget={setRelayReplyTarget}
-            relayContextReferences={relayContextReferences}
-            relayContextMessageIds={relayContextMessageIds}
-            setRelayContextMessageIds={setRelayContextMessageIds}
-            relayComposerRef={relayComposerRef}
-            relayDraft={relayDraft}
-            setRelayDraft={setRelayDraft}
-            relaySending={relaySending}
-            relayFeedback={relayFeedback}
-            relayComposerSelectionStart={relayComposerSelectionStart}
-            setRelayComposerSelectionStart={setRelayComposerSelectionStart}
-            mergedRelayMessages={mergedRelayMessages}
-            relayMentionMenuOpen={relayMentionMenuOpen}
-            relayMentionSuggestions={relayMentionSuggestions}
-            relayMentionSelectionIndex={relayMentionSelectionIndex}
-            setRelayMentionSelectionIndex={setRelayMentionSelectionIndex}
-            relayMentionDuplicateTitleCounts={relayMentionDuplicateTitleCounts}
-            applyRelayMentionSuggestion={applyRelayMentionSuggestion}
-            onRelaySend={() => void handleRelaySend()}
-            onToggleVoiceCapture={() => void handleToggleVoiceCapture()}
-            onSetVoiceRepliesEnabled={(enabled) => void handleSetVoiceRepliesEnabled(enabled)}
-            visibleAgentSession={visibleAgentSession}
-            agentSessionPending={agentSessionPending}
-            agentSessionFeedback={agentSessionFeedback}
-            agentSessionCopied={agentSessionCopied}
-            onCopyAgentSessionCommand={() => void handleCopyAgentSessionCommand()}
-            onOpenAgentSession={() => void handleOpenAgentSession()}
-            onPeekAgentSession={handlePeekAgentSession}
-            onOpenAgentSettings={openAgentSettings}
-            desktopVoiceEnabled={desktopFeatures.voice}
-          />
-        ) : null}
+            },
+          }}
+          threading={{
+            messagesState,
+            messageThreads,
+            selectedMessagesThread,
+            onSelectMessageThread: selectMessageThread,
+            showAnnotations,
+            setShowAnnotations,
+            onRefresh: () => void handleRefreshShell(),
+            selectedMessagesInternalThread,
+            selectedMessagesInternalMessages,
+            selectedMessagesInternalTarget,
+            selectedMessagesDetailAgentId,
+            selectedMessagesDetailAgent,
+            selectedMessagesSessions,
+            selectedSession,
+            setSelectedSession,
+            formatDate,
+            interAgentAgents,
+            interAgentAgentLookup,
+            relayDirectLookup,
+            openAgentProfile,
+            openAgentDirectMessage,
+            onNudgeMessage: handleNudgeMessage,
+            messagesDetailOpen,
+            setMessagesDetailOpen,
+            messagesDetailTab,
+            setMessagesDetailTab,
+          }}
+          composer={
+            {
+              selectedRelayKind,
+              selectedRelayId,
+              relayThreadTitle,
+              relayThreadSubtitle,
+              relayThreadCount,
+              selectedRelayDirectThread,
+              relayVoiceState: relayState?.voice,
+              visibleRelayMessages,
+              relayTimelineViewportRef,
+              onRelayTimelineScroll: handleRelayTimelineScroll,
+              relayReplyTarget,
+              setRelayReplyTarget,
+              relayContextReferences,
+              relayContextMessageIds,
+              setRelayContextMessageIds,
+              relayComposerRef,
+              relayDraft,
+              setRelayDraft,
+              relaySending,
+              relayFeedback,
+              relayComposerSelectionStart,
+              setRelayComposerSelectionStart,
+              mergedRelayMessages,
+              relayMentionMenuOpen,
+              relayMentionSuggestions,
+              relayMentionSelectionIndex,
+              setRelayMentionSelectionIndex,
+              relayMentionDuplicateTitleCounts,
+              applyRelayMentionSuggestion,
+              onRelaySend: () => void handleRelaySend(),
+              onToggleVoiceCapture: () => void handleToggleVoiceCapture(),
+              onSetVoiceRepliesEnabled: (enabled) => void handleSetVoiceRepliesEnabled(enabled),
+            } satisfies MessagesRelayComposerProps
+          }
+          agentSession={{
+            visibleAgentSession,
+            agentSessionPending,
+            agentSessionFeedback,
+            agentSessionCopied,
+            onCopyAgentSessionCommand: () => void handleCopyAgentSessionCommand(),
+            onOpenAgentSession: () => void handleOpenAgentSession(),
+            onPeekAgentSession: handlePeekAgentSession,
+            onOpenAgentSettings: openAgentSettings,
+            desktopVoiceEnabled: desktopFeatures.voice,
+          }}
+        />
       </div>
 
       {isAgentSessionPeekOpen && selectedInterAgent ? (
@@ -8422,7 +5498,12 @@ export default function App() {
           pairingApprovalPendingId={pairingApprovalPendingId}
           onUpdateConfig={handleUpdatePairingConfig}
           onRefresh={() => void handleRefreshShell()}
-          onRevealPath={(filePath) => void scoutDesktop?.revealPath?.(filePath)}
+          onRevealPath={(filePath) => {
+            if (!surfaceCaps?.canRevealPath) {
+              return;
+            }
+            void scoutDesktop?.revealPath?.(filePath);
+          }}
         />
       )}
 

@@ -1,17 +1,17 @@
 import { get, list, put } from "@vercel/blob";
 
-export type OpenScoutReportSectionEntry = {
+export type OpenScoutFeedbackSectionEntry = {
   label: string;
   value: string;
 };
 
-export type OpenScoutReportSection = {
+export type OpenScoutFeedbackSection = {
   id: string;
   title: string;
-  entries: OpenScoutReportSectionEntry[];
+  entries: OpenScoutFeedbackSectionEntry[];
 };
 
-export type OpenScoutReport = {
+export type OpenScoutFeedbackReport = {
   id: string;
   timestamp: string;
   system: {
@@ -33,7 +33,7 @@ export type OpenScoutReport = {
     connectionState?: string;
     lastError?: string;
     userDescription?: string;
-    reportSections?: OpenScoutReportSection[];
+    reportSections?: OpenScoutFeedbackSection[];
     generatedAt?: string;
     generatedAtLabel?: string;
     currentDirectory?: string;
@@ -42,39 +42,41 @@ export type OpenScoutReport = {
   performance?: Record<string, string>;
 };
 
-export type OpenScoutReportSummary = {
+export type OpenScoutFeedbackSummary = {
   id: string;
   source: string;
   userDescription: string | null;
-  systemInfo: OpenScoutReport["system"];
-  contextInfo: OpenScoutReport["context"];
+  systemInfo: OpenScoutFeedbackReport["system"];
+  contextInfo: OpenScoutFeedbackReport["context"];
   createdAt: string;
 };
 
-const REPORTS_PREFIX = "reports/";
-const DEFAULT_REPORTS_BASE_URL = "https://api.openscout.app";
+const FEEDBACK_REPORTS_PREFIX = "reports/";
+const DEFAULT_FEEDBACK_BASE_URL = "https://api.openscout.app";
 
-function reportPath(id: string): string {
-  return `${REPORTS_PREFIX}${id}.json`;
+function feedbackReportPath(id: string): string {
+  return `${FEEDBACK_REPORTS_PREFIX}${id}.json`;
 }
 
-export function getOpenScoutReportsBaseUrl(): string {
+export function getOpenScoutFeedbackBaseUrl(): string {
   return (
-    process.env.OPENSCOUT_REPORTS_BASE_URL?.trim()
+    process.env.OPENSCOUT_FEEDBACK_BASE_URL?.trim()
+    || process.env.OPENSCOUT_REPORTS_BASE_URL?.trim()
+    || process.env.NEXT_PUBLIC_OPENSCOUT_FEEDBACK_BASE_URL?.trim()
     || process.env.NEXT_PUBLIC_OPENSCOUT_REPORTS_BASE_URL?.trim()
-    || DEFAULT_REPORTS_BASE_URL
+    || DEFAULT_FEEDBACK_BASE_URL
   );
 }
 
-export function getOpenScoutReportAdminUrl(id: string): string {
-  return `${getOpenScoutReportsBaseUrl()}/reports/${id}`;
+export function getOpenScoutFeedbackAdminUrl(id: string): string {
+  return `${getOpenScoutFeedbackBaseUrl()}/feedback/${id}`;
 }
 
 function sanitizeString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function sanitizeSections(value: unknown): OpenScoutReportSection[] | undefined {
+function sanitizeSections(value: unknown): OpenScoutFeedbackSection[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
@@ -98,7 +100,7 @@ function sanitizeSections(value: unknown): OpenScoutReportSection[] | undefined 
               }
               return { label, value: entryValue };
             })
-            .filter((entry): entry is OpenScoutReportSectionEntry => entry !== null))
+            .filter((entry): entry is OpenScoutFeedbackSectionEntry => entry !== null))
         : [];
 
       const id = sanitizeString((section as { id?: unknown }).id);
@@ -109,17 +111,17 @@ function sanitizeSections(value: unknown): OpenScoutReportSection[] | undefined 
 
       return { id, title, entries };
     })
-    .filter((section): section is OpenScoutReportSection => section !== null);
+    .filter((section): section is OpenScoutFeedbackSection => section !== null);
 
   return sections.length > 0 ? sections : undefined;
 }
 
-export function normalizeOpenScoutReport(input: unknown): OpenScoutReport | null {
+export function normalizeOpenScoutFeedbackReport(input: unknown): OpenScoutFeedbackReport | null {
   if (!input || typeof input !== "object") {
     return null;
   }
 
-  const candidate = input as Partial<OpenScoutReport>;
+  const candidate = input as Partial<OpenScoutFeedbackReport>;
   const id = sanitizeString(candidate.id);
   const timestamp = sanitizeString(candidate.timestamp);
   const source = sanitizeString(candidate.context?.source);
@@ -169,15 +171,15 @@ export function normalizeOpenScoutReport(input: unknown): OpenScoutReport | null
   };
 }
 
-export async function storeOpenScoutReport(report: OpenScoutReport) {
-  return put(reportPath(report.id), JSON.stringify(report, null, 2), {
+export async function storeOpenScoutFeedbackReport(report: OpenScoutFeedbackReport) {
+  return put(feedbackReportPath(report.id), JSON.stringify(report, null, 2), {
     access: "private",
     allowOverwrite: true,
     contentType: "application/json; charset=utf-8",
   });
 }
 
-async function readBlobJson(pathname: string): Promise<OpenScoutReport | null> {
+async function readBlobJson(pathname: string): Promise<OpenScoutFeedbackReport | null> {
   const result = await get(pathname, { access: "private" });
   if (!result || result.statusCode !== 200) {
     return null;
@@ -185,16 +187,16 @@ async function readBlobJson(pathname: string): Promise<OpenScoutReport | null> {
 
   const raw = await new Response(result.stream).text();
   const parsed = JSON.parse(raw) as unknown;
-  return normalizeOpenScoutReport(parsed);
+  return normalizeOpenScoutFeedbackReport(parsed);
 }
 
-export async function getOpenScoutReport(id: string): Promise<OpenScoutReport | null> {
-  return readBlobJson(reportPath(id));
+export async function getOpenScoutFeedbackReport(id: string): Promise<OpenScoutFeedbackReport | null> {
+  return readBlobJson(feedbackReportPath(id));
 }
 
-export async function listOpenScoutReports(limit = 50): Promise<OpenScoutReportSummary[]> {
+export async function listOpenScoutFeedbackReports(limit = 50): Promise<OpenScoutFeedbackSummary[]> {
   const listed = await list({
-    prefix: REPORTS_PREFIX,
+    prefix: FEEDBACK_REPORTS_PREFIX,
     limit,
   });
 
@@ -212,11 +214,11 @@ export async function listOpenScoutReports(limit = 50): Promise<OpenScoutReportS
         systemInfo: report.system,
         contextInfo: report.context,
         createdAt: report.timestamp,
-      } satisfies OpenScoutReportSummary;
+      } satisfies OpenScoutFeedbackSummary;
     }),
   );
 
   return reports
-    .filter((report): report is OpenScoutReportSummary => report !== null)
+    .filter((report): report is OpenScoutFeedbackSummary => report !== null)
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 }

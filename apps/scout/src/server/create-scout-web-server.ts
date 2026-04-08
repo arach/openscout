@@ -9,6 +9,7 @@ import { createScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import { createScoutDesktopAppInfo } from "../app/desktop/index.ts";
 import type { ScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import type { ScoutElectronHostServices } from "../app/electron/host.ts";
+import type { ScoutSurfaceCapabilities } from "../shared/surface-capabilities.ts";
 import {
   createScoutSession,
   getScoutMobileAgents,
@@ -142,6 +143,13 @@ function resolveStaticRoot(options: CreateScoutWebServerOptions): string {
   return defaultMonorepoStaticClientRoot(import.meta.url);
 }
 
+function capabilityError(
+  capability: keyof ScoutSurfaceCapabilities,
+  message: string,
+): { error: string; capability: keyof ScoutSurfaceCapabilities } {
+  return { error: message, capability };
+}
+
 /**
  * Hono app + Scout desktop IPC services (same stack as Electron), HTTP API, and UI asset handling.
  * Use from Bun’s server entry or any host that can call `app.fetch`.
@@ -152,7 +160,8 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   const servicesTtl = options.servicesStateCacheTtlMs ?? 3000;
   const homeTtl = options.homeStateCacheTtlMs ?? 5000;
 
-  const appInfo = createScoutDesktopAppInfo({ platform });
+  const appInfo = createScoutDesktopAppInfo({ platform, surface: "web" });
+  const caps = appInfo.capabilities;
   const services = createScoutElectronIpcServices({
     currentDirectory: options.currentDirectory,
     appInfo,
@@ -222,6 +231,12 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   app.get("/api/shell-state", async (c) => c.json(await getShellStateCached()));
   app.get("/api/shell-state/refresh", async (c) => c.json(await refreshShellStateCache()));
   app.get("/api/app-settings", async (c) => c.json(await getAppSettings()));
+  app.get("/api/app-settings/refresh", async (c) => {
+    const result = await services.refreshSettingsInventory();
+    invalidateShellStateCache();
+    invalidateHomeStateCache();
+    return c.json(result);
+  });
   app.post("/api/app-settings", async (c) => {
     const result = await services.updateAppSettings(await c.req.json());
     invalidateShellStateCache();
@@ -229,6 +244,15 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
     return c.json(result);
   });
   app.post("/api/retire-project", async (c) => {
+    if (!caps.canEditFilesystem) {
+      return c.json(
+        capabilityError(
+          "canEditFilesystem",
+          "Project retirement is not available on the web host. Use the Scout desktop app or CLI.",
+        ),
+        403,
+      );
+    }
     const { projectRoot } = await c.req.json();
     const result = await services.retireProject(projectRoot);
     invalidateShellStateCache();
@@ -236,15 +260,51 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
     return c.json(result);
   });
   app.post("/api/restore-project", async (c) => {
+    if (!caps.canEditFilesystem) {
+      return c.json(
+        capabilityError(
+          "canEditFilesystem",
+          "Project restore is not available on the web host. Use the Scout desktop app or CLI.",
+        ),
+        403,
+      );
+    }
     const { projectRoot } = await c.req.json();
     const result = await services.restoreProject(projectRoot);
     invalidateShellStateCache();
     invalidateHomeStateCache();
     return c.json(result);
   });
-  app.post("/api/onboarding/run", async (c) => c.json(await services.runOnboardingCommand(await c.req.json())));
-  app.post("/api/onboarding/skip", async (c) => c.json(await services.skipOnboarding()));
-  app.post("/api/onboarding/restart", async (c) => c.json(await services.restartOnboarding()));
+  app.post("/api/onboarding/run", async (c) => {
+    if (!caps.canProvisionRuntime) {
+      return c.json(
+        capabilityError(
+          "canProvisionRuntime",
+          "Onboarding commands (setup, doctor, etc.) cannot be run from the web host. Use the Scout CLI on this machine.",
+        ),
+        403,
+      );
+    }
+    return c.json(await services.runOnboardingCommand(await c.req.json()));
+  });
+  app.post("/api/onboarding/skip", async (c) => {
+    if (!caps.canProvisionRuntime) {
+      return c.json(
+        capabilityError("canProvisionRuntime", "Skipping onboarding is not available on the web host."),
+        403,
+      );
+    }
+    return c.json(await services.skipOnboarding());
+  });
+  app.post("/api/onboarding/restart", async (c) => {
+    if (!caps.canProvisionRuntime) {
+      return c.json(
+        capabilityError("canProvisionRuntime", "Restarting onboarding is not available on the web host."),
+        403,
+      );
+    }
+    return c.json(await services.restartOnboarding());
+  });
   app.get("/api/agent-config/:agentId", async (c) => c.json(await services.getAgentConfig(c.req.param("agentId"))));
   app.post("/api/agent-config", async (c) => c.json(await services.updateAgentConfig(await c.req.json())));
   app.post("/api/agent/create", async (c) => {
@@ -278,6 +338,15 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
     return c.json(result);
   });
   app.post("/api/broker/control", async (c) => {
+    if (!caps.canManageBroker) {
+      return c.json(
+        capabilityError(
+          "canManageBroker",
+          "Broker service control is not available on the web host. Use the Scout desktop app or CLI.",
+        ),
+        403,
+      );
+    }
     const { action } = await c.req.json();
     const result = await services.controlBroker(action);
     invalidateShellStateCache();
