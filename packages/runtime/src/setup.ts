@@ -1571,9 +1571,12 @@ const SCOUT_SKILL_FILE_NAME = "SKILL.md";
 const SETUP_MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const SCOUT_SKILL_REPO_ROOT = resolve(SETUP_MODULE_DIRECTORY, "..", "..", "..");
 
+// Codex's canonical user-level skills path is `~/.agents/skills/` (the
+// loader at codex-rs/core-skills/src/loader.rs marks `~/.codex/skills/` as
+// deprecated). Claude Code still keys off `~/.claude/skills/`.
 const SCOUT_SKILL_INSTALL_PATHS: Partial<Record<ManagedAgentHarness, string>> = {
   claude: join(homedir(), ".claude", "skills", "scout", SCOUT_SKILL_FILE_NAME),
-  codex: join(homedir(), ".codex", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+  codex: join(homedir(), ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
 };
 
 function resolveScoutSkillSourcePath(): string | null {
