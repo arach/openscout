@@ -1,8 +1,10 @@
 import {
   initializeOpenScoutSetup,
+  installScoutSkillToHarnesses,
   loadResolvedRelayAgents,
   writeOpenScoutSettings,
   type ProjectInventoryEntry,
+  type ScoutSkillInstallReport,
 } from "@openscout/runtime/setup";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
@@ -27,6 +29,7 @@ export type ScoutSetupReport = {
   broker: BrokerServiceStatus;
   brokerWarning: string | null;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
+  scoutSkill: ScoutSkillInstallReport;
 };
 
 export type ScoutRuntimesReport = {
@@ -77,6 +80,7 @@ export async function runScoutSetup(input: {
 
   const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
   const catalog = await loadHarnessCatalogSnapshot();
+  const scoutSkill = await installScoutSkillToHarnesses();
   let broker = await getRuntimeBrokerServiceStatus();
   let brokerWarning: string | null = null;
   try {
@@ -92,6 +96,7 @@ export async function runScoutSetup(input: {
     broker,
     brokerWarning,
     catalog,
+    scoutSkill,
   };
 }
 

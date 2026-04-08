@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 
 import {
@@ -1563,6 +1564,71 @@ export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsIn
 
   await writeJsonFile(resolveOpenScoutSupportPaths().settingsPath, normalized);
   return normalized;
+}
+
+const SCOUT_SKILL_FILE_NAME = "SKILL.md";
+
+const SETUP_MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
+const SCOUT_SKILL_REPO_ROOT = resolve(SETUP_MODULE_DIRECTORY, "..", "..", "..");
+
+const SCOUT_SKILL_INSTALL_PATHS: Partial<Record<ManagedAgentHarness, string>> = {
+  claude: join(homedir(), ".claude", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+  codex: join(homedir(), ".codex", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+};
+
+function resolveScoutSkillSourcePath(): string | null {
+  const candidates = [
+    join(SCOUT_SKILL_REPO_ROOT, ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+    join(homedir(), ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) return path;
+  }
+  return null;
+}
+
+export type ScoutSkillInstallEntry = {
+  harness: ManagedAgentHarness;
+  target: string;
+  status: "installed" | "skipped" | "error";
+  error?: string;
+};
+
+export type ScoutSkillInstallReport = {
+  source: string | null;
+  entries: ScoutSkillInstallEntry[];
+};
+
+export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallReport> {
+  const source = resolveScoutSkillSourcePath();
+  if (!source) {
+    return { source: null, entries: [] };
+  }
+
+  const content = await readFile(source, "utf8");
+  const entries: ScoutSkillInstallEntry[] = [];
+
+  for (const harness of MANAGED_AGENT_HARNESSES) {
+    const target = SCOUT_SKILL_INSTALL_PATHS[harness];
+    if (!target) {
+      entries.push({ harness, target: "", status: "skipped" });
+      continue;
+    }
+    try {
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, content, "utf8");
+      entries.push({ harness, target, status: "installed" });
+    } catch (error) {
+      entries.push({
+        harness,
+        target,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { source, entries };
 }
 
 export async function readRelayAgentOverrides(): Promise<Record<string, RelayAgentOverride>> {
