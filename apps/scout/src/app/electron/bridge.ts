@@ -8,32 +8,32 @@ import type {
 import type {
   ScoutElectronAgentConfigState,
   ScoutElectronUpdateAgentConfigInput,
-} from "./agent-config.ts";
+} from "../host/agent-config.ts";
 import type {
   ScoutElectronCreateAgentInput,
   ScoutElectronCreateAgentResult,
   ScoutElectronBrokerControlAction,
   ScoutElectronRestartAgentInput,
   ScoutElectronSendRelayMessageInput,
-} from "./broker-actions.ts";
+} from "../host/broker-actions.ts";
 import type {
   AcquireScoutKeepAliveLeaseInput,
   ReleaseScoutKeepAliveLeaseInput,
   ScoutKeepAliveLease,
   ScoutKeepAliveState,
-} from "./keep-alive.ts";
+} from "../host/keep-alive.ts";
 import type {
   DecideScoutPairingApprovalInput,
   ScoutPairingControlAction,
   ScoutPairingState,
   UpdateScoutPairingConfigInput,
-} from "./pairing.ts";
+} from "../host/pairing.ts";
 import type {
   AppSettingsState,
   OnboardingCommandResult,
   RunOnboardingCommandInput,
   UpdateAppSettingsInput,
-} from "./settings.ts";
+} from "../host/settings.ts";
 import type {
   ScoutDesktopFeedbackBundle,
   ScoutDesktopFeedbackSubmission,
@@ -42,8 +42,8 @@ import type {
   ScoutDesktopBrokerInspector,
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
-} from "./diagnostics.ts";
-import type { ScoutElectronAgentSessionInspector } from "./agent-session.ts";
+} from "../host/diagnostics.ts";
+import type { ScoutElectronAgentSessionInspector } from "../host/agent-session.ts";
 import type { ScoutElectronVoiceState } from "./voice.ts";
 import { SCOUT_ELECTRON_CHANNELS } from "./channels.ts";
 

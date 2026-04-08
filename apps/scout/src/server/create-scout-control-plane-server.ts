@@ -3,8 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { serveStatic } from "hono/bun";
 
 import {
   controlScoutElectronPairingService,
@@ -15,8 +13,14 @@ import {
 } from "../app/electron/pairing.ts";
 import { composeScoutDesktopRelayShellPatch } from "../app/desktop/shell.ts";
 import type { ScoutDesktopShellPatch } from "../app/desktop/index.ts";
+import {
+  createCachedSnapshot,
+  installScoutApiMiddleware,
+  registerScoutWebAssets,
+  type ScoutWebAssetMode,
+} from "./server-core.ts";
 
-export type ScoutWebAssetMode = "vite-proxy" | "static";
+export type { ScoutWebAssetMode } from "./server-core.ts";
 
 export type CreateScoutControlPlaneServerOptions = {
   currentDirectory: string;
@@ -30,53 +34,6 @@ export type ScoutControlPlaneServer = {
   app: Hono;
   warmupCaches: () => Promise<void>;
 };
-
-function createCachedSnapshot<T>(load: () => Promise<T>, ttlMs: number) {
-  let inflight: Promise<T> | null = null;
-  let cached: { value: T; expiresAt: number } | null = null;
-
-  const refresh = async () => {
-    if (inflight) {
-      return inflight;
-    }
-
-    inflight = load()
-      .then((value) => {
-        cached = { value, expiresAt: Date.now() + ttlMs };
-        inflight = null;
-        return value;
-      })
-      .catch((error) => {
-        inflight = null;
-        throw error;
-      });
-
-    return inflight;
-  };
-
-  const get = async () => {
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.value;
-    }
-    if (cached && inflight) {
-      return cached.value;
-    }
-    if (inflight) {
-      return inflight;
-    }
-    return refresh();
-  };
-
-  const invalidate = () => {
-    cached = null;
-  };
-
-  return {
-    get,
-    refresh,
-    invalidate,
-  };
-}
 
 function defaultMonorepoControlPlaneStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "../../../../packages/web/dist/client");
@@ -118,17 +75,7 @@ export function createScoutControlPlaneServer(
   const app = new Hono();
   const shellStateCache = createCachedSnapshot(() => loadControlPlaneShellState(currentDirectory), shellTtl);
 
-  app.use("/*", cors());
-
-  app.use("/api/*", async (c, next) => {
-    try {
-      await next();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[control-plane api] ${c.req.method} ${c.req.path} failed:`, message);
-      return c.json({ error: message }, 500);
-    }
-  });
+  installScoutApiMiddleware(app, "control-plane api");
 
   app.get("/api/pairing-state", async (c) => c.json(await loadPairingState(currentDirectory, false)));
   app.get("/api/pairing-state/refresh", async (c) => c.json(await loadPairingState(currentDirectory, true)));
@@ -141,31 +88,12 @@ export function createScoutControlPlaneServer(
   app.get("/api/shell-state", async (c) => c.json(await shellStateCache.get()));
   app.get("/api/shell-state/refresh", async (c) => c.json(await shellStateCache.refresh()));
 
-  const viteUrl = options.viteDevUrl?.trim() || "http://127.0.0.1:5180";
-  if (options.assetMode === "vite-proxy") {
-    app.all("/*", async (c) => {
-      const target = new URL(c.req.path, viteUrl);
-      target.search = new URL(c.req.url).search;
-      const headers = new Headers(c.req.header());
-      headers.delete("host");
-      const res = await fetch(target.toString(), {
-        method: c.req.method,
-        headers,
-        body: c.req.method !== "GET" && c.req.method !== "HEAD" ? c.req.raw.body : undefined,
-      });
-      return new Response(res.body, {
-        status: res.status,
-        headers: res.headers,
-      });
-    });
-  } else {
-    const root = resolveStaticRoot(options.staticRoot);
-    app.use("/*", serveStatic({ root }));
-    app.get("/*", serveStatic({
-      root,
-      path: "index.html",
-    }));
-  }
+  registerScoutWebAssets(app, {
+    assetMode: options.assetMode,
+    staticRoot: resolveStaticRoot(options.staticRoot),
+    viteDevUrl: options.viteDevUrl,
+    defaultViteUrl: "http://127.0.0.1:5180",
+  });
 
   const warmupCaches = () =>
     Promise.allSettled([

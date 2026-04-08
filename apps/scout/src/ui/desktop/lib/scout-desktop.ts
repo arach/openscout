@@ -45,7 +45,7 @@ import type {
   ScoutPairingSnapshot,
   ScoutPairingState,
   UpdateScoutPairingConfigInput,
-} from "../../../app/electron/pairing.ts";
+} from "../../../app/host/pairing.ts";
 import type {
   AppSettingsState,
   HiddenProjectSummary,
@@ -59,11 +59,11 @@ import type {
   SetupProjectSummary,
   SetupRuntimeSummary,
   UpdateAppSettingsInput,
-} from "../../../app/electron/settings.ts";
+} from "../../../app/host/settings.ts";
 import type {
   ScoutElectronAgentConfigState,
   ScoutElectronUpdateAgentConfigInput,
-} from "../../../app/electron/agent-config.ts";
+} from "../../../app/host/agent-config.ts";
 import type {
   ReadScoutLogSourceInput,
   ScoutDesktopBrokerInspector,
@@ -74,15 +74,15 @@ import type {
   ScoutDesktopLogGroup,
   ScoutDesktopLogSource,
   SubmitScoutFeedbackReportInput,
-} from "../../../app/electron/diagnostics.ts";
-import type { ScoutElectronAgentSessionInspector } from "../../../app/electron/agent-session.ts";
+} from "../../../app/host/diagnostics.ts";
+import type { ScoutElectronAgentSessionInspector } from "../../../app/host/agent-session.ts";
 import type {
   ScoutElectronCreateAgentInput,
   ScoutElectronCreateAgentResult,
   ScoutElectronBrokerControlAction,
   ScoutElectronRestartAgentInput,
   ScoutElectronSendRelayMessageInput,
-} from "../../../app/electron/broker-actions.ts";
+} from "../../../app/host/broker-actions.ts";
 
 export type DesktopFeatureFlags = ScoutDesktopFeatureFlags;
 export type DesktopAppInfo = ScoutDesktopAppInfo;

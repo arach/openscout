@@ -455,18 +455,14 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     });
 
     // Write the answer back to Claude Code's stdin as a tool_result.
-    if (!this.process?.stdin) return;
+    if (!this.process?.stdin || typeof this.process.stdin === "number") return;
     const response = JSON.stringify({
       type: "tool_result",
       tool_use_id: toolCallId,
       content: answer.join(", "),
     });
-    const writer = this.process.stdin.getWriter();
-    try {
-      await writer.write(new TextEncoder().encode(response + "\n"));
-    } finally {
-      writer.releaseLock();
-    }
+    this.process.stdin.write(response + "\n");
+    await this.process.stdin.flush();
   }
 
   // ---------------------------------------------------------------------------

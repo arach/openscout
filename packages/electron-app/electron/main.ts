@@ -16,10 +16,10 @@ import {
   resolveScoutElectronStartUrl,
   SCOUT_ELECTRON_DEFAULT_WINDOW,
   shutdownScoutKeepAliveManager,
-} from "../../../apps/scout/src/app/index.ts";
-import { SCOUT_ELECTRON_CHANNELS } from "../../../apps/scout/src/app/electron/channels.ts";
-import { SCOUT_PRODUCT_NAME } from "../../../apps/scout/src/shared/product.ts";
-import type { ScoutDesktopAppInfo } from "../../../apps/scout/src/app/desktop/index.ts";
+} from "@scout/app/electron-shell";
+import { SCOUT_ELECTRON_CHANNELS } from "@scout/app/electron-channels";
+import { SCOUT_PRODUCT_NAME } from "@scout/app/product";
+import type { ScoutDesktopAppInfo } from "@scout/app/desktop";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 import { telegramBridgeService } from "./telegram-bridge-service.js";
 

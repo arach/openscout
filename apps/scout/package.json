@@ -3,6 +3,44 @@
   "version": "0.2.10",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/app/index.ts",
+      "default": "./src/app/index.ts"
+    },
+    "./desktop": {
+      "types": "./src/desktop.ts",
+      "default": "./src/desktop.ts"
+    },
+    "./electron-shell": {
+      "types": "./src/electron-shell.ts",
+      "default": "./src/electron-shell.ts"
+    },
+    "./electron-channels": {
+      "types": "./src/electron-channels.ts",
+      "default": "./src/electron-channels.ts"
+    },
+    "./electron-pair-supervisor": {
+      "types": "./src/electron-pair-supervisor.ts",
+      "default": "./src/electron-pair-supervisor.ts"
+    },
+    "./product": {
+      "types": "./src/product.ts",
+      "default": "./src/product.ts"
+    },
+    "./scout-desktop": {
+      "types": "./src/scout-desktop.ts",
+      "default": "./src/scout-desktop.ts"
+    },
+    "./ui-desktop-entry-client": {
+      "types": "./src/ui-desktop-entry-client.tsx",
+      "default": "./src/ui-desktop-entry-client.tsx"
+    },
+    "./ui-desktop-entry-server": {
+      "types": "./src/ui-desktop-entry-server.tsx",
+      "default": "./src/ui-desktop-entry-server.tsx"
+    }
+  },
   "bin": {
     "scout": "./bin/scout.ts"
   },

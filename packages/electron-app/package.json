@@ -33,6 +33,7 @@
     "check": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@scout/app": "workspace:*",
     "@chat-adapter/state-memory": "^4.20.2",
     "@chat-adapter/telegram": "^4.20.2",
     "@hookform/resolvers": "^3.9.1",

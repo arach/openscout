@@ -6,8 +6,8 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
+import type { RelayVoiceState } from "@scout/app/scout-desktop";
 import type { RuntimeRegistrySnapshot } from "../../runtime/src/registry.js";
-import type { RelayVoiceState } from "../../../apps/scout/src/ui/desktop/lib/scout-desktop.ts";
 
 const OPERATOR_ID = "operator";
 const BRIDGE_TIMEOUT_MS = 30_000;

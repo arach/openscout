@@ -14,6 +14,8 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
+      "@scout/app": ["../../apps/scout/src/app/index.ts"],
+      "@scout/app/*": ["../../apps/scout/src/*"],
       "@/*": ["../../apps/scout/src/ui/desktop/*"],
       "@openscout/runtime/*": ["../runtime/src/*"],
       "@openscout/protocol/*": ["../protocol/src/*"]

@@ -1,7 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 
 import type {
@@ -15,11 +12,7 @@ import type {
 } from "@openscout/protocol";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
-import {
-  DEFAULT_OPERATOR_NAME,
-  loadResolvedRelayAgents,
-} from "@openscout/runtime/setup";
-import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
 
 import { getRuntimeBrokerServiceStatus } from "../host/runtime-service-client.ts";
 import {
@@ -56,6 +49,25 @@ import type {
   ScoutRelayState,
   ScoutSessionMetadata,
 } from "./state.ts";
+import {
+  readHelperStatus,
+  readProjectGitActivity,
+  readTmuxSessions,
+  resolveOperatorDisplayName,
+  type HelperStatus,
+  type TmuxSession,
+} from "./shell-probes.ts";
+import {
+  compactHomePath,
+  expandHomePath,
+  formatDateTimeLabel,
+  formatDayLabel,
+  formatRelativeTime,
+  formatTimeLabel,
+  isoFromTimestamp,
+  normalizeTimestamp,
+  runOptionalCommand,
+} from "./shell-utils.ts";
 
 const OPERATOR_ID = "operator";
 const BUILT_IN_ROLE_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
@@ -63,24 +75,7 @@ const RECENT_AGENT_ACTIVITY_WINDOW_SECONDS = 60 * 60 * 24 * 30;
 const RECONCILE_OFFLINE_WAIT_SECONDS = 60 * 3;
 const RECONCILE_NO_FOLLOW_UP_SECONDS = 60 * 10;
 const RECONCILE_STALE_WORKING_SECONDS = 60 * 15;
-const PROJECT_GIT_ACTIVITY_CACHE_TTL_MS = 60_000;
 const LOG_TAIL_CHUNK_BYTES = 64 * 1024;
-
-type TmuxSession = {
-  name: string;
-  createdAt: number | null;
-};
-
-type HelperStatus = {
-  running: boolean;
-  detail: string | null;
-  heartbeatLabel: string | null;
-};
-
-type ProjectGitActivity = {
-  lastCodeChangeAt: number | null;
-  lastCodeChangeLabel: string | null;
-};
 
 type AgentWorkspaceRecord = {
   agentId: string;
@@ -101,185 +96,6 @@ type DirectAgentActivity = {
   activeTask: string | null;
   lastMessageAt: number | null;
 };
-
-const projectGitActivityCache = new Map<string, { cachedAt: number; activity: ProjectGitActivity }>();
-
-function normalizeTimestamp(value: number | null | undefined): number {
-  if (!value) return 0;
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
-}
-
-function isoFromTimestamp(value: number): string {
-  return new Date(normalizeTimestamp(value) * 1000).toISOString();
-}
-
-function formatTimeLabel(value: number): string {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(normalizeTimestamp(value) * 1000));
-}
-
-function formatDayLabel(value: number): string {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(normalizeTimestamp(value) * 1000)).toUpperCase();
-}
-
-function formatRelativeTime(value: number): string {
-  const deltaSeconds = Math.max(0, Math.floor(Date.now() / 1000) - normalizeTimestamp(value));
-  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
-  const deltaMinutes = Math.floor(deltaSeconds / 60);
-  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
-  const deltaHours = Math.floor(deltaMinutes / 60);
-  if (deltaHours < 24) return `${deltaHours}h ago`;
-  const deltaDays = Math.floor(deltaHours / 24);
-  return `${deltaDays}d ago`;
-}
-
-function formatDateTimeLabel(value: number | null | undefined): string | null {
-  const normalized = normalizeTimestamp(value);
-  if (!normalized) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(normalized * 1000));
-}
-
-function compactHomePath(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const home = homedir();
-  return value.startsWith(home) ? value.replace(home, "~") : value;
-}
-
-function expandHomePath(value: string): string {
-  if (value === "~") {
-    return homedir();
-  }
-  if (value.startsWith("~/")) {
-    return path.join(homedir(), value.slice(2));
-  }
-  return value;
-}
-
-function runOptionalCommand(command: string, args: string[]): string | null {
-  try {
-    const output = execFileSync(command, args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    return output.length > 0 ? output : null;
-  } catch {
-    return null;
-  }
-}
-
-function readHelperStatus(): HelperStatus {
-  const statusPath = resolveOpenScoutSupportPaths().desktopStatusPath;
-  if (!existsSync(statusPath)) {
-    return {
-      running: false,
-      detail: null,
-      heartbeatLabel: null,
-    };
-  }
-
-  try {
-    const raw = JSON.parse(readFileSync(statusPath, "utf8")) as {
-      state?: string;
-      detail?: string;
-      heartbeat?: number;
-    };
-    return {
-      running: raw.state === "running",
-      detail: typeof raw.detail === "string" ? raw.detail : null,
-      heartbeatLabel: raw.heartbeat ? formatTimeLabel(raw.heartbeat) : null,
-    };
-  } catch {
-    return {
-      running: false,
-      detail: "Helper status unreadable.",
-      heartbeatLabel: null,
-    };
-  }
-}
-
-function readTmuxSessions(): TmuxSession[] {
-  try {
-    const stdout = execFileSync("tmux", ["ls", "-F", "#{session_name}\t#{session_created}"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-
-    return stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [name, createdAtRaw] = line.split("\t");
-        return {
-          name,
-          createdAt: createdAtRaw ? Number.parseInt(createdAtRaw, 10) : null,
-        };
-      });
-  } catch {
-    return [];
-  }
-}
-
-function readDesktopSettingsRecord(): { operatorName?: string; profile?: { operatorName?: string } } {
-  try {
-    return JSON.parse(readFileSync(resolveOpenScoutSupportPaths().settingsPath, "utf8")) as {
-      operatorName?: string;
-      profile?: { operatorName?: string };
-    };
-  } catch {
-    return {};
-  }
-}
-
-function resolveOperatorDisplayName(): string {
-  const settings = readDesktopSettingsRecord();
-  const candidate = settings.profile?.operatorName ?? settings.operatorName;
-  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : DEFAULT_OPERATOR_NAME;
-}
-
-function readProjectGitActivity(projectRoot: string | null | undefined): ProjectGitActivity {
-  if (!projectRoot) {
-    return {
-      lastCodeChangeAt: null,
-      lastCodeChangeLabel: null,
-    };
-  }
-
-  const normalizedRoot = path.resolve(projectRoot);
-  const cached = projectGitActivityCache.get(normalizedRoot);
-  if (cached && Date.now() - cached.cachedAt < PROJECT_GIT_ACTIVITY_CACHE_TTL_MS) {
-    return cached.activity;
-  }
-
-  const rawTimestamp = runOptionalCommand("git", ["-C", normalizedRoot, "log", "-1", "--format=%ct"]);
-  const parsedTimestamp = Number.parseInt(rawTimestamp ?? "", 10);
-  const lastCodeChangeAt = Number.isFinite(parsedTimestamp) && parsedTimestamp > 0
-    ? normalizeTimestamp(parsedTimestamp)
-    : null;
-  const activity = {
-    lastCodeChangeAt,
-    lastCodeChangeLabel: lastCodeChangeAt ? formatRelativeTime(lastCodeChangeAt) : null,
-  };
-  projectGitActivityCache.set(normalizedRoot, {
-    cachedAt: Date.now(),
-    activity,
-  });
-  return activity;
-}
 
 function actorDisplayName(snapshot: RuntimeRegistrySnapshot, actorId: string): string {
   if (actorId === OPERATOR_ID) {

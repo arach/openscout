@@ -2,13 +2,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { serveStatic } from "hono/bun";
 
-import { createScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import { createScoutDesktopAppInfo } from "../app/desktop/index.ts";
-import type { ScoutElectronIpcServices } from "../app/electron/ipc.ts";
 import type { ScoutElectronHostServices } from "../app/electron/host.ts";
+import {
+  createScoutHostServices,
+  type ScoutHostServices,
+} from "../app/host/scout-host-services.ts";
 import type { ScoutSurfaceCapabilities } from "../shared/surface-capabilities.ts";
 import {
   createScoutSession,
@@ -19,9 +19,15 @@ import {
   getScoutMobileWorkspaces,
   sendScoutMobileMessage,
 } from "../core/mobile/service.ts";
+import {
+  coalesce,
+  createCachedSnapshot,
+  installScoutApiMiddleware,
+  registerScoutWebAssets,
+  type ScoutWebAssetMode,
+} from "./server-core.ts";
 
-/** How non-`/api` traffic is served: dev proxy to Vite or static files. */
-export type ScoutWebAssetMode = "vite-proxy" | "static";
+export type { ScoutWebAssetMode } from "./server-core.ts";
 
 export type CreateScoutWebServerOptions = {
   /** Workspace / project root Scout should use (defaults are applied by callers). */
@@ -44,7 +50,7 @@ export type CreateScoutWebServerOptions = {
 
 export type ScoutWebServer = {
   app: Hono;
-  services: ScoutElectronIpcServices;
+  services: ScoutHostServices;
   warmupCaches: () => Promise<void>;
 };
 
@@ -54,78 +60,6 @@ export type ScoutWebServer = {
  */
 export function defaultMonorepoStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "../../../../packages/electron-app/dist/client");
-}
-
-function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
-  let inflight: Promise<T> | null = null;
-  let cached: { value: T; expiresAt: number } | null = null;
-  return () => {
-    if (cached && Date.now() < cached.expiresAt) return Promise.resolve(cached.value);
-    if (inflight) return inflight;
-    inflight = fn()
-      .then((value) => {
-        cached = { value, expiresAt: Date.now() + ttlMs };
-        inflight = null;
-        return value;
-      })
-      .catch((err) => {
-        inflight = null;
-        throw err;
-      });
-    return inflight;
-  };
-}
-
-function createCachedSnapshot<T>(load: () => Promise<T>, ttlMs: number) {
-  let inflight: Promise<T> | null = null;
-  let cached: { value: T; expiresAt: number } | null = null;
-
-  const refresh = async () => {
-    if (inflight) {
-      return inflight;
-    }
-
-    inflight = load()
-      .then((value) => {
-        cached = { value, expiresAt: Date.now() + ttlMs };
-        inflight = null;
-        return value;
-      })
-      .catch((error) => {
-        inflight = null;
-        throw error;
-      });
-
-    return inflight;
-  };
-
-  const get = async (options?: { force?: boolean }) => {
-    const force = options?.force ?? false;
-    if (!force && cached && Date.now() < cached.expiresAt) {
-      return cached.value;
-    }
-
-    if (!force && cached && inflight) {
-      return cached.value;
-    }
-
-    if (!force && inflight) {
-      return inflight;
-    }
-
-    return refresh();
-  };
-
-  const invalidate = () => {
-    cached = null;
-  };
-
-  return {
-    get,
-    refresh,
-    invalidate,
-    peek: () => cached?.value ?? null,
-  };
 }
 
 function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
@@ -151,7 +85,7 @@ function capabilityError(
 }
 
 /**
- * Hono app + Scout desktop IPC services (same stack as Electron), HTTP API, and UI asset handling.
+ * Hono app + shared Scout host services, HTTP API, and UI asset handling.
  * Use from Bun’s server entry or any host that can call `app.fetch`.
  */
 export function createScoutWebServer(options: CreateScoutWebServerOptions): ScoutWebServer {
@@ -162,7 +96,7 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
 
   const appInfo = createScoutDesktopAppInfo({ platform, surface: "web" });
   const caps = appInfo.capabilities;
-  const services = createScoutElectronIpcServices({
+  const services = createScoutHostServices({
     currentDirectory: options.currentDirectory,
     appInfo,
     host: options.host ?? {
@@ -208,21 +142,7 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   const currentDirectory = options.currentDirectory;
   const app = new Hono();
 
-  app.use("/*", cors());
-
-  app.use("/api/*", async (c, next) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    try {
-      await next();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[api] ${c.req.method} ${c.req.path} failed:`, message);
-      return c.json({ error: message }, 500);
-    } finally {
-      clearTimeout(timeout);
-    }
-  });
+  installScoutApiMiddleware(app, "api");
 
   app.get("/api/app", async (c) => c.json(await services.getAppInfo()));
   app.get("/api/app-info", async (c) => c.json(await services.getAppInfo()));
@@ -422,32 +342,12 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   app.post("/api/mobile/session/create", async (c) => c.json(await createScoutSession(await c.req.json(), currentDirectory)));
   app.post("/api/mobile/message/send", async (c) => c.json(await sendScoutMobileMessage(await c.req.json(), currentDirectory)));
 
-  const viteUrl = options.viteDevUrl?.trim() || "http://127.0.0.1:43173";
-
-  if (options.assetMode === "vite-proxy") {
-    app.all("/*", async (c) => {
-      const target = new URL(c.req.path, viteUrl);
-      target.search = new URL(c.req.url).search;
-      const headers = new Headers(c.req.header());
-      headers.delete("host");
-      const res = await fetch(target.toString(), {
-        method: c.req.method,
-        headers,
-        body: c.req.method !== "GET" && c.req.method !== "HEAD" ? c.req.raw.body : undefined,
-      });
-      return new Response(res.body, {
-        status: res.status,
-        headers: res.headers,
-      });
-    });
-  } else {
-    const root = resolveStaticRoot(options);
-    app.use("/*", serveStatic({ root }));
-    app.get("/*", serveStatic({
-      root,
-      path: "index.html",
-    }));
-  }
+  registerScoutWebAssets(app, {
+    assetMode: options.assetMode,
+    staticRoot: resolveStaticRoot(options),
+    viteDevUrl: options.viteDevUrl,
+    defaultViteUrl: "http://127.0.0.1:43173",
+  });
 
   const warmupCaches = () =>
     Promise.allSettled([refreshShellStateCache(), servicesStateCache.refresh(), homeStateCache.refresh()]).then((results) => {
