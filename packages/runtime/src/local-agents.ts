@@ -1560,6 +1560,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
 
     const overrides = await readRelayAgentOverrides();
+    const existingOverride = overrides[instance.id];
+    if (existingOverride && normalizeProjectPath(existingOverride.projectRoot) !== projectRoot) {
+      throw new Error(
+        `Another agent is already registered as ${instance.id} at ${existingOverride.projectRoot}. `
+          + `Two clones of the same project on the same branch cannot both register here; `
+          + `rename one of the checkouts or switch its branch before running scout up.`,
+      );
+    }
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId,
@@ -1605,6 +1613,17 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   if (requestedDefinitionId && requestedDefinitionId !== candidate.definitionId) {
     const overrides = await readRelayAgentOverrides();
     const instance = buildRelayAgentInstance(requestedDefinitionId, candidate.projectRoot);
+    const existingOverride = overrides[instance.id];
+    if (
+      existingOverride
+      && normalizeProjectPath(existingOverride.projectRoot) !== normalizeProjectPath(candidate.projectRoot)
+    ) {
+      throw new Error(
+        `Another agent is already registered as ${instance.id} at ${existingOverride.projectRoot}. `
+          + `Two clones of the same project on the same branch cannot both register here; `
+          + `rename one of the checkouts or switch its branch before running scout up.`,
+      );
+    }
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,

@@ -20,6 +20,8 @@
 /apps/*/.next/
 /site/out/
 /site/node_modules/
+/landing/out/
+/landing/node_modules/
 
 # production
 /build
@@ -63,15 +65,15 @@ next-env.d.ts
 packages/relay/relay-docs/dist/
 
 # iOS derived data / build artifacts
-scout/ios/.derived-iphone/
-scout/ios/.deriveddata/
-scout/ios/$(pwd)/
-scout/ios/.asc/artifacts/
+apps/ios/.derived-iphone/
+apps/ios/.deriveddata/
+apps/ios/$(pwd)/
+apps/ios/.asc/artifacts/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
-scout/ios/.asc/metadata/
-scout/ios/build/
+apps/ios/.asc/metadata/
+apps/ios/build/
 
 # hidden files / directories
 /.*

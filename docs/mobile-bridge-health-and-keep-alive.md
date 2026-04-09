@@ -29,8 +29,8 @@ This document is the implementation spec to build against.
 
 Relevant files:
 
-- [ContentView.swift](/Users/arach/dev/openscout/scout/ios/Scout/App/ContentView.swift)
-- [ConnectionManager.swift](/Users/arach/dev/openscout/scout/ios/Scout/Services/ConnectionManager.swift)
+- [ContentView.swift](/Users/arach/dev/openscout/apps/ios/Scout/App/ContentView.swift)
+- [ConnectionManager.swift](/Users/arach/dev/openscout/apps/ios/Scout/Services/ConnectionManager.swift)
 
 ### Existing broker wake behavior
 
@@ -41,7 +41,7 @@ Relevant files:
 Relevant files:
 
 - [packages/protocol/src/invocations.ts](/Users/arach/dev/openscout/packages/protocol/src/invocations.ts)
-- [apps/scout/src/core/broker/service.ts](/Users/arach/dev/openscout/apps/scout/src/core/broker/service.ts)
+- [apps/desktop/src/core/broker/service.ts](/Users/arach/dev/openscout/apps/desktop/src/core/broker/service.ts)
 - [packages/runtime/src/broker.ts](/Users/arach/dev/openscout/packages/runtime/src/broker.ts)
 - [packages/runtime/src/broker-daemon.ts](/Users/arach/dev/openscout/packages/runtime/src/broker-daemon.ts)
 
@@ -53,7 +53,7 @@ Relevant files:
 Relevant files:
 
 - [packages/runtime/src/tailscale.ts](/Users/arach/dev/openscout/packages/runtime/src/tailscale.ts)
-- [apps/scout/src/core/pairing/runtime/relay-runtime.ts](/Users/arach/dev/openscout/apps/scout/src/core/pairing/runtime/relay-runtime.ts)
+- [apps/desktop/src/core/pairing/runtime/relay-runtime.ts](/Users/arach/dev/openscout/apps/desktop/src/core/pairing/runtime/relay-runtime.ts)
 - [packages/protocol/src/mesh.ts](/Users/arach/dev/openscout/packages/protocol/src/mesh.ts)
 
 ## Part 1: Bridge Health Model
@@ -224,7 +224,7 @@ Add a Mac-side `KeepAliveManager` owned by the desktop/electron host layer.
 
 Suggested location:
 
-- `apps/scout/src/app/electron/keep-alive.ts`
+- `apps/desktop/src/app/electron/keep-alive.ts`
 
 This manager owns keep-alive leases and adapter-specific execution of sleep-prevention mechanisms.
 
@@ -341,7 +341,7 @@ Add IPC surface for:
 
 Relevant file:
 
-- [apps/scout/src/app/electron/channels.ts](/Users/arach/dev/openscout/apps/scout/src/app/electron/channels.ts)
+- [apps/desktop/src/app/electron/channels.ts](/Users/arach/dev/openscout/apps/desktop/src/app/electron/channels.ts)
 
 ### iOS Bridge API
 
@@ -431,18 +431,18 @@ Suggested behavior:
 ### New
 
 - `docs/mobile-bridge-health-and-keep-alive.md`
-- `apps/scout/src/app/electron/keep-alive.ts`
-- `apps/scout/src/app/electron/keep-alive-state.ts`
+- `apps/desktop/src/app/electron/keep-alive.ts`
+- `apps/desktop/src/app/electron/keep-alive-state.ts`
 
 ### Likely changed
 
-- [scout/ios/Scout/Services/ConnectionManager.swift](/Users/arach/dev/openscout/scout/ios/Scout/Services/ConnectionManager.swift)
-- [scout/ios/Scout/Models/RPC.swift](/Users/arach/dev/openscout/scout/ios/Scout/Models/RPC.swift)
-- [apps/scout/src/app/electron/channels.ts](/Users/arach/dev/openscout/apps/scout/src/app/electron/channels.ts)
-- [apps/scout/src/app/electron/service.ts](/Users/arach/dev/openscout/apps/scout/src/app/electron/service.ts)
-- [apps/scout/src/core/mobile/service.ts](/Users/arach/dev/openscout/apps/scout/src/core/mobile/service.ts)
-- [apps/scout/src/core/pairing/runtime/bridge/router.ts](/Users/arach/dev/openscout/apps/scout/src/core/pairing/runtime/bridge/router.ts)
-- [apps/scout/src/core/pairing/runtime/relay-runtime.ts](/Users/arach/dev/openscout/apps/scout/src/core/pairing/runtime/relay-runtime.ts)
+- [apps/ios/Scout/Services/ConnectionManager.swift](/Users/arach/dev/openscout/apps/ios/Scout/Services/ConnectionManager.swift)
+- [apps/ios/Scout/Models/RPC.swift](/Users/arach/dev/openscout/apps/ios/Scout/Models/RPC.swift)
+- [apps/desktop/src/app/electron/channels.ts](/Users/arach/dev/openscout/apps/desktop/src/app/electron/channels.ts)
+- [apps/desktop/src/app/electron/service.ts](/Users/arach/dev/openscout/apps/desktop/src/app/electron/service.ts)
+- [apps/desktop/src/core/mobile/service.ts](/Users/arach/dev/openscout/apps/desktop/src/core/mobile/service.ts)
+- [apps/desktop/src/core/pairing/runtime/bridge/router.ts](/Users/arach/dev/openscout/apps/desktop/src/core/pairing/runtime/bridge/router.ts)
+- [apps/desktop/src/core/pairing/runtime/relay-runtime.ts](/Users/arach/dev/openscout/apps/desktop/src/core/pairing/runtime/relay-runtime.ts)
 - [packages/protocol/src/invocations.ts](/Users/arach/dev/openscout/packages/protocol/src/invocations.ts)
 
 ## Open Decisions

@@ -14,10 +14,13 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@scout/app": ["../../apps/scout/src/app/index.ts"],
-      "@scout/app/*": ["../../apps/scout/src/*"],
-      "@/*": ["../../apps/scout/src/ui/desktop/*"],
+      "@scout/app": ["../../apps/desktop/src/app/index.ts"],
+      "@scout/app/*": ["../../apps/desktop/src/*"],
+      "@/*": ["../../apps/desktop/src/web/app/*"],
+      "@web/*": ["../../apps/desktop/src/web/*"],
+      "@openscout/runtime": ["../runtime/src/index.ts"],
       "@openscout/runtime/*": ["../runtime/src/*"],
+      "@openscout/protocol": ["../protocol/src/index.ts"],
       "@openscout/protocol/*": ["../protocol/src/*"]
     }
   },

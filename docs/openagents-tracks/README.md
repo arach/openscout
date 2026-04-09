@@ -125,7 +125,7 @@ Suggested code areas:
 
 - [packages/runtime/src](/Users/arach/dev/openscout/packages/runtime/src)
 - [docs/native-runtime.md](/Users/arach/dev/openscout/docs/native-runtime.md)
-- [apps/scout/src/app](/Users/arach/dev/openscout/apps/scout/src/app)
+- [apps/desktop/src/app](/Users/arach/dev/openscout/apps/desktop/src/app)
 
 ### Lane C: Surfaces And Product UX
 
@@ -136,9 +136,9 @@ Own:
 
 Suggested code areas:
 
-- [apps/scout/src/ui/desktop](/Users/arach/dev/openscout/apps/scout/src/ui/desktop)
+- [apps/desktop/src/ui/shell](/Users/arach/dev/openscout/apps/desktop/src/ui/shell)
 - [packages/electron-app/electron](/Users/arach/dev/openscout/packages/electron-app/electron)
-- [apps/scout/src/app/electron](/Users/arach/dev/openscout/apps/scout/src/app/electron)
+- [apps/desktop/src/app/electron](/Users/arach/dev/openscout/apps/desktop/src/app/electron)
 
 ## Recommended First Milestones
 

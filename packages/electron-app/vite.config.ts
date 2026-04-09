@@ -30,7 +30,7 @@ export default defineConfig({
             const code = err && typeof err === "object" && "code" in err ? String((err as NodeJS.ErrnoException).code) : "";
             const detail =
               code === "ECONNREFUSED"
-                ? `Nothing is listening at ${webApiTarget}. Use npm run dev:web from packages/electron-app (starts Bun + Vite), or run cd apps/scout && bun run web with SCOUT_WEB_PORT matching SCOUT_WEB_PORT here.`
+                ? `Nothing is listening at ${webApiTarget}. Use npm run dev:web from packages/electron-app (starts Bun + Vite), or run cd apps/desktop && bun run web with SCOUT_WEB_PORT matching SCOUT_WEB_PORT here.`
                 : `Upstream closed the connection (${err.message}). Restart the Scout web process (bun run web) if it crashed.`;
             console.error(`[vite] /api proxy → ${webApiTarget}:`, detail);
             const outgoing = res as ServerResponse | undefined;
@@ -53,8 +53,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@scout/app": path.resolve(__dirname, "../../apps/scout/src"),
-      "@": path.resolve(__dirname, "../../apps/scout/src/ui/desktop"),
+      "@scout/app": path.resolve(__dirname, "../../apps/desktop/src"),
+      "@": path.resolve(__dirname, "../../apps/desktop/src/web/app"),
+      "@web": path.resolve(__dirname, "../../apps/desktop/src/web"),
       "@openscout/runtime": path.resolve(__dirname, "../runtime/src"),
       "@openscout/protocol": path.resolve(__dirname, "../protocol/src"),
     },

@@ -6,5 +6,6 @@ export default defineConfig({
   outDir: "dist/electron",
   target: "node22",
   splitting: false,
+  noExternal: [/^@scout\/app(?:\/.*)?$/, /^@openscout\/runtime(?:\/.*)?$/, /^@openscout\/protocol(?:\/.*)?$/],
   external: ["electron"],
 });

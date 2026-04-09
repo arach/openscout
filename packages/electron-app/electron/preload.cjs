@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const SCOUT_CHANNELS = {
   getAppInfo: "scout:get-app-info",
+  getServicesState: "scout:get-services-state",
+  getHomeState: "scout:get-home-state",
   getShellState: "scout:get-shell-state",
   refreshShellState: "scout:refresh-shell-state",
   getAppSettings: "scout:get-app-settings",
@@ -45,6 +47,8 @@ const SCOUT_CHANNELS = {
 const scoutDesktop = {
   isDesktop: true,
   getAppInfo: () => ipcRenderer.invoke(SCOUT_CHANNELS.getAppInfo),
+  getServicesState: () => ipcRenderer.invoke(SCOUT_CHANNELS.getServicesState),
+  getHomeState: () => ipcRenderer.invoke(SCOUT_CHANNELS.getHomeState),
   getShellState: () => ipcRenderer.invoke(SCOUT_CHANNELS.getShellState),
   refreshShellState: () => ipcRenderer.invoke(SCOUT_CHANNELS.refreshShellState),
   getAppSettings: () => ipcRenderer.invoke(SCOUT_CHANNELS.getAppSettings),

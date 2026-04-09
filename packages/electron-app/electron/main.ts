@@ -54,6 +54,12 @@ const SCOUT_RELEASE_OWNER = "arach";
 const SCOUT_RELEASE_REPO = "openscout";
 let hasLoggedMissingUpdaterConfig = false;
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
 function resolveProductName() {
   const fromEnv = process.env.SCOUT_PRODUCT_NAME?.trim();
   if (fromEnv) {
@@ -468,6 +474,22 @@ const scoutElectronServices = createScoutElectronIpcServices({
 registerScoutElectronIpcHandlers((channel, handler) => {
   ipcMain.handle(channel, handler);
 }, scoutElectronServices);
+
+app.on("second-instance", () => {
+  if (!mainWindow) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
+  mainWindow.focus();
+});
 
 app.whenReady().then(async () => {
   configureScoutKeepAliveHost({

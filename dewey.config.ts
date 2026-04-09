@@ -15,7 +15,7 @@ export default {
       'The CLI command is `scout`, not `openscout`.',
     ],
     entryPoints: {
-      'cli': 'apps/scout/',
+      'cli': 'apps/desktop/',
       'runtime': 'packages/runtime/',
       'protocol': 'packages/protocol/',
       'desktop': 'packages/electron-app/',

@@ -223,5 +223,5 @@ The shell should answer three questions at a glance:
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md)
 - [`docs/native-runtime.md`](../native-runtime.md)
 - [`packages/runtime/README.md`](../../packages/runtime/README.md)
-- [`apps/scout/src/app/electron/settings.ts`](../../apps/scout/src/app/electron/settings.ts)
-- [`apps/scout/src/ui/desktop/app.tsx`](../../apps/scout/src/ui/desktop/app.tsx)
+- [`apps/desktop/src/app/electron/settings.ts`](../../apps/desktop/src/app/electron/settings.ts)
+- [`apps/desktop/src/ui/shell/app.tsx`](../../apps/desktop/src/ui/shell/app.tsx)

@@ -1,1 +1,1 @@
-import "@scout/app/ui-desktop-entry-client";
+import "@scout/app/web-entry-client";

@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "npm --prefix ../runtime run build && node ./scripts/build.mjs",
-    "dev": "bun ../../apps/scout/bin/scout.ts",
+    "dev": "bun ../../apps/desktop/bin/scout.ts",
     "test:happy": "node --test test/*.test.mjs",
     "prepack": "npm run build"
   },

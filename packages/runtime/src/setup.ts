@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
@@ -635,6 +634,21 @@ function resolveNodeQualifier(): string {
 }
 
 function detectGitBranch(projectRoot: string): string | null {
+  // Prefer `symbolic-ref` so we still get a branch name on unborn HEADs
+  // (freshly initialized repos with no commits yet). Fall back to
+  // `rev-parse --abbrev-ref HEAD` for detached-HEAD detection.
+  try {
+    const branch = execFileSync(
+      "git",
+      ["-C", projectRoot, "symbolic-ref", "--short", "HEAD"],
+      { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8" },
+    ).trim();
+    if (branch) {
+      return branch;
+    }
+  } catch {
+    // ignore and fall through
+  }
   try {
     const branch = execFileSync(
       "git",
@@ -649,15 +663,10 @@ function detectGitBranch(projectRoot: string): string | null {
 
 function resolveWorkspaceQualifier(projectRoot: string): { workspaceQualifier: string; branch: string | null } {
   const normalizedProjectRoot = normalizePath(projectRoot);
-  const projectQualifier = normalizeAgentSelectorSegment(basename(normalizedProjectRoot) || "workspace") || "workspace";
   const branch = detectGitBranch(normalizedProjectRoot);
-  const branchQualifier = branch ? normalizeAgentSelectorSegment(branch) : "";
-  const fingerprint = createHash("sha1").update(normalizedProjectRoot).digest("hex").slice(0, 6);
-  const workspaceQualifier = normalizeAgentSelectorSegment(
-    [projectQualifier, branchQualifier, fingerprint].filter(Boolean).join("-"),
-  );
+  const workspaceQualifier = branch ? normalizeAgentSelectorSegment(branch) : "";
   return {
-    workspaceQualifier: workspaceQualifier || `workspace-${fingerprint}`,
+    workspaceQualifier,
     branch,
   };
 }
@@ -1912,6 +1921,18 @@ async function dedupeResolvedAgentsByCanonicalProjectRoot(
     + (agent.projectConfigPath ? 2 : 0)
     + (agent.source === "manifest" ? 1 : 0);
 
+  const pickWinner = (agent: ResolvedRelayAgentConfig, prev: ResolvedRelayAgentConfig) => {
+    const ra = rank(agent);
+    const rb = rank(prev);
+    if (ra !== rb) {
+      return ra > rb ? agent : prev;
+    }
+    if (agent.projectRoot.length !== prev.projectRoot.length) {
+      return agent.projectRoot.length < prev.projectRoot.length ? agent : prev;
+    }
+    return agent.projectRoot < prev.projectRoot ? agent : prev;
+  };
+
   const byCanon = new Map<string, ResolvedRelayAgentConfig>();
   for (const agent of agents) {
     let canon: string;
@@ -1921,25 +1942,19 @@ async function dedupeResolvedAgentsByCanonicalProjectRoot(
       canon = normalizePath(agent.projectRoot);
     }
     const prev = byCanon.get(canon);
-    if (!prev) {
-      byCanon.set(canon, agent);
-      continue;
-    }
-    const next = (() => {
-      const ra = rank(agent);
-      const rb = rank(prev);
-      if (ra !== rb) {
-        return ra > rb ? agent : prev;
-      }
-      if (agent.projectRoot.length !== prev.projectRoot.length) {
-        return agent.projectRoot.length < prev.projectRoot.length ? agent : prev;
-      }
-      return agent.projectRoot < prev.projectRoot ? agent : prev;
-    })();
-    byCanon.set(canon, next);
+    byCanon.set(canon, prev ? pickWinner(agent, prev) : agent);
   }
 
-  return Array.from(byCanon.values());
+  // Two project roots can resolve to the same agent FQN (same definitionId +
+  // branch + node). Without a path fingerprint to disambiguate, they collide;
+  // keep the higher-ranked one so downstream consumers see a single owner.
+  const byAgentId = new Map<string, ResolvedRelayAgentConfig>();
+  for (const agent of byCanon.values()) {
+    const prev = byAgentId.get(agent.agentId);
+    byAgentId.set(agent.agentId, prev ? pickWinner(agent, prev) : agent);
+  }
+
+  return Array.from(byAgentId.values());
 }
 
 async function scanSourceRoot(sourceRoot: string): Promise<ProjectScanCandidate[]> {

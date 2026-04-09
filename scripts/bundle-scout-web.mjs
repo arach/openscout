@@ -19,7 +19,7 @@ export function getOpenScoutRepoRoot() {
  */
 export function bundleScoutWebServerBun(repoRoot, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
-  const entry = resolve(repoRoot, "apps/scout/src/server/index.ts");
+  const entry = resolve(repoRoot, "apps/desktop/src/server/index.ts");
   const result = spawnSync(
     "bun",
     ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile],
@@ -37,7 +37,7 @@ export function bundleScoutWebServerBun(repoRoot, outfile) {
  */
 export function bundleScoutControlPlaneWebServerBun(repoRoot, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
-  const entry = resolve(repoRoot, "apps/scout/src/server/control-plane-index.ts");
+  const entry = resolve(repoRoot, "apps/desktop/src/server/control-plane-index.ts");
   const result = spawnSync(
     "bun",
     ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile],
