@@ -19,7 +19,10 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
   const options = parseContextRootCommandOptions("doctor", args, defaultScoutContextDirectory(context));
   const repoRoot = (() => {
     try {
-      return resolveScoutWorkspaceRoot();
+      return resolveScoutWorkspaceRoot({
+        currentDirectory: options.currentDirectory,
+        env: context.env,
+      });
     } catch {
       return options.currentDirectory;
     }

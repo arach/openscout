@@ -19,6 +19,7 @@ import {
   loadScoutBrokerContext,
   readScoutBrokerHome,
   readScoutBrokerHealth,
+  readScoutBrokerSnapshot,
   type ScoutBrokerContext,
   type ScoutBrokerHealthState,
 } from "../../core/broker/service.ts";
@@ -29,6 +30,7 @@ import type {
   ScoutDesktopMachine,
   ScoutDesktopMachineEndpoint,
   ScoutDesktopMachineEndpointState,
+  ScoutDesktopMessagesWorkspaceState,
   ScoutDesktopMachinesState,
   ScoutMessagesState,
   ScoutMessagesThread,
@@ -639,6 +641,38 @@ function buildServicesStateFromHealth(
     updatedAtLabel,
     services,
   };
+}
+
+function mergeBrokerServiceStatusWithHealth(
+  status: BrokerServiceStatus,
+  health: ScoutBrokerHealthState,
+): BrokerServiceStatus {
+  if (!health.reachable) {
+    return status;
+  }
+
+  return {
+    ...status,
+    brokerUrl: health.baseUrl,
+    reachable: true,
+    health: {
+      ...status.health,
+      reachable: true,
+      ok: health.ok,
+      nodeId: health.nodeId ?? status.health.nodeId,
+      meshId: health.meshId ?? status.health.meshId,
+      counts: health.counts ?? status.health.counts,
+      error: health.error ?? status.health.error,
+    },
+  };
+}
+
+async function loadBrokerStatusForShell(): Promise<BrokerServiceStatus> {
+  const [status, health] = await Promise.all([
+    getRuntimeBrokerServiceStatus(),
+    readScoutBrokerHealth(),
+  ]);
+  return mergeBrokerServiceStatusWithHealth(status, health);
 }
 
 function buildRuntimeState(
@@ -2345,7 +2379,7 @@ export async function composeScoutDesktopShellState(input: {
   appInfo: ScoutDesktopShellState["appInfo"];
 }): Promise<ScoutDesktopShellState> {
   const [status, helper, setup] = await Promise.all([
-    getRuntimeBrokerServiceStatus(),
+    loadBrokerStatusForShell(),
     Promise.resolve(readHelperStatus()),
     loadResolvedRelayAgents({ currentDirectory: input.currentDirectory }),
   ]);
@@ -2404,11 +2438,65 @@ export async function composeScoutDesktopShellState(input: {
   };
 }
 
+export async function composeScoutDesktopMessagesWorkspaceState(input: {
+  currentDirectory: string;
+}): Promise<ScoutDesktopMessagesWorkspaceState> {
+  const [status, helper] = await Promise.all([
+    loadBrokerStatusForShell(),
+    Promise.resolve(readHelperStatus()),
+  ]);
+
+  const tmuxSessions = readTmuxSessions();
+  const snapshot = status.reachable ? await readScoutBrokerSnapshot(status.brokerUrl) : null;
+  const configuredAgentIds = inferredConfiguredAgentIds(snapshot);
+  const messagesByConversation = snapshot ? buildMessagesByConversation(snapshot) : null;
+  const directActivity = snapshot && messagesByConversation
+    ? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation)
+    : null;
+  const visibleAgentCount = snapshot && messagesByConversation && directActivity
+    ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
+    : configuredAgentIds.size;
+  const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
+  const interAgent = snapshot
+    ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+    : {
+        title: "Inter-Agent",
+        subtitle: "Broker unavailable",
+        agents: [],
+        threads: [],
+        lastUpdatedLabel: null,
+      };
+  const relay = snapshot
+    ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+    : {
+        title: "Relay",
+        subtitle: "Broker unavailable",
+        transportTitle: "Broker-backed",
+        meshTitle: "Local mesh",
+        syncLine: "Disconnected",
+        operatorId: OPERATOR_ID,
+        channels: [],
+        views: [],
+        directs: [],
+        messages: [],
+        voice: createScoutVoiceState(),
+        lastUpdatedLabel: null,
+      };
+
+  return {
+    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount),
+    messages: buildMessagesState(relay, interAgent),
+    sessions: snapshot ? buildSessions(snapshot) : [],
+    relay,
+    interAgent,
+  };
+}
+
 export async function composeScoutDesktopRelayShellPatch(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopShellPatch> {
   const [status, helper] = await Promise.all([
-    getRuntimeBrokerServiceStatus(),
+    loadBrokerStatusForShell(),
     Promise.resolve(readHelperStatus()),
   ]);
 
@@ -2424,37 +2512,40 @@ export async function composeScoutDesktopRelayShellPatch(input: {
     ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
     : configuredAgentIds.size;
   const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
+  const interAgent = snapshot
+    ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+    : {
+        title: "Inter-Agent",
+        subtitle: "Broker unavailable",
+        agents: [],
+        threads: [],
+        lastUpdatedLabel: null,
+      };
+  const relay = snapshot
+    ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+    : {
+        title: "Relay",
+        subtitle: "Broker unavailable",
+        transportTitle: "Broker-backed",
+        meshTitle: "Local mesh",
+        syncLine: "Disconnected",
+        operatorId: OPERATOR_ID,
+        channels: [],
+        views: [],
+        directs: [],
+        messages: [],
+        voice: createScoutVoiceState(),
+        lastUpdatedLabel: null,
+      };
 
   return {
     runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount),
     machines: snapshot
       ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null)
       : buildEmptyMachinesState(),
+    messages: buildMessagesState(relay, interAgent),
     sessions: snapshot ? buildSessions(snapshot) : [],
-    interAgent: snapshot
-      ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
-      : {
-          title: "Inter-Agent",
-          subtitle: "Broker unavailable",
-          agents: [],
-          threads: [],
-          lastUpdatedLabel: null,
-        },
-    relay: snapshot
-      ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
-      : {
-          title: "Relay",
-          subtitle: "Broker unavailable",
-          transportTitle: "Broker-backed",
-          meshTitle: "Local mesh",
-          syncLine: "Disconnected",
-          operatorId: OPERATOR_ID,
-          channels: [],
-          views: [],
-          directs: [],
-          messages: [],
-          voice: createScoutVoiceState(),
-          lastUpdatedLabel: null,
-        },
+    interAgent,
+    relay,
   };
 }

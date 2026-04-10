@@ -5,6 +5,7 @@ const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args
   "scout:get-app-info":            { method: "GET",  path: "/api/app" },
   "scout:get-services-state":      { method: "GET",  path: "/api/services" },
   "scout:get-home-state":          { method: "GET",  path: "/api/home" },
+  "scout:get-messages-workspace-state": { method: "GET", path: "/api/messages-workspace" },
   "scout:get-shell-state":         { method: "GET",  path: "/api/shell-state" },
   "scout:refresh-shell-state":     { method: "GET",  path: "/api/shell-state/refresh" },
   "scout:get-app-settings":        { method: "GET",  path: "/api/app-settings" },

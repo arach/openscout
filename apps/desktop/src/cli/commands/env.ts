@@ -45,13 +45,40 @@ function resolveCommandOnPath(command: string, env: NodeJS.ProcessEnv): string |
   return null;
 }
 
+function resolveScoutBinPath(appRoot: string): string {
+  const candidates = [
+    join(appRoot, "bin", "scout.ts"),
+    join(appRoot, "bin", "scout.mjs"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[candidates.length - 1]!;
+}
+
 function loadScoutEnvReport(
   context: ScoutCommandContext,
   currentDirectory: string,
 ): ScoutEnvReport {
-  const workspaceRoot = resolveScoutWorkspaceRoot();
-  const appRoot = resolveScoutAppRoot();
-  const binPath = join(appRoot, "bin", "scout.ts");
+  const appRoot = resolveScoutAppRoot({
+    currentDirectory,
+    env: context.env,
+  });
+  const workspaceRoot = (() => {
+    try {
+      return resolveScoutWorkspaceRoot({
+        currentDirectory,
+        env: context.env,
+      });
+    } catch {
+      return appRoot;
+    }
+  })();
+  const binPath = resolveScoutBinPath(appRoot);
   const scoutPath = resolveCommandOnPath("scout", context.env);
   const fallbackCommand = `bun ${binPath}`;
 

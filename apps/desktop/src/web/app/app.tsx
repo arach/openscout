@@ -97,6 +97,7 @@ import {
 import type {
   DesktopFeatureFlags,
   DesktopHomeState,
+  DesktopMessagesWorkspaceState,
   DesktopShellState,
   DesktopServicesState,
   MessagesThread,
@@ -196,6 +197,18 @@ function captureLoadMetric(label: string, startedAt: number, detail?: Record<str
   return metric;
 }
 
+function pickMessagesWorkspaceState(
+  nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent">,
+): DesktopMessagesWorkspaceState {
+  return {
+    runtime: nextState.runtime,
+    messages: nextState.messages,
+    sessions: nextState.sessions,
+    relay: nextState.relay,
+    interAgent: nextState.interAgent,
+  };
+}
+
 export default function App() {
     const scoutDesktop = getScoutDesktop();
   const [sidebarWidth, setSidebarWidth] = useState(240);
@@ -211,6 +224,7 @@ export default function App() {
   const [scoutAppInfo, setScoutAppInfo] = useState<DesktopAppInfo | null>(null);
   const [homeState, setHomeState] = useState<DesktopHomeState | null>(null);
   const [servicesState, setServicesState] = useState<DesktopServicesState | null>(null);
+  const [messagesWorkspaceState, setMessagesWorkspaceState] = useState<DesktopMessagesWorkspaceState | null>(null);
   const [shellState, setShellState] = useState<DesktopShellState | null>(null);
   const [loadMetrics, setLoadMetrics] = useState<DevLoadMetrics>({
     services: null,
@@ -219,6 +233,7 @@ export default function App() {
   });
   const [isLoadingServices, setIsLoadingServices] = useState(false);
   const [isLoadingHome, setIsLoadingHome] = useState(true);
+  const [isLoadingMessagesWorkspace, setIsLoadingMessagesWorkspace] = useState(false);
   const [isLoadingShell, setIsLoadingShell] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
   const [manualRefreshPending, setManualRefreshPending] = useState(false);
@@ -290,15 +305,30 @@ export default function App() {
   const relayServiceInspectorRef = useRef<HTMLElement | null>(null);
   const homeStateLoadInFlightRef = useRef(false);
   const servicesStateLoadInFlightRef = useRef(false);
+  const messagesWorkspaceLoadInFlightRef = useRef(false);
   const shellStateLoadInFlightRef = useRef(false);
 
-  const sessions = shellState?.sessions ?? [];
+  const messagesWorkspaceRequired = productSurface === 'relay' && (
+    activeView === 'messages'
+    || activeView === 'relay'
+  );
+  const sessions = messagesWorkspaceRequired
+    ? (messagesWorkspaceState?.sessions ?? shellState?.sessions ?? [])
+    : (shellState?.sessions ?? []);
   const machinesState = shellState?.machines ?? null;
   const plansState = shellState?.plans ?? null;
-  const messagesState = shellState?.messages ?? null;
-  const runtime = shellState?.runtime ?? null;
-  const relayState = shellState?.relay ?? null;
-  const interAgentState = shellState?.interAgent ?? null;
+  const messagesState = messagesWorkspaceRequired
+    ? (messagesWorkspaceState?.messages ?? shellState?.messages ?? null)
+    : (shellState?.messages ?? null);
+  const runtime = messagesWorkspaceRequired
+    ? (messagesWorkspaceState?.runtime ?? shellState?.runtime ?? null)
+    : (shellState?.runtime ?? null);
+  const relayState = messagesWorkspaceRequired
+    ? (messagesWorkspaceState?.relay ?? shellState?.relay ?? null)
+    : (shellState?.relay ?? null);
+  const interAgentState = messagesWorkspaceRequired
+    ? (messagesWorkspaceState?.interAgent ?? shellState?.interAgent ?? null)
+    : (shellState?.interAgent ?? null);
   const interAgentAgents = interAgentState?.agents ?? [];
   const interAgentThreads = interAgentState?.threads ?? [];
   const desktopFeatures = scoutAppInfo?.features ?? shellState?.appInfo.features ?? DEFAULT_DESKTOP_FEATURES;
@@ -387,6 +417,44 @@ export default function App() {
       setIsLoadingHome(false);
     }
   }, [persistCachedHome, scoutDesktop]);
+  const loadMessagesWorkspaceState = React.useCallback(async (withSpinner = false) => {
+    if (!scoutDesktop?.getMessagesWorkspaceState) {
+      setShellError('Electron desktop bridge is unavailable.');
+      setIsLoadingMessagesWorkspace(false);
+      return null;
+    }
+
+    if (messagesWorkspaceLoadInFlightRef.current) {
+      return null;
+    }
+
+    if (withSpinner) {
+      setIsLoadingMessagesWorkspace(true);
+    }
+
+    messagesWorkspaceLoadInFlightRef.current = true;
+    const startedAt = performance.now();
+    try {
+      const nextState = await scoutDesktop.getMessagesWorkspaceState();
+      setMessagesWorkspaceState(nextState);
+      setShellError(null);
+      setLoadMetrics((current) => ({
+        ...current,
+        workspace: captureLoadMetric('messages-workspace', startedAt, {
+          threads: nextState.messages.threads.length,
+          messages: nextState.relay.messages.length,
+          agents: nextState.interAgent.agents.length,
+        }),
+      }));
+      return nextState;
+    } catch (error) {
+      setShellError(asErrorMessage(error));
+      return null;
+    } finally {
+      messagesWorkspaceLoadInFlightRef.current = false;
+      setIsLoadingMessagesWorkspace(false);
+    }
+  }, [scoutDesktop]);
   const loadShellState = React.useCallback(async (withSpinner = false) => {
     if (!scoutDesktop?.getShellState) {
       setShellError('Electron desktop bridge is unavailable.');
@@ -424,6 +492,26 @@ export default function App() {
       setIsLoadingShell(false);
     }
   }, [scoutDesktop]);
+  const applyRelayWorkspacePatch = React.useCallback((
+    nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent">,
+  ) => {
+    setShellState((current) => (
+      current
+        ? {
+            ...current,
+            ...nextState,
+          }
+        : current
+    ));
+    setMessagesWorkspaceState((current) => (
+      current
+        ? {
+            ...current,
+            ...pickMessagesWorkspaceState(nextState),
+          }
+        : current
+    ));
+  }, []);
 
   useEffect(() => {
     if (!scoutDesktop?.getAppInfo) {
@@ -562,7 +650,7 @@ export default function App() {
     sessions,
     appSettings,
     setActiveView,
-    setShellState,
+    applyRelayWorkspacePatch,
   });
 
   const {
@@ -743,8 +831,6 @@ export default function App() {
     || activeView === 'plans'
     || activeView === 'sessions'
     || activeView === 'search'
-    || activeView === 'messages'
-    || activeView === 'relay'
     || activeView === 'inter-agent'
     || activeView === 'agents'
     || activeView === 'logs'
@@ -773,6 +859,25 @@ export default function App() {
     void loadServicesState();
     void loadHomeState(!cached?.homeState);
   }, [loadHomeState, loadServicesState, scoutDesktop]);
+
+  useEffect(() => {
+    if (startupOnboardingBlocking || !messagesWorkspaceRequired || messagesWorkspaceState) {
+      return;
+    }
+
+    if (shellState) {
+      setMessagesWorkspaceState(pickMessagesWorkspaceState(shellState));
+      return;
+    }
+
+    void loadMessagesWorkspaceState(true);
+  }, [
+    loadMessagesWorkspaceState,
+    messagesWorkspaceRequired,
+    messagesWorkspaceState,
+    shellState,
+    startupOnboardingBlocking,
+  ]);
 
   useEffect(() => {
     if (startupOnboardingBlocking || !relayWorkspaceRequired || shellState) {
@@ -1360,7 +1465,9 @@ export default function App() {
         loadHomeState(!homeState),
       ]);
 
-      if (relayWorkspaceRequired && scoutDesktop?.refreshShellState) {
+      if (messagesWorkspaceRequired) {
+        await loadMessagesWorkspaceState(true);
+      } else if (relayWorkspaceRequired && scoutDesktop?.refreshShellState) {
         const nextState = await scoutDesktop.refreshShellState();
         setShellState(nextState);
         setShellError(null);
@@ -1445,6 +1552,9 @@ export default function App() {
     try {
       const nextState = await scoutDesktop.toggleVoiceCapture();
       setShellState(nextState);
+      setMessagesWorkspaceState((current) => (
+        current ? pickMessagesWorkspaceState(nextState) : current
+      ));
       setShellError(null);
       setMessagesFeedback(nextState.relay.voice.isCapturing ? 'Voice capture started.' : 'Voice capture stopped.');
     } catch (error) {
@@ -1461,6 +1571,9 @@ export default function App() {
     try {
       const nextState = await scoutDesktop.setVoiceRepliesEnabled(enabled);
       setShellState(nextState);
+      setMessagesWorkspaceState((current) => (
+        current ? pickMessagesWorkspaceState(nextState) : current
+      ));
       setShellError(null);
       setMessagesFeedback(enabled ? 'Playback enabled.' : 'Playback disabled.');
     } catch (error) {
@@ -1705,6 +1818,7 @@ export default function App() {
     filteredSessions,
     selectedSession,
     setSelectedSession,
+    isLoadingMessagesWorkspace,
     isLoadingShell,
     showAnnotations,
     setShowAnnotations,
@@ -2034,9 +2148,11 @@ export default function App() {
                   key: 'workspace',
                   title: 'Workspace',
                   metric: loadMetrics.workspace,
-                  loading: relayWorkspaceRequired && isLoadingShell,
-                  idleLabel: relayWorkspaceRequired ? '—' : 'deferred',
-                  idleDetail: relayWorkspaceRequired
+                  loading: messagesWorkspaceRequired
+                    ? isLoadingMessagesWorkspace
+                    : relayWorkspaceRequired && isLoadingShell,
+                  idleLabel: messagesWorkspaceRequired || relayWorkspaceRequired ? '—' : 'deferred',
+                  idleDetail: messagesWorkspaceRequired || relayWorkspaceRequired
                     ? 'No measurement yet'
                     : 'Loads only on workspace-heavy surfaces',
                 },

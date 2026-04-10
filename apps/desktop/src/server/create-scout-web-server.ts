@@ -148,6 +148,7 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   app.get("/api/app-info", async (c) => c.json(await services.getAppInfo()));
   app.get("/api/services", async (c) => c.json(await getServicesStateCached()));
   app.get("/api/home", async (c) => c.json(await getHomeStateCached()));
+  app.get("/api/messages-workspace", async (c) => c.json(await services.getMessagesWorkspaceState()));
   app.get("/api/shell-state", async (c) => c.json(await getShellStateCached()));
   app.get("/api/shell-state/refresh", async (c) => c.json(await refreshShellStateCache()));
   app.get("/api/app-settings", async (c) => c.json(await getAppSettings()));

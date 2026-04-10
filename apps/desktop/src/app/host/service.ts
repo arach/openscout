@@ -1,12 +1,14 @@
 import {
   createScoutDesktopAppInfo,
   loadScoutDesktopHomeState,
+  loadScoutDesktopMessagesWorkspaceState,
   loadScoutDesktopServicesState,
   loadScoutDesktopShellState,
   loadScoutPhonePreparation,
   updateScoutPhonePreparation,
   type ScoutDesktopAppInfo,
   type ScoutDesktopHomeState,
+  type ScoutDesktopMessagesWorkspaceState,
   type ScoutDesktopServicesState,
   type ScoutDesktopShellState,
   type ScoutPhonePreparationState,
@@ -84,6 +86,32 @@ export async function getScoutElectronHomeState(
 ): Promise<ScoutDesktopHomeState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   return loadScoutDesktopHomeState({ currentDirectory });
+}
+
+async function applyScoutElectronVoiceToMessagesWorkspaceState(
+  messagesWorkspaceState: ScoutDesktopMessagesWorkspaceState,
+  voiceService?: ScoutElectronVoiceService,
+): Promise<ScoutDesktopMessagesWorkspaceState> {
+  if (!voiceService?.getVoiceState) {
+    return messagesWorkspaceState;
+  }
+
+  const voice = await voiceService.getVoiceState();
+  return {
+    ...messagesWorkspaceState,
+    relay: {
+      ...messagesWorkspaceState.relay,
+      voice,
+    },
+  };
+}
+
+export async function getScoutElectronMessagesWorkspaceState(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopMessagesWorkspaceState> {
+  const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
+  const messagesWorkspaceState = await loadScoutDesktopMessagesWorkspaceState({ currentDirectory });
+  return applyScoutElectronVoiceToMessagesWorkspaceState(messagesWorkspaceState, options.voice);
 }
 
 async function applyScoutElectronVoiceState(

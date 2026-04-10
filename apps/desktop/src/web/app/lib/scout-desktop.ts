@@ -4,6 +4,7 @@ import type {
   ScoutDesktopHomeAgent,
   ScoutDesktopHomeState,
   ScoutDesktopFeatureFlags,
+  ScoutDesktopMessagesWorkspaceState,
   ScoutHostSurface,
   ScoutSurfaceCapabilities,
   ScoutDesktopMachine,
@@ -23,6 +24,7 @@ import type {
   ScoutDesktopReconciliationFindingSeverity,
   ScoutDesktopRuntimeState,
   ScoutDesktopServicesState,
+  ScoutDesktopShellPatch,
   ScoutDesktopShellState,
   ScoutDesktopTask,
   ScoutDesktopTaskStatus,
@@ -93,6 +95,7 @@ export type DesktopAppInfo = ScoutDesktopAppInfo;
 export type DesktopHomeAgent = ScoutDesktopHomeAgent;
 export type DesktopHomeActivityItem = ScoutDesktopHomeActivityItem;
 export type DesktopHomeState = ScoutDesktopHomeState;
+export type DesktopMessagesWorkspaceState = ScoutDesktopMessagesWorkspaceState;
 export type DesktopHostSurface = ScoutHostSurface;
 export type DesktopSurfaceCapabilities = ScoutSurfaceCapabilities;
 export type MessagesThreadGroup = ScoutMessagesThreadGroup;
@@ -132,6 +135,7 @@ export type DesktopPlanStatus = ScoutDesktopPlanStatus;
 export type DesktopPlan = ScoutDesktopPlan;
 export type DesktopPlansState = ScoutDesktopPlansState;
 export type DesktopShellState = ScoutDesktopShellState;
+export type DesktopShellPatch = ScoutDesktopShellPatch;
 export type PhonePreparationState = ScoutPhonePreparationState;
 export type UpdatePhonePreparationInput = UpdateScoutPhonePreparationInput;
 

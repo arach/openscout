@@ -1,6 +1,7 @@
 import type {
   ScoutDesktopAppInfo,
   ScoutDesktopHomeState,
+  ScoutDesktopMessagesWorkspaceState,
   ScoutDesktopServicesState,
   ScoutDesktopShellPatch,
   ScoutDesktopShellState,
@@ -76,6 +77,7 @@ import {
 import {
   getScoutElectronAppInfo,
   getScoutElectronHomeState,
+  getScoutElectronMessagesWorkspaceState,
   getScoutElectronServicesState,
   getScoutElectronPhonePreparation,
   getScoutElectronShellState,
@@ -117,6 +119,7 @@ export type AppInfoServices = {
 export type DesktopStateServices = {
   getServicesState: () => Promise<ScoutDesktopServicesState>;
   getHomeState: () => Promise<ScoutDesktopHomeState>;
+  getMessagesWorkspaceState: () => Promise<ScoutDesktopMessagesWorkspaceState>;
   getShellState: () => Promise<ScoutDesktopShellState>;
   refreshShellState: () => Promise<ScoutDesktopShellState>;
 };
@@ -208,6 +211,7 @@ export function createDesktopStateServices(
   return {
     getServicesState: () => getScoutElectronServicesState({ currentDirectory, appInfo, voice }),
     getHomeState: () => getScoutElectronHomeState({ currentDirectory, appInfo, voice }),
+    getMessagesWorkspaceState: () => getScoutElectronMessagesWorkspaceState({ currentDirectory, appInfo, voice }),
     getShellState: () => getScoutElectronShellState({ currentDirectory, appInfo, voice }),
     refreshShellState: () => refreshScoutElectronShellState({ currentDirectory, appInfo, voice }),
   };

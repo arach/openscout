@@ -116,6 +116,13 @@ const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 
 ensureOpenScoutCleanSlateSync();
 
+const existingBroker = await probeExistingBroker();
+if (existingBroker) {
+  console.log(`[openscout-runtime] broker already running on ${existingBroker.brokerUrl}`);
+  console.log(`[openscout-runtime] node ${existingBroker.nodeId} in mesh ${existingBroker.meshId ?? "unknown"}`);
+  process.exit(0);
+}
+
 const store = new SQLiteControlPlaneStore(dbPath);
 const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId: nodeId });
 const eventClients = new Set<ServerResponse>();

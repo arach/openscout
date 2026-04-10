@@ -66,6 +66,7 @@ type UseRelaySurfaceViewPropsInput = {
   filteredSessions: OpsViewsProps['search']['filteredSessions'];
   selectedSession: MessagesRelayViewProps['threading']['selectedSession'];
   setSelectedSession: MessagesRelayViewProps['threading']['setSelectedSession'];
+  isLoadingMessagesWorkspace: boolean;
   isLoadingShell: boolean;
   showAnnotations: MessagesRelayViewProps['threading']['showAnnotations'];
   setShowAnnotations: MessagesRelayViewProps['threading']['setShowAnnotations'];
@@ -140,6 +141,7 @@ export function useRelaySurfaceViewProps({
   filteredSessions,
   selectedSession,
   setSelectedSession,
+  isLoadingMessagesWorkspace,
   isLoadingShell,
   showAnnotations,
   setShowAnnotations,
@@ -180,6 +182,14 @@ export function useRelaySurfaceViewProps({
     mutedText: styles.mutedText,
     tagBadge: styles.tagBadge,
     activePill: styles.activePill,
+  };
+  const effectiveMessagesState = messagesState ?? {
+    title: 'Messages',
+    subtitle: isLoadingMessagesWorkspace || isLoadingShell
+      ? 'Loading relay workspace'
+      : shellError ?? 'Broker unavailable',
+    lastUpdatedLabel: runtime?.updatedAtLabel ?? null,
+    threads: [],
   };
 
   return {
@@ -464,13 +474,14 @@ export function useRelaySurfaceViewProps({
         },
       },
       threading: {
-        messagesState,
+        messagesState: effectiveMessagesState,
         messageThreads: messagesController.messageThreads,
         selectedMessagesThread: messagesController.selectedMessagesThread,
         onSelectMessageThread: selectMessageThread,
         showAnnotations,
         setShowAnnotations,
         onRefresh: onRefreshShell,
+        loadingWorkspace: (isLoadingMessagesWorkspace || isLoadingShell) && !messagesState,
         selectedMessagesInternalThread: messagesController.selectedMessagesInternalThread,
         selectedMessagesInternalMessages: messagesController.selectedMessagesInternalMessages,
         selectedMessagesInternalTarget: messagesController.selectedMessagesInternalTarget,

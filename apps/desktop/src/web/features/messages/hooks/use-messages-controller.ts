@@ -50,7 +50,9 @@ type UseMessagesControllerInput = {
   sessions: SessionMetadata[];
   appSettings: AppSettingsState | null;
   setActiveView: React.Dispatch<React.SetStateAction<AppView>>;
-  setShellState: React.Dispatch<React.SetStateAction<DesktopShellState | null>>;
+  applyRelayWorkspacePatch: (
+    nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent">,
+  ) => void;
 };
 
 export function useMessagesController({
@@ -64,7 +66,7 @@ export function useMessagesController({
   sessions,
   appSettings,
   setActiveView,
-  setShellState,
+  applyRelayWorkspacePatch,
 }: UseMessagesControllerInput) {
   const [selectedConversationKind, setSelectedConversationKind] = React.useState<RelayDestinationKind>("channel");
   const [selectedConversationId, setSelectedConversationId] = React.useState("shared");
@@ -489,14 +491,7 @@ export function useMessagesController({
         referenceMessageIds: contextMessageIds,
         clientMessageId,
       });
-      setShellState((current) => (
-        current
-          ? {
-              ...current,
-              ...nextState,
-            }
-          : current
-      ));
+      applyRelayWorkspacePatch(nextState);
       setPendingMessages((current) => current.map((entry) => (
         entry.clientMessageId === clientMessageId
           ? {
@@ -530,7 +525,7 @@ export function useMessagesController({
     scoutDesktop,
     selectedConversationId,
     selectedConversationKind,
-    setShellState,
+    applyRelayWorkspacePatch,
   ]);
 
   const openDirectConversation = React.useCallback((

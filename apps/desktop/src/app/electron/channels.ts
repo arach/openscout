@@ -2,6 +2,7 @@ export const SCOUT_ELECTRON_CHANNELS = {
   getAppInfo: "scout:get-app-info",
   getServicesState: "scout:get-services-state",
   getHomeState: "scout:get-home-state",
+  getMessagesWorkspaceState: "scout:get-messages-workspace-state",
   getShellState: "scout:get-shell-state",
   refreshShellState: "scout:refresh-shell-state",
   getAppSettings: "scout:get-app-settings",

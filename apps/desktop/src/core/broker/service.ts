@@ -425,6 +425,14 @@ export async function readScoutBrokerHome(baseUrl = resolveScoutBrokerUrl()): Pr
   }
 }
 
+export async function readScoutBrokerSnapshot(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerSnapshot | null> {
+  try {
+    return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot);
+  } catch {
+    return null;
+  }
+}
+
 export async function loadScoutBrokerContext(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerContext | null> {
   const health = await readScoutBrokerHealth(baseUrl);
   if (!health.reachable || !health.ok) {

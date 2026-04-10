@@ -25,6 +25,7 @@ export interface MessagesRelayThreadingProps extends Pick<
   | 'showAnnotations'
   | 'setShowAnnotations'
   | 'onRefresh'
+  | 'loadingWorkspace'
   | 'selectedMessagesInternalThread'
   | 'selectedMessagesInternalMessages'
   | 'selectedMessagesInternalTarget'

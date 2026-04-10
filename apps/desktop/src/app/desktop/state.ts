@@ -472,7 +472,12 @@ export type ScoutDesktopShellState = {
   interAgent: ScoutInterAgentState;
 };
 
+export type ScoutDesktopMessagesWorkspaceState = Pick<
+  ScoutDesktopShellState,
+  "runtime" | "messages" | "sessions" | "relay" | "interAgent"
+>;
+
 export type ScoutDesktopShellPatch = Pick<
   ScoutDesktopShellState,
-  "runtime" | "machines" | "sessions" | "relay" | "interAgent"
+  "runtime" | "machines" | "messages" | "sessions" | "relay" | "interAgent"
 >;

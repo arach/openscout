@@ -8,6 +8,7 @@ import {
 import type {
   ScoutDesktopAppInfo,
   ScoutDesktopHomeState,
+  ScoutDesktopMessagesWorkspaceState,
   ScoutDesktopServicesState,
   ScoutDesktopFeatureFlags,
   ScoutDesktopShellPatch,
@@ -17,6 +18,7 @@ import type {
 } from "./state.ts";
 import {
   composeScoutDesktopHomeState,
+  composeScoutDesktopMessagesWorkspaceState,
   composeScoutDesktopRelayShellPatch,
   composeScoutDesktopServicesState,
   composeScoutDesktopShellState,
@@ -115,6 +117,14 @@ export async function loadScoutDesktopHomeState(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopHomeState> {
   return composeScoutDesktopHomeState({
+    currentDirectory: input.currentDirectory,
+  });
+}
+
+export async function loadScoutDesktopMessagesWorkspaceState(input: {
+  currentDirectory: string;
+}): Promise<ScoutDesktopMessagesWorkspaceState> {
+  return composeScoutDesktopMessagesWorkspaceState({
     currentDirectory: input.currentDirectory,
   });
 }

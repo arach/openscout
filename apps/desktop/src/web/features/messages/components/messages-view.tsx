@@ -85,6 +85,7 @@ export function MessagesView({
   showAnnotations,
   setShowAnnotations,
   onRefresh,
+  loadingWorkspace,
   selectedMessagesInternalThread,
   selectedMessagesInternalMessages,
   selectedMessagesInternalTarget,
@@ -159,6 +160,7 @@ export function MessagesView({
   showAnnotations: boolean;
   setShowAnnotations: React.Dispatch<React.SetStateAction<boolean>>;
   onRefresh: () => void | Promise<void>;
+  loadingWorkspace: boolean;
   selectedMessagesInternalThread: InterAgentThread | null;
   selectedMessagesInternalMessages: RelayMessage[];
   selectedMessagesInternalTarget: InterAgentAgent | null;
@@ -290,6 +292,7 @@ export function MessagesView({
             setMessagesDetailOpen={setMessagesDetailOpen}
             messagesDetailOpen={messagesDetailOpen}
             onRefresh={onRefresh}
+            loadingWorkspace={loadingWorkspace}
             onRelaySend={onRelaySend}
             onToggleVoiceCapture={onToggleVoiceCapture}
             onSetVoiceRepliesEnabled={onSetVoiceRepliesEnabled}
@@ -617,6 +620,7 @@ function RelayThreadPane({
   setMessagesDetailOpen,
   messagesDetailOpen,
   onRefresh,
+  loadingWorkspace,
   onRelaySend,
   onToggleVoiceCapture,
   onSetVoiceRepliesEnabled,
@@ -662,6 +666,7 @@ function RelayThreadPane({
   setMessagesDetailOpen: React.Dispatch<React.SetStateAction<boolean>>;
   messagesDetailOpen: boolean;
   onRefresh: () => void | Promise<void>;
+  loadingWorkspace: boolean;
   onRelaySend: () => void | Promise<void>;
   onToggleVoiceCapture: () => void | Promise<void>;
   onSetVoiceRepliesEnabled: (enabled: boolean) => void | Promise<void>;
@@ -703,6 +708,21 @@ function RelayThreadPane({
     ?? selectedRelayDirectThread?.statusDetail
     ?? relayThreadSubtitle
     ?? "Agent is still working.";
+  const showDirectThreadWaitingState = !loadingWorkspace
+    && visibleRelayMessages.length === 0
+    && selectedRelayKind === "direct";
+  const emptyStateTitle = loadingWorkspace
+    ? "Loading relay workspace"
+    : showDirectThreadWaitingState
+      ? "Waiting for first relay message"
+      : "No relay traffic yet";
+  const emptyStateDetail = loadingWorkspace
+    ? "Fetching threads, messages, and agent state for this workspace."
+    : showDirectThreadWaitingState
+      ? selectedRelayDirectThread?.activeTask
+        ?? selectedRelayDirectThread?.statusDetail
+        ?? "This direct lane is open. Send a message or wait for the agent to speak first."
+      : "Send a message into this lane to wake an agent or start a broker-backed conversation.";
 
   return (
     <>
@@ -791,11 +811,15 @@ function RelayThreadPane({
         {visibleRelayMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: C.accentBg }}>
-              <MessageSquare size={24} style={{ color: C.accent }} />
+              {loadingWorkspace || showDirectThreadWaitingState ? (
+                <Spinner className="text-[22px]" style={{ color: C.accent }} />
+              ) : (
+                <MessageSquare size={24} style={{ color: C.accent }} />
+              )}
             </div>
-            <h3 className="text-[15px] font-medium mb-1" style={styles.inkText}>No relay traffic yet</h3>
+            <h3 className="text-[15px] font-medium mb-1" style={styles.inkText}>{emptyStateTitle}</h3>
             <p className="text-[13px] max-w-sm" style={styles.mutedText}>
-              Send a message into this lane to wake an agent or start a broker-backed conversation.
+              {emptyStateDetail}
             </p>
           </div>
         ) : (
