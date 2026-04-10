@@ -817,12 +817,6 @@ export class SQLiteControlPlaneStore {
 
   upsertConversation(conversation: ConversationDefinition): void {
     (this.db as SQLiteTransactionalDatabase).transaction((nextConversation: ConversationDefinition) => {
-      this.db.query("DELETE FROM conversation_members WHERE conversation_id = ?1").run(nextConversation.id);
-      for (const participantId of nextConversation.participantIds) {
-        this.db.query(
-          "INSERT OR REPLACE INTO conversation_members (conversation_id, actor_id) VALUES (?1, ?2)",
-        ).run(nextConversation.id, participantId);
-      }
       this.db.query(
         `INSERT INTO conversations (
           id, kind, title, visibility, share_mode, authority_node_id, topic,
@@ -850,6 +844,12 @@ export class SQLiteControlPlaneStore {
         nextConversation.messageId ?? null,
         stringify(nextConversation.metadata),
       );
+      this.db.query("DELETE FROM conversation_members WHERE conversation_id = ?1").run(nextConversation.id);
+      for (const participantId of nextConversation.participantIds) {
+        this.db.query(
+          "INSERT OR REPLACE INTO conversation_members (conversation_id, actor_id) VALUES (?1, ?2)",
+        ).run(nextConversation.id, participantId);
+      }
     })(conversation);
   }
 

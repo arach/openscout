@@ -109,7 +109,7 @@ export function AgentSettingsView({
                     </span>
                   ) : null}
                   <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={agent.state === "working" ? styles.activePill : styles.tagBadge}>
-                    {agent.state === "working" ? "Working" : agent.state === "offline" ? "Offline" : "Available"}
+                    {agent.statusLabel}
                   </span>
                 </div>
               </div>
@@ -323,7 +323,9 @@ export function AgentSettingsView({
               />
             ) : (
               <div className="rounded-lg border px-3 py-3 text-[11px] font-mono leading-[1.55] whitespace-pre-wrap break-words min-h-[88px]" style={{ borderColor: C.border, color: C.ink }}>
-                {normalizeDraftText(visibleAgentConfig?.toolUse.launchArgsText ?? "") || "No launch args configured."}
+                {visibleAgentConfig
+                  ? (normalizeDraftText(visibleAgentConfig.toolUse.launchArgsText) || "No launch args configured.")
+                  : "Launch args load on demand when editing this agent."}
               </div>
             )}
           </section>

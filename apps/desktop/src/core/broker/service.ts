@@ -29,7 +29,6 @@ import {
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
 import {
-  ensureLocalAgentBindingOnline,
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   type LocalAgentBinding,
@@ -141,6 +140,14 @@ export type ScoutAskResult = {
   conversationId?: string;
   messageId?: string;
   unresolvedTarget?: string;
+  targetDiagnostic?: ScoutAskTargetDiagnostic;
+};
+
+export type ScoutAskTargetDiagnostic = {
+  agentId: string;
+  state: AgentState | "discovered" | "unknown";
+  registrationKind: ScoutWhoRegistrationKind | null;
+  projectRoot: string | null;
 };
 
 export type ScoutDirectSessionResult = {
@@ -552,6 +559,43 @@ async function resolveSingleBrokerTarget(
   return resolution.resolved[0] ?? null;
 }
 
+async function describeScoutTargetAvailability(
+  snapshot: ScoutBrokerSnapshot,
+  target: ScoutMentionTarget,
+  currentDirectory: string,
+): Promise<ScoutAskTargetDiagnostic> {
+  const resolvedConfig = await resolveRelayAgentConfig(target.selector, {
+    currentDirectory,
+  });
+  const registrationKind = resolvedConfig?.registrationKind ?? null;
+  const endpoints = Object.values(snapshot.endpoints ?? {}).filter((endpoint) => endpoint.agentId === target.agentId);
+
+  if (endpoints.length > 0) {
+    return {
+      agentId: target.agentId,
+      state: whoEntryState(endpoints, registrationKind ?? "broker"),
+      registrationKind,
+      projectRoot: resolvedConfig?.projectRoot ?? null,
+    };
+  }
+
+  if (registrationKind === "discovered") {
+    return {
+      agentId: target.agentId,
+      state: "discovered",
+      registrationKind,
+      projectRoot: resolvedConfig?.projectRoot ?? null,
+    };
+  }
+
+  return {
+    agentId: target.agentId,
+    state: snapshot.agents[target.agentId] || registrationKind === "configured" ? "offline" : "unknown",
+    registrationKind,
+    projectRoot: resolvedConfig?.projectRoot ?? null,
+  };
+}
+
 function resolveConversationShareMode(
   snapshot: ScoutBrokerSnapshot,
   nodeId: string,
@@ -597,14 +641,82 @@ async function syncBrokerBinding(
   baseUrl: string,
   snapshot: ScoutBrokerSnapshot,
   binding: Awaited<ReturnType<typeof inferLocalAgentBinding>>,
+  options: { includeEndpoint?: boolean } = {},
 ): Promise<void> {
   if (!binding) return;
   await brokerPostJson(baseUrl, scoutBrokerPaths.v1.actors, binding.actor);
   await brokerPostJson(baseUrl, scoutBrokerPaths.v1.agents, binding.agent);
-  await brokerPostJson(baseUrl, scoutBrokerPaths.v1.endpoints, binding.endpoint);
   snapshot.actors[binding.actor.id] = binding.actor;
   snapshot.agents[binding.agent.id] = binding.agent;
-  snapshot.endpoints[binding.endpoint.id] = binding.endpoint;
+  if (options.includeEndpoint ?? true) {
+    await brokerPostJson(baseUrl, scoutBrokerPaths.v1.endpoints, binding.endpoint);
+    snapshot.endpoints[binding.endpoint.id] = binding.endpoint;
+  }
+}
+
+function scoutBrokerAgentRegistrationFromConfig(
+  config: ResolvedRelayAgentConfig,
+  nodeId: string,
+): { actor: ScoutBrokerActorRecord; agent: ScoutBrokerAgentRecord } {
+  const source = config.source === "inferred" ? "project-inferred" : "relay-agent-registry";
+  const metadata = {
+    source,
+    project: config.projectName,
+    projectRoot: config.projectRoot,
+    tmuxSession: config.runtime.sessionId,
+    definitionId: config.definitionId,
+    instanceId: config.instance.id,
+    selector: config.instance.selector,
+    defaultSelector: config.instance.defaultSelector,
+    nodeQualifier: config.instance.nodeQualifier,
+    workspaceQualifier: config.instance.workspaceQualifier,
+    branch: config.instance.branch,
+  };
+
+  return {
+    actor: {
+      id: config.agentId,
+      kind: "agent",
+      displayName: config.displayName,
+      handle: config.definitionId,
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata,
+    },
+    agent: {
+      id: config.agentId,
+      kind: "agent",
+      definitionId: config.definitionId,
+      nodeQualifier: config.instance.nodeQualifier,
+      workspaceQualifier: config.instance.workspaceQualifier,
+      selector: config.instance.selector,
+      defaultSelector: config.instance.defaultSelector,
+      displayName: config.displayName,
+      handle: config.definitionId,
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        ...metadata,
+        summary: `${config.displayName} relay agent for ${config.projectName}.`,
+        role: "Relay agent",
+      },
+      agentClass: "general",
+      capabilities: config.capabilities,
+      wakePolicy: "on_demand",
+      homeNodeId: nodeId,
+      authorityNodeId: nodeId,
+      advertiseScope: "local",
+    },
+  };
+}
+
+async function syncBrokerAgentRegistration(
+  baseUrl: string,
+  snapshot: ScoutBrokerSnapshot,
+  registration: { actor: ScoutBrokerActorRecord; agent: ScoutBrokerAgentRecord },
+): Promise<void> {
+  await brokerPostJson(baseUrl, scoutBrokerPaths.v1.actors, registration.actor);
+  await brokerPostJson(baseUrl, scoutBrokerPaths.v1.agents, registration.agent);
+  snapshot.actors[registration.actor.id] = registration.actor;
+  snapshot.agents[registration.agent.id] = registration.agent;
 }
 
 export async function registerScoutLocalAgentBinding(input: {
@@ -661,7 +773,7 @@ async function resolveConversationActorId(
   return configured.agentId;
 }
 
-async function ensureTargetRelayAgent(
+async function ensureTargetRelayAgentRegistered(
   baseUrl: string,
   snapshot: ScoutBrokerSnapshot,
   nodeId: string,
@@ -669,11 +781,27 @@ async function ensureTargetRelayAgent(
   currentDirectory: string,
 ): Promise<boolean> {
   if (snapshot.agents[agentId]) return true;
-  const binding = await ensureLocalAgentBindingOnline(agentId, nodeId, {
-    includeDiscovered: true,
+  const configured = await ensureRelayAgentConfigured(agentId, {
     currentDirectory,
+    syncLegacyMirror: true,
   });
-  await syncBrokerBinding(baseUrl, snapshot, binding);
+  if (!configured) {
+    return false;
+  }
+
+  const binding = await inferLocalAgentBinding(configured.agentId, nodeId);
+  if (!binding) {
+    await syncBrokerAgentRegistration(
+      baseUrl,
+      snapshot,
+      scoutBrokerAgentRegistrationFromConfig(configured, nodeId),
+    );
+    return true;
+  }
+
+  await syncBrokerBinding(baseUrl, snapshot, binding, {
+    includeEndpoint: binding.endpoint.state !== "waiting",
+  });
   return Boolean(binding);
 }
 
@@ -700,7 +828,7 @@ export async function syncScoutBrokerBindings(input: {
   });
 
   for (const agent of setup.discoveredAgents) {
-    await ensureTargetRelayAgent(
+    await ensureTargetRelayAgentRegistered(
       broker.baseUrl,
       broker.snapshot,
       broker.node.id,
@@ -902,7 +1030,13 @@ export async function sendScoutMessage(input: {
   const availableTargets = (
     await Promise.all(
       mentionResolution.resolved.map(async (target) => (
-        await ensureTargetRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, target.agentId, currentDirectory)
+        await ensureTargetRelayAgentRegistered(
+          broker.baseUrl,
+          broker.snapshot,
+          broker.node.id,
+          target.agentId,
+          currentDirectory,
+        )
           ? target
           : null
       )),
@@ -1027,7 +1161,7 @@ export async function openScoutPeerSession(input: {
   );
 
   if (broker.snapshot.agents[targetId]) {
-    const targetReady = await ensureTargetRelayAgent(
+    const targetReady = await ensureTargetRelayAgentRegistered(
       broker.baseUrl,
       broker.snapshot,
       broker.node.id,
@@ -1171,9 +1305,19 @@ export async function askScoutQuestion(input: {
   if (!target) {
     return { usedBroker: true, unresolvedTarget: input.targetLabel };
   }
-  const targetReady = await ensureTargetRelayAgent(broker.baseUrl, broker.snapshot, broker.node.id, target.agentId, currentDirectory);
+  const targetReady = await ensureTargetRelayAgentRegistered(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    target.agentId,
+    currentDirectory,
+  );
   if (!targetReady) {
-    return { usedBroker: true, unresolvedTarget: input.targetLabel };
+    return {
+      usedBroker: true,
+      unresolvedTarget: input.targetLabel,
+      targetDiagnostic: await describeScoutTargetAvailability(broker.snapshot, target, currentDirectory),
+    };
   }
 
   const conversation = await ensureBrokerConversation(

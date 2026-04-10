@@ -58,7 +58,9 @@ export type ScoutElectronBridge = {
   getServicesState: () => Promise<ScoutDesktopServicesState>;
   getHomeState: () => Promise<ScoutDesktopHomeState>;
   getMessagesWorkspaceState: () => Promise<ScoutDesktopMessagesWorkspaceState>;
+  getRelayShellPatch: () => Promise<ScoutDesktopShellPatch>;
   getShellState: () => Promise<ScoutDesktopShellState>;
+  refreshRelayShellPatch: () => Promise<ScoutDesktopShellPatch>;
   refreshShellState: () => Promise<ScoutDesktopShellState>;
   getAppSettings: () => Promise<AppSettingsState>;
   refreshSettingsInventory: () => Promise<AppSettingsState>;
@@ -109,7 +111,13 @@ export function createScoutElectronBridge(invoke: ScoutElectronInvoke): ScoutEle
     getMessagesWorkspaceState: () => invoke(
       SCOUT_ELECTRON_CHANNELS.getMessagesWorkspaceState,
     ) as Promise<ScoutDesktopMessagesWorkspaceState>,
+    getRelayShellPatch: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.getRelayShellPatch,
+    ) as Promise<ScoutDesktopShellPatch>,
     getShellState: () => invoke(SCOUT_ELECTRON_CHANNELS.getShellState) as Promise<ScoutDesktopShellState>,
+    refreshRelayShellPatch: () => invoke(
+      SCOUT_ELECTRON_CHANNELS.refreshRelayShellPatch,
+    ) as Promise<ScoutDesktopShellPatch>,
     refreshShellState: () => invoke(SCOUT_ELECTRON_CHANNELS.refreshShellState) as Promise<ScoutDesktopShellState>,
     getAppSettings: () => invoke(SCOUT_ELECTRON_CHANNELS.getAppSettings) as Promise<AppSettingsState>,
     refreshSettingsInventory: () => invoke(

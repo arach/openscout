@@ -1,4 +1,5 @@
 import { open, readFile, readdir, stat } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 
 import type {
@@ -27,6 +28,7 @@ import { createScoutVoiceState } from "../../core/voice/index.ts";
 import type {
   ScoutDesktopHomeActivityItem,
   ScoutDesktopHomeState,
+  ScoutDesktopLoadStep,
   ScoutDesktopMachine,
   ScoutDesktopMachineEndpoint,
   ScoutDesktopMachineEndpointState,
@@ -101,6 +103,59 @@ type DirectAgentActivity = {
   activeTask: string | null;
   lastMessageAt: number | null;
 };
+
+type RelayWorkspaceDerivation = {
+  messagesByConversation: Map<string, MessageRecord[]>;
+  directActivity: Map<string, DirectAgentActivity>;
+  visibleAgentIds: Set<string>;
+};
+
+type LoadMeasurement = {
+  startedAt: number;
+  steps: ScoutDesktopLoadStep[];
+};
+
+function startLoadMeasurement(): LoadMeasurement {
+  return {
+    startedAt: performance.now(),
+    steps: [],
+  };
+}
+
+async function measureAsyncStep<T>(
+  measurement: LoadMeasurement,
+  label: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  const result = await fn();
+  measurement.steps.push({
+    label,
+    durationMs: Math.round(performance.now() - startedAt),
+  });
+  return result;
+}
+
+function measureStep<T>(
+  measurement: LoadMeasurement,
+  label: string,
+  fn: () => T,
+): T {
+  const startedAt = performance.now();
+  const result = fn();
+  measurement.steps.push({
+    label,
+    durationMs: Math.round(performance.now() - startedAt),
+  });
+  return result;
+}
+
+function finalizeLoadMeasurement(measurement: LoadMeasurement) {
+  return {
+    totalMs: Math.round(performance.now() - measurement.startedAt),
+    steps: measurement.steps,
+  };
+}
 
 function actorDisplayName(snapshot: RuntimeRegistrySnapshot, actorId: string): string {
   if (actorId === OPERATOR_ID) {
@@ -442,6 +497,57 @@ function inferredConfiguredAgentIds(snapshot: RuntimeRegistrySnapshot | null): S
   );
 }
 
+function inactiveDirectAgentActivity(
+  agent: AgentDefinition,
+  latestMessage: MessageRecord | null,
+  degradedReason: string | null,
+): DirectAgentActivity {
+  const lastMessageAt = latestMessage ? normalizeTimestamp(latestMessage.createdAt) : null;
+  const lastActivityDetail = latestMessage ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}` : null;
+
+  if (degradedReason && degradedReason.includes("tmux session missing")) {
+    return {
+      state: "offline",
+      reachable: false,
+      statusLabel: "Offline",
+      statusDetail: "Relay session is not running.",
+      activeTask: null,
+      lastMessageAt,
+    };
+  }
+
+  if (agent.wakePolicy === "on_demand") {
+    return {
+      state: "offline",
+      reachable: false,
+      statusLabel: "Sleeping",
+      statusDetail: lastActivityDetail ? `${lastActivityDetail} · wakes on demand.` : "Wakes on demand.",
+      activeTask: null,
+      lastMessageAt,
+    };
+  }
+
+  if (agent.wakePolicy === "manual") {
+    return {
+      state: "offline",
+      reachable: false,
+      statusLabel: "Offline",
+      statusDetail: lastActivityDetail ?? "Start this agent manually when needed.",
+      activeTask: null,
+      lastMessageAt,
+    };
+  }
+
+  return {
+    state: "offline",
+    reachable: false,
+    statusLabel: "Offline",
+    statusDetail: lastActivityDetail ?? "No live session right now.",
+    activeTask: null,
+    lastMessageAt,
+  };
+}
+
 function buildDirectAgentActivity(
   snapshot: RuntimeRegistrySnapshot,
   tmuxSessions: TmuxSession[],
@@ -512,18 +618,7 @@ function buildDirectAgentActivity(
       continue;
     }
 
-    activity.set(agent.id, {
-      state: "offline",
-      reachable: false,
-      statusLabel: "Offline",
-      statusDetail: degradedReason && degradedReason.includes("tmux session missing")
-        ? "Relay session is not running."
-        : latestMessage
-          ? `Last activity ${formatRelativeTime(latestMessage.createdAt)}`
-          : "No active endpoint detected.",
-      activeTask: null,
-      lastMessageAt,
-    });
+    activity.set(agent.id, inactiveDirectAgentActivity(agent, latestMessage, degradedReason));
   }
 
   return activity;
@@ -667,12 +762,48 @@ function mergeBrokerServiceStatusWithHealth(
   };
 }
 
+function buildBrokerServiceStatusFromHealth(health: ScoutBrokerHealthState): BrokerServiceStatus {
+  return {
+    label: health.reachable
+      ? (health.ok ? "Running" : "Degraded")
+      : "Offline",
+    mode: "dev",
+    launchAgentPath: "",
+    brokerUrl: health.baseUrl,
+    supportDirectory: "",
+    controlHome: "",
+    stdoutLogPath: "",
+    stderrLogPath: "",
+    installed: true,
+    loaded: health.reachable,
+    pid: null,
+    launchdState: null,
+    lastExitStatus: null,
+    usesLaunchAgent: false,
+    reachable: health.reachable,
+    health: {
+      reachable: health.reachable,
+      ok: health.ok,
+      nodeId: health.nodeId ?? undefined,
+      meshId: health.meshId ?? undefined,
+      counts: health.counts ?? undefined,
+      error: health.error ?? undefined,
+    },
+    lastLogLine: null,
+  };
+}
+
 async function loadBrokerStatusForShell(): Promise<BrokerServiceStatus> {
   const [status, health] = await Promise.all([
     getRuntimeBrokerServiceStatus(),
     readScoutBrokerHealth(),
   ]);
   return mergeBrokerServiceStatusWithHealth(status, health);
+}
+
+async function loadBrokerStatusForFastUi(): Promise<BrokerServiceStatus> {
+  const health = await readScoutBrokerHealth();
+  return buildBrokerServiceStatusFromHealth(health);
 }
 
 function buildRuntimeState(
@@ -713,14 +844,7 @@ function buildHomeAgents(
     .filter((agent) => visibleAgentIds.has(agent.id))
     .map((agent) => {
       const endpoint = activeEndpoint(snapshot, agent.id);
-      const activity = directActivity.get(agent.id) ?? {
-        state: "offline" as const,
-        reachable: false,
-        statusLabel: "Offline",
-        statusDetail: "No active endpoint detected.",
-        activeTask: null,
-        lastMessageAt: null,
-      };
+      const activity = directActivity.get(agent.id) ?? inactiveDirectAgentActivity(agent, null, null);
       const projectRoot = endpoint?.projectRoot
         ?? endpoint?.cwd
         ?? (typeof agent.metadata?.projectRoot === "string" ? agent.metadata.projectRoot : null);
@@ -785,6 +909,22 @@ function buildHomeActivity(snapshot: RuntimeRegistrySnapshot): ScoutDesktopHomeA
     }));
 }
 
+function buildRelayWorkspaceDerivation(
+  snapshot: RuntimeRegistrySnapshot,
+  tmuxSessions: TmuxSession[],
+  configuredAgentIds: Set<string>,
+): RelayWorkspaceDerivation {
+  const messagesByConversation = buildMessagesByConversation(snapshot);
+  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
+
+  return {
+    messagesByConversation,
+    directActivity,
+    visibleAgentIds,
+  };
+}
+
 function machineEndpointState(
   endpoint: AgentEndpoint,
   activity: DirectAgentActivity | undefined,
@@ -831,9 +971,10 @@ function buildMachinesState(
   snapshot: RuntimeRegistrySnapshot,
   tmuxSessions: TmuxSession[],
   localNodeId: string | null,
+  shared?: RelayWorkspaceDerivation,
 ): ScoutDesktopMachinesState {
-  const messagesByConversation = buildMessagesByConversation(snapshot);
-  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const messagesByConversation = shared?.messagesByConversation ?? buildMessagesByConversation(snapshot);
+  const directActivity = shared?.directActivity ?? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
   const endpoints = Object.values(snapshot.endpoints).filter((endpoint) => !isStaleLocalEndpoint(snapshot, endpoint));
   const endpointsByNode = endpoints.reduce((map, endpoint) => {
     const bucket = map.get(endpoint.nodeId) ?? [];
@@ -923,7 +1064,7 @@ function buildMachinesState(
           ? `${reachableEndpointCount} reachable endpoint${reachableEndpointCount === 1 ? "" : "s"}`
           : lastSeenAt
             ? `Last seen ${formatRelativeTime(lastSeenAt)}`
-            : "No active endpoint detected.",
+            : "No runtime endpoints are visible yet.",
         advertiseScope: typeof node?.advertiseScope === "string" ? node.advertiseScope : null,
         brokerUrl: typeof node?.brokerUrl === "string" ? node.brokerUrl : null,
         capabilities: Array.isArray(node?.capabilities) ? node.capabilities.map(String) : [],
@@ -1558,9 +1699,13 @@ async function buildPlansState(
   currentDirectory: string,
   snapshot: RuntimeRegistrySnapshot | null,
   tmuxSessions: TmuxSession[],
+  options: {
+    includeWorkspacePlans?: boolean;
+  } = {},
 ): Promise<ScoutDesktopPlansState> {
+  const includeWorkspacePlans = options.includeWorkspacePlans ?? true;
   const [plans, tasks, findings] = await Promise.all([
-    loadWorkspacePlans(currentDirectory, snapshot),
+    includeWorkspacePlans ? loadWorkspacePlans(currentDirectory, snapshot) : Promise.resolve([]),
     Promise.resolve(snapshot ? buildDesktopTasks(snapshot, tmuxSessions) : []),
     Promise.resolve(snapshot ? buildReconciliationFindings(snapshot, tmuxSessions) : []),
   ]);
@@ -1659,14 +1804,7 @@ function buildRelayDirects(
         : typeof agent.metadata?.summary === "string"
           ? agent.metadata.summary
           : "Relay agent";
-      const activity = activityByAgent.get(agent.id) ?? {
-        state: "offline" as const,
-        reachable: false,
-        statusLabel: "Offline",
-        statusDetail: "No active endpoint detected.",
-        activeTask: null,
-        lastMessageAt: null,
-      };
+      const activity = activityByAgent.get(agent.id) ?? inactiveDirectAgentActivity(agent, null, null);
 
       return {
         kind: "direct",
@@ -1845,10 +1983,10 @@ function buildRelayState(
   snapshot: RuntimeRegistrySnapshot,
   tmuxSessions: TmuxSession[],
   configuredAgentIds: Set<string>,
+  shared?: RelayWorkspaceDerivation,
 ): ScoutRelayState {
-  const messagesByConversation = buildMessagesByConversation(snapshot);
-  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
-  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
+  const derivation = shared ?? buildRelayWorkspaceDerivation(snapshot, tmuxSessions, configuredAgentIds);
+  const { messagesByConversation, directActivity, visibleAgentIds } = derivation;
   const messages = attachRelayReceipts(snapshot, buildRelayMessages(snapshot), directActivity);
   const directs = buildRelayDirects(snapshot, directActivity, messagesByConversation, visibleAgentIds);
 
@@ -1932,11 +2070,12 @@ function buildInterAgentState(
   snapshot: RuntimeRegistrySnapshot,
   tmuxSessions: TmuxSession[],
   configuredAgentIds: Set<string>,
+  options?: { includeProjectGitActivity?: boolean },
+  shared?: RelayWorkspaceDerivation,
 ): ScoutInterAgentState {
   const conversations = Object.values(snapshot.conversations);
-  const messagesByConversation = buildMessagesByConversation(snapshot);
-  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
-  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
+  const derivation = shared ?? buildRelayWorkspaceDerivation(snapshot, tmuxSessions, configuredAgentIds);
+  const { messagesByConversation, directActivity, visibleAgentIds } = derivation;
   const tmuxSessionCreatedAt = new Map(
     tmuxSessions.map((session) => [session.name, normalizeTimestamp(session.createdAt ?? 0)]),
   );
@@ -2097,14 +2236,7 @@ function buildInterAgentState(
         latestTimestamp: 0,
       };
       const endpoint = activeEndpoint(snapshot, agent.id);
-      const activity = directActivity.get(agent.id) ?? {
-        state: "offline" as const,
-        reachable: false,
-        statusLabel: "Offline",
-        statusDetail: "No active endpoint detected.",
-        activeTask: null,
-        lastMessageAt: null,
-      };
+      const activity = directActivity.get(agent.id) ?? inactiveDirectAgentActivity(agent, null, null);
       const projectRoot = endpoint?.projectRoot
         ?? endpoint?.cwd
         ?? (typeof agent.metadata?.projectRoot === "string" ? agent.metadata.projectRoot : null);
@@ -2125,7 +2257,12 @@ function buildInterAgentState(
       const tmuxCreatedAt = normalizeTimestamp(tmuxSessionCreatedAt.get(endpoint?.sessionId ?? `relay-${agent.id}`) ?? 0);
       const lastChatAt = Math.max(entry.latestTimestamp, activity.lastMessageAt ?? 0) || null;
       const lastSessionAt = Math.max(endpointSessionAt, endpointStartedAt, tmuxCreatedAt) || null;
-      const codeActivity = readProjectGitActivity(projectRoot);
+      const codeActivity = options?.includeProjectGitActivity === false
+        ? {
+            lastCodeChangeAt: null,
+            lastCodeChangeLabel: null,
+          }
+        : readProjectGitActivity(projectRoot);
       const counterpartCount = entry.counterpartIds.size;
 
       return {
@@ -2308,40 +2445,49 @@ function buildMessagesState(
 }
 
 export async function composeScoutDesktopServicesState(): Promise<ScoutDesktopServicesState> {
+  const measurement = startLoadMeasurement();
   const [health, helper] = await Promise.all([
-    readScoutBrokerHealth(),
-    Promise.resolve(readHelperStatus()),
+    measureAsyncStep(measurement, "broker health", () => readScoutBrokerHealth()),
+    measureAsyncStep(measurement, "helper status", async () => Promise.resolve(readHelperStatus())),
   ]);
 
-  return buildServicesStateFromHealth(health, helper);
+  const servicesState = measureStep(measurement, "compose services", () => buildServicesStateFromHealth(health, helper));
+  return {
+    ...servicesState,
+    performance: finalizeLoadMeasurement(measurement),
+  };
 }
 
 export async function composeScoutDesktopHomeState(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopHomeState> {
-  const home = await readScoutBrokerHome();
+  const measurement = startLoadMeasurement();
+  const home = await measureAsyncStep(measurement, "broker home", () => readScoutBrokerHome());
   if (home) {
+    const agents = measureStep(measurement, "map home agents", () => home.agents.map((agent) => ({
+      ...agent,
+      projectRoot: compactHomePath(agent.projectRoot) ?? agent.projectRoot,
+      timestampLabel: agent.lastSeenAt ? formatTimeLabel(agent.lastSeenAt) : null,
+    })));
+    const activity = measureStep(measurement, "map home activity", () => home.activity.map((item) => ({
+      ...item,
+      conversationId: item.conversationId ?? item.id,
+      timestampLabel: formatTimeLabel(item.timestamp),
+    })));
     return {
       title: "Home",
-      subtitle: `${home.agents.length} agents · ${home.activity.length} recent updates`,
+      subtitle: `${agents.length} agents · ${activity.length} recent updates`,
       updatedAtLabel: formatTimeLabel(normalizeTimestamp(home.updatedAt) ?? Math.floor(Date.now() / 1000)),
-      agents: home.agents.map((agent) => ({
-        ...agent,
-        projectRoot: compactHomePath(agent.projectRoot) ?? agent.projectRoot,
-        timestampLabel: agent.lastSeenAt ? formatTimeLabel(agent.lastSeenAt) : null,
-      })),
-      activity: home.activity.map((item) => ({
-        ...item,
-        conversationId: item.conversationId ?? item.id,
-        timestampLabel: formatTimeLabel(item.timestamp),
-      })),
+      agents,
+      activity,
       recentSessions: [],
+      performance: finalizeLoadMeasurement(measurement),
     };
   }
 
   const [broker, setup] = await Promise.all([
-    loadScoutBrokerContext(),
-    loadResolvedRelayAgents({ currentDirectory: input.currentDirectory }),
+    measureAsyncStep(measurement, "broker context", () => loadScoutBrokerContext()),
+    measureAsyncStep(measurement, "resolved agents", () => loadResolvedRelayAgents({ currentDirectory: input.currentDirectory })),
   ]);
 
   const snapshot = broker?.snapshot ?? null;
@@ -2353,16 +2499,17 @@ export async function composeScoutDesktopHomeState(input: {
       agents: [],
       activity: [],
       recentSessions: [],
+      performance: finalizeLoadMeasurement(measurement),
     };
   }
 
-  const tmuxSessions = readTmuxSessions();
-  const messagesByConversation = buildMessagesByConversation(snapshot);
-  const directActivity = buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation);
+  const tmuxSessions = measureStep(measurement, "tmux sessions", () => readTmuxSessions());
+  const messagesByConversation = measureStep(measurement, "conversation map", () => buildMessagesByConversation(snapshot));
+  const directActivity = measureStep(measurement, "direct activity", () => buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation));
   const configuredAgentIds = new Set(setup.agents.map((agent) => agent.agentId));
-  const visibleAgentIds = visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity);
-  const agents = buildHomeAgents(snapshot, directActivity, visibleAgentIds).slice(0, 24);
-  const activity = buildHomeActivity(snapshot);
+  const visibleAgentIds = measureStep(measurement, "visible agents", () => visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity));
+  const agents = measureStep(measurement, "build home agents", () => buildHomeAgents(snapshot, directActivity, visibleAgentIds).slice(0, 24));
+  const activity = measureStep(measurement, "build home activity", () => buildHomeActivity(snapshot));
 
   return {
     title: "Home",
@@ -2371,6 +2518,7 @@ export async function composeScoutDesktopHomeState(input: {
     agents,
     activity,
     recentSessions: [],
+    performance: finalizeLoadMeasurement(measurement),
   };
 }
 
@@ -2378,28 +2526,30 @@ export async function composeScoutDesktopShellState(input: {
   currentDirectory: string;
   appInfo: ScoutDesktopShellState["appInfo"];
 }): Promise<ScoutDesktopShellState> {
+  const measurement = startLoadMeasurement();
   const [status, helper, setup] = await Promise.all([
-    loadBrokerStatusForShell(),
-    Promise.resolve(readHelperStatus()),
-    loadResolvedRelayAgents({ currentDirectory: input.currentDirectory }),
+    measureAsyncStep(measurement, "runtime status", () => loadBrokerStatusForShell()),
+    measureAsyncStep(measurement, "helper status", async () => Promise.resolve(readHelperStatus())),
+    measureAsyncStep(measurement, "resolved agents", () => loadResolvedRelayAgents({ currentDirectory: input.currentDirectory })),
   ]);
 
-  const tmuxSessions = readTmuxSessions();
-  const broker = status.reachable ? await loadScoutBrokerContext(status.brokerUrl) : null;
+  const tmuxSessions = measureStep(measurement, "tmux sessions", () => readTmuxSessions());
+  const broker = status.reachable
+    ? await measureAsyncStep(measurement, "broker context", () => loadScoutBrokerContext(status.brokerUrl))
+    : null;
   const snapshot = broker?.snapshot ?? null;
   const configuredAgentIds = new Set(setup.agents.map((agent) => agent.agentId));
-  const messagesByConversation = snapshot ? buildMessagesByConversation(snapshot) : null;
-  const directActivity = snapshot && messagesByConversation
-    ? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation)
+  const shared = snapshot
+    ? measureStep(measurement, "derive workspace", () => buildRelayWorkspaceDerivation(snapshot, tmuxSessions, configuredAgentIds))
     : null;
-  const visibleAgentCount = snapshot && messagesByConversation && directActivity
-    ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
+  const visibleAgentCount = shared
+    ? shared.visibleAgentIds.size
     : setup.agents.length;
-  const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
-  const plans = await buildPlansState(input.currentDirectory, snapshot, tmuxSessions);
-  const sessions = snapshot ? buildSessions(snapshot) : [];
+  const latestRelayLabel = measureStep(measurement, "latest relay label", () => latestRelayLabelFromSnapshot(snapshot));
+  const plans = await measureAsyncStep(measurement, "plans", () => buildPlansState(input.currentDirectory, snapshot, tmuxSessions));
+  const sessions = snapshot ? measureStep(measurement, "sessions", () => buildSessions(snapshot)) : [];
   const interAgent = snapshot
-    ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+    ? measureStep(measurement, "inter-agent", () => buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds, { includeProjectGitActivity: true }, shared ?? undefined))
     : {
         title: "Inter-Agent",
         subtitle: "Broker unavailable",
@@ -2408,7 +2558,7 @@ export async function composeScoutDesktopShellState(input: {
         lastUpdatedLabel: null,
       };
   const relay = snapshot
-    ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+    ? measureStep(measurement, "relay", () => buildRelayState(snapshot, tmuxSessions, configuredAgentIds, shared ?? undefined))
     : {
         title: "Relay",
         subtitle: "Broker unavailable",
@@ -2423,42 +2573,53 @@ export async function composeScoutDesktopShellState(input: {
         voice: createScoutVoiceState(),
         lastUpdatedLabel: null,
       };
+  const messages = measureStep(measurement, "messages", () => buildMessagesState(relay, interAgent));
+  const runtime = measureStep(measurement, "runtime", () => buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount));
+  const machines = snapshot
+    ? measureStep(measurement, "machines", () => buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null, shared ?? undefined))
+    : buildEmptyMachinesState();
 
   return {
     appInfo: input.appInfo,
-    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount),
-    machines: snapshot
-      ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null)
-      : buildEmptyMachinesState(),
+    runtime,
+    machines,
     plans,
-    messages: buildMessagesState(relay, interAgent),
+    messages,
     sessions,
     interAgent,
     relay,
+    performance: finalizeLoadMeasurement(measurement),
   };
 }
 
 export async function composeScoutDesktopMessagesWorkspaceState(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopMessagesWorkspaceState> {
+  const measurement = startLoadMeasurement();
   const [status, helper] = await Promise.all([
-    loadBrokerStatusForShell(),
-    Promise.resolve(readHelperStatus()),
+    measureAsyncStep(measurement, "broker health", () => loadBrokerStatusForFastUi()),
+    measureAsyncStep(measurement, "helper status", async () => Promise.resolve(readHelperStatus())),
   ]);
 
-  const tmuxSessions = readTmuxSessions();
-  const snapshot = status.reachable ? await readScoutBrokerSnapshot(status.brokerUrl) : null;
-  const configuredAgentIds = inferredConfiguredAgentIds(snapshot);
-  const messagesByConversation = snapshot ? buildMessagesByConversation(snapshot) : null;
-  const directActivity = snapshot && messagesByConversation
-    ? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation)
+  const tmuxSessions = measureStep(measurement, "tmux sessions", () => readTmuxSessions());
+  const snapshot = status.reachable
+    ? await measureAsyncStep(measurement, "broker snapshot", () => readScoutBrokerSnapshot(status.brokerUrl))
     : null;
-  const visibleAgentCount = snapshot && messagesByConversation && directActivity
-    ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
+  const configuredAgentIds = inferredConfiguredAgentIds(snapshot);
+  const shared = snapshot
+    ? measureStep(measurement, "derive workspace", () => buildRelayWorkspaceDerivation(snapshot, tmuxSessions, configuredAgentIds))
+    : null;
+  const visibleAgentCount = shared
+    ? shared.visibleAgentIds.size
     : configuredAgentIds.size;
-  const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
+  const latestRelayLabel = measureStep(measurement, "latest relay label", () => latestRelayLabelFromSnapshot(snapshot));
+  const plans = await measureAsyncStep(
+    measurement,
+    "plans-lite",
+    () => buildPlansState(input.currentDirectory, snapshot, tmuxSessions, { includeWorkspacePlans: false }),
+  );
   const interAgent = snapshot
-    ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+    ? measureStep(measurement, "inter-agent", () => buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds, { includeProjectGitActivity: false }, shared ?? undefined))
     : {
         title: "Inter-Agent",
         subtitle: "Broker unavailable",
@@ -2467,7 +2628,7 @@ export async function composeScoutDesktopMessagesWorkspaceState(input: {
         lastUpdatedLabel: null,
       };
   const relay = snapshot
-    ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+    ? measureStep(measurement, "relay", () => buildRelayState(snapshot, tmuxSessions, configuredAgentIds, shared ?? undefined))
     : {
         title: "Relay",
         subtitle: "Broker unavailable",
@@ -2482,38 +2643,48 @@ export async function composeScoutDesktopMessagesWorkspaceState(input: {
         voice: createScoutVoiceState(),
         lastUpdatedLabel: null,
       };
+  const messages = measureStep(measurement, "messages", () => buildMessagesState(relay, interAgent));
+  const runtime = measureStep(measurement, "runtime", () => buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount));
 
   return {
-    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount),
-    messages: buildMessagesState(relay, interAgent),
-    sessions: snapshot ? buildSessions(snapshot) : [],
+    runtime,
+    messages,
+    sessions: [],
     relay,
     interAgent,
+    performance: finalizeLoadMeasurement(measurement),
   };
 }
 
 export async function composeScoutDesktopRelayShellPatch(input: {
   currentDirectory: string;
 }): Promise<ScoutDesktopShellPatch> {
+  const measurement = startLoadMeasurement();
   const [status, helper] = await Promise.all([
-    loadBrokerStatusForShell(),
-    Promise.resolve(readHelperStatus()),
+    measureAsyncStep(measurement, "broker health", () => loadBrokerStatusForFastUi()),
+    measureAsyncStep(measurement, "helper status", async () => Promise.resolve(readHelperStatus())),
   ]);
 
-  const tmuxSessions = readTmuxSessions();
-  const broker = status.reachable ? await loadScoutBrokerContext(status.brokerUrl) : null;
+  const tmuxSessions = measureStep(measurement, "tmux sessions", () => readTmuxSessions());
+  const broker = status.reachable
+    ? await measureAsyncStep(measurement, "broker context", () => loadScoutBrokerContext(status.brokerUrl))
+    : null;
   const snapshot = broker?.snapshot ?? null;
   const configuredAgentIds = inferredConfiguredAgentIds(snapshot);
-  const messagesByConversation = snapshot ? buildMessagesByConversation(snapshot) : null;
-  const directActivity = snapshot && messagesByConversation
-    ? buildDirectAgentActivity(snapshot, tmuxSessions, messagesByConversation)
+  const shared = snapshot
+    ? measureStep(measurement, "derive workspace", () => buildRelayWorkspaceDerivation(snapshot, tmuxSessions, configuredAgentIds))
     : null;
-  const visibleAgentCount = snapshot && messagesByConversation && directActivity
-    ? visibleRelayAgentIds(snapshot, configuredAgentIds, messagesByConversation, directActivity).size
+  const visibleAgentCount = shared
+    ? shared.visibleAgentIds.size
     : configuredAgentIds.size;
-  const latestRelayLabel = latestRelayLabelFromSnapshot(snapshot);
+  const latestRelayLabel = measureStep(measurement, "latest relay label", () => latestRelayLabelFromSnapshot(snapshot));
+  const plans = await measureAsyncStep(
+    measurement,
+    "plans-lite",
+    () => buildPlansState(input.currentDirectory, snapshot, tmuxSessions, { includeWorkspacePlans: false }),
+  );
   const interAgent = snapshot
-    ? buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds)
+    ? measureStep(measurement, "inter-agent", () => buildInterAgentState(snapshot, tmuxSessions, configuredAgentIds, { includeProjectGitActivity: false }, shared ?? undefined))
     : {
         title: "Inter-Agent",
         subtitle: "Broker unavailable",
@@ -2522,7 +2693,7 @@ export async function composeScoutDesktopRelayShellPatch(input: {
         lastUpdatedLabel: null,
       };
   const relay = snapshot
-    ? buildRelayState(snapshot, tmuxSessions, configuredAgentIds)
+    ? measureStep(measurement, "relay", () => buildRelayState(snapshot, tmuxSessions, configuredAgentIds, shared ?? undefined))
     : {
         title: "Relay",
         subtitle: "Broker unavailable",
@@ -2537,15 +2708,21 @@ export async function composeScoutDesktopRelayShellPatch(input: {
         voice: createScoutVoiceState(),
         lastUpdatedLabel: null,
       };
+  const runtime = measureStep(measurement, "runtime", () => buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount));
+  const machines = snapshot
+    ? measureStep(measurement, "machines", () => buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null, shared ?? undefined))
+    : buildEmptyMachinesState();
+  const messages = measureStep(measurement, "messages", () => buildMessagesState(relay, interAgent));
+  const sessions = snapshot ? measureStep(measurement, "sessions", () => buildSessions(snapshot)) : [];
 
   return {
-    runtime: buildRuntimeState(snapshot, tmuxSessions, latestRelayLabel, helper, status, visibleAgentCount),
-    machines: snapshot
-      ? buildMachinesState(snapshot, tmuxSessions, status.health.nodeId ?? broker?.node.id ?? null)
-      : buildEmptyMachinesState(),
-    messages: buildMessagesState(relay, interAgent),
-    sessions: snapshot ? buildSessions(snapshot) : [],
+    runtime,
+    machines,
+    plans,
+    messages,
+    sessions,
     interAgent,
     relay,
+    performance: finalizeLoadMeasurement(measurement),
   };
 }

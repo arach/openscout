@@ -35,6 +35,16 @@ export type ScoutDesktopAppInfo = {
   features: ScoutDesktopFeatureFlags;
 };
 
+export type ScoutDesktopLoadStep = {
+  label: string;
+  durationMs: number;
+};
+
+export type ScoutDesktopLoadTrace = {
+  totalMs: number;
+  steps: ScoutDesktopLoadStep[];
+};
+
 export type ScoutDesktopServiceStatus = "running" | "degraded" | "offline";
 
 export type ScoutDesktopService = {
@@ -56,6 +66,7 @@ export type ScoutDesktopServicesState = {
   subtitle: string;
   updatedAtLabel: string | null;
   services: ScoutDesktopService[];
+  performance?: ScoutDesktopLoadTrace | null;
 };
 
 export type ScoutDesktopHomeAgent = {
@@ -92,6 +103,7 @@ export type ScoutDesktopHomeState = {
   agents: ScoutDesktopHomeAgent[];
   activity: ScoutDesktopHomeActivityItem[];
   recentSessions: ScoutSessionMetadata[];
+  performance?: ScoutDesktopLoadTrace | null;
 };
 
 export type ScoutRelayDestinationKind = "channel" | "filter" | "direct";
@@ -470,14 +482,19 @@ export type ScoutDesktopShellState = {
   sessions: ScoutSessionMetadata[];
   relay: ScoutRelayState;
   interAgent: ScoutInterAgentState;
+  performance?: ScoutDesktopLoadTrace | null;
 };
 
 export type ScoutDesktopMessagesWorkspaceState = Pick<
   ScoutDesktopShellState,
   "runtime" | "messages" | "sessions" | "relay" | "interAgent"
->;
+> & {
+  performance?: ScoutDesktopLoadTrace | null;
+};
 
 export type ScoutDesktopShellPatch = Pick<
   ScoutDesktopShellState,
-  "runtime" | "machines" | "messages" | "sessions" | "relay" | "interAgent"
->;
+  "runtime" | "machines" | "plans" | "messages" | "sessions" | "relay" | "interAgent"
+> & {
+  performance?: ScoutDesktopLoadTrace | null;
+};

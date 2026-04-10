@@ -2,6 +2,7 @@ import {
   createScoutDesktopAppInfo,
   loadScoutDesktopHomeState,
   loadScoutDesktopMessagesWorkspaceState,
+  loadScoutDesktopRelayShellPatch,
   loadScoutDesktopServicesState,
   loadScoutDesktopShellState,
   loadScoutPhonePreparation,
@@ -9,6 +10,7 @@ import {
   type ScoutDesktopAppInfo,
   type ScoutDesktopHomeState,
   type ScoutDesktopMessagesWorkspaceState,
+  type ScoutDesktopShellPatch,
   type ScoutDesktopServicesState,
   type ScoutDesktopShellState,
   type ScoutPhonePreparationState,
@@ -106,12 +108,38 @@ async function applyScoutElectronVoiceToMessagesWorkspaceState(
   };
 }
 
+async function applyScoutElectronVoiceToRelayShellPatch(
+  relayShellPatch: ScoutDesktopShellPatch,
+  voiceService?: ScoutElectronVoiceService,
+): Promise<ScoutDesktopShellPatch> {
+  if (!voiceService?.getVoiceState) {
+    return relayShellPatch;
+  }
+
+  const voice = await voiceService.getVoiceState();
+  return {
+    ...relayShellPatch,
+    relay: {
+      ...relayShellPatch.relay,
+      voice,
+    },
+  };
+}
+
 export async function getScoutElectronMessagesWorkspaceState(
   options: ScoutElectronServiceOptions = {},
 ): Promise<ScoutDesktopMessagesWorkspaceState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const messagesWorkspaceState = await loadScoutDesktopMessagesWorkspaceState({ currentDirectory });
   return applyScoutElectronVoiceToMessagesWorkspaceState(messagesWorkspaceState, options.voice);
+}
+
+export async function getScoutElectronRelayShellPatch(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopShellPatch> {
+  const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
+  const relayShellPatch = await loadScoutDesktopRelayShellPatch({ currentDirectory });
+  return applyScoutElectronVoiceToRelayShellPatch(relayShellPatch, options.voice);
 }
 
 async function applyScoutElectronVoiceState(
@@ -147,6 +175,12 @@ export async function refreshScoutElectronShellState(
   options: ScoutElectronServiceOptions = {},
 ): Promise<ScoutDesktopShellState> {
   return getScoutElectronShellState(options);
+}
+
+export async function refreshScoutElectronRelayShellPatch(
+  options: ScoutElectronServiceOptions = {},
+): Promise<ScoutDesktopShellPatch> {
+  return getScoutElectronRelayShellPatch(options);
 }
 
 export async function getScoutElectronPhonePreparation(

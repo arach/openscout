@@ -21,6 +21,7 @@ import type { AppView, ComposerRelayReference, PendingRelayMessage } from "@/app
 import type { ScoutDesktopBridge } from "@/lib/electron";
 import type {
   AppSettingsState,
+  DesktopShellPatch,
   DesktopShellState,
   InterAgentAgent,
   InterAgentThread,
@@ -51,7 +52,7 @@ type UseMessagesControllerInput = {
   appSettings: AppSettingsState | null;
   setActiveView: React.Dispatch<React.SetStateAction<AppView>>;
   applyRelayWorkspacePatch: (
-    nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent">,
+    nextState: DesktopShellPatch,
   ) => void;
 };
 

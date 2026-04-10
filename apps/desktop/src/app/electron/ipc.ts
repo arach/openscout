@@ -53,7 +53,9 @@ export function registerScoutElectronIpcHandlers(
   register(SCOUT_ELECTRON_CHANNELS.getServicesState, () => services.getServicesState());
   register(SCOUT_ELECTRON_CHANNELS.getHomeState, () => services.getHomeState());
   register(SCOUT_ELECTRON_CHANNELS.getMessagesWorkspaceState, () => services.getMessagesWorkspaceState());
+  register(SCOUT_ELECTRON_CHANNELS.getRelayShellPatch, () => services.getRelayShellPatch());
   register(SCOUT_ELECTRON_CHANNELS.getShellState, () => services.getShellState());
+  register(SCOUT_ELECTRON_CHANNELS.refreshRelayShellPatch, () => services.refreshRelayShellPatch());
   register(SCOUT_ELECTRON_CHANNELS.refreshShellState, () => services.refreshShellState());
   register(SCOUT_ELECTRON_CHANNELS.getAppSettings, () => services.getAppSettings());
   register(SCOUT_ELECTRON_CHANNELS.refreshSettingsInventory, () => services.refreshSettingsInventory());

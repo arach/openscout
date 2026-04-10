@@ -98,6 +98,7 @@ import type {
   DesktopFeatureFlags,
   DesktopHomeState,
   DesktopMessagesWorkspaceState,
+  DesktopShellPatch,
   DesktopShellState,
   DesktopServicesState,
   MessagesThread,
@@ -197,8 +198,22 @@ function captureLoadMetric(label: string, startedAt: number, detail?: Record<str
   return metric;
 }
 
+function mergeMetricDetail(
+  counts: Record<string, unknown>,
+  performanceTrace?: { totalMs: number; steps: { label: string; durationMs: number }[] } | null,
+): Record<string, unknown> | undefined {
+  const detail: Record<string, unknown> = { ...counts };
+  if (performanceTrace) {
+    detail.Total = `${performanceTrace.totalMs}ms`;
+    performanceTrace.steps.forEach((step) => {
+      detail[step.label] = `${step.durationMs}ms`;
+    });
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
 function pickMessagesWorkspaceState(
-  nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent">,
+  nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent" | "performance">,
 ): DesktopMessagesWorkspaceState {
   return {
     runtime: nextState.runtime,
@@ -206,6 +221,20 @@ function pickMessagesWorkspaceState(
     sessions: nextState.sessions,
     relay: nextState.relay,
     interAgent: nextState.interAgent,
+    performance: nextState.performance ?? null,
+  };
+}
+
+function mergeRelayPatchPlans(
+  currentPlans: DesktopShellState["plans"],
+  nextPlans: DesktopShellPatch["plans"],
+): DesktopShellState["plans"] {
+  return {
+    ...nextPlans,
+    planCount: currentPlans.planCount,
+    workspaceCount: currentPlans.workspaceCount,
+    plans: currentPlans.plans,
+    subtitle: `${nextPlans.taskCount} asks · ${nextPlans.findingCount} findings · ${currentPlans.planCount} plans · ${currentPlans.workspaceCount} workspaces`,
   };
 }
 
@@ -366,9 +395,14 @@ export default function App() {
       persistCachedHome(cachedHomeStateRef.current, nextState);
       setLoadMetrics((current) => ({
         ...current,
-        services: captureLoadMetric('services-state', startedAt, {
-          serviceCount: nextState.services.length,
-        }),
+        services: captureLoadMetric(
+          'services-state',
+          startedAt,
+          mergeMetricDetail(
+            { serviceCount: nextState.services.length },
+            nextState.performance,
+          ),
+        ),
       }));
       return nextState;
     } catch (error) {
@@ -403,10 +437,17 @@ export default function App() {
       persistCachedHome(nextState, cachedServicesStateRef.current);
       setLoadMetrics((current) => ({
         ...current,
-        home: captureLoadMetric('home-state', startedAt, {
-          agents: nextState.agents.length,
-          activity: nextState.activity.length,
-        }),
+        home: captureLoadMetric(
+          'home-state',
+          startedAt,
+          mergeMetricDetail(
+            {
+              agents: nextState.agents.length,
+              activity: nextState.activity.length,
+            },
+            nextState.performance,
+          ),
+        ),
       }));
       return nextState;
     } catch (error) {
@@ -440,11 +481,19 @@ export default function App() {
       setShellError(null);
       setLoadMetrics((current) => ({
         ...current,
-        workspace: captureLoadMetric('messages-workspace', startedAt, {
-          threads: nextState.messages.threads.length,
-          messages: nextState.relay.messages.length,
-          agents: nextState.interAgent.agents.length,
-        }),
+        workspace: captureLoadMetric(
+          'messages-workspace',
+          startedAt,
+          mergeMetricDetail(
+            {
+              threads: nextState.messages.threads.length,
+              messages: nextState.relay.messages.length,
+              agents: nextState.interAgent.agents.length,
+              sessions: nextState.sessions.length,
+            },
+            nextState.performance,
+          ),
+        ),
       }));
       return nextState;
     } catch (error) {
@@ -478,10 +527,18 @@ export default function App() {
       setShellError(null);
       setLoadMetrics((current) => ({
         ...current,
-        workspace: captureLoadMetric('relay-workspace', startedAt, {
-          messages: nextState.relay.messages.length,
-          agents: nextState.interAgent.agents.length,
-        }),
+        workspace: captureLoadMetric(
+          'relay-workspace',
+          startedAt,
+          mergeMetricDetail(
+            {
+              messages: nextState.relay.messages.length,
+              agents: nextState.interAgent.agents.length,
+              sessions: nextState.sessions.length,
+            },
+            nextState.performance,
+          ),
+        ),
       }));
       return nextState;
     } catch (error) {
@@ -493,13 +550,18 @@ export default function App() {
     }
   }, [scoutDesktop]);
   const applyRelayWorkspacePatch = React.useCallback((
-    nextState: Pick<DesktopShellState, "runtime" | "messages" | "sessions" | "relay" | "interAgent">,
+    nextState: DesktopShellPatch,
   ) => {
     setShellState((current) => (
       current
         ? {
             ...current,
             ...nextState,
+            relay: {
+              ...nextState.relay,
+              voice: current.relay.voice,
+            },
+            plans: mergeRelayPatchPlans(current.plans, nextState.plans),
           }
         : current
     ));
@@ -508,6 +570,10 @@ export default function App() {
         ? {
             ...current,
             ...pickMessagesWorkspaceState(nextState),
+            relay: {
+              ...nextState.relay,
+              voice: current.relay.voice,
+            },
           }
         : current
     ));
@@ -839,6 +905,16 @@ export default function App() {
       || settingsSection === 'communication'
       || settingsSection === 'database'
     ))
+  );
+  const relayPatchRefreshRequired = productSurface === 'relay' && (
+    activeView === 'inbox'
+    || activeView === 'activity'
+    || activeView === 'messages'
+    || activeView === 'relay'
+    || activeView === 'agents'
+    || activeView === 'inter-agent'
+    || activeView === 'sessions'
+    || activeView === 'search'
   );
 
   useEffect(() => {
@@ -1460,12 +1536,16 @@ export default function App() {
         return;
       }
 
-      await Promise.all([
-        loadServicesState(),
-        loadHomeState(!homeState),
-      ]);
-
-      if (messagesWorkspaceRequired) {
+      if (activeView === 'overview') {
+        await Promise.all([
+          loadServicesState(),
+          loadHomeState(!homeState),
+        ]);
+      } else if (relayPatchRefreshRequired && scoutDesktop?.refreshRelayShellPatch) {
+        const nextState = await scoutDesktop.refreshRelayShellPatch();
+        applyRelayWorkspacePatch(nextState);
+        setShellError(null);
+      } else if (messagesWorkspaceRequired) {
         await loadMessagesWorkspaceState(true);
       } else if (relayWorkspaceRequired && scoutDesktop?.refreshShellState) {
         const nextState = await scoutDesktop.refreshShellState();
@@ -2178,6 +2258,16 @@ export default function App() {
                       ? `${entry.metric.label} · ${new Date(entry.metric.recordedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}`
                       : entry.idleDetail}
                   </div>
+                  {entry.metric?.detail ? (
+                    <div className="mt-2 space-y-1">
+                      {Object.entries(entry.metric.detail).slice(0, 8).map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between gap-3 text-[10px]" style={s.mutedText}>
+                          <span className="truncate">{label}</span>
+                          <span className="font-mono shrink-0" style={s.inkText}>{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>

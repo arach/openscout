@@ -231,10 +231,14 @@ export function useAgentController({
     [agentConfigDraft, agentConfig],
   );
 
-  const agentCapabilitiesPreview = React.useMemo(
-    () => parseCapabilityText(visibleAgentConfig?.capabilitiesText ?? ""),
-    [visibleAgentConfig?.capabilitiesText],
-  );
+  const agentCapabilitiesPreview = React.useMemo(() => {
+    const parsedCapabilities = parseCapabilityText(visibleAgentConfig?.capabilitiesText ?? "");
+    if (parsedCapabilities.length > 0) {
+      return parsedCapabilities;
+    }
+
+    return selectedInterAgent?.capabilities ?? [];
+  }, [selectedInterAgent?.capabilities, visibleAgentConfig?.capabilitiesText]);
 
   const agentRestartActionLabel = isAgentConfigEditing && agentConfigDirty ? "Save + Restart" : "Restart Agent";
 
@@ -247,6 +251,22 @@ export function useAgentController({
       selectedInterAgentId,
     }),
     [activeView, selectedInterAgentId, selectedMessagesThread, selectedRelayId, selectedRelayKind],
+  );
+
+  const shouldLoadAgentConfig = Boolean(
+    selectedInterAgentId
+      && scoutDesktop?.getAgentConfig
+      && activeView === "settings"
+      && isAgentConfigEditing,
+  );
+
+  const shouldLoadAgentSession = Boolean(
+    currentSessionTargetAgentId
+      && scoutDesktop?.getAgentSession
+      && (
+        isAgentSessionPeekOpen
+        || agentSessionLogsExpanded
+      ),
   );
 
   const visibleAgentSession = agentSession?.agentId === selectedMessagesDetailAgentId || agentSession?.agentId === selectedInterAgentId
@@ -296,13 +316,24 @@ export function useAgentController({
   }, [activeView, agentRosterFilter, agentRosterSort, interAgentState, selectedInterAgentId, selectedInterAgentThreadId]);
 
   React.useEffect(() => {
-    if (!selectedInterAgentId || !scoutDesktop?.getAgentConfig) {
+    if (!selectedInterAgentId) {
       setAgentConfig(null);
       setAgentConfigDraft(null);
       setAgentConfigFeedback(null);
+      setAgentConfigLoading(false);
       setAgentThreadsExpanded(false);
       setAgentSnapshotExpanded(false);
       setAgentActivityExpanded(false);
+      return;
+    }
+
+    if (!shouldLoadAgentConfig) {
+      setAgentConfigLoading(false);
+      return;
+    }
+    const desktop = scoutDesktop;
+    if (!desktop?.getAgentConfig) {
+      setAgentConfigLoading(false);
       return;
     }
 
@@ -310,7 +341,7 @@ export function useAgentController({
     const loadAgentConfig = async () => {
       setAgentConfigLoading(true);
       try {
-        const nextConfig = await scoutDesktop.getAgentConfig(selectedInterAgentId);
+        const nextConfig = await desktop.getAgentConfig(selectedInterAgentId);
         if (cancelled) {
           return;
         }
@@ -339,13 +370,24 @@ export function useAgentController({
     return () => {
       cancelled = true;
     };
-  }, [pendingConfigFocusAgentId, scoutDesktop, selectedInterAgentId]);
+  }, [pendingConfigFocusAgentId, scoutDesktop, selectedInterAgentId, shouldLoadAgentConfig]);
 
   React.useEffect(() => {
-    if (!currentSessionTargetAgentId || !scoutDesktop?.getAgentSession) {
+    if (!currentSessionTargetAgentId) {
       setAgentSession(null);
       setAgentSessionFeedback(null);
       setAgentSessionCopied(false);
+      setAgentSessionLoading(false);
+      return;
+    }
+
+    if (!shouldLoadAgentSession) {
+      setAgentSessionLoading(false);
+      return;
+    }
+    const desktop = scoutDesktop;
+    if (!desktop?.getAgentSession) {
+      setAgentSessionLoading(false);
       return;
     }
 
@@ -353,7 +395,7 @@ export function useAgentController({
     const loadAgentSession = async () => {
       setAgentSessionLoading(true);
       try {
-        const nextSession = await scoutDesktop.getAgentSession(currentSessionTargetAgentId);
+        const nextSession = await desktop.getAgentSession(currentSessionTargetAgentId);
         if (cancelled) {
           return;
         }
@@ -376,7 +418,7 @@ export function useAgentController({
     return () => {
       cancelled = true;
     };
-  }, [agentSessionRefreshTick, currentSessionTargetAgentId, scoutDesktop]);
+  }, [agentSessionRefreshTick, currentSessionTargetAgentId, scoutDesktop, shouldLoadAgentSession]);
 
   React.useEffect(() => {
     setAgentSessionFeedback(null);
@@ -388,18 +430,6 @@ export function useAgentController({
       setIsAgentSessionPeekOpen(false);
     }
   }, [activeView]);
-
-  React.useEffect(() => {
-    if (!isAgentSessionPeekOpen || !currentSessionTargetAgentId) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setAgentSessionRefreshTick((current) => current + 1);
-    }, 1600);
-
-    return () => window.clearInterval(intervalId);
-  }, [currentSessionTargetAgentId, isAgentSessionPeekOpen]);
 
   React.useEffect(() => {
     if (!isAgentSessionPeekOpen) {
@@ -439,18 +469,18 @@ export function useAgentController({
   }, [isAgentSessionPeekOpen, selectedInterAgentId]);
 
   React.useEffect(() => {
-    if (!currentSessionTargetAgentId) {
+    if (!currentSessionTargetAgentId || !shouldLoadAgentSession) {
       return;
     }
 
     const interval = window.setInterval(() => {
       setAgentSessionRefreshTick((current) => current + 1);
-    }, 2500);
+    }, isAgentSessionPeekOpen ? 1600 : 2500);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [currentSessionTargetAgentId]);
+  }, [currentSessionTargetAgentId, isAgentSessionPeekOpen, shouldLoadAgentSession]);
 
   React.useEffect(() => {
     if (!agentSessionCopied) {

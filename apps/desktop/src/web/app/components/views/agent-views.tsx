@@ -404,7 +404,7 @@ export function AgentViews({
                         {agents.selectedInterAgent.title}
                       </div>
                       <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={agents.selectedInterAgent.state === 'working' ? layout.styles.activePill : layout.styles.tagBadge}>
-                        {agents.selectedInterAgent.state === 'working' ? 'Working' : agents.selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
+                        {agents.selectedInterAgent.statusLabel}
                       </span>
                     </div>
                     <div className="text-[11px] mt-0.5 truncate max-w-2xl" style={layout.styles.mutedText}>
@@ -672,7 +672,7 @@ export function AgentViews({
                                 Direct
                               </span>
                               <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={layout.styles.tagBadge}>
-                                {agents.selectedInterAgent.state === 'working' ? 'Working' : agents.selectedInterAgent.state === 'offline' ? 'Offline' : 'Available'}
+                                {agents.selectedInterAgent.statusLabel}
                               </span>
                             </div>
                             <button

@@ -78,9 +78,11 @@ import {
   getScoutElectronAppInfo,
   getScoutElectronHomeState,
   getScoutElectronMessagesWorkspaceState,
+  getScoutElectronRelayShellPatch,
   getScoutElectronServicesState,
   getScoutElectronPhonePreparation,
   getScoutElectronShellState,
+  refreshScoutElectronRelayShellPatch,
   refreshScoutElectronShellState,
   setScoutElectronVoiceRepliesEnabled,
   toggleScoutElectronVoiceCapture,
@@ -120,7 +122,9 @@ export type DesktopStateServices = {
   getServicesState: () => Promise<ScoutDesktopServicesState>;
   getHomeState: () => Promise<ScoutDesktopHomeState>;
   getMessagesWorkspaceState: () => Promise<ScoutDesktopMessagesWorkspaceState>;
+  getRelayShellPatch: () => Promise<ScoutDesktopShellPatch>;
   getShellState: () => Promise<ScoutDesktopShellState>;
+  refreshRelayShellPatch: () => Promise<ScoutDesktopShellPatch>;
   refreshShellState: () => Promise<ScoutDesktopShellState>;
 };
 
@@ -212,7 +216,9 @@ export function createDesktopStateServices(
     getServicesState: () => getScoutElectronServicesState({ currentDirectory, appInfo, voice }),
     getHomeState: () => getScoutElectronHomeState({ currentDirectory, appInfo, voice }),
     getMessagesWorkspaceState: () => getScoutElectronMessagesWorkspaceState({ currentDirectory, appInfo, voice }),
+    getRelayShellPatch: () => getScoutElectronRelayShellPatch({ currentDirectory, appInfo, voice }),
     getShellState: () => getScoutElectronShellState({ currentDirectory, appInfo, voice }),
+    refreshRelayShellPatch: () => refreshScoutElectronRelayShellPatch({ currentDirectory, appInfo, voice }),
     refreshShellState: () => refreshScoutElectronShellState({ currentDirectory, appInfo, voice }),
   };
 }

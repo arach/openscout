@@ -926,7 +926,7 @@ function RelayThreadPane({
         </div>
         <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest" style={styles.mutedText}>
           {selectedRelayDirectThread?.state === "offline" ? (
-            <span>Offline</span>
+            <span>{selectedRelayDirectThread.statusLabel}</span>
           ) : null}
         </div>
       </div>
