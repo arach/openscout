@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { buildRendererUrl, waitForScoutRenderer } from "./dev-electron-lib.mjs";
 
 const packageDir = process.cwd();
 const workspaceRoot = path.resolve(packageDir, "../..");
@@ -9,6 +10,7 @@ const rendererPort = process.env.OPENSCOUT_RENDERER_PORT?.trim() || "43173";
 const webHost = process.env.SCOUT_WEB_HOST?.trim() || "127.0.0.1";
 const webPort = process.env.SCOUT_WEB_PORT?.trim() || "3200";
 const webApiUrl = `http://${webHost}:${webPort}/api/app-info`;
+const rendererUrl = buildRendererUrl(rendererHost, rendererPort);
 const children = new Set();
 
 function npmCommand() {
@@ -54,6 +56,27 @@ async function waitForUrl(url, timeoutMs = 15_000) {
   throw new Error(`Timed out waiting for Scout web API at ${url}`);
 }
 
+async function isUrlReady(url) {
+  try {
+    const response = await fetch(url);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function hasScoutRenderer(url) {
+  try {
+    await waitForScoutRenderer(url, {
+      timeoutMs: 1_000,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 process.on("exit", () => {
   killChildren();
 });
@@ -68,44 +91,61 @@ process.on("SIGTERM", () => {
   process.exit(143);
 });
 
-const scoutWeb = spawnChild(bunCommand(), ["run", "web"], {
-  cwd: scoutAppDir,
-  stdio: "inherit",
-  env: {
-    ...process.env,
-    OPENSCOUT_SETUP_CWD: workspaceRoot,
-    SCOUT_WEB_HOST: webHost,
-    SCOUT_WEB_PORT: webPort,
-    SCOUT_VITE_URL: `http://${rendererHost}:${rendererPort}`,
-  },
-});
-
-scoutWeb.on("exit", (code) => {
-  if (code && code !== 0) {
-    killChildren();
-    process.exit(code);
-  }
-});
+let scoutWeb = null;
+let vite = null;
 
 try {
-  await waitForUrl(webApiUrl);
+  if (await isUrlReady(webApiUrl)) {
+    console.log(`Reusing Scout web API at ${webApiUrl}`);
+  } else {
+    scoutWeb = spawnChild(bunCommand(), ["run", "web"], {
+      cwd: scoutAppDir,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        OPENSCOUT_SETUP_CWD: workspaceRoot,
+        SCOUT_WEB_HOST: webHost,
+        SCOUT_WEB_PORT: webPort,
+        SCOUT_VITE_URL: rendererUrl,
+      },
+    });
 
-  const vite = spawnChild(npmCommand(), ["exec", "--", "vite"], {
-    cwd: packageDir,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      OPENSCOUT_RENDERER_HOST: rendererHost,
-      OPENSCOUT_RENDERER_PORT: rendererPort,
-      SCOUT_WEB_HOST: webHost,
-      SCOUT_WEB_PORT: webPort,
-    },
-  });
+    scoutWeb.on("exit", (code) => {
+      if (code && code !== 0) {
+        killChildren();
+        process.exit(code);
+      }
+    });
 
-  vite.on("exit", (code) => {
-    killChildren();
-    process.exit(code ?? 0);
-  });
+    await waitForUrl(webApiUrl);
+  }
+
+  if (await hasScoutRenderer(rendererUrl)) {
+    console.log(`Reusing Scout renderer at ${rendererUrl}`);
+  } else {
+    vite = spawnChild(npmCommand(), ["exec", "--", "vite"], {
+      cwd: packageDir,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        OPENSCOUT_RENDERER_HOST: rendererHost,
+        OPENSCOUT_RENDERER_PORT: rendererPort,
+        SCOUT_WEB_HOST: webHost,
+        SCOUT_WEB_PORT: webPort,
+      },
+    });
+
+    vite.on("exit", (code) => {
+      killChildren();
+      process.exit(code ?? 0);
+    });
+  }
+
+  if (vite) {
+    await new Promise((resolve) => vite.on("exit", resolve));
+  } else if (scoutWeb) {
+    await new Promise((resolve) => scoutWeb.on("exit", resolve));
+  }
 } catch (error) {
   killChildren();
   throw error;

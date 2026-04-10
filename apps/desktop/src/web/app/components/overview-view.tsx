@@ -6,7 +6,6 @@ import { Clock, Copy, RefreshCw, X } from "lucide-react";
 import type {
   DesktopHomeActivityItem,
   DesktopHomeAgent,
-  RelayDestinationKind,
 } from "@/lib/scout-desktop";
 
 type ThemePalette = Record<string, string>;
@@ -27,7 +26,6 @@ export type OverviewViewProps = {
   shellError: string | null;
   onRefresh: () => void;
   onOpenAgent: (agentId: string) => void;
-  onSelectRelay: (kind: RelayDestinationKind, id: string) => void;
   colorForIdentity: (identity: string) => string;
 };
 
@@ -58,9 +56,12 @@ export function OverviewView({
   shellError,
   onRefresh,
   onOpenAgent,
-  onSelectRelay,
   colorForIdentity,
 }: OverviewViewProps) {
+  const featuredAgents = React.useMemo(
+    () => homeAgents.slice(0, 8),
+    [homeAgents],
+  );
   const recentActivity = React.useMemo(
     () => activity.slice(0, 18),
     [activity],
@@ -82,7 +83,7 @@ export function OverviewView({
   return (
     <div className="flex-1 flex overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-8 py-8">
+        <div className="w-full px-8 py-8">
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1
@@ -92,7 +93,7 @@ export function OverviewView({
                 Home
               </h1>
               <p className="text-[12px] mt-1 leading-[1.6]" style={s.mutedText}>
-                Agent availability and the latest relay activity.
+                Recent agents and the latest relay activity.
               </p>
             </div>
             <button
@@ -108,70 +109,73 @@ export function OverviewView({
           <section className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-[16px] font-semibold" style={s.inkText}>
-                Agents
+                Recent Agents
               </h2>
+              {homeAgents.length > featuredAgents.length ? (
+                <div className="text-[11px]" style={s.mutedText}>
+                  Top {featuredAgents.length} by recent activity
+                </div>
+              ) : null}
             </div>
 
-            {homeAgents.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {homeAgents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => onSelectRelay("direct", agent.id)}
-                    className="text-left rounded-xl border px-4 py-3 transition-colors hover:opacity-90"
-                    style={{ borderColor: C.border, backgroundColor: C.surface }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <button
-                        type="button"
-                        className="shrink-0"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenAgent(agent.id);
-                        }}
-                        title={agent.title}
-                      >
+            {featuredAgents.length > 0 ? (
+              <div className="-mx-2 overflow-x-auto px-2 pb-2">
+                <div className="flex gap-3 min-w-max">
+                  {featuredAgents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => onOpenAgent(agent.id)}
+                      className="w-[220px] shrink-0 text-left rounded-xl border px-4 py-3 transition-colors hover:opacity-90"
+                      style={{ borderColor: C.border, backgroundColor: C.surface }}
+                    >
+                      <div className="flex items-start gap-3">
                         <div
-                          className="w-10 h-10 rounded-full text-white flex items-center justify-center text-[12px] font-bold"
+                          className="w-10 h-10 rounded-full text-white flex items-center justify-center text-[12px] font-bold shrink-0"
                           style={{ backgroundColor: colorForIdentity(agent.id) }}
+                          title={agent.title}
                         >
                           {agent.title.charAt(0).toUpperCase()}
                         </div>
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <div
-                            className="text-[13px] font-semibold truncate"
-                            style={s.inkText}
-                          >
-                            {agent.title}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div
+                              className="text-[13px] font-semibold truncate"
+                              style={s.inkText}
+                            >
+                              {agent.title}
+                            </div>
+                            <span
+                              className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-full"
+                              style={statusTone(agent.state, s)}
+                            >
+                              {agent.statusLabel}
+                            </span>
                           </div>
-                          <span
-                            className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-full"
-                            style={statusTone(agent.state, s)}
-                          >
-                            {agent.statusLabel}
-                          </span>
+                          {agent.role ? (
+                            <div className="text-[11px] mt-1 truncate" style={s.mutedText}>
+                              {agent.role}
+                            </div>
+                          ) : null}
+                          {agent.statusDetail ? (
+                            <div className="text-[11px] mt-2 line-clamp-2" style={s.mutedText}>
+                              {agent.statusDetail}
+                            </div>
+                          ) : agent.summary ? (
+                            <div className="text-[11px] mt-2 line-clamp-2" style={s.mutedText}>
+                              {agent.summary}
+                            </div>
+                          ) : null}
+                          {agent.timestampLabel ? (
+                            <div className="text-[10px] mt-2 uppercase tracking-[0.12em]" style={s.mutedText}>
+                              Active {agent.timestampLabel}
+                            </div>
+                          ) : null}
                         </div>
-                        {agent.role ? (
-                          <div className="text-[11px] mt-1 truncate" style={s.mutedText}>
-                            {agent.role}
-                          </div>
-                        ) : null}
-                        {agent.statusDetail ? (
-                          <div className="text-[11px] mt-2 line-clamp-2" style={s.mutedText}>
-                            {agent.statusDetail}
-                          </div>
-                        ) : agent.summary ? (
-                          <div className="text-[11px] mt-2 line-clamp-2" style={s.mutedText}>
-                            {agent.summary}
-                          </div>
-                        ) : null}
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : (
               <div
@@ -224,9 +228,15 @@ export function OverviewView({
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="text-[13px] font-semibold" style={s.inkText}>
+                        <button
+                          type="button"
+                          className="text-[13px] font-semibold transition-opacity hover:opacity-75"
+                          style={s.inkText}
+                          onClick={() => onOpenAgent(item.actorId)}
+                          title={`Open ${item.actorName}`}
+                        >
                           {item.actorName}
-                        </span>
+                        </button>
                         {item.kind === "system" ? (
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={s.tagBadge}>
                             system

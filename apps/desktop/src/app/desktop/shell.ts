@@ -860,6 +860,7 @@ function buildHomeAgents(
       ) || null;
 
       return {
+        lastSeenAt,
         id: agent.id,
         title: actorDisplayName(snapshot, agent.id),
         role: typeof agent.metadata?.role === "string" ? agent.metadata.role : null,
@@ -886,8 +887,12 @@ function buildHomeAgents(
         }
       };
 
-      return rank(left.state) - rank(right.state) || left.title.localeCompare(right.title);
-    });
+      return rank(left.state) - rank(right.state)
+        || (right.lastSeenAt ?? 0) - (left.lastSeenAt ?? 0)
+        || Number(right.reachable) - Number(left.reachable)
+        || left.title.localeCompare(right.title);
+    })
+    .map(({ lastSeenAt: _lastSeenAt, ...agent }) => agent);
 }
 
 function buildHomeActivity(snapshot: RuntimeRegistrySnapshot): ScoutDesktopHomeActivityItem[] {

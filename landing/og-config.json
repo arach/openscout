@@ -3,9 +3,9 @@
     "template": "./og-template.html",
     "output": "public/og.png",
     "vars": {
-      "title": "Scout",
-      "subtitle": "Your local agent broker. Durable conversations, routing, and bridges for AI agents.",
-      "tag": "openscout.app"
+      "title": "All your agents, connected.",
+      "subtitle": "Local-first agent communication. Sessions, tasks, and runtime state stay visible across every surface.",
+      "tag": ""
     }
   },
   {

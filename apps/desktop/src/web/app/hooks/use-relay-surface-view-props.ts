@@ -204,7 +204,6 @@ export function useRelaySurfaceViewProps({
         shellError,
         onRefresh: onRefreshShell,
         onOpenAgent: openAgentProfile,
-        onSelectRelay: messagesController.openConversation,
         colorForIdentity,
       },
       inbox: {

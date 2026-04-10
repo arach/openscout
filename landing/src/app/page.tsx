@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -70,86 +70,31 @@ type ProblemVariant = {
   cards: IconCard[];
 };
 
-const problemVariants: ProblemVariant[] = [
-  // ── Variation A: Structural gap ──
-  {
-    meshTitle: "Your agents are siloed.",
-    meshDescription:
-      "To date, every multi-agent feature — swarms, orchestration, teams — has been scoped to a single project with a rigid hierarchy. But your agents span projects, tools, and runtimes. Nothing connects them across that boundary.",
-    cards: [
-      {
-        icon: Network,
-        title: "No discovery",
-        description:
-          "An agent has no way to know what other agents exist on your machine, what they're working on, or how to reach them.",
-      },
-      {
-        icon: Layers,
-        title: "No communication",
-        description:
-          "You can't say \"ask the agent on the iOS side.\" There's no channel between them. You are the channel.",
-      },
-      {
-        icon: Shield,
-        title: "No presence",
-        description:
-          "Nothing announces itself. Nothing is findable. An agent running in the next terminal might as well not exist.",
-      },
-    ],
-  },
-  // ── Variation B: First-person agent perspective ──
-  {
-    meshTitle: "\"I have no idea who else is running right now.\"",
-    meshDescription:
-      "That's what every agent on your machine would tell you. They can't see who's around, can't ask for help, and can't be asked. You end up being the only one who knows the full picture.",
-    cards: [
-      {
-        icon: Network,
-        title: "I can't see who's around",
-        description:
-          "Right now I know about this repo because I was told. I have no idea what other agents are running on this machine, or what they know.",
-      },
-      {
-        icon: Layers,
-        title: "I can't ask for help",
-        description:
-          "If another agent already solved the problem I'm hitting, I have no way to find that out. I'll rediscover it from scratch or you'll have to tell me.",
-      },
-      {
-        icon: Shield,
-        title: "I can't be found",
-        description:
-          "If another agent needs what I know, it can't reach me. There's no way to look me up, no way to hand off, no way to refer.",
-      },
-    ],
-  },
-  // ── Variation C: Concrete scenario ──
-  {
-    meshTitle: "You're the router between agents that can't find each other.",
-    meshDescription:
-      "You have agents everywhere but none of them know about the others. You end up being the one who connects them — copying context, pointing one at another's output, and bridging gaps that shouldn't exist.",
-    cards: [
-      {
-        icon: Network,
-        title: "\"Ask the agent working on the iOS side\"",
-        description:
-          "You can't say this. There's no way to point one agent at another. So you copy the answer yourself and paste it into the other terminal.",
-      },
-      {
-        icon: Layers,
-        title: "\"What are all my active agents right now?\"",
-        description:
-          "You don't know. Nobody knows. There's no inventory of what's running, what's idle, and what each one is working on.",
-      },
-      {
-        icon: Shield,
-        title: "\"We already figured this out yesterday\"",
-        description:
-          "An agent solved this exact problem in another session. But today's agent starts fresh. The knowledge exists on your machine — it's just locked in a dead session.",
-      },
-    ],
-  },
-];
+const problemContent: ProblemVariant = {
+  meshTitle: "Your agents are siloed.",
+  meshDescription:
+    "To date, every multi-agent feature — swarms, orchestration, teams — has been scoped to a single project with a rigid hierarchy. But your agents span projects, tools, and runtimes. Nothing connects them across that boundary.",
+  cards: [
+    {
+      icon: Network,
+      title: "No discovery",
+      description:
+        "An agent has no way to know what other agents exist on your machine, what they're working on, or how to reach them.",
+    },
+    {
+      icon: Layers,
+      title: "No communication",
+      description:
+        "You can't say \"ask the agent on the iOS side.\" There's no channel between them. You are the channel.",
+    },
+    {
+      icon: Shield,
+      title: "No presence",
+      description:
+        "Nothing announces itself. Nothing is findable. An agent running in the next terminal might as well not exist.",
+    },
+  ],
+};
 
 const technicalMeshPrinciples: IconCard[] = [
   {
@@ -514,34 +459,13 @@ function AudienceToggle({
 }
 
 export default function Home() {
-  const [audience, setAudience] = useState<AudienceMode>("general");
-  const [problemVariant, setProblemVariant] = useState(0);
-  const scrollRef = useScrollReveal<HTMLElement>(`${problemVariant}-${audience}`);
+  const scrollRef = useScrollReveal<HTMLElement>("general");
 
-  // Keyboard toggle: 1/2/3 to switch problem variations
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "1") setProblemVariant(0);
-      if (e.key === "2") setProblemVariant(1);
-      if (e.key === "3") setProblemVariant(2);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const humanMode: HumanAudienceMode =
-    audience === "technical" ? "technical" : "general";
-  const copy = audienceContent[humanMode];
-  const currentProblem = problemVariants[problemVariant];
-  const meshPrinciples =
-    humanMode === "technical"
-      ? technicalMeshPrinciples
-      : currentProblem.cards;
-  const capabilities =
-    humanMode === "technical" ? technicalCapabilities : generalCapabilities;
-  const surfaceGallery = surfaceGalleryByAudience[humanMode];
-  const getStartedCommands = getStartedCommandsByAudience[humanMode];
+  const copy = audienceContent["general"];
+  const meshPrinciples = problemContent.cards;
+  const capabilities = generalCapabilities;
+  const surfaceGallery = surfaceGalleryByAudience["general"];
+  const getStartedCommands = getStartedCommandsByAudience["general"];
   return (
     <div className="min-h-screen bg-[#f5f4ef] text-[#111110]">
       {/* ── hero background layers ── */}
@@ -553,8 +477,8 @@ export default function Home() {
         <div className="mx-auto flex h-16 max-w-[90rem] items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
             <LogoMark />
-            <span className="text-base font-semibold tracking-tight text-[#111110]">
-              OpenScout
+            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
+              Scout
             </span>
           </Link>
 
@@ -591,21 +515,12 @@ export default function Home() {
       </nav>
 
       {/* ── Agent view (replaces everything) ── */}
-      {audience === "agent" ? (
-        <AgentView onExit={() => setAudience("general")} />
-      ) : (
         <>
           <main ref={scrollRef} className="relative z-10">
             {/* ── Hero ── */}
             <section className="overflow-hidden pt-32 pb-28">
               <div className="mx-auto grid max-w-[90rem] gap-16 px-6 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] lg:items-start">
                 <div className="max-w-xl">
-                  <div className="hero-animate">
-                    <AudienceToggle
-                      audience={audience}
-                      onChange={setAudience}
-                    />
-                  </div>
 
                   <h1
                     className="hero-animate mt-8 min-h-[7.5rem] tracking-[-0.04em] text-[#111110] sm:min-h-[9rem] lg:min-h-[10.5rem]"
@@ -660,7 +575,7 @@ export default function Home() {
                 </div>
 
                 <div className="hero-showcase">
-                  <LandingProductShowcase audience={humanMode} />
+                  <LandingProductShowcase audience={"general"} />
                 </div>
               </div>
             </section>
@@ -673,43 +588,15 @@ export default function Home() {
               <div className="mx-auto max-w-6xl px-6">
                 <div className="reveal mx-auto max-w-3xl text-center">
                   <div className="landing-label text-[#2a57cb]">
-                    {humanMode === "technical"
-                      ? copy.meshEyebrow
-                      : "The Problem"}
+                    The Problem
                   </div>
                   <h2 className="mt-4 min-h-[3.5rem] text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
-                    {humanMode === "technical"
-                      ? copy.meshTitle
-                      : currentProblem.meshTitle}
+                    {problemContent.meshTitle}
                   </h2>
                   <p className="mt-4 min-h-[3.5rem] text-lg leading-relaxed text-[#4d4b45]">
-                    {humanMode === "technical"
-                      ? copy.meshDescription
-                      : currentProblem.meshDescription}
+                    {problemContent.meshDescription}
                   </p>
 
-                  {/* Variant indicator — only in general mode */}
-                  {humanMode === "general" && (
-                    <div className="mt-6 inline-flex items-center gap-1.5">
-                      {problemVariants.map((_, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setProblemVariant(i)}
-                          className={`flex h-7 w-7 items-center justify-center rounded-md font-[family-name:var(--font-geist-mono)] text-[11px] font-medium transition-colors ${
-                            problemVariant === i
-                              ? "bg-[#111110] text-[#f5f4ef]"
-                              : "text-[#9a978f] hover:bg-[#eae6dd]"
-                          }`}
-                        >
-                          {i + 1}
-                        </button>
-                      ))}
-                      <span className="ml-2 font-[family-name:var(--font-geist-mono)] text-[11px] text-[#b5b1a8]">
-                        press 1 / 2 / 3
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 <div className="reveal-stagger mt-16 grid gap-6 lg:grid-cols-3 md:grid-cols-2">
@@ -907,9 +794,9 @@ export default function Home() {
           <footer className="px-6 pb-20">
             <div className="mx-auto max-w-[90rem] border-t border-[#eae6dd]">
               <div className="flex items-center justify-between py-4">
-                <div className="flex items-center gap-2.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
+                <div className="flex items-center gap-2.5 text-[#9a978f]">
                   <LogoMark />
-                  <span>OpenScout</span>
+                  <span className="font-[family-name:var(--font-spectral)] text-sm font-semibold tracking-tight">Scout</span>
                 </div>
                 <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
                   <a
@@ -939,7 +826,6 @@ export default function Home() {
             </div>
           </footer>
         </>
-      )}
 
       {/* ── Floating bottom nav ── */}
       <nav className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 animate-in hidden md:flex" style={{ animationDelay: "0.4s" }}>
@@ -965,23 +851,6 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* ── Agent pill (bottom-right) ── */}
-      <div className="fixed bottom-5 right-5 z-[60] animate-in" style={{ animationDelay: "0.5s" }}>
-        <button
-          type="button"
-          onClick={() =>
-            setAudience(audience === "agent" ? "general" : "agent")
-          }
-          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 font-[family-name:var(--font-geist-mono)] text-[11px] font-medium transition-all ${
-            audience === "agent"
-              ? "border-[#111110] bg-[#111110] text-[#f5f4ef] shadow-lg"
-              : "border-black/10 bg-white/92 text-black/50 shadow-sm backdrop-blur-xl hover:text-black/70"
-          }`}
-        >
-          <Monitor className="h-3 w-3" />
-          Agent
-        </button>
-      </div>
     </div>
   );
 }
@@ -1034,8 +903,8 @@ function AgentView({ onExit }: { onExit: () => void }) {
     <main className="relative z-10 mx-auto max-w-2xl px-6 pt-24 pb-20">
       {/* ── banner ── */}
       <div className="border-b border-[#111110]/10 pb-6">
-        <h1 className="text-base font-semibold tracking-[-0.01em] text-[#111110]">
-          OpenScout
+        <h1 className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
+          Scout
         </h1>
         <p className="mt-2 max-w-lg text-[13px] leading-relaxed text-[#111110]/55">
           Local-first broker for AI agents. Send messages, persist state,

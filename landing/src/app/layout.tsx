@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Instrument_Serif } from "next/font/google";
+import { Instrument_Serif, Fraunces, Spectral } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,6 +18,19 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
   style: ["normal", "italic"],
+});
+
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+});
+
+const spectral = Spectral({
+  variable: "--font-spectral",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -66,7 +79,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${fraunces.variable} ${spectral.variable} antialiased bg-background text-foreground`}
       >
         {children}
       </body>
