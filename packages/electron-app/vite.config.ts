@@ -1,3 +1,4 @@
+import type { ServerResponse } from "node:http";
 import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -21,6 +22,24 @@ export default defineConfig({
       "/api": {
         target: webApiTarget,
         changeOrigin: true,
+        /** Shell state can wait on broker I/O; avoid proxy giving up early. */
+        timeout: 180_000,
+        proxyTimeout: 180_000,
+        configure: (proxy) => {
+          proxy.on("error", (err, _req, res) => {
+            const code = err && typeof err === "object" && "code" in err ? String((err as NodeJS.ErrnoException).code) : "";
+            const detail =
+              code === "ECONNREFUSED"
+                ? `Nothing is listening at ${webApiTarget}. Use npm run dev:web from packages/electron-app (starts Bun + Vite), or run cd apps/desktop && bun run web with SCOUT_WEB_PORT matching SCOUT_WEB_PORT here.`
+                : `Upstream closed the connection (${err.message}). Restart the Scout web process (bun run web) if it crashed.`;
+            console.error(`[vite] /api proxy → ${webApiTarget}:`, detail);
+            const outgoing = res as ServerResponse | undefined;
+            if (outgoing && !outgoing.headersSent) {
+              outgoing.writeHead(502, { "Content-Type": "application/json" });
+              outgoing.end(JSON.stringify({ error: "Scout API unreachable", detail }));
+            }
+          });
+        },
       },
     },
     fs: {
@@ -34,7 +53,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "../../apps/scout/src/ui/desktop"),
+      "@scout/app": path.resolve(__dirname, "../../apps/desktop/src"),
+      "@": path.resolve(__dirname, "../../apps/desktop/src/web/app"),
+      "@web": path.resolve(__dirname, "../../apps/desktop/src/web"),
+      "@openscout/runtime": path.resolve(__dirname, "../runtime/src"),
+      "@openscout/protocol": path.resolve(__dirname, "../protocol/src"),
     },
   },
 });

@@ -1,7 +1,7 @@
 import net from "node:net";
 
 export const DEFAULT_RENDERER_PORT = 43173;
-export const SCOUT_RENDERER_ENTRY_MARKER = "/apps/scout/src/ui/desktop/entry-client.tsx";
+export const SCOUT_RENDERER_ENTRY_MARKER = '@scout/app/web-entry-client';
 
 export function buildRendererUrl(host, port) {
   return `http://${host}:${port}`;

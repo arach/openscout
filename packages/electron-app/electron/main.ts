@@ -16,10 +16,10 @@ import {
   resolveScoutElectronStartUrl,
   SCOUT_ELECTRON_DEFAULT_WINDOW,
   shutdownScoutKeepAliveManager,
-} from "../../../apps/scout/src/app/index.ts";
-import { SCOUT_ELECTRON_CHANNELS } from "../../../apps/scout/src/app/electron/channels.ts";
-import { SCOUT_PRODUCT_NAME } from "../../../apps/scout/src/shared/product.ts";
-import type { ScoutDesktopAppInfo } from "../../../apps/scout/src/app/desktop/index.ts";
+} from "@scout/app/electron-shell";
+import { SCOUT_ELECTRON_CHANNELS } from "@scout/app/electron-channels";
+import { SCOUT_PRODUCT_NAME } from "@scout/app/product";
+import type { ScoutDesktopAppInfo } from "@scout/app/desktop";
 import { relayVoiceBridgeService } from "./voice-bridge-service.js";
 import { telegramBridgeService } from "./telegram-bridge-service.js";
 
@@ -54,6 +54,12 @@ const SCOUT_RELEASE_OWNER = "arach";
 const SCOUT_RELEASE_REPO = "openscout";
 let hasLoggedMissingUpdaterConfig = false;
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
 function resolveProductName() {
   const fromEnv = process.env.SCOUT_PRODUCT_NAME?.trim();
   if (fromEnv) {
@@ -81,6 +87,7 @@ function createScoutHostAppInfo(): ScoutDesktopAppInfo {
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     platform: process.platform,
+    surface: "electron",
     features: { enableAll },
   });
 }
@@ -467,6 +474,22 @@ const scoutElectronServices = createScoutElectronIpcServices({
 registerScoutElectronIpcHandlers((channel, handler) => {
   ipcMain.handle(channel, handler);
 }, scoutElectronServices);
+
+app.on("second-instance", () => {
+  if (!mainWindow) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
+  mainWindow.focus();
+});
 
 app.whenReady().then(async () => {
   configureScoutKeepAliveHost({

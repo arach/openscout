@@ -1,0 +1,151 @@
+:root {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.45;
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.osw {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2.5rem;
+}
+
+.osw h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+.osw .sub {
+  font-size: 0.8125rem;
+  color: #64748b;
+  margin: 0 0 1.25rem;
+}
+
+.osw-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.osw-tabs button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.osw-tabs button[data-active="true"] {
+  background: #1e293b;
+  color: #fff;
+  border-color: #1e293b;
+}
+
+.osw-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.osw-card h2 {
+  font-size: 0.9375rem;
+  margin: 0 0 0.75rem;
+}
+
+.osw-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.osw-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.osw-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.osw-btn-primary {
+  background: #1e293b;
+  color: #fff;
+  border-color: #1e293b;
+}
+
+.osw-err {
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  margin: 0 0 0.5rem;
+}
+
+.osw-qr {
+  max-width: 280px;
+  margin: 0.5rem auto;
+  padding: 0.75rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.osw-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.osw-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.osw-msgs {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.osw-msg {
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.65rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.osw-msg .who {
+  font-weight: 600;
+  color: #334155;
+}
+
+.osw-msg .body {
+  margin-top: 0.25rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

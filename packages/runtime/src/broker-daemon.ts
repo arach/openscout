@@ -116,6 +116,13 @@ const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 
 ensureOpenScoutCleanSlateSync();
 
+const existingBroker = await probeExistingBroker();
+if (existingBroker) {
+  console.log(`[openscout-runtime] broker already running on ${existingBroker.brokerUrl}`);
+  console.log(`[openscout-runtime] node ${existingBroker.nodeId} in mesh ${existingBroker.meshId ?? "unknown"}`);
+  process.exit(0);
+}
+
 const store = new SQLiteControlPlaneStore(dbPath);
 const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId: nodeId });
 const eventClients = new Set<ServerResponse>();
@@ -301,6 +308,204 @@ function latestEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, a
     Math.max(endpointTerminalAt(right), endpointStartedAt(right))
     - Math.max(endpointTerminalAt(left), endpointStartedAt(left))
   ))[0] ?? null;
+}
+
+function isStaleLocalAgent(agent: AgentDefinition | undefined): boolean {
+  return agent?.metadata?.staleLocalRegistration === true;
+}
+
+function isStaleLocalEndpoint(snapshot: ReturnType<typeof runtime.snapshot>, endpoint: AgentEndpoint | null): boolean {
+  if (!endpoint || endpoint.metadata?.staleLocalRegistration === true) {
+    return true;
+  }
+
+  return isStaleLocalAgent(snapshot.agents[endpoint.agentId]);
+}
+
+function homeEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, agentId: string): AgentEndpoint | null {
+  const candidates = Object.values(snapshot.endpoints).filter((endpoint) => (
+    endpoint.agentId === agentId && !isStaleLocalEndpoint(snapshot, endpoint)
+  ));
+  const rank = (state: string | undefined) => {
+    switch (state) {
+      case "active":
+        return 0;
+      case "idle":
+        return 1;
+      case "waiting":
+        return 2;
+      case "degraded":
+        return 3;
+      case "offline":
+        return 5;
+      default:
+        return 4;
+    }
+  };
+
+  return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+}
+
+function brokerActorDisplayName(snapshot: ReturnType<typeof runtime.snapshot>, actorId: string): string {
+  if (actorId === operatorActorId) {
+    return "Operator";
+  }
+
+  const agent = snapshot.agents[actorId];
+  if (typeof agent?.displayName === "string" && agent.displayName.trim().length > 0) {
+    return agent.displayName;
+  }
+
+  const actor = snapshot.actors[actorId];
+  if (typeof actor?.displayName === "string" && actor.displayName.trim().length > 0) {
+    return actor.displayName;
+  }
+
+  return actorId;
+}
+
+function brokerConversationChannel(snapshot: ReturnType<typeof runtime.snapshot>, conversationId: string | null | undefined): string | null {
+  if (!conversationId) {
+    return null;
+  }
+
+  const conversation = snapshot.conversations[conversationId];
+  if (!conversation) {
+    return null;
+  }
+
+  return conversation.id.startsWith("channel.")
+    ? conversation.id.replace(/^channel\./, "")
+    : null;
+}
+
+function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
+  state: "offline" | "available" | "working";
+  reachable: boolean;
+  statusLabel: string;
+  statusDetail: string | null;
+  lastSeenAt: number | null;
+} {
+  if (!endpoint) {
+    return {
+      state: "offline",
+      reachable: false,
+      statusLabel: "Offline",
+      statusDetail: "No live endpoint detected.",
+      lastSeenAt: null,
+    };
+  }
+
+  const lastSeenAt = Math.max(endpointStartedAt(endpoint), endpointTerminalAt(endpoint)) || null;
+  const runtimeLabel = [endpoint.harness, endpoint.transport].filter(Boolean).join(" · ");
+
+  switch (endpoint.state) {
+    case "active":
+      return {
+        state: "working",
+        reachable: true,
+        statusLabel: "Working",
+        statusDetail: runtimeLabel || "Active endpoint",
+        lastSeenAt,
+      };
+    case "idle":
+      return {
+        state: "available",
+        reachable: true,
+        statusLabel: "Available",
+        statusDetail: runtimeLabel || "Idle endpoint",
+        lastSeenAt,
+      };
+    case "waiting":
+      return {
+        state: "working",
+        reachable: true,
+        statusLabel: "Waiting",
+        statusDetail: runtimeLabel || "Waiting for follow-up",
+        lastSeenAt,
+      };
+    case "degraded":
+      return {
+        state: "offline",
+        reachable: false,
+        statusLabel: "Degraded",
+        statusDetail: runtimeLabel || "Endpoint degraded",
+        lastSeenAt,
+      };
+    default:
+      return {
+        state: "offline",
+        reachable: false,
+        statusLabel: "Offline",
+        statusDetail: runtimeLabel || "Endpoint offline",
+        lastSeenAt,
+      };
+  }
+}
+
+function brokerHomePayload() {
+  const snapshot = runtime.snapshot();
+  const agents = Object.values(snapshot.agents)
+    .filter((agent) => !isStaleLocalAgent(agent))
+    .map((agent) => {
+      const endpoint = homeEndpointForAgent(snapshot, agent.id);
+      const status = summarizeHomeAgent(endpoint);
+      return {
+        id: agent.id,
+        title: brokerActorDisplayName(snapshot, agent.id),
+        role: typeof agent.metadata?.role === "string" ? agent.metadata.role : null,
+        summary: typeof agent.metadata?.summary === "string" ? agent.metadata.summary : null,
+        projectRoot: endpoint?.projectRoot
+          ?? endpoint?.cwd
+          ?? (typeof agent.metadata?.projectRoot === "string" ? agent.metadata.projectRoot : null),
+        state: status.state,
+        reachable: status.reachable,
+        statusLabel: status.statusLabel,
+        statusDetail: status.statusDetail,
+        activeTask: null,
+        lastSeenAt: status.lastSeenAt,
+      };
+    })
+    .sort((left, right) => {
+      const rank = (state: typeof left.state) => {
+        switch (state) {
+          case "working":
+            return 0;
+          case "available":
+            return 1;
+          case "offline":
+          default:
+            return 2;
+        }
+      };
+
+      return rank(left.state) - rank(right.state) || left.title.localeCompare(right.title);
+    })
+    .slice(0, 24);
+
+  const activity = store.listActivityItems({ limit: 96 })
+    .filter((item) => Boolean(item.messageId))
+    .slice(0, 24)
+    .map((item) => {
+      const actorId = item.actorId ?? operatorActorId;
+      return {
+        id: item.messageId ?? item.id,
+        kind: item.kind === "status_message" ? "system" : "message",
+        actorId,
+        actorName: brokerActorDisplayName(snapshot, actorId),
+        title: item.title ?? brokerActorDisplayName(snapshot, actorId),
+        detail: item.summary ?? item.title ?? null,
+        conversationId: item.conversationId ?? null,
+        channel: brokerConversationChannel(snapshot, item.conversationId),
+        timestamp: item.ts,
+      };
+    });
+
+  return {
+    updatedAt: Date.now(),
+    agents,
+    activity,
+  };
 }
 
 function staleWorkingFlightReason(
@@ -1215,6 +1420,11 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/node") {
     json(response, 200, localNode);
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/home") {
+    json(response, 200, brokerHomePayload());
     return;
   }
 

@@ -1,0 +1,38 @@
+[
+  {
+    "template": "./og-template.html",
+    "output": "public/og.png",
+    "vars": {
+      "title": "Scout",
+      "subtitle": "Your local agent broker. Durable conversations, routing, and bridges for AI agents.",
+      "tag": "openscout.app"
+    }
+  },
+  {
+    "template": "./og-template.html",
+    "output": "public/og-docs.png",
+    "vars": {
+      "title": "Documentation",
+      "subtitle": "Guides, references, and architecture for Scout.",
+      "tag": "Docs"
+    }
+  },
+  {
+    "template": "./og-template.html",
+    "output": "public/og-get-started.png",
+    "vars": {
+      "title": "Get Started",
+      "subtitle": "Install Scout and connect your agents in seconds.",
+      "tag": "Guide"
+    }
+  },
+  {
+    "template": "./og-template.html",
+    "output": "public/og-inventory.png",
+    "vars": {
+      "title": "Plan Inventory",
+      "subtitle": "Review recent agent plans and branch into follow-up work.",
+      "tag": "Inventory"
+    }
+  }
+]

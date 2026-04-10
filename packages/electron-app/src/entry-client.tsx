@@ -1,1 +1,1 @@
-import "../../../apps/scout/src/ui/desktop/entry-client.tsx";
+import "@scout/app/web-entry-client";

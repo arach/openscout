@@ -89,37 +89,44 @@ export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT
 export const DEFAULT_BROKER_URL = buildDefaultBrokerUrl();
 
 function runtimePackageDir(): string {
+  // 1. Explicit override — always wins (useful for development)
   const explicit = process.env.OPENSCOUT_RUNTIME_PACKAGE_DIR?.trim();
-  if (explicit) {
-    return explicit;
-  }
+  if (explicit) return explicit;
 
+  // 2. Global install (bun ~/.bun/node_modules, npm fallback)
+  const fromGlobal = findGlobalRuntimeDir();
+  if (fromGlobal) return fromGlobal;
+
+  // 3. Monorepo workspace fallback (dev only)
+  const fromCwd = findWorkspaceRuntimeDir(process.cwd());
+  if (fromCwd) return fromCwd;
+
+  // 4. Last resort: relative to this module (bundled context)
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const candidate = resolve(moduleDir, "..");
-  if (isRuntimePackageDir(candidate)) {
-    return candidate;
-  }
-
-  const fromCwd = findRuntimePackageDir(process.cwd());
-  return fromCwd ?? candidate;
+  return resolve(moduleDir, "..");
 }
 
-function isRuntimePackageDir(candidate: string): boolean {
+function isInstalledRuntimePackageDir(candidate: string): boolean {
   return existsSync(join(candidate, "package.json"))
-    && existsSync(join(candidate, "src", "broker-daemon.ts"));
+    && existsSync(join(candidate, "bin", "openscout-runtime.mjs"));
 }
 
-function findRuntimePackageDir(startDir: string): string | null {
+function findGlobalRuntimeDir(): string | null {
+  // bun global: ~/.bun/node_modules/@openscout/runtime
+  const bunCandidate = join(homedir(), ".bun", "node_modules", "@openscout", "runtime");
+  if (isInstalledRuntimePackageDir(bunCandidate)) return bunCandidate;
+  return null;
+}
+
+function findWorkspaceRuntimeDir(startDir: string): string | null {
   let current = resolve(startDir);
   while (true) {
     const candidate = join(current, "packages", "runtime");
-    if (isRuntimePackageDir(candidate)) {
+    if (existsSync(join(candidate, "package.json")) && existsSync(join(candidate, "src"))) {
       return candidate;
     }
     const parent = dirname(current);
-    if (parent === current) {
-      return null;
-    }
+    if (parent === current) return null;
     current = parent;
   }
 }

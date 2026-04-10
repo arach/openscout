@@ -16,18 +16,10 @@ import {
 
 const projectRoot = process.cwd();
 
-const workspacePackages = [
-  {
-    name: "@openscout/protocol",
-    sourcePath: path.join(projectRoot, "..", "protocol"),
-    copyPaths: ["dist", "package.json"],
-  },
-  {
-    name: "@openscout/runtime",
-    sourcePath: path.join(projectRoot, "..", "runtime"),
-    copyPaths: ["bin", "dist", "package.json"],
-  },
-];
+// Workspace packages are no longer bundled into the app.
+// @openscout/runtime and @openscout/protocol are resolved by tsup at build time
+// and bundled into dist/electron/main.js. The broker binary is sourced from
+// the user's globally installed @openscout/runtime (via npm/scout CLI).
 const outputRoot = path.join(projectRoot, "dist", "macos");
 const { packageJson: rootPackage, productName, bundleId, bundleIconSource, windowIconSource } = readPackageMetadata(projectRoot);
 const electronAppSource = resolveElectronAppSource(projectRoot);
@@ -54,21 +46,6 @@ async function copyIntoBundle(source, destination) {
   await fs.cp(source, destination, { recursive: true });
 }
 
-async function copyWorkspacePackageIntoBundle(packageName, sourcePath, copyPaths) {
-  const packageDestination = path.join(appRuntimePath, "node_modules", ...packageName.split("/"));
-  await fs.rm(packageDestination, { recursive: true, force: true });
-  await fs.mkdir(packageDestination, { recursive: true });
-
-  for (const relativePath of copyPaths) {
-    const source = path.join(sourcePath, relativePath);
-    if (!existsSync(source)) {
-      throw new Error(`Expected workspace package resource at ${source}`);
-    }
-
-    const destination = path.join(packageDestination, relativePath);
-    await fs.cp(source, destination, { recursive: true });
-  }
-}
 
 if (!existsSync(electronAppSource)) {
   throw new Error("Electron.app not found in installed dependencies.");
@@ -129,13 +106,6 @@ execFileSync("bun", ["install", "--production"], {
   env: process.env,
 });
 
-for (const workspacePackage of workspacePackages) {
-  await copyWorkspacePackageIntoBundle(
-    workspacePackage.name,
-    workspacePackage.sourcePath,
-    workspacePackage.copyPaths,
-  );
-}
 
 if (shouldCodesign) {
   codesignAppBundle(appBundlePath, signIdentity, {
@@ -148,26 +118,36 @@ if (shouldCodesign) {
 
 let appNotarized = false;
 if (shouldCodesign && shouldNotarize) {
+  console.log("Zipping app bundle for notarization...");
+  const appZipPath = path.join(outputRoot, `${productName}.app.zip`);
+  await fs.rm(appZipPath, { force: true });
+  execFileSync("ditto", ["-c", "-k", "--keepParent", appBundlePath, appZipPath], { stdio: "inherit" });
+
   console.log("Submitting app bundle for notarization...");
   execFileSync("xcrun", [
-    "notarytool", "submit", appBundlePath,
+    "notarytool", "submit", appZipPath,
     "--keychain-profile", notaryProfile,
     "--wait",
   ], { stdio: "inherit" });
+
+  await fs.rm(appZipPath, { force: true });
 
   console.log("Stapling app bundle notarization ticket...");
   execFileSync("xcrun", ["stapler", "staple", appBundlePath], { stdio: "inherit" });
   appNotarized = true;
 }
 
-const updateArtifacts = await buildMacUpdateArtifacts({
-  projectRoot,
-  appBundlePath,
-  outputRoot,
-  bundleId,
-  productName,
-  version: appVersion,
-});
+const shouldBuildUpdates = process.env.SCOUT_BUILD_UPDATES !== "0";
+const updateArtifacts = shouldBuildUpdates
+  ? await buildMacUpdateArtifacts({
+      projectRoot,
+      appBundlePath,
+      outputRoot,
+      bundleId,
+      productName,
+      version: appVersion,
+    })
+  : [];
 
 const dmgPath = path.join(outputRoot, `${productName}.dmg`);
 await fs.rm(dmgPath, { force: true });

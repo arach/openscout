@@ -3,7 +3,7 @@ import path from "node:path";
 
 const packageDir = process.cwd();
 const workspaceRoot = path.resolve(packageDir, "../..");
-const scoutAppDir = path.resolve(workspaceRoot, "apps/scout");
+const scoutAppDir = path.resolve(workspaceRoot, "apps/desktop");
 const rendererHost = process.env.OPENSCOUT_RENDERER_HOST?.trim() || "127.0.0.1";
 const rendererPort = process.env.OPENSCOUT_RENDERER_PORT?.trim() || "43173";
 const webHost = process.env.SCOUT_WEB_HOST?.trim() || "127.0.0.1";

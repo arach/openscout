@@ -36,7 +36,7 @@ async function prepareDevApp(projectRoot) {
   }
 
   const devRoot = path.join(projectRoot, "dist", "dev");
-  const displayName = `${bundleMetadata.productName} Dev`;
+  const displayName = bundleMetadata.productName;
   const executableName = displayName;
   const bundleId = `${bundleMetadata.bundleId}.dev`;
   const targetAppPath = path.join(devRoot, `${displayName}.app`);

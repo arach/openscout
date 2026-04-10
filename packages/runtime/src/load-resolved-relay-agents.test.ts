@@ -304,7 +304,7 @@ describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
     expect(row.harnesses.some((h) => h.harness === "codex" && h.source === "manifest")).toBe(true);
   });
 
-  test("resolves relative runtime cwd against the project root and disambiguates same-id agents across repos", async () => {
+  test("resolves relative runtime cwd against the project root and collapses same-id agents across repos", async () => {
     const home = useIsolatedOpenScoutHome();
     const dev = join(home, "dev");
     const alpha = join(dev, "amplink");
@@ -345,13 +345,16 @@ describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
 
     const setup = await loadResolvedRelayAgents();
     const agents = setup.agents.filter((agent) => agent.definitionId === "amplink");
-    const workspaceQualifiers = new Set(agents.map((agent) => agent.instance.workspaceQualifier));
 
-    expect(agents).toHaveLength(2);
-    expect(new Set(agents.map((agent) => agent.agentId)).size).toBe(2);
-    expect(agents.every((agent) => agent.runtime.cwd === agent.projectRoot)).toBe(true);
-    expect(workspaceQualifiers.size).toBe(2);
-    expect(Array.from(workspaceQualifiers).every((qualifier) => /amplink|plexus/.test(qualifier))).toBe(true);
+    // Two repos with the same definitionId on the same branch collapse into a
+    // single FQN (no path fingerprint). One wins deterministically via the
+    // dedupe rank; downstream consumers see exactly one owner.
+    expect(agents).toHaveLength(1);
+    const [agent] = agents;
+    expect(agent.instance.workspaceQualifier).toBe("master");
+    expect(agent.agentId.endsWith(".master")).toBe(true);
+    expect(agent.runtime.cwd).toBe(agent.projectRoot);
+    expect([alpha, beta]).toContain(agent.projectRoot);
   });
 
   test("includeCurrentRepo adds cwd project when it is outside workspaceRoots", async () => {

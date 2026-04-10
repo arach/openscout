@@ -1,0 +1,878 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		003CF78F249EE6A85678457F /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8D0C482CFF39891FF22556C /* SessionListView.swift */; };
+		06F4D7440C5920144D801BEE /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA63A50829498017E386532 /* QRScannerView.swift */; };
+		0DE4E5A19E8B8A2D944AC0D9 /* ScoutKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895AF226D6690C2AEEB20331 /* ScoutKeyboardView.swift */; };
+		105F24BC57F5A44E8AA397E7 /* ComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CA2ABB345CA1C4A48933F69 /* ComposerView.swift */; };
+		11A4CF43DDF609207B0C2FA0 /* CrashCatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */; };
+		1521983CBAFA97F03E3DC9D6 /* PermissionAuthorizations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */; };
+		1B548F5201CC047B5E766FEA /* TurnView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220AC3C67A7D1CAD996A28D5 /* TurnView.swift */; };
+		1CF13F1DB8DEEBB963158C84 /* NoiseProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B317D842F3C5606AC9AE81 /* NoiseProtocolTests.swift */; };
+		22198F2E0712C7093485DF3E /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07DE486878B8E8E6F3CB1BDF /* OnboardingView.swift */; };
+		2BE63822046698F6281DED9E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029C6049264D3C5EE524673E /* Theme.swift */; };
+		5C0A1B2E00D1F3A7E8B2C403 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */; };
+		2E233FBDD7ABD16D18172BAC /* RecordingIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9102509C4B05FADAF82B357D /* RecordingIndicator.swift */; };
+		2E7028BB05A0F7A013B51FCD /* NoiseProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43071A343AD10BEA3B6162AA /* NoiseProtocol.swift */; };
+		34AC269DEB1981DF20AF6EA4 /* ScoutVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15FBE5B3A64AF6D0F1E64906 /* ScoutVoice.swift */; };
+		38CDA54A82A9CCE4B4D5BF23 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3967724C6396B93527EC3A5C /* SettingsView.swift */; };
+		3DCA49831D5D6A725231D2EF /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481B4B35E3666F78B9AC957A /* PairingView.swift */; };
+		401B8B1200C88EDF5DBFBF4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04511C1BCDD7DF678F39AB23 /* Assets.xcassets */; };
+		5C0A1B2E00D1F3A7E8B2C401 /* scout-reveal.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 5C0A1B2E00D1F3A7E8B2C402 /* scout-reveal.mp4 */; };
+		40BB09A722485DE63DE08361 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 00F1A9565B1EE831E901D4BB /* FluidAudio */; };
+		41219D151E0B15AB2EDDA8FF /* Primitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06649F0636F0648AB140561 /* Primitives.swift */; };
+		4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FDE9E16EC017A6B945AF9D /* MicButton.swift */; };
+		4C338EE4D28D668134EA3F52 /* KeyComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37F081F478DEDB2F906765D /* KeyComponents.swift */; };
+		4C4D0937368EECDAE8EFC76B /* FileBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB1259D202C983314D17199 /* FileBlockView.swift */; };
+		4FC9249A9F6D914920B77F99 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37311097FD4418A4CC259888 /* LogView.swift */; };
+		5C568548FBEF22CDE57196DE /* TextBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1111361D907783103CAF1029 /* TextBlockView.swift */; };
+		717B115B4EF3038DDA164F8A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A0710F2737060ABA3FC0A0 /* ContentView.swift */; };
+		71F946099994958BF4142988 /* TurnHashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A156270D797264F0441EF34B /* TurnHashTests.swift */; };
+		79FFC939B11C65EC1EDC094F /* TurnHash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B1014280AC32ECEFDC6123A /* TurnHash.swift */; };
+		7B50398135D3578EC1D3A90B /* SessionDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3161549947E066F37145FB0C /* SessionDiscoveryView.swift */; };
+		82F0EA626092AD1FD2889BAB /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */; };
+		89C658D59512376E44D79698 /* ScoutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */; };
+		8D3F4293E86ED617E69A2612 /* Identity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49D6BFBD08AE670C1FC7B8A6 /* Identity.swift */; };
+		928B8FEA4EA1A6731D9F468F /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */; };
+		9690D64D2A2E40F04C1F7A66 /* ScoutLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 522FEFECE7DDB6B166CE1546 /* ScoutLog.swift */; };
+		97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD01439D63376EE86259929 /* BlockView.swift */; };
+		9DCC249E9763BF09A039B86D /* ScoutTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C6EDC72F12B5B09E24D6C2 /* ScoutTextField.swift */; };
+		A1B5F24217CBB3425E19F75C /* SessionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61B31D0E2A906FC93D58001 /* SessionHistoryView.swift */; };
+		A50AB845B5B69E8F3839348C /* Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E41DEC22E607215EDBB5203 /* Events.swift */; };
+		A6C0D4FC3028FA5637640C66 /* SessionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51A81D21A37B458E927F61B /* SessionCache.swift */; };
+		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
+		AD09AEE48427D5A4A760ACCE /* ScoutCompactKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A39F9B2AEC38E35221C4584 /* ScoutCompactKeyboard.swift */; };
+		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
+		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
+		C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */; };
+		CCFF56AC0101E94DC30A7EF5 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6940B82A6F6FB299D5556A /* SessionStore.swift */; };
+		DF22D6C8EE12251B47279018 /* SecureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2043B28142C57D92E9226882 /* SecureTransport.swift */; };
+		E87A5CDE5849A4D43F98E0D7 /* ErrorBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */; };
+		FA3C8E21B094D56A7E2F1C84 /* QuestionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4D72E63A1F08C5BD390E47 /* QuestionBlockView.swift */; };
+		ECEDCF709BDAE4260FDE7161 /* ReasoningBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */; };
+		EEC617F0495EAE3F9D6F3A58 /* QRPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97263B8D58CE2A2D5B8FEF46 /* QRPayload.swift */; };
+		EF36CE2CE7EE4F684BABD283 /* SessionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */; };
+		F2339562BD7F60D19A3F608C /* WorkspaceBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8954092B5A751A7EBC5AD437 /* WorkspaceBrowserView.swift */; };
+		FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D8F1FFB1CB46F1A8E15322 /* HistoryRPC.swift */; };
+		1A2B3C4D5E6F7A8B9C0D1E2F /* ScoutRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* ScoutRouter.swift */; };
+		2B3C4D5E6F7A8B9C0D1E2F3A /* AddressBarPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* AddressBarPill.swift */; };
+		3C4D5E6F7A8B9C0D1E2F3A4B /* ScoutBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6A7B8C9D0E1F2A3B4 /* ScoutBottomBar.swift */; };
+		4D5E6F7A8B9C0D1E2F3A4B5C /* ScoutNavigationShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* ScoutNavigationShell.swift */; };
+		5E7A9C1B3D5F7A9C1B3D5E7A /* EdgeSwipeGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A9C1B3D5F7A9C1B3D5E7A9 /* EdgeSwipeGesture.swift */; };
+		5E6F7A8B9C0D1E2F3A4B5C6D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */; };
+		6F7A8B9C0D1E2F3A4B5C6D7E /* AllSessionsGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */; };
+		7A8B9C0D1E2F3A4B5C6D7E8F /* SessionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */; };
+		B2D3E4F5A6B7C8D9E0F1A2B3 /* ActivityFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C2D3E4F5A6B7C8D9E0F1A2 /* ActivityFeedView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4D14C9C75DE4C5F4F0B2FB7E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 41B094AA7B81704D49814DA7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 97688000DA122F10D909C3EF;
+			remoteInfo = ScoutApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		029C6049264D3C5EE524673E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
+		04511C1BCDD7DF678F39AB23 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5C0A1B2E00D1F3A7E8B2C402 /* scout-reveal.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = "scout-reveal.mp4"; sourceTree = "<group>"; };
+		07DE486878B8E8E6F3CB1BDF /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		08B317D842F3C5606AC9AE81 /* NoiseProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoiseProtocolTests.swift; sourceTree = "<group>"; };
+		09A0710F2737060ABA3FC0A0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		0B1014280AC32ECEFDC6123A /* TurnHash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnHash.swift; sourceTree = "<group>"; };
+		0FA63A50829498017E386532 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		1111361D907783103CAF1029 /* TextBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBlockView.swift; sourceTree = "<group>"; };
+		15FBE5B3A64AF6D0F1E64906 /* ScoutVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutVoice.swift; sourceTree = "<group>"; };
+		16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRowView.swift; sourceTree = "<group>"; };
+		17807A002C04E20022167DC2 /* ScoutTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScoutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1CB1259D202C983314D17199 /* FileBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBlockView.swift; sourceTree = "<group>"; };
+		2043B28142C57D92E9226882 /* SecureTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureTransport.swift; sourceTree = "<group>"; };
+		220AC3C67A7D1CAD996A28D5 /* TurnView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnView.swift; sourceTree = "<group>"; };
+		25FDE9E16EC017A6B945AF9D /* MicButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicButton.swift; sourceTree = "<group>"; };
+		2A39F9B2AEC38E35221C4584 /* ScoutCompactKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutCompactKeyboard.swift; sourceTree = "<group>"; };
+		2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutApp.swift; sourceTree = "<group>"; };
+		2CA2ABB345CA1C4A48933F69 /* ComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerView.swift; sourceTree = "<group>"; };
+		2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionAuthorizations.swift; sourceTree = "<group>"; };
+		3161549947E066F37145FB0C /* SessionDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDiscoveryView.swift; sourceTree = "<group>"; };
+		37311097FD4418A4CC259888 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
+		3967724C6396B93527EC3A5C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReasoningBlockView.swift; sourceTree = "<group>"; };
+		43071A343AD10BEA3B6162AA /* NoiseProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoiseProtocol.swift; sourceTree = "<group>"; };
+		44D8F1FFB1CB46F1A8E15322 /* HistoryRPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRPC.swift; sourceTree = "<group>"; };
+		481B4B35E3666F78B9AC957A /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		49D6BFBD08AE670C1FC7B8A6 /* Identity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identity.swift; sourceTree = "<group>"; };
+		4CD01439D63376EE86259929 /* BlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockView.swift; sourceTree = "<group>"; };
+		522FEFECE7DDB6B166CE1546 /* ScoutLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutLog.swift; sourceTree = "<group>"; };
+		5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBlockView.swift; sourceTree = "<group>"; };
+		9B4D72E63A1F08C5BD390E47 /* QuestionBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionBlockView.swift; sourceTree = "<group>"; };
+		6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessPickerView.swift; sourceTree = "<group>"; };
+		6D678FD46C36DEE704DF0493 /* RPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RPC.swift; sourceTree = "<group>"; };
+		71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionBlockView.swift; sourceTree = "<group>"; };
+		8954092B5A751A7EBC5AD437 /* WorkspaceBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceBrowserView.swift; sourceTree = "<group>"; };
+		895AF226D6690C2AEEB20331 /* ScoutKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutKeyboardView.swift; sourceTree = "<group>"; };
+		8E41DEC22E607215EDBB5203 /* Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Events.swift; sourceTree = "<group>"; };
+		9102509C4B05FADAF82B357D /* RecordingIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingIndicator.swift; sourceTree = "<group>"; };
+		95B30342DC09B9A9CD56EDB0 /* ScoutApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScoutApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		97263B8D58CE2A2D5B8FEF46 /* QRPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPayload.swift; sourceTree = "<group>"; };
+		9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashCatcher.swift; sourceTree = "<group>"; };
+		9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		A156270D797264F0441EF34B /* TurnHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnHashTests.swift; sourceTree = "<group>"; };
+		A2C6EDC72F12B5B09E24D6C2 /* ScoutTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutTextField.swift; sourceTree = "<group>"; };
+		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
+		D8D0C482CFF39891FF22556C /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
+		DD6940B82A6F6FB299D5556A /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		E204EEA7E7F90B8A9AE38FFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E37F081F478DEDB2F906765D /* KeyComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyComponents.swift; sourceTree = "<group>"; };
+		E51A81D21A37B458E927F61B /* SessionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCache.swift; sourceTree = "<group>"; };
+		E61B31D0E2A906FC93D58001 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
+		EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectatorView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* ScoutRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutRouter.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* AddressBarPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBarPill.swift; sourceTree = "<group>"; };
+		C3D4E5F6A7B8C9D0E1F2A3B4 /* ScoutBottomBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutBottomBar.swift; sourceTree = "<group>"; };
+		D4E5F6A7B8C9D0E1F2A3B4C5 /* ScoutNavigationShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNavigationShell.swift; sourceTree = "<group>"; };
+		E7A9C1B3D5F7A9C1B3D5E7A9 /* EdgeSwipeGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeSwipeGesture.swift; sourceTree = "<group>"; };
+		E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllSessionsGridView.swift; sourceTree = "<group>"; };
+		A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
+		A1C2D3E4F5A6B7C8D9E0F1A2 /* ActivityFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeedView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		411E084FE51FB2B17BF55954 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				40BB09A722485DE63DE08361 /* FluidAudio in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0042D17CF4C0BD4873490213 = {
+			isa = PBXGroup;
+			children = (
+				77DE5C06068CFEF0AA09464B /* Scout */,
+				05863478E11E3C2313195E16 /* ScoutTests */,
+				0337B0B581B1E855D618C75C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0337B0B581B1E855D618C75C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				95B30342DC09B9A9CD56EDB0 /* ScoutApp.app */,
+				17807A002C04E20022167DC2 /* ScoutTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		05863478E11E3C2313195E16 /* ScoutTests */ = {
+			isa = PBXGroup;
+			children = (
+				A156270D797264F0441EF34B /* TurnHashTests.swift */,
+				8052CE4B644E12C72DE6DADB /* Security */,
+			);
+			path = ScoutTests;
+			sourceTree = "<group>";
+		};
+		20420D1AD5DE18B3D0ED20EC /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */,
+				9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */,
+				522FEFECE7DDB6B166CE1546 /* ScoutLog.swift */,
+				2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */,
+				E51A81D21A37B458E927F61B /* SessionCache.swift */,
+				DD6940B82A6F6FB299D5556A /* SessionStore.swift */,
+				0B1014280AC32ECEFDC6123A /* TurnHash.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		2771BC91F699E13325A0D0A9 /* Keyboard */ = {
+			isa = PBXGroup;
+			children = (
+				2A39F9B2AEC38E35221C4584 /* ScoutCompactKeyboard.swift */,
+				895AF226D6690C2AEEB20331 /* ScoutKeyboardView.swift */,
+				E37F081F478DEDB2F906765D /* KeyComponents.swift */,
+			);
+			path = Keyboard;
+			sourceTree = "<group>";
+		};
+		40E0C6191E5F1A8091F3DE70 /* Voice */ = {
+			isa = PBXGroup;
+			children = (
+				15FBE5B3A64AF6D0F1E64906 /* ScoutVoice.swift */,
+			);
+			path = Voice;
+			sourceTree = "<group>";
+		};
+		417B947BB7902B25DD001027 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				04511C1BCDD7DF678F39AB23 /* Assets.xcassets */,
+				5C0A1B2E00D1F3A7E8B2C402 /* scout-reveal.mp4 */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		46386624F8303C9353AEE28F /* Workspace */ = {
+			isa = PBXGroup;
+			children = (
+				6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */,
+				8954092B5A751A7EBC5AD437 /* WorkspaceBrowserView.swift */,
+			);
+			path = Workspace;
+			sourceTree = "<group>";
+		};
+		6A881A2E98FAE9347CA9ADB4 /* Composer */ = {
+			isa = PBXGroup;
+			children = (
+				2CA2ABB345CA1C4A48933F69 /* ComposerView.swift */,
+				A2C6EDC72F12B5B09E24D6C2 /* ScoutTextField.swift */,
+				25FDE9E16EC017A6B945AF9D /* MicButton.swift */,
+				9102509C4B05FADAF82B357D /* RecordingIndicator.swift */,
+			);
+			path = Composer;
+			sourceTree = "<group>";
+		};
+		77DE5C06068CFEF0AA09464B /* Scout */ = {
+			isa = PBXGroup;
+			children = (
+				E204EEA7E7F90B8A9AE38FFF /* Info.plist */,
+				AA728CF631FF144FCEB9DE17 /* App */,
+				B9D7CB5A5602706939BB7213 /* Models */,
+				417B947BB7902B25DD001027 /* Resources */,
+				7CD8AAB56579D6BA2161B0B2 /* Security */,
+				20420D1AD5DE18B3D0ED20EC /* Services */,
+				84CAD3644ECA6E0D8C04C52A /* Views */,
+				40E0C6191E5F1A8091F3DE70 /* Voice */,
+			);
+			path = Scout;
+			sourceTree = "<group>";
+		};
+		7CD8AAB56579D6BA2161B0B2 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				49D6BFBD08AE670C1FC7B8A6 /* Identity.swift */,
+				43071A343AD10BEA3B6162AA /* NoiseProtocol.swift */,
+				97263B8D58CE2A2D5B8FEF46 /* QRPayload.swift */,
+				2043B28142C57D92E9226882 /* SecureTransport.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		8052CE4B644E12C72DE6DADB /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				08B317D842F3C5606AC9AE81 /* NoiseProtocolTests.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		84CAD3644ECA6E0D8C04C52A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				029C6049264D3C5EE524673E /* Theme.swift */,
+				5C0A1B2E00D1F3A7E8B2C404 /* SplashView.swift */,
+				C3E4F5A6B7C8D9E0F1A2B3C4 /* Activity */,
+				0D1E2F3A4B5C6D7E8F9A0B1C /* AllSessions */,
+				F539C32239630FBA3BCF3BB1 /* Blocks */,
+				6A881A2E98FAE9347CA9ADB4 /* Composer */,
+				A3CA4FF329970B1A022D0311 /* Discovery */,
+				9C0D1E2F3A4B5C6D7E8F9A0B /* Home */,
+				2771BC91F699E13325A0D0A9 /* Keyboard */,
+				8B9C0D1E2F3A4B5C6D7E8F9A /* Navigation */,
+				E31022DD011A60F3EC81D9D4 /* Onboarding */,
+				EF79050E1B872D91E7D5E8F2 /* Pairing */,
+				9685D4271DF0110810C14B66 /* SessionList */,
+				C384666767182A9D2AA1C201 /* Settings */,
+				E89975CDD4FB5B7DE1031867 /* Timeline */,
+				46386624F8303C9353AEE28F /* Workspace */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		9685D4271DF0110810C14B66 /* SessionList */ = {
+			isa = PBXGroup;
+			children = (
+				E61B31D0E2A906FC93D58001 /* SessionHistoryView.swift */,
+				D8D0C482CFF39891FF22556C /* SessionListView.swift */,
+				16E69A9F79BC8EBB2C853CAC /* SessionRowView.swift */,
+			);
+			path = SessionList;
+			sourceTree = "<group>";
+		};
+		A3CA4FF329970B1A022D0311 /* Discovery */ = {
+			isa = PBXGroup;
+			children = (
+				3161549947E066F37145FB0C /* SessionDiscoveryView.swift */,
+				EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */,
+			);
+			path = Discovery;
+			sourceTree = "<group>";
+		};
+		AA728CF631FF144FCEB9DE17 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				09A0710F2737060ABA3FC0A0 /* ContentView.swift */,
+				2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* ScoutRouter.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B9D7CB5A5602706939BB7213 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				8E41DEC22E607215EDBB5203 /* Events.swift */,
+				44D8F1FFB1CB46F1A8E15322 /* HistoryRPC.swift */,
+				C06649F0636F0648AB140561 /* Primitives.swift */,
+				6D678FD46C36DEE704DF0493 /* RPC.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		C384666767182A9D2AA1C201 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				37311097FD4418A4CC259888 /* LogView.swift */,
+				3967724C6396B93527EC3A5C /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		E31022DD011A60F3EC81D9D4 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				07DE486878B8E8E6F3CB1BDF /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		E89975CDD4FB5B7DE1031867 /* Timeline */ = {
+			isa = PBXGroup;
+			children = (
+				9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */,
+				220AC3C67A7D1CAD996A28D5 /* TurnView.swift */,
+			);
+			path = Timeline;
+			sourceTree = "<group>";
+		};
+		EF79050E1B872D91E7D5E8F2 /* Pairing */ = {
+			isa = PBXGroup;
+			children = (
+				481B4B35E3666F78B9AC957A /* PairingView.swift */,
+				0FA63A50829498017E386532 /* QRScannerView.swift */,
+			);
+			path = Pairing;
+			sourceTree = "<group>";
+		};
+		F539C32239630FBA3BCF3BB1 /* Blocks */ = {
+			isa = PBXGroup;
+			children = (
+				71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */,
+				4CD01439D63376EE86259929 /* BlockView.swift */,
+				5717C27B2F716F2B5AC2BFBE /* ErrorBlockView.swift */,
+				9B4D72E63A1F08C5BD390E47 /* QuestionBlockView.swift */,
+				1CB1259D202C983314D17199 /* FileBlockView.swift */,
+				411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */,
+				1111361D907783103CAF1029 /* TextBlockView.swift */,
+			);
+			path = Blocks;
+			sourceTree = "<group>";
+		};
+		8B9C0D1E2F3A4B5C6D7E8F9A /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* AddressBarPill.swift */,
+				C3D4E5F6A7B8C9D0E1F2A3B4 /* ScoutBottomBar.swift */,
+				D4E5F6A7B8C9D0E1F2A3B4C5 /* ScoutNavigationShell.swift */,
+				E7A9C1B3D5F7A9C1B3D5E7A9 /* EdgeSwipeGesture.swift */,
+			);
+			path = Navigation;
+			sourceTree = "<group>";
+		};
+		9C0D1E2F3A4B5C6D7E8F9A0B /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				E5F6A7B8C9D0E1F2A3B4C5D6 /* HomeView.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		C3E4F5A6B7C8D9E0F1A2B3C4 /* Activity */ = {
+			isa = PBXGroup;
+			children = (
+				A1C2D3E4F5A6B7C8D9E0F1A2 /* ActivityFeedView.swift */,
+			);
+			path = Activity;
+			sourceTree = "<group>";
+		};
+		0D1E2F3A4B5C6D7E8F9A0B1C /* AllSessions */ = {
+			isa = PBXGroup;
+			children = (
+				F6A7B8C9D0E1F2A3B4C5D6E7 /* AllSessionsGridView.swift */,
+				A7B8C9D0E1F2A3B4C5D6E7F8 /* SessionCardView.swift */,
+			);
+			path = AllSessions;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		14A66302F006B5E9904FA979 /* ScoutTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 771E8F5217CCA3CDB8155A2E /* Build configuration list for PBXNativeTarget "ScoutTests" */;
+			buildPhases = (
+				97E4ECC72541AC83B0BFE943 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA941D862C23C52B51B55DD7 /* PBXTargetDependency */,
+			);
+			name = ScoutTests;
+			packageProductDependencies = (
+			);
+			productName = ScoutTests;
+			productReference = 17807A002C04E20022167DC2 /* ScoutTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		97688000DA122F10D909C3EF /* ScoutApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B3C997CC461C374C13A31408 /* Build configuration list for PBXNativeTarget "ScoutApp" */;
+			buildPhases = (
+				26B6047AEF90BF5BF76FC2C2 /* Sources */,
+				A37EAA619566AF28720C0E62 /* Resources */,
+				411E084FE51FB2B17BF55954 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScoutApp;
+			packageProductDependencies = (
+				00F1A9565B1EE831E901D4BB /* FluidAudio */,
+			);
+			productName = ScoutApp;
+			productReference = 95B30342DC09B9A9CD56EDB0 /* ScoutApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		41B094AA7B81704D49814DA7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					14A66302F006B5E9904FA979 = {
+						DevelopmentTeam = 2U83JFPW66;
+					};
+					97688000DA122F10D909C3EF = {
+						DevelopmentTeam = 2U83JFPW66;
+					};
+				};
+			};
+			buildConfigurationList = 5B00B5C06AFC6A6CA624DCFE /* Build configuration list for PBXProject "Scout" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 0042D17CF4C0BD4873490213;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				97688000DA122F10D909C3EF /* ScoutApp */,
+				14A66302F006B5E9904FA979 /* ScoutTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A37EAA619566AF28720C0E62 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				401B8B1200C88EDF5DBFBF4F /* Assets.xcassets in Resources */,
+				5C0A1B2E00D1F3A7E8B2C401 /* scout-reveal.mp4 in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		26B6047AEF90BF5BF76FC2C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */,
+				97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */,
+				105F24BC57F5A44E8AA397E7 /* ComposerView.swift in Sources */,
+				928B8FEA4EA1A6731D9F468F /* ConnectionManager.swift in Sources */,
+				717B115B4EF3038DDA164F8A /* ContentView.swift in Sources */,
+				11A4CF43DDF609207B0C2FA0 /* CrashCatcher.swift in Sources */,
+				AD09AEE48427D5A4A760ACCE /* ScoutCompactKeyboard.swift in Sources */,
+				0DE4E5A19E8B8A2D944AC0D9 /* ScoutKeyboardView.swift in Sources */,
+				9690D64D2A2E40F04C1F7A66 /* ScoutLog.swift in Sources */,
+				9DCC249E9763BF09A039B86D /* ScoutTextField.swift in Sources */,
+				34AC269DEB1981DF20AF6EA4 /* ScoutVoice.swift in Sources */,
+				E87A5CDE5849A4D43F98E0D7 /* ErrorBlockView.swift in Sources */,
+				FA3C8E21B094D56A7E2F1C84 /* QuestionBlockView.swift in Sources */,
+				A50AB845B5B69E8F3839348C /* Events.swift in Sources */,
+				4C4D0937368EECDAE8EFC76B /* FileBlockView.swift in Sources */,
+				C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */,
+				FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */,
+				8D3F4293E86ED617E69A2612 /* Identity.swift in Sources */,
+				4C338EE4D28D668134EA3F52 /* KeyComponents.swift in Sources */,
+				4FC9249A9F6D914920B77F99 /* LogView.swift in Sources */,
+				4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */,
+				2E7028BB05A0F7A013B51FCD /* NoiseProtocol.swift in Sources */,
+				22198F2E0712C7093485DF3E /* OnboardingView.swift in Sources */,
+				3DCA49831D5D6A725231D2EF /* PairingView.swift in Sources */,
+				1521983CBAFA97F03E3DC9D6 /* PermissionAuthorizations.swift in Sources */,
+				41219D151E0B15AB2EDDA8FF /* Primitives.swift in Sources */,
+				EEC617F0495EAE3F9D6F3A58 /* QRPayload.swift in Sources */,
+				06F4D7440C5920144D801BEE /* QRScannerView.swift in Sources */,
+				A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */,
+				ECEDCF709BDAE4260FDE7161 /* ReasoningBlockView.swift in Sources */,
+				2E233FBDD7ABD16D18172BAC /* RecordingIndicator.swift in Sources */,
+				89C658D59512376E44D79698 /* ScoutApp.swift in Sources */,
+				DF22D6C8EE12251B47279018 /* SecureTransport.swift in Sources */,
+				A6C0D4FC3028FA5637640C66 /* SessionCache.swift in Sources */,
+				7B50398135D3578EC1D3A90B /* SessionDiscoveryView.swift in Sources */,
+				A1B5F24217CBB3425E19F75C /* SessionHistoryView.swift in Sources */,
+				003CF78F249EE6A85678457F /* SessionListView.swift in Sources */,
+				EF36CE2CE7EE4F684BABD283 /* SessionRowView.swift in Sources */,
+				CCFF56AC0101E94DC30A7EF5 /* SessionStore.swift in Sources */,
+				38CDA54A82A9CCE4B4D5BF23 /* SettingsView.swift in Sources */,
+				B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */,
+				5C568548FBEF22CDE57196DE /* TextBlockView.swift in Sources */,
+				2BE63822046698F6281DED9E /* Theme.swift in Sources */,
+				5C0A1B2E00D1F3A7E8B2C403 /* SplashView.swift in Sources */,
+				82F0EA626092AD1FD2889BAB /* TimelineView.swift in Sources */,
+				79FFC939B11C65EC1EDC094F /* TurnHash.swift in Sources */,
+				1B548F5201CC047B5E766FEA /* TurnView.swift in Sources */,
+				F2339562BD7F60D19A3F608C /* WorkspaceBrowserView.swift in Sources */,
+				1A2B3C4D5E6F7A8B9C0D1E2F /* ScoutRouter.swift in Sources */,
+				2B3C4D5E6F7A8B9C0D1E2F3A /* AddressBarPill.swift in Sources */,
+				3C4D5E6F7A8B9C0D1E2F3A4B /* ScoutBottomBar.swift in Sources */,
+				4D5E6F7A8B9C0D1E2F3A4B5C /* ScoutNavigationShell.swift in Sources */,
+				5E7A9C1B3D5F7A9C1B3D5E7A /* EdgeSwipeGesture.swift in Sources */,
+				5E6F7A8B9C0D1E2F3A4B5C6D /* HomeView.swift in Sources */,
+				6F7A8B9C0D1E2F3A4B5C6D7E /* AllSessionsGridView.swift in Sources */,
+				7A8B9C0D1E2F3A4B5C6D7E8F /* SessionCardView.swift in Sources */,
+				B2D3E4F5A6B7C8D9E0F1A2B3 /* ActivityFeedView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		97E4ECC72541AC83B0BFE943 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1CF13F1DB8DEEBB963158C84 /* NoiseProtocolTests.swift in Sources */,
+				71F946099994958BF4142988 /* TurnHashTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA941D862C23C52B51B55DD7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 97688000DA122F10D909C3EF /* ScoutApp */;
+			targetProxy = 4D14C9C75DE4C5F4F0B2FB7E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		6EF4765B3B8BFB47E7FACC01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Scout/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Scout;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scout uses the camera to scan QR codes for mobile pairing";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Scout uses the microphone for voice-to-text input";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Scout uses on-device speech recognition to transcribe voice input";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				/* UILaunchScreen defined in Info.plist */
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationAllButUpsideDown;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
+				PRODUCT_MODULE_NAME = ScoutApp;
+				PRODUCT_NAME = Scout;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		80DB0ECF052AE81D8C6B69FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 2U83JFPW66;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8EA87F5FEB794E3AC0D021CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.ScoutTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScoutApp.app/ScoutApp";
+			};
+			name = Debug;
+		};
+		BAD229AE14D87433F90E1913 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 2U83JFPW66;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		BE211100914FD259669C09E3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Scout/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Scout;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scout uses the camera to scan QR codes for mobile pairing";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Scout uses the microphone for voice-to-text input";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Scout uses on-device speech recognition to transcribe voice input";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				/* UILaunchScreen defined in Info.plist */
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationAllButUpsideDown;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
+				PRODUCT_MODULE_NAME = ScoutApp;
+				PRODUCT_NAME = Scout;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E00B1EFEE8C74D7A5AC5E80C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.ScoutTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScoutApp.app/ScoutApp";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5B00B5C06AFC6A6CA624DCFE /* Build configuration list for PBXProject "Scout" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BAD229AE14D87433F90E1913 /* Debug */,
+				80DB0ECF052AE81D8C6B69FC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		771E8F5217CCA3CDB8155A2E /* Build configuration list for PBXNativeTarget "ScoutTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EA87F5FEB794E3AC0D021CD /* Debug */,
+				E00B1EFEE8C74D7A5AC5E80C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B3C997CC461C374C13A31408 /* Build configuration list for PBXNativeTarget "ScoutApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BE211100914FD259669C09E3 /* Debug */,
+				6EF4765B3B8BFB47E7FACC01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		00F1A9565B1EE831E901D4BB /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4444AAE709EC21FF36F3DC04 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 41B094AA7B81704D49814DA7 /* Project object */;
+}

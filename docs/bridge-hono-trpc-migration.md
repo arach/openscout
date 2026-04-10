@@ -43,7 +43,7 @@ When this hits a heterogeneous user base — slow transports, concurrent devices
 
 ### Hono (already installed)
 
-- Already a dependency in `apps/scout/package.json` (^4.12.10)
+- Already a dependency in `apps/desktop/package.json` (^4.12.10)
 - Already used for the web server at `src/server/index.ts`
 - Native Bun support, zero overhead
 - Middleware ecosystem (CORS, logging, rate limiting, compression)
@@ -365,7 +365,7 @@ tRPC: client subscribes to `events` procedure. Events arrive as `{ id, result: {
 
 ### Phase 1: Install Dependencies & Scaffold Router (Today)
 
-1. `bun add @trpc/server zod trpc-bun` in `apps/scout`
+1. `bun add @trpc/server zod trpc-bun` in `apps/desktop`
 2. Create `src/core/pairing/runtime/bridge/router.ts` with the tRPC router
 3. Extract procedure handlers from the switch statement — each case becomes a procedure
 4. Keep the existing `server.ts` running in parallel

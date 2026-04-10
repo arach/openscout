@@ -62,6 +62,16 @@ type SQLiteStatementLike<Row, Params extends SQLiteBinding[]> = {
   get(...params: Params): Row | null;
 };
 
+type SQLiteDatabaseConstructor = {
+  new (path: string, options?: { create?: boolean; strict?: boolean; readonly?: boolean }): Database;
+};
+
+type SQLiteTransactionalDatabase = Database & {
+  transaction<TArgs extends unknown[]>(callback: (...args: TArgs) => void): (...args: TArgs) => void;
+};
+
+const SQLiteDatabase = Database as unknown as SQLiteDatabaseConstructor;
+
 function queryAll<Row, Params extends SQLiteBinding[] = []>(
   db: Database,
   sql: string,
@@ -402,26 +412,78 @@ function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRec
 
 export class SQLiteControlPlaneStore {
   private readonly db: Database;
+  private readonly readDb: Database;
+  private readonly persistEventsBatch: (events: ControlEvent[]) => void;
+  private pendingEvents: ControlEvent[] = [];
+  private flushPendingEventsTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath, { create: true });
+    this.db = new SQLiteDatabase(dbPath, { create: true });
+    this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
     // The broker does frequent snapshot reads alongside short delivery-state writes.
     // WAL mode and a busy timeout reduce transient SQLITE_BUSY/database locked errors.
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
+    this.readDb.exec("PRAGMA busy_timeout = 5000;");
+    this.readDb.exec("PRAGMA query_only = ON;");
+    this.persistEventsBatch = (this.db as SQLiteTransactionalDatabase).transaction((events: ControlEvent[]) => {
+      const statement = this.db.query(
+        `INSERT OR REPLACE INTO events (id, kind, actor_id, node_id, ts, payload_json)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      );
+
+      for (const event of events) {
+        statement.run(
+          event.id,
+          event.kind,
+          event.actorId,
+          event.nodeId ?? null,
+          event.ts,
+          JSON.stringify(event.payload),
+        );
+      }
+    });
   }
 
   close(): void {
+    this.flushPendingEvents();
+    if (this.flushPendingEventsTimer) {
+      clearTimeout(this.flushPendingEventsTimer);
+      this.flushPendingEventsTimer = null;
+    }
+    this.readDb.close();
     this.db.close();
+  }
+
+  private flushPendingEvents(): void {
+    if (this.pendingEvents.length === 0) {
+      return;
+    }
+
+    const nextBatch = this.pendingEvents;
+    this.pendingEvents = [];
+    this.persistEventsBatch(nextBatch);
+  }
+
+  private schedulePendingEventFlush(): void {
+    if (this.flushPendingEventsTimer) {
+      return;
+    }
+
+    this.flushPendingEventsTimer = setTimeout(() => {
+      this.flushPendingEventsTimer = null;
+      this.flushPendingEvents();
+    }, 0);
+    this.flushPendingEventsTimer.unref?.();
   }
 
   loadSnapshot(): RuntimeRegistrySnapshot {
     const snapshot = createRuntimeRegistrySnapshot();
 
-    const nodes = queryAll<NodeRow>(this.db, "SELECT * FROM nodes");
+    const nodes = queryAll<NodeRow>(this.readDb, "SELECT * FROM nodes");
     for (const row of nodes) {
       snapshot.nodes[row.id] = {
         id: row.id,
@@ -439,7 +501,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const actors = queryAll<ActorRow>(this.db, "SELECT * FROM actors");
+    const actors = queryAll<ActorRow>(this.readDb, "SELECT * FROM actors");
     for (const row of actors) {
       snapshot.actors[row.id] = {
         id: row.id,
@@ -451,7 +513,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const agents = queryAll<AgentRow>(this.db, "SELECT * FROM agents");
+    const agents = queryAll<AgentRow>(this.readDb, "SELECT * FROM agents");
     for (const row of agents) {
       const actor = snapshot.actors[row.id];
       if (!actor) continue;
@@ -475,7 +537,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const endpoints = queryAll<EndpointRow>(this.db, "SELECT * FROM agent_endpoints");
+    const endpoints = queryAll<EndpointRow>(this.readDb, "SELECT * FROM agent_endpoints");
     for (const row of endpoints) {
       snapshot.endpoints[row.id] = {
         id: row.id,
@@ -493,9 +555,9 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const conversations = queryAll<ConversationRow>(this.db, "SELECT * FROM conversations");
+    const conversations = queryAll<ConversationRow>(this.readDb, "SELECT * FROM conversations");
     const members = queryAll<{ conversation_id: string; actor_id: string }>(
-      this.db,
+      this.readDb,
       "SELECT conversation_id, actor_id FROM conversation_members",
     );
     const memberMap = new Map<string, string[]>();
@@ -520,7 +582,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const bindings = queryAll<BindingRow>(this.db, "SELECT * FROM bindings");
+    const bindings = queryAll<BindingRow>(this.readDb, "SELECT * FROM bindings");
     for (const row of bindings) {
       snapshot.bindings[row.id] = {
         id: row.id,
@@ -533,9 +595,9 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const messages = queryAll<MessageRow>(this.db, "SELECT * FROM messages");
-    const mentionRows = queryAll<MentionRow>(this.db, "SELECT * FROM message_mentions");
-    const attachmentRows = queryAll<AttachmentRow>(this.db, "SELECT * FROM message_attachments");
+    const messages = queryAll<MessageRow>(this.readDb, "SELECT * FROM messages");
+    const mentionRows = queryAll<MentionRow>(this.readDb, "SELECT * FROM message_mentions");
+    const attachmentRows = queryAll<AttachmentRow>(this.readDb, "SELECT * FROM message_attachments");
     const mentionsByMessage = new Map<string, MessageMention[]>();
     const attachmentsByMessage = new Map<string, MessageAttachment[]>();
 
@@ -578,7 +640,7 @@ export class SQLiteControlPlaneStore {
       };
     }
 
-    const flights = queryAll<FlightRow>(this.db, "SELECT * FROM flights");
+    const flights = queryAll<FlightRow>(this.readDb, "SELECT * FROM flights");
     for (const row of flights) {
       snapshot.flights[row.id] = {
         id: row.id,
@@ -596,7 +658,7 @@ export class SQLiteControlPlaneStore {
     }
 
     const collaborationRows = queryAll<CollaborationRecordRow>(
-      this.db,
+      this.readDb,
       "SELECT * FROM collaboration_records",
     );
     for (const row of collaborationRows) {
@@ -607,8 +669,9 @@ export class SQLiteControlPlaneStore {
   }
 
   recentEvents(limit = 100): ControlEvent[] {
+    this.flushPendingEvents();
     const rows = queryAll<EventRow, [number]>(
-      this.db,
+      this.readDb,
       "SELECT * FROM events ORDER BY ts DESC LIMIT ?1",
       limit,
     ).reverse();
@@ -659,8 +722,9 @@ export class SQLiteControlPlaneStore {
 
   upsertActor(actor: ActorIdentity): void {
     this.db.query(
-      `INSERT INTO actors (id, kind, display_name, handle, labels_json, metadata_json)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      `INSERT INTO actors (
+        id, kind, display_name, handle, labels_json, metadata_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         display_name = excluded.display_name,
@@ -734,7 +798,7 @@ export class SQLiteControlPlaneStore {
         cwd = excluded.cwd,
         project_root = excluded.project_root,
         metadata_json = excluded.metadata_json,
-        updated_at = unixepoch()`,
+        updated_at = excluded.updated_at`,
     ).run(
       endpoint.id,
       endpoint.agentId,
@@ -752,40 +816,41 @@ export class SQLiteControlPlaneStore {
   }
 
   upsertConversation(conversation: ConversationDefinition): void {
-    this.db.query(
-      `INSERT INTO conversations (
-        id, kind, title, visibility, share_mode, authority_node_id, topic,
-        parent_conversation_id, message_id, metadata_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-      ON CONFLICT(id) DO UPDATE SET
-        kind = excluded.kind,
-        title = excluded.title,
-        visibility = excluded.visibility,
-        share_mode = excluded.share_mode,
-        authority_node_id = excluded.authority_node_id,
-        topic = excluded.topic,
-        parent_conversation_id = excluded.parent_conversation_id,
-        message_id = excluded.message_id,
-        metadata_json = excluded.metadata_json`,
-    ).run(
-      conversation.id,
-      conversation.kind,
-      conversation.title,
-      conversation.visibility,
-      conversation.shareMode,
-      conversation.authorityNodeId,
-      conversation.topic ?? null,
-      conversation.parentConversationId ?? null,
-      conversation.messageId ?? null,
-      stringify(conversation.metadata),
-    );
-
-    this.db.query("DELETE FROM conversation_members WHERE conversation_id = ?1").run(conversation.id);
-    for (const participantId of conversation.participantIds) {
+    (this.db as SQLiteTransactionalDatabase).transaction((nextConversation: ConversationDefinition) => {
       this.db.query(
-        "INSERT OR REPLACE INTO conversation_members (conversation_id, actor_id) VALUES (?1, ?2)",
-      ).run(conversation.id, participantId);
-    }
+        `INSERT INTO conversations (
+          id, kind, title, visibility, share_mode, authority_node_id, topic,
+          parent_conversation_id, message_id, metadata_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ON CONFLICT(id) DO UPDATE SET
+          kind = excluded.kind,
+          title = excluded.title,
+          visibility = excluded.visibility,
+          share_mode = excluded.share_mode,
+          authority_node_id = excluded.authority_node_id,
+          topic = excluded.topic,
+          parent_conversation_id = excluded.parent_conversation_id,
+          message_id = excluded.message_id,
+          metadata_json = excluded.metadata_json`,
+      ).run(
+        nextConversation.id,
+        nextConversation.kind,
+        nextConversation.title,
+        nextConversation.visibility,
+        nextConversation.shareMode,
+        nextConversation.authorityNodeId,
+        nextConversation.topic ?? null,
+        nextConversation.parentConversationId ?? null,
+        nextConversation.messageId ?? null,
+        stringify(nextConversation.metadata),
+      );
+      this.db.query("DELETE FROM conversation_members WHERE conversation_id = ?1").run(nextConversation.id);
+      for (const participantId of nextConversation.participantIds) {
+        this.db.query(
+          "INSERT OR REPLACE INTO conversation_members (conversation_id, actor_id) VALUES (?1, ?2)",
+        ).run(nextConversation.id, participantId);
+      }
+    })(conversation);
   }
 
   upsertBinding(binding: ConversationBinding): void {
@@ -812,60 +877,60 @@ export class SQLiteControlPlaneStore {
   }
 
   recordMessage(message: MessageRecord): void {
-    this.db.query(
-      `INSERT OR REPLACE INTO messages (
-        id, conversation_id, actor_id, origin_node_id, class, body, reply_to_message_id,
-        thread_conversation_id, speech_json, audience_json, visibility, policy, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
-    ).run(
-      message.id,
-      message.conversationId,
-      message.actorId,
-      message.originNodeId,
-      message.class,
-      message.body,
-      message.replyToMessageId ?? null,
-      message.threadConversationId ?? null,
-      stringify(message.speech),
-      stringify(message.audience),
-      message.visibility,
-      message.policy,
-      stringify(message.metadata),
-      message.createdAt,
-    );
-
-    this.db.query("DELETE FROM message_mentions WHERE message_id = ?1").run(message.id);
-    for (const mention of message.mentions ?? []) {
+    (this.db as SQLiteTransactionalDatabase).transaction((nextMessage: MessageRecord) => {
       this.db.query(
-        "INSERT OR REPLACE INTO message_mentions (message_id, actor_id, label) VALUES (?1, ?2, ?3)",
-      ).run(message.id, mention.actorId, mention.label ?? null);
-    }
-
-    this.db.query("DELETE FROM message_attachments WHERE message_id = ?1").run(message.id);
-    for (const attachment of message.attachments ?? []) {
-      this.db.query(
-        `INSERT OR REPLACE INTO message_attachments (
-          id, message_id, media_type, file_name, blob_key, url, metadata_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        `INSERT OR REPLACE INTO messages (
+          id, conversation_id, actor_id, origin_node_id, class, body, reply_to_message_id,
+          thread_conversation_id, speech_json, audience_json, visibility, policy, metadata_json, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
       ).run(
-        attachment.id,
-        message.id,
-        attachment.mediaType,
-        attachment.fileName ?? null,
-        attachment.blobKey ?? null,
-        attachment.url ?? null,
-        stringify(attachment.metadata),
+        nextMessage.id,
+        nextMessage.conversationId,
+        nextMessage.actorId,
+        nextMessage.originNodeId,
+        nextMessage.class,
+        nextMessage.body,
+        nextMessage.replyToMessageId ?? null,
+        nextMessage.threadConversationId ?? null,
+        stringify(nextMessage.speech),
+        stringify(nextMessage.audience),
+        nextMessage.visibility,
+        nextMessage.policy,
+        stringify(nextMessage.metadata),
+        nextMessage.createdAt,
       );
-    }
-
-    this.recordActivityItem(this.projectMessageActivity(message));
+      this.db.query("DELETE FROM message_mentions WHERE message_id = ?1").run(nextMessage.id);
+      for (const mention of nextMessage.mentions ?? []) {
+        this.db.query(
+          "INSERT OR REPLACE INTO message_mentions (message_id, actor_id, label) VALUES (?1, ?2, ?3)",
+        ).run(nextMessage.id, mention.actorId, mention.label ?? null);
+      }
+      this.db.query("DELETE FROM message_attachments WHERE message_id = ?1").run(nextMessage.id);
+      for (const attachment of nextMessage.attachments ?? []) {
+        this.db.query(
+          `INSERT OR REPLACE INTO message_attachments (
+            id, message_id, media_type, file_name, blob_key, url, metadata_json
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        ).run(
+          attachment.id,
+          nextMessage.id,
+          attachment.mediaType,
+          attachment.fileName ?? null,
+          attachment.blobKey ?? null,
+          attachment.url ?? null,
+          stringify(attachment.metadata),
+        );
+      }
+      this.recordActivityItem(this.projectMessageActivity(nextMessage));
+    })(message);
   }
 
   recordInvocation(invocation: InvocationRequest): void {
     this.db.query(
       `INSERT OR REPLACE INTO invocations (
         id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
-        conversation_id, message_id, context_json, execution_json, ensure_awake, stream, timeout_ms, metadata_json, created_at
+        conversation_id, message_id, context_json, execution_json, ensure_awake, stream,
+        timeout_ms, metadata_json, created_at
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
     ).run(
       invocation.id,
@@ -885,7 +950,6 @@ export class SQLiteControlPlaneStore {
       stringify(invocation.metadata),
       invocation.createdAt,
     );
-
     this.recordActivityItem(this.projectInvocationActivity(invocation));
   }
 
@@ -1020,7 +1084,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY ts DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = queryAll<ActivityItemRow, Array<string | number>>(this.db, sql, ...values, limit);
+    const rows = queryAll<ActivityItemRow, Array<string | number>>(this.readDb, sql, ...values, limit);
     return rows.map((row) => ({
       id: row.id,
       kind: row.kind,
@@ -1075,7 +1139,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY updated_at DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = queryAll<CollaborationRecordRow, Array<string | number>>(this.db, sql, ...values, limit);
+    const rows = queryAll<CollaborationRecordRow, Array<string | number>>(this.readDb, sql, ...values, limit);
     return rows.map(buildCollaborationRecord);
   }
 
@@ -1095,7 +1159,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY created_at DESC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = queryAll<CollaborationEventRow, Array<string | number>>(this.db, sql, ...values, limit);
+    const rows = queryAll<CollaborationEventRow, Array<string | number>>(this.readDb, sql, ...values, limit);
     return rows.map((row) => ({
       id: row.id,
       recordId: row.record_id,
@@ -1159,7 +1223,7 @@ export class SQLiteControlPlaneStore {
       "ORDER BY created_at ASC",
       `LIMIT ?${values.length + 1}`,
     ].filter(Boolean).join(" ");
-    const rows = queryAll<DeliveryRow, Array<string | number>>(this.db, sql, ...values, limit);
+    const rows = queryAll<DeliveryRow, Array<string | number>>(this.readDb, sql, ...values, limit);
     return rows.map((row) => ({
       id: row.id,
       messageId: row.message_id ?? undefined,
@@ -1219,7 +1283,7 @@ export class SQLiteControlPlaneStore {
 
   listDeliveryAttempts(deliveryId: string): DeliveryAttempt[] {
     const rows = queryAll<DeliveryAttemptRow, [string]>(
-      this.db,
+      this.readDb,
       "SELECT * FROM delivery_attempts WHERE delivery_id = ?1 ORDER BY attempt ASC, created_at ASC",
       deliveryId,
     );
@@ -1447,7 +1511,7 @@ export class SQLiteControlPlaneStore {
     }
 
     return queryAll<{ actor_id: string }, [string]>(
-      this.db,
+      this.readDb,
       `SELECT cm.actor_id
       FROM conversation_members cm
       JOIN agents a ON a.id = cm.actor_id
@@ -1462,7 +1526,7 @@ export class SQLiteControlPlaneStore {
     }
 
     return queryAll<{ actor_id: string }, [string]>(
-      this.db,
+      this.readDb,
       "SELECT actor_id FROM conversation_members WHERE conversation_id = ?1",
       conversationId,
     ).map((row) => row.actor_id);
@@ -1474,7 +1538,7 @@ export class SQLiteControlPlaneStore {
     }
 
     const row = queryGet<{ id: string }, [string]>(
-      this.db,
+      this.readDb,
       "SELECT id FROM agents WHERE id = ?1 LIMIT 1",
       actorId,
     );
@@ -1487,7 +1551,7 @@ export class SQLiteControlPlaneStore {
     }
 
     const row = queryGet<Pick<EndpointRow, "project_root" | "cwd" | "session_id">, [string]>(
-      this.db,
+      this.readDb,
       `SELECT project_root, cwd, session_id
       FROM agent_endpoints
       WHERE agent_id = ?1
@@ -1503,16 +1567,7 @@ export class SQLiteControlPlaneStore {
   }
 
   recordEvent(event: ControlEvent): void {
-    this.db.query(
-      `INSERT OR REPLACE INTO events (id, kind, actor_id, node_id, ts, payload_json)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
-    ).run(
-      event.id,
-      event.kind,
-      event.actorId,
-      event.nodeId ?? null,
-      event.ts,
-      JSON.stringify(event.payload),
-    );
+    this.pendingEvents.push(event);
+    this.schedulePendingEventFlush();
   }
 }

@@ -1,0 +1,45 @@
+{
+  "name": "@openscout/web",
+  "version": "0.2.13",
+  "description": "Minimal Scout web UI: pairing QR and current activity stream (uses the control-plane server APIs)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "openscout-web": "./bin/openscout-web.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "prepack": "npm run build",
+    "test:happy": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@openscout/scout": ">=0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@openscout/scout": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "uqr": "^0.1.2"
+  },
+  "devDependencies": {
+    "@openscout/scout": "workspace:*",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5",
+    "vite": "^7.0.0"
+  }
+}

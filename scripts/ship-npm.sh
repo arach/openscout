@@ -56,11 +56,15 @@ echo "  runtime…"
 echo "  cli…"
 (cd packages/cli && node ./scripts/build.mjs)
 
+echo "  web…"
+(cd packages/web && npm run build)
+
 # ── Publish in dependency order ────────────────────────────────────────────────
 
 publish protocol
 publish runtime
 publish cli
+publish web
 
 echo ""
 echo "✓ All packages published."

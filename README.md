@@ -1,10 +1,12 @@
 # OpenScout
 
+> **Requires [Bun](https://bun.sh).** Scout uses Bun as its JavaScript runtime and package manager. Install it first: `brew install bun` or `curl -fsSL https://bun.sh/install | bash`
+
 OpenScout is the active Scout codebase: desktop app, CLI, broker runtime, and shared protocol.
 
 The live product path is:
 
-- `apps/scout` for product logic, CLI, UI, and app-layer services
+- `apps/desktop` for product logic, CLI, UI, and app-layer services
 - `packages/electron-app` for the Electron host shell
 - `packages/runtime` for the broker/runtime foundation
 - `packages/protocol` for shared contracts and identity grammar
@@ -26,7 +28,7 @@ The product story is not just "chat between terminals." The current control-plan
 
 Scout is structured around one product path:
 
-- `apps/scout` owns product behavior
+- `apps/desktop` owns product behavior
 - `packages/electron-app` is the desktop host
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the thin publish wrapper around the Scout package

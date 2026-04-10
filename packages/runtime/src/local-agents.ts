@@ -552,6 +552,10 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
     return "codex_app_server";
   }
 
+  if (value === "tmux") {
+    return "tmux";
+  }
+
   return "claude_stream_json";
 }
 
@@ -868,6 +872,7 @@ export async function updateLocalAgentConfig(
       cwd: string;
       harness: string;
       sessionId: string;
+      transport?: string;
     };
     systemPrompt: string;
     launchArgs: string[];
@@ -887,22 +892,28 @@ export async function updateLocalAgentConfig(
   const cwd = normalizeProjectPath(input.runtime.cwd || record.cwd);
   await assertDirectoryExists(cwd);
 
+  const nextHarness = normalizeLocalAgentHarness(input.runtime.harness);
+  const nextTransport = normalizeLocalAgentTransport(
+    input.runtime.transport ?? record.transport,
+    nextHarness,
+  );
+
   const nextRecord = normalizeLocalAgentRecord(agentId, {
     ...record,
     cwd,
     tmuxSession: input.runtime.sessionId,
-    harness: normalizeLocalAgentHarness(input.runtime.harness),
-    defaultHarness: normalizeLocalAgentHarness(input.runtime.harness),
+    harness: nextHarness,
+    defaultHarness: nextHarness,
     harnessProfiles: {
       ...(record.harnessProfiles ?? {}),
       [normalizeManagedHarness(input.runtime.harness, "claude")]: {
         cwd,
-        transport: normalizeLocalAgentTransport(record.transport, normalizeLocalAgentHarness(input.runtime.harness)),
+        transport: nextTransport,
         sessionId: normalizeTmuxSessionName(input.runtime.sessionId, `${agentId}-${normalizeManagedHarness(input.runtime.harness, "claude")}`),
         launchArgs: input.launchArgs,
       },
     },
-    transport: normalizeLocalAgentTransport(record.transport, normalizeLocalAgentHarness(input.runtime.harness)),
+    transport: nextTransport,
     systemPrompt: input.systemPrompt.trim() || undefined,
     launchArgs: input.launchArgs,
     capabilities: input.capabilities as AgentCapability[],
@@ -1549,6 +1560,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
 
     const overrides = await readRelayAgentOverrides();
+    const existingOverride = overrides[instance.id];
+    if (existingOverride && normalizeProjectPath(existingOverride.projectRoot) !== projectRoot) {
+      throw new Error(
+        `Another agent is already registered as ${instance.id} at ${existingOverride.projectRoot}. `
+          + `Two clones of the same project on the same branch cannot both register here; `
+          + `rename one of the checkouts or switch its branch before running scout up.`,
+      );
+    }
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId,
@@ -1594,6 +1613,17 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   if (requestedDefinitionId && requestedDefinitionId !== candidate.definitionId) {
     const overrides = await readRelayAgentOverrides();
     const instance = buildRelayAgentInstance(requestedDefinitionId, candidate.projectRoot);
+    const existingOverride = overrides[instance.id];
+    if (
+      existingOverride
+      && normalizeProjectPath(existingOverride.projectRoot) !== normalizeProjectPath(candidate.projectRoot)
+    ) {
+      throw new Error(
+        `Another agent is already registered as ${instance.id} at ${existingOverride.projectRoot}. `
+          + `Two clones of the same project on the same branch cannot both register here; `
+          + `rename one of the checkouts or switch its branch before running scout up.`,
+      );
+    }
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,

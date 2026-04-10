@@ -1,1 +1,1 @@
-export { render } from "../../../apps/scout/src/ui/desktop/entry-server.tsx";
+export { render } from "@scout/app/web-entry-server";
