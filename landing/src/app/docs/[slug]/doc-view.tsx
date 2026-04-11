@@ -1,6 +1,7 @@
 "use client";
 
 import { DocsLayout, MarkdownContent } from "@arach/dewey";
+import { MemoryRouter } from "react-router-dom";
 import type { NavGroup } from "@/lib/docs";
 
 // Import Dewey CSS
@@ -25,6 +26,7 @@ export function DocView({
   nextPage?: { id: string; title: string };
 }) {
   return (
+    <MemoryRouter initialEntries={[`/docs/${slug}`]}>
     <DocsLayout
       title={title}
       description={description}
@@ -38,5 +40,6 @@ export function DocView({
     >
       <MarkdownContent content={content} isDark />
     </DocsLayout>
+    </MemoryRouter>
   );
 }

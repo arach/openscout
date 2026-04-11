@@ -6,8 +6,9 @@ export function generateStaticParams() {
   return getAllDocs().map((doc) => ({ slug: doc.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }) {
-  const doc = getDocBySlug(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const doc = getDocBySlug(slug);
   if (!doc) return {};
   return {
     title: `${doc.title} — OpenScout Docs`,
@@ -15,13 +16,14 @@ export function generateMetadata({ params }: { params: { slug: string } }) {
   };
 }
 
-export default function DocPage({ params }: { params: { slug: string } }) {
-  const doc = getDocBySlug(params.slug);
+export default async function DocPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const doc = getDocBySlug(slug);
   if (!doc) notFound();
 
   const navigation = getNavigation();
   const allDocs = getAllDocs();
-  const idx = allDocs.findIndex((d) => d.slug === params.slug);
+  const idx = allDocs.findIndex((d) => d.slug === slug);
   const prevPage = idx > 0 ? { id: allDocs[idx - 1].slug, title: allDocs[idx - 1].title } : undefined;
   const nextPage = idx < allDocs.length - 1 ? { id: allDocs[idx + 1].slug, title: allDocs[idx + 1].title } : undefined;
 
