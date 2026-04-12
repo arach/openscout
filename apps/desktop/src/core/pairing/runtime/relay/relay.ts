@@ -1,9 +1,9 @@
 // Pairing relay — lightweight WebSocket forwarder.
 //
 // The relay knows nothing about Pairing primitives, adapters, or sessions.
-// It maintains "rooms" identified by a room ID.  Each room has one bridge
-// and any number of phone clients.  Messages from the bridge are broadcast
-// to all clients; messages from clients are forwarded to the bridge.
+// It maintains "rooms" identified by a room ID. Each room has one bridge
+// and any number of phone clients. Client sockets are individually addressed
+// toward the bridge so it can maintain a separate Noise transport per device.
 //
 // All payloads are opaque — the relay forwards them verbatim.  When E2E
 // encryption is added, the relay sees only ciphertext.
@@ -12,9 +12,7 @@ import type { ServerWebSocket } from "bun";
 
 interface Room {
   bridge: ServerWebSocket<SocketData> | null;
-  clients: Set<ServerWebSocket<SocketData>>;
-  /** Bridge's public key (hex) — set when the bridge registers. */
-  bridgePublicKey?: string;
+  clients: Map<string, ServerWebSocket<SocketData>>;
   /** Grace timer — keeps the room alive briefly after the bridge disconnects. */
   cleanupTimer?: ReturnType<typeof setTimeout>;
 }
@@ -22,6 +20,16 @@ interface Room {
 interface SocketData {
   roomId: string;
   role: "bridge" | "client";
+  clientId?: string;
+}
+
+interface RelayEnvelope {
+  phase: "relay";
+  event: "message" | "close";
+  clientId: string;
+  payload?: string;
+  code?: number;
+  reason?: string;
 }
 
 const BRIDGE_ABSENCE_GRACE_MS = 30_000;
@@ -85,7 +93,11 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
         roomByBridgeKey.set(bridgeKey, roomId);
       }
 
-      const upgraded = server.upgrade(req, { data: { roomId, role } });
+      const upgraded = server.upgrade(req, {
+        data: role === "client"
+          ? { roomId, role, clientId: crypto.randomUUID() }
+          : { roomId, role },
+      });
       if (!upgraded) {
         return new Response("WebSocket upgrade failed", { status: 500 });
       }
@@ -97,7 +109,7 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
         let room = rooms.get(roomId);
 
         if (!room) {
-          room = { bridge: null, clients: new Set() };
+          room = { bridge: null, clients: new Map() };
           rooms.set(roomId, room);
         }
 
@@ -113,12 +125,13 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
             room.bridge.close(4001, "Replaced by new bridge");
           }
           room.bridge = ws;
-          // Store the bridge key on the room for later cleanup.
-          const url = new URL(`ws://x?${ws.data.roomId}`); // roomId is just for context
-          // The key was already registered in fetch() via roomByBridgeKey.
           console.log(`[relay] bridge joined room ${roomId}`);
         } else {
-          room.clients.add(ws);
+          if (!ws.data.clientId) {
+            ws.close(4000, "Missing client id");
+            return;
+          }
+          room.clients.set(ws.data.clientId, ws);
           console.log(`[relay] client joined room ${roomId} (${room.clients.size} clients)`);
         }
       },
@@ -129,13 +142,30 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
         if (!room) return;
 
         if (role === "bridge") {
-          // Bridge → all clients.
-          for (const client of room.clients) {
-            client.send(data);
+          const envelope = parseRelayEnvelope(data);
+          if (!envelope) return;
+
+          if (envelope.event === "close") {
+            room.clients.get(envelope.clientId)?.close(
+              envelope.code ?? 1000,
+              envelope.reason ?? "Bridge requested close",
+            );
+            return;
           }
+
+          if (!envelope.payload) return;
+          room.clients.get(envelope.clientId)?.send(envelope.payload);
         } else {
-          // Client → bridge.
-          room.bridge?.send(data);
+          const clientId = ws.data.clientId;
+          if (!clientId || room.clients.get(clientId) !== ws) {
+            return;
+          }
+          room.bridge?.send(JSON.stringify({
+            phase: "relay",
+            event: "message",
+            clientId,
+            payload: relayPayload(data),
+          } satisfies RelayEnvelope));
         }
       },
 
@@ -152,7 +182,7 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
             // Grace period — keep room alive for reconnect.
             room.cleanupTimer = setTimeout(() => {
               // Notify clients that the bridge is gone.
-              for (const client of room.clients) {
+              for (const client of room.clients.values()) {
                 client.close(4004, "Bridge absent");
               }
               // Clean up bridge key index.
@@ -164,8 +194,16 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
             }, BRIDGE_ABSENCE_GRACE_MS);
           }
         } else {
-          room.clients.delete(ws);
-          console.log(`[relay] client left room ${roomId} (${room.clients.size} clients)`);
+          const clientId = ws.data.clientId;
+          if (clientId && room.clients.get(clientId) === ws) {
+            room.clients.delete(clientId);
+            console.log(`[relay] client left room ${roomId} (${room.clients.size} clients)`);
+            room.bridge?.send(JSON.stringify({
+              phase: "relay",
+              event: "close",
+              clientId,
+            } satisfies RelayEnvelope));
+          }
 
           // If room is empty (no bridge, no clients), schedule cleanup.
           if (!room.bridge && room.clients.size === 0) {
@@ -192,7 +230,7 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
       for (const [, room] of rooms) {
         if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
         room.bridge?.close(1001, "Relay shutting down");
-        for (const client of room.clients) {
+        for (const client of room.clients.values()) {
           client.close(1001, "Relay shutting down");
         }
       }
@@ -255,4 +293,37 @@ function handleHealthz(
     bridgeConnected,
     roomId: bridgeConnected ? roomId : null,
   });
+}
+
+function relayPayload(data: string | Buffer<ArrayBufferLike> | Uint8Array): string {
+  if (typeof data === "string") {
+    return data;
+  }
+  return new TextDecoder().decode(data);
+}
+
+function parseRelayEnvelope(data: string | Buffer<ArrayBufferLike> | Uint8Array): RelayEnvelope | null {
+  if (typeof data !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(data) as Partial<RelayEnvelope>;
+    if (parsed.phase !== "relay" || typeof parsed.clientId !== "string") {
+      return null;
+    }
+    if (parsed.event !== "message" && parsed.event !== "close") {
+      return null;
+    }
+    return {
+      phase: "relay",
+      event: parsed.event,
+      clientId: parsed.clientId,
+      payload: typeof parsed.payload === "string" ? parsed.payload : undefined,
+      code: typeof parsed.code === "number" ? parsed.code : undefined,
+      reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+    };
+  } catch {
+    return null;
+  }
 }

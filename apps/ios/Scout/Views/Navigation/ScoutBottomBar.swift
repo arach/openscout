@@ -57,6 +57,7 @@ struct ScoutBottomBar: View {
 
                     HStack(spacing: 4) {
                         gridButton
+                        newSessionButton
                         overflowMenu
                     }
                 }
@@ -155,14 +156,42 @@ struct ScoutBottomBar: View {
         } label: {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(ScoutColors.textPrimary)
+                .foregroundStyle(router.currentSurface == .allSessions ? ScoutColors.accent : ScoutColors.textPrimary)
                 .frame(width: 40, height: 40)
         }
         .accessibilityLabel("All sessions")
     }
 
+    private var newSessionButton: some View {
+        Button {
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            router.push(.newSession)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(newSessionButtonColor)
+                .frame(width: 40, height: 40)
+        }
+        .disabled(!isConnected)
+        .accessibilityLabel("New session")
+        .accessibilityHint(isConnected ? "Browse workspaces and launch a new session" : "Connect to your Mac first")
+    }
+
+    private var newSessionButtonColor: Color {
+        guard isConnected else { return ScoutColors.textMuted.opacity(0.4) }
+        return router.currentSurface == .newSession ? ScoutColors.accent : ScoutColors.textPrimary
+    }
+
     private var overflowMenu: some View {
         Menu {
+            Button {
+                router.push(.agents)
+            } label: {
+                Label("Agents", systemImage: "person.3")
+            }
+            .disabled(!isConnected)
+
             Button {
                 router.push(.activity)
             } label: {

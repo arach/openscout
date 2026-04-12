@@ -380,7 +380,7 @@ final class ConnectionManager: @unchecked Sendable {
     private var webSocket: URLSessionWebSocketTask?
     private var transport: SecureTransport?
     private var receiveTask: Task<Void, Never>?
-    private var reconnectTask: Task<Void, Never>?
+    private var reconnectTask: ReconnectHandle?
     private let pendingRequests = OSAllocatedUnfairLock(initialState: [Int: PendingRequest]())
     private let urlSession: URLSession
     private let sessionDelegate = TrustAllDelegate()
@@ -594,6 +594,26 @@ final class ConnectionManager: @unchecked Sendable {
     ///   4. If resolve returns 404 → bridge offline, retry with backoff
     ///   5. After 3 failed IK attempts → clear trust, show QR scanner
     func reconnect() async {
+        if let existing = reconnectTask {
+            await existing.task.value
+            return
+        }
+
+        let id = UUID()
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.runReconnect()
+        }
+        reconnectTask = ReconnectHandle(id: id, task: task)
+
+        await task.value
+
+        if reconnectTask?.id == id {
+            reconnectTask = nil
+        }
+    }
+
+    private func runReconnect() async {
         guard !manualDisconnectRequested else {
             setState(.disconnected)
             await MainActor.run {
@@ -860,7 +880,7 @@ final class ConnectionManager: @unchecked Sendable {
         manualDisconnectRequested = true
         receiveTask?.cancel()
         receiveTask = nil
-        reconnectTask?.cancel()
+        reconnectTask?.task.cancel()
         reconnectTask = nil
         healthProbeTask?.cancel()
         healthProbeTask = nil
@@ -968,6 +988,12 @@ final class ConnectionManager: @unchecked Sendable {
         let params = MobileListParams(query: query, limit: limit)
         let data = try await sendRPC(method: "mobile/workspaces", params: params)
         return try decodeResult([MobileWorkspaceSummary].self, from: data)
+    }
+
+    func listMobileAgents(query: String? = nil, limit: Int? = nil) async throws -> [MobileAgentSummary] {
+        let params = MobileListParams(query: query, limit: limit)
+        let data = try await sendRPC(method: "mobile/agents", params: params)
+        return try decodeResult([MobileAgentSummary].self, from: data)
     }
 
     func getActivity(agentId: String? = nil, limit: Int? = nil) async throws -> [ActivityItem] {
@@ -1509,6 +1535,11 @@ private struct PendingRequest: @unchecked Sendable {
     let method: String
     let continuation: CheckedContinuation<Data, Error>
     let timeoutTask: Task<Void, Never>
+}
+
+private struct ReconnectHandle {
+    let id: UUID
+    let task: Task<Void, Never>
 }
 
 // MARK: - Empty params helper

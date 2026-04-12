@@ -633,7 +633,7 @@ function resolveNodeQualifier(): string {
   ) || "local";
 }
 
-function detectGitBranch(projectRoot: string): string | null {
+function detectGitBranchUncached(projectRoot: string): string | null {
   // Prefer `symbolic-ref` so we still get a branch name on unborn HEADs
   // (freshly initialized repos with no commits yet). Fall back to
   // `rev-parse --abbrev-ref HEAD` for detached-HEAD detection.
@@ -658,6 +658,34 @@ function detectGitBranch(projectRoot: string): string | null {
     return branch && branch !== "HEAD" ? branch : null;
   } catch {
     return null;
+  }
+}
+
+// Per-projectRoot branch cache. `readRelayAgentOverrides` is called on every
+// mobile createSession RPC and iterates every stored override — without this
+// memo, we'd shell out to git 30+ times per call (~200ms). The cache assumes
+// branch changes are rare relative to RPC cadence; callers that need a fresh
+// read can clear via clearGitBranchCache().
+const GIT_BRANCH_CACHE_TTL_MS = 15_000;
+type GitBranchCacheEntry = { branch: string | null; expiresAt: number };
+const gitBranchCache = new Map<string, GitBranchCacheEntry>();
+
+function detectGitBranch(projectRoot: string): string | null {
+  const now = Date.now();
+  const cached = gitBranchCache.get(projectRoot);
+  if (cached && cached.expiresAt > now) {
+    return cached.branch;
+  }
+  const branch = detectGitBranchUncached(projectRoot);
+  gitBranchCache.set(projectRoot, { branch, expiresAt: now + GIT_BRANCH_CACHE_TTL_MS });
+  return branch;
+}
+
+export function clearGitBranchCache(projectRoot?: string): void {
+  if (projectRoot) {
+    gitBranchCache.delete(projectRoot);
+  } else {
+    gitBranchCache.clear();
   }
 }
 

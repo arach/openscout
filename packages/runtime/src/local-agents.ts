@@ -35,6 +35,7 @@ import {
   buildRelayAgentInstance,
   ensureProjectConfigForDirectory,
   ensureRelayAgentConfigured,
+  findNearestProjectRoot,
   loadResolvedRelayAgents,
   type ManagedAgentHarness,
   readRelayAgentOverrides,
@@ -469,23 +470,13 @@ function normalizeLocalAgentSystemPrompt(agentId: string, projectName: string, p
 }
 
 async function readLocalAgentRegistry(): Promise<Record<string, LocalAgentRecord>> {
-  const [setup, overrides] = await Promise.all([
-    loadResolvedRelayAgents(),
-    readRelayAgentOverrides(),
-  ]);
-  const registry = Object.fromEntries(
-    setup.agents.map((agent) => [agent.agentId, localAgentRecordFromResolvedConfig(agent)]),
+  const overrides = await readRelayAgentOverrides();
+  return Object.fromEntries(
+    Object.entries(overrides).map(([agentId, override]) => [
+      agentId,
+      localAgentRecordFromRelayAgentOverride(agentId, override),
+    ]),
   );
-
-  for (const [agentId, override] of Object.entries(overrides)) {
-    if (!BUILT_IN_LOCAL_AGENT_IDS.has(agentId)) {
-      continue;
-    }
-
-    registry[agentId] = localAgentRecordFromRelayAgentOverride(agentId, override);
-  }
-
-  return registry;
 }
 
 async function writeLocalAgentRegistry(registry: Record<string, LocalAgentRecord>): Promise<void> {
@@ -499,7 +490,6 @@ async function writeLocalAgentRegistry(registry: Record<string, LocalAgentRecord
   }
 
   await writeRelayAgentOverrides(nextOverrides);
-  await loadResolvedRelayAgents({ syncLegacyMirror: true });
 }
 
 function expandHomePath(value: string): string {
@@ -1535,8 +1525,6 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
   const currentDirectory = input.currentDirectory ?? projectPath;
   const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
-  const ensuredProject = await ensureProjectConfigForDirectory(projectPath);
-  const projectRoot = ensuredProject.projectRoot ?? projectPath;
   const requestedDefinitionId = input.agentName?.trim()
     ? normalizeAgentSelectorSegment(input.agentName.trim())
     : "";
@@ -1545,36 +1533,83 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     throw new Error(`Invalid agent name "${input.agentName}".`);
   }
 
-  const setup = await loadResolvedRelayAgents({
-    currentDirectory,
-    ensureCurrentProjectConfig: true,
-    syncLegacyMirror: true,
-  });
-  let candidate = setup.discoveredAgents.find((agent) => normalizeProjectPath(agent.projectRoot) === projectRoot);
-  if (!candidate) {
-    // Dynamic agent creation fallback: create an agent override from workspace defaults
+  // Fast path: operate directly on the relay-agents override file. No filesystem walk,
+  // no project-config sync. The override file is the single source of truth for
+  // registered agents; if a match exists for this projectPath we skip the expensive
+  // ensureProjectConfigForDirectory (which reads every ~/.claude/projects/<slug>/*.jsonl).
+  const overrides = await readRelayAgentOverrides();
+
+  const findMatchForRoot = (root: string): { agentId: string; override: RelayAgentOverride } | null => {
+    let fallback: { agentId: string; override: RelayAgentOverride } | null = null;
+    for (const [id, override] of Object.entries(overrides)) {
+      if (BUILT_IN_LOCAL_AGENT_IDS.has(id)) continue;
+      if (!override.projectRoot) continue;
+      if (normalizeProjectPath(override.projectRoot) !== root) continue;
+      if (requestedDefinitionId && override.definitionId === requestedDefinitionId) {
+        return { agentId: id, override };
+      }
+      if (!fallback) fallback = { agentId: id, override };
+    }
+    return fallback;
+  };
+
+  // First try the caller-provided path directly. Mobile createSession always passes
+  // the canonical projectRoot, so this short-circuits the slow findNearestProjectRoot walk.
+  let matched = findMatchForRoot(projectPath);
+  let projectRoot = projectPath;
+
+  // Fallback: resolve to the nearest project root (covers `scout up` from a subdir) and retry.
+  if (!matched) {
+    const resolved = await findNearestProjectRoot(projectPath);
+    if (resolved && resolved !== projectPath) {
+      projectRoot = normalizeProjectPath(resolved);
+      matched = findMatchForRoot(projectRoot);
+    }
+  }
+
+  let matchingAgentId = matched?.agentId;
+  let matchingOverride = matched?.override;
+  let coldProjectConfigPath: string | null = null;
+
+  let targetAgentId: string;
+
+  if (!matchingOverride) {
+    // Cold path only: hit the config-ensure helper (and its ~/.claude scan) to seed a
+    // first-time agent override. Warm mobile createSession never lands here.
+    const ensuredProject = await ensureProjectConfigForDirectory(projectPath);
+    projectRoot = ensuredProject.projectRoot ?? projectPath;
+    coldProjectConfigPath = ensuredProject.projectConfigPath ?? null;
+    // Recheck overrides in case ensureProjectConfigForDirectory canonicalized the root
+    // to something we already have a match for.
+    matched = findMatchForRoot(projectRoot);
+    matchingAgentId = matched?.agentId;
+    matchingOverride = matched?.override;
+  }
+
+  if (!matchingOverride) {
+    // Dynamic agent creation: build an override from workspace defaults.
     const definitionId = requestedDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
     const instance = buildRelayAgentInstance(definitionId, projectRoot);
     const effectiveHarness = normalizeManagedHarness(preferredHarness, "claude");
     const transport = normalizeLocalAgentTransport(undefined, effectiveHarness);
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
 
-    const overrides = await readRelayAgentOverrides();
-    const existingOverride = overrides[instance.id];
-    if (existingOverride && normalizeProjectPath(existingOverride.projectRoot) !== projectRoot) {
+    const existingForInstance = overrides[instance.id];
+    if (existingForInstance && normalizeProjectPath(existingForInstance.projectRoot) !== projectRoot) {
       throw new Error(
-        `Another agent is already registered as ${instance.id} at ${existingOverride.projectRoot}. `
+        `Another agent is already registered as ${instance.id} at ${existingForInstance.projectRoot}. `
           + `Two clones of the same project on the same branch cannot both register here; `
           + `rename one of the checkouts or switch its branch before running scout up.`,
       );
     }
+
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId,
       displayName: titleCaseLocalAgentName(definitionId),
       projectName: basename(projectRoot),
       projectRoot,
-      projectConfigPath: ensuredProject.projectConfigPath ?? null,
+      projectConfigPath: coldProjectConfigPath,
       source: "manual",
       startedAt: nowSeconds(),
       defaultHarness: effectiveHarness,
@@ -1595,93 +1630,70 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       },
     };
     await writeRelayAgentOverrides(overrides);
-
-    // Re-resolve so the new override is picked up
-    const refreshedSetup = await loadResolvedRelayAgents({
-      currentDirectory,
-      ensureCurrentProjectConfig: true,
-      syncLegacyMirror: true,
-    });
-    candidate = refreshedSetup.discoveredAgents.find((agent) => normalizeProjectPath(agent.projectRoot) === projectRoot)
-      ?? refreshedSetup.agents.find((agent) => agent.agentId === instance.id);
-    if (!candidate) {
-      throw new Error(`No relay agent could be resolved for ${projectRoot}.`);
-    }
-  }
-
-  let targetAgentId = candidate.agentId;
-  if (requestedDefinitionId && requestedDefinitionId !== candidate.definitionId) {
-    const overrides = await readRelayAgentOverrides();
-    const instance = buildRelayAgentInstance(requestedDefinitionId, candidate.projectRoot);
-    const existingOverride = overrides[instance.id];
+    targetAgentId = instance.id;
+  } else if (requestedDefinitionId && requestedDefinitionId !== matchingOverride.definitionId) {
+    // Caller asked for a different definitionId than the stored override — fork a new instance.
+    const matchingProjectRoot = normalizeProjectPath(matchingOverride.projectRoot);
+    const instance = buildRelayAgentInstance(requestedDefinitionId, matchingProjectRoot);
+    const existingForInstance = overrides[instance.id];
     if (
-      existingOverride
-      && normalizeProjectPath(existingOverride.projectRoot) !== normalizeProjectPath(candidate.projectRoot)
+      existingForInstance
+      && normalizeProjectPath(existingForInstance.projectRoot) !== matchingProjectRoot
     ) {
       throw new Error(
-        `Another agent is already registered as ${instance.id} at ${existingOverride.projectRoot}. `
+        `Another agent is already registered as ${instance.id} at ${existingForInstance.projectRoot}. `
           + `Two clones of the same project on the same branch cannot both register here; `
           + `rename one of the checkouts or switch its branch before running scout up.`,
       );
     }
+    const resolvedHarness = preferredHarness ?? matchingOverride.runtime?.harness;
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,
       displayName: titleCaseLocalAgentName(requestedDefinitionId),
-      projectName: candidate.projectName,
-      projectRoot: candidate.projectRoot,
-      projectConfigPath: candidate.projectConfigPath,
+      projectName: matchingOverride.projectName ?? basename(matchingProjectRoot),
+      projectRoot: matchingProjectRoot,
+      projectConfigPath: matchingOverride.projectConfigPath ?? null,
       source: "manual",
-      startedAt: candidate.startedAt,
-      systemPrompt: candidate.systemPrompt,
-      launchArgs: candidate.launchArgs,
-      capabilities: candidate.capabilities,
-      defaultHarness: preferredHarness ?? candidate.defaultHarness,
-      harnessProfiles: candidate.harnessProfiles,
+      startedAt: matchingOverride.startedAt ?? nowSeconds(),
+      systemPrompt: matchingOverride.systemPrompt,
+      launchArgs: matchingOverride.launchArgs,
+      capabilities: matchingOverride.capabilities,
+      defaultHarness: normalizeManagedHarness(preferredHarness ?? matchingOverride.defaultHarness, "claude"),
+      harnessProfiles: matchingOverride.harnessProfiles,
       runtime: {
-        cwd: effectiveCwd ?? candidate.runtime.cwd,
-        harness: preferredHarness ?? candidate.runtime.harness,
+        cwd: effectiveCwd ?? matchingOverride.runtime?.cwd ?? matchingProjectRoot,
+        harness: resolvedHarness,
         transport: preferredHarness
           ? normalizeLocalAgentTransport(undefined, preferredHarness)
-          : candidate.runtime.transport,
-        sessionId: candidate.runtime.sessionId,
+          : matchingOverride.runtime?.transport,
+        sessionId: matchingOverride.runtime?.sessionId
+          ?? normalizeTmuxSessionName(undefined, `${instance.id}-${normalizeManagedHarness(resolvedHarness, "claude")}`),
         wakePolicy: "on_demand",
       },
     };
     await writeRelayAgentOverrides(overrides);
-    await loadResolvedRelayAgents({
-      currentDirectory,
-      syncLegacyMirror: true,
-    });
     targetAgentId = instance.id;
   } else {
-    const configured = await ensureRelayAgentConfigured(candidate.agentId, {
-      currentDirectory,
-      ensureCurrentProjectConfig: true,
-      syncLegacyMirror: true,
-    });
-    if (configured) {
-      targetAgentId = configured.agentId;
-    }
+    // Existing override already matches — nothing to persist.
+    targetAgentId = matchingAgentId!;
   }
 
   await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
-    includeDiscovered: true,
+    includeDiscovered: false,
     currentDirectory,
-    ensureCurrentProjectConfig: true,
+    ensureCurrentProjectConfig: false,
     harness: preferredHarness,
   });
 
-  const [registry, overrides] = await Promise.all([
-    readLocalAgentRegistry(),
-    readRelayAgentOverrides(),
-  ]);
-  const record = registry[targetAgentId];
-  if (!record) {
+  const finalOverrides = await readRelayAgentOverrides();
+  const finalOverride = finalOverrides[targetAgentId];
+  if (!finalOverride) {
     throw new Error(`Agent ${targetAgentId} did not register successfully.`);
   }
+  const record = localAgentRecordFromRelayAgentOverride(targetAgentId, finalOverride);
 
-  return localAgentStatusFromRecord(targetAgentId, record, localAgentStatusSource(targetAgentId, overrides));
+  return localAgentStatusFromRecord(targetAgentId, record, localAgentStatusSource(targetAgentId, finalOverrides));
 }
 
 export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentStatus | null> {
@@ -1891,19 +1903,19 @@ export async function inferLocalAgentBinding(agentId: string, nodeId: string): P
     return null;
   }
 
-  const setup = await loadResolvedRelayAgents();
-  const agent = setup.agents.find((entry) => entry.agentId === agentId);
-  if (!agent) {
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[agentId];
+  if (!override) {
     return null;
   }
 
-  const record = localAgentRecordFromResolvedConfig(agent);
+  const record = localAgentRecordFromRelayAgentOverride(agentId, override);
   return buildLocalAgentBinding(
     agentId,
     record,
     isLocalAgentRecordOnline(agentId, record),
     nodeId,
-    agent.source === "inferred" ? "project-inferred" : "relay-agent-registry",
+    "relay-agent-registry",
   );
 }
 
@@ -1934,28 +1946,41 @@ export async function ensureLocalAgentBindingOnline(
     return null;
   }
 
-  const candidate = options.includeDiscovered
-    ? await ensureRelayAgentConfigured(agentId, {
+  // Fallback: hydrate directly from the relay-agents override file. No filesystem walk,
+  // no legacy-mirror sync. `includeDiscovered` used to opt into a filesystem scan that
+  // could resurface project-inferred agents; this path is not used from hot mobile RPCs
+  // and the override file is the single source of truth for `scout up`-registered agents.
+  if (options.includeDiscovered) {
+    const configured = await ensureRelayAgentConfigured(agentId, {
       currentDirectory: options.currentDirectory,
       ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
       syncLegacyMirror: true,
-    })
-    : (await loadResolvedRelayAgents({
-      currentDirectory: options.currentDirectory,
-      ensureCurrentProjectConfig: options.ensureCurrentProjectConfig,
-    })).agents.find((entry) => entry.agentId === agentId);
+    });
+    if (!configured) {
+      return null;
+    }
+    const onlineRecord = await ensureLocalAgentOnline(
+      agentId,
+      recordForHarness(localAgentRecordFromResolvedConfig(configured), options.harness),
+    );
+    return buildLocalAgentBinding(
+      agentId,
+      onlineRecord,
+      isLocalAgentRecordOnline(agentId, onlineRecord),
+      nodeId,
+      configured.registrationKind === "configured" ? "relay-agent-registry" : "project-inferred",
+    );
+  }
 
-  if (!candidate) {
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[agentId];
+  if (!override) {
     return null;
   }
 
-  const source =
-    candidate.registrationKind === "configured"
-      ? "relay-agent-registry"
-      : "project-inferred";
   const onlineRecord = await ensureLocalAgentOnline(
     agentId,
-    recordForHarness(localAgentRecordFromResolvedConfig(candidate), options.harness),
+    recordForHarness(localAgentRecordFromRelayAgentOverride(agentId, override), options.harness),
   );
 
   return buildLocalAgentBinding(
@@ -1963,7 +1988,7 @@ export async function ensureLocalAgentBindingOnline(
     onlineRecord,
     isLocalAgentRecordOnline(agentId, onlineRecord),
     nodeId,
-    source,
+    "relay-agent-registry",
   );
 }
 

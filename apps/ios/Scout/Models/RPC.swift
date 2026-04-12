@@ -48,7 +48,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "sync/replay":              TRPCRoute(path: "sync.replay",            method: .query),
 
     // Bridge
-    "bridge/status":            TRPCRoute(path: "bridge.status",          method: .query),
+    "bridge/status":            TRPCRoute(path: "bridgeStatus",           method: .query),
 
     // Workspace
     "workspace/info":           TRPCRoute(path: "workspace.info",         method: .query),
@@ -329,6 +329,22 @@ struct MobileAgentSummary: Codable, Sendable {
     let statusLabel: String
     let sessionId: String?
     let lastActiveAt: Int?
+}
+
+extension MobileAgentSummary {
+    var projectName: String? {
+        guard let root = workspaceRoot?.trimmedNonEmpty else { return nil }
+        return URL(fileURLWithPath: root).lastPathComponent
+    }
+
+    var resolvedSelector: String? {
+        selector?.trimmedNonEmpty ?? defaultSelector?.trimmedNonEmpty
+    }
+
+    var lastActiveDate: Date? {
+        guard let lastActiveAt else { return nil }
+        return Date(timeIntervalSince1970: Double(lastActiveAt))
+    }
 }
 
 // MARK: - Activity Feed

@@ -12,6 +12,11 @@ struct HomeView: View {
 
     @State private var isRefreshing = false
 
+    private let shortcutColumns = [
+        GridItem(.flexible(), spacing: ScoutSpacing.md),
+        GridItem(.flexible(), spacing: ScoutSpacing.md),
+    ]
+
     private var isConnected: Bool {
         connection.state == .connected
     }
@@ -51,6 +56,8 @@ struct HomeView: View {
                     .padding(.horizontal, ScoutSpacing.lg)
                     .padding(.top, ScoutSpacing.lg)
 
+                shortcutsSection
+
                 if !activeSummaries.isEmpty {
                     activeSessionsSection
                 }
@@ -59,7 +66,7 @@ struct HomeView: View {
                     recentSessionsSection
                 }
 
-                if liveSummaries.isEmpty {
+                if surfacedSummaries.isEmpty {
                     emptyState
                 }
 
@@ -159,42 +166,96 @@ struct HomeView: View {
         return false
     }
 
-    // MARK: - Activity Banner
+    // MARK: - Shortcuts
 
-    private var activityBanner: some View {
-        Button {
-            router.push(.activity)
-        } label: {
-            HStack(spacing: ScoutSpacing.md) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                        .fill(ScoutColors.accent.opacity(0.12))
-                        .frame(width: 36, height: 36)
+    private var shortcutsSection: some View {
+        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+            sectionHeader("Explore")
+                .padding(.horizontal, ScoutSpacing.lg)
 
-                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(ScoutColors.accent)
+            LazyVGrid(columns: shortcutColumns, spacing: ScoutSpacing.md) {
+                shortcutCard(
+                    title: "New Session",
+                    subtitle: isConnected
+                        ? "Browse your workspace and launch a fresh agent."
+                        : "Connect to your Mac to launch a new session.",
+                    icon: "plus.circle.fill",
+                    accent: ScoutColors.accent,
+                    enabled: isConnected
+                ) {
+                    router.push(.newSession)
                 }
 
-                VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
-                    Text("Activity Feed")
+                shortcutCard(
+                    title: "Agents",
+                    subtitle: isConnected
+                        ? "See every live agent and jump into its session."
+                        : "Connect to browse the agents on your Mac.",
+                    icon: "person.3.fill",
+                    accent: ScoutColors.statusActive,
+                    enabled: isConnected
+                ) {
+                    router.push(.agents)
+                }
+            }
+            .padding(.horizontal, ScoutSpacing.lg)
+        }
+        .padding(.top, ScoutSpacing.xl)
+    }
+
+    private func shortcutCard(
+        title: String,
+        subtitle: String,
+        icon: String,
+        accent: Color,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            action()
+        } label: {
+            VStack(alignment: .leading, spacing: ScoutSpacing.md) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                        .fill(accent.opacity(enabled ? 0.14 : 0.08))
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(enabled ? accent : ScoutColors.textMuted)
+                }
+
+                VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
+                    Text(title)
                         .font(ScoutTypography.body(15, weight: .semibold))
                         .foregroundStyle(ScoutColors.textPrimary)
 
-                    Text("See what your agents have been up to")
+                    Text(subtitle)
                         .font(ScoutTypography.caption(12))
                         .foregroundStyle(ScoutColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ScoutColors.textMuted)
+                HStack(spacing: ScoutSpacing.xs) {
+                    Text(enabled ? "Open" : "Offline")
+                        .font(ScoutTypography.caption(11, weight: .semibold))
+                        .foregroundStyle(enabled ? accent : ScoutColors.textMuted)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(enabled ? accent : ScoutColors.textMuted)
+                }
             }
-            .scoutCard()
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
+            .opacity(enabled ? 1 : 0.72)
+            .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.lg)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     // MARK: - Active Sessions (horizontal scroll)
@@ -305,7 +366,7 @@ struct HomeView: View {
                         .foregroundStyle(ScoutColors.textPrimary)
 
                     Text(isConnected
-                         ? "Tap + to start a new session."
+                         ? "Start a new session or jump into an available agent."
                          : "Connect to a bridge to see your sessions.")
                         .font(ScoutTypography.body(15))
                         .foregroundStyle(ScoutColors.textSecondary)

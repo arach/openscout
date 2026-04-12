@@ -28,6 +28,8 @@
     "electron:web": "npm --prefix packages/electron-app run electron:web",
     "cli:build": "npm run protocol:build && npm run runtime:build && npm --prefix packages/cli run build",
     "web:build": "npm --prefix packages/web run build",
+    "web:dev": "npm --prefix packages/web run dev",
+    "server": "bun run apps/desktop/src/server/control-plane-index.ts",
     "cli:dev": "npm --prefix packages/cli run dev",
     "test:happy": "cd apps/desktop && bun run test:happy && cd ../../packages/electron-app && bun run test:happy && cd ../cli && bun run test:happy",
     "protocol:build": "npm --prefix packages/protocol run build",

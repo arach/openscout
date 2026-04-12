@@ -7,5 +7,5 @@ export default defineConfig({
   target: "node22",
   splitting: false,
   noExternal: [/^@scout\/app(?:\/.*)?$/, /^@openscout\/runtime(?:\/.*)?$/, /^@openscout\/protocol(?:\/.*)?$/],
-  external: ["electron"],
+  external: ["electron", "bun:sqlite"],
 });

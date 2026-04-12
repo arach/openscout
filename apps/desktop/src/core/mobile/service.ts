@@ -1,3 +1,5 @@
+import { basename, resolve } from "node:path";
+
 import type {
   AgentDefinition,
   AgentEndpoint,
@@ -660,11 +662,28 @@ export async function createScoutSession(
   currentDirectory?: string,
   deviceId?: string,
 ): Promise<ScoutMobileSessionHandle> {
-  const workspaces = await loadMobileWorkspaceInventory(currentDirectory);
-  const workspace = workspaces.find((entry) => entry.id === input.workspaceId || entry.root === input.workspaceId);
-  if (!workspace) {
-    throw new Error(`Unknown workspace "${input.workspaceId}".`);
+  // The mobile client passes a projectRoot path as workspaceId (see
+  // queryMobileWorkspaces in db-queries.ts). We skip the 4s filesystem inventory
+  // walk here and build a minimal workspace summary directly — createSession is
+  // a hot RPC on every mobile session creation and the downstream code only
+  // needs `root`, `projectName`, and the passthrough fields.
+  const rawWorkspaceId = input.workspaceId?.trim();
+  if (!rawWorkspaceId) {
+    throw new Error(`Invalid workspaceId.`);
   }
+  const workspaceRoot = resolve(rawWorkspaceId);
+  const projectName = basename(workspaceRoot) || workspaceRoot;
+  const workspace: ScoutMobileWorkspaceSummary = {
+    id: workspaceRoot,
+    title: projectName,
+    projectName,
+    root: workspaceRoot,
+    sourceRoot: workspaceRoot,
+    relativePath: workspaceRoot.replace(`${process.env.HOME ?? ""}/`, ""),
+    registrationKind: "configured",
+    defaultHarness: input.harness ?? "claude",
+    harnesses: [],
+  };
 
   // When forceNew is true, generate a unique agent name so it gets
   // a fresh agent ID and conversation (the broker derives conversation ID

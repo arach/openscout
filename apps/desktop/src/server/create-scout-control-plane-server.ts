@@ -19,6 +19,11 @@ import {
   registerScoutWebAssets,
   type ScoutWebAssetMode,
 } from "./server-core.ts";
+import {
+  queryAgents,
+  queryActivity,
+  queryRecentMessages,
+} from "./db-queries.ts";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -87,6 +92,33 @@ export function createScoutControlPlaneServer(
   });
   app.get("/api/shell-state", async (c) => c.json(await shellStateCache.get()));
   app.get("/api/shell-state/refresh", async (c) => c.json(await shellStateCache.refresh()));
+
+  // Direct SQLite reads — no shell calls, no snapshot rebuilds
+  app.get("/api/agents", (c) => c.json(queryAgents()));
+  app.get("/api/activity", (c) => c.json(queryActivity()));
+  app.get("/api/messages", (c) => c.json(queryRecentMessages()));
+
+  // SSE: proxy broker event stream for live updates
+  app.get("/api/events", async (c) => {
+    const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
+    const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
+    const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+    try {
+      const upstream = await fetch(`${brokerUrl}/v1/events/stream`);
+      if (!upstream.ok || !upstream.body) {
+        return c.text("Broker event stream unavailable", 502);
+      }
+      return new Response(upstream.body, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        },
+      });
+    } catch {
+      return c.text("Broker unreachable", 502);
+    }
+  });
 
   registerScoutWebAssets(app, {
     assetMode: options.assetMode,
