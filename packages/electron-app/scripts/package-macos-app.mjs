@@ -81,7 +81,7 @@ const runtimeDependencies = Object.fromEntries(
       throw new Error(`Missing runtime dependency version for ${name} in package.json`);
     }
 
-    return !name.startsWith("@openscout/");
+    return !name.startsWith("@openscout/") && !name.startsWith("@scout/");
   }),
 );
 
