@@ -58,6 +58,7 @@ import {
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_BLOCK_COUNT,
 } from "./local-agent-template.js";
+import { buildManagedAgentShellExports } from "./managed-agent-environment.js";
 
 const BUILT_IN_LOCAL_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -1378,6 +1379,10 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
       "set -uo pipefail",
       `mkdir -p ${JSON.stringify(logsDir)}`,
       `cd ${JSON.stringify(projectPath)}`,
+      ...buildManagedAgentShellExports({
+        agentName,
+        currentDirectory: projectPath,
+      }),
       bootstrapLine,
       buildLocalAgentLaunchCommand(agentName, normalizedRecord, projectPath, promptFile, workerScript),
     ].filter(Boolean).join("\n") + "\n",
@@ -1498,6 +1503,27 @@ export async function restartLocalAgent(
   }
 
   return ensureLocalAgentOnline(agentId, normalizedRecord);
+}
+
+export type ResolvedAgentName = {
+  agentId: string;
+  definitionId: string;
+  projectRoot: string;
+};
+
+export async function resolveLocalAgentByName(name: string): Promise<ResolvedAgentName | null> {
+  const normalized = normalizeAgentSelectorSegment(name);
+  if (!normalized) return null;
+
+  const overrides = await readRelayAgentOverrides();
+  for (const [id, override] of Object.entries(overrides)) {
+    if (BUILT_IN_LOCAL_AGENT_IDS.has(id)) continue;
+    const defId = override.definitionId ?? id;
+    if (defId === normalized || normalizeAgentSelectorSegment(override.projectName ?? "") === normalized) {
+      return { agentId: id, definitionId: defId, projectRoot: override.projectRoot };
+    }
+  }
+  return null;
 }
 
 export async function listLocalAgents(options: {

@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { resolveLocalAgentByName } from "@openscout/runtime/local-agents";
 
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
@@ -7,8 +10,12 @@ import { parseScoutHarness } from "../../core/broker/service.ts";
 import { upScoutAgent } from "../../core/agents/service.ts";
 import { renderScoutUpResult } from "../../ui/terminal/agents.ts";
 
+function looksLikePath(value: string): boolean {
+  return value.includes("/") || value.startsWith(".") || value.startsWith("~");
+}
+
 export async function runUpCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
-  let targetPath: string | null = null;
+  let target: string | null = null;
   let agentName: string | undefined;
   let harness: string | undefined;
 
@@ -43,18 +50,30 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
     if (current.startsWith("--")) {
       throw new ScoutCliError(`unexpected argument for up: ${current}`);
     }
-    if (targetPath) {
+    if (target) {
       throw new ScoutCliError(`unexpected arguments for up: ${args.join(" ")}`);
     }
-    targetPath = current;
+    target = current;
   }
 
-  if (!targetPath) {
-    throw new ScoutCliError("usage: scout up <path> [--name <alias>] [--harness <claude|codex>]");
+  if (!target) {
+    throw new ScoutCliError("usage: scout up <name|path> [--name <alias>] [--harness <claude|codex>]");
+  }
+
+  let projectPath: string;
+
+  if (looksLikePath(target) || existsSync(resolve(target))) {
+    projectPath = resolve(target);
+  } else {
+    const resolved = await resolveLocalAgentByName(target);
+    if (!resolved) {
+      throw new ScoutCliError(`unknown agent "${target}" — not a registered name or valid path`);
+    }
+    projectPath = resolved.projectRoot;
   }
 
   const agent = await upScoutAgent({
-    projectPath: resolve(targetPath),
+    projectPath,
     agentName,
     harness: parseScoutHarness(harness),
     currentDirectory: defaultScoutContextDirectory(context),

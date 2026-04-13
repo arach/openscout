@@ -7,7 +7,7 @@ import {
   loadScoutRelayConfig,
   parseScoutHarness,
   releaseScoutOnAir,
-  resolveScoutAgentName,
+  resolveScoutSenderId,
   sendScoutMessage,
   speakScoutText,
   stripScoutAgentSelectorLabels,
@@ -16,7 +16,8 @@ import { renderScoutMessagePostResult } from "../../ui/terminal/broker.ts";
 
 export async function runSpeakCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   const options = parseSendCommandOptions(args, defaultScoutContextDirectory(context));
-  const senderId = resolveScoutAgentName(options.agentName);
+  const currentDirectory = options.currentDirectory ?? defaultScoutContextDirectory(context);
+  const senderId = await resolveScoutSenderId(options.agentName, currentDirectory);
   const config = await loadScoutRelayConfig();
   const voice = getScoutVoiceForChannel(config, "voice");
 

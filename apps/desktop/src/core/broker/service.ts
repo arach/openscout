@@ -232,6 +232,21 @@ export function resolveScoutAgentName(agentName?: string | null): string {
   return OPERATOR_ID;
 }
 
+export async function resolveScoutSenderId(agentName: string | null | undefined, currentDirectory: string): Promise<string> {
+  if (agentName?.trim()) {
+    return agentName.trim();
+  }
+  if (process.env.OPENSCOUT_AGENT?.trim()) {
+    return process.env.OPENSCOUT_AGENT.trim();
+  }
+  const { findNearestProjectRoot } = await import("@openscout/runtime/setup");
+  const { resolveLocalAgentByName } = await import("@openscout/runtime/local-agents");
+  const projectRoot = await findNearestProjectRoot(currentDirectory) ?? currentDirectory;
+  const projectName = basename(projectRoot);
+  const agent = await resolveLocalAgentByName(projectName);
+  return agent?.agentId ?? projectName;
+}
+
 export function parseScoutHarness(value?: string | null): AgentHarness | undefined {
   const trimmed = value?.trim();
   if (!trimmed) {

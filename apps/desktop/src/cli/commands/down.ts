@@ -1,3 +1,5 @@
+import { resolveLocalAgentByName } from "@openscout/runtime/local-agents";
+
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
@@ -18,6 +20,14 @@ export async function runDownCommand(context: ScoutCommandContext, args: string[
     return;
   }
 
-  const agent = await downScoutAgent(target);
+  // Try direct agentId first, fall back to short name resolution
+  let agent = await downScoutAgent(target);
+  if (!agent) {
+    const resolved = await resolveLocalAgentByName(target);
+    if (resolved) {
+      agent = await downScoutAgent(resolved.agentId);
+    }
+  }
+
   context.output.writeValue(agent, renderScoutDownResult);
 }
