@@ -8,13 +8,13 @@ import { getLocalAgentConfig } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { relayAgentLogsDirectory } from "@openscout/runtime/support-paths";
 
-export type ScoutElectronAgentSessionMode = "tmux" | "logs" | "none";
+export type ScoutDesktopAgentSessionMode = "tmux" | "logs" | "none";
 
-export type ScoutElectronAgentSessionInspector = {
+export type ScoutDesktopAgentSessionInspector = {
   agentId: string;
   title: string;
   subtitle: string;
-  mode: ScoutElectronAgentSessionMode;
+  mode: ScoutDesktopAgentSessionMode;
   harness: string | null;
   transport: string | null;
   sessionId: string | null;
@@ -28,7 +28,7 @@ export type ScoutElectronAgentSessionInspector = {
   missing: boolean;
 };
 
-export type ScoutElectronAgentSessionHost = {
+export type ScoutDesktopAgentSessionHost = {
   platform?: string;
   execFile?: (file: string, args: string[]) => Promise<void>;
   openPath?: (targetPath: string) => Promise<string> | string;
@@ -237,7 +237,7 @@ async function readAgentSessionLogs(agentId: string, tailLines: number): Promise
   };
 }
 
-type ScoutElectronAgentEndpoint = {
+type ScoutDesktopAgentEndpoint = {
   agentId: string;
   state?: string;
   transport?: string;
@@ -247,7 +247,7 @@ type ScoutElectronAgentEndpoint = {
   sessionId?: string;
 };
 
-function activeEndpoint(snapshot: RuntimeRegistrySnapshot, agentId: string): ScoutElectronAgentEndpoint | null {
+function activeEndpoint(snapshot: RuntimeRegistrySnapshot, agentId: string): ScoutDesktopAgentEndpoint | null {
   const candidates = Object.values(snapshot.endpoints as Record<string, {
     agentId: string;
     state?: string;
@@ -265,8 +265,6 @@ function activeEndpoint(snapshot: RuntimeRegistrySnapshot, agentId: string): Sco
         return 1;
       case "waiting":
         return 2;
-      case "degraded":
-        return 3;
       case "offline":
         return 5;
       default:
@@ -286,7 +284,7 @@ function buildTmuxInspector(input: {
   directoryPath: string | null;
   cwdLabel: string | null;
   tailLines: number;
-}): ScoutElectronAgentSessionInspector | null {
+}): ScoutDesktopAgentSessionInspector | null {
   const tmuxCapture = captureTmuxPane(input.sessionId, input.tailLines);
   if (tmuxCapture.missing) {
     return null;
@@ -313,7 +311,7 @@ function buildTmuxInspector(input: {
   };
 }
 
-export async function getScoutElectronAgentSession(agentId: string): Promise<ScoutElectronAgentSessionInspector> {
+export async function getScoutDesktopAgentSession(agentId: string): Promise<ScoutDesktopAgentSessionInspector> {
   const [agentConfig, broker] = await Promise.all([
     getLocalAgentConfig(agentId),
     loadScoutBrokerContext(),
@@ -414,11 +412,11 @@ export async function getScoutElectronAgentSession(agentId: string): Promise<Sco
   };
 }
 
-export async function openScoutElectronAgentSession(
+export async function openScoutDesktopAgentSession(
   agentId: string,
-  host: ScoutElectronAgentSessionHost = {},
+  host: ScoutDesktopAgentSessionHost = {},
 ): Promise<boolean> {
-  const session = await getScoutElectronAgentSession(agentId);
+  const session = await getScoutDesktopAgentSession(agentId);
   const platform = host.platform ?? process.platform;
 
   if (session.mode === "tmux" && session.commandLabel) {

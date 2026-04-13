@@ -24,6 +24,7 @@ import {
 import {
   ensureRelayAgentConfigured,
   loadResolvedRelayAgents,
+  readRelayAgentOverrides,
   resolveRelayAgentConfig,
   SCOUT_AGENT_ID,
   type ResolvedRelayAgentConfig,
@@ -202,6 +203,7 @@ const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
 const DEFAULT_BROKER_HOST = "127.0.0.1";
 const DEFAULT_BROKER_PORT = 65535;
+const BUILT_IN_SCOUT_AGENT_IDS = new Set([SCOUT_AGENT_ID, "builder", "reviewer", "research"]);
 
 function buildScoutBrokerUrlFromEnv(): string {
   const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
@@ -1572,7 +1574,6 @@ function whoStateRank(state: AgentState | "discovered"): number {
   switch (state) {
     case "active": return 5;
     case "waiting": return 4;
-    case "degraded": return 3;
     case "idle": return 2;
     case "offline": return 1;
     case "discovered":
@@ -1598,18 +1599,23 @@ function whoEntryState(endpoints: ScoutBrokerEndpointRecord[], registrationKind:
   }, "offline");
 }
 
-async function loadDiscoveredAgentMap(currentDirectory: string): Promise<Map<string, ResolvedRelayAgentConfig>> {
+async function loadConfiguredAgentIds(): Promise<Set<string>> {
   try {
-    const setup = await loadResolvedRelayAgents({ currentDirectory });
-    return new Map(setup.discoveredAgents.map((agent) => [agent.agentId, agent]));
+    const overrides = await readRelayAgentOverrides();
+    return new Set(
+      Object.entries(overrides)
+        .filter(([agentId]) => !BUILT_IN_SCOUT_AGENT_IDS.has(agentId))
+        .map(([agentId]) => agentId),
+    );
   } catch {
-    return new Map();
+    return new Set();
   }
 }
 
 export async function listScoutAgents(options: { currentDirectory?: string } = {}): Promise<ScoutWhoEntry[]> {
   const broker = await requireScoutBrokerContext();
-  const discoveredAgents = await loadDiscoveredAgentMap(options.currentDirectory ?? process.cwd());
+  void options;
+  const configuredAgentIds = await loadConfiguredAgentIds();
   const endpointsByAgent = new Map<string, ScoutBrokerEndpointRecord[]>();
   const messageStats = new Map<string, { messages: number; lastSeen: number | null }>();
 
@@ -1633,14 +1639,14 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
     ...Object.keys(broker.snapshot.agents ?? {}),
     ...Array.from(endpointsByAgent.keys()),
     ...Array.from(messageStats.keys()),
-    ...Array.from(discoveredAgents.keys()),
+    ...Array.from(configuredAgentIds.values()),
   ])]
     .filter((agentId) => agentId && agentId !== OPERATOR_ID)
     .filter((agentId) => !isSupersededBrokerAgent(broker.snapshot, agentId))
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];
       const brokerMessages = messageStats.get(agentId);
-      const registrationKind = discoveredAgents.get(agentId)?.registrationKind ?? "broker";
+      const registrationKind: ScoutWhoRegistrationKind = configuredAgentIds.has(agentId) ? "configured" : "broker";
       const state = whoEntryState(endpoints, registrationKind);
       const lastSeen = maxDefined([
         brokerMessages?.lastSeen,

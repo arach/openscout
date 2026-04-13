@@ -12,8 +12,7 @@ export type AgentState =
   | "offline"
   | "idle"
   | "active"
-  | "waiting"
-  | "degraded";
+  | "waiting";
 
 export type VisibilityScope = "private" | "workspace" | "public" | "system";
 

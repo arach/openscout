@@ -14,7 +14,7 @@ import { relayAgentLogsDirectory, relayAgentRuntimeDirectory } from "@openscout/
 
 import { loadScoutBrokerContext } from "../../core/broker/service.ts";
 
-export type ScoutElectronAgentConfigRuntime = {
+export type ScoutDesktopAgentConfigRuntime = {
   cwd: string;
   projectRoot: string | null;
   harness: string;
@@ -24,11 +24,11 @@ export type ScoutElectronAgentConfigRuntime = {
   source: string | null;
 };
 
-export type ScoutElectronAgentConfigToolUse = {
+export type ScoutDesktopAgentConfigToolUse = {
   launchArgsText: string;
 };
 
-export type ScoutElectronAgentConfigState = {
+export type ScoutDesktopAgentConfigState = {
   agentId: string;
   editable: boolean;
   title: string;
@@ -37,13 +37,13 @@ export type ScoutElectronAgentConfigState = {
   note: string | null;
   systemPromptHint: string | null;
   availableHarnesses: string[];
-  runtime: ScoutElectronAgentConfigRuntime;
+  runtime: ScoutDesktopAgentConfigRuntime;
   systemPrompt: string;
-  toolUse: ScoutElectronAgentConfigToolUse;
+  toolUse: ScoutDesktopAgentConfigToolUse;
   capabilitiesText: string;
 };
 
-export type ScoutElectronUpdateAgentConfigInput = {
+export type ScoutDesktopUpdateAgentConfigInput = {
   agentId: string;
   runtime: {
     cwd: string;
@@ -52,7 +52,7 @@ export type ScoutElectronUpdateAgentConfigInput = {
     transport?: string;
   };
   systemPrompt: string;
-  toolUse: ScoutElectronAgentConfigToolUse;
+  toolUse: ScoutDesktopAgentConfigToolUse;
   capabilitiesText: string;
 };
 
@@ -98,8 +98,6 @@ function activeEndpoint(snapshot: RuntimeRegistrySnapshot, agentId: string): Age
         return 1;
       case "waiting":
         return 2;
-      case "degraded":
-        return 3;
       case "offline":
         return 5;
       default:
@@ -123,7 +121,7 @@ function agentTypeLabel(agent: AgentDefinition | null | undefined): string {
   return "Built-in Role";
 }
 
-function buildUnavailableAgentState(agentId: string): ScoutElectronAgentConfigState {
+function buildUnavailableAgentState(agentId: string): ScoutDesktopAgentConfigState {
   return {
     agentId,
     editable: false,
@@ -153,7 +151,7 @@ function buildUnavailableAgentState(agentId: string): ScoutElectronAgentConfigSt
 function buildLocalAgentConfigState(
   agentId: string,
   agentConfig: NonNullable<Awaited<ReturnType<typeof getLocalAgentConfig>>>,
-): ScoutElectronAgentConfigState {
+): ScoutDesktopAgentConfigState {
   const runtimeDirectory = relayAgentRuntimeDirectory(agentId);
   const logsDirectory = relayAgentLogsDirectory(agentId);
 
@@ -186,7 +184,7 @@ function buildLocalAgentConfigState(
 function buildBrokerAgentConfigState(
   agentId: string,
   snapshot: RuntimeRegistrySnapshot,
-): ScoutElectronAgentConfigState {
+): ScoutDesktopAgentConfigState {
   const agent = snapshot.agents[agentId] as AgentDefinition | undefined;
   const endpoint = activeEndpoint(snapshot, agentId);
 
@@ -232,7 +230,7 @@ function buildBrokerAgentConfigState(
   };
 }
 
-export async function getScoutElectronAgentConfig(agentId: string): Promise<ScoutElectronAgentConfigState> {
+export async function getScoutDesktopAgentConfig(agentId: string): Promise<ScoutDesktopAgentConfigState> {
   const agentConfig = await getLocalAgentConfig(agentId);
   if (agentConfig) {
     return buildLocalAgentConfigState(agentId, agentConfig);
@@ -246,9 +244,9 @@ export async function getScoutElectronAgentConfig(agentId: string): Promise<Scou
   return buildBrokerAgentConfigState(agentId, broker.snapshot);
 }
 
-export async function updateScoutElectronAgentConfig(
-  input: ScoutElectronUpdateAgentConfigInput,
-): Promise<ScoutElectronAgentConfigState> {
+export async function updateScoutDesktopAgentConfig(
+  input: ScoutDesktopUpdateAgentConfigInput,
+): Promise<ScoutDesktopAgentConfigState> {
   const nextConfig = await updateLocalAgentConfig(input.agentId, {
     runtime: {
       cwd: input.runtime.cwd,

@@ -1184,8 +1184,6 @@ function whoStateRank(state: AgentState | "discovered"): number {
       return 5;
     case "waiting":
       return 4;
-    case "degraded":
-      return 3;
     case "idle":
       return 2;
     case "offline":

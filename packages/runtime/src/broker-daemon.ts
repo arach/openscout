@@ -674,8 +674,6 @@ function homeEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, age
         return 1;
       case "waiting":
         return 2;
-      case "degraded":
-        return 3;
       case "offline":
         return 5;
       default:
@@ -762,14 +760,6 @@ function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
         reachable: true,
         statusLabel: "Waiting",
         statusDetail: runtimeLabel || "Waiting for follow-up",
-        lastSeenAt,
-      };
-    case "degraded":
-      return {
-        state: "offline",
-        reachable: false,
-        statusLabel: "Degraded",
-        statusDetail: runtimeLabel || "Endpoint degraded",
         lastSeenAt,
       };
     default:
@@ -1359,7 +1349,7 @@ async function executeLocalInvocation(
 
     await persistEndpoint({
       ...runningEndpoint,
-      state: "degraded",
+      state: "offline",
       metadata: {
         ...(runningEndpoint.metadata ?? {}),
         lastError: message,

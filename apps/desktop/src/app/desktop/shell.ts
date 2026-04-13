@@ -201,8 +201,6 @@ function activeEndpoint(snapshot: RuntimeRegistrySnapshot, actorId: string): Age
         return 1;
       case "waiting":
         return 2;
-      case "degraded":
-        return 3;
       case "offline":
         return 5;
       default:
@@ -940,7 +938,7 @@ function machineEndpointState(
   if (endpoint.state === "idle") {
     return "idle";
   }
-  if (endpoint.state === "waiting" || endpoint.state === "degraded") {
+  if (endpoint.state === "waiting") {
     return "waiting";
   }
   return "offline";
