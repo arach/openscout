@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Database } from "bun:sqlite";
+
 import { SQLiteControlPlaneStore } from "./sqlite-store.ts";
 
 const dbRoots = new Set<string>();
@@ -18,6 +20,16 @@ function createStore(): SQLiteControlPlaneStore {
   const root = mkdtempSync(join(tmpdir(), "openscout-sqlite-store-"));
   dbRoots.add(root);
   return new SQLiteControlPlaneStore(join(root, "control-plane.sqlite"));
+}
+
+function createStoreWithPath(): { store: SQLiteControlPlaneStore; dbPath: string } {
+  const root = mkdtempSync(join(tmpdir(), "openscout-sqlite-store-"));
+  dbRoots.add(root);
+  const dbPath = join(root, "control-plane.sqlite");
+  return {
+    store: new SQLiteControlPlaneStore(dbPath),
+    dbPath,
+  };
 }
 
 describe("SQLiteControlPlaneStore", () => {
@@ -81,6 +93,27 @@ describe("SQLiteControlPlaneStore", () => {
       expect(snapshot.conversations["conv-1"]?.participantIds.sort()).toEqual(["agent-1", "operator"]);
       expect(snapshot.messages["msg-1"]?.conversationId).toBe("conv-1");
     } finally {
+      store.close();
+    }
+  });
+
+  test("indexes latest endpoint lookups used by activity projection", () => {
+    const { store, dbPath } = createStoreWithPath();
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      const plan = db.query(
+        `EXPLAIN QUERY PLAN
+        SELECT project_root, cwd, session_id
+        FROM agent_endpoints
+        WHERE agent_id = ?1
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      ).all("agent-1") as Array<{ detail?: string }>;
+
+      expect(plan.some((row) => String(row.detail ?? "").includes("idx_agent_endpoints_agent_updated_at"))).toBe(true);
+    } finally {
+      db.close();
       store.close();
     }
   });

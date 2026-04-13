@@ -86,7 +86,11 @@ function invocationStringValue(
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function actorIdsForMessage(snapshot: RuntimeRegistrySnapshot, conversation: ConversationDefinition, message: MessageRecord): string[] {
+function actorIdsForMessage(
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
+  conversation: ConversationDefinition,
+  message: MessageRecord,
+): string[] {
   return unique([
     ...conversation.participantIds,
     message.actorId,
@@ -96,7 +100,10 @@ function actorIdsForMessage(snapshot: RuntimeRegistrySnapshot, conversation: Con
   ]).filter((id) => Boolean(snapshot.actors[id] || snapshot.agents[id]));
 }
 
-function actorIdsForInvocation(snapshot: RuntimeRegistrySnapshot, invocation: InvocationRequest): string[] {
+function actorIdsForInvocation(
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
+  invocation: InvocationRequest,
+): string[] {
   return unique([
     invocation.requesterId,
     invocation.targetAgentId,
@@ -120,7 +127,7 @@ function actorIdsForInvocation(snapshot: RuntimeRegistrySnapshot, invocation: In
 }
 
 function actorIdsForCollaboration(
-  snapshot: RuntimeRegistrySnapshot,
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
   record: CollaborationRecord,
   conversation?: ConversationDefinition,
 ): string[] {
@@ -148,9 +155,10 @@ function actorIdsForCollaboration(
 }
 
 export function buildMeshMessageBundle(
-  snapshot: RuntimeRegistrySnapshot,
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
   originNode: NodeDefinition,
   message: MessageRecord,
+  options: { bindings?: ConversationBinding[] } = {},
 ): MeshMessageBundle {
   const conversation = snapshot.conversations[message.conversationId];
   if (!conversation) {
@@ -167,13 +175,13 @@ export function buildMeshMessageBundle(
     agents: actorIds
       .map((id) => snapshot.agents[id])
       .filter((entry): entry is AgentDefinition => Boolean(entry)),
-    bindings: Object.values(snapshot.bindings).filter((binding) => binding.conversationId === conversation.id),
+    bindings: options.bindings ?? Object.values(snapshot.bindings).filter((binding) => binding.conversationId === conversation.id),
     message,
   };
 }
 
 export function buildMeshInvocationBundle(
-  snapshot: RuntimeRegistrySnapshot,
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
   originNode: NodeDefinition,
   invocation: InvocationRequest,
 ): MeshInvocationBundle {
@@ -195,7 +203,7 @@ export function buildMeshInvocationBundle(
 }
 
 export function buildMeshCollaborationRecordBundle(
-  snapshot: RuntimeRegistrySnapshot,
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
   originNode: NodeDefinition,
   record: CollaborationRecord,
 ): MeshCollaborationRecordBundle {
@@ -218,7 +226,7 @@ export function buildMeshCollaborationRecordBundle(
 }
 
 export function buildMeshCollaborationEventBundle(
-  snapshot: RuntimeRegistrySnapshot,
+  snapshot: Readonly<RuntimeRegistrySnapshot>,
   originNode: NodeDefinition,
   event: CollaborationEvent,
   record?: CollaborationRecord,

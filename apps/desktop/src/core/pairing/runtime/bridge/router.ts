@@ -23,6 +23,7 @@ import {
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
 import {
+  conversationIdForAgent,
   queryMobileAgents,
   queryMobileSessions,
   queryMobileWorkspaces,
@@ -515,13 +516,18 @@ const mobileRouter = t.router({
       }),
     )
     .query(async ({ input }) => {
-      const conversationId = input.conversationId ?? input.sessionId;
-      if (!conversationId) {
+      const rawId = input.conversationId ?? input.sessionId;
+      if (!rawId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "conversationId is required",
         });
       }
+      // Accept conversation IDs directly, or resolve agent IDs →
+      // dm.operator.{agentId} (the broker's deterministic convention).
+      const conversationId = rawId.startsWith("dm.")
+        ? rawId
+        : conversationIdForAgent(rawId);
       return getScoutMobileSessionSnapshot(
         conversationId,
         {

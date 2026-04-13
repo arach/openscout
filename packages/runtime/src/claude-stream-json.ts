@@ -3,6 +3,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
+
 type SessionRequestOptions = {
   agentName: string;
   sessionId: string;
@@ -229,7 +231,11 @@ class ClaudeStreamJsonSession {
 
     this.process = spawn("claude", args, {
       cwd: this.options.cwd,
-      env: process.env,
+      env: buildManagedAgentEnvironment({
+        agentName: this.options.agentName,
+        currentDirectory: this.options.cwd,
+        baseEnv: process.env,
+      }),
     });
 
     this.process.stdout.setEncoding("utf8");

@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
+const isProductionBuild = process.env.NODE_ENV === "production";
+
 const nextConfig: NextConfig = {
-  output: "export",
+  ...(isProductionBuild ? { output: "export" as const } : {}),
   images: {
     unoptimized: true,
   },

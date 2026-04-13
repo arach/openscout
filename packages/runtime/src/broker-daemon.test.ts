@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { Database } from "bun:sqlite";
 
 import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "./broker-service";
 
@@ -27,7 +25,10 @@ afterEach(async () => {
   harnesses.clear();
 });
 
-async function startBroker(input: { controlHome?: string } = {}): Promise<BrokerHarness> {
+async function startBroker(input: {
+  controlHome?: string;
+  env?: Record<string, string | undefined>;
+} = {}): Promise<BrokerHarness> {
   const controlHome = input.controlHome ?? mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
   const port = 38000 + Math.floor(Math.random() * 2000);
   const baseUrl = buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, port);
@@ -42,6 +43,7 @@ async function startBroker(input: { controlHome?: string } = {}): Promise<Broker
       OPENSCOUT_BROKER_URL: baseUrl,
       OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
       OPENSCOUT_PARENT_PID: "0",
+      ...input.env,
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -488,43 +490,44 @@ describe("broker daemon comms layer", () => {
       },
     });
 
-    const db = new Database(join(controlHome, "control-plane.sqlite"));
     const startedAt = completedAt - 60_000;
-    db.query(
-      `INSERT INTO invocations (
-        id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
-        conversation_id, message_id, context_json, execution_json, ensure_awake, stream,
-        timeout_ms, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, NULL, NULL, 1, 0, NULL, NULL, ?8)`,
-    ).run(
-      "inv-stale-arc",
-      "operator",
-      firstHarness.nodeId,
-      "arc",
-      "consult",
-      "are you there?",
-      "channel.shared",
-      startedAt,
-    );
-    db.query(
-      `INSERT INTO flights (
-        id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
-        metadata_json, started_at, completed_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, ?7, NULL)`,
-    ).run(
-      "flt-stale-arc",
-      "inv-stale-arc",
-      "operator",
-      "arc",
-      "running",
-      "Arc is working.",
-      startedAt,
-    );
-    db.close();
 
     firstHarness.child.kill();
     await firstHarness.child.exited.catch(() => {});
     harnesses.delete(firstHarness);
+
+    appendFileSync(
+      join(controlHome, "broker-journal.jsonl"),
+      [
+        JSON.stringify({
+          kind: "invocation.record",
+          invocation: {
+            id: "inv-stale-arc",
+            requesterId: "operator",
+            requesterNodeId: firstHarness.nodeId,
+            targetAgentId: "arc",
+            action: "consult",
+            task: "are you there?",
+            conversationId: "channel.shared",
+            ensureAwake: true,
+            stream: false,
+            createdAt: startedAt,
+          },
+        }),
+        JSON.stringify({
+          kind: "flight.record",
+          flight: {
+            id: "flt-stale-arc",
+            invocationId: "inv-stale-arc",
+            requesterId: "operator",
+            targetAgentId: "arc",
+            state: "running",
+            summary: "Arc is working.",
+            startedAt,
+          },
+        }),
+      ].join("\n") + "\n",
+    );
 
     const secondHarness = await startBroker({ controlHome });
     const snapshot = await waitFor(async () => getJson<{
@@ -536,5 +539,44 @@ describe("broker daemon comms layer", () => {
     expect(flight?.state).toBe("failed");
     expect(flight?.error).toContain("Stale running flight reconciled");
     expect(typeof flight?.completedAt).toBe("number");
+  }, 15_000);
+
+  test("rebuilds the sqlite projection from the file journal after degraded writes", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const degradedHarness = await startBroker({
+      controlHome,
+      env: {
+        OPENSCOUT_DISABLE_SQLITE: "1",
+      },
+    });
+    await seedBasicConversation(degradedHarness);
+
+    await postJson(degradedHarness.baseUrl, "/v1/messages", {
+      id: "msg-journal-replay-1",
+      conversationId: "channel.shared",
+      actorId: "operator",
+      originNodeId: degradedHarness.nodeId,
+      class: "agent",
+      body: "@fabric recover projection",
+      mentions: [{ actorId: "fabric", label: "@fabric" }],
+      audience: {
+        notify: ["fabric"],
+      },
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    degradedHarness.child.kill();
+    await degradedHarness.child.exited.catch(() => {});
+    harnesses.delete(degradedHarness);
+
+    const recoveredHarness = await startBroker({ controlHome });
+    const activity = await waitFor(
+      async () => getJson<Array<{ messageId?: string }>>(recoveredHarness.baseUrl, "/v1/activity?limit=20"),
+      (items) => items.some((item) => item.messageId === "msg-journal-replay-1"),
+    );
+
+    expect(activity.some((item) => item.messageId === "msg-journal-replay-1")).toBe(true);
   }, 15_000);
 });

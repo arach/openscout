@@ -2,6 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 
+import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
+
 type CodexRequest = {
   id: string | number;
   method: string;
@@ -413,7 +415,11 @@ class CodexAppServerSession {
     const codexExecutable = await resolveCodexExecutable();
     const child = spawn(codexExecutable, ["app-server"], {
       cwd: this.options.cwd,
-      env: process.env,
+      env: buildManagedAgentEnvironment({
+        agentName: this.options.agentName,
+        currentDirectory: this.options.cwd,
+        baseEnv: process.env,
+      }),
       stdio: ["pipe", "pipe", "pipe"],
     });
 

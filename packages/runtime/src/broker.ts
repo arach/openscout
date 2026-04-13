@@ -56,77 +56,19 @@ function defaultTransportForActor(actor?: ActorIdentity): DeliveryTransport {
   }
 }
 
-function resolveParticipantRoutes(
-  registry: RuntimeRegistrySnapshot,
-  participantIds: ScoutId[],
-  localNodeId?: ScoutId,
-): DeliveryRoute[] {
-  const routes: DeliveryRoute[] = [];
-
-  for (const participantId of participantIds) {
-    const actor = registry.actors[participantId];
-    const agent = registry.agents[participantId];
-    const targetIdentity = actor ?? agent;
-    const endpoints = Object.values(registry.endpoints).filter((endpoint) => (
-      endpoint.agentId === participantId && endpoint.state !== "offline"
-    ));
-    const endpoint = endpoints.sort((lhs, rhs) => {
-      const lhsRank = lhs.transport === "codex_app_server"
-        ? 0
-        : lhs.transport === "claude_stream_json"
-          ? 1
-          : lhs.transport === "tmux"
-            ? 2
-            : lhs.transport === "local_socket"
-              ? 3
-              : 4;
-      const rhsRank = rhs.transport === "codex_app_server"
-        ? 0
-        : rhs.transport === "claude_stream_json"
-          ? 1
-          : rhs.transport === "tmux"
-            ? 2
-            : rhs.transport === "local_socket"
-              ? 3
-              : 4;
-      return lhsRank - rhsRank;
-    })[0];
-
-    if (!endpoint) {
-      if (agent?.authorityNodeId && agent.authorityNodeId !== localNodeId) {
-        routes.push({
-          targetId: participantId,
-          nodeId: agent.authorityNodeId,
-          targetKind: toTargetKind(targetIdentity),
-          transport: defaultTransportForActor(targetIdentity),
-          speechEnabled: false,
-        });
-      } else if (agent) {
-        routes.push({
-          targetId: participantId,
-          nodeId: agent.authorityNodeId ?? localNodeId,
-          targetKind: toTargetKind(targetIdentity),
-          transport: defaultTransportForActor(targetIdentity),
-          speechEnabled: false,
-        });
-      }
-
-      continue;
-    }
-
-    routes.push({
-      targetId: participantId,
-      nodeId: endpoint?.nodeId ?? agent?.authorityNodeId,
-      targetKind: toTargetKind(targetIdentity),
-      transport: endpoint?.transport ?? defaultTransportForActor(targetIdentity),
-      speechEnabled: Boolean(
-        actor?.kind === "device" ||
-        endpoints.some((candidate) => candidate.transport === "local_socket" || candidate.transport === "websocket"),
-      ),
-    });
+function endpointTransportRank(transport: AgentEndpoint["transport"]): number {
+  switch (transport) {
+    case "codex_app_server":
+      return 0;
+    case "claude_stream_json":
+      return 1;
+    case "tmux":
+      return 2;
+    case "local_socket":
+      return 3;
+    default:
+      return 4;
   }
-
-  return routes;
 }
 
 function shouldBridgeMessageToBinding(
@@ -183,19 +125,19 @@ function resolveBindingRoutes(
     }));
 }
 
-function activeEndpointsForAgent(
-  registry: RuntimeRegistrySnapshot,
-  agentId: ScoutId,
-  nodeId?: ScoutId,
-  harness?: AgentEndpoint["harness"],
-): AgentEndpoint[] {
-  return Object.values(registry.endpoints).filter((endpoint) => {
-    if (endpoint.agentId !== agentId) return false;
-    if (endpoint.state === "offline") return false;
-    if (nodeId && endpoint.nodeId !== nodeId) return false;
-    if (harness && endpoint.harness !== harness) return false;
-    return true;
-  });
+function preferredEndpoint(endpoints: readonly AgentEndpoint[]): AgentEndpoint | undefined {
+  let preferred: AgentEndpoint | undefined;
+  let preferredRank = Number.POSITIVE_INFINITY;
+
+  for (const endpoint of endpoints) {
+    const rank = endpointTransportRank(endpoint.transport);
+    if (!preferred || rank < preferredRank) {
+      preferred = endpoint;
+      preferredRank = rank;
+    }
+  }
+
+  return preferred;
 }
 
 export class InMemoryControlRuntime implements ControlRuntime {
@@ -207,12 +149,19 @@ export class InMemoryControlRuntime implements ControlRuntime {
 
   private readonly localNodeId?: ScoutId;
 
+  private readonly endpointIdsByAgentId = new Map<ScoutId, Set<ScoutId>>();
+
+  private readonly bindingIdsByConversationId = new Map<ScoutId, Set<ScoutId>>();
+
+  private readonly flightIdByInvocationId = new Map<ScoutId, ScoutId>();
+
   constructor(
     initial: Partial<RuntimeRegistrySnapshot> = {},
     options: { localNodeId?: ScoutId } = {},
   ) {
     this.registry = createRuntimeRegistrySnapshot(initial);
     this.localNodeId = options.localNodeId;
+    this.rebuildIndexes();
   }
 
   snapshot(): RuntimeRegistrySnapshot {
@@ -227,6 +176,79 @@ export class InMemoryControlRuntime implements ControlRuntime {
       flights: { ...this.registry.flights },
       collaborationRecords: { ...this.registry.collaborationRecords },
     });
+  }
+
+  // Internal fast-path access for broker internals. Callers must treat this as read-only.
+  peek(): Readonly<RuntimeRegistrySnapshot> {
+    return this.registry;
+  }
+
+  node(nodeId: ScoutId): NodeDefinition | undefined {
+    return this.registry.nodes[nodeId];
+  }
+
+  agent(agentId: ScoutId): AgentDefinition | undefined {
+    return this.registry.agents[agentId];
+  }
+
+  conversation(conversationId: ScoutId): ConversationDefinition | undefined {
+    return this.registry.conversations[conversationId];
+  }
+
+  message(messageId: ScoutId): MessageRecord | undefined {
+    return this.registry.messages[messageId];
+  }
+
+  collaborationRecord(recordId: ScoutId): CollaborationRecord | undefined {
+    return this.registry.collaborationRecords[recordId];
+  }
+
+  flightForInvocation(invocationId: ScoutId): FlightRecord | undefined {
+    const flightId = this.flightIdByInvocationId.get(invocationId);
+    return flightId ? this.registry.flights[flightId] : undefined;
+  }
+
+  bindingsForConversation(conversationId: ScoutId): ConversationBinding[] {
+    const bindingIds = this.bindingIdsByConversationId.get(conversationId);
+    if (!bindingIds) {
+      return [];
+    }
+
+    const bindings: ConversationBinding[] = [];
+    for (const bindingId of bindingIds) {
+      const binding = this.registry.bindings[bindingId];
+      if (binding) {
+        bindings.push(binding);
+      }
+    }
+
+    return bindings;
+  }
+
+  endpointsForAgent(
+    agentId: ScoutId,
+    options: {
+      includeOffline?: boolean;
+      nodeId?: ScoutId;
+      harness?: AgentEndpoint["harness"];
+    } = {},
+  ): AgentEndpoint[] {
+    const endpointIds = this.endpointIdsByAgentId.get(agentId);
+    if (!endpointIds) {
+      return [];
+    }
+
+    const endpoints: AgentEndpoint[] = [];
+    for (const endpointId of endpointIds) {
+      const endpoint = this.registry.endpoints[endpointId];
+      if (!endpoint) continue;
+      if (!options.includeOffline && endpoint.state === "offline") continue;
+      if (options.nodeId && endpoint.nodeId !== options.nodeId) continue;
+      if (options.harness && endpoint.harness !== options.harness) continue;
+      endpoints.push(endpoint);
+    }
+
+    return endpoints;
   }
 
   recentEvents(limit = 100): ControlEvent[] {
@@ -354,7 +376,12 @@ export class InMemoryControlRuntime implements ControlRuntime {
   }
 
   async upsertEndpoint(endpoint: AgentEndpoint): Promise<void> {
+    const previous = this.registry.endpoints[endpoint.id];
+    if (previous) {
+      this.unindexEndpoint(previous);
+    }
     this.registry.endpoints[endpoint.id] = endpoint;
+    this.indexEndpoint(endpoint);
     this.emit({
       id: createRuntimeId("evt"),
       kind: "agent.endpoint.upserted",
@@ -378,7 +405,12 @@ export class InMemoryControlRuntime implements ControlRuntime {
   }
 
   async upsertBinding(binding: ConversationBinding): Promise<void> {
+    const previous = this.registry.bindings[binding.id];
+    if (previous) {
+      this.unindexBinding(previous);
+    }
     this.registry.bindings[binding.id] = binding;
+    this.indexBinding(binding);
     this.emit({
       id: createRuntimeId("evt"),
       kind: "binding.upserted",
@@ -420,7 +452,12 @@ export class InMemoryControlRuntime implements ControlRuntime {
   }
 
   async upsertFlight(flight: FlightRecord): Promise<void> {
+    const previous = this.registry.flights[flight.id];
+    if (previous && this.flightIdByInvocationId.get(previous.invocationId) === previous.id) {
+      this.flightIdByInvocationId.delete(previous.invocationId);
+    }
     this.registry.flights[flight.id] = flight;
+    this.flightIdByInvocationId.set(flight.invocationId, flight.id);
     this.emit({
       id: createRuntimeId("evt"),
       kind: "flight.updated",
@@ -435,21 +472,28 @@ export class InMemoryControlRuntime implements ControlRuntime {
     message: MessageRecord,
     options: { localOnly?: boolean } = {},
   ): Promise<DeliveryIntent[]> {
+    const deliveries = this.planMessage(message, options);
+    await this.commitMessage(message, deliveries);
+    return deliveries;
+  }
+
+  planMessage(
+    message: MessageRecord,
+    options: { localOnly?: boolean } = {},
+  ): DeliveryIntent[] {
     const conversation = this.registry.conversations[message.conversationId];
     if (!conversation) {
       throw new Error(`unknown conversation: ${message.conversationId}`);
     }
 
-    this.registry.messages[message.id] = message;
-
     const bindingRoutes = resolveBindingRoutes(
-      Object.values(this.registry.bindings).filter((binding) => binding.conversationId === conversation.id),
+      this.bindingsForConversation(conversation.id),
       message,
     );
+    const plannedParticipantRoutes = this.resolveParticipantRoutes(conversation.participantIds);
     const participantRoutes = options.localOnly
-      ? resolveParticipantRoutes(this.registry, conversation.participantIds, this.localNodeId)
-        .filter((route) => !route.nodeId || route.nodeId === this.localNodeId)
-      : resolveParticipantRoutes(this.registry, conversation.participantIds, this.localNodeId);
+      ? plannedParticipantRoutes.filter((route) => !route.nodeId || route.nodeId === this.localNodeId)
+      : plannedParticipantRoutes;
     const deliveries = planMessageDeliveries({
       localNodeId: this.localNodeId,
       message,
@@ -457,6 +501,15 @@ export class InMemoryControlRuntime implements ControlRuntime {
       participantRoutes,
       bindingRoutes: options.localOnly ? [] : bindingRoutes,
     });
+
+    return deliveries;
+  }
+
+  async commitMessage(
+    message: MessageRecord,
+    deliveries: DeliveryIntent[],
+  ): Promise<void> {
+    this.registry.messages[message.id] = message;
 
     this.emit({
       id: createRuntimeId("evt"),
@@ -477,21 +530,26 @@ export class InMemoryControlRuntime implements ControlRuntime {
         payload: { delivery },
       });
     }
-
-    return deliveries;
   }
 
   async invokeAgent(invocation: InvocationRequest): Promise<FlightRecord> {
+    const flight = this.planInvocation(invocation);
+    await this.commitInvocation(invocation, flight);
+    return flight;
+  }
+
+  planInvocation(invocation: InvocationRequest): FlightRecord {
     const targetAgent = this.registry.agents[invocation.targetAgentId];
     if (!targetAgent) {
       throw new Error(`unknown agent: ${invocation.targetAgentId}`);
     }
 
-    const targetEndpoints = activeEndpointsForAgent(
-      this.registry,
+    const targetEndpoints = this.endpointsForAgent(
       invocation.targetAgentId,
-      targetAgent.authorityNodeId,
-      invocation.execution?.harness,
+      {
+        nodeId: targetAgent.authorityNodeId,
+        harness: invocation.execution?.harness,
+      },
     );
     const isLocalAuthority = !this.localNodeId || targetAgent.authorityNodeId === this.localNodeId;
     const startedAt = Date.now();
@@ -531,7 +589,21 @@ export class InMemoryControlRuntime implements ControlRuntime {
       metadata: invocation.metadata,
     };
 
+    return flight;
+  }
+
+  async commitInvocation(
+    invocation: InvocationRequest,
+    flight: FlightRecord,
+  ): Promise<void> {
+    const previous = this.registry.flights[flight.id];
+    if (previous && this.flightIdByInvocationId.get(previous.invocationId) === previous.id) {
+      this.flightIdByInvocationId.delete(previous.invocationId);
+    }
     this.registry.flights[flight.id] = flight;
+    this.flightIdByInvocationId.set(flight.invocationId, flight.id);
+
+    const targetAgent = this.registry.agents[invocation.targetAgentId];
 
     this.emit({
       id: createRuntimeId("evt"),
@@ -547,11 +619,102 @@ export class InMemoryControlRuntime implements ControlRuntime {
       kind: "flight.updated",
       ts: Date.now(),
       actorId: invocation.requesterId,
-      nodeId: targetAgent.authorityNodeId,
+      nodeId: targetAgent?.authorityNodeId,
       payload: { flight },
     });
+  }
 
-    return flight;
+  private rebuildIndexes(): void {
+    for (const endpoint of Object.values(this.registry.endpoints)) {
+      this.indexEndpoint(endpoint);
+    }
+    for (const binding of Object.values(this.registry.bindings)) {
+      this.indexBinding(binding);
+    }
+    for (const flight of Object.values(this.registry.flights)) {
+      this.flightIdByInvocationId.set(flight.invocationId, flight.id);
+    }
+  }
+
+  private indexEndpoint(endpoint: AgentEndpoint): void {
+    this.addIndexedId(this.endpointIdsByAgentId, endpoint.agentId, endpoint.id);
+  }
+
+  private unindexEndpoint(endpoint: AgentEndpoint): void {
+    this.removeIndexedId(this.endpointIdsByAgentId, endpoint.agentId, endpoint.id);
+  }
+
+  private indexBinding(binding: ConversationBinding): void {
+    this.addIndexedId(this.bindingIdsByConversationId, binding.conversationId, binding.id);
+  }
+
+  private unindexBinding(binding: ConversationBinding): void {
+    this.removeIndexedId(this.bindingIdsByConversationId, binding.conversationId, binding.id);
+  }
+
+  private addIndexedId(index: Map<ScoutId, Set<ScoutId>>, key: ScoutId, value: ScoutId): void {
+    const ids = index.get(key) ?? new Set<ScoutId>();
+    ids.add(value);
+    index.set(key, ids);
+  }
+
+  private removeIndexedId(index: Map<ScoutId, Set<ScoutId>>, key: ScoutId, value: ScoutId): void {
+    const ids = index.get(key);
+    if (!ids) {
+      return;
+    }
+
+    ids.delete(value);
+    if (ids.size === 0) {
+      index.delete(key);
+    }
+  }
+
+  private resolveParticipantRoutes(participantIds: ScoutId[]): DeliveryRoute[] {
+    const routes: DeliveryRoute[] = [];
+
+    for (const participantId of participantIds) {
+      const actor = this.registry.actors[participantId];
+      const agent = this.registry.agents[participantId];
+      const targetIdentity = actor ?? agent;
+      const endpoints = this.endpointsForAgent(participantId);
+      const endpoint = preferredEndpoint(endpoints);
+
+      if (!endpoint) {
+        if (agent?.authorityNodeId && agent.authorityNodeId !== this.localNodeId) {
+          routes.push({
+            targetId: participantId,
+            nodeId: agent.authorityNodeId,
+            targetKind: toTargetKind(targetIdentity),
+            transport: defaultTransportForActor(targetIdentity),
+            speechEnabled: false,
+          });
+        } else if (agent) {
+          routes.push({
+            targetId: participantId,
+            nodeId: agent.authorityNodeId ?? this.localNodeId,
+            targetKind: toTargetKind(targetIdentity),
+            transport: defaultTransportForActor(targetIdentity),
+            speechEnabled: false,
+          });
+        }
+
+        continue;
+      }
+
+      routes.push({
+        targetId: participantId,
+        nodeId: endpoint.nodeId ?? agent?.authorityNodeId,
+        targetKind: toTargetKind(targetIdentity),
+        transport: endpoint.transport ?? defaultTransportForActor(targetIdentity),
+        speechEnabled: Boolean(
+          actor?.kind === "device"
+          || endpoints.some((candidate) => candidate.transport === "local_socket" || candidate.transport === "websocket"),
+        ),
+      });
+    }
+
+    return routes;
   }
 
   private emit(event: ControlEvent): void {

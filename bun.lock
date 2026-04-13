@@ -97,7 +97,7 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.13",
+      "version": "0.2.16",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
@@ -107,7 +107,7 @@
     },
     "packages/electron-app": {
       "name": "@scout/electron-app",
-      "version": "0.2.13",
+      "version": "0.2.16",
       "dependencies": {
         "@chat-adapter/state-memory": "^4.20.2",
         "@chat-adapter/telegram": "^4.20.2",
@@ -189,14 +189,14 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.2.13",
+      "version": "0.2.16",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.2.13",
+      "version": "0.2.16",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
@@ -211,7 +211,7 @@
     },
     "packages/web": {
       "name": "@openscout/web",
-      "version": "0.2.13",
+      "version": "0.2.14",
       "bin": {
         "openscout-web": "./bin/openscout-web.mjs",
       },

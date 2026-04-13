@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)..2</string>
+	<string>$(MARKETING_VERSION)..3</string>
 	<key>CFBundleVersion</key>
-	<string>7</string>
+	<string>4</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

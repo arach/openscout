@@ -3,6 +3,8 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 
 import {
+  assertValidCollaborationEvent,
+  assertValidCollaborationRecord,
   buildRelayReturnAddress,
   type ActorIdentity,
   type AgentDefinition,
@@ -21,6 +23,7 @@ import {
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
+import { FileBackedBrokerJournal, type BrokerJournalEntry } from "./broker-journal.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
@@ -45,7 +48,7 @@ import {
   loadRegisteredLocalAgentBindings,
   shouldDisableGeneratedCodexEndpoint,
 } from "./local-agents.js";
-import { SQLiteControlPlaneStore } from "./sqlite-store.js";
+import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
 import {
   buildDefaultBrokerUrl,
@@ -96,6 +99,7 @@ function badRequest(response: ServerResponse, error: unknown): void {
 
 const controlHome = resolveControlPlaneHome();
 const dbPath = join(controlHome, "control-plane.sqlite");
+const journalPath = join(controlHome, "broker-journal.jsonl");
 const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
 const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
 const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
@@ -123,8 +127,12 @@ if (existingBroker) {
   process.exit(0);
 }
 
-const store = new SQLiteControlPlaneStore(dbPath);
-const runtime = createInMemoryControlRuntime(store.loadSnapshot(), { localNodeId: nodeId });
+const journal = new FileBackedBrokerJournal(journalPath);
+await journal.load();
+
+const sqliteDisabled = process.env.OPENSCOUT_DISABLE_SQLITE === "1";
+const runtime = createInMemoryControlRuntime(journal.snapshot(), { localNodeId: nodeId });
+const projection = new RecoverableSQLiteProjection(dbPath, journal, { disabled: sqliteDisabled });
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
@@ -142,7 +150,7 @@ type LegacyRelayMessage = {
 };
 
 function streamEvent(event: ControlEvent): void {
-  store.recordEvent(event);
+  projection.enqueueEvent(event);
   const payload = `event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
   for (const client of eventClients) {
     client.write(payload);
@@ -182,9 +190,6 @@ const localNode: NodeDefinition = {
   lastSeenAt: Date.now(),
 };
 
-await runtime.upsertNode(localNode);
-store.upsertNode(localNode);
-
 const systemActor: ActorIdentity = {
   id: "system",
   kind: "system",
@@ -195,9 +200,6 @@ const systemActor: ActorIdentity = {
     source: "broker",
   },
 };
-
-await runtime.upsertActor(systemActor);
-store.upsertActor(systemActor);
 
 async function bootstrapRegisteredLocalAgents(): Promise<void> {
   await syncRegisteredLocalAgents();
@@ -214,18 +216,267 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
   });
 
   for (const node of result.discovered) {
-    await runtime.upsertNode(node);
-    store.upsertNode(node);
+    await upsertNodeDurably(node);
   }
 
   return result.discovered;
 }
 
 function currentLocalNode(): NodeDefinition {
-  return runtime.snapshot().nodes[nodeId] ?? localNode;
+  return runtime.node(nodeId) ?? localNode;
 }
 
-async function applyMeshBundle(bundle: {
+function normalizeJournalEntries(
+  entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
+): BrokerJournalEntry[] {
+  return Array.isArray(entriesInput) ? entriesInput : [entriesInput];
+}
+
+let durableWriteQueue = Promise.resolve();
+
+function runDurableWrite<T>(work: () => Promise<T>): Promise<T> {
+  const next = durableWriteQueue.then(work, work);
+  durableWriteQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+async function appendJournalEntries(entries: BrokerJournalEntry | BrokerJournalEntry[]): Promise<void> {
+  await journal.appendEntries(entries);
+}
+
+async function commitDurableEntries(
+  entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
+  applyRuntime: () => Promise<void>,
+  options: { enqueueProjection?: boolean } = {},
+): Promise<BrokerJournalEntry[]> {
+  const entries = normalizeJournalEntries(entriesInput);
+  await appendJournalEntries(entries);
+  await applyRuntime();
+  if (options.enqueueProjection !== false) {
+    projection.enqueueEntries(entries);
+  }
+  return entries;
+}
+
+async function upsertNodeDurably(node: NodeDefinition): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "node.upsert", node },
+      async () => {
+        await runtime.upsertNode(node);
+      },
+    );
+  });
+}
+
+async function upsertActorDurably(actor: ActorIdentity): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "actor.upsert", actor },
+      async () => {
+        await runtime.upsertActor(actor);
+      },
+    );
+  });
+}
+
+async function upsertAgentDurably(agent: AgentDefinition): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      [
+        { kind: "actor.upsert", actor: agent },
+        { kind: "agent.upsert", agent },
+      ],
+      async () => {
+        await runtime.upsertActor(agent);
+        await runtime.upsertAgent(agent);
+      },
+    );
+  });
+}
+
+async function upsertEndpointDurably(endpoint: AgentEndpoint): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "agent.endpoint.upsert", endpoint },
+      async () => {
+        await runtime.upsertEndpoint(endpoint);
+      },
+    );
+  });
+}
+
+async function upsertConversationDurably(conversation: ConversationDefinition): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "conversation.upsert", conversation },
+      async () => {
+        await runtime.upsertConversation(conversation);
+      },
+    );
+  });
+}
+
+async function upsertBindingDurably(binding: ConversationBinding): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "binding.upsert", binding },
+      async () => {
+        await runtime.upsertBinding(binding);
+      },
+    );
+  });
+}
+
+async function recordCollaborationDurably(
+  record: CollaborationRecord,
+  options: { enqueueProjection?: boolean } = {},
+): Promise<BrokerJournalEntry[]> {
+  assertValidCollaborationRecord(record);
+  return runDurableWrite(async () => {
+    return commitDurableEntries(
+      { kind: "collaboration.record", record },
+      async () => {
+        await runtime.upsertCollaboration(record);
+      },
+      options,
+    );
+  });
+}
+
+async function appendCollaborationEventDurably(
+  event: CollaborationEvent,
+  options: { enqueueProjection?: boolean } = {},
+): Promise<BrokerJournalEntry[]> {
+  return runDurableWrite(async () => {
+    const record = runtime.collaborationRecord(event.recordId);
+    if (!record) {
+      throw new Error(`unknown collaboration record: ${event.recordId}`);
+    }
+    assertValidCollaborationEvent(event, record);
+
+    return commitDurableEntries(
+      { kind: "collaboration.event.record", event },
+      async () => {
+        await runtime.appendCollaborationEvent(event);
+      },
+      options,
+    );
+  });
+}
+
+async function recordMessageDurably(
+  message: MessageRecord,
+  options: {
+    localOnly?: boolean;
+    enqueueProjection?: boolean;
+  } = {},
+): Promise<{ deliveries: DeliveryIntent[]; entries: BrokerJournalEntry[] }> {
+  return runDurableWrite(async () => {
+    const deliveries = runtime.planMessage(message, {
+      localOnly: options.localOnly,
+    });
+    const entries = await commitDurableEntries(
+      [
+        { kind: "message.record", message },
+        { kind: "deliveries.record", deliveries },
+      ],
+      async () => {
+        await runtime.commitMessage(message, deliveries);
+      },
+      { enqueueProjection: options.enqueueProjection },
+    );
+    return { deliveries, entries };
+  });
+}
+
+async function recordInvocationDurably(
+  invocation: InvocationRequest,
+  options: {
+    flight?: FlightRecord;
+    enqueueProjection?: boolean;
+  } = {},
+): Promise<{ flight: FlightRecord; entries: BrokerJournalEntry[] }> {
+  return runDurableWrite(async () => {
+    const flight = options.flight ?? runtime.planInvocation(invocation);
+    const entries = await commitDurableEntries(
+      [
+        { kind: "invocation.record", invocation },
+        { kind: "flight.record", flight },
+      ],
+      async () => {
+        await runtime.commitInvocation(invocation, flight);
+      },
+      { enqueueProjection: options.enqueueProjection },
+    );
+    return { flight, entries };
+  });
+}
+
+async function recordFlightDurably(flight: FlightRecord): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "flight.record", flight },
+      async () => {
+        await runtime.upsertFlight(flight);
+      },
+    );
+  });
+}
+
+async function recordDeliveryAttemptDurably(attempt: {
+  id: string;
+  deliveryId: string;
+  attempt: number;
+  status: "sent" | "acknowledged" | "failed";
+  error?: string;
+  externalRef?: string;
+  createdAt: number;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      {
+        kind: "delivery.attempt.record",
+        attempt: {
+          id: attempt.id,
+          deliveryId: attempt.deliveryId,
+          attempt: attempt.attempt,
+          status: attempt.status,
+          error: attempt.error,
+          externalRef: attempt.externalRef,
+          createdAt: attempt.createdAt,
+          metadata: attempt.metadata,
+        },
+      },
+      async () => {},
+    );
+  });
+}
+
+async function updateDeliveryStatusDurably(input: {
+  deliveryId: string;
+  status: DeliveryIntent["status"];
+  metadata?: Record<string, unknown>;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: number | null;
+}): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      {
+        kind: "delivery.status.update",
+        deliveryId: input.deliveryId,
+        status: input.status,
+        metadata: input.metadata,
+        leaseOwner: input.leaseOwner,
+        leaseExpiresAt: input.leaseExpiresAt,
+      },
+      async () => {},
+    );
+  });
+}
+
+function buildMeshBundleEntries(bundle: {
   originNode: NodeDefinition;
   actors: ActorIdentity[];
   agents: AgentDefinition[];
@@ -233,52 +484,141 @@ async function applyMeshBundle(bundle: {
   bindings?: ConversationBinding[];
   collaborationRecord?: CollaborationRecord;
   collaborationEvent?: CollaborationEvent;
-}): Promise<void> {
-  await runtime.upsertNode(bundle.originNode);
-  store.upsertNode(bundle.originNode);
+}): BrokerJournalEntry[] {
+  const entries: BrokerJournalEntry[] = [
+    { kind: "node.upsert", node: bundle.originNode },
+  ];
+  const actorIds = new Set<string>();
+  const agentIds = new Set<string>();
+  const bindingIds = new Set<string>();
 
   for (const actor of bundle.actors) {
-    await runtime.upsertActor(actor);
-    store.upsertActor(actor);
+    if (actorIds.has(actor.id)) {
+      continue;
+    }
+    actorIds.add(actor.id);
+    entries.push({ kind: "actor.upsert", actor });
   }
 
   for (const agent of bundle.agents) {
-    await runtime.upsertActor(agent);
-    await runtime.upsertAgent(agent);
-    store.upsertActor(agent);
-    store.upsertAgent(agent);
+    if (agentIds.has(agent.id)) {
+      continue;
+    }
+    agentIds.add(agent.id);
+    if (!actorIds.has(agent.id)) {
+      actorIds.add(agent.id);
+      entries.push({ kind: "actor.upsert", actor: agent });
+    }
+    entries.push({ kind: "agent.upsert", agent });
   }
 
   if (bundle.conversation) {
-    await runtime.upsertConversation(bundle.conversation);
-    store.upsertConversation(bundle.conversation);
+    entries.push({ kind: "conversation.upsert", conversation: bundle.conversation });
   }
 
   for (const binding of bundle.bindings ?? []) {
-    await runtime.upsertBinding(binding);
-    store.upsertBinding(binding);
+    if (bindingIds.has(binding.id)) {
+      continue;
+    }
+    bindingIds.add(binding.id);
+    entries.push({ kind: "binding.upsert", binding });
   }
 
   if (bundle.collaborationRecord) {
-    await runtime.upsertCollaboration(bundle.collaborationRecord);
-    store.recordCollaborationRecord(bundle.collaborationRecord);
+    entries.push({ kind: "collaboration.record", record: bundle.collaborationRecord });
   }
 
   if (bundle.collaborationEvent) {
-    await runtime.appendCollaborationEvent(bundle.collaborationEvent);
-    store.recordCollaborationEvent(bundle.collaborationEvent);
+    entries.push({ kind: "collaboration.event.record", event: bundle.collaborationEvent });
   }
+
+  return entries;
+}
+
+async function applyMeshBundleDurably(bundle: {
+  originNode: NodeDefinition;
+  actors: ActorIdentity[];
+  agents: AgentDefinition[];
+  conversation?: ConversationDefinition;
+  bindings?: ConversationBinding[];
+  collaborationRecord?: CollaborationRecord;
+  collaborationEvent?: CollaborationEvent;
+}, options: { enqueueProjection?: boolean } = {}): Promise<BrokerJournalEntry[]> {
+  if (bundle.collaborationRecord) {
+    assertValidCollaborationRecord(bundle.collaborationRecord);
+  }
+  if (bundle.collaborationEvent) {
+    const record = bundle.collaborationRecord ?? runtime.collaborationRecord(bundle.collaborationEvent.recordId);
+    if (!record) {
+      throw new Error(`unknown collaboration record: ${bundle.collaborationEvent.recordId}`);
+    }
+    assertValidCollaborationEvent(bundle.collaborationEvent, record);
+  }
+
+  const entries = buildMeshBundleEntries(bundle);
+  return commitDurableEntries(
+    entries,
+    async () => {
+      const appliedActorIds = new Set<string>();
+      const appliedAgentIds = new Set<string>();
+      const appliedBindingIds = new Set<string>();
+      await runtime.upsertNode(bundle.originNode);
+
+      for (const actor of bundle.actors) {
+        if (appliedActorIds.has(actor.id)) {
+          continue;
+        }
+        appliedActorIds.add(actor.id);
+        await runtime.upsertActor(actor);
+      }
+
+      for (const agent of bundle.agents) {
+        if (appliedAgentIds.has(agent.id)) {
+          continue;
+        }
+        appliedAgentIds.add(agent.id);
+        if (!appliedActorIds.has(agent.id)) {
+          appliedActorIds.add(agent.id);
+          await runtime.upsertActor(agent);
+        }
+        await runtime.upsertAgent(agent);
+      }
+
+      if (bundle.conversation) {
+        await runtime.upsertConversation(bundle.conversation);
+      }
+
+      for (const binding of bundle.bindings ?? []) {
+        if (appliedBindingIds.has(binding.id)) {
+          continue;
+        }
+        appliedBindingIds.add(binding.id);
+        await runtime.upsertBinding(binding);
+      }
+
+      if (bundle.collaborationRecord) {
+        await runtime.upsertCollaboration(bundle.collaborationRecord);
+      }
+
+      if (bundle.collaborationEvent) {
+        await runtime.appendCollaborationEvent(bundle.collaborationEvent);
+      }
+    },
+    options,
+  );
 }
 
 async function persistFlight(flight: FlightRecord): Promise<void> {
-  await runtime.upsertFlight(flight);
-  store.recordFlight(flight);
+  await recordFlightDurably(flight);
 }
 
 async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
-  await runtime.upsertEndpoint(endpoint);
-  store.upsertEndpoint(endpoint);
+  await upsertEndpointDurably(endpoint);
 }
+
+projection.warm();
+await upsertNodeDurably(localNode);
+await upsertActorDurably(systemActor);
 
 function isWorkingFlightState(state: FlightRecord["state"]): boolean {
   return state === "queued" || state === "waking" || state === "running" || state === "waiting";
@@ -443,7 +783,7 @@ function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
   }
 }
 
-function brokerHomePayload() {
+async function brokerHomePayload() {
   const snapshot = runtime.snapshot();
   const agents = Object.values(snapshot.agents)
     .filter((agent) => !isStaleLocalAgent(agent))
@@ -483,7 +823,7 @@ function brokerHomePayload() {
     })
     .slice(0, 24);
 
-  const activity = store.listActivityItems({ limit: 96 })
+  const activity = (await projection.listActivityItems({ limit: 96 }))
     .filter((item) => Boolean(item.messageId))
     .slice(0, 24)
     .map((item) => {
@@ -665,8 +1005,7 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       ...agent,
       metadata: nextMetadata,
     };
-    await runtime.upsertAgent(nextAgent);
-    store.upsertAgent(nextAgent);
+    await upsertAgentDurably(nextAgent);
     console.log(`[openscout-runtime] archived stale local agent ${agent.id}`);
   }
 }
@@ -678,10 +1017,10 @@ async function syncRegisteredLocalAgents(): Promise<void> {
   );
 
   for (const binding of bindings) {
-    await runtime.upsertActor(binding.actor);
-    await runtime.upsertAgent(binding.agent);
-    store.upsertActor(binding.actor);
-    store.upsertAgent(binding.agent);
+    if (binding.actor.id !== binding.agent.id) {
+      await upsertActorDurably(binding.actor);
+    }
+    await upsertAgentDurably(binding.agent);
     await persistEndpoint(binding.endpoint);
     console.log(
       `[openscout-runtime] local agent ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
@@ -750,10 +1089,10 @@ async function ensureCoreLocalAgentsOnline(): Promise<void> {
   );
 
   for (const binding of coreBindings) {
-    await runtime.upsertActor(binding.actor);
-    await runtime.upsertAgent(binding.agent);
-    store.upsertActor(binding.actor);
-    store.upsertAgent(binding.agent);
+    if (binding.actor.id !== binding.agent.id) {
+      await upsertActorDurably(binding.actor);
+    }
+    await upsertAgentDurably(binding.agent);
     await persistEndpoint(binding.endpoint);
     console.log(
       `[openscout-runtime] core local agent ready ${binding.agent.id} -> ${binding.endpoint.transport}:${binding.endpoint.sessionId ?? binding.endpoint.id}`,
@@ -776,10 +1115,11 @@ function messageVisibilityForConversation(conversation?: ConversationDefinition)
 async function postConversationMessage(
   message: MessageRecord,
 ): Promise<void> {
-  const deliveries = await runtime.postMessage(message);
-  store.recordMessage(message);
-  store.recordDeliveries(deliveries);
+  const { deliveries, entries } = await recordMessageDurably(message, {
+    enqueueProjection: false,
+  });
   await forwardPeerBrokerDeliveries(message, deliveries);
+  projection.enqueueEntries(entries);
 }
 
 async function postInvocationStatusMessage(
@@ -793,8 +1133,7 @@ async function postInvocationStatusMessage(
     return;
   }
 
-  const snapshot = runtime.snapshot();
-  const conversation = snapshot.conversations[invocation.conversationId];
+  const conversation = runtime.conversation(invocation.conversationId);
   if (!conversation) {
     return;
   }
@@ -828,13 +1167,11 @@ async function postInvocationStatusMessage(
   });
 }
 
-function activeLocalEndpointForAgent(agentId: string, harness?: string): AgentEndpoint | undefined {
-  const candidates = Object.values(runtime.snapshot().endpoints).filter((endpoint) => (
-    endpoint.agentId === agentId
-    && endpoint.nodeId === nodeId
-    && endpoint.state !== "offline"
-    && (!harness || endpoint.harness === harness)
-  ));
+function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["harness"]): AgentEndpoint | undefined {
+  const candidates = runtime.endpointsForAgent(agentId, {
+    nodeId,
+    harness,
+  });
   return candidates.find((endpoint) => isLocalAgentEndpointAlive(endpoint));
 }
 
@@ -845,12 +1182,10 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     return existing;
   }
 
-  const staleEndpoints = Object.values(runtime.snapshot().endpoints).filter((endpoint) => (
-    endpoint.agentId === invocation.targetAgentId
-    && endpoint.nodeId === nodeId
-    && endpoint.state !== "offline"
-    && (!requestedHarness || endpoint.harness === requestedHarness)
-  ));
+  const staleEndpoints = runtime.endpointsForAgent(invocation.targetAgentId, {
+    nodeId,
+    harness: requestedHarness,
+  });
 
   for (const endpoint of staleEndpoints) {
     await persistEndpoint({
@@ -878,10 +1213,10 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     return undefined;
   }
 
-  await runtime.upsertActor(binding.actor);
-  await runtime.upsertAgent(binding.agent);
-  store.upsertActor(binding.actor);
-  store.upsertAgent(binding.agent);
+  if (binding.actor.id !== binding.agent.id) {
+    await upsertActorDurably(binding.actor);
+  }
+  await upsertAgentDurably(binding.agent);
   await persistEndpoint(binding.endpoint);
   return binding.endpoint;
 }
@@ -891,8 +1226,7 @@ async function executeLocalInvocation(
   initialFlight: FlightRecord,
 ): Promise<void> {
   const endpoint = await resolveLocalEndpointForInvocation(invocation);
-  const snapshot = runtime.snapshot();
-  const agent = snapshot.agents[invocation.targetAgentId];
+  const agent = runtime.agent(invocation.targetAgentId);
 
   if (!agent || !endpoint) {
     const failedFlight = {
@@ -967,7 +1301,7 @@ async function executeLocalInvocation(
     });
 
     if (invocation.conversationId) {
-      const conversation = runtime.snapshot().conversations[invocation.conversationId];
+      const conversation = runtime.conversation(invocation.conversationId);
       if (conversation) {
         await postConversationMessage({
           id: createRuntimeId("msg"),
@@ -1059,8 +1393,7 @@ async function forwardPeerBrokerDeliveries(
   message: MessageRecord,
   deliveries: DeliveryIntent[],
 ): Promise<{ forwarded: string[]; failed: string[] }> {
-  const snapshot = runtime.snapshot();
-  const conversation = snapshot.conversations[message.conversationId];
+  const conversation = runtime.conversation(message.conversationId);
   if (!conversation || conversation.shareMode === "local") {
     return { forwarded: [], failed: [] };
   }
@@ -1070,19 +1403,26 @@ async function forwardPeerBrokerDeliveries(
       .filter((delivery) => delivery.transport === "peer_broker" && delivery.targetNodeId)
       .map((delivery) => delivery.targetNodeId as string),
   )];
+  if (targetNodeIds.length === 0) {
+    return { forwarded: [], failed: [] };
+  }
+
+  const registry = runtime.peek();
   const originNode = currentLocalNode();
+  const bundle = buildMeshMessageBundle(registry, originNode, message, {
+    bindings: runtime.bindingsForConversation(conversation.id),
+  });
   const forwarded: string[] = [];
   const failed: string[] = [];
 
   for (const targetNodeId of targetNodeIds) {
-    const targetNode = snapshot.nodes[targetNodeId];
+    const targetNode = runtime.node(targetNodeId);
     if (!targetNode?.brokerUrl) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      const bundle = buildMeshMessageBundle(snapshot, originNode, message);
       await forwardMeshMessage(targetNode.brokerUrl, bundle);
       forwarded.push(targetNodeId);
     } catch {
@@ -1123,33 +1463,37 @@ function actorIdsForCollaboration(
 async function forwardPeerBrokerCollaborationRecord(
   record: CollaborationRecord,
 ): Promise<{ forwarded: string[]; failed: string[] }> {
-  const snapshot = runtime.snapshot();
   const conversation = record.conversationId
-    ? snapshot.conversations[record.conversationId]
+    ? runtime.conversation(record.conversationId)
     : undefined;
   if (!conversation || conversation.shareMode === "local") {
     return { forwarded: [], failed: [] };
   }
 
+  const registry = runtime.peek();
   const actorIds = actorIdsForCollaboration(record, conversation);
   const targetNodeIds = [...new Set(
     actorIds
-      .map((actorId) => snapshot.agents[actorId]?.authorityNodeId)
+      .map((actorId) => runtime.agent(actorId)?.authorityNodeId)
       .filter((id): id is string => Boolean(id && id !== nodeId)),
   )];
+  if (targetNodeIds.length === 0) {
+    return { forwarded: [], failed: [] };
+  }
+
   const originNode = currentLocalNode();
+  const bundle = buildMeshCollaborationRecordBundle(registry, originNode, record);
   const forwarded: string[] = [];
   const failed: string[] = [];
 
   for (const targetNodeId of targetNodeIds) {
-    const targetNode = snapshot.nodes[targetNodeId];
+    const targetNode = runtime.node(targetNodeId);
     if (!targetNode?.brokerUrl) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      const bundle = buildMeshCollaborationRecordBundle(snapshot, originNode, record);
       await forwardMeshCollaborationRecord(targetNode.brokerUrl, bundle);
       forwarded.push(targetNodeId);
     } catch {
@@ -1163,37 +1507,41 @@ async function forwardPeerBrokerCollaborationRecord(
 async function forwardPeerBrokerCollaborationEvent(
   event: CollaborationEvent,
 ): Promise<{ forwarded: string[]; failed: string[] }> {
-  const snapshot = runtime.snapshot();
-  const record = snapshot.collaborationRecords[event.recordId];
+  const record = runtime.collaborationRecord(event.recordId);
   if (!record) {
     return { forwarded: [], failed: [] };
   }
   const conversation = record.conversationId
-    ? snapshot.conversations[record.conversationId]
+    ? runtime.conversation(record.conversationId)
     : undefined;
   if (!conversation || conversation.shareMode === "local") {
     return { forwarded: [], failed: [] };
   }
 
+  const registry = runtime.peek();
   const actorIds = actorIdsForCollaboration(record, conversation);
   const targetNodeIds = [...new Set(
     actorIds
-      .map((actorId) => snapshot.agents[actorId]?.authorityNodeId)
+      .map((actorId) => runtime.agent(actorId)?.authorityNodeId)
       .filter((id): id is string => Boolean(id && id !== nodeId)),
   )];
+  if (targetNodeIds.length === 0) {
+    return { forwarded: [], failed: [] };
+  }
+
   const originNode = currentLocalNode();
+  const bundle = buildMeshCollaborationEventBundle(registry, originNode, event, record);
   const forwarded: string[] = [];
   const failed: string[] = [];
 
   for (const targetNodeId of targetNodeIds) {
-    const targetNode = snapshot.nodes[targetNodeId];
+    const targetNode = runtime.node(targetNodeId);
     if (!targetNode?.brokerUrl) {
       failed.push(targetNodeId);
       continue;
     }
 
     try {
-      const bundle = buildMeshCollaborationEventBundle(snapshot, originNode, event, record);
       await forwardMeshCollaborationEvent(targetNode.brokerUrl, bundle);
       forwarded.push(targetNodeId);
     } catch {
@@ -1207,8 +1555,7 @@ async function forwardPeerBrokerCollaborationEvent(
 async function maybeForwardInvocation(
   invocation: InvocationRequest,
 ): Promise<{ forwarded: boolean; flight?: { id: string; invocationId: string; requesterId: string; targetAgentId: string; state: string; startedAt?: number; completedAt?: number; summary?: string; output?: string; error?: string; metadata?: Record<string, unknown> } }> {
-  const snapshot = runtime.snapshot();
-  const targetAgent = snapshot.agents[invocation.targetAgentId];
+  const targetAgent = runtime.agent(invocation.targetAgentId);
   if (!targetAgent) {
     throw new Error(`unknown agent ${invocation.targetAgentId}`);
   }
@@ -1217,16 +1564,18 @@ async function maybeForwardInvocation(
     return { forwarded: false };
   }
 
-  const authorityNode = snapshot.nodes[targetAgent.authorityNodeId];
+  const authorityNode = runtime.node(targetAgent.authorityNodeId);
   if (!authorityNode?.brokerUrl) {
     throw new Error(`authority node ${targetAgent.authorityNodeId} is not reachable`);
   }
 
-  const bundle = buildMeshInvocationBundle(snapshot, currentLocalNode(), invocation);
+  const bundle = buildMeshInvocationBundle(runtime.peek(), currentLocalNode(), invocation);
   const result = await forwardMeshInvocation(authorityNode.brokerUrl, bundle);
-  await runtime.upsertFlight(result.flight);
-  store.recordInvocation(invocation);
-  store.recordFlight(result.flight);
+  const { entries } = await recordInvocationDurably(invocation, {
+    flight: result.flight,
+    enqueueProjection: false,
+  });
+  projection.enqueueEntries(entries);
   return { forwarded: true, flight: result.flight };
 }
 
@@ -1308,52 +1657,53 @@ async function listen(serverInstance: ReturnType<typeof createServer>): Promise<
 async function handleCommand(command: ControlCommand): Promise<unknown> {
   switch (command.kind) {
     case "node.upsert":
-      await runtime.upsertNode(command.node);
-      store.upsertNode(command.node);
+      await upsertNodeDurably(command.node);
       return { ok: true };
     case "actor.upsert":
-      await runtime.upsertActor(command.actor);
-      store.upsertActor(command.actor);
+      await upsertActorDurably(command.actor);
       return { ok: true };
     case "agent.upsert":
-      await runtime.upsertActor(command.agent);
-      await runtime.upsertAgent(command.agent);
-      store.upsertActor(command.agent);
-      store.upsertAgent(command.agent);
+      await upsertAgentDurably(command.agent);
       return { ok: true };
     case "agent.endpoint.upsert":
-      await runtime.upsertEndpoint(command.endpoint);
-      store.upsertEndpoint(command.endpoint);
+      await upsertEndpointDurably(command.endpoint);
       return { ok: true };
     case "conversation.upsert":
-      await runtime.upsertConversation(command.conversation);
-      store.upsertConversation(command.conversation);
+      await upsertConversationDurably(command.conversation);
       return { ok: true };
     case "binding.upsert":
-      await runtime.upsertBinding(command.binding);
-      store.upsertBinding(command.binding);
+      await upsertBindingDurably(command.binding);
       return { ok: true };
-    case "collaboration.upsert":
-      await runtime.upsertCollaboration(command.record);
-      store.recordCollaborationRecord(command.record);
+    case "collaboration.upsert": {
+      const entries = await recordCollaborationDurably(command.record, {
+        enqueueProjection: false,
+      });
+      const mesh = await forwardPeerBrokerCollaborationRecord(command.record);
+      projection.enqueueEntries(entries);
       return {
         ok: true,
         recordId: command.record.id,
-        mesh: await forwardPeerBrokerCollaborationRecord(command.record),
+        mesh,
       };
-    case "collaboration.event.append":
-      await runtime.appendCollaborationEvent(command.event);
-      store.recordCollaborationEvent(command.event);
+    }
+    case "collaboration.event.append": {
+      const entries = await appendCollaborationEventDurably(command.event, {
+        enqueueProjection: false,
+      });
+      const mesh = await forwardPeerBrokerCollaborationEvent(command.event);
+      projection.enqueueEntries(entries);
       return {
         ok: true,
         eventId: command.event.id,
-        mesh: await forwardPeerBrokerCollaborationEvent(command.event),
+        mesh,
       };
+    }
     case "conversation.post": {
-      const deliveries = await runtime.postMessage(command.message);
-      store.recordMessage(command.message);
-      store.recordDeliveries(deliveries);
+      const { deliveries, entries } = await recordMessageDurably(command.message, {
+        enqueueProjection: false,
+      });
       const mesh = await forwardPeerBrokerDeliveries(command.message, deliveries);
+      projection.enqueueEntries(entries);
       console.log(
         `[openscout-runtime] message ${command.message.id} posted by ${command.message.actorId} to ${command.message.conversationId} with ${deliveries.length} deliveries`,
       );
@@ -1367,9 +1717,9 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
         );
         return { ok: true, flight: forwarded.flight, forwarded: true };
       }
-      const flight = await runtime.invokeAgent(command.invocation);
-      store.recordInvocation(command.invocation);
-      store.recordFlight(flight);
+      const { flight, entries } = await recordInvocationDurably(command.invocation, {
+        enqueueProjection: false,
+      });
       console.log(
         `[openscout-runtime] invocation ${command.invocation.id} -> ${command.invocation.targetAgentId} is ${flight.state}${flight.summary ? ` (${flight.summary})` : ""}`,
       );
@@ -1378,6 +1728,7 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       } else {
         launchLocalInvocation(command.invocation, flight);
       }
+      projection.enqueueEntries(entries);
       return { ok: true, flight };
     }
     case "agent.ensure_awake":
@@ -1424,7 +1775,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   if (method === "GET" && url.pathname === "/v1/home") {
-    json(response, 200, brokerHomePayload());
+    json(response, 200, await brokerHomePayload());
     return;
   }
 
@@ -1449,7 +1800,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   if (method === "GET" && url.pathname === "/v1/events") {
-    json(response, 200, store.recentEvents(parseLimit(url)));
+    json(response, 200, runtime.recentEvents(parseLimit(url)));
     return;
   }
 
@@ -1457,7 +1808,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     const agentId = url.searchParams.get("agentId") ?? undefined;
     const actorId = url.searchParams.get("actorId") ?? undefined;
     const conversationId = url.searchParams.get("conversationId") ?? undefined;
-    json(response, 200, store.listActivityItems({
+    json(response, 200, await projection.listActivityItems({
       limit: parseLimit(url),
       agentId,
       actorId,
@@ -1471,7 +1822,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     const state = url.searchParams.get("state") ?? undefined;
     const ownerId = url.searchParams.get("ownerId") ?? undefined;
     const nextMoveOwnerId = url.searchParams.get("nextMoveOwnerId") ?? undefined;
-    const records = store.listCollaborationRecords({
+    const records = journal.listCollaborationRecords({
       limit: parseLimit(url),
       kind: kind as CollaborationRecord["kind"] | undefined,
       state: state ?? undefined,
@@ -1484,7 +1835,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/collaboration/events") {
     const recordId = url.searchParams.get("recordId") ?? undefined;
-    const events = store.listCollaborationEvents({
+    const events = journal.listCollaborationEvents({
       limit: parseLimit(url),
       recordId: recordId ?? undefined,
     });
@@ -1495,7 +1846,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "GET" && url.pathname === "/v1/deliveries") {
     const transport = url.searchParams.get("transport") ?? undefined;
     const statusFilter = url.searchParams.get("status") ?? undefined;
-    json(response, 200, store.listDeliveries({
+    json(response, 200, journal.listDeliveries({
       limit: parseLimit(url),
       transport: transport as DeliveryIntent["transport"] | undefined,
       status: statusFilter as DeliveryIntent["status"] | undefined,
@@ -1509,7 +1860,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       badRequest(response, new Error("deliveryId is required"));
       return;
     }
-    json(response, 200, store.listDeliveryAttempts(deliveryId));
+    json(response, 200, journal.listDeliveryAttempts(deliveryId));
     return;
   }
 
@@ -1561,17 +1912,42 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/messages") {
     try {
       const bundle = await readRequestBody<MeshMessageBundle>(request);
-      await applyMeshBundle(bundle);
+      const result = await runDurableWrite(async () => {
+        const bundleEntries = await applyMeshBundleDurably(bundle, {
+          enqueueProjection: false,
+        });
 
-      if (runtime.snapshot().messages[bundle.message.id]) {
-        json(response, 200, { ok: true, duplicate: true });
-        return;
-      }
+        if (runtime.message(bundle.message.id)) {
+          return {
+            duplicate: true as const,
+            bundleEntries,
+            messageEntries: [] as BrokerJournalEntry[],
+            deliveries: [] as DeliveryIntent[],
+          };
+        }
 
-      const deliveries = await runtime.postMessage(bundle.message, { localOnly: true });
-      store.recordMessage(bundle.message);
-      store.recordDeliveries(deliveries);
-      json(response, 200, { ok: true, deliveries });
+        const deliveries = runtime.planMessage(bundle.message, { localOnly: true });
+        const messageEntries = await commitDurableEntries(
+          [
+            { kind: "message.record", message: bundle.message },
+            { kind: "deliveries.record", deliveries },
+          ],
+          async () => {
+            await runtime.commitMessage(bundle.message, deliveries);
+          },
+          { enqueueProjection: false },
+        );
+
+        return {
+          duplicate: false as const,
+          bundleEntries,
+          messageEntries,
+          deliveries,
+        };
+      });
+
+      projection.enqueueEntries([...result.bundleEntries, ...result.messageEntries]);
+      json(response, 200, result.duplicate ? { ok: true, duplicate: true } : { ok: true, deliveries: result.deliveries });
     } catch (error) {
       badRequest(response, error);
     }
@@ -1581,31 +1957,69 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/invocations") {
     try {
       const bundle = await readRequestBody<MeshInvocationBundle>(request);
-      await applyMeshBundle(bundle);
+      const result = await runDurableWrite(async () => {
+        const bundleEntries = await applyMeshBundleDurably(bundle, {
+          enqueueProjection: false,
+        });
 
-      const targetAgent = runtime.snapshot().agents[bundle.invocation.targetAgentId];
-      if (!targetAgent) {
-        throw new Error(`unknown target agent ${bundle.invocation.targetAgentId}`);
-      }
-      if (targetAgent.authorityNodeId !== nodeId) {
+        const targetAgent = runtime.agent(bundle.invocation.targetAgentId);
+        if (!targetAgent) {
+          throw new Error(`unknown target agent ${bundle.invocation.targetAgentId}`);
+        }
+        if (targetAgent.authorityNodeId !== nodeId) {
+          return {
+            kind: "not_authority" as const,
+            bundleEntries,
+            targetAgent,
+          };
+        }
+
+        const existing = runtime.flightForInvocation(bundle.invocation.id);
+        if (existing) {
+          return {
+            kind: "duplicate" as const,
+            bundleEntries,
+            flight: existing,
+          };
+        }
+
+        const flight = runtime.planInvocation(bundle.invocation);
+        const invocationEntries = await commitDurableEntries(
+          [
+            { kind: "invocation.record", invocation: bundle.invocation },
+            { kind: "flight.record", flight },
+          ],
+          async () => {
+            await runtime.commitInvocation(bundle.invocation, flight);
+          },
+          { enqueueProjection: false },
+        );
+
+        return {
+          kind: "ok" as const,
+          bundleEntries,
+          invocationEntries,
+          flight,
+        };
+      });
+
+      if (result.kind === "not_authority") {
+        projection.enqueueEntries(result.bundleEntries);
         json(response, 409, {
           error: "not_authority",
-          detail: `agent ${targetAgent.id} is owned by ${targetAgent.authorityNodeId}`,
+          detail: `agent ${result.targetAgent.id} is owned by ${result.targetAgent.authorityNodeId}`,
         });
         return;
       }
 
-      const existing = Object.values(runtime.snapshot().flights)
-        .find((flight) => flight.invocationId === bundle.invocation.id);
-      if (existing) {
-        json(response, 200, { ok: true, duplicate: true, flight: existing });
+      if (result.kind === "duplicate") {
+        projection.enqueueEntries(result.bundleEntries);
+        json(response, 200, { ok: true, duplicate: true, flight: result.flight });
         return;
       }
 
-      const flight = await runtime.invokeAgent(bundle.invocation);
-      store.recordInvocation(bundle.invocation);
-      store.recordFlight(flight);
-      json(response, 200, { ok: true, flight });
+      projection.enqueueEntries([...result.bundleEntries, ...result.invocationEntries]);
+      json(response, 200, { ok: true, flight: result.flight });
     } catch (error) {
       badRequest(response, error);
     }
@@ -1615,9 +2029,15 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/collaboration/records") {
     try {
       const bundle = await readRequestBody<MeshCollaborationRecordBundle>(request);
-      const existing = runtime.snapshot().collaborationRecords[bundle.record.id];
-      await applyMeshBundle(bundle);
-      json(response, 200, existing ? { ok: true, duplicate: true } : { ok: true });
+      const result = await runDurableWrite(async () => {
+        const existing = runtime.collaborationRecord(bundle.record.id);
+        const entries = await applyMeshBundleDurably(bundle, {
+          enqueueProjection: false,
+        });
+        return { existing, entries };
+      });
+      projection.enqueueEntries(result.entries);
+      json(response, 200, result.existing ? { ok: true, duplicate: true } : { ok: true });
     } catch (error) {
       badRequest(response, error);
     }
@@ -1627,7 +2047,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/collaboration/events") {
     try {
       const bundle = await readRequestBody<MeshCollaborationEventBundle>(request);
-      await applyMeshBundle(bundle);
+      const entries = await runDurableWrite(async () => applyMeshBundleDurably(bundle, {
+        enqueueProjection: false,
+      }));
+      projection.enqueueEntries(entries);
       json(response, 200, { ok: true });
     } catch (error) {
       badRequest(response, error);
@@ -1726,7 +2149,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (collaborationInvokeMatch) {
     try {
       const recordId = decodeURIComponent(collaborationInvokeMatch[1] ?? "");
-      const record = runtime.snapshot().collaborationRecords[recordId];
+      const record = runtime.collaborationRecord(recordId);
       if (!record) {
         throw new Error(`unknown collaboration record: ${recordId}`);
       }
@@ -1786,16 +2209,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         createdAt: number;
         metadata?: Record<string, unknown>;
       }>(request);
-      store.recordDeliveryAttempt({
-        id: attempt.id,
-        deliveryId: attempt.deliveryId,
-        attempt: attempt.attempt,
-        status: attempt.status,
-        error: attempt.error,
-        externalRef: attempt.externalRef,
-        createdAt: attempt.createdAt,
-        metadata: attempt.metadata,
-      });
+      await recordDeliveryAttemptDurably(attempt);
       json(response, 200, { ok: true, deliveryId: attempt.deliveryId, attemptId: attempt.id });
     } catch (error) {
       badRequest(response, error);
@@ -1812,11 +2226,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         leaseOwner?: string | null;
         leaseExpiresAt?: number | null;
       }>(request);
-      store.updateDeliveryStatus(body.deliveryId, body.status, {
-        metadata: body.metadata,
-        leaseOwner: body.leaseOwner,
-        leaseExpiresAt: body.leaseExpiresAt,
-      });
+      await updateDeliveryStatusDurably(body);
       json(response, 200, { ok: true, deliveryId: body.deliveryId, status: body.status });
     } catch (error) {
       badRequest(response, error);
@@ -1862,7 +2272,8 @@ try {
   await listen(server);
   console.log(`[openscout-runtime] broker listening on ${brokerUrl}`);
   console.log(`[openscout-runtime] node ${nodeId} in mesh ${meshId}`);
-  console.log(`[openscout-runtime] sqlite ${dbPath}`);
+  console.log(`[openscout-runtime] journal ${journalPath}`);
+  console.log(`[openscout-runtime] sqlite ${sqliteDisabled ? "disabled" : dbPath}`);
 } catch (error) {
   if (isAddressInUse(error)) {
     const existing = await probeExistingBroker();
@@ -1907,7 +2318,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     for (const client of eventClients) {
       client.end();
     }
-    store.close();
+    projection.close();
     server.close(() => process.exit(0));
   });
 }
@@ -1921,7 +2332,7 @@ if (Number.isFinite(parentPid) && parentPid > 0) {
       for (const client of eventClients) {
         client.end();
       }
-      store.close();
+      projection.close();
       server.close(() => process.exit(0));
     }
   }, 2_000).unref();

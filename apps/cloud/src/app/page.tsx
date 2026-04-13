@@ -16,10 +16,16 @@ export default function HomePage() {
         </div>
         <h1 style={{ margin: "12px 0 8px", fontSize: 36, lineHeight: 1.1 }}>API Surface</h1>
         <p style={{ margin: 0, color: "#a7b2c2", lineHeight: 1.7 }}>
-          This deployment accepts Scout app feedback submissions and exposes a small feedback review surface.
+          This deployment accepts landing-page intent captures, Scout app feedback submissions,
+          and exposes a small feedback review surface.
         </p>
 
         <div style={{ marginTop: 28, display: "grid", gap: 12 }}>
+          <EndpointCard
+            method="POST"
+            path="/api/intent"
+            description="Public landing-page intent capture endpoint for OpenScout interest and email collection."
+          />
           <EndpointCard
             method="POST"
             path="/api/feedback"

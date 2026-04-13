@@ -1,0 +1,254 @@
+import { describe, expect, test } from "bun:test";
+
+import { createInMemoryControlRuntime } from "./broker.ts";
+
+describe("InMemoryControlRuntime", () => {
+  test("posts messages using indexed endpoints and bindings", async () => {
+    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+
+    await runtime.upsertNode({
+      id: "node-1",
+      meshId: "mesh-1",
+      name: "Node 1",
+      advertiseScope: "local",
+      registeredAt: Date.now(),
+    });
+    await runtime.upsertActor({
+      id: "operator",
+      kind: "person",
+      displayName: "Operator",
+    });
+    await runtime.upsertActor({
+      id: "fabric",
+      kind: "agent",
+      displayName: "Fabric",
+    });
+    await runtime.upsertAgent({
+      id: "fabric",
+      kind: "agent",
+      definitionId: "fabric",
+      displayName: "Fabric",
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+    });
+    await runtime.upsertConversation({
+      id: "conv-1",
+      kind: "direct",
+      title: "Direct",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", "fabric"],
+    });
+    await runtime.upsertBinding({
+      id: "binding-1",
+      conversationId: "conv-1",
+      platform: "webhook",
+      mode: "bidirectional",
+      externalChannelId: "ext-1",
+    });
+    await runtime.upsertEndpoint({
+      id: "fabric-local",
+      agentId: "fabric",
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "local_socket",
+      state: "active",
+    });
+    await runtime.upsertEndpoint({
+      id: "fabric-preferred",
+      agentId: "fabric",
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "active",
+    });
+
+    for (let index = 0; index < 200; index += 1) {
+      const agentId = `extra-agent-${index}`;
+      await runtime.upsertActor({
+        id: agentId,
+        kind: "agent",
+        displayName: `Extra ${index}`,
+      });
+      await runtime.upsertAgent({
+        id: agentId,
+        kind: "agent",
+        definitionId: agentId,
+        displayName: `Extra ${index}`,
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      await runtime.upsertEndpoint({
+        id: `extra-endpoint-${index}`,
+        agentId,
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "local_socket",
+        state: "active",
+      });
+    }
+
+    const deliveries = await runtime.postMessage({
+      id: "msg-1",
+      conversationId: "conv-1",
+      actorId: "operator",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "check status",
+      visibility: "private",
+      policy: "durable",
+      createdAt: Date.now(),
+    });
+
+    expect(runtime.endpointsForAgent("fabric")).toHaveLength(2);
+    expect(runtime.bindingsForConversation("conv-1")).toHaveLength(1);
+    expect(deliveries).toContainEqual(expect.objectContaining({
+      targetId: "fabric",
+      transport: "codex_app_server",
+      reason: "direct_message",
+    }));
+    expect(deliveries).toContainEqual(expect.objectContaining({
+      targetId: "binding-1",
+      transport: "webhook",
+      reason: "bridge_outbound",
+    }));
+  });
+
+  test("tracks flights by invocation id for constant-time lookups", async () => {
+    const runtime = createInMemoryControlRuntime();
+
+    await runtime.upsertFlight({
+      id: "flight-1",
+      invocationId: "invocation-1",
+      requesterId: "operator",
+      targetAgentId: "fabric",
+      state: "queued",
+      startedAt: Date.now(),
+    });
+
+    expect(runtime.flightForInvocation("invocation-1")?.id).toBe("flight-1");
+  });
+
+  test("can plan and commit a message separately", async () => {
+    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+
+    await runtime.upsertNode({
+      id: "node-1",
+      meshId: "mesh-1",
+      name: "Node 1",
+      advertiseScope: "local",
+      registeredAt: Date.now(),
+    });
+    await runtime.upsertActor({
+      id: "operator",
+      kind: "person",
+      displayName: "Operator",
+    });
+    await runtime.upsertAgent({
+      id: "fabric",
+      kind: "agent",
+      definitionId: "fabric",
+      displayName: "Fabric",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+    });
+    await runtime.upsertConversation({
+      id: "conv-1",
+      kind: "direct",
+      title: "Direct",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", "fabric"],
+    });
+    await runtime.upsertEndpoint({
+      id: "endpoint-1",
+      agentId: "fabric",
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "active",
+    });
+
+    const message = {
+      id: "msg-1",
+      conversationId: "conv-1",
+      actorId: "operator",
+      originNodeId: "node-1",
+      class: "agent" as const,
+      body: "status?",
+      visibility: "private" as const,
+      policy: "durable" as const,
+      createdAt: Date.now(),
+    };
+    const deliveries = runtime.planMessage(message);
+
+    expect(runtime.message("msg-1")).toBeUndefined();
+    expect(deliveries).toContainEqual(expect.objectContaining({
+      targetId: "fabric",
+      transport: "codex_app_server",
+    }));
+
+    await runtime.commitMessage(message, deliveries);
+
+    expect(runtime.message("msg-1")?.body).toBe("status?");
+    expect(runtime.recentEvents().some((event) => event.kind === "message.posted")).toBe(true);
+  });
+
+  test("can plan and commit an invocation separately", async () => {
+    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+
+    await runtime.upsertNode({
+      id: "node-1",
+      meshId: "mesh-1",
+      name: "Node 1",
+      advertiseScope: "local",
+      registeredAt: Date.now(),
+    });
+    await runtime.upsertAgent({
+      id: "fabric",
+      kind: "agent",
+      definitionId: "fabric",
+      displayName: "Fabric",
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+    });
+
+    const invocation = {
+      id: "inv-1",
+      requesterId: "operator",
+      requesterNodeId: "node-1",
+      targetAgentId: "fabric",
+      action: "consult" as const,
+      task: "Status?",
+      ensureAwake: true,
+      stream: false,
+      createdAt: Date.now(),
+    };
+    const flight = runtime.planInvocation(invocation);
+
+    expect(runtime.flightForInvocation("inv-1")).toBeUndefined();
+
+    await runtime.commitInvocation(invocation, flight);
+
+    expect(runtime.flightForInvocation("inv-1")?.id).toBe(flight.id);
+    expect(runtime.recentEvents().some((event) => event.kind === "invocation.requested")).toBe(true);
+  });
+});

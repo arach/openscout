@@ -21,6 +21,7 @@ import {
 import { CopyCommand } from "@/components/copy-command";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
+import { HeroIntentForm } from "@/components/hero-intent-form";
 import { LandingProductShowcase } from "@/components/landing-product-showcase";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
@@ -504,7 +505,7 @@ export default function Home() {
               GitHub
             </a>
             <Link
-              href="/docs/relay"
+              href="/docs"
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
             >
               <span>Read the docs</span>
@@ -546,13 +547,7 @@ export default function Home() {
                     style={{ animationDelay: "0.16s" }}
                   >
                     <div className="flex flex-wrap items-center gap-3">
-                      <a
-                        href="https://github.com/arach/openscout/releases/latest"
-                        className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#111110] px-5 text-sm font-medium text-[#f5f4ef] shadow-sm transition-all hover:bg-[#2a2a28] hover:shadow"
-                      >
-                        <Download className="h-4 w-4" />
-                        <span>Download for macOS</span>
-                      </a>
+                      <HeroIntentForm />
                       <Link
                         href="#get-started"
                         className="inline-flex h-11 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-5 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
@@ -640,10 +635,10 @@ export default function Home() {
                     {copy.capabilitiesDescription}
                   </p>
                   <Link
-                    href="/docs/relay"
+                    href="/docs"
                     className="group mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#111110] transition-colors hover:text-[#2a57cb]"
                   >
-                    <span>Read the Relay docs</span>
+                    <span>Browse the docs</span>
                     <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </Link>
                 </div>
@@ -800,7 +795,7 @@ export default function Home() {
                 </div>
                 <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
                   <a
-                    href="/docs/relay"
+                    href="/docs"
                     className="transition-colors hover:text-[#111110]"
                   >
                     Docs
@@ -835,7 +830,7 @@ export default function Home() {
             ["Capabilities", "#capabilities"],
             ["Surfaces", "#surfaces"],
             ["Get Started", "#get-started"],
-            ["Docs", "/docs/relay"],
+            ["Docs", "/docs"],
             ["GitHub", "https://github.com/arach/openscout"],
           ].map(([label, href]) => (
             <a
@@ -861,7 +856,7 @@ export default function Home() {
 
 const agentResources = [
   { label: "GitHub", href: "https://github.com/arach/openscout" },
-  { label: "Docs", href: "/docs/relay" },
+  { label: "Docs", href: "/docs" },
   { label: "@openscout/scout", href: "https://github.com/arach/openscout" },
   { label: "@openscout/runtime", href: "https://github.com/arach/openscout" },
   { label: "@openscout/protocol", href: "https://github.com/arach/openscout" },

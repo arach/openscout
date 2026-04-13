@@ -250,6 +250,8 @@ CREATE TABLE IF NOT EXISTS activity_items (
 
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
   ON nodes (mesh_id);
+CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
+  ON agent_endpoints (agent_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
   ON messages (conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_invocations_target_created_at
