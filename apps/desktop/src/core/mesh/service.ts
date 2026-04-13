@@ -1,0 +1,254 @@
+import type { NodeDefinition } from "@openscout/protocol";
+import { readTailscalePeers, type TailscalePeerCandidate } from "@openscout/runtime/mesh/tailscale";
+
+import {
+  readScoutBrokerHealth,
+  loadScoutBrokerContext,
+  resolveScoutBrokerUrl,
+  type ScoutBrokerHealthState,
+  type ScoutBrokerNodeRecord,
+} from "../broker/service.ts";
+
+/* ── Types ── */
+
+export type MeshStatusReport = {
+  brokerUrl: string;
+  health: ScoutBrokerHealthState;
+  localNode: ScoutBrokerNodeRecord | null;
+  meshId: string | null;
+  nodes: Record<string, NodeDefinition>;
+  tailscale: TailscaleStatus;
+  warnings: string[];
+};
+
+export type MeshDoctorReport = MeshStatusReport & {
+  envVars: MeshEnvVars;
+};
+
+export type MeshDiscoverReport = {
+  brokerUrl: string;
+  discovered: NodeDefinition[];
+  probes: string[];
+  tailscalePeers: TailscalePeerCandidate[];
+};
+
+export type MeshPingReport = {
+  target: string;
+  url: string;
+  reachable: boolean;
+  latencyMs: number;
+  node: NodeDefinition | null;
+  meshIdMatch: boolean;
+  localMeshId: string | null;
+  error: string | null;
+};
+
+export type TailscaleStatus = {
+  available: boolean;
+  peers: TailscalePeerCandidate[];
+  onlineCount: number;
+};
+
+export type MeshEnvVars = {
+  meshId: string | null;
+  meshSeeds: string | null;
+  brokerHost: string | null;
+  brokerPort: string | null;
+  brokerUrl: string | null;
+  nodeId: string | null;
+  nodeName: string | null;
+  discoveryIntervalMs: string | null;
+};
+
+/* ── Helpers ── */
+
+function readMeshEnvVars(): MeshEnvVars {
+  return {
+    meshId: process.env.OPENSCOUT_MESH_ID ?? null,
+    meshSeeds: process.env.OPENSCOUT_MESH_SEEDS ?? null,
+    brokerHost: process.env.OPENSCOUT_BROKER_HOST ?? null,
+    brokerPort: process.env.OPENSCOUT_BROKER_PORT ?? null,
+    brokerUrl: process.env.OPENSCOUT_BROKER_URL ?? null,
+    nodeId: process.env.OPENSCOUT_NODE_ID ?? null,
+    nodeName: process.env.OPENSCOUT_NODE_NAME ?? null,
+    discoveryIntervalMs: process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? null,
+  };
+}
+
+async function readTailscaleStatus(): Promise<TailscaleStatus> {
+  const peers = await readTailscalePeers();
+  return {
+    available: peers.length > 0,
+    peers,
+    onlineCount: peers.filter((p) => p.online).length,
+  };
+}
+
+function computeWarnings(
+  health: ScoutBrokerHealthState,
+  localNode: ScoutBrokerNodeRecord | null,
+  nodes: Record<string, NodeDefinition>,
+  tailscale: TailscaleStatus,
+): string[] {
+  const warnings: string[] = [];
+
+  if (!health.reachable) {
+    warnings.push("Broker is not reachable. Run `scout setup` to start it.");
+    return warnings;
+  }
+
+  if (localNode?.advertiseScope === "local") {
+    warnings.push(
+      "Broker is bound to 127.0.0.1 — mesh peers cannot reach it. " +
+      "Set OPENSCOUT_BROKER_HOST=0.0.0.0 or use your Tailscale IP.",
+    );
+  }
+
+  const remoteNodes = Object.values(nodes).filter((n) => n.id !== localNode?.id);
+  if (remoteNodes.length === 0 && tailscale.onlineCount > 0) {
+    warnings.push(
+      `Tailscale has ${tailscale.onlineCount} online peer${tailscale.onlineCount === 1 ? "" : "s"} but no remote nodes were discovered. ` +
+      "Run `scout mesh discover` to probe peers.",
+    );
+  }
+
+  if (!tailscale.available && remoteNodes.length === 0) {
+    warnings.push(
+      "No Tailscale peers found and no mesh seeds configured. " +
+      "Install Tailscale or set OPENSCOUT_MESH_SEEDS.",
+    );
+  }
+
+  return warnings;
+}
+
+/* ── Public API ── */
+
+export async function loadMeshStatus(): Promise<MeshStatusReport> {
+  const brokerUrl = resolveScoutBrokerUrl();
+  const [health, context, tailscale] = await Promise.all([
+    readScoutBrokerHealth(brokerUrl),
+    loadScoutBrokerContext(brokerUrl),
+    readTailscaleStatus(),
+  ]);
+
+  const localNode = context?.node ?? null;
+  const nodes = context?.snapshot.nodes ?? {};
+  const meshId = health.meshId ?? localNode?.meshId ?? null;
+  const warnings = computeWarnings(health, localNode, nodes, tailscale);
+
+  return { brokerUrl, health, localNode, meshId, nodes, tailscale, warnings };
+}
+
+export async function loadMeshDoctorReport(): Promise<MeshDoctorReport> {
+  const status = await loadMeshStatus();
+  return { ...status, envVars: readMeshEnvVars() };
+}
+
+export async function runMeshDiscover(): Promise<MeshDiscoverReport> {
+  const brokerUrl = resolveScoutBrokerUrl();
+  const tailscalePeers = await readTailscalePeers();
+
+  const response = await fetch(new URL("/v1/mesh/discover", brokerUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Mesh discover failed: ${response.status} ${await response.text()}`);
+  }
+
+  const result = await response.json() as { discovered: NodeDefinition[]; probes?: string[] };
+  return {
+    brokerUrl,
+    discovered: result.discovered,
+    probes: result.probes ?? [],
+    tailscalePeers,
+  };
+}
+
+export async function runMeshPing(target: string): Promise<MeshPingReport> {
+  const brokerUrl = resolveScoutBrokerUrl();
+  const context = await loadScoutBrokerContext(brokerUrl);
+  const localMeshId = context?.node.meshId ?? null;
+
+  // Resolve the target: could be a node ID, a URL, or a hostname
+  let probeUrl: string;
+  if (target.startsWith("http://") || target.startsWith("https://")) {
+    probeUrl = target;
+  } else {
+    const nodes = context?.snapshot.nodes ?? {};
+    const matchedNode = Object.values(nodes).find(
+      (n) => n.id === target || n.name === target || n.hostName === target,
+    );
+    if (matchedNode?.brokerUrl) {
+      probeUrl = matchedNode.brokerUrl;
+    } else {
+      probeUrl = `http://${target}:65535`;
+    }
+  }
+
+  const start = performance.now();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(new URL("/v1/node", probeUrl), {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    });
+    clearTimeout(timeout);
+    const latencyMs = Math.round(performance.now() - start);
+
+    if (!response.ok) {
+      return {
+        target,
+        url: probeUrl,
+        reachable: false,
+        latencyMs,
+        node: null,
+        meshIdMatch: false,
+        localMeshId,
+        error: `HTTP ${response.status}`,
+      };
+    }
+
+    const node = await response.json() as NodeDefinition;
+    return {
+      target,
+      url: probeUrl,
+      reachable: true,
+      latencyMs,
+      node,
+      meshIdMatch: localMeshId !== null && node.meshId === localMeshId,
+      localMeshId,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      target,
+      url: probeUrl,
+      reachable: false,
+      latencyMs: Math.round(performance.now() - start),
+      node: null,
+      meshIdMatch: false,
+      localMeshId,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function loadMeshNodes(): Promise<{
+  brokerUrl: string;
+  localNodeId: string | null;
+  nodes: Record<string, NodeDefinition>;
+}> {
+  const brokerUrl = resolveScoutBrokerUrl();
+  const context = await loadScoutBrokerContext(brokerUrl);
+  return {
+    brokerUrl,
+    localNodeId: context?.node.id ?? null,
+    nodes: context?.snapshot.nodes ?? {},
+  };
+}

@@ -56,6 +56,11 @@
       "types": "./src/relay-agent-cards.ts",
       "bun": "./src/relay-agent-cards.ts",
       "default": "./dist/relay-agent-cards.js"
+    },
+    "./mesh/tailscale": {
+      "types": "./src/tailscale.ts",
+      "bun": "./src/tailscale.ts",
+      "default": "./dist/tailscale.js"
     }
   },
   "types": "./src/index.ts",

@@ -10,6 +10,7 @@ export type ScoutCommandName =
   | "doctor"
   | "enroll"
   | "env"
+  | "mesh"
   | "pair"
   | "ps"
   | "restart"
@@ -38,6 +39,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./enroll.ts")).runEnrollCommand;
     case "env":
       return (await import("./env.ts")).runEnvCommand;
+    case "mesh":
+      return (await import("./mesh.ts")).runMeshCommand;
     case "pair":
       return (await import("./pair.ts")).runPairCommand;
     case "ps":
