@@ -23,6 +23,41 @@ else
   trap 'rm -f "$NPMRC"' EXIT
 fi
 
+## Rewrite workspace:* references to real versions before publishing.
+## Modifies package.json in place; callers should restore after publish.
+rewrite_workspace_deps() {
+  local dir="$1"
+  node -e "
+    const fs = require('fs'), path = require('path');
+    const pkgPath = path.resolve('$dir', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+    // Collect versions from all workspace packages
+    const versions = {};
+    for (const d of fs.readdirSync('packages')) {
+      const p = path.join('packages', d, 'package.json');
+      if (!fs.existsSync(p)) continue;
+      const ws = JSON.parse(fs.readFileSync(p, 'utf8'));
+      versions[ws.name] = ws.version;
+    }
+
+    // Replace workspace:* with resolved version
+    let changed = false;
+    for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+      if (!pkg[section]) continue;
+      for (const [dep, range] of Object.entries(pkg[section])) {
+        if (typeof range === 'string' && range.startsWith('workspace:') && versions[dep]) {
+          pkg[section][dep] = versions[dep];
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+    }
+  "
+}
+
 publish() {
   local pkg="$1"
   local dir="packages/$pkg"
@@ -39,7 +74,11 @@ publish() {
     return
   fi
 
+  # Rewrite workspace deps, publish, then restore
+  cp "$dir/package.json" "$dir/package.json.bak"
+  rewrite_workspace_deps "$dir"
   (cd "$dir" && npm publish --access public --userconfig "$NPMRC")
+  mv "$dir/package.json.bak" "$dir/package.json"
   echo "  ✓ $name@$version"
 }
 

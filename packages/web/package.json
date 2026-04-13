@@ -1,6 +1,6 @@
 {
   "name": "@openscout/web",
-  "version": "0.2.14",
+  "version": "0.2.16",
   "description": "Minimal Scout web UI: pairing QR and current activity stream (uses the control-plane server APIs)",
   "license": "UNLICENSED",
   "type": "module",

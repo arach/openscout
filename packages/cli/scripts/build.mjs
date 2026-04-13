@@ -64,5 +64,5 @@ const normalized = built
   .replace(/^#![^\n]*\n/, "")
   .replace(/^\/\/ @bun\n/, "");
 
-writeFileSync(outputFile, `#!/usr/bin/env node\n${normalized}`);
+writeFileSync(outputFile, `#!/usr/bin/env bun\n${normalized}`);
 chmodSync(outputFile, 0o755);

@@ -21,7 +21,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "devDependencies": {
+  "dependencies": {
     "@openscout/runtime": "workspace:*"
   }
 }
