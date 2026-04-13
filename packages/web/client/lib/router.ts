@@ -5,18 +5,19 @@ import type { Route } from "./types.ts";
 
 function routeFromPath(): Route {
   const parts = window.location.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
-  if (parts[0] === "c" && parts[1] && parts[2] === "info") {
-    return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
-  }
-  if (parts[0] === "c" && parts[1]) {
-    return { view: "conversation", conversationId: decodeURIComponent(parts[1]) };
-  }
-  // Legacy: /agents/{agentId} → redirect to conversation
+  // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
-    return { view: "conversation", conversationId: `dm.operator.${decodeURIComponent(parts[1])}` };
+    return { view: "agents", agentId: decodeURIComponent(parts[1]) };
   }
-  if (parts[0] === "flights") return { view: "flights" };
-  if (parts[0] === "asks") return { view: "asks" };
+  if (parts[0] === "agents") return { view: "agents" };
+  // Legacy: /c/{conversationId} → extract agent ID and redirect to agents view
+  if (parts[0] === "c" && parts[1]) {
+    const cid = decodeURIComponent(parts[1]);
+    const agentId = agentIdFromConversation(cid);
+    if (agentId) return { view: "agents", agentId };
+    return { view: "conversation", conversationId: cid };
+  }
+  if (parts[0] === "activity") return { view: "activity" };
   if (parts[0] === "settings") return { view: "settings" };
   return { view: "inbox" };
 }
@@ -25,9 +26,8 @@ function routePath(r: Route): string {
   switch (r.view) {
     case "inbox": return "/";
     case "conversation": return `/c/${encodeURIComponent(r.conversationId)}`;
-    case "agent-info": return `/c/${encodeURIComponent(r.conversationId)}/info`;
-    case "flights": return "/flights";
-    case "asks": return "/asks";
+    case "agents": return r.agentId ? `/agents/${encodeURIComponent(r.agentId)}` : "/agents";
+    case "activity": return "/activity";
     case "settings": return "/settings";
   }
 }
@@ -35,7 +35,7 @@ function routePath(r: Route): string {
 function routeKey(r: Route): string {
   switch (r.view) {
     case "conversation": return `conv:${r.conversationId}`;
-    case "agent-info": return `info:${r.conversationId}`;
+    case "agents": return r.agentId ? `agent:${r.agentId}` : "agents";
     default: return r.view;
   }
 }
@@ -59,7 +59,6 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
-    // Save current scroll before navigating
     scrollMap.current[routeKey(routeFromPath())] = window.scrollY;
     window.history.pushState(null, "", routePath(r));
     setRouteState(r);

@@ -2,53 +2,42 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "./lib/router.ts";
 import { api } from "./lib/api.ts";
 import { useBrokerEvents } from "./lib/sse.ts";
-import { timeAgo } from "./lib/time.ts";
-import { actorColor, stateColor } from "./lib/colors.ts";
-import { conversationForAgent } from "./lib/router.ts";
 import { ConversationScreen } from "./screens/ConversationScreen.tsx";
-import { AgentInfoScreen } from "./screens/AgentInfoScreen.tsx";
 import { SettingsScreen } from "./screens/SettingsScreen.tsx";
-import { FlightsScreen } from "./screens/FlightsScreen.tsx";
-import type { Agent, Message, Flight, InboxEntry, Route } from "./lib/types.ts";
-
-/* ── Derive inbox from agents + messages ── */
-
-function deriveInbox(agents: Agent[], messages: Message[]): InboxEntry[] {
-  const byConv = new Map<string, Message[]>();
-  for (const m of messages) {
-    let arr = byConv.get(m.conversationId);
-    if (!arr) { arr = []; byConv.set(m.conversationId, arr); }
-    arr.push(m);
-  }
-
-  return agents.map((agent) => {
-    const cid = conversationForAgent(agent.id);
-    const msgs = byConv.get(cid);
-    let preview: string | null = null;
-    let previewActor: string | null = null;
-    let lastMessageAt: number | null = null;
-    let messageCount = 0;
-
-    if (msgs && msgs.length > 0) {
-      msgs.sort((a, b) => b.createdAt - a.createdAt);
-      preview = msgs[0].body.slice(0, 120);
-      previewActor = msgs[0].actorName;
-      lastMessageAt = msgs[0].createdAt;
-      messageCount = msgs.length;
-    }
-
-    return { agent, conversationId: cid, preview, previewActor, messageCount, lastMessageAt };
-  }).sort((a, b) => {
-    const aActive = a.agent.state === "active" ? 0 : 1;
-    const bActive = b.agent.state === "active" ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    const aT = a.lastMessageAt ?? 0;
-    const bT = b.lastMessageAt ?? 0;
-    return bT - aT;
-  });
-}
+import { ActivityScreen } from "./screens/ActivityScreen.tsx";
+import { AgentsScreen } from "./screens/AgentsScreen.tsx";
+import { HomeScreen } from "./screens/HomeScreen.tsx";
+import type { Agent, Message, Route } from "./lib/types.ts";
 
 /* ── Icons ── */
+
+function HomeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  );
+}
+
+function AgentsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function ActivityIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  );
+}
 
 function GearIcon() {
   return (
@@ -59,37 +48,30 @@ function GearIcon() {
   );
 }
 
-function TasksIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2L2 7l10 5 10-5-10-5z" />
-      <path d="M2 17l10 5 10-5" />
-      <path d="M2 12l10 5 10-5" />
-    </svg>
-  );
-}
-
 /* ── Main content panel ── */
 
-function MainPanel({ route, navigate, flights }: { route: Route; navigate: (r: Route) => void; flights: Flight[] }) {
+function MainPanel({
+  route,
+  navigate,
+  agents,
+  messages,
+}: {
+  route: Route;
+  navigate: (r: Route) => void;
+  agents: Agent[];
+  messages: Message[];
+}) {
   switch (route.view) {
     case "conversation":
-      return <ConversationScreen conversationId={route.conversationId} navigate={navigate} flights={flights} />;
-    case "agent-info":
-      return <AgentInfoScreen conversationId={route.conversationId} navigate={navigate} />;
+      return <ConversationScreen conversationId={route.conversationId} navigate={navigate} />;
     case "settings":
       return <SettingsScreen navigate={navigate} />;
-    case "flights":
-      return <FlightsScreen navigate={navigate} flights={flights} />;
+    case "agents":
+      return <AgentsScreen navigate={navigate} selectedAgentId={route.agentId} />;
+    case "activity":
+      return <ActivityScreen navigate={navigate} />;
     default:
-      return (
-        <div className="s-welcome">
-          <div className="s-welcome-inner">
-            <h2>Scout</h2>
-            <p>Select an agent to start a conversation</p>
-          </div>
-        </div>
-      );
+      return <HomeScreen agents={agents} messages={messages} navigate={navigate} />;
   }
 }
 
@@ -98,43 +80,26 @@ function MainPanel({ route, navigate, flights }: { route: Route; navigate: (r: R
 export function App() {
   const { route, navigate } = useRouter();
 
-  const [entries, setEntries] = useState<InboxEntry[]>([]);
-  const [flights, setFlights] = useState<Flight[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [agents, messages, activeFlights] = await Promise.all([
+      const [a, m] = await Promise.all([
         api<Agent[]>("/api/agents"),
         api<Message[]>("/api/messages"),
-        api<Flight[]>("/api/flights"),
       ]);
-      setEntries(deriveInbox(agents, messages));
-      setFlights(activeFlights);
+      setAgents(a);
+      setMessages(m);
     } catch {
-      // sidebar just stays empty on error
+      // stay empty on error
     }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
   useBrokerEvents(load);
 
-  // Tick for fresh timestamps
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 15_000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Build set of agent IDs with active tasks for sidebar indicators
-  const agentsWithTasks = new Set(flights.map((f) => f.agentId));
-
-  // Which conversation is selected (for highlighting sidebar row)
-  const selectedConversation =
-    route.view === "conversation" || route.view === "agent-info"
-      ? route.conversationId
-      : null;
-
-  // On mobile, sidebar hides when a conversation/settings is open
+  // On mobile, sidebar hides when a content view is open
   const showingContent = route.view !== "inbox";
 
   return (
@@ -150,63 +115,31 @@ export function App() {
         <nav className="s-sidebar-nav">
           <button
             type="button"
-            className={`s-nav-item${route.view === "flights" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "flights" })}
+            className={`s-nav-item${route.view === "inbox" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "inbox" })}
           >
-            <TasksIcon />
-            <span>Tasks</span>
-            {flights.length > 0 && (
-              <span className="s-nav-badge">{flights.length}</span>
-            )}
+            <HomeIcon />
+            <span>Home</span>
+          </button>
+          <button
+            type="button"
+            className={`s-nav-item${route.view === "agents" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "agents" })}
+          >
+            <AgentsIcon />
+            <span>Agents</span>
+          </button>
+          <button
+            type="button"
+            className={`s-nav-item${route.view === "activity" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "activity" })}
+          >
+            <ActivityIcon />
+            <span>Activity</span>
           </button>
         </nav>
 
-        <div className="s-sidebar-label">Agents</div>
-
-        <div className="s-sidebar-list">
-          {entries.length === 0 ? (
-            <div className="s-sidebar-empty">No agents connected</div>
-          ) : (
-            entries.map((entry) => (
-              <div
-                key={entry.agent.id}
-                className={`s-sidebar-row${
-                  selectedConversation === entry.conversationId ? " s-sidebar-row-active" : ""
-                }`}
-                onClick={() => navigate({ view: "conversation", conversationId: entry.conversationId })}
-              >
-                <div className="s-sidebar-avatar-wrap">
-                  <div
-                    className="s-avatar s-avatar-sm"
-                    style={{ background: actorColor(entry.agent.name) }}
-                  >
-                    {entry.agent.name[0].toUpperCase()}
-                  </div>
-                  {agentsWithTasks.has(entry.agent.id) && (
-                    <span className="s-task-indicator" />
-                  )}
-                </div>
-                <div className="s-sidebar-row-body">
-                  <div className="s-sidebar-row-header">
-                    <span className="s-sidebar-row-name">{entry.agent.name}</span>
-                    <span
-                      className="s-dot"
-                      style={{ background: stateColor(entry.agent.state) }}
-                    />
-                  </div>
-                  {entry.preview ? (
-                    <p className="s-sidebar-row-preview">{entry.preview}</p>
-                  ) : (
-                    <p className="s-sidebar-row-preview s-sidebar-row-preview-empty">No messages yet</p>
-                  )}
-                </div>
-                {entry.lastMessageAt && (
-                  <span className="s-sidebar-row-time">{timeAgo(entry.lastMessageAt)}</span>
-                )}
-              </div>
-            ))
-          )}
-        </div>
+        <div className="s-spacer" />
 
         <nav className="s-sidebar-footer">
           <button
@@ -222,7 +155,7 @@ export function App() {
 
       {/* ── Main content ── */}
       <main className="s-content">
-        <MainPanel route={route} navigate={navigate} flights={flights} />
+        <MainPanel route={route} navigate={navigate} agents={agents} messages={messages} />
       </main>
     </div>
   );

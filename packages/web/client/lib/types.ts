@@ -91,7 +91,6 @@ export type InboxEntry = {
 export type Route =
   | { view: "inbox" }
   | { view: "conversation"; conversationId: string }
-  | { view: "agent-info"; conversationId: string }
-  | { view: "flights" }
-  | { view: "asks" }
+  | { view: "agents"; agentId?: string }
+  | { view: "activity" }
   | { view: "settings" };

@@ -61,11 +61,9 @@ export function SettingsScreen({ navigate }: { navigate: (r: Route) => void }) {
 
   return (
     <div>
-      <button type="button" className="s-back" onClick={() => navigate({ view: "inbox" })}>
-        &larr; Back
-      </button>
+      <h2 className="s-section-title">Settings</h2>
 
-      <h2 className="s-section-title">Pairing</h2>
+      <h3 style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pairing</h3>
 
       {error && <p className="s-error">{error}</p>}
 

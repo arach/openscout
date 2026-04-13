@@ -43,7 +43,11 @@ export async function upScoutAgent(input: {
   model?: string;
   branch?: string;
 }): Promise<ScoutAgentStatus> {
-  return startLocalAgent(input);
+  const status = await startLocalAgent(input);
+  // Synchronously register the endpoint with the broker so the agent is
+  // immediately routable (don't rely on the broker's async background sync).
+  await registerScoutLocalAgentBinding({ agentId: status.agentId }).catch(() => {});
+  return status;
 }
 
 export async function downScoutAgent(agentId: string): Promise<ScoutAgentStatus | null> {
