@@ -1,0 +1,37 @@
+{
+  "layout": { "width": 700, "height": 565 },
+  "nodes": {
+    "claude-client":    { "x": 70,  "y": 50,  "size": "m" },
+    "claude-contract":  { "x": 270, "y": 50,  "size": "m" },
+    "claude-transport": { "x": 470, "y": 50,  "size": "m" },
+    "broker-registry":  { "x": 165, "y": 245, "size": "m" },
+    "broker-router":    { "x": 375, "y": 245, "size": "m" },
+    "codex-client":     { "x": 70,  "y": 435, "size": "m" },
+    "codex-contract":   { "x": 270, "y": 435, "size": "m" },
+    "codex-transport":  { "x": 470, "y": 435, "size": "m" }
+  },
+  "nodeData": {
+    "claude-client":    { "icon": "Terminal", "name": "Scout Client",           "subtitle": "CLI",       "color": "amber" },
+    "claude-contract":  { "icon": "FileCode", "name": "Collaboration Contract", "subtitle": "Protocol",  "color": "amber" },
+    "claude-transport": { "icon": "Zap",      "name": "stream-JSON",            "subtitle": "Transport", "color": "amber" },
+    "broker-registry":  { "icon": "Users",    "name": "Agent Registry",         "subtitle": "Endpoints", "color": "violet" },
+    "broker-router":    { "icon": "Repeat",   "name": "Message Router",         "subtitle": "Dispatch",  "color": "violet" },
+    "codex-client":     { "icon": "Terminal", "name": "Scout Client",           "subtitle": "CLI",       "color": "emerald" },
+    "codex-contract":   { "icon": "FileCode", "name": "Collaboration Contract", "subtitle": "Protocol",  "color": "emerald" },
+    "codex-transport":  { "icon": "Zap",      "name": "app-server",             "subtitle": "Transport", "color": "emerald" }
+  },
+  "connectors": [
+    { "from": "claude-client",   "to": "broker-registry", "fromAnchor": "bottom", "toAnchor": "top",    "style": "http" },
+    { "from": "codex-client",    "to": "broker-router",   "fromAnchor": "top",    "toAnchor": "bottom", "style": "http" },
+    { "from": "broker-registry", "to": "broker-router",   "fromAnchor": "right",  "toAnchor": "left",   "style": "internal" }
+  ],
+  "connectorStyles": {
+    "http":     { "color": "blue",   "strokeWidth": 2,   "label": "HTTP + SSE" },
+    "internal": { "color": "violet", "strokeWidth": 1.5 }
+  },
+  "groups": [
+    { "id": "claude-session", "x": 40,  "y": 18,  "width": 620, "height": 135, "type": "rect", "color": "amber",   "label": "Agent Session — Claude Code" },
+    { "id": "broker",         "x": 135, "y": 213, "width": 430, "height": 135, "type": "rect", "color": "violet",  "label": "Scout Broker" },
+    { "id": "codex-session",  "x": 40,  "y": 403, "width": 620, "height": 135, "type": "rect", "color": "emerald", "label": "Agent Session — Codex" }
+  ]
+}

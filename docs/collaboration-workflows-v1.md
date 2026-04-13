@@ -1,213 +1,108 @@
-# Collaboration Workflows V1
+# Collaboration Workflows
 
-## Thesis
+When agents work together — or when a human works with agents — every interaction carries an implicit question: is this a request for information, or a request for work? The difference matters because they have different lifecycles, different ownership semantics, and different definitions of done.
 
-V1 does not try to solve the entire ontology of collaboration.
+Scout makes this distinction explicit with two collaboration workflows.
 
-It defines two canonical collaboration workflows that cover the current OpenScout surface
-area well enough to remove silent ambiguity:
+## Two Kinds of Collaboration
 
-- `question`
-- `work_item`
+**Question** — an information-seeking interaction. Someone needs an answer, a judgment, or a clarification. The lifecycle is short: ask, answer, close.
 
-These are peers, not stages in one ladder.
+**Work Item** — a durable unit of execution. Someone needs something built, fixed, reviewed, or completed. The lifecycle is longer: assign, work, checkpoint, wait, review, finish.
 
-- A question is an information-seeking interaction.
-- A work item is a durable unit of execution and coordination.
+These are peers, not stages in a pipeline. A question does not become a work item by getting complex — it spawns one. A work item does not need a question to exist — it can be self-originated.
 
-Questions can stay standalone, attach to work items, or spawn work items. Work items can
-progress independently of request-response semantics.
+## Why Two, Not One
 
-## Why This Split
+The broker already handles durable conversations and invocation tracking. But it does not yet express the semantic layer above routing:
 
-The current broker model is strong at durable conversation and invocation tracking, but it
-does not yet express the semantic layer above it:
+- Some interactions only need an answer.
+- Some interactions need ownership, waiting states, review, and completion tracking.
+- Some interactions start as questions and reveal real execution work along the way.
 
-- some interactions only need an answer
-- some interactions need ownership, waiting, review, and completion
-- some interactions start as questions and reveal real execution work
+Forcing all of these into one noun creates either ceremony (every question gets a kanban board) or ambiguity (is this "done" because someone replied, or because the work shipped?).
 
-Trying to force all of those into one noun creates either ceremony or ambiguity.
+## Question
 
-## Canonical Entities
+Use a question when the goal is getting information back.
 
-### Question
+**States:** `open` · `answered` · `closed` · `declined`
 
-Use a question when the primary goal is getting information, clarification, or a short
-judgment.
+A question can be closed immediately after an answer. It can also stay open if the asker is not satisfied — "answered" means someone responded, not that the asker agrees. If the answer reveals real execution work, the question spawns a work item rather than growing into one.
 
-Core state:
+## Work Item
 
-- `open`
-- `answered`
-- `closed`
-- `declined`
+Use a work item when the goal is durable execution, progress tracking, or multi-turn coordination.
 
-Important notes:
+**States:** `open` · `working` · `waiting` · `review` · `done` · `cancelled`
 
-- A question can be closed directly after an answer.
-- A question can remain open after an answer if the asker is not satisfied yet.
-- A question can spawn a work item if the answer reveals real execution work.
+A work item can be self-originated, requested by another party, or spawned from a question. Progress tracking is optional but first-class — "3 of 7 steps complete" is a work item concern, never a question concern. The `waiting` state (preferred over "blocked") signals that the current owner cannot proceed until someone else acts.
 
-### Work Item
+## Acceptance Is Orthogonal
 
-Use a work item when the primary goal is durable execution, progress tracking, or
-coordination across turns.
+Acceptance is separate from workflow state. This avoids collapsing "I replied" into "we both agree this is done."
 
-Core state:
+- A question can be `answered` but not yet `closed` — the asker has not confirmed satisfaction.
+- A work item can be in `review` with `acceptanceState=pending` — the reviewer has not weighed in.
+- A self-driven work item uses `acceptanceState=none` — there is no external reviewer.
 
-- `open`
-- `working`
-- `waiting`
-- `review`
-- `done`
-- `cancelled`
+## Ownership
 
-Important notes:
+Every non-terminal collaboration record must have a `nextMoveOwnerId` — the party who needs to act next. This is the foundation of the sweeper, notification routing, and stale detection. Ownership transfers explicitly with each state transition.
 
-- `waiting` is preferred to `blocked` as the canonical noun.
-- A work item can be self-originated, requested by another party, or created from a
-  question.
-- Progress is optional but first-class. "2/5 complete" is a work item concern, not a
-  question concern.
+### Required Fields
 
-## Acceptance Is Separate
+Both workflows carry:
 
-Acceptance is orthogonal to workflow state.
+`id` · `title` · `createdById` · `ownerId` · `nextMoveOwnerId` · `createdAt` · `updatedAt`
 
-That means:
+Work items additionally carry:
 
-- a question can be `answered` but not yet `closed`
-- a work item can be `review` with `acceptanceState=pending`
-- a self-driven work item can use `acceptanceState=none`
+`waitingOn` · `progress.completedSteps` · `progress.totalSteps` · `progress.summary`
 
-This avoids collapsing "I replied" into "the other party agrees we are done."
+## Sequences
 
-## Minimal Required Fields
+### Question Flow
 
-Both collaboration kinds should support:
-
-- `id`
-- `title`
-- `createdById`
-- `ownerId`
-- `nextMoveOwnerId`
-- `createdAt`
-- `updatedAt`
-
-Work items may additionally carry:
-
-- `waitingOn`
-- `progress.completedSteps`
-- `progress.totalSteps`
-- `progress.summary`
-
-## V1 Invariants
-
-1. Every non-terminal collaboration record must have a `nextMoveOwnerId`.
-2. `waiting` is only valid for `work_item`.
-3. A `waiting` work item must name `waitingOn`.
-4. Acceptance is optional and should only be used when a requester or reviewer exists.
-5. Questions do not accumulate long-running execution state. If the interaction turns into
-   durable execution, create or link a work item.
-
-## Question Sequence
-
-```mermaid
-sequenceDiagram
-    participant A as "Asker"
-    participant OS as "OpenScout"
-    participant R as "Responder"
-
-    A->>OS: Create question
-    OS->>R: Route question
-    R-->>OS: Answer
-    OS-->>A: Mark question answered
-    A->>OS: Close question
-    OS-->>R: Question closed
-```
+Asker creates a question. Scout routes it to a responder. The responder posts an answer. The question is marked `answered`. The asker reviews and closes it — or leaves it open for follow-up.
 
 ### Question That Spawns Work
 
-```mermaid
-sequenceDiagram
-    participant A as "Asker"
-    participant OS as "OpenScout"
-    participant R as "Responder"
-    participant W as "Work Item"
+Asker creates a question. The responder determines it needs execution, not just an answer. Scout creates a work item linked to the question. The asker sees both the answer and the spawned work item.
 
-    A->>OS: Create question
-    OS->>R: Route question
-    R-->>OS: "This needs execution"
-    OS->>W: Create work item linked to question
-    OS-->>A: Question answered with spawned work item
-```
+### Work Item Flow
 
-## Work Item Sequence
-
-```mermaid
-sequenceDiagram
-    participant C as "Creator"
-    participant OS as "OpenScout"
-    participant O as "Owner"
-    participant N as "Next Move Owner"
-
-    C->>OS: Create work item
-    OS->>O: Assign owner
-    O-->>OS: State = working
-    O-->>OS: Progress checkpoint (2/5)
-    O-->>OS: State = waiting
-    O-->>OS: waitingOn = review from N
-    OS->>N: Nudge next move owner
-    N-->>OS: Review response
-    OS->>O: Work can resume
-    O-->>OS: State = review
-    C-->>OS: Acceptance or reopen
-    OS-->>O: State = done or review
-```
+Creator opens a work item and assigns an owner. The owner moves to `working` and posts progress checkpoints. When blocked on an external dependency, the owner moves to `waiting` and names what they are waiting on. Scout nudges the next move owner. Once unblocked, work resumes. The owner moves to `review` when done. The creator accepts or reopens. On acceptance, the work item moves to `done`.
 
 ## Sweeper
 
-The sweeper exists as an insurance policy, not as a planner.
-
-Its job is to periodically inspect stale non-terminal collaboration records and nudge the
-current `nextMoveOwnerId`.
+The sweeper is an insurance policy, not a planner. It periodically inspects stale non-terminal records and nudges the current `nextMoveOwnerId` — the one party whose action would unblock progress.
 
 Rules:
 
-- do not invent new work
-- do not reinterpret goals
-- do not ping everyone in the thread
-- only ask the current next move owner for a state transition
+- Do not invent new work.
+- Do not reinterpret goals.
+- Do not ping everyone in the thread.
+- Only ask the current next move owner whether they can transition the state.
 
-Suggested v1 behavior:
+| Stale state | Sweeper action |
+|---|---|
+| `question.open` | Ask the responder to answer or decline |
+| `question.answered` | Ask the asker to close or reopen |
+| `work_item.working` | Ask the owner for a progress update or waiting transition |
+| `work_item.waiting` | Ask the `nextMoveOwnerId` to resolve the dependency |
+| `work_item.review` | Ask the reviewer to accept or reopen |
 
-- stale `question.open`: ask the responder to answer or decline
-- stale `question.answered`: ask the asker to close or reopen
-- stale `work_item.working`: ask the owner for progress or a waiting transition
-- stale `work_item.waiting`: ask the `nextMoveOwnerId` to answer the dependency
-- stale `work_item.review`: ask the reviewer to accept or reopen
+## Invariants
 
-## Scope Cuts For V1
+1. Every non-terminal record must have a `nextMoveOwnerId`.
+2. `waiting` is only valid for work items.
+3. A `waiting` work item must name `waitingOn`.
+4. Acceptance is only used when a requester or reviewer exists.
+5. Questions do not accumulate long-running execution state. If the interaction becomes durable work, spawn a work item.
 
-Explicitly out of scope for the first implementation:
+## What V1 Does Not Cover
 
-- arbitrary user-defined workflows
-- rich hierarchy beyond simple parent-child linking
-- full dependency graph semantics
-- mandatory milestone planning
-- planner-like sweeper behavior
-- universal acceptance on every interaction
+Explicitly out of scope: arbitrary user-defined workflows, rich hierarchy beyond parent-child linking, dependency graphs, mandatory milestone planning, planner-like sweeper behavior, and universal acceptance on every interaction.
 
-## Future Direction
-
-The future direction is configurable workflows for humans and agents, but they should sit
-on top of stable protocol semantics rather than replacing them.
-
-That means:
-
-- keep canonical collaboration kinds stable
-- keep required semantics stable
-- allow user-facing workflow aliases and presets later
-
-The protocol should stay interoperable even when different projects want different labels.
+The future direction is configurable workflows layered on top of stable protocol semantics — keep the canonical kinds and required fields stable, allow user-facing labels and presets later. The protocol stays interoperable even when different projects want different vocabulary.

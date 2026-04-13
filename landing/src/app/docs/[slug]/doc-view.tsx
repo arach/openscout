@@ -1,10 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import GithubSlugger from "github-slugger";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
 import { MarkdownContent } from "@arach/dewey";
+import dynamic from "next/dynamic";
+
+const ArcDiagram = dynamic(
+  () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })),
+  { ssr: false },
+);
 import type { NavGroup } from "@/lib/docs";
 
 type Heading = {
@@ -47,6 +53,68 @@ function extractHeadings(content: string): Heading[] {
   return headings;
 }
 
+type ContentSegment =
+  | { type: "markdown"; content: string }
+  | { type: "arc"; src: string };
+
+function splitArcDiagrams(content: string): ContentSegment[] {
+  const pattern = /!\[[^\]]*\]\(arc:([^)]+)\)/g;
+  const segments: ContentSegment[] = [];
+  let last = 0;
+
+  for (const match of content.matchAll(pattern)) {
+    if (match.index > last) {
+      segments.push({ type: "markdown", content: content.slice(last, match.index) });
+    }
+    segments.push({ type: "arc", src: match[1] });
+    last = match.index + match[0].length;
+  }
+
+  if (last < content.length) {
+    segments.push({ type: "markdown", content: content.slice(last) });
+  }
+
+  return segments.length > 0 ? segments : [{ type: "markdown", content }];
+}
+
+function ArcDiagramEmbed({ src }: { src: string }) {
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/diagrams/${src}.arc.json`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      })
+      .then(setData)
+      .catch((e) => setError(e.message));
+  }, [src]);
+
+  if (error) return null;
+  if (!data) return <div className="my-8 h-24 rounded-xl bg-black/[0.03] animate-pulse" />;
+
+  const layout = data.layout as { width: number; height: number } | undefined;
+  const aspectRatio = layout ? layout.width / layout.height : 4 / 3;
+
+  return (
+    <div
+      className="my-8 rounded-xl border border-black/[0.08] overflow-hidden"
+      style={{ aspectRatio }}
+    >
+      <ArcDiagram
+        data={data}
+        mode="light"
+        defaultZoom="fit"
+        maxFitZoom={1.2}
+        interactive={false}
+        showArcToggle={false}
+        hoverEffects={true}
+      />
+    </div>
+  );
+}
+
 export function DocView({
   title,
   description,
@@ -67,6 +135,7 @@ export function DocView({
   const currentGroup = navigation.find((group) => group.items.some((item) => item.id === slug));
   const renderedContent = useMemo(() => stripLeadHeading(content), [content]);
   const headings = useMemo(() => extractHeadings(renderedContent), [renderedContent]);
+  const segments = useMemo(() => splitArcDiagrams(renderedContent), [renderedContent]);
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111110]">
@@ -204,7 +273,13 @@ export function DocView({
             ) : null}
 
             <div className="docs-markdown mt-10 max-w-none">
-              <MarkdownContent content={renderedContent} />
+              {segments.map((seg, i) =>
+                seg.type === "arc" ? (
+                  <ArcDiagramEmbed key={i} src={seg.src} />
+                ) : (
+                  <MarkdownContent key={i} content={seg.content} />
+                ),
+              )}
             </div>
 
             {prevPage || nextPage ? (

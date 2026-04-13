@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@arach/arc": "^0.4.1",
     "@arach/dewey": "0.3.6",
     "@next/third-parties": "16.1.6",
     "gray-matter": "^4.0.3",

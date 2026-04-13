@@ -23,8 +23,8 @@ type GroupDef = { group: string; order: number; title: string; description: stri
 
 const CATALOG: Record<string, GroupDef> = {
   "architecture":                           { group: "Core Concepts",       order: 0,  title: "Architecture",                description: "Local-first protocol and runtime for orchestrating agents across harnesses and machines." },
-  "agent-identity":                        { group: "Core Concepts",       order: 1,  title: "Agent Identity",              description: "Address grammar for targeting agents across harnesses and machines." },
-  "collaboration-workflows-v1":            { group: "Core Concepts",       order: 2,  title: "Collaboration Workflows",     description: "Two canonical workflows — question and work_item — and their state machines." },
+  "agent-identity":                        { group: "Core Concepts",       order: 1,  title: "Agent Identity",              description: "How agents are named, addressed, and resolved across machines and harnesses." },
+  "collaboration-workflows-v1":            { group: "Core Concepts",       order: 2,  title: "Collaboration Workflows",     description: "Questions and work items — two kinds of collaboration with distinct lifecycles." },
   "01-harness-catalog-and-onboarding":     { group: "OpenAgents Tracks",   order: 10, title: "Track 01: Harness Catalog",   description: "Declarative catalog with readiness, install, and configure states." },
   "02-collaboration-contract":             { group: "OpenAgents Tracks",   order: 11, title: "Track 02: Collaboration Contract", description: "Stable broker-owned contract every harness must obey." },
   "03-shared-resources":                   { group: "OpenAgents Tracks",   order: 12, title: "Track 03: Shared Resources",  description: "Broker-owned resources that agents and humans share safely." },

@@ -1,117 +1,91 @@
-# Agent Identity Grammar
+# Agent Identity
 
-Scout agent references are a small address grammar for targeting a concrete agent identity.
+Every agent in Scout has a name. When there is only one agent on one machine, the name is simple — `@arc` or `@hudson`. But agents multiply. The same project might run on two machines. The same workspace might have a main branch and a feature branch, each with its own agent. A project might use Claude for one task and Codex for another.
 
-The system separates three layers:
+The identity grammar exists to make every agent unambiguously addressable without forcing humans to type fully qualified names every time.
 
-- canonical identity: exact, stable, system-owned
-- minimal unique identity: the shortest address that still resolves unambiguously
-- alias: a human-owned shortcut that maps to one concrete identity
+## Three Layers
 
-## Model
+Scout separates identity into three layers, each serving a different audience:
 
-An agent identity is the combination of:
+- **Canonical identity** is exact, stable, and system-owned. It includes every dimension needed to distinguish one agent from all others. Humans rarely type it, but the broker always stores it.
 
-- `definitionId`: the base workspace or project identity
-- `workspaceQualifier`: the non-default worktree or branch qualifier
-- `profile`: the capability or persona preset
-- `harness`: the execution backend
-- `nodeQualifier`: the machine or host qualifier
+- **Minimal unique identity** is the shortest address that still resolves to exactly one agent. Scout computes it automatically from the current set of online agents. When there is only one `hudson`, `@hudson` is enough. When two exist on different machines, `@hudson.node:mini` disambiguates.
 
-In code, the canonical shape lives in:
+- **Alias** is a human-owned shortcut. `@huddy` maps to one specific identity. If the mapping becomes ambiguous, the alias is invalid until repaired.
 
-- `/Users/arach/dev/openscout/packages/protocol/src/agent-identity.ts`
+## The Five Dimensions
 
-## Canonical Grammar
+An agent identity combines up to five dimensions:
 
-```text
+| Dimension | What it captures | Example |
+|---|---|---|
+| `definitionId` | The base project or workspace | `arc`, `hudson` |
+| `workspaceQualifier` | A non-default worktree or branch | `super-refactor`, `main` |
+| `profile` | A capability or persona preset | `dev`, `dev-browser` |
+| `harness` | The execution backend | `claude`, `codex` |
+| `node` | The machine or host | `mini`, `macbook` |
+
+The canonical form strings them together with dots:
+
+```
 @<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
 ```
 
-Examples:
+In practice, most of these dimensions are omitted. You only include what is needed to resolve unambiguously.
 
-- `@arc`
-- `@arc.main`
-- `@arc.main.profile:dev`
-- `@arc.main.profile:dev-browser.harness:claude`
-- `@arc.super-refactor.profile:dev-browser.harness:claude.node:mini`
+## Examples
 
-Canonical identity stays exact even when it is ugly. Human-facing surfaces should prefer a minimal unique identity or an explicit alias.
+From shortest to most qualified:
 
-## Parsing Rules
+| Address | What it resolves |
+|---|---|
+| `@arc` | The only `arc` agent currently online |
+| `@arc.main` | The `arc` agent on the `main` branch |
+| `@arc.super-refactor` | The `arc` agent on a feature worktree |
+| `@arc.main.harness:claude` | Specifically the Claude-backed `arc` on main |
+| `@arc.super-refactor.harness:claude.node:mini` | Fully qualified: project, branch, harness, machine |
 
-- `@` is required in user-facing text, but internal formatting can omit it.
-- One positional qualifier is allowed after the base id.
-- The positional qualifier is the worktree or branch slot.
-- Typed qualifiers may appear in any order during parsing.
-- Formatting always normalizes back to canonical order:
-  - `definitionId`
-  - `workspaceQualifier`
-  - `profile`
-  - `harness`
-  - `node`
+## Parsing and Normalization
 
-These aliases map to the canonical dimensions:
+- `@` is required in user-facing text. Internal systems can omit it.
+- One positional qualifier (without a type prefix) is allowed after the definition ID — it is always treated as the workspace qualifier.
+- Typed qualifiers (`profile:`, `harness:`, `node:`) may appear in any order during input. Scout normalizes them to canonical order on storage.
+- Segments are lowercased and kebab-cased: `Super Refactor` becomes `super-refactor`, `Mini.local` becomes `mini-local`. Dots are reserved as separators.
 
-- `branch:` and `worktree:` -> `workspaceQualifier`
-- `persona:` -> `profile`
-- `runtime:` -> `harness`
-- `host:` -> `nodeQualifier`
+These aliases are accepted during parsing and map to canonical dimensions:
 
-## Normalization
-
-Each segment is canonicalized to lowercase kebab-case:
-
-- `Super Refactor` -> `super-refactor`
-- `dev/browser` -> `dev-browser`
-- `Mini.local` -> `mini-local`
-
-Dots are reserved as grammar separators, so values are normalized to segment-safe tokens.
+| Alias | Maps to |
+|---|---|
+| `branch:`, `worktree:` | `workspaceQualifier` |
+| `persona:` | `profile` |
+| `runtime:` | `harness` |
+| `host:` | `node` |
 
 ## Resolution
 
-Resolution matches a parsed identity against concrete candidates.
+When you type `@hudson`, Scout resolves it against all known agents:
 
-- Bare identities like `@arc` can resolve through an explicit default alias.
-- Partially qualified identities must resolve to exactly one candidate.
-- Ambiguous identities return `null`.
-- Exact aliases resolve before canonical matching.
+1. Check for an exact alias match first.
+2. Match the parsed identity against registered candidates.
+3. If exactly one candidate matches, resolve to it.
+4. If zero or more than one match, return nothing — the name is either unknown or ambiguous.
 
-This keeps short names ergonomic while making precise identities explicit when needed.
+This keeps short names fast and ergonomic while requiring precision only when the situation demands it.
 
 ## Minimal Unique Identity
 
-Given a concrete candidate and a set of peers, Scout should prefer the shortest address that still resolves to exactly one candidate.
-
-Dimension order is:
+Given a specific agent and its peers, Scout prefers the shortest address that uniquely identifies it. Dimensions are dropped in this order until removing the next one would create ambiguity:
 
 1. `workspaceQualifier`
 2. `profile`
 3. `harness`
-4. `nodeQualifier`
+4. `node`
 
-Rules:
+If a configured alias is shorter than the minimal canonical form and resolves uniquely, Scout prefers it.
 
-- do not include a dimension unless it actually reduces ambiguity
-- prefer a configured alias if it uniquely resolves and is shorter than the canonical form
-- if no shorter unique subset exists, fall back to the canonical identity
+**Example:**
 
-Examples:
-
-- canonical: `@hudson.hudson-main-8012ac.node:arachs-mac-mini-local`
-- minimal unique: `@hudson.node:backup-mac-mini`
-- alias: `@huddy`
-
-## Aliases
-
-Aliases are exact, human-owned shortcuts:
-
-- `@huddy`
-- `@arc.dev`
-
-Alias rules:
-
-- one alias targets one concrete identity
-- aliases must resolve uniquely
-- if an alias becomes ambiguous, it is invalid until repaired
-- aliases do not replace canonical identities; they sit on top of them
+- Canonical: `@hudson.hudson-main-8012ac.node:arachs-mac-mini-local`
+- Minimal unique: `@hudson` (if only one hudson is online)
+- Alias: `@huddy`

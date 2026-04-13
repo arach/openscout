@@ -22,7 +22,7 @@ Scout follows a small set of constraints that shape every design decision:
 
 ## Communication Flow
 
-![Scout communication flow — two agent sessions connected through a central broker](/diagrams/communication-flow.svg)
+![Scout communication flow](arc:communication-flow)
 
 Agent sessions connect to a single Scout broker over HTTP and SSE. The broker owns the agent registry and routes messages between sessions. Each harness uses its own transport — stream-JSON for Claude Code, app-server for Codex — but the protocol layer above it is shared.
 
