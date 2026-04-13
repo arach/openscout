@@ -2,18 +2,30 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { trackCommandCopy } from "@/lib/analytics";
 
 type TerminalStep = {
   command: string;
   label: string;
 };
 
-export function TerminalSession({ steps }: { steps: TerminalStep[] }) {
+export function TerminalSession({
+  analyticsLocation = "terminal_session",
+  steps,
+}: {
+  analyticsLocation?: string;
+  steps: TerminalStep[];
+}) {
   const [copied, setCopied] = useState(false);
 
   const copyAll = () => {
     const text = steps.map((s) => s.command).join("\n");
     navigator.clipboard.writeText(text);
+    trackCommandCopy({
+      command: steps[0]?.command ?? "terminal_session",
+      commandCount: steps.length,
+      location: analyticsLocation,
+    });
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -28,6 +40,7 @@ export function TerminalSession({ steps }: { steps: TerminalStep[] }) {
           <span className="h-2.5 w-2.5 rounded-full bg-[#3a3a36]" />
         </div>
         <button
+          type="button"
           onClick={copyAll}
           className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium tracking-wide text-[#6b6963] transition-colors hover:bg-[#1e1e1c] hover:text-[#a09d95]"
         >

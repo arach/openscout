@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { Expand, X } from "lucide-react";
+import { trackImageExpand } from "@/lib/analytics";
 
 type ExpandableImageProps = {
   alt: string;
+  analyticsId?: string;
+  analyticsLocation?: string;
   className?: string;
   containerClassName?: string;
   priority?: boolean;
@@ -17,6 +20,8 @@ type ExpandableImageProps = {
 
 export function ExpandableImage({
   alt,
+  analyticsId,
+  analyticsLocation = "expandable_image",
   className,
   containerClassName,
   priority = false,
@@ -26,6 +31,14 @@ export function ExpandableImage({
 }: ExpandableImageProps) {
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  function openImage() {
+    trackImageExpand({
+      imageId: analyticsId ?? src,
+      location: analyticsLocation,
+    });
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) {
@@ -55,7 +68,7 @@ export function ExpandableImage({
       <div className={containerClassName}>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openImage}
           className="group relative block w-full text-left"
           aria-label={`Expand image: ${alt}`}
         >

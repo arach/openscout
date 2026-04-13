@@ -2,18 +2,30 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { trackCommandCopy } from "@/lib/analytics";
 
-export function CopyCommand({ command }: { command: string }) {
+export function CopyCommand({
+  analyticsLocation = "copy_command",
+  command,
+}: {
+  analyticsLocation?: string;
+  command: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
     navigator.clipboard.writeText(command);
+    trackCommandCopy({
+      command,
+      location: analyticsLocation,
+    });
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <button
+      type="button"
       onClick={copy}
       className="group inline-flex h-11 items-center gap-3 rounded-full border border-[#dad6cd] bg-white px-4 font-mono text-[13px] text-[#111110] shadow-sm transition-all hover:border-[#cfcac1] hover:bg-[#faf9f4] hover:shadow-md max-w-full overflow-hidden"
     >
@@ -26,11 +38,23 @@ export function CopyCommand({ command }: { command: string }) {
   );
 }
 
-export function CopyCommandBlock({ command, label }: { command: string; label?: string }) {
+export function CopyCommandBlock({
+  analyticsLocation = "copy_command_block",
+  command,
+  label,
+}: {
+  analyticsLocation?: string;
+  command: string;
+  label?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
     navigator.clipboard.writeText(command);
+    trackCommandCopy({
+      command,
+      location: analyticsLocation,
+    });
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

@@ -78,3 +78,6 @@ apps/ios/build/
 # hidden files / directories
 /.*
 **/.*
+
+# tracked env examples
+!landing/.env.example

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Instrument_Serif, Fraunces, Spectral } from "next/font/google";
+import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -82,6 +83,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${fraunces.variable} ${spectral.variable} antialiased bg-background text-foreground`}
       >
         {children}
+        <GoogleAnalyticsTag />
       </body>
     </html>
   );

@@ -24,6 +24,7 @@ import { ExpandableImage } from "@/components/expandable-image";
 import { HeroIntentForm } from "@/components/hero-intent-form";
 import { LandingProductShowcase } from "@/components/landing-product-showcase";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { trackCtaClick, trackNavigationClick } from "@/lib/analytics";
 
 type AudienceMode = "general" | "technical" | "agent";
 type HumanAudienceMode = Exclude<AudienceMode, "agent">;
@@ -467,6 +468,26 @@ export default function Home() {
   const capabilities = generalCapabilities;
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
+  const onNavigationClick = (label: string, destination: string, location: string) => () => {
+    trackNavigationClick({
+      destination,
+      label,
+      location,
+    });
+  };
+  const onCtaClick = (
+    label: string,
+    destination: string,
+    location: string,
+    ctaType: string,
+  ) => () => {
+    trackCtaClick({
+      ctaType,
+      destination,
+      label,
+      location,
+    });
+  };
   return (
     <div className="min-h-screen bg-[#f5f4ef] text-[#111110]">
       {/* ── hero background layers ── */}
@@ -476,7 +497,11 @@ export default function Home() {
       {/* ── nav ── */}
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-[#ded9cf]/60 bg-[#f5f4ef]/80 backdrop-blur-xl backdrop-saturate-150">
         <div className="mx-auto flex h-16 max-w-[90rem] items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-3">
+          <Link
+            href="/"
+            onClick={onNavigationClick("Scout", "/", "header_logo")}
+            className="flex items-center gap-3"
+          >
             <LogoMark />
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
               Scout
@@ -488,6 +513,7 @@ export default function Home() {
               <a
                 key={link.href}
                 href={link.href}
+                onClick={onNavigationClick(link.label, link.href, "header_nav")}
                 className="transition-colors hover:text-[#111110]"
               >
                 {link.label}
@@ -500,12 +526,19 @@ export default function Home() {
               href="https://github.com/arach/openscout"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={onCtaClick(
+                "GitHub",
+                "https://github.com/arach/openscout",
+                "header_nav",
+                "repo",
+              )}
               className="hidden text-[11px] font-medium uppercase tracking-[0.12em] text-[#69675f] transition-colors hover:text-[#111110] sm:inline-flex"
             >
               GitHub
             </a>
             <Link
               href="/docs"
+              onClick={onCtaClick("Read the docs", "/docs", "header_nav", "docs")}
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
             >
               <span>Read the docs</span>
@@ -550,6 +583,7 @@ export default function Home() {
                       <HeroIntentForm />
                       <Link
                         href="#get-started"
+                        onClick={onCtaClick("Get started", "#get-started", "hero", "scroll")}
                         className="inline-flex h-11 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-5 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
                       >
                         <span>Get started</span>
@@ -557,7 +591,10 @@ export default function Home() {
                       </Link>
                     </div>
                     <div className="w-full sm:w-auto sm:min-w-[200px]">
-                      <CopyCommand command={copy.heroCommand} />
+                      <CopyCommand
+                        analyticsLocation="hero_command"
+                        command={copy.heroCommand}
+                      />
                     </div>
                   </div>
 
@@ -636,6 +673,7 @@ export default function Home() {
                   </p>
                   <Link
                     href="/docs"
+                    onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
                     className="group mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#111110] transition-colors hover:text-[#2a57cb]"
                   >
                     <span>Browse the docs</span>
@@ -707,6 +745,8 @@ export default function Home() {
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
                       <ExpandableImage
+                        analyticsId={shot.src}
+                        analyticsLocation="surfaces_gallery"
                         src={shot.src}
                         alt={shot.alt}
                         width={shot.width ?? 1552}
@@ -760,6 +800,12 @@ export default function Home() {
                         <div className="mt-4 flex flex-wrap items-center gap-3">
                           <a
                             href="https://github.com/arach/openscout/releases/latest"
+                            onClick={onCtaClick(
+                              "Download for macOS",
+                              "https://github.com/arach/openscout/releases/latest",
+                              "get_started",
+                              "download",
+                            )}
                             className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
                           >
                             <Download className="h-3.5 w-3.5" />
@@ -769,6 +815,12 @@ export default function Home() {
                             href="https://github.com/arach/openscout"
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={onCtaClick(
+                              "Open on GitHub",
+                              "https://github.com/arach/openscout",
+                              "get_started",
+                              "repo",
+                            )}
                             className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] transition-colors hover:bg-[#faf9f4]"
                           >
                             <span>Open on GitHub</span>
@@ -778,7 +830,10 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <TerminalSession steps={getStartedCommands} />
+                    <TerminalSession
+                      analyticsLocation="get_started_terminal"
+                      steps={getStartedCommands}
+                    />
                   </div>
                 </div>
               </div>
@@ -796,12 +851,19 @@ export default function Home() {
                 <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
                   <a
                     href="/docs"
+                    onClick={onNavigationClick("Docs", "/docs", "footer")}
                     className="transition-colors hover:text-[#111110]"
                   >
                     Docs
                   </a>
                   <a
                     href="https://github.com/arach/openscout"
+                    onClick={onCtaClick(
+                      "GitHub",
+                      "https://github.com/arach/openscout",
+                      "footer",
+                      "repo",
+                    )}
                     className="transition-colors hover:text-[#111110]"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -810,6 +872,7 @@ export default function Home() {
                   </a>
                   <a
                     href="https://x.com/arach"
+                    onClick={onCtaClick("Twitter", "https://x.com/arach", "footer", "social")}
                     className="transition-colors hover:text-[#111110]"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -836,6 +899,11 @@ export default function Home() {
             <a
               key={label}
               href={href}
+              onClick={
+                href.startsWith("http")
+                  ? onCtaClick(label, href, "floating_nav", label.toLowerCase())
+                  : onNavigationClick(label, href, "floating_nav")
+              }
               {...(href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
               className="rounded-full px-3.5 py-1.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.08em] text-[#8b887f] transition-colors hover:bg-[#2a2a28] hover:text-[#f5f4ef]"
             >

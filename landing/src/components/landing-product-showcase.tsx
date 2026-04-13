@@ -12,6 +12,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ExpandableImage } from "@/components/expandable-image";
+import {
+  trackShowcaseSurfaceSelect,
+  trackShowcaseViewSelect,
+} from "@/lib/analytics";
 
 type AudienceMode = "general" | "technical";
 type SurfaceId = "relay" | "pairing";
@@ -166,6 +170,24 @@ export function LandingProductShowcase({
   const activeView = surface === "relay" ? activeRelayView : pairingView;
   const relayEyebrow = activeRelayView.id === "tui" ? "Relay TUI" : "Relay";
 
+  function selectSurface(nextSurface: SurfaceId) {
+    trackShowcaseSurfaceSelect({
+      audience,
+      location: "hero_showcase",
+      surface: nextSurface,
+    });
+    setSurface(nextSurface);
+  }
+
+  function selectRelayView(nextView: RelayViewId) {
+    trackShowcaseViewSelect({
+      audience,
+      location: "hero_showcase",
+      view: nextView,
+    });
+    setRelayView(nextView);
+  }
+
   return (
     <div className="landing-panel overflow-hidden rounded-xl">
       {/* ── toolbar ── */}
@@ -180,7 +202,7 @@ export function LandingProductShowcase({
           <div className="flex items-center gap-0.5 rounded-md border border-[#eae6dd] bg-white p-0.5">
             <button
               type="button"
-              onClick={() => setSurface("relay")}
+              onClick={() => selectSurface("relay")}
               className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
                 surface === "relay"
                   ? "bg-[#111110] text-[#f5f4ef]"
@@ -192,7 +214,7 @@ export function LandingProductShowcase({
             </button>
             <button
               type="button"
-              onClick={() => setSurface("pairing")}
+              onClick={() => selectSurface("pairing")}
               className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
                 surface === "pairing"
                   ? "bg-[#111110] text-[#f5f4ef]"
@@ -227,7 +249,7 @@ export function LandingProductShowcase({
                   <button
                     key={view.id}
                     type="button"
-                    onClick={() => setRelayView(view.id)}
+                    onClick={() => selectRelayView(view.id)}
                     className={`rounded-lg border px-2.5 py-2.5 text-left transition-colors ${
                       active
                         ? "border-[#e2ded5] bg-white text-[#111110] shadow-sm"
@@ -265,7 +287,7 @@ export function LandingProductShowcase({
                 <button
                   key={view.id}
                   type="button"
-                  onClick={() => setRelayView(view.id)}
+                  onClick={() => selectRelayView(view.id)}
                   className={`shrink-0 rounded-md border px-2.5 py-1 text-[13px] font-medium transition-colors ${
                     relayView === view.id
                       ? "border-[#111110] bg-[#111110] text-[#f5f4ef]"
@@ -279,6 +301,8 @@ export function LandingProductShowcase({
 
             <div className="overflow-hidden rounded-lg border border-[#eae6dd] bg-[#f3f1eb]">
               <ExpandableImage
+                analyticsId={`showcase-${surface === "relay" ? activeRelayView.id : "pairing"}`}
+                analyticsLocation="hero_showcase"
                 src={activeView.src}
                 alt={activeView.alt}
                 width={activeView.width ?? 1552}
@@ -302,6 +326,8 @@ export function LandingProductShowcase({
         <div className="bg-white p-3 sm:p-4">
           <div className="overflow-hidden rounded-lg border border-[#eae6dd] bg-[#f3f1eb]">
             <ExpandableImage
+              analyticsId="showcase-pairing"
+              analyticsLocation="hero_showcase"
               src={pairingView.src}
               alt={pairingView.alt}
               width={pairingView.width ?? 1552}
