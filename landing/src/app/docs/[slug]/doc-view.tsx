@@ -78,6 +78,10 @@ function splitArcDiagrams(content: string): ContentSegment[] {
   return segments.length > 0 ? segments : [{ type: "markdown", content }];
 }
 
+function formatDiagramLabel(src: string) {
+  return src.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function ArcDiagramEmbed({ src }: { src: string }) {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,29 +97,21 @@ function ArcDiagramEmbed({ src }: { src: string }) {
   }, [src]);
 
   if (error) return null;
-  if (!data) return <div className="my-8 rounded-lg border border-black/[0.04] bg-black/[0.02] animate-pulse" style={{ aspectRatio: 4 / 3 }} />;
-
-  const layout = data.layout as { width: number; height: number } | undefined;
-  const aspectRatio = layout ? layout.width / layout.height : 4 / 3;
+  if (!data) return <div className="my-8 h-[420px] animate-pulse rounded-lg" style={{ background: 'rgba(0,0,0,0.02)' }} />;
 
   return (
-    <div
-      className="my-8 rounded-lg border border-black/[0.04] overflow-hidden"
-      style={{ aspectRatio }}
-    >
+    <div className="my-8 h-[420px] arc-docs-embed rounded-lg border border-black/[0.08]">
       <ArcDiagram
         data={data}
-        className="w-full h-full"
+        className="w-full h-full !rounded-none !border-0 !shadow-none !bg-transparent"
         mode="light"
-        defaultZoom="fit"
-        maxFitZoom={1.2}
-        nodeChrome="technical"
+        theme="cool"
         interactive={true}
-        showGrid={false}
-        showZoomControls={true}
         showArcToggle={false}
-        showLabel={true}
-        hoverEffects={true}
+        label={formatDiagramLabel(src)}
+        defaultZoom="fit"
+        maxFitZoom={0.85}
+        hoverEffects={{ dim: true, lift: true, glow: true, highlightEdges: true }}
       />
     </div>
   );

@@ -168,6 +168,15 @@ body {
     );
 }
 
+/* ── arc diagram embeds in docs ── */
+
+.arc-docs-embed .absolute.bottom-3.right-3 {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+}
+
 /* ── docs markdown ── */
 
 .docs-markdown :is(h1, h2, h3, h4) {
