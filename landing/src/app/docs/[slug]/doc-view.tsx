@@ -6,9 +6,10 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
 import { MarkdownContent } from "@arach/dewey";
 import dynamic from "next/dynamic";
+import type { ComponentType } from "react";
 
-const ArcDiagram = dynamic(
-  () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })),
+const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
+  () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
   { ssr: false },
 );
 import type { NavGroup } from "@/lib/docs";
