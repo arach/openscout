@@ -421,11 +421,11 @@ export class SQLiteControlPlaneStore {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new SQLiteDatabase(dbPath, { create: true });
     this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
-    // The broker does frequent snapshot reads alongside short delivery-state writes.
-    // WAL mode and a busy timeout reduce transient SQLITE_BUSY/database locked errors.
+    // Set busy_timeout FIRST — journal_mode = WAL requires a write lock and will
+    // fail with SQLITE_BUSY if another process holds one.
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
     this.readDb.exec("PRAGMA busy_timeout = 5000;");
     this.readDb.exec("PRAGMA query_only = ON;");

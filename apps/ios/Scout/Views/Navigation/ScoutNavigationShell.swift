@@ -133,6 +133,8 @@ struct ScoutNavigationShell: View {
             WorkspaceBrowserView { sessionId in
                 router.replaceTop(.sessionDetail(sessionId: sessionId))
             }
+        case .agentDetail(let agentId):
+            AgentDetailView(agentId: agentId)
         case .settings:
             SettingsView()
         }

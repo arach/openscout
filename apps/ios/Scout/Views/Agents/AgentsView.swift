@@ -171,73 +171,82 @@ struct AgentsView: View {
     private func agentRow(_ agent: MobileAgentSummary) -> some View {
         let isLaunchable = isLaunchable(agent)
 
-        return Button {
-            handleSelection(for: agent, isLaunchable: isLaunchable)
-        } label: {
-            HStack(spacing: ScoutSpacing.md) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                        .fill(agentStatusColor(agent).opacity(0.12))
-                        .frame(width: 44, height: 44)
+        return HStack(spacing: ScoutSpacing.md) {
+            // Row body — tap navigates to agent detail
+            Button {
+                router.push(.agentDetail(agentId: agent.id))
+            } label: {
+                HStack(spacing: ScoutSpacing.md) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                            .fill(agentStatusColor(agent).opacity(0.12))
+                            .frame(width: 44, height: 44)
 
-                    Image(systemName: AdapterIcon.systemName(for: agent.harness ?? agent.transport ?? "relay"))
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(agentStatusColor(agent))
-                }
-
-                VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
-                    HStack(spacing: ScoutSpacing.xs) {
-                        Text(agent.title)
-                            .font(ScoutTypography.body(15, weight: .semibold))
-                            .foregroundStyle(ScoutColors.textPrimary)
-                            .lineLimit(1)
-
-                        if agent.sessionId != nil {
-                            Text("LIVE")
-                                .font(ScoutTypography.caption(10, weight: .bold))
-                                .foregroundStyle(ScoutColors.accent)
-                                .padding(.horizontal, ScoutSpacing.sm)
-                                .padding(.vertical, ScoutSpacing.xxs)
-                                .background(ScoutColors.accent.opacity(0.12), in: Capsule())
-                        }
+                        Image(systemName: AdapterIcon.systemName(for: agent.harness ?? agent.transport ?? "relay"))
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(agentStatusColor(agent))
                     }
 
-                    if let selector = agent.resolvedSelector {
-                        Text(selector)
-                            .font(ScoutTypography.code(11))
-                            .foregroundStyle(ScoutColors.textMuted)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
+                    VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
+                        HStack(spacing: ScoutSpacing.xs) {
+                            Text(agent.title)
+                                .font(ScoutTypography.body(15, weight: .semibold))
+                                .foregroundStyle(ScoutColors.textPrimary)
+                                .lineLimit(1)
 
-                    HStack(spacing: ScoutSpacing.sm) {
-                        statusBadge(for: agent)
-
-                        if let project = agent.projectName {
-                            metaPill(project, icon: "folder")
+                            if agent.sessionId != nil {
+                                Text("LIVE")
+                                    .font(ScoutTypography.caption(10, weight: .bold))
+                                    .foregroundStyle(ScoutColors.accent)
+                                    .padding(.horizontal, ScoutSpacing.sm)
+                                    .padding(.vertical, ScoutSpacing.xxs)
+                                    .background(ScoutColors.accent.opacity(0.12), in: Capsule())
+                            }
                         }
 
-                        if let harness = agent.harness?.trimmedNonEmpty {
-                            metaPill(AdapterIcon.displayName(for: harness), icon: AdapterIcon.systemName(for: harness))
-                        }
-
-                        if let lastActive = agent.lastActiveDate {
-                            Text(RelativeTime.string(from: lastActive))
-                                .font(ScoutTypography.caption(11))
+                        if let selector = agent.resolvedSelector {
+                            Text(selector)
+                                .font(ScoutTypography.code(11))
                                 .foregroundStyle(ScoutColors.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        HStack(spacing: ScoutSpacing.sm) {
+                            statusBadge(for: agent)
+
+                            if let project = agent.projectName {
+                                metaPill(project, icon: "folder")
+                            }
+
+                            if let harness = agent.harness?.trimmedNonEmpty {
+                                metaPill(AdapterIcon.displayName(for: harness), icon: AdapterIcon.systemName(for: harness))
+                            }
+
+                            if let lastActive = agent.lastActiveDate {
+                                Text(RelativeTime.string(from: lastActive))
+                                    .font(ScoutTypography.caption(11))
+                                    .foregroundStyle(ScoutColors.textMuted)
+                            }
                         }
                     }
+
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-                Spacer(minLength: ScoutSpacing.sm)
-
+            // Trailing action — quick session open/start
+            Button {
+                handleSelection(for: agent, isLaunchable: isLaunchable)
+            } label: {
                 trailingAction(for: agent, isLaunchable: isLaunchable)
             }
-            .contentShape(Rectangle())
-            .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.lg)
+            .buttonStyle(.plain)
+            .disabled(!isInteractive(agent, isLaunchable: isLaunchable))
         }
-        .buttonStyle(.plain)
-        .disabled(!isInteractive(agent, isLaunchable: isLaunchable))
+        .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.lg)
     }
 
     private func trailingAction(for agent: MobileAgentSummary, isLaunchable: Bool) -> some View {

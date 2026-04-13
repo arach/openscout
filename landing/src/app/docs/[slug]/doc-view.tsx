@@ -93,23 +93,28 @@ function ArcDiagramEmbed({ src }: { src: string }) {
   }, [src]);
 
   if (error) return null;
-  if (!data) return <div className="my-8 h-24 rounded-xl bg-black/[0.03] animate-pulse" />;
+  if (!data) return <div className="my-8 rounded-lg border border-black/[0.04] bg-black/[0.02] animate-pulse" style={{ aspectRatio: 4 / 3 }} />;
 
   const layout = data.layout as { width: number; height: number } | undefined;
   const aspectRatio = layout ? layout.width / layout.height : 4 / 3;
 
   return (
     <div
-      className="my-8 rounded-xl border border-black/[0.08] overflow-hidden"
+      className="my-8 rounded-lg border border-black/[0.04] overflow-hidden"
       style={{ aspectRatio }}
     >
       <ArcDiagram
         data={data}
+        className="w-full h-full"
         mode="light"
         defaultZoom="fit"
         maxFitZoom={1.2}
-        interactive={false}
+        nodeChrome="technical"
+        interactive={true}
+        showGrid={false}
+        showZoomControls={true}
         showArcToggle={false}
+        showLabel={true}
         hoverEffects={true}
       />
     </div>

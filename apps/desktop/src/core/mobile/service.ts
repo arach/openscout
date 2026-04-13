@@ -558,8 +558,51 @@ export async function getScoutMobileSessionSnapshot(
   const broker = await requireMobileRelayContext();
   const { snapshot } = broker;
   const conversation = snapshot.conversations[conversationId];
+
+  // The conversation may not exist yet — the iOS app navigates to
+  // dm.operator.{agentId} before any messages are sent.  Return an
+  // empty session instead of throwing so the UI can render the chat
+  // composer.
   if (!conversation) {
-    throw new Error(`Unknown mobile session "${conversationId}".`);
+    const inferredAgentId = conversationId.startsWith("dm.operator.")
+      ? conversationId.slice("dm.operator.".length)
+      : null;
+    const agent = inferredAgentId ? snapshot.agents[inferredAgentId] : null;
+    const endpoint = inferredAgentId ? endpointForAgent(snapshot, inferredAgentId) : null;
+    const agentName = agent
+      ? agentDisplayName(snapshot, inferredAgentId!)
+      : inferredAgentId ?? conversationId;
+    return {
+      session: {
+        id: conversationId,
+        name: agentName,
+        adapterType: endpoint?.harness ?? "relay",
+        status: endpoint?.state === "offline" ? "idle" : "active",
+        cwd: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
+        model: typeof endpoint?.metadata?.model === "string" ? endpoint.metadata.model : null,
+        providerMeta: {
+          conversationId,
+          conversationKind: "direct",
+          agentId: inferredAgentId,
+          workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
+          harness: endpoint?.harness ?? null,
+          selector: agent?.selector ?? null,
+          defaultSelector: agent?.defaultSelector ?? null,
+          project: agentName,
+          currentBranch:
+            metadataString(endpoint?.metadata, "branch")
+            ?? metadataString(endpoint?.metadata, "workspaceQualifier")
+            ?? metadataString(agent?.metadata, "branch")
+            ?? metadataString(agent?.metadata, "workspaceQualifier"),
+          workspaceQualifier:
+            metadataString(endpoint?.metadata, "workspaceQualifier")
+            ?? metadataString(agent?.metadata, "workspaceQualifier"),
+        },
+      },
+      history: { hasOlder: false, oldestTurnId: null, newestTurnId: null },
+      turns: [],
+      currentTurnId: null,
+    };
   }
 
   const directAgentId = conversation.kind === "direct"

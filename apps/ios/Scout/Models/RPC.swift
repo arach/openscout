@@ -32,6 +32,9 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/workspaces":        TRPCRoute(path: "mobile.workspaces",      method: .query),
     "mobile/agents":            TRPCRoute(path: "mobile.agents",          method: .query),
     "mobile/session/create":    TRPCRoute(path: "mobile.createSession",   method: .mutation),
+    "mobile/agent/detail":      TRPCRoute(path: "mobile.agentDetail",     method: .query),
+    "mobile/agent/restart":     TRPCRoute(path: "mobile.agentRestart",    method: .mutation),
+    "mobile/agent/stop":        TRPCRoute(path: "mobile.agentStop",       method: .mutation),
 
     // Session management
     "session/list":             TRPCRoute(path: "session.list",           method: .query),
@@ -345,6 +348,71 @@ extension MobileAgentSummary {
         guard let lastActiveAt else { return nil }
         return Date(timeIntervalSince1970: Double(lastActiveAt))
     }
+}
+
+// MARK: - Agent Detail
+
+struct AgentFlight: Codable, Identifiable, Sendable {
+    let id: String
+    let state: String
+    let summary: String?
+    let startedAt: Int?
+
+    var date: Date? {
+        guard let startedAt else { return nil }
+        return Date(timeIntervalSince1970: Double(startedAt > 10_000_000_000 ? startedAt : startedAt * 1000) / 1000.0)
+    }
+}
+
+struct MobileAgentDetail: Codable, Sendable {
+    // Base fields (same as MobileAgentSummary)
+    let id: String
+    let title: String
+    let selector: String?
+    let defaultSelector: String?
+    let workspaceRoot: String?
+    let harness: String?
+    let transport: String?
+    let state: String
+    let statusLabel: String
+    let sessionId: String?
+    let lastActiveAt: Int?
+
+    // Detail fields
+    let cwd: String?
+    let wakePolicy: String?
+    let capabilities: [String]
+    let branch: String?
+    let role: String?
+    let model: String?
+    let activeFlights: [AgentFlight]
+    let recentActivity: [ActivityItem]
+    let messageCount: Int
+}
+
+extension MobileAgentDetail {
+    var projectName: String? {
+        guard let root = workspaceRoot?.trimmedNonEmpty else { return nil }
+        return URL(fileURLWithPath: root).lastPathComponent
+    }
+
+    var resolvedSelector: String? {
+        selector?.trimmedNonEmpty ?? defaultSelector?.trimmedNonEmpty
+    }
+
+    var lastActiveDate: Date? {
+        guard let lastActiveAt else { return nil }
+        return Date(timeIntervalSince1970: Double(lastActiveAt))
+    }
+}
+
+struct AgentActionResult: Codable, Sendable {
+    let ok: Bool
+    let agentId: String
+}
+
+struct AgentIdParams: Codable, Sendable {
+    let agentId: String
 }
 
 // MARK: - Activity Feed

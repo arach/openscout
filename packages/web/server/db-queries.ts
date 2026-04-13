@@ -67,6 +67,7 @@ let _db: Database | null = null;
 function db(): Database {
   if (!_db) {
     _db = new Database(resolveDbPath(), { readonly: true });
+    _db.exec("PRAGMA busy_timeout = 5000");
     _db.exec("PRAGMA journal_mode = WAL");
   }
   return _db;
@@ -567,4 +568,160 @@ export function queryMobileWorkspaces(limit = 50): MobileWorkspaceSummary[] {
   }
 
   return results;
+}
+
+/* ── Agent detail (single agent, richer data) ── */
+
+export type MobileAgentDetail = MobileAgentSummary & {
+  cwd: string | null;
+  wakePolicy: string | null;
+  capabilities: string[];
+  branch: string | null;
+  role: string | null;
+  model: string | null;
+  activeFlights: Array<{
+    id: string;
+    state: string;
+    summary: string | null;
+    startedAt: number | null;
+  }>;
+  recentActivity: Array<{
+    id: string;
+    kind: string;
+    ts: number;
+    title: string | null;
+    summary: string | null;
+  }>;
+  messageCount: number;
+};
+
+export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | null {
+  const row = db().prepare(
+    `SELECT
+       a.id,
+       ac.display_name,
+       a.default_selector,
+       a.wake_policy,
+       a.capabilities_json,
+       a.metadata_json,
+       ep.harness,
+       ep.transport,
+       ep.state,
+       ep.project_root,
+       ep.cwd,
+       ep.session_id,
+       ep.updated_at
+     FROM agents a
+     JOIN actors ac ON ac.id = a.id
+     LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
+     WHERE a.id = ?`,
+  ).get(agentId) as {
+    id: string;
+    display_name: string;
+    default_selector: string | null;
+    wake_policy: string | null;
+    capabilities_json: string | null;
+    metadata_json: string | null;
+    harness: string | null;
+    transport: string | null;
+    state: string | null;
+    project_root: string | null;
+    cwd: string | null;
+    session_id: string | null;
+    updated_at: number | null;
+  } | null;
+
+  if (!row) return null;
+
+  let meta: Record<string, unknown> = {};
+  try { meta = row.metadata_json ? JSON.parse(row.metadata_json) : {}; } catch {}
+
+  let capabilities: string[] = [];
+  try { capabilities = row.capabilities_json ? JSON.parse(row.capabilities_json) : []; } catch {}
+
+  const workingAgentIds = new Set(
+    (db().prepare(
+      `SELECT DISTINCT target_agent_id FROM flights
+       WHERE state NOT IN ('completed','failed','cancelled')`,
+    ).all() as Array<{ target_agent_id: string }>).map((r) => r.target_agent_id),
+  );
+
+  const activeFlights = (db().prepare(
+    `SELECT id, state, summary, started_at
+     FROM flights
+     WHERE target_agent_id = ? AND state NOT IN ('completed','failed','cancelled')
+     ORDER BY started_at DESC`,
+  ).all(agentId) as Array<{
+    id: string;
+    state: string;
+    summary: string | null;
+    started_at: number | null;
+  }>).map((f) => ({
+    id: f.id,
+    state: f.state,
+    summary: f.summary,
+    startedAt: f.started_at,
+  }));
+
+  const recentActivity = (db().prepare(
+    `SELECT ai.id, ai.kind, ai.ts, ai.title, ai.summary
+     FROM activity_items ai
+     WHERE ai.actor_id = ?
+     ORDER BY ai.ts DESC
+     LIMIT 20`,
+  ).all(agentId) as Array<{
+    id: string;
+    kind: string;
+    ts: number;
+    title: string | null;
+    summary: string | null;
+  }>).map((a) => ({
+    id: a.id,
+    kind: a.kind,
+    ts: a.ts,
+    title: a.title,
+    summary: a.summary,
+  }));
+
+  const msgRow = db().prepare(
+    `SELECT COUNT(*) AS cnt FROM messages WHERE conversation_id = ?`,
+  ).get(conversationIdForAgent(agentId)) as { cnt: number } | null;
+  const messageCount = msgRow?.cnt ?? 0;
+
+  const lastMessageAt = (db().prepare(
+    `SELECT MAX(created_at) AS last_at FROM messages WHERE actor_id = ?`,
+  ).get(agentId) as { last_at: number | null } | null)?.last_at ?? null;
+
+  const isWorking = workingAgentIds.has(row.id);
+  const state: MobileAgentSummary["state"] = isWorking
+    ? "working"
+    : row.state && row.state !== "offline" ? "available" : "offline";
+
+  const statusLabel = isWorking
+    ? "Working"
+    : row.state === "active" ? "Available"
+    : row.state ?? "Offline";
+
+  return {
+    id: row.id,
+    title: row.display_name,
+    selector: (meta.selector as string) ?? null,
+    defaultSelector: row.default_selector,
+    workspaceRoot: compact(row.project_root),
+    harness: row.harness,
+    transport: row.transport,
+    state,
+    statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
+    sessionId: conversationIdForAgent(row.id),
+    lastActiveAt: lastMessageAt,
+    cwd: compact(row.cwd),
+    wakePolicy: row.wake_policy,
+    capabilities,
+    branch: (meta.branch as string) ?? null,
+    role: (meta.role as string) ?? null,
+    model: (meta.model as string) ?? null,
+    activeFlights,
+    recentActivity,
+    messageCount,
+  };
 }

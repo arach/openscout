@@ -560,16 +560,13 @@ export class InMemoryControlRuntime implements ControlRuntime {
     let completedAt: number | undefined;
 
     if (isLocalAuthority) {
-      if (targetEndpoints.length == 0 && !invocation.ensureAwake) {
-        state = "failed";
-        summary = `${targetAgent.displayName} is not runnable yet.`;
-        error = `No runnable endpoint is registered for agent ${targetAgent.id}. The broker can store the invocation, but nothing on this node can execute it yet.`;
-        completedAt = startedAt;
-      } else if (targetEndpoints.length == 0) {
-        state = "waking";
-        summary = invocation.execution?.harness
-          ? `${targetAgent.displayName} waking on ${invocation.execution.harness}.`
-          : `${targetAgent.displayName} waking.`;
+      if (targetEndpoints.length == 0) {
+        state = invocation.ensureAwake ? "waking" : "queued";
+        summary = invocation.ensureAwake
+          ? (invocation.execution?.harness
+              ? `${targetAgent.displayName} waking on ${invocation.execution.harness}.`
+              : `${targetAgent.displayName} waking.`)
+          : `Message stored for ${targetAgent.displayName}. Will deliver when online.`;
       } else {
         state = "queued";
         summary = `${targetAgent.displayName} queued for local execution.`;

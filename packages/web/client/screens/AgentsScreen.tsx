@@ -33,7 +33,11 @@ function AgentDetail({
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
   const conversationId = conversationForAgent(agent.id);
-  const agentMessages = messages.filter((m) => m.conversationId === conversationId);
+  const agentMessages = messages.filter((m) =>
+    m.actorName === agent.name ||
+    m.conversationId.includes(agent.id) ||
+    m.body.includes(`@${agent.name}`)
+  );
   agentMessages.sort((a, b) => b.createdAt - a.createdAt);
 
   return (

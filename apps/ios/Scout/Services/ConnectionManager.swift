@@ -1002,6 +1002,24 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult([ActivityItem].self, from: data)
     }
 
+    func getAgentDetail(agentId: String) async throws -> MobileAgentDetail {
+        let params = AgentIdParams(agentId: agentId)
+        let data = try await sendRPC(method: "mobile/agent/detail", params: params)
+        return try decodeResult(MobileAgentDetail.self, from: data)
+    }
+
+    func restartAgent(agentId: String) async throws -> AgentActionResult {
+        let params = AgentIdParams(agentId: agentId)
+        let data = try await sendRPC(method: "mobile/agent/restart", params: params)
+        return try decodeResult(AgentActionResult.self, from: data)
+    }
+
+    func stopAgent(agentId: String) async throws -> AgentActionResult {
+        let params = AgentIdParams(agentId: agentId)
+        let data = try await sendRPC(method: "mobile/agent/stop", params: params)
+        return try decodeResult(AgentActionResult.self, from: data)
+    }
+
     func closeSession(_ sessionId: String) async throws {
         let params = SessionIdParams(sessionId: sessionId)
         _ = try await sendRPC(method: "session/close", params: params)
