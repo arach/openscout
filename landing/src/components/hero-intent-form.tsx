@@ -3,6 +3,12 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Download, X } from "lucide-react";
+import {
+  trackCtaClick,
+  trackFormError,
+  trackIntentModalOpen,
+  trackLeadGenerated,
+} from "@/lib/analytics";
 
 type SubmissionStatus = "idle" | "sending" | "success" | "error";
 
@@ -15,13 +21,13 @@ const OPENSCOUT_API_BASE_URL = (
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const intentOptions = [
-  { value: "", label: "What are you exploring?" },
-  { value: "relay", label: "Relay operator surface" },
-  { value: "pairing", label: "Scout pairing" },
-  { value: "runtime", label: "Runtime / API" },
-  { value: "desktop", label: "Desktop shell" },
-  { value: "mesh", label: "Agent mesh" },
-  { value: "other", label: "Something else" },
+  { value: "", label: "What brings you here?" },
+  { value: "manage-agents", label: "Managing AI agents from one place" },
+  { value: "pairing", label: "Pairing my phone to see agent activity" },
+  { value: "multi-agent", label: "Running multiple agents together" },
+  { value: "desktop", label: "A desktop app for Claude / Codex" },
+  { value: "building", label: "Building on the runtime or API" },
+  { value: "curious", label: "Just curious" },
 ] as const;
 
 export function HeroIntentForm() {
@@ -61,9 +67,15 @@ export function HeroIntentForm() {
     event.preventDefault();
 
     const normalizedEmail = email.trim().toLowerCase();
+    const trimmedInterest = interest.trim();
     if (!EMAIL_PATTERN.test(normalizedEmail)) {
       setStatus("error");
       setError("Please enter a valid email address.");
+      trackFormError({
+        errorType: "invalid_email",
+        intent,
+        location: "hero",
+      });
       return;
     }
 
@@ -89,9 +101,19 @@ export function HeroIntentForm() {
       if (!response.ok || !payload?.success) {
         setStatus("error");
         setError(payload?.error ?? "Something went wrong. Please try again.");
+        trackFormError({
+          errorType: "server_error",
+          intent,
+          location: "hero",
+        });
         return;
       }
 
+      trackLeadGenerated({
+        hasInterest: Boolean(trimmedInterest),
+        intent,
+        location: "hero",
+      });
       setStatus("success");
       setEmail("");
       setIntent("");
@@ -100,10 +122,22 @@ export function HeroIntentForm() {
     } catch {
       setStatus("error");
       setError("Network error. Please try again.");
+      trackFormError({
+        errorType: "network_error",
+        intent,
+        location: "hero",
+      });
     }
   }
 
   function openModal() {
+    trackCtaClick({
+      ctaType: "download",
+      destination: "intent_form",
+      label: "Download for macOS",
+      location: "hero",
+    });
+    trackIntentModalOpen("hero");
     setOpen(true);
   }
 
@@ -134,7 +168,7 @@ export function HeroIntentForm() {
           className="fixed inset-0 z-[100] flex items-center justify-center bg-[#111110]/72 p-4 backdrop-blur-sm sm:p-6"
           role="dialog"
           aria-modal="true"
-          aria-label="Share your OpenScout intent"
+          aria-label="Request Scout access"
           onClick={closeModal}
         >
           <div
@@ -252,7 +286,7 @@ export function HeroIntentForm() {
                   ) : null}
 
                   <p className="text-[12px] leading-relaxed text-[#8b8579]">
-                    Only used to follow up about OpenScout.
+                    Only used to follow up about Scout.
                   </p>
                 </form>
               </div>
