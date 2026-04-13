@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { access, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -129,6 +129,9 @@ export type OpenScoutSettings = {
     completedAt: number | null;
     skippedAt: number | null;
   };
+  node: {
+    alias: string;
+  };
   discovery: {
     contextRoot: string | null;
     workspaceRoots: string[];
@@ -254,6 +257,7 @@ export type SetupResult = {
 export type UpdateOpenScoutSettingsInput = {
   profile?: Partial<OpenScoutSettings["profile"]>;
   onboarding?: Partial<OpenScoutSettings["onboarding"]>;
+  node?: Partial<OpenScoutSettings["node"]>;
   discovery?: Partial<OpenScoutSettings["discovery"]>;
   agents?: Partial<OpenScoutSettings["agents"]>;
   bridges?: {
@@ -626,11 +630,29 @@ export function primaryDirectConversationIdForAgent(agentId: string): string {
 }
 
 function resolveNodeQualifier(): string {
-  return normalizeAgentSelectorSegment(
-    process.env.OPENSCOUT_NODE_QUALIFIER?.trim()
-    || hostname()
-    || "local",
-  ) || "local";
+  // Priority: env var > settings alias > hostname
+  const fromEnv = process.env.OPENSCOUT_NODE_QUALIFIER?.trim();
+  if (fromEnv) {
+    return normalizeAgentSelectorSegment(fromEnv) || "local";
+  }
+
+  const alias = readNodeAliasSync();
+  if (alias) {
+    return normalizeAgentSelectorSegment(alias) || "local";
+  }
+
+  return normalizeAgentSelectorSegment(hostname() || "local") || "local";
+}
+
+function readNodeAliasSync(): string | null {
+  try {
+    const settingsPath = resolveOpenScoutSupportPaths().settingsPath;
+    const raw = readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as { node?: { alias?: string } };
+    return settings.node?.alias?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function detectGitBranchUncached(projectRoot: string): string | null {
@@ -948,6 +970,9 @@ function defaultSettings(): OpenScoutSettings {
       runtimesRanAt: null,
       completedAt: null,
       skippedAt: null,
+    },
+    node: {
+      alias: "",
     },
     discovery: {
       contextRoot: null,
@@ -1422,6 +1447,7 @@ async function normalizeSettingsRecord(
   const candidate = typeof value === "object" && value ? value as Record<string, unknown> : {};
   const profile = typeof candidate.profile === "object" && candidate.profile ? candidate.profile as Record<string, unknown> : {};
   const onboarding = typeof candidate.onboarding === "object" && candidate.onboarding ? candidate.onboarding as Record<string, unknown> : {};
+  const node = typeof candidate.node === "object" && candidate.node ? candidate.node as Record<string, unknown> : {};
   const discovery = typeof candidate.discovery === "object" && candidate.discovery ? candidate.discovery as Record<string, unknown> : {};
   const agents = typeof candidate.agents === "object" && candidate.agents ? candidate.agents as Record<string, unknown> : {};
   const bridges = typeof candidate.bridges === "object" && candidate.bridges ? candidate.bridges as Record<string, unknown> : {};
@@ -1471,6 +1497,9 @@ async function normalizeSettingsRecord(
       runtimesRanAt: normalizeOptionalTimestamp(onboarding.runtimesRanAt),
       completedAt: normalizeOptionalTimestamp(onboarding.completedAt),
       skippedAt: normalizeOptionalTimestamp(onboarding.skippedAt),
+    },
+    node: {
+      alias: normalizeOptionalString(node.alias),
     },
     discovery: {
       contextRoot,
@@ -1569,6 +1598,10 @@ export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsIn
     onboarding: {
       ...current.onboarding,
       ...(settings.onboarding ?? {}),
+    },
+    node: {
+      ...current.node,
+      ...(settings.node ?? {}),
     },
     discovery: {
       ...current.discovery,

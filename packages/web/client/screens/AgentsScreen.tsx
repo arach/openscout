@@ -56,6 +56,7 @@ function AgentDetail({
       </div>
 
       <div className="s-agent-detail-meta">
+        <DetailRow label="Agent ID" value={agent.id} />
         {agent.project && <DetailRow label="Project" value={agent.project} />}
         {agent.branch && <DetailRow label="Branch" value={agent.branch} />}
         {agent.projectRoot && <DetailRow label="Path" value={agent.projectRoot} />}

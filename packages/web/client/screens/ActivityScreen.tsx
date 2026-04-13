@@ -29,8 +29,13 @@ function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind.replace(/[._]/g, " ");
 }
 
+function fullTimestamp(ts: number): string {
+  return new Date(ts * 1000).toLocaleString();
+}
+
 export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -54,33 +59,73 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
         </div>
       ) : (
         <div className="s-activity-list">
-          {activity.map((item) => (
-            <div
-              key={item.id}
-              className={`s-activity-list-row${item.conversationId ? " s-activity-list-row-clickable" : ""}`}
-              onClick={item.conversationId ? () => navigate({ view: "conversation", conversationId: item.conversationId! }) : undefined}
-            >
-              <div
-                className="s-avatar s-avatar-sm"
-                style={{ background: actorColor(item.actorName ?? "system") }}
-              >
-                {(item.actorName ?? "S")[0].toUpperCase()}
-              </div>
-              <div className="s-activity-list-body">
-                <div className="s-activity-list-header">
-                  <span className="s-activity-list-actor">{item.actorName ?? "system"}</span>
-                  <span className="s-activity-list-kind">{kindLabel(item.kind)}</span>
-                  <span className="s-time">{timeAgo(item.ts)}</span>
+          {activity.map((item) => {
+            const isExpanded = expandedId === item.id;
+            return (
+              <div key={item.id} className="s-activity-list-item">
+                <div
+                  className="s-activity-list-row s-activity-list-row-clickable"
+                  onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                >
+                  <div
+                    className="s-avatar s-avatar-sm"
+                    style={{ background: actorColor(item.actorName ?? "system") }}
+                  >
+                    {(item.actorName ?? "S")[0].toUpperCase()}
+                  </div>
+                  <div className="s-activity-list-body">
+                    <div className="s-activity-list-header">
+                      <span className="s-activity-list-actor">{item.actorName ?? "system"}</span>
+                      <span className="s-activity-list-kind">{kindLabel(item.kind)}</span>
+                      <span className="s-time">{timeAgo(item.ts)}</span>
+                    </div>
+                    {item.title && (
+                      <p className="s-activity-list-title">{item.title}</p>
+                    )}
+                  </div>
                 </div>
-                {item.title && (
-                  <p className="s-activity-list-title">{item.title}</p>
-                )}
-                {item.summary && (
-                  <p className="s-activity-list-summary">{item.summary}</p>
+
+                {isExpanded && (
+                  <div className="s-activity-expanded">
+                    {item.summary && (
+                      <p className="s-activity-expanded-summary">{item.summary}</p>
+                    )}
+                    <div className="s-activity-expanded-meta">
+                      <span className="s-activity-meta-label">Event</span>
+                      <span className="s-activity-meta-value">{item.kind}</span>
+                    </div>
+                    <div className="s-activity-expanded-meta">
+                      <span className="s-activity-meta-label">Time</span>
+                      <span className="s-activity-meta-value">{fullTimestamp(item.ts)}</span>
+                    </div>
+                    {item.actorName && (
+                      <div className="s-activity-expanded-meta">
+                        <span className="s-activity-meta-label">Actor</span>
+                        <span className="s-activity-meta-value">{item.actorName}</span>
+                      </div>
+                    )}
+                    {item.conversationId && (
+                      <div className="s-activity-expanded-meta">
+                        <span className="s-activity-meta-label">Thread</span>
+                        <span className="s-activity-meta-value">{item.conversationId}</span>
+                      </div>
+                    )}
+                    {item.conversationId && (
+                      <div className="s-activity-expanded-actions">
+                        <button
+                          type="button"
+                          className="s-btn s-btn-sm"
+                          onClick={() => navigate({ view: "conversation", conversationId: item.conversationId! })}
+                        >
+                          See thread
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

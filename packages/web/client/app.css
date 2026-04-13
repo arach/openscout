@@ -416,7 +416,7 @@ body { margin: 0; }
   padding: 8px 0;
 }
 
-.s-activity-list-row + .s-activity-list-row {
+.s-activity-list-item + .s-activity-list-item {
   border-top: 1px solid var(--border);
 }
 
@@ -471,6 +471,43 @@ body { margin: 0; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.s-activity-expanded {
+  padding: 4px 8px 12px 38px;
+}
+
+.s-activity-expanded-summary {
+  font-size: 12px;
+  color: var(--ink);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.s-activity-expanded-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.s-activity-meta-label {
+  color: var(--muted);
+  min-width: 56px;
+}
+
+.s-activity-meta-value {
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.s-activity-expanded-actions {
+  margin-top: 8px;
+}
+
+.s-btn-sm {
+  font-size: 11px;
+  padding: 4px 10px;
 }
 
 /* ── Shared ── */
