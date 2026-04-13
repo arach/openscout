@@ -75,4 +75,4 @@ scout server start --static --static-root /custom/client
 
 Use `scout server` or `scout server help` for full flags.
 
-For a standalone **minimal** web UI (pairing QR and the current activity stream), see **`@openscout/web`** (`openscout-web`): it ships `dist/client` and runs **`scout server control-plane start --static --static-root …`** (requires `@openscout/scout` and Bun on `PATH`). The full desktop UI is vendored with the CLI build; the control-plane UI is vendored separately as `dist/control-plane-client`.
+For a standalone **lightweight** web UI, see **`@openscout/web`** (`openscout-web`): it ships its own `dist/client`, bundled Bun server, and pairing supervisor. The full desktop UI remains vendored with the CLI build; the lightweight web package no longer boots through `scout server control-plane start`.

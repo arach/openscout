@@ -15,4 +15,5 @@ test("openscout-web --help does not require dist", () => {
 
   assert.match(output, /openscout-web/);
   assert.match(output, /--port/);
+  assert.match(output, /standalone Bun server/i);
 });

@@ -5,6 +5,7 @@ import { useBrokerEvents } from "./lib/sse.ts";
 import { ConversationScreen } from "./screens/ConversationScreen.tsx";
 import { SettingsScreen } from "./screens/SettingsScreen.tsx";
 import { ActivityScreen } from "./screens/ActivityScreen.tsx";
+import { AgentInfoScreen } from "./screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { HomeScreen } from "./screens/HomeScreen.tsx";
 import type { Agent, Message, Route } from "./lib/types.ts";
@@ -64,6 +65,8 @@ function MainPanel({
   switch (route.view) {
     case "conversation":
       return <ConversationScreen conversationId={route.conversationId} navigate={navigate} />;
+    case "agent-info":
+      return <AgentInfoScreen conversationId={route.conversationId} navigate={navigate} />;
     case "settings":
       return <SettingsScreen navigate={navigate} />;
     case "agents":

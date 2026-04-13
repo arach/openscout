@@ -1,18 +1,17 @@
 # @openscout/web
 
-Published package that ships a **minimal Scout web UI** (Vite + React in this package): pairing QR and the current activity stream. It starts by delegating to **`scout server control-plane start`** from [`@openscout/scout`](https://www.npmjs.com/package/@openscout/scout). This tarball does **not** bundle the Hono server or `@openscout/runtime`; that code runs inside the CLI you invoke.
+Published package that ships a lightweight standalone Scout web UI: pairing QR, current activity, inbox, and direct messaging. The package builds and ships its own Bun server plus bundled static client assets.
 
 ## Requirements
 
-- **`scout`** from `@openscout/scout` on your `PATH`, **or** install `@openscout/scout` next to this package so `node_modules/@openscout/scout/bin/scout.mjs` exists, **or** set `OPENSCOUT_SCOUT_BIN` to that `scout.mjs` path (or a `scout` executable).
-- [Bun](https://bun.sh) on your `PATH` (the CLI runs the API server with Bun, same as `scout server control-plane start`).
+- [Bun](https://bun.sh) on your `PATH`
 
 ## Install
 
 ```bash
-npm i -g @openscout/scout @openscout/web
+npm i -g @openscout/web
 # or
-bun add -g @openscout/scout @openscout/web
+bun add -g @openscout/web
 ```
 
 ## Run
@@ -29,9 +28,10 @@ Then open the URL printed in the terminal (default port `3200`).
 
 | | `@openscout/scout` | `@openscout/web` |
 |---|-------------------|------------------|
-| Command | `scout` (full CLI + bundled `scout-web-server.mjs`) | `openscout-web` → spawns `scout server control-plane start --static --static-root …` |
-| Static UI | Vendored next to `main.mjs` in the CLI package (full desktop UI) | This package’s `dist/client` (minimal pairing + activity) |
-| Broker / setup | Yes (`scout setup`, etc.) | Same — use `scout` |
+| Command | `scout` (full CLI + bundled desktop web UI) | `openscout-web` (standalone Bun server + bundled client) |
+| Static UI | Vendored next to `main.mjs` in the CLI package | This package’s `dist/client` |
+| Server | CLI-owned | Web-package-owned |
+| Broker / setup | Yes (`scout setup`, etc.) | Uses the same broker/runtime data, but does not boot through the CLI |
 
 ## Build (maintainers)
 
@@ -41,13 +41,18 @@ From the repo root:
 npm --prefix packages/web run build
 ```
 
-This runs `vite build` for `packages/web/client` into `dist/client/`. No server bundle is emitted here.
+This builds:
+
+- `dist/client/` via Vite
+- `dist/openscout-web-server.mjs` via `bun build`
+- `dist/pair-supervisor.mjs` for the pairing runtime
 
 ## Local dev (UI only)
 
-With `scout server control-plane start --vite-url http://127.0.0.1:5180` already running on port 3200:
+Run the standalone web server against a Vite dev client:
 
 ```bash
+OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun run packages/web/server/index.ts
 npm --prefix packages/web run dev
 ```
 

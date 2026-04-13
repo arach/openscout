@@ -28,7 +28,7 @@ An agent identity combines up to five dimensions:
 
 The canonical form strings them together with dots:
 
-```
+```bash
 @<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
 ```
 
