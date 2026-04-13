@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const doc = getDocBySlug(slug);
   if (!doc) return {};
   return {
-    title: `${doc.title} — OpenScout Docs`,
+    title: `${doc.title} — Scout Docs`,
     description: doc.description,
   };
 }

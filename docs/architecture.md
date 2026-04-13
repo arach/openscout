@@ -1,136 +1,87 @@
-# OpenScout Architecture
+# Architecture
 
 ## Working Thesis
 
-OpenScout is the shell and runtime substrate for a family of local-first agent tools.
+Scout is a local-first runtime and protocol for orchestrating AI agents across harnesses, machines, and interfaces.
 
-It is not trying to replace every specialized product. It is trying to provide the place where those products can be invoked, composed, observed, and normalized.
+It does not replace Claude Code, Codex, or any other agent tool. It provides the substrate where multiple agents can be registered, addressed, observed, and composed — regardless of which harness runs them or which machine they live on.
 
-The current scaffold is built around three principles:
+## Principles
 
-1. The shell owns chrome.
-2. Helper processes own long-running background work.
-3. Workflow and action logic should default to TypeScript, not native code.
+Scout follows a small set of constraints that shape every design decision:
 
-## Runtime Shape
+- **Local-first, not cloud-first.** The broker, agent registry, and all state live on your machine. Nothing phones home. A SQLite database is the source of truth, not an API.
 
-### 1. ScoutApp
+- **Multi-harness.** Agents can run on Claude Code, Codex, or any harness that speaks the protocol. Scout does not assume one execution backend.
 
-The main macOS application.
+- **Multi-machine.** Agents on different machines can discover and message each other through mesh forwarding. Pairing a phone or a second workstation extends the same agent graph.
 
-Responsibilities:
+- **File-based configuration.** Agent definitions, overrides, and project bindings are JSON files on disk. No dashboard is required to configure the system.
 
-- sidebar navigation
-- footer status and runtime visibility
-- embedded WebKit surface for local or remote operator consoles
-- module discovery and presentation
-- helper process supervision
+- **Protocol over product.** The protocol package defines the shared grammar — agent identity, message records, invocation requests, collaboration contracts. Products are built on top of that grammar, not beside it.
 
-### 2. ScoutAgent
+## Communication Flow
 
-The always-on helper.
+![Scout communication flow — two agent sessions connected through a central broker](/diagrams/communication-flow.svg)
 
-Responsibilities:
+Agent sessions connect to a single Scout broker over HTTP and SSE. The broker owns the agent registry and routes messages between sessions. Each harness uses its own transport — stream-JSON for Claude Code, app-server for Codex — but the protocol layer above it is shared.
 
-- stay alive independently of the main shell
-- publish heartbeat and runtime status
-- become the future home for background tasks, watchers, and transport bridges
+## Core Moving Parts
 
-### 3. ScoutCore
+### Protocol
 
-The shared contract layer.
+The shared type system and address grammar that every component speaks.
 
-Responsibilities:
+Defines agent identity (the `@agent.node.branch` addressing scheme), message records, invocation requests, flight tracking, collaboration contracts, and actor/endpoint/conversation bindings.
 
-- route and shell descriptors
-- module metadata
-- helper status schema
-- support-path conventions
+Everything that crosses a boundary — between agents, between harnesses, between machines — is described in the protocol package.
 
-### 4. TypeScript Runtime Packages
+### Broker
 
-The preferred home for workflow logic, action composition, and higher-level orchestration.
+The local message bus and state store.
 
-Responsibilities:
+A single SQLite-backed daemon that runs on each machine. It owns agent registration, message routing, conversation threading, and invocation dispatch. Agents post messages to the broker; the broker resolves mentions, routes to endpoints, and records history.
 
-- workflow definitions and execution
-- action catalogs and composition
-- provider and gateway routing
-- CLI and web-facing runtime logic
-- protocol normalization shared across products
+The broker exposes an HTTP API for reads and writes and an SSE stream for live updates.
 
-## Influence Map
+### Runtime
 
-### Talkie
+The agent lifecycle layer.
 
-Contributes the most important process lesson: split the operator-facing app from the always-on helper and keep the background role independently reliable.
+Manages agent sessions — starting, stopping, health-checking, and invoking agents across harnesses. Handles system prompt generation, tmux session management, Claude stream-JSON transport, and Codex app-server transport.
 
-### Action
+Also owns the relay agent override registry (the file-based agent configuration), project discovery, and harness profile resolution.
 
-Contributes the native runtime lesson: the app shell should own UI lifecycle, WebKit, and permission-facing behavior while the agent runtime owns transport and automation-facing execution.
+### CLI
 
-### Hudson
+The operator interface.
 
-Contributes the shell lesson: modules do not render or own shell chrome directly. The shell reads their descriptors and decides how to surface them.
+`scout up`, `scout down`, `scout send`, `scout ask`, `scout ps`, `scout who` — all commands that interact with the broker and runtime. The CLI resolves short agent names to fully-qualified agent names, infers sender identity from the current project, and handles mention-based routing.
 
-## Native vs TypeScript Boundary
+### Surfaces
 
-Native code should own:
+Desktop (Electron), web dashboard, iOS companion, and terminal UI. These are views into the broker's state — they read from the same SQLite database and SSE stream. None of them own agent state; the broker does.
 
-- app lifecycle
-- windowing and shell chrome
-- WebKit embedding
-- helper process lifecycle
-- permissions
-- capture hooks and other computer-native affordances
+## Agent Lifecycle
 
-TypeScript should own:
+1. **Register.** An agent is registered by creating an override entry in the relay-agents file, binding a project path and branch to an agent identity.
 
-- workflows
-- actions
-- orchestration logic
-- provider abstractions
-- gateway integration
-- CLI and web-facing runtime layers
+2. **Start.** `scout up` launches the agent's harness session (Claude Code via stream-JSON, Codex via app-server, or a tmux shell session) with a generated system prompt that includes the collaboration contract.
 
-That keeps Scout easier to evolve and avoids hard-coding product logic into Swift.
+3. **Route.** Messages mentioning `@agent` are resolved by the broker, which looks up the agent's endpoint and dispatches an invocation or delivers the message to the agent's session.
 
-## Initial Module Model
+4. **Invoke.** For ask-style interactions, the broker creates a flight record that tracks the request-response lifecycle with timeout and retry semantics.
 
-The scaffold treats integrations as modules rather than as imported slabs of product code.
+5. **Stop.** `scout down` terminates the harness session and marks the agent offline.
 
-Current placeholder modules:
+## Mesh
 
-- Talkie
-- Lattices
-- Action
-- Operate
-- Hudson
+Agents on different machines discover each other through mesh forwarding. Each broker advertises its local agents; peer brokers sync endpoint tables so that `@agent.other-machine` resolves across the network.
 
-Each module describes:
+Pairing (phone, second workstation) uses the same mesh layer — the paired device gets a real-time view of the agent graph and can send messages into any conversation.
 
-- a name
-- a summary
-- an integration mode
-- a list of capabilities
+## What Scout Is Not
 
-That gives Scout a stable way to expose linked systems before deeper embedding exists.
-
-## Integration Modes
-
-- `link`: Scout launches or hands off to another app, runtime, or service
-- `embed`: Scout hosts a stable primitive directly inside the shell
-- `copy`: temporary extraction path only; avoid by default
-
-The scaffold defaults to `link` so the products can continue evolving independently while Scout grows a coherent shell around them.
-
-## Near-Term Extensions
-
-The next credible steps after this scaffold are:
-
-1. Replace the placeholder helper heartbeat with a real local runtime bridge.
-2. Move the first collaboration workflow primitives into Scout-owned modules under `apps/desktop` or shared runtime/protocol packages, rather than reviving any old workflow package, starting
-   with canonical `question` and `work_item` semantics in TypeScript.
-3. Add a local command palette and command routing model.
-4. Add a real embedded HUD or console web app.
-5. Promote module descriptors into a formal capability registry.
+- Not a framework for building agents. Agents are just Claude Code or Codex sessions with a system prompt.
+- Not a cloud service. Everything runs locally. The optional cloud endpoint is only for pairing handshake and intent capture.
+- Not a replacement for any single agent tool. It is the connective tissue between them.

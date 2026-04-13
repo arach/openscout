@@ -19,7 +19,7 @@ export default function DocsIndex() {
             href="/"
             className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted hover:text-foreground transition-colors"
           >
-            OpenScout
+            Scout
           </Link>
         </div>
         <div className="border-t border-border" />
@@ -29,7 +29,7 @@ export default function DocsIndex() {
             Documentation
           </h1>
           <p className="mt-4 text-[15px] leading-relaxed text-secondary max-w-md">
-            Architecture, protocol specs, and implementation guides for the OpenScout platform.
+            Architecture, protocol specs, and implementation guides for the Scout platform.
           </p>
         </div>
 

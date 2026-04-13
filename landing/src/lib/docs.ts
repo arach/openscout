@@ -22,7 +22,7 @@ const GITHUB_BLOB_BASE_URL = "https://github.com/arach/openscout/blob/main";
 type GroupDef = { group: string; order: number; title: string; description: string };
 
 const CATALOG: Record<string, GroupDef> = {
-  "architecture":                           { group: "Core Concepts",       order: 0,  title: "Architecture",                description: "Core philosophy: local-first runtime substrate for agent tools." },
+  "architecture":                           { group: "Core Concepts",       order: 0,  title: "Architecture",                description: "Local-first protocol and runtime for orchestrating agents across harnesses and machines." },
   "agent-identity":                        { group: "Core Concepts",       order: 1,  title: "Agent Identity",              description: "Address grammar for targeting agents across harnesses and machines." },
   "collaboration-workflows-v1":            { group: "Core Concepts",       order: 2,  title: "Collaboration Workflows",     description: "Two canonical workflows — question and work_item — and their state machines." },
   "01-harness-catalog-and-onboarding":     { group: "OpenAgents Tracks",   order: 10, title: "Track 01: Harness Catalog",   description: "Declarative catalog with readiness, install, and configure states." },

@@ -171,10 +171,7 @@ export function DocView({
             </nav>
 
             <div className="max-w-3xl pb-8">
-              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
-                {currentGroup?.title ?? "Documentation"}
-              </p>
-              <h1 className="mt-3 font-[family-name:var(--font-spectral)] text-3xl font-semibold tracking-[-0.02em] text-[#111110] sm:text-4xl">
+              <h1 className="font-[family-name:var(--font-spectral)] text-3xl font-semibold tracking-[-0.02em] text-[#111110] sm:text-4xl">
                 {title}
               </h1>
               <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[#5e5a52]">
