@@ -2,7 +2,7 @@ import React from "react";
 
 import { asErrorMessage } from "@web/features/messages/lib/relay-utils";
 import { pairingStatesMeaningfullyEqual } from "@/app-utils";
-import type { ScoutDesktopBridge } from "@/lib/electron";
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import type { PairingState, UpdatePairingConfigInput } from "@/lib/scout-desktop";
 
 type UsePairingControllerInput = {

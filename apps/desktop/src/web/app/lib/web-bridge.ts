@@ -1,5 +1,5 @@
-import { createScoutElectronBridge } from "../../../app/electron/bridge.ts";
-import type { ScoutElectronBridge } from "../../../app/electron/bridge.ts";
+import { createScoutDesktopBridge } from "../../../app/host/bridge.ts";
+import type { ScoutDesktopBridge } from "../../../app/host/bridge.ts";
 
 const API_ROUTES: Record<string, { method: "GET" | "POST"; path: string | ((args: unknown[]) => string) }> = {
   "scout:get-app-info":            { method: "GET",  path: "/api/app" },
@@ -112,6 +112,6 @@ async function webInvoke(channel: string, ...args: unknown[]): Promise<unknown> 
   return readApiResponse(res, url);
 }
 
-export function createWebBridge(): ScoutElectronBridge {
-  return { ...createScoutElectronBridge(webInvoke), isDesktop: false } as ScoutElectronBridge;
+export function createWebBridge(): ScoutDesktopBridge {
+  return { ...createScoutDesktopBridge(webInvoke), isDesktop: false } as ScoutDesktopBridge;
 }

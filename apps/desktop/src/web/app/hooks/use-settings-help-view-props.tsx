@@ -12,7 +12,7 @@ import type {
   WorkspaceExplorerFilterTab,
   WorkspaceExplorerViewMode,
 } from '@/app-types';
-import type { ScoutDesktopBridge } from '@/lib/electron';
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import { C } from '@/lib/theme';
 import type {
   DesktopFeatureFlags,

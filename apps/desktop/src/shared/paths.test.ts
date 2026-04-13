@@ -31,14 +31,6 @@ function createExternalModuleDirectory(root: string): string {
   return moduleDirectory;
 }
 
-function createPackagedApp(root: string): { packagedRoot: string; moduleDirectory: string } {
-  const packagedRoot = join(root, "packaged-app");
-  const moduleDirectory = join(packagedRoot, "dist", "electron");
-  mkdirSync(moduleDirectory, { recursive: true });
-  writeJson(join(packagedRoot, "package.json"), { name: "@scout/electron-app" });
-  return { packagedRoot, moduleDirectory };
-}
-
 function createInstalledCliPackage(root: string): { packageRoot: string; moduleDirectory: string } {
   const packageRoot = join(root, "node_modules", "@openscout", "scout");
   const moduleDirectory = join(packageRoot, "dist");
@@ -90,27 +82,13 @@ describe("shared path resolution", () => {
     expect(resolved).toBe(appRoot);
   });
 
-  test("resolves packaged app roots from the installed module location", () => {
-    const fixtureRoot = makeFixtureRoot();
-    cleanupDirectories.push(fixtureRoot);
-    const { packagedRoot, moduleDirectory } = createPackagedApp(fixtureRoot);
-
-    const resolved = resolveScoutAppRoot({
-      currentDirectory: fixtureRoot,
-      env: {},
-      moduleDirectory,
-    });
-
-    expect(resolved).toBe(packagedRoot);
-  });
-
-  test("resolves installed CLI package roots outside a source checkout", () => {
+  test("resolves installed CLI package roots from the installed module location", () => {
     const fixtureRoot = makeFixtureRoot();
     cleanupDirectories.push(fixtureRoot);
     const { packageRoot, moduleDirectory } = createInstalledCliPackage(fixtureRoot);
 
     const resolved = resolveScoutAppRoot({
-      currentDirectory: join(fixtureRoot, "some-other-repo"),
+      currentDirectory: fixtureRoot,
       env: {},
       moduleDirectory,
     });

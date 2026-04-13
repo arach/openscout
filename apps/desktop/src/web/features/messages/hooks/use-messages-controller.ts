@@ -18,7 +18,7 @@ import {
 } from "@web/features/messages/lib/relay-utils";
 import type { RelayMentionCandidate } from "@web/features/messages/lib/relay-types";
 import type { AppView, ComposerRelayReference, PendingRelayMessage } from "@/app-types";
-import type { ScoutDesktopBridge } from "@/lib/electron";
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import type {
   AppSettingsState,
   DesktopShellPatch,

@@ -9,28 +9,28 @@ import type {
   UpdateScoutPhonePreparationInput,
 } from "../desktop/index.ts";
 import {
-  getScoutElectronAgentConfig,
-  updateScoutElectronAgentConfig,
-  type ScoutElectronAgentConfigState,
-  type ScoutElectronUpdateAgentConfigInput,
+  getScoutDesktopAgentConfig,
+  updateScoutDesktopAgentConfig,
+  type ScoutDesktopAgentConfigState,
+  type ScoutDesktopUpdateAgentConfigInput,
 } from "./agent-config.ts";
 import {
-  createScoutElectronAgent,
-  controlScoutElectronBroker,
-  restartScoutElectronAgent,
-  sendScoutElectronRelayMessage,
-  type ScoutElectronBrokerControlAction,
-  type ScoutElectronCreateAgentInput,
-  type ScoutElectronCreateAgentResult,
-  type ScoutElectronRestartAgentInput,
-  type ScoutElectronSendRelayMessageInput,
+  createScoutDesktopAgent,
+  controlScoutDesktopBroker,
+  restartScoutDesktopAgent,
+  sendScoutDesktopRelayMessage,
+  type ScoutDesktopBrokerControlAction,
+  type ScoutDesktopCreateAgentInput,
+  type ScoutDesktopCreateAgentResult,
+  type ScoutDesktopRestartAgentInput,
+  type ScoutDesktopSendRelayMessageInput,
 } from "./broker-actions.ts";
 import {
-  getScoutElectronFeedbackBundle,
-  getScoutElectronBrokerInspector,
-  getScoutElectronLogCatalog,
-  readScoutElectronLogSource,
-  submitScoutElectronFeedbackReport,
+  getScoutDesktopFeedbackBundle,
+  getScoutDesktopBrokerInspector,
+  getScoutDesktopLogCatalog,
+  readScoutDesktopLogSource,
+  submitScoutDesktopFeedbackReport,
   type ReadScoutLogSourceInput,
   type ScoutDesktopBrokerInspector,
   type ScoutDesktopFeedbackBundle,
@@ -62,55 +62,55 @@ import type {
   UpdateScoutPairingConfigInput,
 } from "./pairing.ts";
 import {
-  controlScoutElectronPairingService,
-  decideScoutElectronPairingApproval,
-  getScoutElectronPairingState,
-  refreshScoutElectronPairingState,
-  updateScoutElectronPairingConfig,
+  controlScoutDesktopPairingService,
+  decideScoutDesktopPairingApproval,
+  getScoutDesktopPairingState,
+  refreshScoutDesktopPairingState,
+  updateScoutDesktopPairingConfig,
 } from "./pairing.ts";
 import {
-  getScoutElectronAgentSession,
-  openScoutElectronAgentSession,
-  type ScoutElectronAgentSessionHost,
-  type ScoutElectronAgentSessionInspector,
+  getScoutDesktopAgentSession,
+  openScoutDesktopAgentSession,
+  type ScoutDesktopAgentSessionHost,
+  type ScoutDesktopAgentSessionInspector,
 } from "./agent-session.ts";
 import {
-  getScoutElectronAppInfo,
-  getScoutElectronHomeState,
-  getScoutElectronMessagesWorkspaceState,
-  getScoutElectronRelayShellPatch,
-  getScoutElectronServicesState,
-  getScoutElectronPhonePreparation,
-  getScoutElectronShellState,
-  refreshScoutElectronRelayShellPatch,
-  refreshScoutElectronShellState,
-  setScoutElectronVoiceRepliesEnabled,
-  toggleScoutElectronVoiceCapture,
-  updateScoutElectronPhonePreparation,
-  type ScoutElectronVoiceService,
+  getScoutDesktopAppInfo,
+  getScoutDesktopHomeState,
+  getScoutDesktopMessagesWorkspaceState,
+  getScoutDesktopRelayShellPatch,
+  getScoutDesktopServicesState,
+  getScoutDesktopPhonePreparation,
+  getScoutDesktopShellState,
+  refreshScoutDesktopRelayShellPatch,
+  refreshScoutDesktopShellState,
+  setScoutDesktopVoiceRepliesEnabled,
+  toggleScoutDesktopVoiceCapture,
+  updateScoutDesktopPhonePreparation,
+  type ScoutDesktopVoiceService,
 } from "./service.ts";
 import {
-  getScoutElectronAppSettings,
-  refreshScoutElectronAppSettingsInventory,
-  restoreScoutElectronProject,
-  retireScoutElectronProject,
-  restartScoutElectronOnboarding,
-  runScoutElectronOnboardingCommand,
-  skipScoutElectronOnboarding,
-  updateScoutElectronAppSettings,
+  getScoutDesktopAppSettings,
+  refreshScoutDesktopAppSettingsInventory,
+  restoreScoutDesktopProject,
+  retireScoutDesktopProject,
+  restartScoutDesktopOnboarding,
+  runScoutDesktopOnboardingCommand,
+  skipScoutDesktopOnboarding,
+  updateScoutDesktopAppSettings,
   type AppSettingsState,
   type OnboardingCommandResult,
   type RunOnboardingCommandInput,
-  type ScoutElectronSettingsService,
+  type ScoutDesktopSettingsService,
   type UpdateAppSettingsInput,
 } from "./settings.ts";
 
 export type CreateScoutHostServicesInput = {
   currentDirectory?: string;
   appInfo?: ScoutDesktopAppInfo;
-  voice?: ScoutElectronVoiceService;
-  settings?: ScoutElectronSettingsService;
-  agentSessionHost?: ScoutElectronAgentSessionHost;
+  voice?: ScoutDesktopVoiceService;
+  settings?: ScoutDesktopSettingsService;
+  agentSessionHost?: ScoutDesktopAgentSessionHost;
   host?: ScoutHostNativeServices;
 };
 
@@ -137,9 +137,9 @@ export type SettingsAdminServices = {
   runOnboardingCommand: (input: RunOnboardingCommandInput) => Promise<OnboardingCommandResult>;
   skipOnboarding: () => Promise<AppSettingsState>;
   restartOnboarding: () => Promise<AppSettingsState>;
-  getAgentConfig: (agentId: string) => Promise<ScoutElectronAgentConfigState>;
-  updateAgentConfig: (input: ScoutElectronUpdateAgentConfigInput) => Promise<ScoutElectronAgentConfigState>;
-  createAgent: (input: ScoutElectronCreateAgentInput) => Promise<ScoutElectronCreateAgentResult>;
+  getAgentConfig: (agentId: string) => Promise<ScoutDesktopAgentConfigState>;
+  updateAgentConfig: (input: ScoutDesktopUpdateAgentConfigInput) => Promise<ScoutDesktopAgentConfigState>;
+  createAgent: (input: ScoutDesktopCreateAgentInput) => Promise<ScoutDesktopCreateAgentResult>;
   getPhonePreparation: () => Promise<ScoutPhonePreparationState>;
   updatePhonePreparation: (input: UpdateScoutPhonePreparationInput) => Promise<ScoutPhonePreparationState>;
 };
@@ -160,19 +160,19 @@ export type PairingServices = {
 };
 
 export type RelayActivityServices = {
-  restartAgent: (input: ScoutElectronRestartAgentInput) => Promise<ScoutDesktopShellState>;
-  sendRelayMessage: (input: ScoutElectronSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
+  restartAgent: (input: ScoutDesktopRestartAgentInput) => Promise<ScoutDesktopShellState>;
+  sendRelayMessage: (input: ScoutDesktopSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
   getKeepAliveState: () => Promise<ScoutKeepAliveState> | ScoutKeepAliveState;
   acquireKeepAliveLease: (input: AcquireScoutKeepAliveLeaseInput) => Promise<ScoutKeepAliveLease> | ScoutKeepAliveLease;
   releaseKeepAliveLease: (input: ReleaseScoutKeepAliveLeaseInput) => Promise<boolean> | boolean;
-  getAgentSession: (agentId: string) => Promise<ScoutElectronAgentSessionInspector>;
+  getAgentSession: (agentId: string) => Promise<ScoutDesktopAgentSessionInspector>;
   openAgentSession: (agentId: string) => Promise<boolean>;
   toggleVoiceCapture: () => Promise<ScoutDesktopShellState>;
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
 };
 
 export type BrokerAdminServices = {
-  controlBroker: (action: ScoutElectronBrokerControlAction) => Promise<ScoutDesktopShellState>;
+  controlBroker: (action: ScoutDesktopBrokerControlAction) => Promise<ScoutDesktopShellState>;
 };
 
 export type DiagnosticsServices = {
@@ -201,7 +201,7 @@ export function createAppInfoServices(
 ): AppInfoServices {
   const appInfo = input.appInfo;
   return {
-    getAppInfo: () => appInfo ?? getScoutElectronAppInfo(),
+    getAppInfo: () => appInfo ?? getScoutDesktopAppInfo(),
   };
 }
 
@@ -213,13 +213,13 @@ export function createDesktopStateServices(
   const voice = input.voice;
 
   return {
-    getServicesState: () => getScoutElectronServicesState({ currentDirectory, appInfo, voice }),
-    getHomeState: () => getScoutElectronHomeState({ currentDirectory, appInfo, voice }),
-    getMessagesWorkspaceState: () => getScoutElectronMessagesWorkspaceState({ currentDirectory, appInfo, voice }),
-    getRelayShellPatch: () => getScoutElectronRelayShellPatch({ currentDirectory, appInfo, voice }),
-    getShellState: () => getScoutElectronShellState({ currentDirectory, appInfo, voice }),
-    refreshRelayShellPatch: () => refreshScoutElectronRelayShellPatch({ currentDirectory, appInfo, voice }),
-    refreshShellState: () => refreshScoutElectronShellState({ currentDirectory, appInfo, voice }),
+    getServicesState: () => getScoutDesktopServicesState({ currentDirectory, appInfo, voice }),
+    getHomeState: () => getScoutDesktopHomeState({ currentDirectory, appInfo, voice }),
+    getMessagesWorkspaceState: () => getScoutDesktopMessagesWorkspaceState({ currentDirectory, appInfo, voice }),
+    getRelayShellPatch: () => getScoutDesktopRelayShellPatch({ currentDirectory, appInfo, voice }),
+    getShellState: () => getScoutDesktopShellState({ currentDirectory, appInfo, voice }),
+    refreshRelayShellPatch: () => refreshScoutDesktopRelayShellPatch({ currentDirectory, appInfo, voice }),
+    refreshShellState: () => refreshScoutDesktopShellState({ currentDirectory, appInfo, voice }),
   };
 }
 
@@ -231,19 +231,19 @@ export function createSettingsAdminServices(
   const settings = input.settings ?? {};
 
   return {
-    getAppSettings: () => getScoutElectronAppSettings(currentDirectory, settings),
-    refreshSettingsInventory: () => refreshScoutElectronAppSettingsInventory(currentDirectory, settings),
-    updateAppSettings: (nextInput) => updateScoutElectronAppSettings(nextInput, currentDirectory, settings),
-    retireProject: (projectRoot) => retireScoutElectronProject(projectRoot, currentDirectory, settings),
-    restoreProject: (projectRoot) => restoreScoutElectronProject(projectRoot, currentDirectory, settings),
-    runOnboardingCommand: (nextInput) => runScoutElectronOnboardingCommand(nextInput, currentDirectory),
-    skipOnboarding: () => skipScoutElectronOnboarding(currentDirectory, settings),
-    restartOnboarding: () => restartScoutElectronOnboarding(currentDirectory, settings),
-    getAgentConfig: (agentId) => getScoutElectronAgentConfig(agentId),
-    updateAgentConfig: (nextInput) => updateScoutElectronAgentConfig(nextInput),
-    createAgent: (nextInput) => createScoutElectronAgent(nextInput, { currentDirectory, appInfo }),
-    getPhonePreparation: () => getScoutElectronPhonePreparation(currentDirectory),
-    updatePhonePreparation: (nextInput) => updateScoutElectronPhonePreparation(nextInput, currentDirectory),
+    getAppSettings: () => getScoutDesktopAppSettings(currentDirectory, settings),
+    refreshSettingsInventory: () => refreshScoutDesktopAppSettingsInventory(currentDirectory, settings),
+    updateAppSettings: (nextInput) => updateScoutDesktopAppSettings(nextInput, currentDirectory, settings),
+    retireProject: (projectRoot) => retireScoutDesktopProject(projectRoot, currentDirectory, settings),
+    restoreProject: (projectRoot) => restoreScoutDesktopProject(projectRoot, currentDirectory, settings),
+    runOnboardingCommand: (nextInput) => runScoutDesktopOnboardingCommand(nextInput, currentDirectory),
+    skipOnboarding: () => skipScoutDesktopOnboarding(currentDirectory, settings),
+    restartOnboarding: () => restartScoutDesktopOnboarding(currentDirectory, settings),
+    getAgentConfig: (agentId) => getScoutDesktopAgentConfig(agentId),
+    updateAgentConfig: (nextInput) => updateScoutDesktopAgentConfig(nextInput),
+    createAgent: (nextInput) => createScoutDesktopAgent(nextInput, { currentDirectory, appInfo }),
+    getPhonePreparation: () => getScoutDesktopPhonePreparation(currentDirectory),
+    updatePhonePreparation: (nextInput) => updateScoutDesktopPhonePreparation(nextInput, currentDirectory),
   };
 }
 
@@ -266,11 +266,11 @@ export function createPairingServices(
   const currentDirectory = resolveCurrentDirectory(input.currentDirectory);
 
   return {
-    getPairingState: () => getScoutElectronPairingState(currentDirectory),
-    refreshPairingState: () => refreshScoutElectronPairingState(currentDirectory),
-    controlPairingService: (action) => controlScoutElectronPairingService(action, currentDirectory),
-    updatePairingConfig: (nextInput) => updateScoutElectronPairingConfig(nextInput, currentDirectory),
-    decidePairingApproval: (nextInput) => decideScoutElectronPairingApproval(nextInput, currentDirectory),
+    getPairingState: () => getScoutDesktopPairingState(currentDirectory),
+    refreshPairingState: () => refreshScoutDesktopPairingState(currentDirectory),
+    controlPairingService: (action) => controlScoutDesktopPairingService(action, currentDirectory),
+    updatePairingConfig: (nextInput) => updateScoutDesktopPairingConfig(nextInput, currentDirectory),
+    decidePairingApproval: (nextInput) => decideScoutDesktopPairingApproval(nextInput, currentDirectory),
   };
 }
 
@@ -284,17 +284,17 @@ export function createRelayActivityServices(
 
   return {
     restartAgent: async (nextInput) => {
-      await restartScoutElectronAgent(nextInput, { currentDirectory, appInfo });
-      return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });
+      await restartScoutDesktopAgent(nextInput, { currentDirectory, appInfo });
+      return refreshScoutDesktopShellState({ currentDirectory, appInfo, voice });
     },
-    sendRelayMessage: (nextInput) => sendScoutElectronRelayMessage(nextInput, { currentDirectory, appInfo }),
+    sendRelayMessage: (nextInput) => sendScoutDesktopRelayMessage(nextInput, { currentDirectory, appInfo }),
     getKeepAliveState: () => getScoutKeepAliveState(),
     acquireKeepAliveLease: (nextInput) => acquireScoutKeepAliveLease(nextInput),
     releaseKeepAliveLease: (nextInput) => releaseScoutKeepAliveLease(nextInput.leaseId),
-    getAgentSession: (agentId) => getScoutElectronAgentSession(agentId),
-    openAgentSession: (agentId) => openScoutElectronAgentSession(agentId, agentSessionHost),
-    toggleVoiceCapture: () => toggleScoutElectronVoiceCapture({ currentDirectory, appInfo, voice }),
-    setVoiceRepliesEnabled: (enabled) => setScoutElectronVoiceRepliesEnabled(enabled, { currentDirectory, appInfo, voice }),
+    getAgentSession: (agentId) => getScoutDesktopAgentSession(agentId),
+    openAgentSession: (agentId) => openScoutDesktopAgentSession(agentId, agentSessionHost),
+    toggleVoiceCapture: () => toggleScoutDesktopVoiceCapture({ currentDirectory, appInfo, voice }),
+    setVoiceRepliesEnabled: (enabled) => setScoutDesktopVoiceRepliesEnabled(enabled, { currentDirectory, appInfo, voice }),
   };
 }
 
@@ -308,14 +308,14 @@ export function createBrokerAdminServices(
 
   return {
     controlBroker: async (action) => {
-      await controlScoutElectronBroker(action, {
+      await controlScoutDesktopBroker(action, {
         currentDirectory,
         appInfo,
         telegram: {
           refreshConfiguration: settings.refreshTelegramConfiguration,
         },
       });
-      return refreshScoutElectronShellState({ currentDirectory, appInfo, voice });
+      return refreshScoutDesktopShellState({ currentDirectory, appInfo, voice });
     },
   };
 }
@@ -326,11 +326,11 @@ export function createDiagnosticsServices(
   const currentDirectory = resolveCurrentDirectory(input.currentDirectory);
 
   return {
-    getLogCatalog: () => getScoutElectronLogCatalog(currentDirectory),
-    getBrokerInspector: () => getScoutElectronBrokerInspector(),
-    getFeedbackBundle: () => getScoutElectronFeedbackBundle(currentDirectory),
-    submitFeedbackReport: (nextInput) => submitScoutElectronFeedbackReport(nextInput, currentDirectory),
-    readLogSource: (nextInput) => readScoutElectronLogSource(nextInput, currentDirectory),
+    getLogCatalog: () => getScoutDesktopLogCatalog(currentDirectory),
+    getBrokerInspector: () => getScoutDesktopBrokerInspector(),
+    getFeedbackBundle: () => getScoutDesktopFeedbackBundle(currentDirectory),
+    submitFeedbackReport: (nextInput) => submitScoutDesktopFeedbackReport(nextInput, currentDirectory),
+    readLogSource: (nextInput) => readScoutDesktopLogSource(nextInput, currentDirectory),
   };
 }
 

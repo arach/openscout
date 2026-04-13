@@ -1,5 +1,5 @@
 Host-specific application wiring lives here.
 
 Examples:
-- `electron/` for Electron main/preload/window orchestration
-- `desktop/` for desktop-only app composition
+- `host/` for desktop host integration and native service orchestration
+- `desktop/` for desktop shell state and composition

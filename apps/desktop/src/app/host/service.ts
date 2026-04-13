@@ -16,17 +16,17 @@ import {
   type ScoutPhonePreparationState,
   type UpdateScoutPhonePreparationInput,
 } from "../desktop/index.ts";
-import { getScoutElectronPairingState } from "./pairing.ts";
-import type { ScoutHostVoiceState as ScoutElectronVoiceState } from "./voice.ts";
+import { getScoutDesktopPairingState } from "./pairing.ts";
+import type { ScoutHostVoiceState as ScoutDesktopVoiceState } from "./voice.ts";
 
-export type ScoutElectronServiceOptions = {
+export type ScoutDesktopServiceOptions = {
   currentDirectory?: string;
   appInfo?: ScoutDesktopAppInfo;
-  voice?: ScoutElectronVoiceService;
+  voice?: ScoutDesktopVoiceService;
 };
 
-export type ScoutElectronVoiceService = {
-  getVoiceState?: () => Promise<ScoutElectronVoiceState> | ScoutElectronVoiceState;
+export type ScoutDesktopVoiceService = {
+  getVoiceState?: () => Promise<ScoutDesktopVoiceState> | ScoutDesktopVoiceState;
   toggleVoiceCapture?: () => Promise<void> | void;
   setVoiceRepliesEnabled?: (enabled: boolean) => Promise<void> | void;
 };
@@ -35,21 +35,21 @@ function resolveCurrentDirectory(input?: string): string {
   return input ?? process.cwd();
 }
 
-export function getScoutElectronAppInfo(input: {
+export function getScoutDesktopAppInfo(input: {
   appVersion?: string;
   isPackaged?: boolean;
   platform?: string;
 } = {}): ScoutDesktopAppInfo {
-  return createScoutDesktopAppInfo({ ...input, surface: "electron" });
+  return createScoutDesktopAppInfo({ ...input, surface: "desktop" });
 }
 
-export async function getScoutElectronServicesState(
-  options: ScoutElectronServiceOptions = {},
+export async function getScoutDesktopServicesState(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopServicesState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const [servicesState, pairingState] = await Promise.all([
     loadScoutDesktopServicesState(),
-    getScoutElectronPairingState(currentDirectory),
+    getScoutDesktopPairingState(currentDirectory),
   ]);
 
   const pairingService = {
@@ -83,16 +83,16 @@ export async function getScoutElectronServicesState(
   };
 }
 
-export async function getScoutElectronHomeState(
-  options: ScoutElectronServiceOptions = {},
+export async function getScoutDesktopHomeState(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopHomeState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   return loadScoutDesktopHomeState({ currentDirectory });
 }
 
-async function applyScoutElectronVoiceToMessagesWorkspaceState(
+async function applyScoutDesktopVoiceToMessagesWorkspaceState(
   messagesWorkspaceState: ScoutDesktopMessagesWorkspaceState,
-  voiceService?: ScoutElectronVoiceService,
+  voiceService?: ScoutDesktopVoiceService,
 ): Promise<ScoutDesktopMessagesWorkspaceState> {
   if (!voiceService?.getVoiceState) {
     return messagesWorkspaceState;
@@ -108,9 +108,9 @@ async function applyScoutElectronVoiceToMessagesWorkspaceState(
   };
 }
 
-async function applyScoutElectronVoiceToRelayShellPatch(
+async function applyScoutDesktopVoiceToRelayShellPatch(
   relayShellPatch: ScoutDesktopShellPatch,
-  voiceService?: ScoutElectronVoiceService,
+  voiceService?: ScoutDesktopVoiceService,
 ): Promise<ScoutDesktopShellPatch> {
   if (!voiceService?.getVoiceState) {
     return relayShellPatch;
@@ -126,25 +126,25 @@ async function applyScoutElectronVoiceToRelayShellPatch(
   };
 }
 
-export async function getScoutElectronMessagesWorkspaceState(
-  options: ScoutElectronServiceOptions = {},
+export async function getScoutDesktopMessagesWorkspaceState(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopMessagesWorkspaceState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const messagesWorkspaceState = await loadScoutDesktopMessagesWorkspaceState({ currentDirectory });
-  return applyScoutElectronVoiceToMessagesWorkspaceState(messagesWorkspaceState, options.voice);
+  return applyScoutDesktopVoiceToMessagesWorkspaceState(messagesWorkspaceState, options.voice);
 }
 
-export async function getScoutElectronRelayShellPatch(
-  options: ScoutElectronServiceOptions = {},
+export async function getScoutDesktopRelayShellPatch(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopShellPatch> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const relayShellPatch = await loadScoutDesktopRelayShellPatch({ currentDirectory });
-  return applyScoutElectronVoiceToRelayShellPatch(relayShellPatch, options.voice);
+  return applyScoutDesktopVoiceToRelayShellPatch(relayShellPatch, options.voice);
 }
 
-async function applyScoutElectronVoiceState(
+async function applyScoutDesktopVoiceState(
   shellState: ScoutDesktopShellState,
-  voiceService?: ScoutElectronVoiceService,
+  voiceService?: ScoutDesktopVoiceService,
 ): Promise<ScoutDesktopShellState> {
   if (!voiceService?.getVoiceState) {
     return shellState;
@@ -160,61 +160,61 @@ async function applyScoutElectronVoiceState(
   };
 }
 
-export async function getScoutElectronShellState(
-  options: ScoutElectronServiceOptions = {},
+export async function getScoutDesktopShellState(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopShellState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const shellState = await loadScoutDesktopShellState({
     currentDirectory,
     appInfo: options.appInfo ?? createScoutDesktopAppInfo(),
   });
-  return applyScoutElectronVoiceState(shellState, options.voice);
+  return applyScoutDesktopVoiceState(shellState, options.voice);
 }
 
-export async function refreshScoutElectronShellState(
-  options: ScoutElectronServiceOptions = {},
+export async function refreshScoutDesktopShellState(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopShellState> {
-  return getScoutElectronShellState(options);
+  return getScoutDesktopShellState(options);
 }
 
-export async function refreshScoutElectronRelayShellPatch(
-  options: ScoutElectronServiceOptions = {},
+export async function refreshScoutDesktopRelayShellPatch(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopShellPatch> {
-  return getScoutElectronRelayShellPatch(options);
+  return getScoutDesktopRelayShellPatch(options);
 }
 
-export async function getScoutElectronPhonePreparation(
+export async function getScoutDesktopPhonePreparation(
   currentDirectory = process.cwd(),
 ): Promise<ScoutPhonePreparationState> {
   return loadScoutPhonePreparation(currentDirectory);
 }
 
-export async function updateScoutElectronPhonePreparation(
+export async function updateScoutDesktopPhonePreparation(
   input: UpdateScoutPhonePreparationInput,
   currentDirectory = process.cwd(),
 ): Promise<ScoutPhonePreparationState> {
   return updateScoutPhonePreparation(currentDirectory, input);
 }
 
-export async function toggleScoutElectronVoiceCapture(
-  options: ScoutElectronServiceOptions = {},
+export async function toggleScoutDesktopVoiceCapture(
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopShellState> {
   if (!options.voice?.toggleVoiceCapture) {
     throw new Error("Scout voice capture is unavailable.");
   }
 
   await options.voice.toggleVoiceCapture();
-  return refreshScoutElectronShellState(options);
+  return refreshScoutDesktopShellState(options);
 }
 
-export async function setScoutElectronVoiceRepliesEnabled(
+export async function setScoutDesktopVoiceRepliesEnabled(
   enabled: boolean,
-  options: ScoutElectronServiceOptions = {},
+  options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopShellState> {
   if (!options.voice?.setVoiceRepliesEnabled) {
     throw new Error("Scout voice playback control is unavailable.");
   }
 
   await options.voice.setVoiceRepliesEnabled(enabled);
-  return refreshScoutElectronShellState(options);
+  return refreshScoutDesktopShellState(options);
 }

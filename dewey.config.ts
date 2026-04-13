@@ -18,7 +18,7 @@ export default {
       'cli': 'apps/desktop/',
       'runtime': 'packages/runtime/',
       'protocol': 'packages/protocol/',
-      'desktop': 'packages/electron-app/',
+      'desktop': 'apps/desktop/',
     },
     rules: [
       { pattern: 'broker', instruction: 'Check packages/runtime/src/broker.ts and scout-broker.ts' },

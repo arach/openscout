@@ -13,7 +13,7 @@ import {
 import type { AgentRosterFilterMode, AgentRosterSortMode } from "@web/features/messages/lib/relay-types";
 import type { AppView } from "@/app-types";
 import { buildDefaultCreateAgentDraft } from "@/app-utils";
-import type { ScoutDesktopBridge } from "@/lib/electron";
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import type {
   AgentConfigState,
   AgentSessionInspector,
@@ -615,7 +615,7 @@ export function useAgentController({
   const handleCreateAgent = React.useCallback(() => {
     void (async () => {
       if (!scoutDesktop?.createAgent) {
-        setCreateAgentFeedback("Electron desktop bridge is unavailable.");
+        setCreateAgentFeedback("Desktop bridge is unavailable.");
         return;
       }
 

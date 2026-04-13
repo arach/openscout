@@ -1,4 +1,4 @@
-export const SCOUT_ELECTRON_CHANNELS = {
+export const SCOUT_DESKTOP_CHANNELS = {
   getAppInfo: "scout:get-app-info",
   getServicesState: "scout:get-services-state",
   getHomeState: "scout:get-home-state",
@@ -47,5 +47,5 @@ export const SCOUT_ELECTRON_CHANNELS = {
   openKnowledgeBase: "scout:open-knowledge-base",
 } as const;
 
-export type ScoutElectronChannelName =
-  typeof SCOUT_ELECTRON_CHANNELS[keyof typeof SCOUT_ELECTRON_CHANNELS];
+export type ScoutDesktopChannelName =
+  typeof SCOUT_DESKTOP_CHANNELS[keyof typeof SCOUT_DESKTOP_CHANNELS];

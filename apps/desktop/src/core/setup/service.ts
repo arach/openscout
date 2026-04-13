@@ -13,6 +13,7 @@ import {
   runRuntimeBrokerService,
 } from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import { withScoutCoreCommandLock } from "./command-lock.ts";
 
 export type ScoutDoctorReport = {
   currentDirectory: string;
@@ -45,65 +46,69 @@ export async function loadScoutDoctorReport(input: {
   repoRoot: string;
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
 }): Promise<ScoutDoctorReport> {
-  const [broker, setup, catalog] = await Promise.all([
-    getRuntimeBrokerServiceStatus(),
-    loadResolvedRelayAgents({
-      currentDirectory: input.currentDirectory,
-      onProjectInventoryEntry: input.onProjectInventoryEntry,
-    }),
-    loadHarnessCatalogSnapshot(),
-  ]);
+  return withScoutCoreCommandLock("doctor", async () => {
+    const [broker, setup, catalog] = await Promise.all([
+      getRuntimeBrokerServiceStatus(),
+      loadResolvedRelayAgents({
+        currentDirectory: input.currentDirectory,
+        onProjectInventoryEntry: input.onProjectInventoryEntry,
+      }),
+      loadHarnessCatalogSnapshot(),
+    ]);
 
-  return {
-    currentDirectory: input.currentDirectory,
-    repoRoot: input.repoRoot,
-    supportPaths: resolveOpenScoutSupportPaths(),
-    broker,
-    setup,
-    catalog,
-  };
+    return {
+      currentDirectory: input.currentDirectory,
+      repoRoot: input.repoRoot,
+      supportPaths: resolveOpenScoutSupportPaths(),
+      broker,
+      setup,
+      catalog,
+    };
+  });
 }
 
 export async function runScoutSetup(input: {
   currentDirectory: string;
   sourceRoots: string[];
 }): Promise<ScoutSetupReport> {
-  if (input.sourceRoots.length > 0) {
-    await writeOpenScoutSettings({
-      discovery: {
-        workspaceRoots: input.sourceRoots,
-      },
-    }, {
+  return withScoutCoreCommandLock("setup", async () => {
+    if (input.sourceRoots.length > 0) {
+      await writeOpenScoutSettings({
+        discovery: {
+          workspaceRoots: input.sourceRoots,
+        },
+      }, {
+        currentDirectory: input.currentDirectory,
+      });
+    }
+
+    const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
+    const catalog = await loadHarnessCatalogSnapshot();
+    const scoutSkill = await installScoutSkillToHarnesses();
+    let broker = await getRuntimeBrokerServiceStatus();
+    let brokerWarning: string | null = null;
+    try {
+      broker = await runRuntimeBrokerService("start");
+    } catch (error) {
+      brokerWarning = error instanceof Error ? error.message : String(error);
+      broker = await getRuntimeBrokerServiceStatus();
+    }
+
+    return {
       currentDirectory: input.currentDirectory,
-    });
-  }
-
-  const setup = await initializeOpenScoutSetup({ currentDirectory: input.currentDirectory });
-  const catalog = await loadHarnessCatalogSnapshot();
-  const scoutSkill = await installScoutSkillToHarnesses();
-  let broker = await getRuntimeBrokerServiceStatus();
-  let brokerWarning: string | null = null;
-  try {
-    broker = await runRuntimeBrokerService("start");
-  } catch (error) {
-    brokerWarning = error instanceof Error ? error.message : String(error);
-    broker = await getRuntimeBrokerServiceStatus();
-  }
-
-  return {
-    currentDirectory: input.currentDirectory,
-    setup,
-    broker,
-    brokerWarning,
-    catalog,
-    scoutSkill,
-  };
+      setup,
+      broker,
+      brokerWarning,
+      catalog,
+      scoutSkill,
+    };
+  });
 }
 
 export async function loadScoutRuntimesReport(currentDirectory: string): Promise<ScoutRuntimesReport> {
-  return {
+  return withScoutCoreCommandLock("runtimes", async () => ({
     currentDirectory,
     harnessCatalogPath: resolveOpenScoutSupportPaths().harnessCatalogPath,
     catalog: await loadHarnessCatalogSnapshot(),
-  };
+  }));
 }

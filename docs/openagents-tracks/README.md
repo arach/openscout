@@ -57,7 +57,7 @@ Owns how the shell and other surfaces render the outputs of the other tracks:
 - harness capability visibility
 - resource inventory visibility
 - onboarding affordances
-- native, Electron, web, and CLI/TUI presentation
+- native, desktop, web, and CLI/TUI presentation
 
 This is the surface truth for "what can the operator understand and do right now?"
 
@@ -112,7 +112,7 @@ Suggested code areas:
 
 - [packages/runtime/src/schema.ts](/Users/arach/dev/openscout/packages/runtime/src/schema.ts)
 - [packages/runtime/src/registry.ts](/Users/arach/dev/openscout/packages/runtime/src/registry.ts)
-- [docs/ARCHITECTURE.md](/Users/arach/dev/openscout/docs/ARCHITECTURE.md)
+- [docs/architecture.md](/Users/arach/dev/openscout/docs/architecture.md)
 - [docs/collaboration-workflows-v1.md](/Users/arach/dev/openscout/docs/collaboration-workflows-v1.md)
 
 ### Lane B: Runtime Inventory And Onboarding
@@ -136,9 +136,8 @@ Own:
 
 Suggested code areas:
 
-- [apps/desktop/src/ui/shell](/Users/arach/dev/openscout/apps/desktop/src/ui/shell)
-- [packages/electron-app/electron](/Users/arach/dev/openscout/packages/electron-app/electron)
-- [apps/desktop/src/app/electron](/Users/arach/dev/openscout/apps/desktop/src/app/electron)
+- [apps/desktop/src/web/app](/Users/arach/dev/openscout/apps/desktop/src/web/app)
+- [apps/desktop/src/app/host](/Users/arach/dev/openscout/apps/desktop/src/app/host)
 
 ## Recommended First Milestones
 

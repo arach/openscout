@@ -7,7 +7,6 @@ OpenScout is the active Scout codebase: desktop app, CLI, broker runtime, and sh
 The live product path is:
 
 - `apps/desktop` for product logic, CLI, UI, and app-layer services
-- `packages/electron-app` for the Electron host shell
 - `packages/runtime` for the broker/runtime foundation
 - `packages/protocol` for shared contracts and identity grammar
 - `packages/cli` for the published `@openscout/scout` wrapper that installs `scout`
@@ -29,7 +28,6 @@ The product story is not just "chat between terminals." The current control-plan
 Scout is structured around one product path:
 
 - `apps/desktop` owns product behavior
-- `packages/electron-app` is the desktop host
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the thin publish wrapper around the Scout package
 
@@ -55,7 +53,7 @@ bun install
 bun run dev
 ```
 
-That starts the Scout renderer and launches Electron against it.
+That starts the desktop web shell and local control-plane services from `apps/desktop`.
 
 To install the CLI globally from this repo:
 
@@ -89,13 +87,12 @@ The support directory is now organized as:
 ```text
 .
 ├── apps/
-│   └── scout/
+│   └── desktop/
 ├── docs/
-│   ├── ARCHITECTURE.md
+│   ├── architecture.md
 │   └── agent-identity.md
 ├── packages/
 │   ├── cli/
-│   ├── electron-app/
 │   ├── protocol/
 │   └── runtime/
 └── scripts/
@@ -103,7 +100,7 @@ The support directory is now organized as:
 
 ## Read Next
 
-- `docs/ARCHITECTURE.md`
+- `docs/architecture.md`
 - `docs/agent-identity.md`
 - `packages/protocol/README.md`
 - `packages/runtime/README.md`

@@ -17,10 +17,10 @@ Before your first Scout command in a fresh shell, locate the binary:
 scout env --json
 ```
 
-If `scout` is not on `PATH`, use the fallback printed by `scout env`, or:
+If `scout` is not on `PATH`, or the installed `scout` on `PATH` is stale for this checkout, use:
 
 ```bash
-bun /Users/arach/dev/openscout/apps/scout/bin/scout.ts env --json
+bun /Users/arach/dev/openscout/packages/cli/bin/scout.mjs env --json
 ```
 
 ## Tell vs Ask
@@ -113,7 +113,7 @@ After creating the card, prefer the friendly handle (like `@shellfix`) in subseq
 
 - `scout relay ask` and `scout relay send` are accepted as namespace aliases. Don't use them in new prompts.
 - `scout` is the canonical CLI binary. Don't use `openscout` in new prompts or examples.
-- The `--as <agent>` flag has no effect today — the broker records the sender as `operator` until that's fixed at the broker level. Don't pass it.
+- Use `--as <agent>` when you need the broker to record a specific sending agent identity instead of the default operator/current-project inference.
 
 ## When not to use Scout
 

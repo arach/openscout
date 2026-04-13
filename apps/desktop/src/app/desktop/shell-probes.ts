@@ -28,8 +28,10 @@ export type ProjectGitActivity = {
 };
 
 const PROJECT_GIT_ACTIVITY_CACHE_TTL_MS = 60_000;
+const TMUX_SESSION_CACHE_TTL_MS = 2_000;
 
 const projectGitActivityCache = new Map<string, { cachedAt: number; activity: ProjectGitActivity }>();
+let tmuxSessionCache: { cachedAt: number; sessions: TmuxSession[] } | null = null;
 
 export function readHelperStatus(): HelperStatus {
   const statusPath = resolveOpenScoutSupportPaths().desktopStatusPath;
@@ -62,10 +64,13 @@ export function readHelperStatus(): HelperStatus {
 }
 
 export function readTmuxSessions(): TmuxSession[] {
+  if (tmuxSessionCache && Date.now() - tmuxSessionCache.cachedAt < TMUX_SESSION_CACHE_TTL_MS) {
+    return tmuxSessionCache.sessions;
+  }
+
   try {
     const stdout = readTmuxSessionOutput();
-
-    return stdout
+    const sessions = stdout
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
@@ -76,6 +81,11 @@ export function readTmuxSessions(): TmuxSession[] {
           createdAt: createdAtRaw ? Number.parseInt(createdAtRaw, 10) : null,
         };
       });
+    tmuxSessionCache = {
+      cachedAt: Date.now(),
+      sessions,
+    };
+    return sessions;
   } catch {
     return [];
   }

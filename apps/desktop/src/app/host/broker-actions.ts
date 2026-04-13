@@ -43,25 +43,25 @@ import {
   type ScoutDesktopShellState,
 } from "../desktop/index.ts";
 
-export type ScoutElectronBrokerControlAction = "start" | "stop" | "restart";
+export type ScoutDesktopBrokerControlAction = "start" | "stop" | "restart";
 
-export type ScoutElectronRestartAgentInput = {
+export type ScoutDesktopRestartAgentInput = {
   agentId: string;
   previousSessionId?: string | null;
 };
 
-export type ScoutElectronCreateAgentInput = {
+export type ScoutDesktopCreateAgentInput = {
   projectPath: string;
   agentName?: string | null;
   harness?: AgentHarness | null;
 };
 
-export type ScoutElectronCreateAgentResult = {
+export type ScoutDesktopCreateAgentResult = {
   agentId: string;
   shellState: ScoutDesktopShellState;
 };
 
-export type ScoutElectronSendRelayMessageInput = {
+export type ScoutDesktopSendRelayMessageInput = {
   destinationKind: "channel" | "filter" | "direct";
   destinationId: string;
   body: string;
@@ -71,7 +71,7 @@ export type ScoutElectronSendRelayMessageInput = {
   clientMessageId?: string | null;
 };
 
-export type ScoutElectronBrokerActionOptions = {
+export type ScoutDesktopBrokerActionOptions = {
   currentDirectory?: string;
   appInfo?: ScoutDesktopAppInfo;
   telegram?: {
@@ -103,14 +103,14 @@ function resolveAppInfo(input?: ScoutDesktopAppInfo): ScoutDesktopAppInfo {
   return input ?? createScoutDesktopAppInfo();
 }
 
-async function loadBrokerActionShellState(input: ScoutElectronBrokerActionOptions = {}): Promise<ScoutDesktopShellState> {
+async function loadBrokerActionShellState(input: ScoutDesktopBrokerActionOptions = {}): Promise<ScoutDesktopShellState> {
   return loadScoutDesktopShellState({
     currentDirectory: resolveCurrentDirectory(input.currentDirectory),
     appInfo: resolveAppInfo(input.appInfo),
   });
 }
 
-async function loadBrokerActionRelayShellPatch(input: ScoutElectronBrokerActionOptions = {}): Promise<ScoutDesktopShellPatch> {
+async function loadBrokerActionRelayShellPatch(input: ScoutDesktopBrokerActionOptions = {}): Promise<ScoutDesktopShellPatch> {
   return loadScoutDesktopRelayShellPatch({
     currentDirectory: resolveCurrentDirectory(input.currentDirectory),
   });
@@ -173,7 +173,7 @@ function buildOptimisticBrokerRelayMessage(input: {
   body: string;
   operatorId: string;
   operatorName: string;
-  destinationKind: ScoutElectronSendRelayMessageInput["destinationKind"];
+  destinationKind: ScoutDesktopSendRelayMessageInput["destinationKind"];
   destinationId: string;
   recipients: string[];
   createdAt: number;
@@ -205,7 +205,7 @@ function buildOptimisticBrokerRelayMessage(input: {
     isVoice,
     messageClass: isSystem ? "system" : "agent",
     routingSummary: input.recipients.length > 0 ? `Targets ${input.recipients.join(", ")}` : null,
-    provenanceSummary: "via electron",
+    provenanceSummary: "via desktop",
     provenanceDetail: null,
     isOperator: true,
     avatarLabel: input.operatorName.slice(0, 1).toUpperCase() || "A",
@@ -223,7 +223,7 @@ function applyOptimisticRelayPatch(input: {
   conversationId: string;
   operatorName: string;
   operatorId: string;
-  destinationKind: ScoutElectronSendRelayMessageInput["destinationKind"];
+  destinationKind: ScoutDesktopSendRelayMessageInput["destinationKind"];
   destinationId: string;
   body: string;
   createdAt: number;
@@ -368,7 +368,7 @@ async function ensureOperatorActor(
     displayName: operatorName,
     handle: SCOUT_BROKER_OPERATOR_ID,
     labels: ["operator", "desktop"],
-    metadata: { source: "scout-electron" },
+    metadata: { source: "scout-desktop" },
   };
 
   await postBrokerJson(baseUrl, "/v1/actors", actor);
@@ -396,7 +396,7 @@ async function ensureCoreConversation(
           shareMode: "shared",
           authorityNodeId: nodeId,
           participantIds,
-          metadata: { surface: "scout-electron" },
+          metadata: { surface: "scout-desktop" },
         }
       : conversationId === SCOUT_VOICE_CHANNEL_ID
         ? {
@@ -407,7 +407,7 @@ async function ensureCoreConversation(
             shareMode: "local",
             authorityNodeId: nodeId,
             participantIds,
-            metadata: { surface: "scout-electron" },
+            metadata: { surface: "scout-desktop" },
           }
         : {
             id: SCOUT_SYSTEM_CHANNEL_ID,
@@ -417,7 +417,7 @@ async function ensureCoreConversation(
             shareMode: "local",
             authorityNodeId: nodeId,
             participantIds: [SCOUT_BROKER_OPERATOR_ID],
-            metadata: { surface: "scout-electron" },
+            metadata: { surface: "scout-desktop" },
           };
 
   await postBrokerJson(baseUrl, "/v1/conversations", definition);
@@ -449,7 +449,7 @@ async function ensureDirectConversation(
     authorityNodeId: nodeId,
     participantIds: [SCOUT_BROKER_OPERATOR_ID, agentId].sort(),
     metadata: {
-      surface: "scout-electron",
+      surface: "scout-desktop",
       ...(agentId === SCOUT_AGENT_ID ? { role: "partner" } : {}),
     },
   };
@@ -614,9 +614,9 @@ function parseRequestedHarness(value?: AgentHarness | null): AgentHarness | unde
   return SUPPORTED_LOCAL_AGENT_HARNESSES.includes(value) ? value : undefined;
 }
 
-export async function restartScoutElectronAgent(
-  input: ScoutElectronRestartAgentInput,
-  options: ScoutElectronBrokerActionOptions = {},
+export async function restartScoutDesktopAgent(
+  input: ScoutDesktopRestartAgentInput,
+  options: ScoutDesktopBrokerActionOptions = {},
 ): Promise<ScoutDesktopShellState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const operatorName = await resolveOperatorDisplayName(currentDirectory);
@@ -636,10 +636,10 @@ export async function restartScoutElectronAgent(
   return loadBrokerActionShellState(options);
 }
 
-export async function createScoutElectronAgent(
-  input: ScoutElectronCreateAgentInput,
-  options: ScoutElectronBrokerActionOptions = {},
-): Promise<ScoutElectronCreateAgentResult> {
+export async function createScoutDesktopAgent(
+  input: ScoutDesktopCreateAgentInput,
+  options: ScoutDesktopBrokerActionOptions = {},
+): Promise<ScoutDesktopCreateAgentResult> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const operatorName = await resolveOperatorDisplayName(currentDirectory);
   const projectPath = input.projectPath.trim();
@@ -667,9 +667,9 @@ export async function createScoutElectronAgent(
   };
 }
 
-export async function controlScoutElectronBroker(
-  action: ScoutElectronBrokerControlAction,
-  options: ScoutElectronBrokerActionOptions = {},
+export async function controlScoutDesktopBroker(
+  action: ScoutDesktopBrokerControlAction,
+  options: ScoutDesktopBrokerActionOptions = {},
 ): Promise<ScoutDesktopShellState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const operatorName = await resolveOperatorDisplayName(currentDirectory);
@@ -701,9 +701,9 @@ export async function controlScoutElectronBroker(
   return loadBrokerActionShellState(options);
 }
 
-export async function sendScoutElectronRelayMessage(
-  input: ScoutElectronSendRelayMessageInput,
-  options: ScoutElectronBrokerActionOptions = {},
+export async function sendScoutDesktopRelayMessage(
+  input: ScoutDesktopSendRelayMessageInput,
+  options: ScoutDesktopBrokerActionOptions = {},
 ): Promise<ScoutDesktopShellPatch> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
   const operatorName = await resolveOperatorDisplayName(currentDirectory);
@@ -797,7 +797,7 @@ export async function sendScoutElectronRelayMessage(
     policy: "durable",
     createdAt,
     metadata: {
-      source: "scout-electron",
+      source: "scout-desktop",
       destinationKind: input.destinationKind,
       destinationId: input.destinationId,
       referenceMessageIds,
@@ -826,7 +826,7 @@ export async function sendScoutElectronRelayMessage(
       stream: false,
       createdAt,
       metadata: {
-        source: "scout-electron",
+        source: "scout-desktop",
         destinationKind: input.destinationKind,
       },
     });

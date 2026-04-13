@@ -12,8 +12,8 @@ import {
 
 import { getRuntimeBrokerServiceStatus } from "./runtime-service-client.ts";
 import { resolveScoutAppRoot, resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
-import { getScoutElectronPairingState, resolveScoutPairingPaths } from "./pairing.ts";
-import { getScoutElectronAppSettings } from "./settings.ts";
+import { getScoutDesktopPairingState, resolveScoutPairingPaths } from "./pairing.ts";
+import { getScoutDesktopAppSettings } from "./settings.ts";
 
 export type ScoutDesktopLogGroup = "runtime" | "app" | "agents";
 
@@ -380,8 +380,8 @@ function appModeLabel(): string {
     const packageJsonPath = path.join(appRoot, "package.json");
     if (existsSync(packageJsonPath)) {
       const payload = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-      if (payload.name === "@scout/electron-app") {
-        return "packaged";
+      if (payload.name === "@openscout/scout" || payload.name === "@openscout/cli") {
+        return "installed";
       }
     }
   } catch {
@@ -437,11 +437,10 @@ function coreLogSources(): ResolvedScoutLogSource[] {
     {
       id: "app",
       title: "Desktop App",
-      subtitle: "Electron and local app logs",
+      subtitle: "Desktop host and local app logs",
       group: "app",
       pathLabel: compactHomePath(supportPaths.appLogsDirectory) ?? supportPaths.appLogsDirectory,
       paths: [
-        path.join(supportPaths.appLogsDirectory, "electron.log"),
         path.join(supportPaths.appLogsDirectory, "native.log"),
         path.join(supportPaths.appLogsDirectory, "agent-host.log"),
       ],
@@ -561,7 +560,7 @@ async function tailScoutLogSource(
   };
 }
 
-export async function getScoutElectronLogCatalog(
+export async function getScoutDesktopLogCatalog(
   _currentDirectory = process.cwd(),
 ): Promise<ScoutDesktopLogCatalog> {
   const sources = coreLogSources();
@@ -571,7 +570,7 @@ export async function getScoutElectronLogCatalog(
   };
 }
 
-export async function getScoutElectronBrokerInspector(): Promise<ScoutDesktopBrokerInspector> {
+export async function getScoutDesktopBrokerInspector(): Promise<ScoutDesktopBrokerInspector> {
   const status = await getRuntimeBrokerServiceStatus();
   const processId = resolveBrokerProcessId(status.brokerUrl, status.pid);
   const processCommand = readProcessCommand(processId);
@@ -613,7 +612,7 @@ export async function getScoutElectronBrokerInspector(): Promise<ScoutDesktopBro
   };
 }
 
-export async function readScoutElectronLogSource(
+export async function readScoutDesktopLogSource(
   input: ReadScoutLogSourceInput,
   _currentDirectory = process.cwd(),
 ): Promise<ScoutDesktopLogContent> {
@@ -627,14 +626,14 @@ export async function readScoutElectronLogSource(
   return tailScoutLogSource(source, tailLines);
 }
 
-export async function getScoutElectronFeedbackBundle(
+export async function getScoutDesktopFeedbackBundle(
   currentDirectory = process.cwd(),
 ): Promise<ScoutDesktopFeedbackBundle> {
   const generatedAt = new Date().toISOString();
   const supportPaths = resolveOpenScoutSupportPaths();
-  const appSettings = await getScoutElectronAppSettings(currentDirectory);
-  const pairingState = await getScoutElectronPairingState(currentDirectory);
-  const brokerInspector = await getScoutElectronBrokerInspector();
+  const appSettings = await getScoutDesktopAppSettings(currentDirectory);
+  const pairingState = await getScoutDesktopPairingState(currentDirectory);
+  const brokerInspector = await getScoutDesktopBrokerInspector();
 
   const appRoot = (() => {
     try {
@@ -771,7 +770,7 @@ type TalkieCompatibleReport = {
   performance?: Record<string, string>;
 };
 
-export async function submitScoutElectronFeedbackReport(
+export async function submitScoutDesktopFeedbackReport(
   input: SubmitScoutFeedbackReportInput,
   currentDirectory = process.cwd(),
 ): Promise<ScoutDesktopFeedbackSubmission> {
@@ -780,9 +779,9 @@ export async function submitScoutElectronFeedbackReport(
     throw new Error("Feedback message is required.");
   }
 
-  const bundle = await getScoutElectronFeedbackBundle(currentDirectory);
-  const pairingState = await getScoutElectronPairingState(currentDirectory);
-  const brokerInspector = await getScoutElectronBrokerInspector();
+  const bundle = await getScoutDesktopFeedbackBundle(currentDirectory);
+  const pairingState = await getScoutDesktopPairingState(currentDirectory);
+  const brokerInspector = await getScoutDesktopBrokerInspector();
   const endpoint = resolveScoutFeedbackReportUrl();
   const reportId = randomUUID();
   const report: TalkieCompatibleReport = {

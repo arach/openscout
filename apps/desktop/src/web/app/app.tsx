@@ -65,7 +65,7 @@ import { SettingsHelpView } from "@/components/views/settings-help-view";
 import { OnboardingCommandShell, StartupOnboardingStepContent } from "@/components/views/startup-onboarding-view";
 import { AgentViews } from "@/components/views/agent-views";
 import { BootLoader } from "@/components/boot-loader";
-import { getScoutDesktop } from "@/lib/electron";
+import { getScoutDesktop } from "@/lib/desktop-bridge";
 import { cn } from "@/lib/utils";
 import { useAgentController } from "@/hooks/use-agent-controller";
 import { useDiagnosticsController } from "@/hooks/use-diagnostics-controller";
@@ -415,7 +415,7 @@ export default function App() {
   }, [persistCachedHome, scoutDesktop]);
   const loadHomeState = React.useCallback(async (withSpinner = false) => {
     if (!scoutDesktop?.getHomeState) {
-      setShellError('Electron desktop bridge is unavailable.');
+      setShellError("Desktop bridge is unavailable.");
       setIsLoadingHome(false);
       return null;
     }
@@ -460,7 +460,7 @@ export default function App() {
   }, [persistCachedHome, scoutDesktop]);
   const loadMessagesWorkspaceState = React.useCallback(async (withSpinner = false) => {
     if (!scoutDesktop?.getMessagesWorkspaceState) {
-      setShellError('Electron desktop bridge is unavailable.');
+      setShellError("Desktop bridge is unavailable.");
       setIsLoadingMessagesWorkspace(false);
       return null;
     }
@@ -506,7 +506,7 @@ export default function App() {
   }, [scoutDesktop]);
   const loadShellState = React.useCallback(async (withSpinner = false) => {
     if (!scoutDesktop?.getShellState) {
-      setShellError('Electron desktop bridge is unavailable.');
+      setShellError("Desktop bridge is unavailable.");
       setIsLoadingShell(false);
       return null;
     }
@@ -1625,7 +1625,7 @@ export default function App() {
 
   const handleToggleVoiceCapture = async () => {
     if (!scoutDesktop?.toggleVoiceCapture) {
-      setShellError('Electron desktop bridge is unavailable.');
+      setShellError("Desktop bridge is unavailable.");
       return;
     }
 
@@ -1644,7 +1644,7 @@ export default function App() {
 
   const handleSetVoiceRepliesEnabled = async (enabled: boolean) => {
     if (!scoutDesktop?.setVoiceRepliesEnabled) {
-      setShellError('Electron desktop bridge is unavailable.');
+      setShellError("Desktop bridge is unavailable.");
       return;
     }
 

@@ -2,7 +2,7 @@ import React from "react";
 
 import { asErrorMessage } from "@web/features/messages/lib/relay-utils";
 import type { AppView } from "@/app-types";
-import type { ScoutDesktopBridge } from "@/lib/electron";
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import type { PhonePreparationState, SessionMetadata } from "@/lib/scout-desktop";
 
 type UsePhonePreparationControllerInput = {

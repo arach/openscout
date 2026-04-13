@@ -220,11 +220,11 @@ The user request implies two classes of behavior:
 
 ### Design
 
-Add a Mac-side `KeepAliveManager` owned by the desktop/electron host layer.
+Add a Mac-side `KeepAliveManager` owned by the desktop host layer.
 
 Suggested location:
 
-- `apps/desktop/src/app/electron/keep-alive.ts`
+- `apps/desktop/src/app/host/keep-alive.ts`
 
 This manager owns keep-alive leases and adapter-specific execution of sleep-prevention mechanisms.
 
@@ -330,7 +330,7 @@ This must have:
 
 ## Part 3: API Surface
 
-### Desktop/Electron API
+### Desktop Host API
 
 Add IPC surface for:
 
@@ -341,7 +341,7 @@ Add IPC surface for:
 
 Relevant file:
 
-- [apps/desktop/src/app/electron/channels.ts](/Users/arach/dev/openscout/apps/desktop/src/app/electron/channels.ts)
+- [apps/desktop/src/app/host/channels.ts](/Users/arach/dev/openscout/apps/desktop/src/app/host/channels.ts)
 
 ### iOS Bridge API
 
@@ -431,15 +431,14 @@ Suggested behavior:
 ### New
 
 - `docs/mobile-bridge-health-and-keep-alive.md`
-- `apps/desktop/src/app/electron/keep-alive.ts`
-- `apps/desktop/src/app/electron/keep-alive-state.ts`
+- `apps/desktop/src/app/host/keep-alive.ts`
 
 ### Likely changed
 
 - [apps/ios/Scout/Services/ConnectionManager.swift](/Users/arach/dev/openscout/apps/ios/Scout/Services/ConnectionManager.swift)
 - [apps/ios/Scout/Models/RPC.swift](/Users/arach/dev/openscout/apps/ios/Scout/Models/RPC.swift)
-- [apps/desktop/src/app/electron/channels.ts](/Users/arach/dev/openscout/apps/desktop/src/app/electron/channels.ts)
-- [apps/desktop/src/app/electron/service.ts](/Users/arach/dev/openscout/apps/desktop/src/app/electron/service.ts)
+- [apps/desktop/src/app/host/channels.ts](/Users/arach/dev/openscout/apps/desktop/src/app/host/channels.ts)
+- [apps/desktop/src/app/host/service.ts](/Users/arach/dev/openscout/apps/desktop/src/app/host/service.ts)
 - [apps/desktop/src/core/mobile/service.ts](/Users/arach/dev/openscout/apps/desktop/src/core/mobile/service.ts)
 - [apps/desktop/src/core/pairing/runtime/bridge/router.ts](/Users/arach/dev/openscout/apps/desktop/src/core/pairing/runtime/bridge/router.ts)
 - [apps/desktop/src/core/pairing/runtime/relay-runtime.ts](/Users/arach/dev/openscout/apps/desktop/src/core/pairing/runtime/relay-runtime.ts)

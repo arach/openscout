@@ -55,11 +55,10 @@ export type ScoutWebServer = {
 };
 
 /**
- * Default static client path when developing inside the OpenScout monorepo
- * (`packages/electron-app` Vite `dist/client`).
+ * Default static client path when developing inside the OpenScout monorepo.
  */
 export function defaultMonorepoStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
-  return resolve(dirname(fileURLToPath(moduleUrl)), "../../../../packages/electron-app/dist/client");
+  return resolve(dirname(fileURLToPath(moduleUrl)), "../../dist/client");
 }
 
 function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {

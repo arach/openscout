@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildControlPlaneClientAndCopy,
+  buildDesktopClientAndCopy,
   bundleScoutControlPlaneWebServerBun,
   bundleScoutWebServerBun,
-  buildElectronClientAndCopy,
   getOpenScoutRepoRoot,
 } from "../../../scripts/bundle-scout-web.mjs";
 
@@ -21,6 +21,7 @@ const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
 const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
+const pairSupervisorOutput = resolve(outputDirectory, "pair-supervisor.mjs");
 const vendoredClientDir = resolve(outputDirectory, "client");
 const controlPlaneClientDir = resolve(outputDirectory, "control-plane-client");
 
@@ -29,7 +30,7 @@ mkdirSync(outputDirectory, { recursive: true });
 // Use --outdir so bun can emit WASM/asset side-files alongside the main bundle
 const result = spawnSync(
   "bun",
-  ["build", entryFile, "--target=node", "--outdir", outputDirectory],
+  ["build", entryFile, "--target=bun", "--outdir", outputDirectory],
   { cwd: packageDirectory, stdio: "inherit" },
 );
 
@@ -45,7 +46,18 @@ if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
   process.exit(1);
 }
 
-if (!buildElectronClientAndCopy(repoRoot, vendoredClientDir)) {
+const pairSupervisorEntry = resolve(repoRoot, "apps", "desktop", "bin", "pair-supervisor.ts");
+const pairSupervisorResult = spawnSync(
+  "bun",
+  ["build", pairSupervisorEntry, "--target=bun", "--format=esm", "--outfile", pairSupervisorOutput],
+  { cwd: packageDirectory, stdio: "inherit" },
+);
+
+if ((pairSupervisorResult.status ?? 1) !== 0) {
+  process.exit(pairSupervisorResult.status ?? 1);
+}
+
+if (!buildDesktopClientAndCopy(repoRoot, vendoredClientDir)) {
   process.exit(1);
 }
 

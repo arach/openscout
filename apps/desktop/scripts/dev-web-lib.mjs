@@ -1,16 +1,14 @@
 import net from "node:net";
 
 export const DEFAULT_RENDERER_PORT = 43173;
-export const SCOUT_RENDERER_ENTRY_MARKER = '@scout/app/web-entry-client';
-export const SCOUT_RENDERER_ENTRY_PATH_MARKER = "/web-entry-client.tsx";
+export const SCOUT_RENDERER_ENTRY_PATH_MARKER = "/src/web-entry-client.tsx";
 
 export function buildRendererUrl(host, port) {
   return `http://${host}:${port}`;
 }
 
 export function isScoutRendererEntrySource(source) {
-  return source.includes(SCOUT_RENDERER_ENTRY_MARKER)
-    || source.includes(SCOUT_RENDERER_ENTRY_PATH_MARKER);
+  return source.includes(SCOUT_RENDERER_ENTRY_PATH_MARKER);
 }
 
 async function fetchWithTimeout(fetchImpl, input, timeoutMs) {
@@ -38,7 +36,7 @@ export async function waitForScoutRenderer(url, options = {}) {
       if (response.ok) {
         const entryResponse = await fetchWithTimeout(
           fetchImpl,
-          new URL("/src/entry-client.tsx", url),
+          new URL(SCOUT_RENDERER_ENTRY_PATH_MARKER, url),
           requestTimeoutMs,
         );
         const entrySource = entryResponse.ok ? await entryResponse.text() : "";

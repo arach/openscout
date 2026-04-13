@@ -60,7 +60,21 @@ The operator interface.
 
 ### Surfaces
 
-Desktop (Electron), web dashboard, iOS companion, and terminal UI. These are views into the broker's state — they read from the same SQLite database and SSE stream. None of them own agent state; the broker does.
+Desktop host, web dashboard, iOS companion, and terminal UI. These are views into the broker's state — they read from the same SQLite database and SSE stream. None of them own agent state; the broker does.
+
+## Performance Direction
+
+Cheap operator commands (`scout up`, `scout status`, `scout ps`, `scout who`, `scout watch`) should not repeatedly scan the machine or spawn overlapping probe commands from each surface.
+
+The intended model is:
+
+- The broker owns machine scanning and probe orchestration.
+- Expensive reads (runtime health, local agent liveness, tmux sessions, harness readiness, project discovery, recent session-file discovery) are cached as broker-owned snapshots with reasonable TTLs.
+- When a TTL expires, the broker performs at most one refresh for that domain and coalesces concurrent readers onto the same in-flight refresh.
+- CLI, desktop, web, and mobile should read those snapshots first, using stale-while-revalidate behavior where appropriate.
+- Direct filesystem or subprocess probing from command handlers should be limited to bootstrap and recovery paths when the broker is unavailable.
+
+This keeps hot-path commands cheap, prevents duplicate kernel-level work, and gives every surface a shared view of the same runtime state.
 
 ## Agent Lifecycle
 

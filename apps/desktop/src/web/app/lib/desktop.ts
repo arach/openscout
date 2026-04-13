@@ -1,14 +1,14 @@
-import { getScoutDesktop } from "@/lib/electron";
+import { getScoutDesktop } from "@/lib/desktop-bridge";
 import type { DesktopAppInfo } from "@/lib/scout-desktop";
 
-export type AppRuntime = "electron" | "web";
+export type AppRuntime = "desktop" | "web";
 
 export function getAppRuntime(): AppRuntime {
-  return getScoutDesktop() ? "electron" : "web";
+  return getScoutDesktop() ? "desktop" : "web";
 }
 
 export function isDesktopRuntime() {
-  return getAppRuntime() === "electron";
+  return getAppRuntime() === "desktop";
 }
 
 export async function getDesktopAppInfo(): Promise<DesktopAppInfo | null> {

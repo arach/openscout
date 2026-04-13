@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process";
-import path from "node:path";
-import { buildRendererUrl, waitForScoutRenderer } from "./dev-electron-lib.mjs";
 
-const packageDir = process.cwd();
-const workspaceRoot = path.resolve(packageDir, "../..");
-const scoutAppDir = path.resolve(workspaceRoot, "apps/desktop");
+import { buildRendererUrl, waitForScoutRenderer } from "./dev-web-lib.mjs";
+
+const desktopDir = process.cwd();
+const workspaceRoot = process.env.OPENSCOUT_SETUP_CWD?.trim() || desktopDir;
 const rendererHost = process.env.OPENSCOUT_RENDERER_HOST?.trim() || "127.0.0.1";
 const rendererPort = process.env.OPENSCOUT_RENDERER_PORT?.trim() || "43173";
 const webHost = process.env.SCOUT_WEB_HOST?.trim() || "127.0.0.1";
@@ -12,10 +11,6 @@ const webPort = process.env.SCOUT_WEB_PORT?.trim() || "3200";
 const webApiUrl = `http://${webHost}:${webPort}/api/app-info`;
 const rendererUrl = buildRendererUrl(rendererHost, rendererPort);
 const children = new Set();
-
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
 
 function bunCommand() {
   return process.platform === "win32" ? "bun.exe" : "bun";
@@ -77,15 +72,11 @@ async function hasScoutRenderer(url) {
   }
 }
 
-process.on("exit", () => {
-  killChildren();
-});
-
+process.on("exit", killChildren);
 process.on("SIGINT", () => {
   killChildren();
   process.exit(130);
 });
-
 process.on("SIGTERM", () => {
   killChildren();
   process.exit(143);
@@ -99,7 +90,7 @@ try {
     console.log(`Reusing Scout web API at ${webApiUrl}`);
   } else {
     scoutWeb = spawnChild(bunCommand(), ["run", "web"], {
-      cwd: scoutAppDir,
+      cwd: desktopDir,
       stdio: "inherit",
       env: {
         ...process.env,
@@ -123,8 +114,8 @@ try {
   if (await hasScoutRenderer(rendererUrl)) {
     console.log(`Reusing Scout renderer at ${rendererUrl}`);
   } else {
-    vite = spawnChild(npmCommand(), ["exec", "--", "vite"], {
-      cwd: packageDir,
+    vite = spawnChild(bunCommand(), ["x", "vite"], {
+      cwd: desktopDir,
       stdio: "inherit",
       env: {
         ...process.env,

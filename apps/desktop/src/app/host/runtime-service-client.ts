@@ -10,6 +10,11 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 
+const BROKER_STATUS_CACHE_TTL_MS = 2_000;
+
+let cachedBrokerStatus: { value: BrokerServiceStatus; expiresAt: number } | null = null;
+let inflightBrokerStatus: Promise<BrokerServiceStatus> | null = null;
+
 function tryWhich(executableName: string): string | null {
   const pathEnv = process.env.PATH ?? "";
   const sep = process.platform === "win32" ? ";" : ":";
@@ -145,6 +150,10 @@ function spawnArgsForRuntime(entry: string, serviceArgs: string[]): { command: s
 export async function runRuntimeBrokerService(
   subcommand: "start" | "stop" | "restart" | "status" | "install" | "uninstall",
 ): Promise<BrokerServiceStatus> {
+  if (subcommand !== "status") {
+    invalidateRuntimeBrokerServiceStatus();
+  }
+
   const entry = resolveRuntimeServiceEntrypoint();
   const { command, args } = spawnArgsForRuntime(entry, [subcommand, "--json"]);
 
@@ -177,7 +186,12 @@ export async function runRuntimeBrokerService(
   }
 
   try {
-    return JSON.parse(stdout) as BrokerServiceStatus;
+    const parsed = JSON.parse(stdout) as BrokerServiceStatus;
+    cachedBrokerStatus = {
+      value: parsed,
+      expiresAt: Date.now() + BROKER_STATUS_CACHE_TTL_MS,
+    };
+    return parsed;
   } catch {
     throw new Error(
       `openscout-runtime service ${subcommand} returned non-JSON stdout: ${stdout.slice(0, 400)}`,
@@ -185,6 +199,25 @@ export async function runRuntimeBrokerService(
   }
 }
 
-export async function getRuntimeBrokerServiceStatus(): Promise<BrokerServiceStatus> {
-  return runRuntimeBrokerService("status");
+export function invalidateRuntimeBrokerServiceStatus(): void {
+  cachedBrokerStatus = null;
+}
+
+export async function getRuntimeBrokerServiceStatus(options: { force?: boolean } = {}): Promise<BrokerServiceStatus> {
+  const force = options.force ?? false;
+
+  if (!force && cachedBrokerStatus && cachedBrokerStatus.expiresAt > Date.now()) {
+    return cachedBrokerStatus.value;
+  }
+
+  if (!force && inflightBrokerStatus) {
+    return inflightBrokerStatus;
+  }
+
+  inflightBrokerStatus = runRuntimeBrokerService("status")
+    .finally(() => {
+      inflightBrokerStatus = null;
+    });
+
+  return inflightBrokerStatus;
 }

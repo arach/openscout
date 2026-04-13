@@ -1552,21 +1552,19 @@ export async function resolveLocalAgentByName(name: string): Promise<ResolvedAge
 export async function listLocalAgents(options: {
   currentDirectory?: string;
 } = {}): Promise<ScoutLocalAgentStatus[]> {
-  const [setup, overrides] = await Promise.all([
-    loadResolvedRelayAgents({
-      currentDirectory: options.currentDirectory,
-      ensureCurrentProjectConfig: false,
-    }),
-    readRelayAgentOverrides(),
-  ]);
+  void options;
+  const overrides = await readRelayAgentOverrides();
 
-  return setup.agents.map((agent) => (
-    localAgentStatusFromRecord(
-      agent.agentId,
-      localAgentRecordFromResolvedConfig(agent),
-      localAgentStatusSource(agent.agentId, overrides),
-    )
-  )).sort((lhs, rhs) => lhs.projectName.localeCompare(rhs.projectName) || lhs.agentId.localeCompare(rhs.agentId));
+  return Object.entries(overrides)
+    .filter(([agentId]) => !BUILT_IN_LOCAL_AGENT_IDS.has(agentId))
+    .map(([agentId, override]) => (
+      localAgentStatusFromRecord(
+        agentId,
+        localAgentRecordFromRelayAgentOverride(agentId, override),
+        localAgentStatusSource(agentId, overrides),
+      )
+    ))
+    .sort((lhs, rhs) => lhs.projectName.localeCompare(rhs.projectName) || lhs.agentId.localeCompare(rhs.agentId));
 }
 
 export async function startLocalAgent(input: StartLocalAgentInput): Promise<ScoutLocalAgentStatus> {

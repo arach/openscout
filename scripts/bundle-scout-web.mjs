@@ -74,24 +74,24 @@ export function buildControlPlaneClientAndCopy(repoRoot, targetClientDir) {
 }
 
 /**
- * Run Vite client build in electron-app and copy dist/client → targetClientDir.
+ * Run Vite client build in apps/desktop and copy dist/client -> targetClientDir.
  * @param {string} repoRoot
  * @param {string} targetClientDir e.g. packages/cli/dist/client
  * @returns {boolean}
  */
-export function buildElectronClientAndCopy(repoRoot, targetClientDir) {
-  const electronApp = resolve(repoRoot, "packages/electron-app");
-  const build = spawnSync("npm", ["run", "build:client"], {
-    cwd: electronApp,
+export function buildDesktopClientAndCopy(repoRoot, targetClientDir) {
+  const desktopApp = resolve(repoRoot, "apps/desktop");
+  const build = spawnSync("bun", ["run", "web:build"], {
+    cwd: desktopApp,
     stdio: "inherit",
   });
   if ((build.status ?? 1) !== 0) {
     return false;
   }
-  const source = resolve(electronApp, "dist/client");
+  const source = resolve(desktopApp, "dist/client");
   const indexHtml = resolve(source, "index.html");
   if (!existsSync(indexHtml)) {
-    console.error("[bundle-scout-web] expected index.html after build:client at", indexHtml);
+    console.error("[bundle-scout-web] expected index.html after desktop web build at", indexHtml);
     return false;
   }
   rmSync(targetClientDir, { recursive: true, force: true });

@@ -12,18 +12,6 @@
       "types": "./src/desktop.ts",
       "default": "./src/desktop.ts"
     },
-    "./electron-shell": {
-      "types": "./src/electron-shell.ts",
-      "default": "./src/electron-shell.ts"
-    },
-    "./electron-channels": {
-      "types": "./src/electron-channels.ts",
-      "default": "./src/electron-channels.ts"
-    },
-    "./electron-pair-supervisor": {
-      "types": "./src/electron-pair-supervisor.ts",
-      "default": "./src/electron-pair-supervisor.ts"
-    },
     "./product": {
       "types": "./src/product.ts",
       "default": "./src/product.ts"
@@ -42,7 +30,8 @@
     }
   },
   "bin": {
-    "scout": "./bin/scout.ts"
+    "scout": "./bin/scout.ts",
+    "pair-supervisor": "./bin/pair-supervisor.ts"
   },
   "files": [
     "bin",
@@ -51,13 +40,19 @@
   "scripts": {
     "check": "bunx tsc -p tsconfig.json",
     "scout": "bun ./bin/scout.ts",
+    "web:build": "vite build --outDir dist/client",
+    "dev:web": "node ./scripts/dev-web.mjs",
     "web": "bun run ./src/server/index.ts",
     "test:happy": "bun test src/core/pairing/runtime/bridge/fileserver.test.ts"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
-    "bun-types": "^1.3.11"
+    "@vitejs/plugin-react": "^5.0.2",
+    "bun-types": "^1.3.11",
+    "tailwindcss": "^4.1.14",
+    "vite": "^7.1.5"
   },
   "dependencies": {
     "@hono/trpc-server": "^0.4.2",

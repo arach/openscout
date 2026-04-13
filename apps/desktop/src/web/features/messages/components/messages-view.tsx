@@ -1163,7 +1163,7 @@ function RelayComposer({
           />
           <div className="shrink-0 flex items-center gap-1 ml-2">
             {desktopVoiceEnabled ? (
-              <button className="p-1 opacity-50 cursor-default transition-opacity" style={styles.mutedText} title={relayVoiceState?.detail ?? "Voice unavailable in Electron"}>
+              <button className="p-1 opacity-50 cursor-default transition-opacity" style={styles.mutedText} title={relayVoiceState?.detail ?? "Voice unavailable on this desktop host"}>
                 <Mic size={12} />
               </button>
             ) : null}

@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 
 import {
-  controlScoutElectronPairingService,
-  getScoutElectronPairingState,
-  refreshScoutElectronPairingState,
+  controlScoutDesktopPairingService,
+  getScoutDesktopPairingState,
+  refreshScoutDesktopPairingState,
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "../app/host/pairing.ts";
@@ -70,8 +70,8 @@ async function loadControlPlaneShellState(currentDirectory: string): Promise<Sco
 
 async function loadPairingState(currentDirectory: string, refresh: boolean): Promise<ScoutPairingState> {
   return refresh
-    ? refreshScoutElectronPairingState(currentDirectory)
-    : getScoutElectronPairingState(currentDirectory);
+    ? refreshScoutDesktopPairingState(currentDirectory)
+    : getScoutDesktopPairingState(currentDirectory);
 }
 
 export function createScoutControlPlaneServer(
@@ -88,7 +88,7 @@ export function createScoutControlPlaneServer(
   app.get("/api/pairing-state/refresh", async (c) => c.json(await loadPairingState(currentDirectory, true)));
   app.post("/api/pairing/control", async (c) => {
     const { action } = await c.req.json() as { action: ScoutPairingControlAction };
-    const result = await controlScoutElectronPairingService(action, currentDirectory);
+    const result = await controlScoutDesktopPairingService(action, currentDirectory);
     shellStateCache.invalidate();
     return c.json(result);
   });

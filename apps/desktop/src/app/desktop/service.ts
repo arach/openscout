@@ -59,7 +59,7 @@ export function createScoutDesktopAppInfo(input: {
 } = {}): ScoutDesktopAppInfo {
   const configuredProductName = process.env.SCOUT_PRODUCT_NAME?.trim();
   const configuredAppVersion = process.env.SCOUT_APP_VERSION?.trim();
-  const surface = input.surface ?? "electron";
+  const surface = input.surface ?? "desktop";
 
   return {
     productName: input.productName ?? configuredProductName ?? SCOUT_PRODUCT_NAME,

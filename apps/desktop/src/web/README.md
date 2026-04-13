@@ -7,4 +7,4 @@ Subareas:
 Rules:
 - `web/` is the canonical home for React renderer code.
 - Shared product logic still belongs in `src/core`.
-- Electron and host integration stay in `src/app`.
+- Desktop host integration stays in `src/app`.

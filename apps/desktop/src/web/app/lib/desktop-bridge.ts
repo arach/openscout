@@ -1,17 +1,17 @@
-import type { ScoutElectronBridge } from "../../../app/electron/bridge.ts";
+import type { ScoutDesktopBridge } from "../../../app/host/bridge.ts";
 import { createWebBridge } from "./web-bridge.ts";
 
-export type ScoutDesktopBridge = NonNullable<Window["scoutDesktop"]>;
+export type { ScoutDesktopBridge } from "../../../app/host/bridge.ts";
 
 declare global {
   interface Window {
-    scoutDesktop?: ScoutElectronBridge;
+    scoutDesktop?: ScoutDesktopBridge;
   }
 }
 
-let webBridge: ScoutElectronBridge | null = null;
+let webBridge: ScoutDesktopBridge | null = null;
 
-export function getScoutDesktop(): ScoutElectronBridge | null {
+export function getScoutDesktop(): ScoutDesktopBridge | null {
   if (typeof window === "undefined") {
     return null;
   }

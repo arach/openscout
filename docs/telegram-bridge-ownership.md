@@ -27,8 +27,8 @@ For Telegram only, OpenScout now uses a single bridge owner:
 ## Implementation
 
 - canonical settings: `packages/runtime/src/setup.ts`
-- desktop settings UI: `packages/electron-app/src/app.tsx`
-- desktop Telegram bridge owner election: `packages/electron-app/electron/telegram-bridge-service.ts`
+- desktop settings UI: `apps/desktop/src/web/app/components/communication-settings-view.tsx`
+- desktop Telegram bridge owner election: `apps/desktop/src/core/telegram/bindings.ts`
 
 ## Follow-Up
 

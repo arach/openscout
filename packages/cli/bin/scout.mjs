@@ -1,5 +1,14 @@
 #!/usr/bin/env bun
 
+if (typeof globalThis.Bun === "undefined") {
+  console.error(
+    "Scout requires the Bun runtime (bun:sqlite is not available in Node.js).\n" +
+    "Install Bun: curl -fsSL https://bun.sh/install | bash\n" +
+    "Then run:    bun x @openscout/scout"
+  );
+  process.exit(1);
+}
+
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

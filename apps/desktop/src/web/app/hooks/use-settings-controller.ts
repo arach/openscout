@@ -3,7 +3,7 @@ import React from "react";
 import { asErrorMessage, serializeAppSettings } from "@web/features/messages/lib/relay-utils";
 import type { AppView, OnboardingWizardStepId } from "@/app-types";
 import type { SettingsSectionId } from "@/settings/settings-paths";
-import type { ScoutDesktopBridge } from "@/lib/electron";
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import type {
   AppSettingsState,
   DesktopShellState,

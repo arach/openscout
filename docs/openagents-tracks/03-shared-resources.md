@@ -173,7 +173,7 @@ The first pass should prioritize read and inspect commands over mutation command
 - Shared files and artifacts should be searchable and filterable by kind, owner, and recency.
 - Notes should appear as attached context on work items, browser contexts, and files.
 
-### Electron Or Web Surfaces
+### Desktop Or Web Surfaces
 
 - Surface the current state of shared browser sessions and persistent contexts.
 - Show whether a resource is active, idle, expired, or revoked.
@@ -236,4 +236,3 @@ The first pass should prioritize read and inspect commands over mutation command
 The root architectural rule is simple: shared resources should feel like durable broker records with a UI, not like tool output that happened to persist somewhere.
 
 If a user can reopen it, share it, revoke it, or inspect it later, it belongs in the broker model.
-

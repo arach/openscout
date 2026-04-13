@@ -4,14 +4,14 @@
 
 Make OpenScout surfaces explain what the system can actually do, what is ready right now, and what still needs setup. The shell should not just show agents and runtimes; it should surface capability, readiness, and shared resources as first-class product state.
 
-This track is the presentation layer for the catalog and resource model. It does not define the catalog schema itself or the broker protocol; it consumes those inputs and renders them consistently across the native shell, Electron app, web surfaces, and CLI/TUI.
+This track is the presentation layer for the catalog and resource model. It does not define the catalog schema itself or the broker protocol; it consumes those inputs and renders them consistently across the native shell, desktop host shell, web surfaces, and CLI/TUI.
 
 ## Goals
 
 - Show harness capability and readiness everywhere the operator looks.
 - Make shared resources visible as durable inventory, not hidden tool outputs.
 - Reduce onboarding friction by turning "what do I install or configure?" into a direct UI answer.
-- Keep shell chrome thin and drive the same state model across Swift, Electron, web, and terminal surfaces.
+- Keep shell chrome thin and drive the same state model across Swift, desktop, web, and terminal surfaces.
 - Make degraded or partial setups legible instead of binary on/off.
 - Remove legacy wrapper terminology from operator-facing UI in favor of agent, harness, transport, and endpoint language.
 
@@ -36,7 +36,7 @@ The shell should also avoid leaking legacy implementation nouns. If the operator
 The current repo already has the right surface split:
 
 - Native shell: `ScoutApp`, sidebar, footer status bar, embedded WebKit surface, helper supervision.
-- Electron shell: overview, machines, plans, relay, inter-agent, agents, logs, settings.
+- Desktop host shell: overview, machines, plans, relay, inter-agent, agents, logs, settings.
 - Web surfaces: broker-backed workspace views and product framing.
 - CLI/TUI: bootstrap, doctor, status, add/list-style operator commands.
 
@@ -54,9 +54,9 @@ The native shell should stay the operator cockpit. Its job is to show status, in
 - Footer: show a compact readiness summary, not just helper heartbeat.
 - Embedded web surface: host deeper inventory or onboarding flows when the user needs detail.
 
-### Electron Shell
+### Desktop Host Shell
 
-The Electron app should become the dense control surface for inventory and reconciliation.
+The desktop host app should become the dense control surface for inventory and reconciliation.
 
 - Overview: show the capability catalog summary and onboarding status.
 - Machines: render machine-level capability availability and which endpoints are currently reachable.
@@ -175,7 +175,7 @@ Bad onboarding states:
 ### Phase 1
 
 - Define the shared capability/readiness vocabulary in the UI layer.
-- Render the catalog summary in native and Electron surfaces.
+- Render the catalog summary in native and desktop surfaces.
 - Add resource inventory views for files and browser contexts only.
 
 ### Phase 2

@@ -28,7 +28,7 @@ export type ScoutDesktopAppInfo = {
   appVersion: string;
   isPackaged: boolean;
   platform: string;
-  /** Which distribution is serving this shell (electron app, browser web server, CLI context). */
+  /** Which distribution is serving this shell (desktop host, browser web server, CLI context). */
   surface: ScoutHostSurface;
   /** What this host is allowed to do; UI should gate native / provisioning actions on these flags. */
   capabilities: ScoutSurfaceCapabilities;

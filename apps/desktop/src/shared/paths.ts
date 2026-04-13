@@ -35,7 +35,7 @@ function looksLikePackagedAppRoot(candidate: string): boolean {
 
   try {
     const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as PackageJson;
-    return parsed.name === "@scout/electron-app";
+    return parsed.name === "@openscout/scout" || parsed.name === "@openscout/cli";
   } catch {
     return false;
   }
@@ -124,15 +124,8 @@ export function resolveScoutAppRoot(options: ScoutPathResolutionOptions = {}): s
     }
   }
 
-  for (const start of starts) {
-    const installedCliRoot = findMatchingAncestor(start, looksLikeInstalledCliRoot);
-    if (installedCliRoot) {
-      return installedCliRoot;
-    }
-  }
-
   const workspaceRoot = resolveScoutWorkspaceRoot(options);
-  for (const relativePath of [["apps", "desktop"], ["apps", "scout"]] as const) {
+  for (const relativePath of [["apps", "desktop"], ["apps", "scout"], ["packages", "cli"]] as const) {
     const candidate = resolve(workspaceRoot, ...relativePath);
     if (looksLikeSourceAppRoot(candidate)) {
       return candidate;

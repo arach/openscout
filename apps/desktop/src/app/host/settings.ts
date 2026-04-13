@@ -21,12 +21,12 @@ import { getRuntimeBrokerServiceStatus } from "./runtime-service-client.ts";
 import { SCOUT_PRODUCT_NAME } from "../../shared/product.ts";
 import { syncScoutBrokerBindings } from "../../core/broker/service.ts";
 import {
-  deriveScoutHostTelegramRuntimeState as deriveScoutElectronTelegramRuntimeState,
-  normalizeScoutHostTelegramConfig as normalizeScoutElectronTelegramConfig,
-  type ScoutHostTelegramRuntimeState as ScoutElectronTelegramRuntimeState,
+  deriveScoutHostTelegramRuntimeState as deriveScoutDesktopTelegramRuntimeState,
+  normalizeScoutHostTelegramConfig as normalizeScoutDesktopTelegramConfig,
+  type ScoutHostTelegramRuntimeState as ScoutDesktopTelegramRuntimeState,
 } from "./telegram.ts";
 
-const SCOUT_ELECTRON_OPENER = "scout";
+const SCOUT_CLI_COMMAND = "scout";
 
 export type SetupAgentSummary = {
   id: string;
@@ -162,7 +162,7 @@ export type AppSettingsState = {
   };
 };
 
-type ScoutElectronSettingsBase = {
+type ScoutDesktopSettingsBase = {
   settingsDirectory: string;
   onboardingContextRoot: string;
   currentProjectConfigPath: string | null;
@@ -198,8 +198,8 @@ export type UpdateAppSettingsInput = {
   };
 };
 
-export type ScoutElectronSettingsService = {
-  getTelegramRuntimeState?: () => Promise<ScoutElectronTelegramRuntimeState> | ScoutElectronTelegramRuntimeState;
+export type ScoutDesktopSettingsService = {
+  getTelegramRuntimeState?: () => Promise<ScoutDesktopTelegramRuntimeState> | ScoutDesktopTelegramRuntimeState;
   refreshTelegramConfiguration?: () => Promise<void> | void;
 };
 
@@ -271,7 +271,7 @@ function isExecutable(candidate: string): boolean {
   return existsSync(candidate);
 }
 
-function resolveScoutElectronScoutExecutable(): string {
+function resolveScoutDesktopScoutExecutable(): string {
   const explicit = process.env.OPENSCOUT_SCOUT_BIN ?? process.env.SCOUT_BIN;
   if (explicit?.trim()) {
     return explicit.trim();
@@ -285,7 +285,7 @@ function resolveScoutElectronScoutExecutable(): string {
   ];
 
   for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = path.join(directory.replace(/^~(?=$|\/)/, homedir()), SCOUT_ELECTRON_OPENER);
+    const candidate = path.join(directory.replace(/^~(?=$|\/)/, homedir()), SCOUT_CLI_COMMAND);
     if (isExecutable(candidate)) {
       return candidate;
     }
@@ -294,7 +294,7 @@ function resolveScoutElectronScoutExecutable(): string {
   throw new Error(buildMissingScoutCliMessage());
 }
 
-function resolveScoutElectronBunInstallCommand(): string {
+function resolveScoutDesktopBunInstallCommand(): string {
   const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
   const brewCandidates = [
     ...pathEntries.map((entry) => path.join(entry, "brew")),
@@ -312,7 +312,7 @@ function resolveScoutElectronBunInstallCommand(): string {
 }
 
 function buildMissingScoutCliMessage(): string {
-  const bunInstallCommand = resolveScoutElectronBunInstallCommand();
+  const bunInstallCommand = resolveScoutDesktopBunInstallCommand();
   return [
     "Scout CLI was not found on this Mac.",
     "Install Bun, then install the Scout package globally:",
@@ -411,13 +411,13 @@ function resolveCurrentProjectConfigPath(onboardingContextRoot: string): string 
   return existsSync(candidate) ? candidate : null;
 }
 
-async function loadScoutElectronSettingsBase(
+async function loadScoutDesktopSettingsBase(
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
   input: {
     projectInventoryCount?: number;
   } = {},
-): Promise<ScoutElectronSettingsBase> {
+): Promise<ScoutDesktopSettingsBase> {
   const settingsDirectory = resolveSettingsDirectory(currentDirectory);
   const supportPaths = resolveOpenScoutSupportPaths();
   const record = await readOpenScoutSettings({ currentDirectory: settingsDirectory });
@@ -499,8 +499,8 @@ async function loadScoutElectronSettingsBase(
   };
 }
 
-function buildScoutElectronAppSettingsState(
-  base: ScoutElectronSettingsBase,
+function buildScoutDesktopAppSettingsState(
+  base: ScoutDesktopSettingsBase,
   input: {
     workspaceInventoryLoaded: boolean;
     discoveredAgents?: SetupAgentSummary[];
@@ -615,8 +615,8 @@ function deriveFallbackTelegramState(input: {
 }, readiness: {
   brokerReachable: boolean;
   localNodeId: string | null;
-}): ScoutElectronTelegramRuntimeState {
-  const config = normalizeScoutElectronTelegramConfig({
+}): ScoutDesktopTelegramRuntimeState {
+  const config = normalizeScoutDesktopTelegramConfig({
     enabled: input.enabled,
     mode: input.mode,
     botToken: input.botToken,
@@ -626,7 +626,7 @@ function deriveFallbackTelegramState(input: {
     defaultConversationId: input.defaultConversationId,
     ownerNodeId: input.ownerNodeId,
   });
-  return deriveScoutElectronTelegramRuntimeState({
+  return deriveScoutDesktopTelegramRuntimeState({
     config,
     readiness: {
       brokerReachable: readiness.brokerReachable,
@@ -644,7 +644,7 @@ function deriveFallbackTelegramState(input: {
 
 async function resolveTelegramSettingsState(
   input: AppSettingsState["telegram"],
-  services: ScoutElectronSettingsService,
+  services: ScoutDesktopSettingsService,
   readiness: {
     brokerReachable: boolean;
     localNodeId: string | null;
@@ -673,21 +673,21 @@ async function resolveTelegramSettingsState(
   };
 }
 
-export async function getScoutElectronAppSettings(
+export async function getScoutDesktopAppSettings(
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
-  const base = await loadScoutElectronSettingsBase(currentDirectory, services);
-  return buildScoutElectronAppSettingsState(base, {
+  const base = await loadScoutDesktopSettingsBase(currentDirectory, services);
+  return buildScoutDesktopAppSettingsState(base, {
     workspaceInventoryLoaded: false,
   });
 }
 
-export async function refreshScoutElectronAppSettingsInventory(
+export async function refreshScoutDesktopAppSettingsInventory(
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
-  const base = await loadScoutElectronSettingsBase(currentDirectory, services);
+  const base = await loadScoutDesktopSettingsBase(currentDirectory, services);
   const setup = await loadResolvedRelayAgents({
     currentDirectory: base.onboardingContextRoot,
   });
@@ -726,8 +726,8 @@ export async function refreshScoutElectronAppSettingsInventory(
     } satisfies SetupAgentSummary))
     : [];
 
-  return buildScoutElectronAppSettingsState(
-    await loadScoutElectronSettingsBase(currentDirectory, services, {
+  return buildScoutDesktopAppSettingsState(
+    await loadScoutDesktopSettingsBase(currentDirectory, services, {
       projectInventoryCount: projectInventory.length,
     }),
     {
@@ -738,7 +738,7 @@ export async function refreshScoutElectronAppSettingsInventory(
   );
 }
 
-export async function runScoutElectronOnboardingCommand(
+export async function runScoutDesktopOnboardingCommand(
   input: RunOnboardingCommandInput,
   currentDirectory?: string,
 ): Promise<OnboardingCommandResult> {
@@ -747,7 +747,7 @@ export async function runScoutElectronOnboardingCommand(
     input.contextRoot?.trim()
     || defaultOnboardingContextRoot(null, input.sourceRoots ?? [], settingsDirectory),
   ));
-  const scoutExecutable = resolveScoutElectronScoutExecutable();
+  const scoutExecutable = resolveScoutDesktopScoutExecutable();
   const cliCommand = input.command === "setup" ? "setup" : input.command;
   const normalizedSourceRoots = Array.from(new Set(
     (input.sourceRoots ?? [])
@@ -755,7 +755,7 @@ export async function runScoutElectronOnboardingCommand(
       .filter(Boolean),
   ));
 
-  const displayArgs = [SCOUT_ELECTRON_OPENER, input.command, "--context-root", compactHomePath(contextRoot) ?? contextRoot];
+  const displayArgs = [SCOUT_CLI_COMMAND, input.command, "--context-root", compactHomePath(contextRoot) ?? contextRoot];
   const execArgs = [cliCommand, "--context-root", contextRoot];
   if (input.command === "setup") {
     for (const sourceRoot of normalizedSourceRoots) {
@@ -828,9 +828,9 @@ export async function runScoutElectronOnboardingCommand(
   return result;
 }
 
-export async function skipScoutElectronOnboarding(
+export async function skipScoutDesktopOnboarding(
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
   await writeOpenScoutSettings({
     onboarding: {
@@ -839,12 +839,12 @@ export async function skipScoutElectronOnboarding(
   }, {
     currentDirectory: resolveSettingsDirectory(currentDirectory),
   });
-  return getScoutElectronAppSettings(currentDirectory, services);
+  return getScoutDesktopAppSettings(currentDirectory, services);
 }
 
-export async function restartScoutElectronOnboarding(
+export async function restartScoutDesktopOnboarding(
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
   await writeOpenScoutSettings({
     onboarding: {
@@ -861,13 +861,13 @@ export async function restartScoutElectronOnboarding(
   }, {
     currentDirectory: resolveSettingsDirectory(currentDirectory),
   });
-  return getScoutElectronAppSettings(currentDirectory, services);
+  return getScoutDesktopAppSettings(currentDirectory, services);
 }
 
-export async function updateScoutElectronAppSettings(
+export async function updateScoutDesktopAppSettings(
   input: UpdateAppSettingsInput,
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
   const trimmedOperatorName = input.operatorName?.trim() ?? "";
   const trimmedContextRoot = input.onboardingContextRoot?.trim() ?? "";
@@ -937,13 +937,13 @@ export async function updateScoutElectronAppSettings(
     }
   }
 
-  return getScoutElectronAppSettings(currentDirectory, services);
+  return getScoutDesktopAppSettings(currentDirectory, services);
 }
 
 async function updateHiddenProjectRoots(
   nextHiddenProjectRoots: string[],
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
   const settingsDirectory = resolveSettingsDirectory(currentDirectory);
   const currentSettings = await readOpenScoutSettings({ currentDirectory: settingsDirectory });
@@ -977,13 +977,13 @@ async function updateHiddenProjectRoots(
     }
   }
 
-  return refreshScoutElectronAppSettingsInventory(currentDirectory, services);
+  return refreshScoutDesktopAppSettingsInventory(currentDirectory, services);
 }
 
-export async function retireScoutElectronProject(
+export async function retireScoutDesktopProject(
   projectRoot: string,
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
   const settingsDirectory = resolveSettingsDirectory(currentDirectory);
   const currentSettings = await readOpenScoutSettings({ currentDirectory: settingsDirectory });
@@ -994,10 +994,10 @@ export async function retireScoutElectronProject(
   );
 }
 
-export async function restoreScoutElectronProject(
+export async function restoreScoutDesktopProject(
   projectRoot: string,
   currentDirectory?: string,
-  services: ScoutElectronSettingsService = {},
+  services: ScoutDesktopSettingsService = {},
 ): Promise<AppSettingsState> {
   const settingsDirectory = resolveSettingsDirectory(currentDirectory);
   const currentSettings = await readOpenScoutSettings({ currentDirectory: settingsDirectory });

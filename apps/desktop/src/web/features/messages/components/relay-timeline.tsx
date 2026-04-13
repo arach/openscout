@@ -846,7 +846,7 @@ export function buildOptimisticRelayMessage({
     isVoice,
     messageClass: isSystem ? "system" : "agent",
     routingSummary: recipients.length > 0 ? `Targets ${recipients.join(", ")}` : null,
-    provenanceSummary: "via electron · sending",
+    provenanceSummary: "via desktop · sending",
     provenanceDetail: null,
     isOperator: true,
     avatarLabel: operatorName.slice(0, 1).toUpperCase() || "A",

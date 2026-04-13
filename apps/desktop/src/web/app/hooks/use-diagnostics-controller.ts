@@ -2,7 +2,7 @@ import React from "react";
 
 import { asErrorMessage } from "@web/features/messages/lib/relay-utils";
 import type { AppView } from "@/app-types";
-import type { ScoutDesktopBridge } from "@/lib/electron";
+import type { ScoutDesktopBridge } from "@/lib/desktop-bridge";
 import type { SettingsSectionId } from "@/settings/settings-paths";
 import type {
   AppSettingsState,
@@ -177,7 +177,7 @@ export function useDiagnosticsController({
     }
     if (!scoutDesktop?.getLogCatalog) {
       setLogCatalog(null);
-      setLogsFeedback("Logs are unavailable in the current desktop bridge. Restart the app so the latest Electron preload is loaded.");
+      setLogsFeedback("Logs are unavailable in the current desktop bridge. Restart the app so the latest desktop bridge is loaded.");
       return;
     }
 

@@ -702,9 +702,8 @@ function resolveScoutBunExecutable(): string {
 function resolveScoutPairingRuntimeScriptPath(): string {
   const appRoot = resolveScoutAppRoot();
   const candidates = [
-    join(appRoot, "dist", "electron", SCOUT_PAIRING_RUNTIME_SCRIPT.replace(/\.ts$/, ".js")),
+    join(appRoot, "dist", SCOUT_PAIRING_RUNTIME_SCRIPT.replace(/\.ts$/, ".mjs")),
     join(appRoot, "bin", SCOUT_PAIRING_RUNTIME_SCRIPT),
-    join(appRoot, "..", "..", "packages", "electron-app", "dist", "electron", SCOUT_PAIRING_RUNTIME_SCRIPT.replace(/\.ts$/, ".js")),
   ];
 
   for (const candidate of candidates) {
@@ -916,15 +915,15 @@ async function ensureScoutPairingRuntimeStarted(): Promise<void> {
   await startScoutPairingRuntime();
 }
 
-export async function getScoutElectronPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
+export async function getScoutDesktopPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
   return readScoutPairingState(currentDirectory);
 }
 
-export async function refreshScoutElectronPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
+export async function refreshScoutDesktopPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
   return readScoutPairingState(currentDirectory);
 }
 
-export async function controlScoutElectronPairingService(
+export async function controlScoutDesktopPairingService(
   action: ScoutPairingControlAction,
   currentDirectory?: string,
 ): Promise<ScoutPairingState> {
@@ -945,7 +944,7 @@ export async function controlScoutElectronPairingService(
   return readScoutPairingState(currentDirectory);
 }
 
-export async function updateScoutElectronPairingConfig(
+export async function updateScoutDesktopPairingConfig(
   input: UpdateScoutPairingConfigInput,
   currentDirectory?: string,
 ): Promise<ScoutPairingState> {
@@ -956,7 +955,7 @@ export async function updateScoutElectronPairingConfig(
   return readScoutPairingState(currentDirectory);
 }
 
-export async function decideScoutElectronPairingApproval(
+export async function decideScoutDesktopPairingApproval(
   input: DecideScoutPairingApprovalInput,
   currentDirectory?: string,
 ): Promise<ScoutPairingState> {

@@ -1,6 +1,6 @@
 # Historical Native Runtime
 
-This document captures the shape of the earlier native shell scaffold that informed the current Electron and runtime split. The source tree is no longer kept in the repository, but the process model is still useful context.
+This document captures the shape of the earlier native shell scaffold that informed the current desktop-host and runtime split. The source tree is no longer kept in the repository, but the process model is still useful context.
 
 ## Historical Native Targets
 

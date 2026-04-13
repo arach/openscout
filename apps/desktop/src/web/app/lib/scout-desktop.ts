@@ -67,8 +67,8 @@ import type {
   UpdateAppSettingsInput,
 } from "../../../app/host/settings.ts";
 import type {
-  ScoutElectronAgentConfigState,
-  ScoutElectronUpdateAgentConfigInput,
+  ScoutDesktopAgentConfigState,
+  ScoutDesktopUpdateAgentConfigInput,
 } from "../../../app/host/agent-config.ts";
 import type {
   ReadScoutLogSourceInput,
@@ -81,13 +81,13 @@ import type {
   ScoutDesktopLogSource,
   SubmitScoutFeedbackReportInput,
 } from "../../../app/host/diagnostics.ts";
-import type { ScoutElectronAgentSessionInspector } from "../../../app/host/agent-session.ts";
+import type { ScoutDesktopAgentSessionInspector } from "../../../app/host/agent-session.ts";
 import type {
-  ScoutElectronCreateAgentInput,
-  ScoutElectronCreateAgentResult,
-  ScoutElectronBrokerControlAction,
-  ScoutElectronRestartAgentInput,
-  ScoutElectronSendRelayMessageInput,
+  ScoutDesktopCreateAgentInput,
+  ScoutDesktopCreateAgentResult,
+  ScoutDesktopBrokerControlAction,
+  ScoutDesktopRestartAgentInput,
+  ScoutDesktopSendRelayMessageInput,
 } from "../../../app/host/broker-actions.ts";
 
 export type DesktopFeatureFlags = ScoutDesktopFeatureFlags;
@@ -139,13 +139,13 @@ export type DesktopShellPatch = ScoutDesktopShellPatch;
 export type PhonePreparationState = ScoutPhonePreparationState;
 export type UpdatePhonePreparationInput = UpdateScoutPhonePreparationInput;
 
-export type AgentConfigState = ScoutElectronAgentConfigState;
-export type UpdateAgentConfigInput = ScoutElectronUpdateAgentConfigInput;
-export type CreateAgentInput = ScoutElectronCreateAgentInput;
-export type CreateAgentResult = ScoutElectronCreateAgentResult;
-export type RestartAgentInput = ScoutElectronRestartAgentInput;
-export type SendRelayMessageInput = ScoutElectronSendRelayMessageInput;
-export type BrokerControlAction = ScoutElectronBrokerControlAction;
+export type AgentConfigState = ScoutDesktopAgentConfigState;
+export type UpdateAgentConfigInput = ScoutDesktopUpdateAgentConfigInput;
+export type CreateAgentInput = ScoutDesktopCreateAgentInput;
+export type CreateAgentResult = ScoutDesktopCreateAgentResult;
+export type RestartAgentInput = ScoutDesktopRestartAgentInput;
+export type SendRelayMessageInput = ScoutDesktopSendRelayMessageInput;
+export type BrokerControlAction = ScoutDesktopBrokerControlAction;
 export type UpdatePairingConfigInput = UpdateScoutPairingConfigInput;
 export type DecidePairingApprovalInput = DecideScoutPairingApprovalInput;
 
@@ -157,7 +157,7 @@ export type DesktopFeedbackBundle = ScoutDesktopFeedbackBundle;
 export type DesktopFeedbackSubmission = ScoutDesktopFeedbackSubmission;
 export type ReadLogSourceInput = ReadScoutLogSourceInput;
 export type DesktopLogContent = ScoutDesktopLogContent;
-export type AgentSessionInspector = ScoutElectronAgentSessionInspector;
+export type AgentSessionInspector = ScoutDesktopAgentSessionInspector;
 export type SubmitFeedbackReportInput = SubmitScoutFeedbackReportInput;
 
 export type {

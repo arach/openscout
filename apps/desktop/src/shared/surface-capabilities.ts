@@ -3,7 +3,7 @@
  * are allowed (native picker, broker install, etc.) without coupling shells to
  * package names at runtime.
  */
-export type ScoutHostSurface = "electron" | "web" | "cli";
+export type ScoutHostSurface = "desktop" | "web" | "cli";
 
 /**
  * Fine-grained host abilities exposed to the desktop UI so it can hide or soften
@@ -16,7 +16,7 @@ export type ScoutSurfaceCapabilities = {
   canManageBroker: boolean;
   /** Read/write OpenScout settings, project lists, workspace discovery on disk */
   canEditFilesystem: boolean;
-  /** Native folder picker (Electron dialog); web uses manual paths only */
+  /** Native folder picker; web uses manual paths only */
   canPickDirectory: boolean;
   /** Reveal path in Finder / shell.showItemInFolder */
   canRevealPath: boolean;
@@ -28,7 +28,7 @@ export type ScoutSurfaceCapabilities = {
 
 export function resolveScoutSurfaceCapabilities(surface: ScoutHostSurface): ScoutSurfaceCapabilities {
   switch (surface) {
-    case "electron":
+    case "desktop":
       return {
         canProvisionRuntime: true,
         canManageBroker: true,

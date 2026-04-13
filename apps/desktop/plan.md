@@ -20,7 +20,7 @@ apps/desktop/
 │   │   ├── errors.ts
 │   │   └── commands/
 │   ├── app/
-│   │   ├── electron/
+│   │   ├── host/
 │   │   └── desktop/
 │   ├── core/
 │   │   ├── broker/
@@ -43,7 +43,7 @@ apps/desktop/
 - `src/cli` owns argv parsing, command registration, help, and exit behavior.
 - `src/core` owns typed product behavior and cross-domain flows.
 - `src/ui` owns rendering for terminal, monitor, and formatted output.
-- `src/app` owns host shells such as Electron.
+- `src/app` owns desktop host integration and shell wiring.
 - `src/shared` stays low-level and should not absorb product logic.
 
 ## Donor Strategy
@@ -60,5 +60,5 @@ apps/desktop/
 - `pairing` and `agents` now have Scout-native command paths.
 - `monitor` now has a Scout-native terminal surface behind `scout tui`.
 - `app/desktop` now owns Scout-native desktop shell composition and phone-preparation state.
-- `app/electron` now owns pure Electron host config, a Scout-native service surface for app info/shell state/phone-preparation state, and the typed IPC contract for preload/main-process wiring.
-- Full Electron main/preload wiring remains to be ported as the next donor slice.
+- `app/host` now owns desktop host config, the Scout-native service surface for app info/shell state/phone-preparation state, and the typed IPC contract for host wiring.
+- Host integration now lives in `app/host`; remaining donor cleanup should continue there instead of reintroducing legacy host-specific layers.

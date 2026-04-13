@@ -67,7 +67,7 @@ export function buildScoutVoiceToggleCaptureCommand(input: {
   return {
     method: "voice.start",
     params: {
-      clientId: input.clientId?.trim() || "scout-electron",
+      clientId: input.clientId?.trim() || "scout-desktop",
     },
   };
 }

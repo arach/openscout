@@ -135,6 +135,7 @@ const runtime = createInMemoryControlRuntime(journal.snapshot(), { localNodeId: 
 const projection = new RecoverableSQLiteProjection(dbPath, journal, { disabled: sqliteDisabled });
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
+const knownInvocations = new Map<string, InvocationRequest>();
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 const operatorActorId = "operator";
 
@@ -399,6 +400,7 @@ async function recordInvocationDurably(
 ): Promise<{ flight: FlightRecord; entries: BrokerJournalEntry[] }> {
   return runDurableWrite(async () => {
     const flight = options.flight ?? runtime.planInvocation(invocation);
+    knownInvocations.set(invocation.id, invocation);
     const entries = await commitDurableEntries(
       [
         { kind: "invocation.record", invocation },
@@ -614,6 +616,23 @@ async function persistFlight(flight: FlightRecord): Promise<void> {
 
 async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
   await upsertEndpointDurably(endpoint);
+  if (endpoint.state === "idle" || endpoint.state === "active") {
+    deliverPendingMessages(endpoint.agentId);
+  }
+}
+
+function deliverPendingMessages(agentId: string): void {
+  const snapshot = runtime.snapshot();
+  const queued = Object.values(snapshot.flights).filter(
+    (flight) => flight.targetAgentId === agentId && flight.state === "queued",
+  );
+  for (const flight of queued) {
+    const invocation = knownInvocations.get(flight.invocationId);
+    if (!invocation) continue;
+    if (activeInvocationTasks.has(invocation.id)) continue;
+    console.log(`[openscout-runtime] draining queued flight ${flight.id} for ${agentId}`);
+    launchLocalInvocation(invocation, flight);
+  }
 }
 
 projection.warm();
@@ -1219,15 +1238,12 @@ async function executeLocalInvocation(
   const agent = runtime.agent(invocation.targetAgentId);
 
   if (!agent || !endpoint) {
-    const failedFlight = {
+    const queuedFlight = {
       ...initialFlight,
-      state: "failed" as const,
-      summary: `${agent?.displayName ?? invocation.targetAgentId} is not runnable yet.`,
-      error: `No runnable endpoint is registered for agent ${invocation.targetAgentId}.`,
-      completedAt: Date.now(),
+      state: "queued" as const,
+      summary: `Message stored for ${agent?.displayName ?? invocation.targetAgentId}. Will deliver when online.`,
     };
-    await persistFlight(failedFlight);
-    await postInvocationStatusMessage(invocation, failedFlight);
+    await persistFlight(queuedFlight);
     return;
   }
 
