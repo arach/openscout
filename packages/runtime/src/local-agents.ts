@@ -1297,9 +1297,32 @@ function killAgentSession(sessionName: string): void {
   }
 }
 
+function isHarnessBinaryAvailable(transport: string): boolean {
+  const binaryMap: Record<string, string> = {
+    claude_stream_json: "claude",
+    codex_app_server: "codex",
+  };
+  const binary = binaryMap[transport];
+  if (!binary) return true;
+  try {
+    execFileSync("sh", ["-lc", `command -v ${binary}`], {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (isLocalAgentRecordOnline(agentName, normalizedRecord)) {
+    return normalizedRecord;
+  }
+
+  if (!isHarnessBinaryAvailable(normalizedRecord.transport)) {
+    console.warn(`[openscout-runtime] skipping warmup for ${agentName}: harness binary for ${normalizedRecord.transport} not found in PATH`);
     return normalizedRecord;
   }
 
@@ -1902,7 +1925,7 @@ export async function loadRegisteredLocalAgentBindings(
     requestedAgentIds.size === 0 || requestedAgentIds.has(agentId)
   ));
 
-  return Promise.all(selectedEntries.map(async ([agentId, record]) => {
+  const results = await Promise.all(selectedEntries.map(async ([agentId, record]) => {
     const baseRecord = overrides[agentId]?.projectRoot
       ? {
         ...record,
@@ -1910,9 +1933,18 @@ export async function loadRegisteredLocalAgentBindings(
       }
       : record;
     const harnessRecord = options.harness ? recordForHarness(baseRecord, options.harness) : baseRecord;
-    const effectiveRecord = options.ensureOnline
-      ? await ensureLocalAgentOnline(agentId, harnessRecord)
-      : normalizeLocalAgentRecord(agentId, harnessRecord);
+
+    let effectiveRecord: LocalAgentRecord;
+    if (options.ensureOnline) {
+      try {
+        effectiveRecord = await ensureLocalAgentOnline(agentId, harnessRecord);
+      } catch (error) {
+        console.error(`[openscout-runtime] failed to warm agent ${agentId}: ${error instanceof Error ? error.message : error}`);
+        effectiveRecord = normalizeLocalAgentRecord(agentId, harnessRecord);
+      }
+    } else {
+      effectiveRecord = normalizeLocalAgentRecord(agentId, harnessRecord);
+    }
 
     return buildLocalAgentBinding(
       agentId,
@@ -1922,6 +1954,8 @@ export async function loadRegisteredLocalAgentBindings(
       "relay-agent-registry",
     );
   }));
+
+  return results;
 }
 
 export async function inferLocalAgentBinding(agentId: string, nodeId: string): Promise<LocalAgentBinding | null> {

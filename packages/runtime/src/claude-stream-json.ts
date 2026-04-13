@@ -229,19 +229,42 @@ class ClaudeStreamJsonSession {
       args.push("--resume", this.claudeSessionId);
     }
 
-    this.process = spawn("claude", args, {
-      cwd: this.options.cwd,
-      env: buildManagedAgentEnvironment({
-        agentName: this.options.agentName,
-        currentDirectory: this.options.cwd,
-        baseEnv: process.env,
-      }),
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn("claude", args, {
+        cwd: this.options.cwd,
+        env: buildManagedAgentEnvironment({
+          agentName: this.options.agentName,
+          currentDirectory: this.options.cwd,
+          baseEnv: process.env,
+        }),
+      });
+    } catch (error) {
+      throw new Error(`Failed to spawn claude: ${errorMessage(error)}`);
+    }
+
+    this.process = child;
+
+    // Catch spawn errors (e.g. ENOENT when "claude" is not in PATH).
+    // Without this handler, the error event becomes an uncaught exception
+    // that crashes the entire broker process.
+    child.on("error", (error) => {
+      console.error(`[openscout-runtime] claude process error for ${this.options.agentName}: ${error.message}`);
+      this.process = null;
+      if (this.activeTurn) {
+        const turn = this.activeTurn;
+        this.activeTurn = null;
+        if (turn.timer) {
+          clearTimeout(turn.timer);
+        }
+        turn.reject(new Error(`Claude process error: ${error.message}`));
+      }
     });
 
-    this.process.stdout.setEncoding("utf8");
-    this.process.stderr.setEncoding("utf8");
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
 
-    this.process.stdout.on("data", (chunk: string) => {
+    child.stdout.on("data", (chunk: string) => {
       void appendFile(this.stdoutLogPath, chunk).catch(() => undefined);
       this.lineBuffer += chunk;
       const lines = this.lineBuffer.split("\n");
@@ -254,11 +277,11 @@ class ClaudeStreamJsonSession {
         this.handleEvent(JSON.parse(trimmed) as ClaudeEvent);
       }
     });
-    this.process.stderr.on("data", (chunk: string) => {
+    child.stderr.on("data", (chunk: string) => {
       void appendFile(this.stderrLogPath, chunk).catch(() => undefined);
     });
 
-    this.process.on("exit", (code: number | null) => {
+    child.on("exit", (code: number | null) => {
       if (code !== 0 && this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;
