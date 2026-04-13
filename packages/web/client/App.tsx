@@ -8,7 +8,8 @@ import { conversationForAgent } from "./lib/router.ts";
 import { ConversationScreen } from "./screens/ConversationScreen.tsx";
 import { AgentInfoScreen } from "./screens/AgentInfoScreen.tsx";
 import { SettingsScreen } from "./screens/SettingsScreen.tsx";
-import type { Agent, Message, InboxEntry, Route } from "./lib/types.ts";
+import { FlightsScreen } from "./screens/FlightsScreen.tsx";
+import type { Agent, Message, Flight, InboxEntry, Route } from "./lib/types.ts";
 
 /* ── Derive inbox from agents + messages ── */
 
@@ -47,7 +48,7 @@ function deriveInbox(agents: Agent[], messages: Message[]): InboxEntry[] {
   });
 }
 
-/* ── Gear icon SVG ── */
+/* ── Icons ── */
 
 function GearIcon() {
   return (
@@ -58,16 +59,28 @@ function GearIcon() {
   );
 }
 
+function TasksIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5z" />
+      <path d="M2 17l10 5 10-5" />
+      <path d="M2 12l10 5 10-5" />
+    </svg>
+  );
+}
+
 /* ── Main content panel ── */
 
-function MainPanel({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
+function MainPanel({ route, navigate, flights }: { route: Route; navigate: (r: Route) => void; flights: Flight[] }) {
   switch (route.view) {
     case "conversation":
-      return <ConversationScreen conversationId={route.conversationId} navigate={navigate} />;
+      return <ConversationScreen conversationId={route.conversationId} navigate={navigate} flights={flights} />;
     case "agent-info":
       return <AgentInfoScreen conversationId={route.conversationId} navigate={navigate} />;
     case "settings":
       return <SettingsScreen navigate={navigate} />;
+    case "flights":
+      return <FlightsScreen navigate={navigate} flights={flights} />;
     default:
       return (
         <div className="s-welcome">
@@ -86,14 +99,17 @@ export function App() {
   const { route, navigate } = useRouter();
 
   const [entries, setEntries] = useState<InboxEntry[]>([]);
+  const [flights, setFlights] = useState<Flight[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [agents, messages] = await Promise.all([
+      const [agents, messages, activeFlights] = await Promise.all([
         api<Agent[]>("/api/agents"),
         api<Message[]>("/api/messages"),
+        api<Flight[]>("/api/flights"),
       ]);
       setEntries(deriveInbox(agents, messages));
+      setFlights(activeFlights);
     } catch {
       // sidebar just stays empty on error
     }
@@ -108,6 +124,9 @@ export function App() {
     const t = setInterval(() => setTick((n) => n + 1), 15_000);
     return () => clearInterval(t);
   }, []);
+
+  // Build set of agent IDs with active tasks for sidebar indicators
+  const agentsWithTasks = new Set(flights.map((f) => f.agentId));
 
   // Which conversation is selected (for highlighting sidebar row)
   const selectedConversation =
@@ -128,6 +147,20 @@ export function App() {
           </h1>
         </div>
 
+        <nav className="s-sidebar-nav">
+          <button
+            type="button"
+            className={`s-nav-item${route.view === "flights" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "flights" })}
+          >
+            <TasksIcon />
+            <span>Tasks</span>
+            {flights.length > 0 && (
+              <span className="s-nav-badge">{flights.length}</span>
+            )}
+          </button>
+        </nav>
+
         <div className="s-sidebar-label">Agents</div>
 
         <div className="s-sidebar-list">
@@ -142,11 +175,16 @@ export function App() {
                 }`}
                 onClick={() => navigate({ view: "conversation", conversationId: entry.conversationId })}
               >
-                <div
-                  className="s-avatar s-avatar-sm"
-                  style={{ background: actorColor(entry.agent.name) }}
-                >
-                  {entry.agent.name[0].toUpperCase()}
+                <div className="s-sidebar-avatar-wrap">
+                  <div
+                    className="s-avatar s-avatar-sm"
+                    style={{ background: actorColor(entry.agent.name) }}
+                  >
+                    {entry.agent.name[0].toUpperCase()}
+                  </div>
+                  {agentsWithTasks.has(entry.agent.id) && (
+                    <span className="s-task-indicator" />
+                  )}
                 </div>
                 <div className="s-sidebar-row-body">
                   <div className="s-sidebar-row-header">
@@ -184,10 +222,8 @@ export function App() {
 
       {/* ── Main content ── */}
       <main className="s-content">
-        <MainPanel route={route} navigate={navigate} />
+        <MainPanel route={route} navigate={navigate} flights={flights} />
       </main>
-
-      {/* ── Mobile back overlay (tap to go back to sidebar) ── */}
     </div>
   );
 }

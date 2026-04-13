@@ -232,6 +232,73 @@ export function queryRecentMessages(limit = 80): WebMessage[] {
   }));
 }
 
+/* ── Flights (tasks) ── */
+
+export type WebFlight = {
+  id: string;
+  agentId: string;
+  agentName: string | null;
+  state: string;
+  summary: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+};
+
+export function queryFlights(opts?: { agentId?: string; activeOnly?: boolean }): WebFlight[] {
+  const activeStates = "('running','waking','waiting','queued')";
+  const where = [
+    opts?.activeOnly ? `f.state IN ${activeStates}` : null,
+    opts?.agentId ? `f.target_agent_id = ?` : null,
+  ].filter(Boolean).join(" AND ");
+
+  const sql = `SELECT
+    f.id,
+    f.target_agent_id,
+    ac.display_name AS agent_name,
+    f.state,
+    f.summary,
+    f.started_at,
+    f.completed_at
+  FROM flights f
+  LEFT JOIN actors ac ON ac.id = f.target_agent_id
+  ${where ? `WHERE ${where}` : ""}
+  ORDER BY f.started_at DESC NULLS LAST
+  LIMIT 100`;
+
+  const params: unknown[] = [];
+  if (opts?.agentId) params.push(opts.agentId);
+
+  const rows = db().prepare(sql).all(...params) as Array<{
+    id: string;
+    target_agent_id: string;
+    agent_name: string | null;
+    state: string;
+    summary: string | null;
+    started_at: number | null;
+    completed_at: number | null;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    agentId: r.target_agent_id,
+    agentName: r.agent_name,
+    state: r.state,
+    summary: r.summary,
+    startedAt: r.started_at,
+    completedAt: r.completed_at,
+  }));
+}
+
+/* ── ID derivation (no DB needed) ── */
+
+/**
+ * Derive the conversation ID for an operator↔agent direct message.
+ * Convention: `dm.operator.{agentId}`
+ */
+export function conversationIdForAgent(agentId: string): string {
+  return `dm.operator.${agentId}`;
+}
+
 /* ── Mobile-compatible queries ── */
 /* Return the same shapes the iOS app expects so the bridge router
    can serve reads from SQLite instead of expensive broker snapshots. */
@@ -320,7 +387,7 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
       transport: r.transport,
       state,
       statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
-      sessionId: r.session_id,
+      sessionId: conversationIdForAgent(r.id),
       lastActiveAt: lastMessageAt.get(r.id) ?? null,
     };
   });
@@ -413,7 +480,7 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
     return {
       id: r.id,
       kind: r.kind,
-      title: r.title,
+      title: agentName ?? r.title,
       participantIds: participants,
       agentId,
       agentName,

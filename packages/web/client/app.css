@@ -696,6 +696,148 @@ body { margin: 0; }
   font-size: 11px;
 }
 
+/* ── Sidebar nav badge ── */
+
+.s-sidebar-nav {
+  padding: 0 8px 4px;
+  flex-shrink: 0;
+}
+
+.s-nav-badge {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: white;
+  background: var(--green);
+  border-radius: 10px;
+  padding: 0 6px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 16px;
+  margin-left: auto;
+}
+
+/* ── Task indicator on sidebar avatar ── */
+
+.s-sidebar-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.s-task-indicator {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  border: 2px solid var(--surface);
+}
+
+.s-sidebar-row-active .s-task-indicator {
+  border-color: rgba(0, 102, 255, 0.08);
+}
+
+/* ── Flight banner in conversation ── */
+
+.s-flight-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 20px;
+  background: rgba(34, 197, 94, 0.06);
+  border-bottom: 1px solid rgba(34, 197, 94, 0.12);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.s-flight-banner-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+  animation: s-pulse 2s ease-in-out infinite;
+}
+
+@keyframes s-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.s-flight-banner-label {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-flight-banner-summary {
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Flights screen ── */
+
+.s-flights {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.s-flight-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.s-flight-row:hover {
+  background: #F6F6F5;
+}
+
+.s-flight-row + .s-flight-row {
+  border-top: 1px solid var(--border);
+}
+
+.s-flight-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-flight-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.s-flight-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-flight-state {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.s-flight-summary {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Settings/AgentInfo content padding + max width ── */
 
 .s-content > div:not(.s-conversation):not(.s-welcome) {

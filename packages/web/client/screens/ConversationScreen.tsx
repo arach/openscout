@@ -4,14 +4,16 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
-import type { Agent, Message, Route } from "../lib/types.ts";
+import type { Agent, Message, Flight, Route } from "../lib/types.ts";
 
 export function ConversationScreen({
   conversationId,
   navigate,
+  flights = [],
 }: {
   conversationId: string;
   navigate: (r: Route) => void;
+  flights?: Flight[];
 }) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -57,6 +59,39 @@ export function ConversationScreen({
     return () => clearInterval(t);
   }, []);
 
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setDraft("");
+    // Optimistic: add to local messages immediately
+    const optimistic: Message = {
+      id: `optimistic-${Date.now()}`,
+      conversationId,
+      actorName: "operator",
+      body: text,
+      createdAt: Date.now(),
+      class: "operator",
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    try {
+      // Prefix with @agentName so the broker routes to this agent
+      const body = agentId ? `@${agentId} ${text}` : text;
+      await api("/api/send", {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+    } catch {
+      // On failure, remove optimistic message
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+    } finally {
+      setSending(false);
+    }
+  };
+
   const agentName = agent?.name ?? agentId ?? "Agent";
 
   return (
@@ -95,6 +130,23 @@ export function ConversationScreen({
 
       {error && <p className="s-error">{error}</p>}
 
+      {/* Flight banner */}
+      {(() => {
+        const agentFlights = flights.filter((f) => f.agentId === agentId);
+        if (agentFlights.length === 0) return null;
+        const f = agentFlights[0];
+        return (
+          <div className="s-flight-banner">
+            <span className="s-flight-banner-dot" />
+            <span className="s-flight-banner-label">
+              {f.state === "running" ? "Working" : f.state.charAt(0).toUpperCase() + f.state.slice(1)}
+            </span>
+            {f.summary && <span className="s-flight-banner-summary">{f.summary}</span>}
+            {f.startedAt && <span className="s-time">{timeAgo(f.startedAt)}</span>}
+          </div>
+        );
+      })()}
+
       {/* Messages */}
       <div className="s-messages">
         {messages.length === 0 ? (
@@ -122,18 +174,26 @@ export function ConversationScreen({
         <div ref={bottomRef} />
       </div>
 
-      {/* Compose bar (placeholder for Phase 3) */}
-      <div className="s-compose">
+      <form
+        className="s-compose"
+        onSubmit={(e) => { e.preventDefault(); void send(); }}
+      >
         <input
           className="s-compose-input"
           type="text"
           placeholder={`Message ${agentName}...`}
-          disabled
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={sending}
         />
-        <button type="button" className="s-compose-send" disabled>
+        <button
+          type="submit"
+          className="s-compose-send"
+          disabled={sending || !draft.trim()}
+        >
           &uarr;
         </button>
-      </div>
+      </form>
     </div>
   );
 }

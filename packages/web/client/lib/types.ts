@@ -68,6 +68,16 @@ export type PairingState = {
   trustedPeers: TrustedPeer[];
 };
 
+export type Flight = {
+  id: string;
+  agentId: string;
+  agentName: string | null;
+  state: string;
+  summary: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+};
+
 /** An inbox row: agent + conversation summary merged. */
 export type InboxEntry = {
   agent: Agent;

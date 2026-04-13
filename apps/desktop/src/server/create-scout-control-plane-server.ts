@@ -23,7 +23,9 @@ import {
   queryAgents,
   queryActivity,
   queryRecentMessages,
+  queryFlights,
 } from "./db-queries.ts";
+import { sendScoutMessage } from "../core/broker/service.ts";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -97,6 +99,24 @@ export function createScoutControlPlaneServer(
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/messages", (c) => c.json(queryRecentMessages()));
+  app.get("/api/flights", (c) => {
+    const agentId = c.req.query("agentId");
+    const activeOnly = c.req.query("active") !== "false";
+    return c.json(queryFlights({ agentId: agentId || undefined, activeOnly }));
+  });
+
+  // Send a message to an agent via the broker
+  app.post("/api/send", async (c) => {
+    const { body } = await c.req.json() as { body: string };
+    if (!body?.trim()) return c.json({ error: "body is required" }, 400);
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: body.trim(),
+      currentDirectory,
+    });
+    if (!result.usedBroker) return c.json({ error: "broker unreachable" }, 502);
+    return c.json(result);
+  });
 
   // SSE: proxy broker event stream for live updates
   app.get("/api/events", async (c) => {
