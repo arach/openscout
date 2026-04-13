@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -77,7 +77,8 @@
     "discover": "node ./bin/openscout-runtime.mjs discover",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test src/*.test.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpack": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
     "@openscout/protocol": "workspace:*",

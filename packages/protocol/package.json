@@ -1,6 +1,6 @@
 {
   "name": "@openscout/protocol",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "Typed protocol for the OpenScout local control plane",
   "type": "module",
   "exports": {
@@ -19,7 +19,9 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test src/*.test.ts"
+    "test": "bun test src/*.test.ts",
+    "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpack": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "publishConfig": {
     "access": "public"
