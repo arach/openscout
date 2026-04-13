@@ -6,6 +6,8 @@
 import { spawn } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 
 function tryWhich(executableName: string): string | null {
@@ -24,6 +26,24 @@ function tryWhich(executableName: string): string | null {
       }
     }
   }
+  return null;
+}
+
+/** Walk up from this module to find @openscout/runtime in node_modules (covers npm/bun dep installs). */
+function findNodeModulesRuntimeBin(): string | null {
+  const runtimeBinRel = join("node_modules", "@openscout", "runtime", "bin", "openscout-runtime.mjs");
+  // Start from the directory of this script (handles bundled CLI context)
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 24; i++) {
+    const candidate = join(dir, runtimeBinRel);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Also check bun global install locations
+  const bunGlobal = join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "runtime", "bin", "openscout-runtime.mjs");
+  if (existsSync(bunGlobal)) return bunGlobal;
   return null;
 }
 
@@ -94,6 +114,11 @@ export function resolveRuntimeServiceEntrypoint(): string {
   const onPath = tryWhich("openscout-runtime");
   if (onPath) {
     return onPath;
+  }
+
+  const fromNodeModules = findNodeModulesRuntimeBin();
+  if (fromNodeModules) {
+    return fromNodeModules;
   }
 
   const monorepo = findMonorepoOpenscoutRuntimeBin();

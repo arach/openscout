@@ -115,6 +115,15 @@ function findGlobalRuntimeDir(): string | null {
   // bun global: ~/.bun/node_modules/@openscout/runtime
   const bunCandidate = join(homedir(), ".bun", "node_modules", "@openscout", "runtime");
   if (isInstalledRuntimePackageDir(bunCandidate)) return bunCandidate;
+
+  // bun global install (newer layout): ~/.bun/install/global/node_modules/@openscout/runtime
+  const bunGlobalCandidate = join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "runtime");
+  if (isInstalledRuntimePackageDir(bunGlobalCandidate)) return bunGlobalCandidate;
+
+  // Also check as a nested dep of @openscout/scout
+  const bunScoutNested = join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "scout", "node_modules", "@openscout", "runtime");
+  if (isInstalledRuntimePackageDir(bunScoutNested)) return bunScoutNested;
+
   return null;
 }
 

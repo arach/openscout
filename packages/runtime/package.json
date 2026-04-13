@@ -61,6 +61,7 @@
   "types": "./src/index.ts",
   "files": [
     "bin",
+    "src",
     "dist",
     "README.md"
   ],
