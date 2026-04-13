@@ -74,8 +74,12 @@ function AgentDetail({
           <div className="s-home-section-title">Recent messages</div>
           <div className="s-agent-detail-messages">
             {agentMessages.slice(0, 10).map((msg) => (
-              <div key={msg.id} className="s-agent-detail-msg">
-                <span className="s-agent-detail-msg-actor">{msg.actorName}</span>
+              <div
+                key={msg.id}
+                className="s-agent-detail-msg s-agent-detail-msg-clickable"
+                onClick={() => navigate({ view: "conversation", conversationId: msg.conversationId })}
+              >
+                <span className="s-agent-detail-msg-actor">{msg.actorName === "operator" || msg.class === "operator" ? "You" : msg.actorName}</span>
                 <span className="s-agent-detail-msg-body">{msg.body.slice(0, 200)}</span>
                 <span className="s-time">{timeAgo(msg.createdAt)}</span>
               </div>

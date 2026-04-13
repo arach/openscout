@@ -41,7 +41,27 @@ export function ConversationScreen({
   }, [agentId, conversationId]);
 
   useEffect(() => { void load(); }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(useCallback((event) => {
+    if (event.kind === "message.posted") {
+      const msg = (event.payload as { message?: { id: string; conversationId: string; actorId: string; body: string; createdAt: number; class: string } })?.message;
+      if (msg && msg.conversationId === conversationId) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, {
+            id: msg.id,
+            conversationId: msg.conversationId,
+            actorName: msg.actorId,
+            body: msg.body,
+            createdAt: msg.createdAt,
+            class: msg.class,
+          }].sort((a, b) => a.createdAt - b.createdAt);
+        });
+        return;
+      }
+    }
+    // For other events or messages in other conversations, do a full refresh
+    void load();
+  }, [conversationId, load]));
 
   // Scroll to bottom on new messages
   const prevCount = useRef(0);
@@ -61,6 +81,11 @@ export function ConversationScreen({
 
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [operatorName, setOperatorName] = useState("operator");
+
+  useEffect(() => {
+    api<{ name: string }>("/api/user").then((u) => setOperatorName(u.name)).catch(() => {});
+  }, []);
 
   const send = async () => {
     const text = draft.trim();
@@ -71,7 +96,7 @@ export function ConversationScreen({
     const optimistic: Message = {
       id: `optimistic-${Date.now()}`,
       conversationId,
-      actorName: "operator",
+      actorName: operatorName,
       body: text,
       createdAt: Date.now(),
       class: "operator",
@@ -156,7 +181,7 @@ export function ConversationScreen({
           </div>
         ) : (
           messages.map((msg) => {
-            const isYou = msg.actorName === "operator" || msg.class === "operator";
+            const isYou = msg.actorName === operatorName || msg.actorName === "operator" || msg.class === "operator";
             return (
               <div
                 key={msg.id}

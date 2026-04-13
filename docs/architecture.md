@@ -56,7 +56,7 @@ Also owns the relay agent override registry (the file-based agent configuration)
 
 The operator interface.
 
-`scout up`, `scout down`, `scout send`, `scout ask`, `scout ps`, `scout who` — all commands that interact with the broker and runtime. The CLI resolves short agent names to fully-qualified agent names, infers sender identity from the current project, and handles mention-based routing.
+`scout up`, `scout down`, `scout send`, `scout ask`, `scout config`, `scout ps`, `scout who` — all commands that interact with the broker and runtime. The CLI resolves short agent names to fully-qualified agent names, infers sender identity from the current project or user config (`~/.openscout/user.json`), and handles mention-based routing.
 
 ### Surfaces
 

@@ -1283,6 +1283,15 @@ body { margin: 0; }
   font-size: 12px;
 }
 
+.s-agent-detail-msg-clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 0 -4px;
+  padding: 4px;
+}
+.s-agent-detail-msg-clickable:hover {
+  background: var(--hover);
+}
 .s-agent-detail-msg + .s-agent-detail-msg {
   border-top: 1px solid var(--border);
 }

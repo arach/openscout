@@ -25,6 +25,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "down", summary: "Stop one or all local agents" },
   { name: "ps", summary: "List configured local agents" },
   { name: "restart", summary: "Restart configured local agents" },
+  { name: "config", summary: "View or set user config (name, etc.)" },
   { name: "mesh", summary: "Mesh status and diagnostics" },
   { name: "pair", summary: "Pair a companion device via QR" },
   { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start / control-plane start)" },

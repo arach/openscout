@@ -61,6 +61,11 @@
       "types": "./src/tailscale.ts",
       "bun": "./src/tailscale.ts",
       "default": "./dist/tailscale.js"
+    },
+    "./user-config": {
+      "types": "./src/user-config.ts",
+      "bun": "./src/user-config.ts",
+      "default": "./dist/user-config.js"
     }
   },
   "types": "./src/index.ts",

@@ -25,6 +25,7 @@ import {
 } from "./db-queries.ts";
 import { sendScoutMessage } from "./core/broker/service.ts";
 import { loadOpenScoutWebShellState, type OpenScoutWebShellState } from "./runtime-summary.ts";
+import { loadUserConfig, saveUserConfig, resolveOperatorName } from "@openscout/runtime/user-config";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -100,6 +101,22 @@ export function createOpenScoutWebServer(
     return c.json(queryFlights({ agentId: agentId || undefined, activeOnly }));
   });
 
+  app.get("/api/user", (c) => {
+    return c.json({ name: resolveOperatorName() });
+  });
+
+  app.post("/api/user", async (c) => {
+    const { name } = await c.req.json() as { name?: string };
+    const config = loadUserConfig();
+    if (name?.trim()) {
+      config.name = name.trim();
+    } else {
+      delete config.name;
+    }
+    saveUserConfig(config);
+    return c.json({ name: resolveOperatorName() });
+  });
+
   app.post("/api/send", async (c) => {
     const { body } = await c.req.json() as { body: string };
     if (!body?.trim()) {
@@ -107,7 +124,7 @@ export function createOpenScoutWebServer(
     }
 
     const result = await sendScoutMessage({
-      senderId: "operator",
+      senderId: resolveOperatorName(),
       body: body.trim(),
       currentDirectory,
     });

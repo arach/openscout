@@ -36,6 +36,7 @@ import {
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 import {
   openAiAudioSpeechUrl,
@@ -231,7 +232,7 @@ export function resolveScoutAgentName(agentName?: string | null): string {
   if (process.env.OPENSCOUT_AGENT?.trim()) {
     return process.env.OPENSCOUT_AGENT.trim();
   }
-  return OPERATOR_ID;
+  return resolveOperatorName();
 }
 
 export async function resolveScoutSenderId(agentName: string | null | undefined, currentDirectory: string): Promise<string> {

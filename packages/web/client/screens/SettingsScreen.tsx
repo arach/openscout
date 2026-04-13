@@ -7,15 +7,36 @@ export function SettingsScreen({ navigate }: { navigate: (r: Route) => void }) {
   const [pairing, setPairing] = useState<PairingState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [savedName, setSavedName] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      setPairing(await api<PairingState>("/api/pairing-state/refresh"));
+      const [pairingData, userData] = await Promise.all([
+        api<PairingState>("/api/pairing-state/refresh"),
+        api<{ name: string }>("/api/user"),
+      ]);
+      setPairing(pairingData);
+      setUserName(userData.name);
+      setSavedName(userData.name);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  const saveName = async () => {
+    try {
+      const result = await api<{ name: string }>("/api/user", {
+        method: "POST",
+        body: JSON.stringify({ name: userName }),
+      });
+      setSavedName(result.name);
+      setUserName(result.name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -62,6 +83,25 @@ export function SettingsScreen({ navigate }: { navigate: (r: Route) => void }) {
   return (
     <div>
       <h2 className="s-section-title">Settings</h2>
+
+      <h3 style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>Identity</h3>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 24 }}>
+        <input
+          className="s-compose-input"
+          type="text"
+          placeholder="Your name"
+          value={userName}
+          onChange={(e) => setUserName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void saveName(); }}
+          style={{ flex: 1 }}
+        />
+        {userName !== savedName && (
+          <button type="button" className="s-btn s-btn-primary" onClick={() => void saveName()}>
+            Save
+          </button>
+        )}
+      </div>
 
       <h3 style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pairing</h3>
 

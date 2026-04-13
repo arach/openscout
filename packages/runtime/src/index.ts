@@ -15,3 +15,4 @@ export * from "./codex-app-server.js";
 export * from "./setup.js";
 export * from "./support-paths.js";
 export * from "./relay-agent-cards.js";
+export * from "./user-config.js";
