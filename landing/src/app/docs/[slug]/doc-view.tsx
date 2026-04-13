@@ -75,7 +75,7 @@ export function DocView({
         <div className="mx-auto flex h-14 max-w-[92rem] items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-3">
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
-              OpenScout
+              Scout
             </span>
           </Link>
           <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
@@ -170,7 +170,7 @@ export function DocView({
               <span>{currentGroup?.title ?? "Documentation"}</span>
             </nav>
 
-            <div className="max-w-3xl border-b border-black/[0.08] pb-8">
+            <div className="max-w-3xl pb-8">
               <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
                 {currentGroup?.title ?? "Documentation"}
               </p>
