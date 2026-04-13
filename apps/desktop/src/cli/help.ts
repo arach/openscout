@@ -1,6 +1,6 @@
 import { listScoutDeprecatedCommands, listScoutPrimaryCommands } from "./registry.ts";
 
-export function renderScoutHelp(version = "0.2.17"): string {
+export function renderScoutHelp(version = "0.2.18"): string {
   const commandLines = listScoutPrimaryCommands()
     .map((command) => `  ${command.name.padEnd(12, " ")} ${command.summary}`)
     .join("\n");
