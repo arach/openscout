@@ -209,7 +209,12 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const supportPaths = resolveOpenScoutSupportPaths();
   const supportDirectory = supportPaths.supportDirectory;
   const logsDirectory = supportPaths.brokerLogsDirectory;
-  const controlHome = supportPaths.controlHome;
+  // Always use the stable home path for the launch agent — never inherit a
+  // transient tmp dir that a remote-install session may have set.
+  const rawControlHome = supportPaths.controlHome;
+  const controlHome = /^\/(?:private\/)?tmp\//.test(rawControlHome)
+    ? join(homedir(), ".openscout", "control-plane")
+    : rawControlHome;
   const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
   const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
   const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(brokerHost, brokerPort);

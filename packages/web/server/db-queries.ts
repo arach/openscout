@@ -60,15 +60,23 @@ function resolveDbPath(): string {
   return join(controlHome, "control-plane.sqlite");
 }
 
-/* ── Singleton readonly connection ── */
+/* ── Readonly connection (reopened periodically to see WAL updates) ── */
 
 let _db: Database | null = null;
+let _dbOpenedAt = 0;
+const DB_REOPEN_MS = 2_000; // reopen every 2s to pick up WAL frames
 
 function db(): Database {
+  const now = Date.now();
+  if (_db && now - _dbOpenedAt > DB_REOPEN_MS) {
+    _db.close();
+    _db = null;
+  }
   if (!_db) {
     _db = new Database(resolveDbPath(), { readonly: true });
     _db.exec("PRAGMA busy_timeout = 5000");
     _db.exec("PRAGMA journal_mode = WAL");
+    _dbOpenedAt = now;
   }
   return _db;
 }
