@@ -1,6 +1,6 @@
 {
   "name": "@openscout/scout",
-  "version": "0.2.36",
+  "version": "0.2.37",
   "description": "Published Scout package that installs the `scout` command",
   "license": "UNLICENSED",
   "type": "module",
@@ -17,7 +17,7 @@
     "dev": "bun ../../apps/desktop/bin/scout.ts",
     "test:happy": "node --test test/*.test.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
-    "postpack": "node ../../scripts/restore-publish-manifest.mjs ."
+    "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "publishConfig": {
     "access": "public"
