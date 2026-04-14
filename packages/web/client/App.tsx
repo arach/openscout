@@ -92,6 +92,9 @@ function MainPanel({
     case "agents":
       return <AgentsScreen navigate={navigate} selectedAgentId={route.agentId} />;
     case "sessions":
+      if (route.sessionId) {
+        return <ConversationScreen conversationId={route.sessionId} navigate={navigate} />;
+      }
       return <SessionsScreen navigate={navigate} />;
     case "mesh":
       return <MeshScreen navigate={navigate} />;

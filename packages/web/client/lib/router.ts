@@ -13,12 +13,15 @@ function routeFromPath(): Route {
     return { view: "agents", agentId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "agents") return { view: "agents" };
-  // Legacy: /c/{conversationId} → extract agent ID and redirect to agents view
+  // /c/{conversationId} → operator DMs go to agents, everything else to sessions
   if (parts[0] === "c" && parts[1]) {
     const cid = decodeURIComponent(parts[1]);
     const agentId = agentIdFromConversation(cid);
     if (agentId) return { view: "agents", agentId };
-    return { view: "conversation", conversationId: cid };
+    return { view: "sessions", sessionId: cid };
+  }
+  if (parts[0] === "sessions" && parts[1]) {
+    return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "sessions") return { view: "sessions" };
   if (parts[0] === "mesh") return { view: "mesh" };
@@ -33,7 +36,7 @@ function routePath(r: Route): string {
     case "conversation": return `/c/${encodeURIComponent(r.conversationId)}`;
     case "agent-info": return `/agent/${encodeURIComponent(r.conversationId)}`;
     case "agents": return r.agentId ? `/agents/${encodeURIComponent(r.agentId)}` : "/agents";
-    case "sessions": return "/sessions";
+    case "sessions": return r.sessionId ? `/sessions/${encodeURIComponent(r.sessionId)}` : "/sessions";
     case "mesh": return "/mesh";
     case "activity": return "/activity";
     case "settings": return "/settings";
@@ -45,6 +48,7 @@ function routeKey(r: Route): string {
     case "conversation": return `conv:${r.conversationId}`;
     case "agent-info": return `agent-info:${r.conversationId}`;
     case "agents": return r.agentId ? `agent:${r.agentId}` : "agents";
+    case "sessions": return r.sessionId ? `session:${r.sessionId}` : "sessions";
     default: return r.view;
   }
 }

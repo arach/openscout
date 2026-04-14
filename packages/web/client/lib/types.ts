@@ -147,7 +147,7 @@ export type Route =
   | { view: "conversation"; conversationId: string }
   | { view: "agent-info"; conversationId: string }
   | { view: "agents"; agentId?: string }
-  | { view: "sessions" }
+  | { view: "sessions"; sessionId?: string }
   | { view: "mesh" }
   | { view: "activity" }
   | { view: "settings" };

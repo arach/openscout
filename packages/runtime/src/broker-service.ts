@@ -117,24 +117,35 @@ function isInstalledRuntimePackageDir(candidate: string): boolean {
 }
 
 function findGlobalRuntimeDir(): string | null {
+  // Static candidates: bun global install layouts
   const candidates = [
-    // bun global: ~/.bun/node_modules/@openscout/runtime
     join(homedir(), ".bun", "node_modules", "@openscout", "runtime"),
-    // bun global install (newer layout)
     join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "runtime"),
-    // nested dep of @openscout/scout (bun global)
     join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "scout", "node_modules", "@openscout", "runtime"),
-    // Homebrew (npm install -g on Apple Silicon)
-    "/opt/homebrew/lib/node_modules/@openscout/runtime",
-    "/opt/homebrew/lib/node_modules/@openscout/scout/node_modules/@openscout/runtime",
-    // Homebrew (npm install -g on Intel Mac)
-    "/usr/local/lib/node_modules/@openscout/runtime",
-    "/usr/local/lib/node_modules/@openscout/scout/node_modules/@openscout/runtime",
   ];
 
   for (const c of candidates) {
     if (isInstalledRuntimePackageDir(c)) return c;
   }
+
+  // Dynamic: resolve from `which scout` — works regardless of how it was installed
+  // (npm -g, bun -g, Homebrew prefix, etc.)
+  try {
+    const result = spawnSync("which", ["scout"], { encoding: "utf8", timeout: 3000 });
+    const scoutBin = result.stdout?.trim();
+    if (scoutBin) {
+      // scout bin → ../../lib/node_modules/@openscout/scout/node_modules/@openscout/runtime
+      const scoutPkg = resolve(scoutBin, "..", "..");
+      const nested = join(scoutPkg, "node_modules", "@openscout", "runtime");
+      if (isInstalledRuntimePackageDir(nested)) return nested;
+      // or runtime is a sibling: ../../lib/node_modules/@openscout/runtime
+      const sibling = resolve(scoutPkg, "..", "runtime");
+      if (isInstalledRuntimePackageDir(sibling)) return sibling;
+    }
+  } catch {
+    // which not available or timed out
+  }
+
   return null;
 }
 

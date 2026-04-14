@@ -93,7 +93,7 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
                   if (agentId) {
                     navigate({ view: "agents", agentId });
                   } else {
-                    navigate({ view: "conversation", conversationId: session.id });
+                    navigate({ view: "sessions", sessionId: session.id });
                   }
                 }}
               >
