@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 
+/** True for paths under /tmp or /private/tmp — transient remote-install dirs. */
+function isTmpPath(p: string): boolean {
+  return /^\/(?:private\/)?tmp\//.test(p);
+}
+
 export type BrokerServiceMode = "dev" | "prod" | "custom";
 
 export type BrokerServiceConfig = {
@@ -112,18 +117,24 @@ function isInstalledRuntimePackageDir(candidate: string): boolean {
 }
 
 function findGlobalRuntimeDir(): string | null {
-  // bun global: ~/.bun/node_modules/@openscout/runtime
-  const bunCandidate = join(homedir(), ".bun", "node_modules", "@openscout", "runtime");
-  if (isInstalledRuntimePackageDir(bunCandidate)) return bunCandidate;
+  const candidates = [
+    // bun global: ~/.bun/node_modules/@openscout/runtime
+    join(homedir(), ".bun", "node_modules", "@openscout", "runtime"),
+    // bun global install (newer layout)
+    join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "runtime"),
+    // nested dep of @openscout/scout (bun global)
+    join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "scout", "node_modules", "@openscout", "runtime"),
+    // Homebrew (npm install -g on Apple Silicon)
+    "/opt/homebrew/lib/node_modules/@openscout/runtime",
+    "/opt/homebrew/lib/node_modules/@openscout/scout/node_modules/@openscout/runtime",
+    // Homebrew (npm install -g on Intel Mac)
+    "/usr/local/lib/node_modules/@openscout/runtime",
+    "/usr/local/lib/node_modules/@openscout/scout/node_modules/@openscout/runtime",
+  ];
 
-  // bun global install (newer layout): ~/.bun/install/global/node_modules/@openscout/runtime
-  const bunGlobalCandidate = join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "runtime");
-  if (isInstalledRuntimePackageDir(bunGlobalCandidate)) return bunGlobalCandidate;
-
-  // Also check as a nested dep of @openscout/scout
-  const bunScoutNested = join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "scout", "node_modules", "@openscout", "runtime");
-  if (isInstalledRuntimePackageDir(bunScoutNested)) return bunScoutNested;
-
+  for (const c of candidates) {
+    if (isInstalledRuntimePackageDir(c)) return c;
+  }
   return null;
 }
 
@@ -206,15 +217,15 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const mode = resolveBrokerServiceMode();
   const label = resolveBrokerServiceLabel(mode);
   const uid = typeof process.getuid === "function" ? process.getuid() : Number.parseInt(process.env.UID ?? "0", 10);
+  // Resolve paths but reject anything under /tmp — remote-install sessions
+  // set env vars to transient tmp dirs that don't survive reboots.
   const supportPaths = resolveOpenScoutSupportPaths();
-  const supportDirectory = supportPaths.supportDirectory;
-  const logsDirectory = supportPaths.brokerLogsDirectory;
-  // Always use the stable home path for the launch agent — never inherit a
-  // transient tmp dir that a remote-install session may have set.
-  const rawControlHome = supportPaths.controlHome;
-  const controlHome = /^\/(?:private\/)?tmp\//.test(rawControlHome)
+  const defaultSupportDir = join(homedir(), "Library", "Application Support", "OpenScout");
+  const supportDirectory = isTmpPath(supportPaths.supportDirectory) ? defaultSupportDir : supportPaths.supportDirectory;
+  const logsDirectory = join(supportDirectory, "logs", "broker");
+  const controlHome = isTmpPath(supportPaths.controlHome)
     ? join(homedir(), ".openscout", "control-plane")
-    : rawControlHome;
+    : supportPaths.controlHome;
   const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
   const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
   const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(brokerHost, brokerPort);
@@ -326,7 +337,8 @@ function resolveLaunchAgentPATH(): string {
     "/sbin",
   ];
 
-  return Array.from(new Set(entries)).join(":");
+  // Strip transient tmp dirs from PATH — remote-install sessions prepend them.
+  return Array.from(new Set(entries)).filter((e) => !isTmpPath(e)).join(":");
 }
 
 function xmlEscape(value: string): string {
