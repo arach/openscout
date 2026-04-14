@@ -38,10 +38,13 @@
 
 # package build artifacts
 packages/*/dist/
+apps/*/dist/
 packages/*/node_modules/
 apps/*/node_modules/
 packages/relay/relay-docs/node_modules/
 packages/relay/relay-docs/.astro/
+*.tgz
+packages/*/package/
 
 # misc
 .DS_Store
