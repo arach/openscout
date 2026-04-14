@@ -232,8 +232,12 @@ describe("broker daemon comms layer", () => {
     });
 
     const response = await postJson<{
-      ok: boolean;
-      flight: { targetAgentId: string; state: string; error?: string };
+      accepted: boolean;
+      invocationId: string;
+      flightId: string;
+      targetAgentId: string;
+      state: string;
+      flight: { id: string; state: string; targetAgentId: string };
     }>(harness.baseUrl, "/v1/invocations", {
       id: "inv-test-1",
       requesterId: "operator",
@@ -249,10 +253,9 @@ describe("broker daemon comms layer", () => {
       metadata: { source: "test" },
     });
 
-    expect(response.ok).toBe(true);
-    expect(response.flight.targetAgentId).toBe("ghost");
-    expect(response.flight.state).toBe("waking");
-    expect(response.flight.error).toBeUndefined();
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toBe("ghost");
+    expect(response.state).toBe("waking");
 
     const events = await getJson<Array<{ kind: string; payload: { invocation?: { id: string }; flight?: { targetAgentId: string; state: string } } }>>(
       harness.baseUrl,
@@ -655,8 +658,8 @@ describe("broker daemon comms layer", () => {
     });
 
     const response = await postJson<{
-      ok: boolean;
-      dispatchedTo: string;
+      accepted: boolean;
+      invocationId: string;
       dispatch?: {
         id: string;
         kind: string;
@@ -677,8 +680,7 @@ describe("broker daemon comms layer", () => {
       createdAt: Date.now(),
     });
 
-    expect(response.ok).toBe(false);
-    expect(response.dispatchedTo).toBe("scout");
+    expect(response.accepted).toBe(true);
     expect(response.dispatch?.kind).toBe("ambiguous");
     expect(response.dispatch?.askedLabel).toBe("@scoutie");
     expect(response.dispatch?.candidates.map((candidate) => candidate.agentId).sort()).toEqual([
@@ -712,7 +714,7 @@ describe("broker daemon comms layer", () => {
   test("emits scout dispatch without a message when the invocation carries no conversation", async () => {
     const harness = await startBroker();
 
-    const response = await postJson<{ ok: boolean; dispatch?: { kind: string } }>(
+    const response = await postJson<{ accepted: boolean; dispatch?: { kind: string } }>(
       harness.baseUrl,
       "/v1/invocations",
       {
@@ -729,7 +731,7 @@ describe("broker daemon comms layer", () => {
       },
     );
 
-    expect(response.ok).toBe(false);
+    expect(response.accepted).toBe(true);
     expect(response.dispatch?.kind).toBe("unknown");
 
     const journal = readFileSync(join(harness.controlHome, "broker-journal.jsonl"), "utf8")

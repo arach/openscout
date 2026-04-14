@@ -28,6 +28,7 @@ const config: BrokerServiceConfig = {
   brokerHost: DEFAULT_BROKER_HOST,
   brokerPort: DEFAULT_BROKER_PORT,
   brokerUrl: DEFAULT_BROKER_URL,
+  advertiseScope: "local",
 };
 
 describe("broker launch agent config", () => {

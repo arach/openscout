@@ -61,8 +61,10 @@ import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
 import {
   buildDefaultBrokerUrl,
-  DEFAULT_BROKER_HOST,
   DEFAULT_BROKER_PORT,
+  isLoopbackHost,
+  resolveAdvertiseScope,
+  resolveBrokerHost,
 } from "./broker-service.js";
 
 function createRuntimeId(prefix: string): string {
@@ -110,7 +112,8 @@ const controlHome = resolveControlPlaneHome();
 const dbPath = join(controlHome, "control-plane.sqlite");
 const journalPath = join(controlHome, "broker-journal.jsonl");
 const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
-const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
+const advertiseScope = resolveAdvertiseScope();
+const host = resolveBrokerHost(advertiseScope);
 const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
 const tailnetName = process.env.TAILSCALE_TAILNET ?? undefined;
@@ -192,7 +195,7 @@ const localNode: NodeDefinition = {
   meshId,
   name: nodeName,
   hostName: hostname(),
-  advertiseScope: host === DEFAULT_BROKER_HOST ? "local" : "mesh",
+  advertiseScope,
   brokerUrl,
   tailnetName,
   capabilities: ["broker", "mesh", "local_runtime"],
@@ -1835,6 +1838,76 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
   }
 }
 
+async function acceptInvocationDurably(invocation: InvocationRequest): Promise<FlightRecord> {
+  const { flight, entries } = await recordInvocationDurably(invocation, {
+    enqueueProjection: false,
+  });
+  projection.enqueueEntries(entries);
+  return flight;
+}
+
+async function dispatchAcceptedInvocation(invocation: InvocationRequest): Promise<void> {
+  const targetAgent = runtime.agent(invocation.targetAgentId);
+  if (!targetAgent) {
+    await failAcceptedInvocation(invocation, `unknown agent ${invocation.targetAgentId}`);
+    return;
+  }
+
+  const flight = runtime.flightForInvocation(invocation.id);
+  if (!flight) {
+    console.warn(`[openscout-runtime] dispatch skipped — flight missing for invocation ${invocation.id}`);
+    return;
+  }
+
+  if (targetAgent.authorityNodeId && targetAgent.authorityNodeId !== nodeId) {
+    // Cross-node: forward inline for now; Issue 3 replaces this with the outbox worker.
+    const authorityNode = runtime.node(targetAgent.authorityNodeId);
+    if (!authorityNode?.brokerUrl) {
+      await failAcceptedInvocation(invocation, `authority node ${targetAgent.authorityNodeId} is not reachable`);
+      return;
+    }
+    try {
+      const bundle = buildMeshInvocationBundle(runtime.peek(), currentLocalNode(), invocation);
+      const result = await forwardMeshInvocation(authorityNode.brokerUrl, bundle);
+      if (result.flight) {
+        await recordFlightDurably(result.flight);
+      }
+    } catch (error) {
+      await failAcceptedInvocation(
+        invocation,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    return;
+  }
+
+  // Local authority — run the normal launch path.
+  if (flight.state === "failed") {
+    await postInvocationStatusMessage(invocation, flight);
+  } else {
+    launchLocalInvocation(invocation, flight);
+  }
+}
+
+async function failAcceptedInvocation(invocation: InvocationRequest, detail: string): Promise<void> {
+  const now = Date.now();
+  const existing = runtime.flightForInvocation(invocation.id);
+  const failed: FlightRecord = {
+    id: existing?.id ?? createRuntimeId("flt"),
+    invocationId: invocation.id,
+    requesterId: invocation.requesterId,
+    targetAgentId: invocation.targetAgentId,
+    state: "failed",
+    startedAt: existing?.startedAt ?? now,
+    completedAt: now,
+    summary: detail,
+    error: detail,
+    metadata: invocation.metadata,
+  };
+  await recordFlightDurably(failed);
+  await postInvocationStatusMessage(invocation, failed);
+}
+
 async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
@@ -2354,15 +2427,29 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
           conversationId: payload.conversationId,
           requesterId: payload.requesterId,
         });
-        json(response, 200, buildScoutDispatchResponse(record, payload));
+        json(response, 202, {
+          accepted: true,
+          invocationId: payload.id,
+          dispatch: record,
+        });
         return;
       }
       const invocation: InvocationRequest = {
         ...payload,
         targetAgentId: resolved.agent.id,
       };
-      const result = await handleCommand({ kind: "agent.invoke", invocation });
-      json(response, 200, result);
+      const flight = await acceptInvocationDurably(invocation);
+      json(response, 202, {
+        accepted: true,
+        invocationId: invocation.id,
+        flightId: flight.id,
+        targetAgentId: invocation.targetAgentId,
+        state: flight.state,
+        flight,
+      });
+      dispatchAcceptedInvocation(invocation).catch((error) => {
+        console.error(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
+      });
     } catch (error) {
       badRequest(response, error);
     }
@@ -2399,18 +2486,6 @@ function resolveInvocationTarget(
   });
 }
 
-function buildScoutDispatchResponse(
-  record: ScoutDispatchRecord,
-  payload: InvocationRequest & { targetLabel?: string },
-): Record<string, unknown> {
-  return {
-    ok: false as const,
-    dispatchedTo: SCOUT_DISPATCHER_AGENT_ID,
-    invocationId: payload.id,
-    dispatch: record,
-  };
-}
-
 const server = createServer((request, response) => {
   routeRequest(request, response).catch((error) => {
     json(response, 500, {
@@ -2422,7 +2497,10 @@ const server = createServer((request, response) => {
 
 try {
   await listen(server);
-  console.log(`[openscout-runtime] broker listening on ${brokerUrl}`);
+  console.log(`[openscout-runtime] broker listening on ${host}:${port} (scope: ${advertiseScope}, url: ${brokerUrl})`);
+  if (advertiseScope === "mesh" && isLoopbackHost(host)) {
+    console.warn(`[openscout-runtime] WARNING: mesh scope bound to loopback ${host} — peers cannot reach this broker. Set OPENSCOUT_BROKER_HOST=0.0.0.0 or unset to use the mesh default.`);
+  }
   console.log(`[openscout-runtime] node ${nodeId} in mesh ${meshId}`);
   console.log(`[openscout-runtime] journal ${journalPath}`);
   console.log(`[openscout-runtime] sqlite ${sqliteDisabled ? "disabled" : dbPath}`);

@@ -55,12 +55,22 @@ export type MeshEnvVars = {
   brokerHost: string | null;
   brokerPort: string | null;
   brokerUrl: string | null;
+  advertiseScope: string | null;
   nodeId: string | null;
   nodeName: string | null;
   discoveryIntervalMs: string | null;
 };
 
 /* ── Helpers ── */
+
+function isLoopbackBrokerUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
 
 function readMeshEnvVars(): MeshEnvVars {
   return {
@@ -69,6 +79,7 @@ function readMeshEnvVars(): MeshEnvVars {
     brokerHost: process.env.OPENSCOUT_BROKER_HOST ?? null,
     brokerPort: process.env.OPENSCOUT_BROKER_PORT ?? null,
     brokerUrl: process.env.OPENSCOUT_BROKER_URL ?? null,
+    advertiseScope: process.env.OPENSCOUT_ADVERTISE_SCOPE ?? null,
     nodeId: process.env.OPENSCOUT_NODE_ID ?? null,
     nodeName: process.env.OPENSCOUT_NODE_NAME ?? null,
     discoveryIntervalMs: process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? null,
@@ -99,8 +110,13 @@ function computeWarnings(
 
   if (localNode?.advertiseScope === "local") {
     warnings.push(
-      "Broker is bound to 127.0.0.1 — mesh peers cannot reach it. " +
-      "Set OPENSCOUT_BROKER_HOST=0.0.0.0 or use your Tailscale IP.",
+      "Node advertise scope is `local` — peers will not discover this broker. " +
+      "Set OPENSCOUT_ADVERTISE_SCOPE=mesh and restart the broker.",
+    );
+  } else if (localNode?.advertiseScope === "mesh" && localNode.brokerUrl && isLoopbackBrokerUrl(localNode.brokerUrl)) {
+    warnings.push(
+      "Broker advertises mesh scope but is bound to loopback — peers cannot reach it. " +
+      "Unset OPENSCOUT_BROKER_HOST (mesh default is 0.0.0.0) or use your Tailscale IP.",
     );
   }
 

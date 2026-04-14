@@ -36,6 +36,15 @@ export type MeshStatusReport = {
 
 /* ── Helpers ── */
 
+function isLoopbackBrokerUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
 async function readTailscaleStatus(): Promise<TailscaleStatus> {
   const peers = await readTailscalePeers();
   return {
@@ -60,8 +69,13 @@ function computeWarnings(
 
   if (localNode?.advertiseScope === "local") {
     warnings.push(
-      "Broker is bound to 127.0.0.1 — mesh peers cannot reach it. " +
-      "Set OPENSCOUT_BROKER_HOST=0.0.0.0 or use your Tailscale IP.",
+      "Node advertise scope is `local` — peers will not discover this broker. " +
+      "Set OPENSCOUT_ADVERTISE_SCOPE=mesh and restart the broker.",
+    );
+  } else if (localNode?.advertiseScope === "mesh" && localNode.brokerUrl && isLoopbackBrokerUrl(localNode.brokerUrl)) {
+    warnings.push(
+      "Broker advertises mesh scope but is bound to loopback — peers cannot reach it. " +
+      "Unset OPENSCOUT_BROKER_HOST (mesh default is 0.0.0.0) or use your Tailscale IP.",
     );
   }
 

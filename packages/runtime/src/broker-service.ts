@@ -12,6 +12,7 @@ function isTmpPath(p: string): boolean {
 }
 
 export type BrokerServiceMode = "dev" | "prod" | "custom";
+export type BrokerAdvertiseScope = "local" | "mesh";
 
 export type BrokerServiceConfig = {
   label: string;
@@ -30,6 +31,7 @@ export type BrokerServiceConfig = {
   brokerHost: string;
   brokerPort: number;
   brokerUrl: string;
+  advertiseScope: BrokerAdvertiseScope;
 };
 
 export type BrokerHealthSnapshot = {
@@ -83,7 +85,29 @@ type LaunchctlStatus = {
 };
 
 export const DEFAULT_BROKER_HOST = "127.0.0.1";
+export const DEFAULT_BROKER_HOST_MESH = "0.0.0.0";
 export const DEFAULT_BROKER_PORT = 65535;
+export const DEFAULT_ADVERTISE_SCOPE: BrokerAdvertiseScope = "local";
+
+export function resolveAdvertiseScope(): BrokerAdvertiseScope {
+  const raw = (process.env.OPENSCOUT_ADVERTISE_SCOPE ?? "").trim().toLowerCase();
+  if (raw === "mesh") return "mesh";
+  if (raw === "local") return "local";
+  return DEFAULT_ADVERTISE_SCOPE;
+}
+
+export function resolveBrokerHost(scope: BrokerAdvertiseScope = resolveAdvertiseScope()): string {
+  const explicit = process.env.OPENSCOUT_BROKER_HOST;
+  if (typeof explicit === "string" && explicit.trim().length > 0) {
+    return explicit;
+  }
+  return scope === "mesh" ? DEFAULT_BROKER_HOST_MESH : DEFAULT_BROKER_HOST;
+}
+
+export function isLoopbackHost(host: string): boolean {
+  const trimmed = host.trim();
+  return trimmed === "127.0.0.1" || trimmed === "::1" || trimmed === "localhost";
+}
 const BROKER_SERVICE_POLL_INTERVAL_MS = 100;
 const DEFAULT_BROKER_START_TIMEOUT_MS = 15_000;
 
@@ -237,7 +261,8 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const controlHome = isTmpPath(supportPaths.controlHome)
     ? join(homedir(), ".openscout", "control-plane")
     : supportPaths.controlHome;
-  const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
+  const advertiseScope = resolveAdvertiseScope();
+  const brokerHost = resolveBrokerHost(advertiseScope);
   const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
   const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(brokerHost, brokerPort);
   const launchAgentPath = join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
@@ -259,6 +284,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     brokerHost,
     brokerPort,
     brokerUrl,
+    advertiseScope,
   };
 }
 
@@ -271,6 +297,7 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
     OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_SERVICE_MODE: config.mode,
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
+    OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
     HOME: homedir(),
     PATH: launchPath,
     ...collectOptionalEnvVars([
