@@ -94,6 +94,20 @@ export async function runScoutSetup(input: {
       broker = await getRuntimeBrokerServiceStatus();
     }
 
+    // Trigger mesh discovery after broker is up so peers are found immediately
+    if (broker.reachable && broker.brokerUrl) {
+      try {
+        await fetch(new URL("/v1/mesh/discover", broker.brokerUrl), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch {
+        // Best-effort: broker may not support mesh or peers may not be ready yet
+      }
+    }
+
     return {
       currentDirectory: input.currentDirectory,
       setup,

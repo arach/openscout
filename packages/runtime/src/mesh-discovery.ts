@@ -82,12 +82,15 @@ export async function discoverMeshNodes(
     .filter((seed) => seed && seed !== options.localBrokerUrl);
 
   const discovered: NodeDefinition[] = [];
+  const seen = new Set<string>();
 
   for (const seed of candidates) {
     const node = await probeNode(seed, options.timeoutMs ?? 1500);
     if (!node) continue;
     if (node.id === options.localNodeId) continue;
     if (node.meshId !== options.meshId) continue;
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
 
     discovered.push({
       ...node,

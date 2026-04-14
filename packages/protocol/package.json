@@ -1,6 +1,6 @@
 {
   "name": "@openscout/protocol",
-  "version": "0.2.30",
+  "version": "0.2.31",
   "description": "Typed protocol for the OpenScout local control plane",
   "type": "module",
   "exports": {
