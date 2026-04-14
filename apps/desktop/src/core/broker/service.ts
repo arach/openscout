@@ -788,6 +788,13 @@ async function resolveConversationActorId(
     return binding.actor.id;
   }
 
+  // Auto-register the agent in the broker even without a running session.
+  // This gives Claude Code / Codex / Pi sessions an identity card automatically
+  // when they send from a project directory — no explicit setup step needed.
+  await syncBrokerAgentRegistration(
+    baseUrl, snapshot,
+    scoutBrokerAgentRegistrationFromConfig(configured, nodeId),
+  );
   return configured.agentId;
 }
 
@@ -1061,20 +1068,27 @@ export async function sendScoutMessage(input: {
     )
   ).filter((target): target is ScoutMentionTarget => Boolean(target));
 
-  const conversation = await ensureBrokerConversation(
-    broker.baseUrl,
-    broker.snapshot,
-    broker.node.id,
-    input.channel,
-    senderId,
-    availableTargets.map((target) => target.agentId),
-  );
-
   const validTargets = [...new Set(
     availableTargets
       .map((target) => target.agentId)
       .filter((target) => target !== senderId && Boolean(broker.snapshot.agents[target])),
   )].sort();
+
+  // Route to DM when there's a single mention target, otherwise use the channel
+  let conversation: ScoutBrokerConversationRecord;
+  if (validTargets.length === 1 && !input.channel) {
+    const dm = await ensureBrokerDirectConversationBetween(
+      broker.baseUrl, broker.snapshot, broker.node.id,
+      senderId, validTargets[0],
+    );
+    conversation = dm.conversation;
+  } else {
+    conversation = await ensureBrokerConversation(
+      broker.baseUrl, broker.snapshot, broker.node.id,
+      input.channel, senderId,
+      availableTargets.map((target) => target.agentId),
+    );
+  }
   const unresolvedTargets = mentionResolution.resolved
     .filter((target) => !validTargets.includes(target.agentId))
     .map((target) => target.label)

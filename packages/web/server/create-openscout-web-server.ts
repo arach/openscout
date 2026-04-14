@@ -118,14 +118,24 @@ export function createOpenScoutWebServer(
   });
 
   app.post("/api/send", async (c) => {
-    const { body } = await c.req.json() as { body: string };
+    const { body, conversationId } = await c.req.json() as { body: string; conversationId?: string };
     if (!body?.trim()) {
       return c.json({ error: "body is required" }, 400);
     }
 
+    // If sending from a DM conversation, extract the agent and ensure @mention
+    // so sendScoutMessage routes to the DM instead of channel.shared
+    let finalBody = body.trim();
+    if (conversationId?.startsWith("dm.operator.")) {
+      const agentId = conversationId.slice("dm.operator.".length);
+      if (agentId && !finalBody.includes(`@${agentId}`)) {
+        finalBody = `@${agentId} ${finalBody}`;
+      }
+    }
+
     const result = await sendScoutMessage({
       senderId: resolveOperatorName(),
-      body: body.trim(),
+      body: finalBody,
       currentDirectory,
     });
 

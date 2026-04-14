@@ -1,11 +1,14 @@
 /** @jsxImportSource @opentui/react */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 
 import type { ScoutAgentStatus } from "../../core/agents/service.ts";
 import { type ScoutMonitorSnapshot, loadScoutMonitorSnapshot } from "../../core/monitor/service.ts";
 import type { ScoutBrokerMessageRecord, ScoutWhoEntry } from "../../core/broker/service.ts";
+import { resolveScoutBrokerUrl } from "../../core/broker/service.ts";
+import { scoutBrokerPaths } from "../../core/broker/paths.ts";
+import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 export type ScoutMonitorAppProps = {
   currentDirectory: string;
@@ -31,12 +34,15 @@ const C = {
   blue: "#60a5fa",
 };
 
-function shortAgentName(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return "unknown";
-  }
-  return trimmed.split(".")[0] || trimmed;
+const operatorName = resolveOperatorName();
+
+function displayName(actorId: string): string {
+  const trimmed = actorId.trim();
+  if (trimmed.length === 0) return "unknown";
+  if (trimmed === "operator") return operatorName;
+  // Strip node/workspace qualifiers: arc.mini.master-abc → arc
+  const segments = trimmed.split(".");
+  return segments[0] || trimmed;
 }
 
 function formatClock(value: number): string {
@@ -97,6 +103,7 @@ function wrapText(value: string, width: number): string[] {
 }
 
 function messageTone(message: ScoutBrokerMessageRecord): string {
+  if (message.actorId === "operator") return C.blue;
   if (message.class === "status") return C.yellow;
   if (message.class === "system") return C.dim;
   return C.text;
@@ -138,8 +145,6 @@ function Header({
 }
 
 function AgentCockpit({ localAgents }: { localAgents: ScoutAgentStatus[] }) {
-  const visible = localAgents.slice(0, 5);
-
   return (
     <box
       flexDirection="column"
@@ -151,10 +156,10 @@ function AgentCockpit({ localAgents }: { localAgents: ScoutAgentStatus[] }) {
       marginRight={1}
       title="Local Agents"
     >
-      {visible.length === 0 ? (
+      {localAgents.length === 0 ? (
         <text fg={C.dim}>No local Scout agents are configured.</text>
       ) : (
-        visible.map((agent) => {
+        localAgents.map((agent) => {
           const statusColor = agent.isOnline ? C.accent : C.dim;
           const icon = agent.isOnline ? "●" : "○";
           const left = `${icon} ${truncate(agent.projectName, 18)}`;
@@ -195,7 +200,7 @@ function ChatPanel({
     });
 
   const rendered = ordered.flatMap((message) => {
-    const actor = truncate(shortAgentName(message.actorId), 12).padEnd(12, " ");
+    const actor = truncate(displayName(message.actorId), 12).padEnd(12, " ");
     const stamp = formatClock(Math.floor(message.createdAt / 1000));
     const lines = wrapText(message.body, bodyWidth);
     const color = messageTone(message);
@@ -279,7 +284,7 @@ function LocalAgentsPanel({ agents }: { agents: ScoutAgentStatus[] }) {
         agents.map((agent) => (
           <box key={agent.agentId} flexDirection="column" marginBottom={1}>
             <text fg={agent.isOnline ? C.accent : C.muted}>
-              {truncate(`${shortAgentName(agent.projectName)}.${agent.harness}`, 40)}
+              {truncate(`${displayName(agent.projectName)}.${agent.harness}`, 40)}
             </text>
             <text fg={C.dim}>
               {truncate(`${agent.isOnline ? "up" : "down"} · ${formatUptime(agent.startedAt)} · ${agent.source}`, 56)}
@@ -318,7 +323,7 @@ function BrokerAgentsPanel({ agents }: { agents: ScoutWhoEntry[] }) {
         ordered.map((agent) => (
           <box key={agent.agentId} flexDirection="column" marginBottom={1}>
             <text fg={agent.state === "idle" ? C.muted : C.accent}>
-              {truncate(shortAgentName(agent.agentId), 32)}
+              {truncate(displayName(agent.agentId), 32)}
             </text>
             <text fg={C.dim}>
               {truncate(`${agent.state} · ${agent.messages} msgs · ${formatRelative(agent.lastSeen)}`, 36)}
@@ -338,7 +343,7 @@ function StatsPanel({ snapshot }: { snapshot: ScoutMonitorSnapshot }) {
       <box border borderStyle="rounded" borderColor={C.border} padding={1} title="Broker">
         <box flexDirection="column">
           <text fg={snapshot.brokerStatus.health.ok ? C.accent : C.red}>
-            {snapshot.brokerStatus.health.ok ? "reachable" : "degraded"}
+            {snapshot.brokerStatus.health.ok ? "reachable" : "offline"}
           </text>
           <text fg={C.dim}>url {snapshot.brokerUrl}</text>
           {counts ? <text fg={C.dim}>agents {counts.agents} · conversations {counts.conversations} · messages {counts.messages}</text> : null}
@@ -390,6 +395,7 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
   const [loading, setLoading] = useState(true);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const sseAbort = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -409,13 +415,84 @@ export function ScoutMonitorApp(props: ScoutMonitorAppProps) {
     }
   }, [props.channel, props.currentDirectory, props.limit]);
 
+  // Full snapshot refresh on a slower cadence (agents, stats, etc.)
+  // SSE handles real-time messages; this covers agent state, health, etc.
+  const slowPollMs = Math.max(props.refreshIntervalMs, 5_000);
   useEffect(() => {
     void refresh();
-    const interval = setInterval(() => {
-      void refresh();
-    }, props.refreshIntervalMs);
+    const interval = setInterval(() => void refresh(), slowPollMs);
     return () => clearInterval(interval);
-  }, [props.refreshIntervalMs, refresh]);
+  }, [refresh, slowPollMs]);
+
+  // SSE: stream new messages and agent events from broker in real-time
+  useEffect(() => {
+    const controller = new AbortController();
+    sseAbort.current = controller;
+
+    async function connectSSE() {
+      const brokerUrl = resolveScoutBrokerUrl();
+      try {
+        const response = await fetch(new URL(scoutBrokerPaths.v1.eventsStream, brokerUrl), {
+          headers: { accept: "text/event-stream" },
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.body) return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          while (true) {
+            const idx = buffer.indexOf("\n\n");
+            if (idx === -1) break;
+            const block = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 2);
+            if (!block) continue;
+
+            let eventName = "";
+            const dataLines: string[] = [];
+            for (const line of block.split("\n")) {
+              if (line.startsWith("event:")) eventName = line.slice(6).trim();
+              if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+            }
+            if (dataLines.length === 0) continue;
+
+            let event: { kind: string; payload?: Record<string, unknown> };
+            try { event = JSON.parse(dataLines.join("\n")); } catch { continue; }
+
+            if (eventName === "message.posted" || event.kind === "message.posted") {
+              const msg = event.payload?.message as ScoutBrokerMessageRecord | undefined;
+              if (msg) {
+                setSnapshot((prev) => {
+                  if (!prev) return prev;
+                  if (prev.recentMessages.some((m) => m.id === msg.id)) return prev;
+                  const next = [...prev.recentMessages, msg].sort((a, b) => a.createdAt - b.createdAt);
+                  return { ...prev, recentMessages: next };
+                });
+              }
+            } else if (
+              eventName === "agent.endpoint.upserted" ||
+              eventName === "flight.updated" ||
+              event.kind === "agent.endpoint.upserted" ||
+              event.kind === "flight.updated"
+            ) {
+              // Agent state or flight changed — trigger a full refresh
+              void refresh();
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        // SSE failed — fall back to polling (already running at 10s)
+      }
+    }
+
+    connectSSE();
+    return () => { controller.abort(); sseAbort.current = null; };
+  }, [refresh]);
 
   useKeyboard((key) => {
     if (key.name === "q" || (key.name === "c" && key.ctrl) || key.name === "escape") {

@@ -20,6 +20,7 @@ export type ScoutCommandName =
   | "server"
   | "setup"
   | "speak"
+  | "tui"
   | "up"
   | "watch"
   | "who";
@@ -60,6 +61,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./setup.ts")).runSetupCommand;
     case "speak":
       return (await import("./speak.ts")).runSpeakCommand;
+    case "tui":
+      return (await import("./tui.ts")).runTuiCommand;
     case "up":
       return (await import("./up.ts")).runUpCommand;
     case "watch":

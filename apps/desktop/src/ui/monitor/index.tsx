@@ -13,7 +13,7 @@ export type RunScoutMonitorAppOptions = {
   refreshIntervalMs?: number;
 };
 
-const DEFAULT_REFRESH_INTERVAL_MS = 1_000;
+const DEFAULT_REFRESH_INTERVAL_MS = 10_000;
 const DEFAULT_MONITOR_LIMIT = 64;
 
 export async function runScoutMonitorApp(options: RunScoutMonitorAppOptions): Promise<void> {

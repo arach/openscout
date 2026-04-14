@@ -29,6 +29,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "mesh", summary: "Mesh status and diagnostics" },
   { name: "pair", summary: "Pair a companion device via QR" },
   { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start / control-plane start)" },
+  { name: "tui", summary: "Terminal monitor dashboard" },
   {
     name: "init",
     summary: "Deprecated alias for setup",

@@ -103,11 +103,9 @@ export function ConversationScreen({
     };
     setMessages((prev) => [...prev, optimistic]);
     try {
-      // Prefix with @agentName so the broker routes to this agent
-      const body = agentId ? `@${agentId} ${text}` : text;
       await api("/api/send", {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body: text, conversationId }),
       });
     } catch {
       // On failure, remove optimistic message
