@@ -448,6 +448,10 @@ export class SQLiteControlPlaneStore {
     });
   }
 
+  setForeignKeys(enabled: boolean): void {
+    this.db.exec(`PRAGMA foreign_keys = ${enabled ? "ON" : "OFF"};`);
+  }
+
   close(): void {
     this.flushPendingEvents();
     if (this.flushPendingEventsTimer) {

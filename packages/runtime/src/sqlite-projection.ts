@@ -192,9 +192,14 @@ export class RecoverableSQLiteProjection {
 
     try {
       const store = new SQLiteControlPlaneStore(this.dbPath);
+      // Disable FK checks during journal replay — entries may arrive out of
+      // order (e.g. message before its conversation) and FK violations would
+      // permanently degrade the projection.
+      store.setForeignKeys(false);
       await this.journal.replay((entry) => {
         applyJournalEntryToStore(store, entry);
       });
+      store.setForeignKeys(true);
       this.store = store;
       this.lastUnavailableReason = null;
       return store;
