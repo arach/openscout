@@ -976,7 +976,11 @@ export async function askScoutQuestion(input: {
 
   const invocationId = `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const invocationResponse = await brokerPostJson<{
-    ok: boolean;
+    accepted: boolean;
+    invocationId: string;
+    flightId: string;
+    targetAgentId: string;
+    state: string;
     flight: ScoutFlightRecord;
   }>(broker.baseUrl, "/v1/invocations", {
     id: invocationId,

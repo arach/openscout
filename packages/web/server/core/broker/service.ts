@@ -1277,7 +1277,7 @@ export async function sendScoutDirectMessage(input: {
     },
   });
 
-  const invocationResponse = await brokerPostJson<{ ok: boolean; flight: ScoutFlightRecord }>(
+  const invocationResponse = await brokerPostJson<{ accepted: boolean; invocationId: string; flightId: string; targetAgentId: string; state: string; flight: ScoutFlightRecord }>(
     broker.baseUrl,
     scoutBrokerPaths.v1.invocations,
     {
@@ -1389,7 +1389,7 @@ export async function askScoutQuestion(input: {
     },
   });
 
-  const invocationResponse = await brokerPostJson<{ ok: boolean; flight: ScoutFlightRecord }>(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
+  const invocationResponse = await brokerPostJson<{ accepted: boolean; invocationId: string; flightId: string; targetAgentId: string; state: string; flight: ScoutFlightRecord }>(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
     id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: senderId,
     requesterNodeId: broker.node.id,

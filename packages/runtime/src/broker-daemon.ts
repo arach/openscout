@@ -37,11 +37,9 @@ import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
   buildMeshCollaborationEventBundle,
   buildMeshCollaborationRecordBundle,
-  buildMeshInvocationBundle,
   buildMeshMessageBundle,
   forwardMeshCollaborationEvent,
   forwardMeshCollaborationRecord,
-  forwardMeshInvocation,
   fetchPeerAgents,
   forwardMeshMessage,
   type MeshCollaborationEventBundle,
@@ -1699,33 +1697,6 @@ async function forwardPeerBrokerCollaborationEvent(
   return { forwarded, failed };
 }
 
-async function maybeForwardInvocation(
-  invocation: InvocationRequest,
-): Promise<{ forwarded: boolean; flight?: { id: string; invocationId: string; requesterId: string; targetAgentId: string; state: string; startedAt?: number; completedAt?: number; summary?: string; output?: string; error?: string; metadata?: Record<string, unknown> } }> {
-  const targetAgent = runtime.agent(invocation.targetAgentId);
-  if (!targetAgent) {
-    throw new Error(`unknown agent ${invocation.targetAgentId}`);
-  }
-
-  if (targetAgent.authorityNodeId === nodeId) {
-    return { forwarded: false };
-  }
-
-  const authorityNode = runtime.node(targetAgent.authorityNodeId);
-  if (!authorityNode?.brokerUrl) {
-    throw new Error(`authority node ${targetAgent.authorityNodeId} is not reachable`);
-  }
-
-  const bundle = buildMeshInvocationBundle(runtime.peek(), currentLocalNode(), invocation);
-  const result = await forwardMeshInvocation(authorityNode.brokerUrl, bundle);
-  const { entries } = await recordInvocationDurably(invocation, {
-    flight: result.flight,
-    enqueueProjection: false,
-  });
-  projection.enqueueEntries(entries);
-  return { forwarded: true, flight: result.flight };
-}
-
 function parseLimit(url: URL): number {
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
   if (!Number.isFinite(limit) || limit <= 0) return 100;
@@ -1857,26 +1828,25 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       return { ok: true, message: command.message, deliveries, mesh };
     }
     case "agent.invoke": {
-      const forwarded = await maybeForwardInvocation(command.invocation);
-      if (forwarded.forwarded) {
-        console.log(
-          `[openscout-runtime] invocation ${command.invocation.id} forwarded to ${command.invocation.targetAgentId}`,
-        );
-        return { ok: true, flight: forwarded.flight, forwarded: true };
-      }
-      const { flight, entries } = await recordInvocationDurably(command.invocation, {
-        enqueueProjection: false,
-      });
+      const flight = await acceptInvocationDurably(command.invocation);
       console.log(
-        `[openscout-runtime] invocation ${command.invocation.id} -> ${command.invocation.targetAgentId} is ${flight.state}${flight.summary ? ` (${flight.summary})` : ""}`,
+        `[openscout-runtime] invocation ${command.invocation.id} accepted for ${command.invocation.targetAgentId} (state=${flight.state})`,
       );
-      if (flight.state === "failed") {
-        await postInvocationStatusMessage(command.invocation, flight);
-      } else {
-        launchLocalInvocation(command.invocation, flight);
-      }
-      projection.enqueueEntries(entries);
-      return { ok: true, flight };
+      dispatchAcceptedInvocation(command.invocation).catch((error) => {
+        console.error(
+          `[openscout-runtime] background dispatch failed for invocation ${command.invocation.id}:`,
+          error,
+        );
+      });
+      return {
+        ok: true,
+        accepted: true,
+        invocationId: command.invocation.id,
+        flightId: flight.id,
+        targetAgentId: command.invocation.targetAgentId,
+        state: flight.state,
+        flight,
+      };
     }
     case "agent.ensure_awake":
       await runtime.dispatch(command);
