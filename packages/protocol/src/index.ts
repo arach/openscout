@@ -9,6 +9,7 @@ export * from "./conversations.js";
 export * from "./collaboration.js";
 export * from "./messages.js";
 export * from "./invocations.js";
+export * from "./scout-dispatch.js";
 export * from "./deliveries.js";
 export * from "./transports.js";
 export * from "./events.js";

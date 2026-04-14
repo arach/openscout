@@ -65,6 +65,17 @@ export function normalizeAgentIdentitySegment(value: string): string {
 
 export const normalizeAgentSelectorSegment = normalizeAgentIdentitySegment;
 
+export const SCOUT_DISPATCHER_AGENT_ID = "scout";
+
+const RESERVED_AGENT_DEFINITION_IDS: ReadonlySet<string> = new Set([
+  SCOUT_DISPATCHER_AGENT_ID,
+]);
+
+export function isReservedAgentDefinitionId(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return RESERVED_AGENT_DEFINITION_IDS.has(normalizeAgentIdentitySegment(value));
+}
+
 function normalizeDimensionKey(value: string): AgentIdentityDimension | null {
   return DIMENSION_ALIASES[normalizeAgentIdentitySegment(value)] ?? null;
 }
@@ -131,18 +142,18 @@ function parseSegmentedIdentity(raw: string): AgentIdentity | null {
   }
 
   // 1 positional → workspaceQualifier  (@agent.branch)
-  // 2 positionals → nodeQualifier.workspaceQualifier  (@agent.node.branch — matches instance ID format)
+  // 2 positionals → workspaceQualifier.nodeQualifier  (@agent.branch.node — node is always last)
   // 3+ positionals → invalid
   if (positional.length === 1) {
     const value = normalizeAgentIdentitySegment(positional[0]);
     if (!value) return null;
     next.workspaceQualifier = value;
   } else if (positional.length === 2) {
-    const nodeValue = normalizeAgentIdentitySegment(positional[0]);
-    const workspaceValue = normalizeAgentIdentitySegment(positional[1]);
-    if (!nodeValue || !workspaceValue) return null;
-    if (!next.nodeQualifier) next.nodeQualifier = nodeValue;
+    const workspaceValue = normalizeAgentIdentitySegment(positional[0]);
+    const nodeValue = normalizeAgentIdentitySegment(positional[1]);
+    if (!workspaceValue || !nodeValue) return null;
     if (!next.workspaceQualifier) next.workspaceQualifier = workspaceValue;
+    if (!next.nodeQualifier) next.nodeQualifier = nodeValue;
   } else if (positional.length > 2) {
     return null;
   }
@@ -363,30 +374,50 @@ export function resolveAgentIdentity<T extends AgentIdentityCandidate>(
   identity: AgentIdentity,
   candidates: T[],
 ): T | null {
+  const diagnosis = diagnoseAgentIdentity(identity, candidates);
+  return diagnosis.kind === "resolved" ? diagnosis.match : null;
+}
+
+export type AgentIdentityDiagnosis<T extends AgentIdentityCandidate> =
+  | { kind: "resolved"; match: T }
+  | { kind: "ambiguous"; candidates: T[] }
+  | { kind: "unknown" };
+
+export function diagnoseAgentIdentity<T extends AgentIdentityCandidate>(
+  identity: AgentIdentity,
+  candidates: T[],
+): AgentIdentityDiagnosis<T> {
   const aliasKeys = identityAliasKeys(identity);
   const exactAliasMatches = candidates.filter((candidate) => {
     const candidateAliasKeys = explicitCandidateAliases(candidate).map(canonicalizeAliasValue);
     return aliasKeys.some((key) => candidateAliasKeys.includes(key));
   });
   if (exactAliasMatches.length === 1) {
-    return exactAliasMatches[0];
+    return { kind: "resolved", match: exactAliasMatches[0] };
   }
   if (exactAliasMatches.length > 1) {
-    return null;
+    return { kind: "ambiguous", candidates: exactAliasMatches };
   }
 
   const matches = candidates.filter((candidate) => agentIdentityMatches(identity, candidate));
   if (matches.length === 1) {
-    return matches[0];
+    return { kind: "resolved", match: matches[0] };
+  }
+  if (matches.length === 0) {
+    return { kind: "unknown" };
   }
 
   if (!identity.nodeQualifier && !identity.workspaceQualifier && !identity.profile && !identity.harness) {
-    return matches.find((candidate) => normalizeAgentIdentitySegment(candidate.agentId) === identity.definitionId)
-      ?? matches[0]
-      ?? null;
+    const exactIdMatch = matches.find(
+      (candidate) => normalizeAgentIdentitySegment(candidate.agentId) === identity.definitionId,
+    );
+    if (exactIdMatch) {
+      return { kind: "resolved", match: exactIdMatch };
+    }
+    return { kind: "ambiguous", candidates: matches };
   }
 
-  return null;
+  return { kind: "ambiguous", candidates: matches };
 }
 
 export function constructAgentAlias(input: {

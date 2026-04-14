@@ -26,6 +26,7 @@ export type Message = {
   body: string;
   createdAt: number;
   class: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type ActivityItem = {

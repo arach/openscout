@@ -229,6 +229,19 @@ CREATE TABLE IF NOT EXISTS events (
   payload_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS scout_dispatches (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  asked_label TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  invocation_id TEXT,
+  conversation_id TEXT,
+  requester_id TEXT,
+  dispatcher_node_id TEXT NOT NULL,
+  dispatched_at INTEGER NOT NULL,
+  payload_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS activity_items (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -280,4 +293,8 @@ CREATE INDEX IF NOT EXISTS idx_activity_items_kind_ts
   ON activity_items (kind, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_session_ts
   ON activity_items (session_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_scout_dispatches_dispatched_at
+  ON scout_dispatches (dispatched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scout_dispatches_conversation_ts
+  ON scout_dispatches (conversation_id, dispatched_at DESC);
 `;

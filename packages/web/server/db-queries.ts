@@ -49,6 +49,7 @@ export type WebMessage = {
   body: string;
   createdAt: number;
   class: string;
+  metadata: Record<string, unknown> | null;
 };
 
 /* ── DB path ── */
@@ -216,7 +217,8 @@ export function queryRecentMessages(limit = 80): WebMessage[] {
          ac.display_name AS actor_name,
          m.body,
          m.created_at,
-         m.class
+         m.class,
+         m.metadata_json
        FROM messages m
        JOIN actors ac ON ac.id = m.actor_id
        ORDER BY m.created_at DESC
@@ -229,16 +231,24 @@ export function queryRecentMessages(limit = 80): WebMessage[] {
     body: string;
     created_at: number;
     class: string;
+    metadata_json: string | null;
   }>;
 
-  return rows.map((r) => ({
-    id: r.id,
-    conversationId: r.conversation_id,
-    actorName: r.actor_name,
-    body: r.body,
-    createdAt: r.created_at,
-    class: r.class,
-  }));
+  return rows.map((r) => {
+    let metadata: Record<string, unknown> | null = null;
+    if (r.metadata_json) {
+      try { metadata = JSON.parse(r.metadata_json); } catch { metadata = null; }
+    }
+    return {
+      id: r.id,
+      conversationId: r.conversation_id,
+      actorName: r.actor_name,
+      body: r.body,
+      createdAt: r.created_at,
+      class: r.class,
+      metadata,
+    };
+  });
 }
 
 /* ── Flights (tasks) ── */

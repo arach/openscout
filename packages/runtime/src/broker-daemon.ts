@@ -20,10 +20,18 @@ import {
   type InvocationRequest,
   type MessageRecord,
   type NodeDefinition,
+  type ScoutDispatchEnvelope,
+  type ScoutDispatchRecord,
+  SCOUT_DISPATCHER_AGENT_ID,
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
 import { FileBackedBrokerJournal, type BrokerJournalEntry } from "./broker-journal.js";
+import {
+  buildDispatchEnvelope,
+  resolveAgentLabel,
+  type BrokerLabelResolution,
+} from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
@@ -272,18 +280,16 @@ function runDurableWrite<T>(work: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function appendJournalEntries(entries: BrokerJournalEntry | BrokerJournalEntry[]): Promise<void> {
-  await journal.appendEntries(entries);
-}
-
 async function commitDurableEntries(
   entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
-  applyRuntime: () => Promise<void>,
+  applyRuntime: (entries: BrokerJournalEntry[]) => Promise<void>,
   options: { enqueueProjection?: boolean } = {},
 ): Promise<BrokerJournalEntry[]> {
-  const entries = normalizeJournalEntries(entriesInput);
-  await appendJournalEntries(entries);
-  await applyRuntime();
+  const entries = await journal.appendEntries(normalizeJournalEntries(entriesInput));
+  if (entries.length === 0) {
+    return [];
+  }
+  await applyRuntime(entries);
   if (options.enqueueProjection !== false) {
     projection.enqueueEntries(entries);
   }
@@ -319,9 +325,13 @@ async function upsertAgentDurably(agent: AgentDefinition): Promise<void> {
         { kind: "actor.upsert", actor: agent },
         { kind: "agent.upsert", agent },
       ],
-      async () => {
-        await runtime.upsertActor(agent);
-        await runtime.upsertAgent(agent);
+      async (entries) => {
+        if (entries.some((entry) => entry.kind === "actor.upsert")) {
+          await runtime.upsertActor(agent);
+        }
+        if (entries.some((entry) => entry.kind === "agent.upsert")) {
+          await runtime.upsertAgent(agent);
+        }
       },
     );
   });
@@ -419,6 +429,68 @@ async function recordMessageDurably(
       { enqueueProjection: options.enqueueProjection },
     );
     return { deliveries, entries };
+  });
+}
+
+async function recordScoutDispatchDurably(
+  envelope: ScoutDispatchEnvelope,
+  options: {
+    invocationId?: string;
+    conversationId?: string;
+    requesterId?: string;
+  } = {},
+): Promise<{
+  record: ScoutDispatchRecord;
+  message: MessageRecord | null;
+  entries: BrokerJournalEntry[];
+}> {
+  const record: ScoutDispatchRecord = {
+    id: createRuntimeId("scout-dispatch"),
+    invocationId: options.invocationId,
+    conversationId: options.conversationId,
+    requesterId: options.requesterId,
+    ...envelope,
+  };
+
+  const dispatchEntries: BrokerJournalEntry[] = [
+    { kind: "scout.dispatch.record", dispatch: record },
+  ];
+
+  let syntheticMessage: MessageRecord | null = null;
+  if (options.conversationId) {
+    syntheticMessage = {
+      id: createRuntimeId("msg-scout"),
+      conversationId: options.conversationId,
+      actorId: SCOUT_DISPATCHER_AGENT_ID,
+      originNodeId: nodeId,
+      class: "system",
+      body: record.detail,
+      visibility: "workspace",
+      policy: "best_effort",
+      createdAt: record.dispatchedAt,
+      metadata: {
+        scoutDispatch: record,
+      },
+    };
+  }
+
+  return runDurableWrite(async () => {
+    const appended = await commitDurableEntries(dispatchEntries, async () => {});
+    if (!syntheticMessage) {
+      return { record, message: null, entries: appended };
+    }
+
+    const deliveries = runtime.planMessage(syntheticMessage, { localOnly: true });
+    const messageEntries = await commitDurableEntries(
+      [
+        { kind: "message.record", message: syntheticMessage },
+        { kind: "deliveries.record", deliveries },
+      ],
+      async () => {
+        await runtime.commitMessage(syntheticMessage!, deliveries);
+      },
+    );
+    return { record, message: syntheticMessage, entries: [...appended, ...messageEntries] };
   });
 }
 
@@ -591,50 +663,33 @@ async function applyMeshBundleDurably(bundle: {
   const entries = buildMeshBundleEntries(bundle);
   return commitDurableEntries(
     entries,
-    async () => {
-      const appliedActorIds = new Set<string>();
-      const appliedAgentIds = new Set<string>();
-      const appliedBindingIds = new Set<string>();
-      await runtime.upsertNode(bundle.originNode);
-
-      for (const actor of bundle.actors) {
-        if (appliedActorIds.has(actor.id)) {
-          continue;
+    async (retainedEntries) => {
+      for (const entry of retainedEntries) {
+        switch (entry.kind) {
+          case "node.upsert":
+            await runtime.upsertNode(entry.node);
+            break;
+          case "actor.upsert":
+            await runtime.upsertActor(entry.actor);
+            break;
+          case "agent.upsert":
+            await runtime.upsertAgent(entry.agent);
+            break;
+          case "conversation.upsert":
+            await runtime.upsertConversation(entry.conversation);
+            break;
+          case "binding.upsert":
+            await runtime.upsertBinding(entry.binding);
+            break;
+          case "collaboration.record":
+            await runtime.upsertCollaboration(entry.record);
+            break;
+          case "collaboration.event.record":
+            await runtime.appendCollaborationEvent(entry.event);
+            break;
+          default:
+            break;
         }
-        appliedActorIds.add(actor.id);
-        await runtime.upsertActor(actor);
-      }
-
-      for (const agent of bundle.agents) {
-        if (appliedAgentIds.has(agent.id)) {
-          continue;
-        }
-        appliedAgentIds.add(agent.id);
-        if (!appliedActorIds.has(agent.id)) {
-          appliedActorIds.add(agent.id);
-          await runtime.upsertActor(agent);
-        }
-        await runtime.upsertAgent(agent);
-      }
-
-      if (bundle.conversation) {
-        await runtime.upsertConversation(bundle.conversation);
-      }
-
-      for (const binding of bundle.bindings ?? []) {
-        if (appliedBindingIds.has(binding.id)) {
-          continue;
-        }
-        appliedBindingIds.add(binding.id);
-        await runtime.upsertBinding(binding);
-      }
-
-      if (bundle.collaborationRecord) {
-        await runtime.upsertCollaboration(bundle.collaborationRecord);
-      }
-
-      if (bundle.collaborationEvent) {
-        await runtime.appendCollaborationEvent(bundle.collaborationEvent);
       }
     },
     options,
@@ -2284,7 +2339,28 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "POST" && url.pathname === "/v1/invocations") {
     try {
-      const invocation = await readRequestBody<InvocationRequest>(request);
+      const payload = await readRequestBody<InvocationRequest & { targetLabel?: string }>(request);
+      const resolved = resolveInvocationTarget(payload);
+      if (resolved.kind !== "resolved") {
+        const envelope = buildDispatchEnvelope(
+          resolved,
+          payload.targetLabel?.trim() || payload.targetAgentId || "",
+          nodeId,
+          runtime.snapshot(),
+          { homeEndpointFor: homeEndpointForAgent },
+        );
+        const { record } = await recordScoutDispatchDurably(envelope, {
+          invocationId: payload.id,
+          conversationId: payload.conversationId,
+          requesterId: payload.requesterId,
+        });
+        json(response, 200, buildScoutDispatchResponse(record, payload));
+        return;
+      }
+      const invocation: InvocationRequest = {
+        ...payload,
+        targetAgentId: resolved.agent.id,
+      };
       const result = await handleCommand({ kind: "agent.invoke", invocation });
       json(response, 200, result);
     } catch (error) {
@@ -2294,6 +2370,45 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   notFound(response);
+}
+
+type InvocationResolution =
+  | { kind: "resolved"; agent: AgentDefinition }
+  | BrokerLabelResolution;
+
+function resolveInvocationTarget(
+  payload: InvocationRequest & { targetLabel?: string },
+): InvocationResolution {
+  const snapshot = runtime.snapshot();
+  const directId = payload.targetAgentId?.trim();
+  if (directId) {
+    const agent = snapshot.agents[directId];
+    if (agent && !isStaleLocalAgent(agent)) {
+      return { kind: "resolved", agent };
+    }
+  }
+
+  const label = payload.targetLabel?.trim() || directId || "";
+  if (!label) {
+    return { kind: "unparseable", label: "" };
+  }
+
+  return resolveAgentLabel(snapshot, label, {
+    preferLocalNodeId: nodeId,
+    helpers: { isStale: isStaleLocalAgent },
+  });
+}
+
+function buildScoutDispatchResponse(
+  record: ScoutDispatchRecord,
+  payload: InvocationRequest & { targetLabel?: string },
+): Record<string, unknown> {
+  return {
+    ok: false as const,
+    dispatchedTo: SCOUT_DISPATCHER_AGENT_ID,
+    invocationId: payload.id,
+    dispatch: record,
+  };
 }
 
 const server = createServer((request, response) => {

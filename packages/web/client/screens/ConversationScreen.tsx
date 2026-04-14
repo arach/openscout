@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ScoutDispatchRecord, ScoutDispatchCandidate } from "@openscout/protocol";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { renderWithMentions } from "../lib/mentions.tsx";
 import { agentIdFromConversation } from "../lib/router.ts";
 import type { Agent, Flight, Message, Route, SessionEntry } from "../lib/types.ts";
 
@@ -80,6 +82,14 @@ function mapEventFlight(flight: EventFlightRecord, conversationId: string, fallb
     startedAt: flight.startedAt ?? null,
     completedAt: flight.completedAt ?? null,
   };
+}
+
+function readScoutDispatch(message: Message): ScoutDispatchRecord | null {
+  const value = message.metadata?.["scoutDispatch"];
+  if (!value || typeof value !== "object") return null;
+  const record = value as Partial<ScoutDispatchRecord>;
+  if (!record.id || !record.kind || !Array.isArray(record.candidates)) return null;
+  return record as ScoutDispatchRecord;
 }
 
 function isOperatorMessage(message: Message, operatorName: string): boolean {
@@ -449,22 +459,21 @@ export function ConversationScreen({
     return () => clearInterval(timer);
   }, []);
 
-  const send = async () => {
-    const text = draft.trim();
-    if (!text || sending) return;
+  const sendText = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
 
     const optimisticCreatedAt = Date.now();
     const optimisticMessage: Message = {
       id: `optimistic-${optimisticCreatedAt}`,
       conversationId,
       actorName: operatorName,
-      body: text,
+      body: trimmed,
       createdAt: optimisticCreatedAt,
       class: "operator",
     };
 
     setSending(true);
-    setDraft("");
     setAwaitingResponseSince(optimisticCreatedAt);
     setError(null);
     setMessages((previous) => sortMessages([...previous, optimisticMessage]));
@@ -472,7 +481,7 @@ export function ConversationScreen({
     try {
       const result = await api<SendResult>("/api/send", {
         method: "POST",
-        body: JSON.stringify({ body: text, conversationId }),
+        body: JSON.stringify({ body: trimmed, conversationId }),
       });
       if (result.flight) {
         trackedInvocationIdsRef.current.add(result.flight.invocationId);
@@ -485,6 +494,26 @@ export function ConversationScreen({
     } finally {
       setSending(false);
     }
+  };
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    await sendText(text);
+  };
+
+  const dispatchToCandidate = async (record: ScoutDispatchRecord, candidate: ScoutDispatchCandidate) => {
+    const prefix = `@${candidate.agentId} `;
+    const leftover = draft.trim();
+    if (leftover) {
+      setDraft("");
+      await sendText(`${prefix}${leftover}`);
+      return;
+    }
+    setDraft(prefix);
+    composeRef.current?.focus();
+    void record;
   };
 
   return (
@@ -544,16 +573,39 @@ export function ConversationScreen({
         ) : (
           messages.map((message) => {
             const isYou = isOperatorMessage(message, operatorName);
+            const dispatch = readScoutDispatch(message);
+            const rowClass = dispatch ? "scout.dispatch" : message.class;
             return (
               <div
                 key={message.id}
-                className={`s-msg${isYou ? " s-msg-you" : ""}`}
+                className={`s-msg s-row-message${isYou ? " s-msg-you" : ""}`}
+                data-class={rowClass}
               >
                 <div className="s-msg-header">
                   <span className="s-msg-actor">{isYou ? "You" : message.actorName}</span>
                   <span className="s-msg-time">{timeAgo(message.createdAt)}</span>
                 </div>
-                <p className="s-msg-body">{message.body}</p>
+                <p className="s-msg-body">{renderWithMentions(message.body)}</p>
+                {dispatch && dispatch.candidates.length > 0 && (
+                  <div className="s-scout-dispatch">
+                    {dispatch.candidates.map((candidate) => (
+                      <button
+                        key={candidate.agentId}
+                        type="button"
+                        className="s-scout-tile"
+                        onClick={() => void dispatchToCandidate(dispatch, candidate)}
+                      >
+                        <span className="s-scout-tile-id">@{candidate.agentId}</span>
+                        <span className="s-scout-tile-state">{candidate.endpointState}</span>
+                        <span className="s-scout-tile-meta">
+                          {[candidate.workspace, candidate.node, candidate.projectRoot]
+                            .filter(Boolean)
+                            .join(" · ") || candidate.displayName}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })

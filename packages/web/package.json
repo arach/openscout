@@ -1,6 +1,6 @@
 {
   "name": "@openscout/web",
-  "version": "0.2.37",
+  "version": "0.2.38",
   "description": "Standalone lightweight Scout web UI with its own bundled Bun server",
   "license": "UNLICENSED",
   "type": "module",
@@ -16,7 +16,7 @@
     "build": "node ./scripts/build.mjs",
     "build:client": "vite build",
     "build:server": "bun build ./server/index.ts --target=bun --format=esm --outfile ./dist/openscout-web-server.mjs && bun build ./server/pair-supervisor.ts --target=bun --format=esm --outfile ./dist/pair-supervisor.mjs",
-    "dev": "vite",
+    "dev": "bun run --hot server/index.ts",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs .",
     "test:happy": "node --test test/*.test.mjs"

@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type {
@@ -15,6 +15,7 @@ import type {
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
+  ScoutDispatchRecord,
 } from "@openscout/protocol";
 
 import {
@@ -43,14 +44,24 @@ export type BrokerJournalEntry =
       metadata?: Record<string, unknown>;
       leaseOwner?: string | null;
       leaseExpiresAt?: number | null;
-    };
+    }
+  | { kind: "scout.dispatch.record"; dispatch: ScoutDispatchRecord };
 
 type JournalSnapshotState = {
   snapshot: RuntimeRegistrySnapshot;
   collaborationEvents: CollaborationEvent[];
   deliveries: Map<string, DeliveryIntent>;
   deliveryAttempts: Map<string, DeliveryAttempt[]>;
+  scoutDispatches: ScoutDispatchRecord[];
 };
+
+type DedupableJournalEntry =
+  | BrokerJournalEntry & { kind: "node.upsert" }
+  | BrokerJournalEntry & { kind: "actor.upsert" }
+  | BrokerJournalEntry & { kind: "agent.upsert" }
+  | BrokerJournalEntry & { kind: "agent.endpoint.upsert" }
+  | BrokerJournalEntry & { kind: "conversation.upsert" }
+  | BrokerJournalEntry & { kind: "binding.upsert" };
 
 function cloneSnapshot(snapshot: RuntimeRegistrySnapshot): RuntimeRegistrySnapshot {
   return createRuntimeRegistrySnapshot({
@@ -93,6 +104,70 @@ function parseEntry(rawLine: string): BrokerJournalEntry | null {
   }
 }
 
+function normalizeComparableValue(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeComparableValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const normalizedEntries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, normalizeComparableValue(entry)] as const);
+    return Object.fromEntries(normalizedEntries);
+  }
+
+  return value;
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(normalizeComparableValue(left))
+    === JSON.stringify(normalizeComparableValue(right));
+}
+
+function dedupeKey(entry: BrokerJournalEntry): string | null {
+  switch (entry.kind) {
+    case "node.upsert":
+      return `${entry.kind}:${entry.node.id}`;
+    case "actor.upsert":
+      return `${entry.kind}:${entry.actor.id}`;
+    case "agent.upsert":
+      return `${entry.kind}:${entry.agent.id}`;
+    case "agent.endpoint.upsert":
+      return `${entry.kind}:${entry.endpoint.id}`;
+    case "conversation.upsert":
+      return `${entry.kind}:${entry.conversation.id}`;
+    case "binding.upsert":
+      return `${entry.kind}:${entry.binding.id}`;
+    default:
+      return null;
+  }
+}
+
+function isDedupableEntry(entry: BrokerJournalEntry): entry is DedupableJournalEntry {
+  return dedupeKey(entry) !== null;
+}
+
+function compactRedundantEntries(entries: BrokerJournalEntry[]): BrokerJournalEntry[] {
+  const latestIndexByKey = new Map<string, number>();
+  for (const [index, entry] of entries.entries()) {
+    const key = dedupeKey(entry);
+    if (!key) {
+      continue;
+    }
+    latestIndexByKey.set(key, index);
+  }
+
+  return entries.filter((entry, index) => {
+    const key = dedupeKey(entry);
+    return !key || latestIndexByKey.get(key) === index;
+  });
+}
+
 export class FileBackedBrokerJournal {
   private readonly filePath: string;
 
@@ -101,6 +176,7 @@ export class FileBackedBrokerJournal {
     collaborationEvents: [],
     deliveries: new Map<string, DeliveryIntent>(),
     deliveryAttempts: new Map<string, DeliveryAttempt[]>(),
+    scoutDispatches: [],
   };
 
   private loaded = false;
@@ -116,8 +192,14 @@ export class FileBackedBrokerJournal {
       return;
     }
 
-    for (const entry of await this.readEntries()) {
+    const entries = await this.readEntries();
+    for (const entry of entries) {
       this.apply(entry);
+    }
+
+    const compacted = compactRedundantEntries(entries);
+    if (compacted.length < entries.length) {
+      await this.rewriteEntries(compacted);
     }
 
     this.loaded = true;
@@ -156,22 +238,27 @@ export class FileBackedBrokerJournal {
     return cloneSnapshot(this.state.snapshot);
   }
 
-  async appendEntries(entriesInput: BrokerJournalEntry | BrokerJournalEntry[]): Promise<void> {
+  async appendEntries(entriesInput: BrokerJournalEntry | BrokerJournalEntry[]): Promise<BrokerJournalEntry[]> {
     const entries = Array.isArray(entriesInput) ? entriesInput : [entriesInput];
     if (entries.length === 0) {
-      return;
+      return [];
     }
 
-    const payload = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+    const retained = this.selectEntriesToAppend(entries);
     this.writeQueue = this.writeQueue.then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true });
+      if (retained.length === 0) {
+        return;
+      }
+      const payload = retained.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
       await appendFile(this.filePath, payload, "utf8");
-      for (const entry of entries) {
+      for (const entry of retained) {
         this.apply(entry);
       }
     });
 
-    return this.writeQueue;
+    await this.writeQueue;
+    return retained;
   }
 
   listCollaborationRecords(options: {
@@ -218,6 +305,90 @@ export class FileBackedBrokerJournal {
           ? left.createdAt - right.createdAt
           : left.attempt - right.attempt
       ));
+  }
+
+  private async rewriteEntries(entries: BrokerJournalEntry[]): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true });
+    const payload = entries.length > 0
+      ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
+      : "";
+    await writeFile(this.filePath, payload, "utf8");
+  }
+
+  private selectEntriesToAppend(entries: BrokerJournalEntry[]): BrokerJournalEntry[] {
+    const nextSnapshot = cloneSnapshot(this.state.snapshot);
+    const retained: BrokerJournalEntry[] = [];
+
+    for (const entry of entries) {
+      if (!this.shouldAppendEntry(entry, nextSnapshot)) {
+        continue;
+      }
+      retained.push(entry);
+      this.applyToSnapshot(nextSnapshot, entry);
+    }
+
+    return retained;
+  }
+
+  private shouldAppendEntry(
+    entry: BrokerJournalEntry,
+    snapshot: RuntimeRegistrySnapshot,
+  ): boolean {
+    if (!isDedupableEntry(entry)) {
+      return true;
+    }
+
+    switch (entry.kind) {
+      case "node.upsert":
+        return !sameValue(snapshot.nodes[entry.node.id], entry.node);
+      case "actor.upsert":
+        return !sameValue(snapshot.actors[entry.actor.id], entry.actor);
+      case "agent.upsert":
+        return !sameValue(snapshot.agents[entry.agent.id], entry.agent);
+      case "agent.endpoint.upsert":
+        return !sameValue(snapshot.endpoints[entry.endpoint.id], entry.endpoint);
+      case "conversation.upsert":
+        return !sameValue(snapshot.conversations[entry.conversation.id], entry.conversation);
+      case "binding.upsert":
+        return !sameValue(snapshot.bindings[entry.binding.id], entry.binding);
+      default:
+        return true;
+    }
+  }
+
+  private applyToSnapshot(snapshot: RuntimeRegistrySnapshot, entry: BrokerJournalEntry): void {
+    switch (entry.kind) {
+      case "node.upsert":
+        snapshot.nodes[entry.node.id] = entry.node;
+        return;
+      case "actor.upsert":
+        snapshot.actors[entry.actor.id] = entry.actor;
+        return;
+      case "agent.upsert":
+        snapshot.agents[entry.agent.id] = entry.agent;
+        if (!snapshot.actors[entry.agent.id]) {
+          snapshot.actors[entry.agent.id] = {
+            id: entry.agent.id,
+            kind: entry.agent.kind,
+            displayName: entry.agent.displayName,
+            handle: entry.agent.handle,
+            labels: entry.agent.labels,
+            metadata: entry.agent.metadata,
+          };
+        }
+        return;
+      case "agent.endpoint.upsert":
+        snapshot.endpoints[entry.endpoint.id] = entry.endpoint;
+        return;
+      case "conversation.upsert":
+        snapshot.conversations[entry.conversation.id] = entry.conversation;
+        return;
+      case "binding.upsert":
+        snapshot.bindings[entry.binding.id] = entry.binding;
+        return;
+      default:
+        return;
+    }
   }
 
   private apply(entry: BrokerJournalEntry): void {
@@ -290,10 +461,21 @@ export class FileBackedBrokerJournal {
         });
         return;
       }
+      case "scout.dispatch.record":
+        this.state.scoutDispatches.push(entry.dispatch);
+        return;
       default: {
         const exhaustive: never = entry;
         return exhaustive;
       }
     }
+  }
+
+  listScoutDispatches(options: { limit?: number; askedLabel?: string } = {}): ScoutDispatchRecord[] {
+    const limit = options.limit ?? 200;
+    return [...this.state.scoutDispatches]
+      .filter((record) => !options.askedLabel || record.askedLabel === options.askedLabel)
+      .sort((left, right) => right.dispatchedAt - left.dispatchedAt)
+      .slice(0, limit);
   }
 }

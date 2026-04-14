@@ -1,6 +1,6 @@
 {
   "name": "@openscout/scout",
-  "version": "0.2.37",
+  "version": "0.2.38",
   "description": "Published Scout package that installs the `scout` command",
   "license": "UNLICENSED",
   "type": "module",

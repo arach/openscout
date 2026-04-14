@@ -26,6 +26,7 @@ import type {
   MessageMention,
   MessageRecord,
   NodeDefinition,
+  ScoutDispatchRecord,
 } from "@openscout/protocol";
 
 import {
@@ -446,10 +447,6 @@ export class SQLiteControlPlaneStore {
         );
       }
     });
-  }
-
-  setForeignKeys(enabled: boolean): void {
-    this.db.exec(`PRAGMA foreign_keys = ${enabled ? "ON" : "OFF"};`);
   }
 
   close(): void {
@@ -978,6 +975,26 @@ export class SQLiteControlPlaneStore {
     );
 
     this.recordActivityItem(this.projectFlightActivity(flight));
+  }
+
+  recordScoutDispatch(dispatch: ScoutDispatchRecord): void {
+    this.db.query(
+      `INSERT OR REPLACE INTO scout_dispatches (
+        id, kind, asked_label, detail, invocation_id, conversation_id, requester_id,
+        dispatcher_node_id, dispatched_at, payload_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    ).run(
+      dispatch.id,
+      dispatch.kind,
+      dispatch.askedLabel,
+      dispatch.detail,
+      dispatch.invocationId ?? null,
+      dispatch.conversationId ?? null,
+      dispatch.requesterId ?? null,
+      dispatch.dispatcherNodeId,
+      dispatch.dispatchedAt,
+      JSON.stringify(dispatch),
+    );
   }
 
   recordCollaborationRecord(record: CollaborationRecord): void {

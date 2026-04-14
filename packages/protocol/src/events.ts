@@ -6,6 +6,7 @@ import type { FlightRecord, InvocationRequest } from "./invocations.js";
 import type { MessageRecord } from "./messages.js";
 import type { AgentDefinition, AgentEndpoint, ActorIdentity } from "./actors.js";
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
+import type { ScoutDispatchRecord } from "./scout-dispatch.js";
 
 export interface ControlEventBase<K extends string, P> {
   id: ScoutId;
@@ -68,6 +69,10 @@ export type CollaborationEventAppendedEvent = ControlEventBase<"collaboration.ev
   event: CollaborationEvent;
 }>;
 
+export type ScoutDispatchedEvent = ControlEventBase<"scout.dispatched", {
+  dispatch: ScoutDispatchRecord;
+}>;
+
 export type ControlEvent =
   | NodeUpsertedEvent
   | ActorRegisteredEvent
@@ -81,4 +86,5 @@ export type ControlEvent =
   | DeliveryPlannedEvent
   | DeliveryAttemptedEvent
   | CollaborationUpsertedEvent
-  | CollaborationEventAppendedEvent;
+  | CollaborationEventAppendedEvent
+  | ScoutDispatchedEvent;

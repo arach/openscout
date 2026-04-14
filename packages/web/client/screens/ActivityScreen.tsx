@@ -3,6 +3,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor } from "../lib/colors.ts";
+import { renderWithMentions } from "../lib/mentions.tsx";
 import type { ActivityItem, Route } from "../lib/types.ts";
 
 const KIND_LABELS: Record<string, string> = {
@@ -27,6 +28,13 @@ const KIND_LABELS: Record<string, string> = {
 
 function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind.replace(/[._]/g, " ");
+}
+
+function kindPillVariant(kind: string): "updated" | "working" | "completed" | "failed" {
+  if (kind.includes("fail") || kind.includes("offline")) return "failed";
+  if (kind.includes("complet") || kind.includes("replied") || kind.includes("online")) return "completed";
+  if (kind.includes("work") || kind.includes("start") || kind.includes("sent")) return "working";
+  return "updated";
 }
 
 function fullTimestamp(ts: number): string {
@@ -76,11 +84,11 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                   <div className="s-activity-list-body">
                     <div className="s-activity-list-header">
                       <span className="s-activity-list-actor">{item.actorName ?? "system"}</span>
-                      <span className="s-activity-list-kind">{kindLabel(item.kind)}</span>
+                      <span className={`s-pill s-pill-${kindPillVariant(item.kind)}`}>{kindLabel(item.kind)}</span>
                       <span className="s-time">{timeAgo(item.ts)}</span>
                     </div>
                     {item.title && (
-                      <p className="s-activity-list-title">{item.title}</p>
+                      <p className="s-activity-list-title">{renderWithMentions(item.title)}</p>
                     )}
                   </div>
                 </div>
@@ -88,7 +96,7 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                 {isExpanded && (
                   <div className="s-activity-expanded">
                     {item.summary && (
-                      <p className="s-activity-expanded-summary">{item.summary}</p>
+                      <p className="s-activity-expanded-summary">{renderWithMentions(item.summary)}</p>
                     )}
                     <div className="s-activity-expanded-meta">
                       <span className="s-activity-meta-label">Event</span>

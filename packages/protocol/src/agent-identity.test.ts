@@ -3,15 +3,18 @@ import { describe, expect, test } from "bun:test";
 import {
   constructAgentAlias,
   constructAgentIdentity,
+  diagnoseAgentIdentity,
   extractAgentIdentities,
   formatAgentAlias,
   formatAgentIdentity,
   formatMinimalAgentIdentity,
+  isReservedAgentDefinitionId,
   parseAgentIdentity,
   parseAgentSelector,
   resolveAgentAlias,
   resolveAgentIdentity,
   resolveAgentSelector,
+  SCOUT_DISPATCHER_AGENT_ID,
 } from "./agent-identity.js";
 
 describe("agent identity grammar", () => {
@@ -57,12 +60,12 @@ describe("agent identity grammar", () => {
     });
   });
 
-  test("parses 3-segment positional as definitionId.nodeQualifier.workspaceQualifier", () => {
-    const result = parseAgentIdentity("@arc.main.dev");
+  test("parses 3-segment positional as definitionId.workspaceQualifier.nodeQualifier", () => {
+    const result = parseAgentIdentity("@arc.dev.mini");
     expect(result).not.toBeNull();
     expect(result!.definitionId).toBe("arc");
-    expect(result!.nodeQualifier).toBe("main");
     expect(result!.workspaceQualifier).toBe("dev");
+    expect(result!.nodeQualifier).toBe("mini");
   });
 
   test("rejects invalid and legacy-shaped identities", () => {
@@ -269,5 +272,77 @@ describe("agent identity resolution", () => {
       "@hudson.profile:dev-browser",
     );
     expect(formatMinimalAgentIdentity(candidates[5], candidates)).toBe("@hudson.node:backup-mac-mini");
+  });
+});
+
+describe("scout dispatcher reservation", () => {
+  test("reserves the scout definition id", () => {
+    expect(SCOUT_DISPATCHER_AGENT_ID).toBe("scout");
+    expect(isReservedAgentDefinitionId("scout")).toBe(true);
+    expect(isReservedAgentDefinitionId("Scout")).toBe(true);
+    expect(isReservedAgentDefinitionId("SCOUT ")).toBe(true);
+    expect(isReservedAgentDefinitionId("scoutie")).toBe(false);
+    expect(isReservedAgentDefinitionId("scout-ie")).toBe(false);
+    expect(isReservedAgentDefinitionId("")).toBe(false);
+    expect(isReservedAgentDefinitionId(null)).toBe(false);
+    expect(isReservedAgentDefinitionId(undefined)).toBe(false);
+  });
+});
+
+describe("agent identity diagnosis", () => {
+  const scoutieMiniMain = {
+    agentId: "scoutie.mini.main",
+    definitionId: "scoutie",
+    nodeQualifier: "mini",
+    workspaceQualifier: "main",
+    aliases: ["@scoutie.main.node:mini", "@scoutie"],
+  };
+  const scoutieMainMini = {
+    agentId: "scoutie.main.mini",
+    definitionId: "scoutie",
+    nodeQualifier: "mini",
+    workspaceQualifier: "main",
+    aliases: ["@scoutie.main.node:mini", "@scoutie"],
+  };
+  const arachMini = {
+    agentId: "arach.mini",
+    definitionId: "arach",
+    nodeQualifier: "mini",
+    aliases: ["@arach.node:mini", "@arach"],
+  };
+
+  test("returns resolved when exactly one candidate matches", () => {
+    const identity = parseAgentIdentity("@arach");
+    expect(identity).not.toBeNull();
+    const result = diagnoseAgentIdentity(identity!, [scoutieMiniMain, arachMini]);
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.match.agentId).toBe("arach.mini");
+    }
+  });
+
+  test("returns ambiguous when multiple exact alias matches exist", () => {
+    const identity = parseAgentIdentity("@scoutie");
+    expect(identity).not.toBeNull();
+    const result = diagnoseAgentIdentity(identity!, [scoutieMiniMain, scoutieMainMini, arachMini]);
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates.map((c) => c.agentId).sort()).toEqual([
+        "scoutie.main.mini",
+        "scoutie.mini.main",
+      ]);
+    }
+  });
+
+  test("returns unknown when no candidate matches", () => {
+    const identity = parseAgentIdentity("@nonexistent");
+    expect(identity).not.toBeNull();
+    const result = diagnoseAgentIdentity(identity!, [scoutieMiniMain, arachMini]);
+    expect(result.kind).toBe("unknown");
+  });
+
+  test("resolveAgentIdentity returns null on ambiguity (back-compat)", () => {
+    const identity = parseAgentIdentity("@scoutie");
+    expect(resolveAgentIdentity(identity!, [scoutieMiniMain, scoutieMainMini])).toBeNull();
   });
 });
