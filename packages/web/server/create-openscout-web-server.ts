@@ -97,8 +97,13 @@ export function createOpenScoutWebServer(
   app.get("/api/messages", (c) => c.json(queryRecentMessages()));
   app.get("/api/flights", (c) => {
     const agentId = c.req.query("agentId");
+    const conversationId = c.req.query("conversationId");
     const activeOnly = c.req.query("active") !== "false";
-    return c.json(queryFlights({ agentId: agentId || undefined, activeOnly }));
+    return c.json(queryFlights({
+      agentId: agentId || undefined,
+      conversationId: conversationId || undefined,
+      activeOnly,
+    }));
   });
 
   app.get("/api/user", (c) => {

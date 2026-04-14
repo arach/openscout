@@ -691,6 +691,67 @@ body { margin: 0; }
   margin-top: 1px;
 }
 
+.s-conv-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.s-conv-status-pending {
+  background: rgba(0, 102, 255, 0.06);
+  border-bottom-color: rgba(0, 102, 255, 0.12);
+}
+
+.s-conv-status-working {
+  background: rgba(34, 197, 94, 0.06);
+  border-bottom-color: rgba(34, 197, 94, 0.14);
+}
+
+.s-conv-status-offline {
+  background: rgba(17, 24, 39, 0.04);
+  border-bottom-color: rgba(17, 24, 39, 0.08);
+}
+
+.s-conv-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.s-conv-status-working .s-conv-status-dot {
+  color: var(--green);
+  animation: s-pulse 1.4s ease-in-out infinite;
+}
+
+.s-conv-status-offline .s-conv-status-dot {
+  color: var(--dim);
+}
+
+.s-conv-status-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.s-conv-status-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.s-conv-status-detail {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 /* ── Messages ── */
 
 .s-messages {
@@ -753,11 +814,67 @@ body { margin: 0; }
   justify-content: flex-end;
 }
 
+.s-msg-working {
+  max-width: 85%;
+  align-self: flex-start;
+}
+
+.s-msg-working-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px 14px 14px 4px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.04));
+  border: 1px solid rgba(34, 197, 94, 0.14);
+}
+
+.s-msg-working-copy {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.s-typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.s-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  opacity: 0.35;
+  animation: s-typing-bounce 1.1s ease-in-out infinite;
+}
+
+.s-typing-dot:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.s-typing-dot:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+@keyframes s-typing-bounce {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
 /* ── Compose bar ── */
 
 .s-compose {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 20px;
   border-top: 1px solid var(--border);
@@ -770,12 +887,18 @@ body { margin: 0; }
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: 20px;
-  padding: 8px 14px;
+  min-height: 40px;
+  max-height: 160px;
+  padding: 10px 14px;
   font-family: var(--font-sans);
   font-size: 12px;
+  line-height: 1.45;
   color: var(--ink);
   outline: none;
   transition: border-color 120ms ease;
+  resize: none;
+  overflow-y: hidden;
+  white-space: pre-wrap;
 }
 
 .s-compose-input:focus {
@@ -802,6 +925,10 @@ body { margin: 0; }
   justify-content: center;
   flex-shrink: 0;
   transition: opacity 120ms ease;
+}
+
+.s-compose-send svg {
+  display: block;
 }
 
 .s-compose-send:disabled {

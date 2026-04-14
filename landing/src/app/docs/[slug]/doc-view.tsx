@@ -78,8 +78,14 @@ function splitArcDiagrams(content: string): ContentSegment[] {
   return segments.length > 0 ? segments : [{ type: "markdown", content }];
 }
 
+const DIAGRAM_CODES: Record<string, string> = {
+  "communication-flow": "SCOUT-001-COMM",
+  "agent-lifecycle": "SCOUT-002-LIFE",
+  "mesh-topology": "SCOUT-003-MESH",
+};
+
 function formatDiagramLabel(src: string) {
-  return src.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return DIAGRAM_CODES[src] ?? `SCOUT-${src.toUpperCase().replace(/-/g, "")}`;
 }
 
 function ArcDiagramEmbed({ src }: { src: string }) {
@@ -97,20 +103,23 @@ function ArcDiagramEmbed({ src }: { src: string }) {
   }, [src]);
 
   if (error) return null;
-  if (!data) return <div className="my-8 h-[420px] animate-pulse rounded-lg" style={{ background: 'rgba(0,0,0,0.02)' }} />;
+  if (!data) return <div className="mt-8 mb-2 aspect-[10/7] animate-pulse rounded-lg" style={{ background: 'rgba(0,0,0,0.02)' }} />;
+
+  const layout = data.layout as { width: number; height: number } | undefined;
+  const aspectRatio = layout ? `${layout.width}/${layout.height}` : '10/7';
 
   return (
-    <div className="my-8 h-[420px] arc-docs-embed rounded-lg border border-black/[0.08]">
+    <div className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg" style={{ aspectRatio }}>
       <ArcDiagram
         data={data}
-        className="w-full h-full !rounded-none !border-0 !shadow-none !bg-transparent"
+        className="w-full h-full !rounded-none !border-0 !shadow-none !bg-[#fafafa]"
         mode="light"
         theme="cool"
         interactive={true}
         showArcToggle={false}
         label={formatDiagramLabel(src)}
         defaultZoom="fit"
-        maxFitZoom={0.85}
+        maxFitZoom={0.95}
         hoverEffects={{ dim: true, lift: true, glow: true, highlightEdges: true }}
       />
     </div>
@@ -139,6 +148,33 @@ export function DocView({
   const headings = useMemo(() => extractHeadings(renderedContent), [renderedContent]);
   const segments = useMemo(() => splitArcDiagrams(renderedContent), [renderedContent]);
 
+  const [activeId, setActiveId] = useState<string>("");
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    if (headings.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveId(entry.target.id);
+        }
+      },
+      { rootMargin: "-80px 0px -80% 0px" },
+    );
+    const elements = headings.map((h) => document.getElementById(h.id)).filter(Boolean);
+    elements.forEach((el) => observer.observe(el!));
+    return () => observer.disconnect();
+  }, [headings]);
+
+  useEffect(() => {
+    function onScroll() {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(max > 0 ? window.scrollY / max : 0);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#fafafa] text-[#111110]">
       {/* Header */}
@@ -155,6 +191,9 @@ export function DocView({
             </Link>
             <span className="hidden sm:block truncate">{title}</span>
           </div>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 h-[2px]">
+          <div className="h-full bg-[#111110]/20 transition-[width] duration-150" style={{ width: `${scrollProgress * 100}%` }} />
         </div>
       </header>
 
@@ -262,9 +301,9 @@ export function DocView({
                       <a
                         key={heading.id}
                         href={`#${heading.id}`}
-                        className={`block py-1 text-[13px] text-[#4c4841] transition-colors hover:text-[#111110] ${
+                        className={`block py-1 text-[13px] transition-colors hover:text-[#111110] ${
                           heading.depth === 3 ? "ml-4" : ""
-                        }`}
+                        } ${activeId === heading.id ? "text-[#111110] font-medium" : "text-[#4c4841]"}`}
                       >
                         {heading.title}
                       </a>
@@ -332,9 +371,9 @@ export function DocView({
                     <a
                       key={heading.id}
                       href={`#${heading.id}`}
-                      className={`block py-1 text-[13px] text-[#4c4841] transition-colors hover:text-[#111110] ${
+                      className={`block py-1 text-[13px] transition-colors hover:text-[#111110] ${
                         heading.depth === 3 ? "ml-3" : ""
-                      }`}
+                      } ${activeId === heading.id ? "text-[#111110] font-medium" : "text-[#4c4841]"}`}
                     >
                       {heading.title}
                     </a>

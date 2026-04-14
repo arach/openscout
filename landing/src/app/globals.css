@@ -170,17 +170,58 @@ body {
 
 /* ── arc diagram embeds in docs ── */
 
+/* diagram label — bottom left */
+.arc-docs-embed .absolute.bottom-3.left-3 {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 8px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.14em !important;
+  opacity: 0.5;
+  bottom: 16px !important;
+  left: 16px !important;
+}
+
+/* zoom controls — bottom right */
 .arc-docs-embed .absolute.bottom-3.right-3 {
-  border: none;
-  box-shadow: none;
-  background: transparent;
-  backdrop-filter: none;
+  background: rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: none !important;
+  border-radius: 5px !important;
+  backdrop-filter: blur(8px);
+  transform: scale(0.8);
+  transform-origin: bottom right;
+  opacity: 1;
+  bottom: 16px !important;
+  right: 16px !important;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3:hover {
+  opacity: 1;
+}
+
+/* zoom controls font */
+.arc-docs-embed .absolute.bottom-3.right-3 button {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  color: rgba(0, 0, 0, 0.45) !important;
 }
 
 /* ── docs markdown ── */
 
 .docs-markdown :is(h1, h2, h3, h4) {
   scroll-margin-top: 6rem;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.docs-markdown :is(h3, h4) {
+  gap: 0.375rem;
+}
+
+/* heading anchor link — breathing room and baseline alignment */
+.docs-markdown :is(h1, h2, h3, h4) > a[title="Link to this section"] {
+  flex-shrink: 0;
+  margin-left: 0;
 }
 
 .docs-markdown .hljs-keyword { color: #9a6e4a; font-weight: 500; }

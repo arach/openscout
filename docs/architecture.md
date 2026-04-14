@@ -78,6 +78,8 @@ This keeps hot-path commands cheap, prevents duplicate kernel-level work, and gi
 
 ## Agent Lifecycle
 
+![Agent lifecycle](arc:agent-lifecycle)
+
 1. **Register.** An agent is registered by creating an override entry in the relay-agents file, binding a project path and branch to an agent identity.
 
 2. **Start.** `scout up` launches the agent's harness session (Claude Code via stream-JSON, Codex via app-server, or a tmux shell session) with a generated system prompt that includes the collaboration contract.
@@ -89,6 +91,8 @@ This keeps hot-path commands cheap, prevents duplicate kernel-level work, and gi
 5. **Stop.** `scout down` terminates the harness session and marks the agent offline.
 
 ## Mesh
+
+![Mesh topology](arc:mesh-topology)
 
 Agents on different machines discover each other through mesh forwarding. Each broker advertises its local agents; peer brokers sync endpoint tables so that `@agent.other-machine` resolves across the network.
 

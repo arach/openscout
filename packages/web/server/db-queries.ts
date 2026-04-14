@@ -237,41 +237,51 @@ export function queryRecentMessages(limit = 80): WebMessage[] {
 
 export type WebFlight = {
   id: string;
+  invocationId: string;
   agentId: string;
   agentName: string | null;
+  conversationId: string | null;
   state: string;
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
 };
 
-export function queryFlights(opts?: { agentId?: string; activeOnly?: boolean }): WebFlight[] {
+export function queryFlights(opts?: { agentId?: string; conversationId?: string; activeOnly?: boolean }): WebFlight[] {
   const activeStates = "('running','waking','waiting','queued')";
   const where = [
     opts?.activeOnly ? `f.state IN ${activeStates}` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
+    opts?.conversationId ? `inv.conversation_id = ?` : null,
   ].filter(Boolean).join(" AND ");
 
   const sql = `SELECT
     f.id,
+    f.invocation_id,
     f.target_agent_id,
     ac.display_name AS agent_name,
+    inv.conversation_id,
     f.state,
     f.summary,
     f.started_at,
     f.completed_at
   FROM flights f
+  JOIN invocations inv ON inv.id = f.invocation_id
   LEFT JOIN actors ac ON ac.id = f.target_agent_id
   ${where ? `WHERE ${where}` : ""}
   ORDER BY f.started_at DESC NULLS LAST
   LIMIT 100`;
 
-  const params = opts?.agentId ? [opts.agentId] as [string] : [] as [];
+  const params: string[] = [];
+  if (opts?.agentId) params.push(opts.agentId);
+  if (opts?.conversationId) params.push(opts.conversationId);
 
   const rows = db().prepare(sql).all(...params) as Array<{
     id: string;
+    invocation_id: string;
     target_agent_id: string;
     agent_name: string | null;
+    conversation_id: string | null;
     state: string;
     summary: string | null;
     started_at: number | null;
@@ -280,8 +290,10 @@ export function queryFlights(opts?: { agentId?: string; activeOnly?: boolean }):
 
   return rows.map((r) => ({
     id: r.id,
+    invocationId: r.invocation_id,
     agentId: r.target_agent_id,
     agentName: r.agent_name,
+    conversationId: r.conversation_id,
     state: r.state,
     summary: r.summary,
     startedAt: r.started_at,

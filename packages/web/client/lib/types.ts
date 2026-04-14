@@ -70,8 +70,10 @@ export type PairingState = {
 
 export type Flight = {
   id: string;
+  invocationId: string;
   agentId: string;
   agentName: string | null;
+  conversationId: string | null;
   state: string;
   summary: string | null;
   startedAt: number | null;
