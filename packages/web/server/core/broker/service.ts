@@ -6,6 +6,7 @@ import {
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
+  extractAgentMentions,
   extractAgentSelectors,
   type FlightRecord,
   type NodeDefinition,
@@ -497,9 +498,10 @@ async function resolveMentionTargets(
   text: string,
   currentDirectory: string,
 ): Promise<{ resolved: ScoutMentionTarget[]; unresolved: string[] }> {
-  const selectors = extractAgentSelectors(text);
+  const mentions = extractAgentMentions(text);
+  const selectors = mentions.parsed;
   const resolved = new Map<string, ScoutMentionTarget>();
-  const unresolved: string[] = [];
+  const unresolved: string[] = [...mentions.unparsed];
   const candidateMap = new Map<string, AgentSelectorCandidate>();
   const endpointBackedAgentIds = [...new Set(
     Object.values(snapshot.endpoints).map((endpoint) => endpoint.agentId).filter((agentId) => agentId && agentId !== OPERATOR_ID),

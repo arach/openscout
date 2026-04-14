@@ -297,3 +297,16 @@ export async function forwardMeshCollaborationEvent(
 ): Promise<{ ok: true; duplicate?: boolean }> {
   return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/events`, bundle);
 }
+
+export async function fetchPeerAgents(
+  brokerUrl: string,
+): Promise<AgentDefinition[]> {
+  const url = `${brokerUrl.replace(/\/$/, "")}/v1/snapshot`;
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) return [];
+  const snapshot = await response.json() as { agents?: Record<string, AgentDefinition> };
+  return Object.values(snapshot.agents ?? {});
+}

@@ -34,6 +34,7 @@ import {
   forwardMeshCollaborationEvent,
   forwardMeshCollaborationRecord,
   forwardMeshInvocation,
+  fetchPeerAgents,
   forwardMeshMessage,
   type MeshCollaborationEventBundle,
   type MeshCollaborationRecordBundle,
@@ -218,6 +219,29 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
 
   for (const node of result.discovered) {
     await upsertNodeDurably(node);
+  }
+
+  // Sync agents from each discovered peer so local broker knows about remote agents.
+  // This enables @mention resolution and message forwarding across the mesh.
+  for (const node of result.discovered) {
+    if (!node.brokerUrl) continue;
+    try {
+      const peerAgents = await fetchPeerAgents(node.brokerUrl);
+      for (const agent of peerAgents) {
+        if (agent.id === nodeId) continue;
+        const remoteAgent: AgentDefinition = {
+          ...agent,
+          homeNodeId: agent.homeNodeId || node.id,
+          authorityNodeId: agent.authorityNodeId || node.id,
+        };
+        await upsertAgentDurably(remoteAgent);
+      }
+      if (peerAgents.length > 0) {
+        console.log(`[openscout-runtime] synced ${peerAgents.length} agent(s) from peer ${node.name || node.id}`);
+      }
+    } catch {
+      // Best-effort: peer may be temporarily unreachable
+    }
   }
 
   return result.discovered;

@@ -104,7 +104,8 @@ function parseSegmentedIdentity(raw: string): AgentIdentity | null {
     definitionId: definitionPart,
   };
 
-  let sawPositionalWorkspace = false;
+  // Collect positional (non-keyed) segments
+  const positional: string[] = [];
   for (const part of parts) {
     if (part.includes(":")) {
       const [rawKey, rawValue = ""] = part.split(":", 2);
@@ -126,17 +127,24 @@ function parseSegmentedIdentity(raw: string): AgentIdentity | null {
       continue;
     }
 
-    if (sawPositionalWorkspace) {
-      return null;
-    }
+    positional.push(part);
+  }
 
-    const value = normalizeAgentIdentitySegment(part);
-    if (!value) {
-      return null;
-    }
-
+  // 1 positional → workspaceQualifier  (@agent.branch)
+  // 2 positionals → nodeQualifier.workspaceQualifier  (@agent.node.branch — matches instance ID format)
+  // 3+ positionals → invalid
+  if (positional.length === 1) {
+    const value = normalizeAgentIdentitySegment(positional[0]);
+    if (!value) return null;
     next.workspaceQualifier = value;
-    sawPositionalWorkspace = true;
+  } else if (positional.length === 2) {
+    const nodeValue = normalizeAgentIdentitySegment(positional[0]);
+    const workspaceValue = normalizeAgentIdentitySegment(positional[1]);
+    if (!nodeValue || !workspaceValue) return null;
+    if (!next.nodeQualifier) next.nodeQualifier = nodeValue;
+    if (!next.workspaceQualifier) next.workspaceQualifier = workspaceValue;
+  } else if (positional.length > 2) {
+    return null;
   }
 
   return constructAgentIdentity(next, { raw });
@@ -204,21 +212,31 @@ export function constructAgentIdentity(
 }
 
 export function extractAgentIdentities(text: string): AgentIdentity[] {
+  return extractAgentMentions(text).parsed;
+}
+
+export function extractAgentMentions(text: string): { parsed: AgentIdentity[]; unparsed: string[] } {
   const matches = Array.from(
     text.matchAll(/(^|\s)@([a-z0-9][a-z0-9._/:-]*)/gi),
   );
   const identities = new Map<string, AgentIdentity>();
+  const unparsed: string[] = [];
 
   for (const match of matches) {
-    const candidate = parseAgentIdentity(match[2] ?? "");
+    const raw = match[2] ?? "";
+    const candidate = parseAgentIdentity(raw);
     if (!candidate) {
+      if (raw) unparsed.push(`@${raw}`);
       continue;
     }
 
     identities.set(candidate.label, candidate);
   }
 
-  return Array.from(identities.values());
+  return {
+    parsed: Array.from(identities.values()),
+    unparsed: Array.from(new Set(unparsed)),
+  };
 }
 
 function candidateAliases(candidate: AgentIdentityCandidate): string[] {

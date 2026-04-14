@@ -57,11 +57,19 @@ describe("agent identity grammar", () => {
     });
   });
 
+  test("parses 3-segment positional as definitionId.nodeQualifier.workspaceQualifier", () => {
+    const result = parseAgentIdentity("@arc.main.dev");
+    expect(result).not.toBeNull();
+    expect(result!.definitionId).toBe("arc");
+    expect(result!.nodeQualifier).toBe("main");
+    expect(result!.workspaceQualifier).toBe("dev");
+  });
+
   test("rejects invalid and legacy-shaped identities", () => {
     expect(parseAgentIdentity("")).toBeNull();
-    expect(parseAgentIdentity("@arc.main.dev")).toBeNull();
     expect(parseAgentIdentity("@arc.profile:")).toBeNull();
     expect(parseAgentIdentity("@arc@mini#main")).toBeNull();
+    expect(parseAgentIdentity("@arc.a.b.c")).toBeNull(); // 3+ positionals rejected
   });
 
   test("constructs canonical agent identities", () => {
