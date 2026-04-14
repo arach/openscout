@@ -1,6 +1,6 @@
 {
   "name": "@openscout/web",
-  "version": "0.2.38",
+  "version": "0.2.39",
   "description": "Standalone lightweight Scout web UI with its own bundled Bun server",
   "license": "UNLICENSED",
   "type": "module",
@@ -34,8 +34,8 @@
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
-    "@openscout/protocol": "workspace:*",
-    "@openscout/runtime": "workspace:*",
+    "@openscout/protocol": "0.2.39",
+    "@openscout/runtime": "0.2.39",
     "@trpc/server": "^11.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
