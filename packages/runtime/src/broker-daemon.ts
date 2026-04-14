@@ -163,21 +163,60 @@ type LegacyRelayMessage = {
   channel?: string;
 };
 
+// Per-invocation SSE subscribers. A single caller can watch one invocation
+// without draining the entire global event firehose.
+const invocationStreamClients = new Map<string, Set<ServerResponse>>();
+
+function invocationIdsForEvent(event: ControlEvent): string[] {
+  switch (event.kind) {
+    case "invocation.requested":
+      return [event.payload.invocation.id];
+    case "flight.updated":
+      return event.payload.flight.invocationId ? [event.payload.flight.invocationId] : [];
+    case "delivery.planned":
+      return event.payload.delivery.invocationId ? [event.payload.delivery.invocationId] : [];
+    case "delivery.attempted": {
+      const deliveryId = event.payload.attempt.deliveryId;
+      const delivery = journal.listDeliveries({ limit: 1000 }).find((d) => d.id === deliveryId);
+      return delivery?.invocationId ? [delivery.invocationId] : [];
+    }
+    case "delivery.state.changed":
+      return event.payload.delivery.invocationId ? [event.payload.delivery.invocationId] : [];
+    case "scout.dispatched":
+      return event.payload.dispatch.invocationId ? [event.payload.dispatch.invocationId] : [];
+    case "message.posted": {
+      const dispatch = (event.payload.message.metadata as { scoutDispatch?: { invocationId?: string } } | undefined)
+        ?.scoutDispatch;
+      return dispatch?.invocationId ? [dispatch.invocationId] : [];
+    }
+    default:
+      return [];
+  }
+}
+
 function streamEvent(event: ControlEvent): void {
   projection.enqueueEvent(event);
   const payload = `event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
   for (const client of eventClients) {
     client.write(payload);
   }
+  for (const invocationId of invocationIdsForEvent(event)) {
+    const subscribers = invocationStreamClients.get(invocationId);
+    if (!subscribers) continue;
+    for (const client of subscribers) {
+      client.write(payload);
+    }
+  }
 }
 
 function streamKeepAlive(): void {
-  if (eventClients.size == 0) {
-    return;
-  }
-
   for (const client of eventClients) {
     client.write(": keepalive\n\n");
+  }
+  for (const subscribers of invocationStreamClients.values()) {
+    for (const client of subscribers) {
+      client.write(": keepalive\n\n");
+    }
   }
 }
 
@@ -1924,6 +1963,7 @@ const peerDelivery: PeerDeliveryWorker = createPeerDeliveryWorker({
   recordDeliveryAttempt: recordDeliveryAttemptDurably,
   recordFlight: recordFlightDurably,
   failInvocation: failAcceptedInvocation,
+  emit: streamEvent,
 });
 
 async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -2049,6 +2089,79 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/mesh/nodes") {
     json(response, 200, runtime.snapshot().nodes);
+    return;
+  }
+
+  // Per-invocation snapshot — current state of the invocation, its flight,
+  // its deliveries, and any scout dispatch that fired for it. Callers use
+  // this to seed UI state before subscribing to the stream.
+  const invocationSnapshotMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/invocations\/([^/]+)$/)
+    : null;
+  if (invocationSnapshotMatch) {
+    const invocationId = decodeURIComponent(invocationSnapshotMatch[1] ?? "");
+    const flight = runtime.flightForInvocation(invocationId);
+    const deliveries = journal
+      .listDeliveries({ limit: 500 })
+      .filter((delivery) => delivery.invocationId === invocationId);
+    const dispatches = journal
+      .listScoutDispatches({ limit: 50 })
+      .filter((record) => record.invocationId === invocationId);
+    const invocation = knownInvocations.get(invocationId);
+    json(response, 200, {
+      invocationId,
+      invocation: invocation ?? null,
+      flight: flight ?? null,
+      deliveries,
+      dispatches,
+    });
+    return;
+  }
+
+  // Per-invocation SSE — initial snapshot frame, then every event whose
+  // payload references this invocation. Caller closes the stream when done.
+  const invocationStreamMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/invocations\/([^/]+)\/stream$/)
+    : null;
+  if (invocationStreamMatch) {
+    const invocationId = decodeURIComponent(invocationStreamMatch[1] ?? "");
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+
+    const flight = runtime.flightForInvocation(invocationId);
+    const deliveries = journal
+      .listDeliveries({ limit: 500 })
+      .filter((delivery) => delivery.invocationId === invocationId);
+    const dispatches = journal
+      .listScoutDispatches({ limit: 50 })
+      .filter((record) => record.invocationId === invocationId);
+    const invocation = knownInvocations.get(invocationId);
+    response.write(`event: snapshot\ndata: ${JSON.stringify({
+      invocationId,
+      invocation: invocation ?? null,
+      flight: flight ?? null,
+      deliveries,
+      dispatches,
+    })}\n\n`);
+
+    let subscribers = invocationStreamClients.get(invocationId);
+    if (!subscribers) {
+      subscribers = new Set();
+      invocationStreamClients.set(invocationId, subscribers);
+    }
+    subscribers.add(response);
+
+    request.on("close", () => {
+      const set = invocationStreamClients.get(invocationId);
+      if (set) {
+        set.delete(response);
+        if (set.size === 0) invocationStreamClients.delete(invocationId);
+      }
+      response.end();
+    });
     return;
   }
 
@@ -2568,6 +2681,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     for (const client of eventClients) {
       client.end();
     }
+    for (const subscribers of invocationStreamClients.values()) {
+      for (const client of subscribers) {
+        client.end();
+      }
+    }
+    invocationStreamClients.clear();
     projection.close();
     server.close(() => process.exit(0));
   });

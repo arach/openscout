@@ -15,6 +15,7 @@
 
 import type {
   AgentDefinition,
+  ControlEvent,
   DeliveryFailureReason,
   DeliveryIntent,
   FlightRecord,
@@ -96,6 +97,12 @@ export interface PeerDeliveryDeps {
   recordFlight: (flight: FlightRecord) => Promise<void>;
   /** Mark the originator-side flight as failed (terminal). */
   failInvocation: (invocation: InvocationRequest, detail: string) => Promise<void>;
+  /**
+   * Emit a control event so per-invocation stream subscribers can mirror
+   * delivery state transitions in real time. Optional — when absent, state
+   * is still durable via the journal but only observable by polling.
+   */
+  emit?: (event: ControlEvent) => void;
 
   /**
    * Forward the bundle to the receiver. Default is `forwardMeshInvocation`;
@@ -140,6 +147,22 @@ function readString(metadata: Record<string, unknown> | undefined, key: string):
 
 function createId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emitDeliveryStateChanged(
+  emit: PeerDeliveryDeps["emit"],
+  delivery: DeliveryIntent,
+  previousStatus: DeliveryIntent["status"] | undefined,
+  ts: number,
+): void {
+  if (!emit) return;
+  emit({
+    id: createId("evt"),
+    kind: "delivery.state.changed",
+    ts,
+    actorId: "system",
+    payload: { delivery, previousStatus },
+  });
 }
 
 /* ── Public API ── */
@@ -198,10 +221,35 @@ export function createPeerDeliveryWorker(
       },
     };
     await deps.recordDelivery(delivery);
+    emitDeliveryStateChanged(deps.emit, delivery, undefined, now());
     // Fire-and-forget tick so the caller's 202 path is not blocked by the
     // forward attempt. Errors here are already journalled by the worker.
     void tick();
     return delivery;
+  }
+
+  /** Update a delivery's status and emit a state-change event when the status differs. */
+  async function transition(
+    delivery: DeliveryIntent,
+    next: {
+      status: DeliveryIntent["status"];
+      metadata?: Record<string, unknown>;
+      leaseOwner?: string | null;
+      leaseExpiresAt?: number | null;
+    },
+  ): Promise<void> {
+    const previousStatus = delivery.status;
+    await deps.updateDeliveryStatus({ deliveryId: delivery.id, ...next });
+    if (next.status !== previousStatus) {
+      const merged: DeliveryIntent = {
+        ...delivery,
+        status: next.status,
+        metadata: { ...(delivery.metadata ?? {}), ...(next.metadata ?? {}) },
+        leaseOwner: next.leaseOwner ?? undefined,
+        leaseExpiresAt: next.leaseExpiresAt ?? undefined,
+      };
+      emitDeliveryStateChanged(deps.emit, merged, previousStatus, now());
+    }
   }
 
   function shouldAttempt(delivery: DeliveryIntent, currentTime: number): boolean {
@@ -226,8 +274,7 @@ export function createPeerDeliveryWorker(
         ? deps.invocationFor(delivery.invocationId)
         : undefined;
       if (!invocation) {
-        await deps.updateDeliveryStatus({
-          deliveryId: delivery.id,
+        await transition(delivery, {
           status: "failed",
           metadata: {
             failureReason: "peer_rejected",
@@ -240,8 +287,7 @@ export function createPeerDeliveryWorker(
       }
 
       if (!delivery.targetNodeId) {
-        await deps.updateDeliveryStatus({
-          deliveryId: delivery.id,
+        await transition(delivery, {
           status: "failed",
           metadata: { failureReason: "peer_rejected", failureDetail: "delivery missing targetNodeId" },
           leaseOwner: null,
@@ -257,8 +303,7 @@ export function createPeerDeliveryWorker(
         // No URL on record — peer hasn't been discovered yet. Defer until
         // a discovery cycle populates it; don't burn through the retry budget.
         const waitMs = Math.min(cfg.maxBackoffMs, 5_000);
-        await deps.updateDeliveryStatus({
-          deliveryId: delivery.id,
+        await transition(delivery, {
           status: "deferred",
           metadata: {
             failureReason: "peer_unreachable",
@@ -275,7 +320,8 @@ export function createPeerDeliveryWorker(
       const attemptNumber = attempts.length + 1;
       const startedAt = now();
 
-      // Take a lease so concurrent ticks (or peer brokers in HA) don't double-forward.
+      // Take a lease so concurrent ticks (or peer brokers in HA) don't
+      // double-forward. This does not change status, so no event fires.
       await deps.updateDeliveryStatus({
         deliveryId: delivery.id,
         status: delivery.status === "deferred" ? "deferred" : "accepted",
@@ -299,8 +345,7 @@ export function createPeerDeliveryWorker(
             duplicate: result.duplicate ?? false,
           },
         });
-        await deps.updateDeliveryStatus({
-          deliveryId: delivery.id,
+        await transition(delivery, {
           status: "peer_acked",
           metadata: {
             peerAckedAt: now(),
@@ -333,8 +378,7 @@ export function createPeerDeliveryWorker(
 
         if (reason === "peer_rejected") {
           // Terminal — config/trust problem, never auto-retry.
-          await deps.updateDeliveryStatus({
-            deliveryId: delivery.id,
+          await transition(delivery, {
             status: "failed",
             metadata: { failureReason: reason, failureDetail: detail },
             leaseOwner: null,
@@ -351,8 +395,7 @@ export function createPeerDeliveryWorker(
         const elapsed = now() - firstQueuedAt;
         if (elapsed >= cfg.retryWindowMs) {
           // Budget exhausted — give up.
-          await deps.updateDeliveryStatus({
-            deliveryId: delivery.id,
+          await transition(delivery, {
             status: "failed",
             metadata: {
               failureReason: "peer_unreachable",
@@ -371,8 +414,7 @@ export function createPeerDeliveryWorker(
         }
 
         const backoff = nextBackoffMs(attemptNumber, cfg);
-        await deps.updateDeliveryStatus({
-          deliveryId: delivery.id,
+        await transition(delivery, {
           status: "deferred",
           metadata: {
             failureReason: reason,

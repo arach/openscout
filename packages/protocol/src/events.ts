@@ -61,6 +61,11 @@ export type DeliveryAttemptedEvent = ControlEventBase<"delivery.attempted", {
   attempt: DeliveryAttempt;
 }>;
 
+export type DeliveryStateChangedEvent = ControlEventBase<"delivery.state.changed", {
+  delivery: DeliveryIntent;
+  previousStatus?: DeliveryIntent["status"];
+}>;
+
 export type CollaborationUpsertedEvent = ControlEventBase<"collaboration.upserted", {
   record: CollaborationRecord;
 }>;
@@ -85,6 +90,7 @@ export type ControlEvent =
   | FlightUpdatedEvent
   | DeliveryPlannedEvent
   | DeliveryAttemptedEvent
+  | DeliveryStateChangedEvent
   | CollaborationUpsertedEvent
   | CollaborationEventAppendedEvent
   | ScoutDispatchedEvent;
