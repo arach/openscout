@@ -165,6 +165,96 @@ function emitDeliveryStateChanged(
   });
 }
 
+/* ── Authority status mirror ──
+ *
+ * After a delivery reaches `peer_acked`, we subscribe to the authority
+ * broker's per-invocation stream and rebroadcast `flight.updated` and
+ * `delivery.state.changed` events into our own local stream so callers
+ * observing the originator see the full lifecycle.
+ */
+
+const MIRRORED_EVENT_KINDS = new Set(["flight.updated", "delivery.state.changed"]);
+const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
+
+interface StatusMirrorHandle {
+  stop: () => void;
+}
+
+function parseSseFrame(frame: string): { event: string; data: string } | undefined {
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const rawLine of frame.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("event:")) event = line.slice("event:".length).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).replace(/^\s/, ""));
+  }
+  if (dataLines.length === 0) return undefined;
+  return { event, data: dataLines.join("\n") };
+}
+
+function isTerminalFlightEvent(event: ControlEvent): boolean {
+  if (event.kind !== "flight.updated") return false;
+  const state = (event.payload as { flight?: { state?: string } })?.flight?.state;
+  return typeof state === "string" && TERMINAL_FLIGHT_STATES.has(state);
+}
+
+function startStatusMirror(args: {
+  peerUrl: string;
+  invocationId: string;
+  emit: (event: ControlEvent) => void;
+  onClose?: () => void;
+}): StatusMirrorHandle {
+  const controller = new AbortController();
+  const url = `${args.peerUrl.replace(/\/$/, "")}/v1/invocations/${encodeURIComponent(args.invocationId)}/stream`;
+
+  void (async () => {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: "text/event-stream" },
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) return;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let idx = buffer.indexOf("\n\n");
+        while (idx !== -1) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const parsed = parseSseFrame(frame);
+          if (parsed && MIRRORED_EVENT_KINDS.has(parsed.event)) {
+            try {
+              const data = JSON.parse(parsed.data) as ControlEvent;
+              args.emit(data);
+              if (isTerminalFlightEvent(data)) {
+                controller.abort();
+                break;
+              }
+            } catch {
+              // Malformed frame — skip and keep streaming.
+            }
+          }
+          idx = buffer.indexOf("\n\n");
+        }
+      }
+    } catch {
+      // Aborted or network blip — the origin's outbox state is authoritative
+      // either way; the mirror is best-effort observability.
+    } finally {
+      args.onClose?.();
+    }
+  })();
+
+  return { stop: () => controller.abort() };
+}
+
 /* ── Public API ── */
 
 export interface PeerDeliveryWorker {
@@ -201,8 +291,23 @@ export function createPeerDeliveryWorker(
   // across processes, but we also want to skip work we're actively doing in
   // this same process so a fast tick doesn't pile up.
   const inFlight = new Set<string>();
+  const statusMirrors = new Map<string, StatusMirrorHandle>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking: Promise<void> | undefined;
+
+  function ensureStatusMirror(deliveryId: string, peerUrl: string, invocationId: string): void {
+    if (!deps.emit) return;
+    if (statusMirrors.has(deliveryId)) return;
+    const handle = startStatusMirror({
+      peerUrl,
+      invocationId,
+      emit: deps.emit,
+      onClose: () => {
+        statusMirrors.delete(deliveryId);
+      },
+    });
+    statusMirrors.set(deliveryId, handle);
+  }
 
   async function enqueue(invocation: InvocationRequest, peer: NodeDefinition): Promise<DeliveryIntent> {
     const delivery: DeliveryIntent = {
@@ -350,6 +455,7 @@ export function createPeerDeliveryWorker(
           metadata: {
             peerAckedAt: now(),
             peerFlightId: result.flight?.id,
+            authorityStreamUrl: `${peerUrl.replace(/\/$/, "")}/v1/invocations/${encodeURIComponent(invocation.id)}/stream`,
           },
           leaseOwner: null,
           leaseExpiresAt: null,
@@ -357,6 +463,7 @@ export function createPeerDeliveryWorker(
         if (result.flight) {
           await deps.recordFlight(result.flight);
         }
+        ensureStatusMirror(delivery.id, peerUrl, invocation.id);
       } catch (error) {
         const reason = pickFailureReason(error);
         const detail = error instanceof Error ? error.message : String(error);
@@ -476,6 +583,14 @@ export function createPeerDeliveryWorker(
       clearInterval(timer);
       timer = undefined;
     }
+    for (const mirror of statusMirrors.values()) {
+      try {
+        mirror.stop();
+      } catch {
+        // best-effort cleanup
+      }
+    }
+    statusMirrors.clear();
   }
 
   return { enqueue, tick, notifyPeerOnline, start, stop };
