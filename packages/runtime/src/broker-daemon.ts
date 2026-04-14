@@ -227,17 +227,24 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
     if (!node.brokerUrl) continue;
     try {
       const peerAgents = await fetchPeerAgents(node.brokerUrl);
+      let syncedCount = 0;
       for (const agent of peerAgents) {
         if (agent.id === nodeId) continue;
+        // Skip agents that claim to be from our own node — stale cached copies
+        if (agent.homeNodeId === nodeId) continue;
+        // Only accept agents whose home node is the peer itself
+        const agentHome = agent.homeNodeId || node.id;
+        if (agentHome !== node.id) continue;
         const remoteAgent: AgentDefinition = {
           ...agent,
-          homeNodeId: agent.homeNodeId || node.id,
+          homeNodeId: agentHome,
           authorityNodeId: agent.authorityNodeId || node.id,
         };
         await upsertAgentDurably(remoteAgent);
+        syncedCount++;
       }
-      if (peerAgents.length > 0) {
-        console.log(`[openscout-runtime] synced ${peerAgents.length} agent(s) from peer ${node.name || node.id}`);
+      if (syncedCount > 0) {
+        console.log(`[openscout-runtime] synced ${syncedCount} agent(s) from peer ${node.name || node.id}`);
       }
     } catch {
       // Best-effort: peer may be temporarily unreachable
