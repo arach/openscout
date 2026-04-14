@@ -253,18 +253,75 @@ export function buildMeshCollaborationEventBundle(
   };
 }
 
+/**
+ * Network-level failure reaching the peer broker (DNS, TCP, TLS, abort).
+ * Originator outbox treats this as retry-able.
+ */
+export class PeerUnreachableError extends Error {
+  override readonly name = "PeerUnreachableError";
+  constructor(
+    message: string,
+    readonly url: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Peer broker responded but rejected the request (HTTP non-2xx).
+ * Originator outbox treats 5xx as retry-able and 4xx as terminal.
+ */
+export class PeerRejectedError extends Error {
+  override readonly name = "PeerRejectedError";
+  constructor(
+    message: string,
+    readonly url: string,
+    readonly status: number,
+    readonly statusText: string,
+    readonly body?: string,
+  ) {
+    super(message);
+  }
+
+  get retryable(): boolean {
+    return this.status >= 500;
+  }
+}
+
 async function postJson<TResponse>(url: string, payload: unknown): Promise<TResponse> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new PeerUnreachableError(
+      `peer broker unreachable: ${error instanceof Error ? error.message : String(error)}`,
+      url,
+      error,
+    );
+  }
 
   if (!response.ok) {
-    throw new Error(`peer broker request failed: ${response.status} ${response.statusText}`);
+    let body: string | undefined;
+    try {
+      body = await response.text();
+    } catch {
+      body = undefined;
+    }
+    throw new PeerRejectedError(
+      `peer broker rejected request: ${response.status} ${response.statusText}`,
+      url,
+      response.status,
+      response.statusText,
+      body,
+    );
   }
 
   return await response.json() as TResponse;

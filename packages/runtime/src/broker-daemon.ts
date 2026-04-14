@@ -49,6 +49,7 @@ import {
   type MeshInvocationBundle,
   type MeshMessageBundle,
 } from "./mesh-forwarding.js";
+import { createPeerDeliveryWorker, type PeerDeliveryWorker } from "./peer-delivery.js";
 import {
   ensureLocalAgentBindingOnline,
   isLocalAgentEndpointAlive,
@@ -230,6 +231,9 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
 
   for (const node of result.discovered) {
     await upsertNodeDurably(node);
+    // A previously-unreachable peer may have come back — flush any deferred
+    // outbox entries targeting it without waiting for the next backoff window.
+    peerDelivery.notifyPeerOnline(node.id);
   }
 
   // Sync agents from each discovered peer so local broker knows about remote agents.
@@ -528,6 +532,15 @@ async function recordFlightDurably(flight: FlightRecord): Promise<void> {
       async () => {
         await runtime.upsertFlight(flight);
       },
+    );
+  });
+}
+
+async function recordDeliveryDurably(delivery: DeliveryIntent): Promise<void> {
+  await runDurableWrite(async () => {
+    await commitDurableEntries(
+      { kind: "deliveries.record", deliveries: [delivery] },
+      async () => {},
     );
   });
 }
@@ -1860,24 +1873,14 @@ async function dispatchAcceptedInvocation(invocation: InvocationRequest): Promis
   }
 
   if (targetAgent.authorityNodeId && targetAgent.authorityNodeId !== nodeId) {
-    // Cross-node: forward inline for now; Issue 3 replaces this with the outbox worker.
+    // Cross-node: hand off to the outbox worker. Peer reachability is now a
+    // delivery concern (deferred ↔ accepted retries), not an HTTP error.
     const authorityNode = runtime.node(targetAgent.authorityNodeId);
-    if (!authorityNode?.brokerUrl) {
+    if (!authorityNode) {
       await failAcceptedInvocation(invocation, `authority node ${targetAgent.authorityNodeId} is not reachable`);
       return;
     }
-    try {
-      const bundle = buildMeshInvocationBundle(runtime.peek(), currentLocalNode(), invocation);
-      const result = await forwardMeshInvocation(authorityNode.brokerUrl, bundle);
-      if (result.flight) {
-        await recordFlightDurably(result.flight);
-      }
-    } catch (error) {
-      await failAcceptedInvocation(
-        invocation,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    await peerDelivery.enqueue(invocation, authorityNode);
     return;
   }
 
@@ -1907,6 +1910,21 @@ async function failAcceptedInvocation(invocation: InvocationRequest, detail: str
   await recordFlightDurably(failed);
   await postInvocationStatusMessage(invocation, failed);
 }
+
+const peerDelivery: PeerDeliveryWorker = createPeerDeliveryWorker({
+  journal,
+  snapshot: () => runtime.peek(),
+  localNode: currentLocalNode,
+  localNodeId: nodeId,
+  nodeFor: (id) => runtime.node(id),
+  agentFor: (id) => runtime.agent(id),
+  invocationFor: (id) => knownInvocations.get(id),
+  recordDelivery: recordDeliveryDurably,
+  updateDeliveryStatus: updateDeliveryStatusDurably,
+  recordDeliveryAttempt: recordDeliveryAttemptDurably,
+  recordFlight: recordFlightDurably,
+  failInvocation: failAcceptedInvocation,
+});
 
 async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const method = request.method ?? "GET";
@@ -2497,6 +2515,7 @@ const server = createServer((request, response) => {
 
 try {
   await listen(server);
+  peerDelivery.start();
   console.log(`[openscout-runtime] broker listening on ${host}:${port} (scope: ${advertiseScope}, url: ${brokerUrl})`);
   if (advertiseScope === "mesh" && isLoopbackHost(host)) {
     console.warn(`[openscout-runtime] WARNING: mesh scope bound to loopback ${host} — peers cannot reach this broker. Set OPENSCOUT_BROKER_HOST=0.0.0.0 or unset to use the mesh default.`);
@@ -2545,6 +2564,7 @@ if (Number.isFinite(discoveryIntervalMs) && discoveryIntervalMs > 0) {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    peerDelivery.stop();
     for (const client of eventClients) {
       client.end();
     }

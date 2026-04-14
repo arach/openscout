@@ -17,11 +17,27 @@ export type AgentState =
 export type VisibilityScope = "private" | "workspace" | "public" | "system";
 
 export type DeliveryStatus =
+  // Outbox lifecycle (Issue 3 of broker-three-contracts)
+  | "accepted"        // local journal write done, awaiting forward
+  | "peer_acked"      // peer broker journaled the envelope
+  | "running"         // target agent claimed the flight
+  | "completed"       // terminal success
+  | "deferred"        // within retry window — see metadata.nextAttemptAt
+  | "failed"          // terminal failure — see metadata.failureReason
+  | "cancelled"
+  // Legacy values kept for backwards-compatible journal replay
   | "pending"
   | "leased"
   | "sent"
-  | "acknowledged"
-  | "failed"
+  | "acknowledged";
+
+export type DeliveryFailureReason =
+  | "peer_unreachable"   // TCP/network failure — retry-able
+  | "peer_rejected"      // peer broker explicitly refused — not retried
+  | "agent_offline"      // peer ACK'd but target agent never claimed
+  | "timeout"
+  | "harness_error"
+  | "dispatch"           // ambiguous label — see metadata.scoutDispatch
   | "cancelled";
 
 export type DeliveryPolicy = "best_effort" | "must_ack" | "durable" | "ephemeral";
