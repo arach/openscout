@@ -208,6 +208,37 @@ body {
 
 /* ── docs markdown ── */
 
+.docs-markdown {
+  line-height: 1.6;
+}
+
+.docs-markdown p {
+  margin-bottom: 0.6em;
+}
+
+.docs-markdown h2 {
+  margin-top: 1.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.docs-markdown h3 {
+  margin-top: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.docs-markdown h4 {
+  margin-top: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.docs-markdown li {
+  margin-bottom: 0.3rem;
+}
+
+.docs-markdown :is(ul, ol) {
+  margin-bottom: 0.8rem;
+}
+
 .docs-markdown :is(h1, h2, h3, h4) {
   scroll-margin-top: 6rem;
   align-items: baseline;
@@ -216,6 +247,16 @@ body {
 
 .docs-markdown :is(h3, h4) {
   gap: 0.375rem;
+}
+
+/* code blocks — fix warm tint and faint labels */
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) {
+  background: #f4f6f8 !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) span[class*="uppercase"] {
+  color: rgba(0, 0, 0, 0.4) !important;
 }
 
 /* heading anchor link — breathing room and baseline alignment */

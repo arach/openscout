@@ -90,10 +90,64 @@ export type InboxEntry = {
   lastMessageAt: number | null;
 };
 
+/** A conversation from the sessions list (any kind, not just DMs). */
+export type SessionEntry = {
+  id: string;
+  kind: string;
+  title: string;
+  participantIds: string[];
+  agentId: string | null;
+  agentName: string | null;
+  harness: string | null;
+  currentBranch: string | null;
+  preview: string | null;
+  messageCount: number;
+  lastMessageAt: number | null;
+  workspaceRoot: string | null;
+};
+
+/** Mesh status report from the broker. */
+export type MeshStatus = {
+  brokerUrl: string;
+  health: {
+    reachable: boolean;
+    ok: boolean;
+    nodeId: string | null;
+    meshId: string | null;
+    error: string | null;
+  };
+  localNode: {
+    id: string;
+    name: string;
+    meshId?: string;
+    hostName?: string;
+    advertiseScope?: string;
+    brokerUrl?: string;
+  } | null;
+  meshId: string | null;
+  nodes: Record<string, {
+    id: string;
+    name: string;
+    meshId?: string;
+    hostName?: string;
+    advertiseScope?: string;
+    brokerUrl?: string;
+    registeredAt?: number;
+  }>;
+  tailscale: {
+    available: boolean;
+    onlineCount: number;
+    peers: Array<{ id: string; name: string; hostName?: string; addresses: string[]; online: boolean; os?: string }>;
+  };
+  warnings: string[];
+};
+
 export type Route =
   | { view: "inbox" }
   | { view: "conversation"; conversationId: string }
   | { view: "agent-info"; conversationId: string }
   | { view: "agents"; agentId?: string }
+  | { view: "sessions" }
+  | { view: "mesh" }
   | { view: "activity" }
   | { view: "settings" };

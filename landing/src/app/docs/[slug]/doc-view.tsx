@@ -109,7 +109,7 @@ function ArcDiagramEmbed({ src }: { src: string }) {
   const aspectRatio = layout ? `${layout.width}/${layout.height}` : '10/7';
 
   return (
-    <div className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg" style={{ aspectRatio }}>
+    <div className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg border border-black/[0.08]" style={{ aspectRatio }}>
       <ArcDiagram
         data={data}
         className="w-full h-full !rounded-none !border-0 !shadow-none !bg-[#fafafa]"
@@ -271,16 +271,8 @@ export function DocView({
           </div>
 
           {/* Article — content region, not a card */}
-          <article className="px-6 sm:px-10 lg:px-14 py-10">
-            <nav className="mb-6 flex items-center gap-2 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
-              <Link href="/docs" className="transition-colors hover:text-[#111110]">
-                Docs
-              </Link>
-              <ChevronRight className="h-3 w-3" />
-              <span>{currentGroup?.title ?? "Documentation"}</span>
-            </nav>
-
-            <div className="max-w-3xl pb-8">
+          <article className="px-6 sm:px-10 lg:px-14 py-6">
+            <div className="max-w-3xl">
               <h1 className="font-[family-name:var(--font-spectral)] text-3xl font-semibold tracking-[-0.02em] text-[#111110] sm:text-4xl">
                 {title}
               </h1>
@@ -313,7 +305,7 @@ export function DocView({
               </div>
             ) : null}
 
-            <div className="docs-markdown mt-10 max-w-none">
+            <div className="docs-markdown mt-2 max-w-none">
               {segments.map((seg, i) =>
                 seg.type === "arc" ? (
                   <ArcDiagramEmbed key={i} src={seg.src} />
@@ -362,7 +354,7 @@ export function DocView({
           {/* Table of Contents — rail, not card */}
           {headings.length > 0 ? (
             <aside className="hidden xl:block border-l border-black/[0.08] sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto">
-              <div className="py-10 px-5">
+              <div className="py-6 px-5">
                 <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
                   On This Page
                 </p>

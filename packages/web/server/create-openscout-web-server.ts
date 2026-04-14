@@ -22,8 +22,11 @@ import {
   queryActivity,
   queryFlights,
   queryRecentMessages,
+  querySessions,
+  querySessionById,
 } from "./db-queries.ts";
 import { sendScoutMessage } from "./core/broker/service.ts";
+import { loadMeshStatus } from "./core/mesh/service.ts";
 import { loadOpenScoutWebShellState, type OpenScoutWebShellState } from "./runtime-summary.ts";
 import { loadUserConfig, saveUserConfig, resolveOperatorName } from "@openscout/runtime/user-config";
 
@@ -104,6 +107,20 @@ export function createOpenScoutWebServer(
       conversationId: conversationId || undefined,
       activeOnly,
     }));
+  });
+
+  app.get("/api/sessions", (c) => c.json(querySessions()));
+  app.get("/api/session/:id", (c) => {
+    const session = querySessionById(c.req.param("id"));
+    return session ? c.json(session) : c.json({ error: "not found" }, 404);
+  });
+  app.get("/api/mesh", async (c) => {
+    try {
+      return c.json(await loadMeshStatus());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.get("/api/user", (c) => {

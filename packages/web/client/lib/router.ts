@@ -20,6 +20,8 @@ function routeFromPath(): Route {
     if (agentId) return { view: "agents", agentId };
     return { view: "conversation", conversationId: cid };
   }
+  if (parts[0] === "sessions") return { view: "sessions" };
+  if (parts[0] === "mesh") return { view: "mesh" };
   if (parts[0] === "activity") return { view: "activity" };
   if (parts[0] === "settings") return { view: "settings" };
   return { view: "inbox" };
@@ -31,6 +33,8 @@ function routePath(r: Route): string {
     case "conversation": return `/c/${encodeURIComponent(r.conversationId)}`;
     case "agent-info": return `/agent/${encodeURIComponent(r.conversationId)}`;
     case "agents": return r.agentId ? `/agents/${encodeURIComponent(r.agentId)}` : "/agents";
+    case "sessions": return "/sessions";
+    case "mesh": return "/mesh";
     case "activity": return "/activity";
     case "settings": return "/settings";
   }

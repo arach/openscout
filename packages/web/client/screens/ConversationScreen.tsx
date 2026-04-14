@@ -4,7 +4,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
-import type { Agent, Flight, Message, Route } from "../lib/types.ts";
+import type { Agent, Flight, Message, Route, SessionEntry } from "../lib/types.ts";
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 
@@ -238,6 +238,7 @@ export function ConversationScreen({
   navigate: (r: Route) => void;
 }) {
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -247,6 +248,7 @@ export function ConversationScreen({
   const currentFlightRef = useRef<Flight | null>(null);
 
   const agentId = agentIdFromConversation(conversationId);
+  const isDm = agentId !== null;
 
   const load = useCallback(async () => {
     setError(null);
@@ -257,6 +259,17 @@ export function ConversationScreen({
         api<Flight[]>(`/api/flights?conversationId=${encodeURIComponent(conversationId)}`),
       ]);
       setAgent(agentId ? agents.find((item) => item.id === agentId) ?? null : null);
+
+      // For non-DM conversations, fetch session metadata for title/participants
+      if (!agentId) {
+        try {
+          const meta = await api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`);
+          setSessionMeta(meta);
+        } catch {
+          // session lookup is best-effort
+        }
+      }
+
       setMessages(
         sortMessages(allMessages.filter((message) => message.conversationId === conversationId)),
       );
@@ -313,7 +326,7 @@ export function ConversationScreen({
     return flightStartedAt >= (lastAgentReplyAt ?? 0);
   }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
 
-  const agentName = agent?.name ?? agentId ?? "Agent";
+  const agentName = agent?.name ?? sessionMeta?.title ?? agentId ?? "Conversation";
   const presence = useMemo(
     () => describePresence({
       agentName,
@@ -478,14 +491,15 @@ export function ConversationScreen({
     <div className="s-conversation">
       <div
         className="s-conv-header"
-        onClick={() => navigate({ view: "agent-info", conversationId })}
+        onClick={() => isDm ? navigate({ view: "agent-info", conversationId }) : undefined}
+        style={isDm ? undefined : { cursor: "default" }}
       >
         <button
           type="button"
           className="s-back"
           onClick={(event) => {
             event.stopPropagation();
-            navigate({ view: "inbox" });
+            navigate(isDm ? { view: "inbox" } : { view: "sessions" });
           }}
         >
           &larr;
@@ -500,12 +514,13 @@ export function ConversationScreen({
           <span className="s-conv-header-name">{agentName}</span>
           <span className="s-conv-header-state">
             <span className="s-dot s-dot-sm" style={{ background: presenceColor(presence, agent?.state ?? null) }} />
-            {presence.label}
+            {isDm ? presence.label : (sessionMeta?.participantIds.filter((p) => p !== "operator").join(", ") ?? conversationId)}
           </span>
         </div>
         <span className="s-spacer" />
         {agent?.harness && <span className="s-badge">{agent.harness}</span>}
-        <span className="s-chevron" />
+        {!isDm && sessionMeta?.kind && <span className="s-badge">{sessionMeta.kind}</span>}
+        {isDm && <span className="s-chevron" />}
       </div>
 
       {presence.showStrip && (

@@ -1,5 +1,5 @@
-import React from 'react';
-import { FileText, MessageSquare, RefreshCw } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { AlertTriangle, ChevronRight, FileText, MessageSquare, RefreshCw, X } from 'lucide-react';
 
 import { OverviewView } from '@/components/overview-view';
 import { messagePreviewSnippet } from '@web/features/messages/lib/relay-utils';
@@ -213,403 +213,609 @@ export function OverviewInboxActivityView({
     return null;
   }
 
+  return <ActivityStreamView activity={activity} />;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Unified activity stream with sliding detail panel                 */
+/* ------------------------------------------------------------------ */
+
+type StreamItemKind = 'task' | 'message' | 'finding' | 'endpoint' | 'session';
+
+type StreamItem = {
+  id: string;
+  kind: StreamItemKind;
+  sortKey: number;
+  /** actor display name */
+  actor: string;
+  /** first letter(s) for avatar */
+  avatarLabel: string;
+  /** CSS color for avatar bg */
+  avatarColor: string;
+  /** event-type label shown next to actor, e.g. "replied", "ask opened" */
+  eventLabel: string;
+  /** human timestamp */
+  timestamp: string;
+  /** message / body text shown in the turn bubble */
+  body: string;
+  /** optional channel / thread context */
+  channel: string | null;
+  /** raw data for the detail panel */
+  data: unknown;
+};
+
+/** max chars shown inline before "Show more" */
+const BODY_CAP = 280;
+
+/** deterministic avatar colour from a string id */
+const AVATAR_PALETTE = [
+  '#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16',
+];
+function avatarColorFromId(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+function buildStream(activity: ActivityViewModel): StreamItem[] {
+  const items: StreamItem[] = [];
+
+  for (const task of activity.activityTasks) {
+    items.push({
+      id: `task-${task.id}`,
+      kind: 'task',
+      sortKey: task.createdAt,
+      actor: task.targetAgentName,
+      avatarLabel: task.targetAgentName.charAt(0).toUpperCase(),
+      avatarColor: avatarColorFromId(task.targetAgentId),
+      eventLabel: task.statusLabel,
+      timestamp: task.ageLabel ?? task.updatedAtLabel ?? task.createdAtLabel,
+      body: task.title + (task.statusDetail ? `\n${task.statusDetail}` : '') + (task.replyPreview ? `\n${task.replyPreview}` : ''),
+      channel: task.project,
+      data: task,
+    });
+  }
+
+  for (const message of activity.activityRecentMessages) {
+    items.push({
+      id: `msg-${message.id}`,
+      kind: 'message',
+      sortKey: message.createdAt,
+      actor: message.authorName,
+      avatarLabel: message.avatarLabel,
+      avatarColor: message.avatarColor,
+      eventLabel: message.messageClass ?? 'message',
+      timestamp: message.timestampLabel,
+      body: message.body,
+      channel: message.normalizedChannel,
+      data: message,
+    });
+  }
+
+  for (const finding of activity.activityFindings) {
+    items.push({
+      id: `finding-${finding.id}`,
+      kind: 'finding',
+      sortKey: Date.now(),
+      actor: finding.targetAgentName ?? 'System',
+      avatarLabel: (finding.targetAgentName ?? 'S').charAt(0).toUpperCase(),
+      avatarColor: finding.severity === 'error' ? '#ef4444' : '#f59e0b',
+      eventLabel: finding.severity,
+      timestamp: finding.ageLabel ?? finding.updatedAtLabel ?? '',
+      body: `${finding.title}\n${finding.summary}`,
+      channel: null,
+      data: finding,
+    });
+  }
+
+  for (const entry of activity.activityEndpoints) {
+    items.push({
+      id: `ep-${entry.endpoint.id}`,
+      kind: 'endpoint',
+      sortKey: Date.now() - 1,
+      actor: entry.endpoint.agentName,
+      avatarLabel: entry.endpoint.agentName.charAt(0).toUpperCase(),
+      avatarColor: avatarColorFromId(entry.endpoint.agentId),
+      eventLabel: entry.endpoint.stateLabel,
+      timestamp: entry.endpoint.lastActiveLabel ?? '',
+      body: entry.endpoint.activeTask ?? `${entry.endpoint.stateLabel} on ${entry.machineTitle}`,
+      channel: entry.endpoint.project,
+      data: entry,
+    });
+  }
+
+  for (const session of activity.overviewSessions) {
+    items.push({
+      id: `session-${session.id}`,
+      kind: 'session',
+      sortKey: new Date(session.lastModified).getTime() || 0,
+      actor: session.agent,
+      avatarLabel: session.agent.charAt(0).toUpperCase(),
+      avatarColor: avatarColorFromId(session.agent),
+      eventLabel: 'session',
+      timestamp: session.lastModified,
+      body: session.title + (session.preview ? `\n${session.preview}` : ''),
+      channel: session.project,
+      data: session,
+    });
+  }
+
+  items.sort((a, b) => b.sortKey - a.sortKey);
+  return items;
+}
+
+const kindLabel: Record<StreamItemKind, string> = {
+  task: 'Task',
+  message: 'Message',
+  finding: 'Finding',
+  endpoint: 'Endpoint',
+  session: 'Session',
+};
+
+function ActivityStreamView({ activity }: { activity: ActivityViewModel }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedBodies, setExpandedBodies] = useState<Set<string>>(() => new Set());
+
+  const stream = useMemo(() => buildStream(activity), [
+    activity.activityTasks,
+    activity.activityRecentMessages,
+    activity.activityFindings,
+    activity.activityEndpoints,
+    activity.overviewSessions,
+  ]);
+
+  const channels = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of stream) {
+      if (item.channel) set.add(item.channel);
+    }
+    return Array.from(set).sort();
+  }, [stream]);
+
+  const [activeChannel, setActiveChannel] = useState<string | null>(null);
+
+  const filteredStream = activeChannel
+    ? stream.filter((item) => item.channel === activeChannel)
+    : stream;
+
+  const selected = selectedId ? stream.find((item) => item.id === selectedId) ?? null : null;
+
   return (
-    <>
-      {!activity.isCollapsed && (
-        <div style={{ width: activity.sidebarWidth, ...activity.styles.sidebar }} className="relative flex flex-col h-full border-r shrink-0 z-10 overflow-hidden">
-          <div className="absolute right-[-3px] top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20 transition-colors" onMouseDown={activity.onResizeStart} />
-          <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-            <div className="text-[10px] font-mono tracking-widest uppercase" style={activity.styles.mutedText}>Activity Monitor</div>
-            <div className="text-[13px] font-semibold tracking-tight mt-1" style={activity.styles.inkText}>System-wide watch</div>
-            <div className="text-[11px] leading-[1.5] mt-1" style={activity.styles.mutedText}>
-              Asks, blockers, runtime signals, and recent coordination across Scout.
+    <div className="flex-1 flex flex-col min-w-0" style={activity.styles.surface}>
+      {/* Header */}
+      <div className="border-b shrink-0 px-6 py-3" style={{ borderBottomColor: C.border }}>
+        <div className="flex items-center justify-between gap-6">
+          <div className="flex items-center gap-4 min-w-0">
+            <h1 className="text-[18px] font-semibold tracking-tight" style={activity.styles.inkText}>
+              Activity
+            </h1>
+            <div className="flex items-center gap-3">
+              {[
+                { label: 'Running', value: activity.plansState?.runningTaskCount ?? 0 },
+                { label: 'Watchlist', value: activity.plansState?.findingCount ?? 0 },
+                { label: 'Agents', value: activity.runtime?.agentCount ?? 0 },
+              ].map((item) => (
+                <span key={item.label} className="text-[11px] font-mono" style={activity.styles.mutedText}>
+                  {item.label} <span style={activity.styles.inkText}>{item.value}</span>
+                </span>
+              ))}
             </div>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={activity.onRefresh}
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+              style={{ color: C.ink }}
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={activity.onOpenPlans}
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+              style={{ color: C.ink }}
+            >
+              <FileText size={14} />
+              Plans
+            </button>
+            <button
+              type="button"
+              onClick={activity.onOpenMessages}
+              className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
+              style={{ color: C.ink }}
+            >
+              <MessageSquare size={14} />
+              Messages
+            </button>
+          </div>
+        </div>
 
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-            <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-              <div className="text-[9px] font-mono tracking-widest uppercase mb-3" style={activity.styles.mutedText}>Right Now</div>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: 'Running', value: `${activity.plansState?.runningTaskCount ?? 0}` },
-                  { label: 'Watchlist', value: `${activity.plansState?.findingCount ?? 0}` },
-                  { label: 'Agents', value: `${activity.runtime?.agentCount ?? 0}` },
-                  { label: 'Nodes', value: `${activity.machinesState?.onlineCount ?? 0}` },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-lg border px-3 py-2" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                    <div className="text-[9px] font-mono uppercase tracking-widest" style={activity.styles.mutedText}>{item.label}</div>
-                    <div className="text-[18px] font-semibold mt-1" style={activity.styles.inkText}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
+        {/* Channel filter pills */}
+        {channels.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-3 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveChannel(null)}
+              className="text-[10px] font-medium px-2.5 py-1 rounded-full shrink-0 transition-colors"
+              style={activeChannel === null
+                ? { backgroundColor: C.accent, color: '#fff' }
+                : { backgroundColor: C.bg, color: C.muted, border: `1px solid ${C.border}` }
+              }
+            >
+              All
+            </button>
+            {channels.map((ch) => (
+              <button
+                key={ch}
+                type="button"
+                onClick={() => setActiveChannel(activeChannel === ch ? null : ch)}
+                className="text-[10px] font-medium px-2.5 py-1 rounded-full shrink-0 transition-colors"
+                style={activeChannel === ch
+                  ? { backgroundColor: C.accent, color: '#fff' }
+                  : { backgroundColor: C.bg, color: C.muted, border: `1px solid ${C.border}` }
+                }
+              >
+                {ch}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
-            <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-              <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={activity.styles.mutedText}>Lead Task</div>
-              {activity.activityLeadTask ? (
-                <>
-                  <div className="text-[12px] font-medium leading-[1.5]" style={activity.styles.inkText}>{activity.activityLeadTask.title}</div>
-                  <div className="text-[10px] mt-1 leading-[1.5]" style={activity.styles.mutedText}>
-                    {activity.activityLeadTask.targetAgentName} · {activity.activityLeadTask.statusLabel} · {activity.activityLeadTask.ageLabel ?? activity.activityLeadTask.updatedAtLabel ?? 'now'}
-                  </div>
-                  {activity.activityLeadTask.statusDetail ? (
-                    <div className="text-[11px] mt-2 leading-[1.55]" style={activity.styles.mutedText}>
-                      {activity.activityLeadTask.statusDetail}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => activity.onOpenAgentProfile(activity.activityLeadTask!.targetAgentId)}
-                    className="mt-3 text-[10px] font-medium hover:opacity-80"
-                    style={{ color: C.accent }}
+      {/* Stream + Detail */}
+      <div className="flex-1 flex min-h-0">
+        {/* Stream column — conversational layout */}
+        <div className="flex-1 overflow-y-auto min-w-0">
+          {filteredStream.length > 0 ? (
+            <div className="px-5 py-4 space-y-1">
+              {filteredStream.map((item) => {
+                const isSelected = item.id === selectedId;
+                const isExpanded = expandedBodies.has(item.id);
+                const isTruncated = item.body.length > BODY_CAP;
+                const displayBody = isTruncated && !isExpanded ? item.body.slice(0, BODY_CAP) + '...' : item.body;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-start gap-3 rounded-xl px-3 py-3 transition-colors cursor-pointer"
+                    style={{
+                      backgroundColor: isSelected ? C.accentBg : 'transparent',
+                    }}
+                    onClick={() => setSelectedId(isSelected ? null : item.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(isSelected ? null : item.id); }}}
                   >
-                    Open {activity.activityLeadTask.targetAgentName}
-                  </button>
-                </>
-              ) : (
-                <div className="text-[11px] leading-[1.5]" style={activity.styles.mutedText}>
-                  No active asks are visible yet.
-                </div>
-              )}
-            </section>
+                    {/* Avatar */}
+                    <div
+                      className="w-8 h-8 rounded-full text-white flex items-center justify-center text-[11px] font-bold shrink-0 mt-0.5"
+                      style={{ backgroundColor: item.avatarColor }}
+                    >
+                      {item.avatarLabel}
+                    </div>
 
-            <section className="rounded-xl border p-3" style={{ borderColor: C.border, backgroundColor: C.surface }}>
-              <div className="text-[9px] font-mono tracking-widest uppercase mb-2" style={activity.styles.mutedText}>View Model</div>
-              <div className="space-y-2 text-[11px] leading-[1.5]" style={activity.styles.mutedText}>
-                <div>Task-first rows, not micro chat.</div>
-                <div>Watchlist surfaces blockers and stale work.</div>
-                <div>Runtime stays visible without becoming the main story.</div>
+                    {/* Turn content */}
+                    <div className="flex-1 min-w-0">
+                      {/* Actor line */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13px] font-semibold" style={activity.styles.inkText}>{item.actor}</span>
+                        <span
+                          className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
+                          style={
+                            item.kind === 'task' ? taskStatusStyle(activity, (item.data as ActivityTask).status) :
+                            item.kind === 'finding' ? findingSeverityStyle((item.data as ActivityFinding).severity) :
+                            item.kind === 'endpoint' ? endpointStateStyle(activity, (item.data as ActivityEndpointEntry).endpoint.state) :
+                            activity.styles.tagBadge
+                          }
+                        >
+                          {item.eventLabel}
+                        </span>
+                        <span className="text-[10px] font-mono" style={activity.styles.mutedText}>{item.timestamp}</span>
+                      </div>
+
+                      {/* Body — conversational, multi-line */}
+                      <div
+                        className="text-[12px] leading-[1.7] mt-1.5 whitespace-pre-wrap"
+                        style={activity.styles.inkText}
+                      >
+                        {displayBody}
+                      </div>
+
+                      {/* Show more / less */}
+                      {isTruncated && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedBodies((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          className="text-[11px] font-medium mt-1 hover:opacity-80"
+                          style={{ color: C.accent }}
+                        >
+                          {isExpanded ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
+
+                      {/* Channel tag (subtle, below body) */}
+                      {item.channel && (
+                        <div className="mt-1.5">
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={activity.styles.tagBadge}>
+                            {item.channel}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chevron hint */}
+                    <div className="shrink-0 mt-1">
+                      <ChevronRight size={14} style={{ color: C.muted, opacity: isSelected ? 1 : 0.3 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-[12px] text-center" style={activity.styles.mutedText}>
+                No activity yet.
               </div>
-            </section>
+            </div>
+          )}
+        </div>
+
+        {/* Detail panel — slides in from the right */}
+        {selected && (
+          <div
+            className="border-l overflow-y-auto shrink-0"
+            style={{
+              width: 360,
+              borderLeftColor: C.border,
+              backgroundColor: C.bg,
+            }}
+          >
+            <div className="px-5 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
+              <span className="text-[10px] font-mono uppercase tracking-widest" style={activity.styles.mutedText}>
+                {kindLabel[selected.kind]} Details
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="shrink-0 hover:opacity-80"
+                style={{ color: C.muted }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              {selected.kind === 'task' && <TaskDetail task={selected.data as ActivityTask} activity={activity} />}
+              {selected.kind === 'message' && <MessageDetail message={selected.data as RelayMessage} activity={activity} />}
+              {selected.kind === 'finding' && <FindingDetail finding={selected.data as ActivityFinding} activity={activity} />}
+              {selected.kind === 'endpoint' && <EndpointDetail entry={selected.data as ActivityEndpointEntry} activity={activity} />}
+              {selected.kind === 'session' && <SessionDetail session={selected.data as SessionMetadata} activity={activity} />}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Style helpers                                                      */
+/* ------------------------------------------------------------------ */
+
+function taskStatusStyle(activity: ActivityViewModel, status: string): React.CSSProperties {
+  switch (status) {
+    case 'running': return activity.styles.activePill;
+    case 'failed': return { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' };
+    case 'completed': return { backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#166534' };
+    default: return activity.styles.tagBadge;
+  }
+}
+
+function findingSeverityStyle(severity: string): React.CSSProperties {
+  return severity === 'error'
+    ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
+    : { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' };
+}
+
+function endpointStateStyle(activity: ActivityViewModel, state: string): React.CSSProperties {
+  switch (state) {
+    case 'running': return activity.styles.activePill;
+    case 'waiting': return { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' };
+    default: return activity.styles.tagBadge;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Detail panels                                                      */
+/* ------------------------------------------------------------------ */
+
+function DetailRow({ label, children, styles }: { label: string; children: React.ReactNode; styles: ViewStyles }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={styles.mutedText}>{label}</div>
+      <div className="text-[12px] leading-[1.6]" style={styles.inkText}>{children}</div>
+    </div>
+  );
+}
+
+function TaskDetail({ task, activity }: { task: ActivityTask; activity: ActivityViewModel }) {
+  const { styles } = activity;
+  return (
+    <div>
+      <DetailRow label="Status" styles={styles}>
+        <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded" style={taskStatusStyle(activity, task.status)}>
+          {task.statusLabel}
+        </span>
+      </DetailRow>
+      <DetailRow label="Agent" styles={styles}>{task.targetAgentName}</DetailRow>
+      {task.project && <DetailRow label="Project" styles={styles}>{task.project}</DetailRow>}
+      <DetailRow label="Created" styles={styles}>{task.createdAtLabel}</DetailRow>
+      {task.updatedAtLabel && <DetailRow label="Updated" styles={styles}>{task.updatedAtLabel}</DetailRow>}
+      {task.ageLabel && <DetailRow label="Age" styles={styles}>{task.ageLabel}</DetailRow>}
+
+      {task.body && task.body !== task.title && (
+        <div className="mt-4">
+          <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={styles.mutedText}>Full Body</div>
+          <div className="text-[11px] leading-[1.65] rounded-lg border px-3 py-2 whitespace-pre-wrap" style={{ borderColor: C.border, backgroundColor: C.surface, ...styles.mutedText }}>
+            {task.body}
           </div>
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0" style={activity.styles.surface}>
-        <div className="border-b shrink-0 px-6 py-5" style={{ borderBottomColor: C.border }}>
-          <div className="flex items-start justify-between gap-6">
-            <div className="min-w-0">
-              <div className="text-[10px] font-mono tracking-widest uppercase mb-2" style={activity.styles.mutedText}>Activity Monitor</div>
-              <h1 className="text-[28px] font-semibold tracking-tight" style={activity.styles.inkText}>
-                Everything Scout Is Coordinating
-              </h1>
-              <p className="text-[13px] mt-2 max-w-3xl leading-[1.65]" style={activity.styles.mutedText}>
-                A system-wide operational picture of asks, handoffs, runtime signals, human interventions, and recent coordination.
-                This is the control-room view, not just the mesh view.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={activity.onRefresh}
-                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                style={{ color: C.ink }}
-              >
-                <RefreshCw size={14} />
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={activity.onOpenPlans}
-                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                style={{ color: C.ink }}
-              >
-                <FileText size={14} />
-                Open Plans
-              </button>
-              <button
-                type="button"
-                onClick={activity.onOpenMessages}
-                className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
-                style={{ color: C.ink }}
-              >
-                <MessageSquare size={14} />
-                Open Messages
-              </button>
-            </div>
-          </div>
+      <button
+        type="button"
+        onClick={() => activity.onOpenAgentProfile(task.targetAgentId)}
+        className="mt-5 text-[11px] font-medium hover:opacity-80"
+        style={{ color: C.accent }}
+      >
+        Open {task.targetAgentName}
+      </button>
+    </div>
+  );
+}
 
-          <div className="grid grid-cols-4 gap-3 mt-5">
-            {[
-              { label: 'Work In Flight', value: `${activity.plansState?.runningTaskCount ?? 0}`, detail: `${activity.plansState?.taskCount ?? 0} total asks` },
-              { label: 'Watchlist', value: `${activity.plansState?.findingCount ?? 0}`, detail: `${activity.plansState?.errorCount ?? 0} errors · ${activity.plansState?.warningCount ?? 0} warnings` },
-              { label: 'Live Runtime', value: `${activity.activityEndpoints.filter((entry) => entry.endpoint.state === 'running').length}`, detail: `${activity.runtime?.tmuxSessionCount ?? 0} sessions visible` },
-              { label: 'Recent Coordination', value: `${activity.activityRecentMessages.length}`, detail: `${activity.runtime?.messageCount ?? 0} broker messages captured` },
-            ].map((item) => (
-              <div key={item.label} className="rounded-xl border px-4 py-3" style={{ borderColor: C.border, backgroundColor: C.bg }}>
-                <div className="text-[9px] font-mono uppercase tracking-widest" style={activity.styles.mutedText}>{item.label}</div>
-                <div className="text-[24px] font-semibold mt-2" style={activity.styles.inkText}>{item.value}</div>
-                <div className="text-[11px] mt-1" style={activity.styles.mutedText}>{item.detail}</div>
-              </div>
+function MessageDetail({ message, activity }: { message: RelayMessage; activity: ActivityViewModel }) {
+  const { styles } = activity;
+  const agent = activity.interAgentAgentLookup.get(message.authorId) ?? null;
+  const counterparts = message.recipients.filter((r) => r !== message.authorId);
+
+  return (
+    <div>
+      {message.messageClass && (
+        <DetailRow label="Event" styles={styles}>
+          <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded" style={message.messageClass === 'status' ? activity.styles.activePill : activity.styles.tagBadge}>
+            {message.messageClass}
+          </span>
+        </DetailRow>
+      )}
+      <DetailRow label="Time" styles={styles}>{message.timestampLabel}</DetailRow>
+      <DetailRow label="Author" styles={styles}>{message.authorName}</DetailRow>
+      {counterparts.length > 0 && (
+        <DetailRow label="Recipients" styles={styles}>{counterparts.join(', ')}</DetailRow>
+      )}
+      {message.normalizedChannel && <DetailRow label="Channel" styles={styles}>{message.normalizedChannel}</DetailRow>}
+      <DetailRow label="Thread" styles={styles}>
+        <span className="font-mono text-[10px]">{message.conversationId}</span>
+      </DetailRow>
+
+      {agent && (
+        <button
+          type="button"
+          onClick={() => activity.onOpenAgentProfile(agent.id)}
+          className="mt-4 text-[11px] font-medium hover:opacity-80"
+          style={{ color: C.accent }}
+        >
+          Open {agent.title ?? message.authorName}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FindingDetail({ finding, activity }: { finding: ActivityFinding; activity: ActivityViewModel }) {
+  const { styles } = activity;
+  return (
+    <div>
+      <DetailRow label="Severity" styles={styles}>
+        <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded" style={findingSeverityStyle(finding.severity)}>
+          {finding.severity}
+        </span>
+      </DetailRow>
+      <DetailRow label="Kind" styles={styles}>{finding.kind}</DetailRow>
+      {finding.targetAgentName && <DetailRow label="Agent" styles={styles}>{finding.targetAgentName}</DetailRow>}
+      {finding.requesterName && <DetailRow label="Requester" styles={styles}>{finding.requesterName}</DetailRow>}
+      {finding.ageLabel && <DetailRow label="Age" styles={styles}>{finding.ageLabel}</DetailRow>}
+
+      {finding.detail && (
+        <div className="mt-4">
+          <div className="text-[9px] font-mono uppercase tracking-widest mb-1" style={styles.mutedText}>Detail</div>
+          <div className="text-[11px] leading-[1.65] rounded-lg border px-3 py-2 whitespace-pre-wrap" style={{ borderColor: C.border, backgroundColor: C.surface, ...styles.mutedText }}>
+            {finding.detail}
+          </div>
+        </div>
+      )}
+
+      {finding.targetAgentId && (
+        <button
+          type="button"
+          onClick={() => activity.onOpenAgentProfile(finding.targetAgentId!)}
+          className="mt-5 text-[11px] font-medium hover:opacity-80"
+          style={{ color: C.accent }}
+        >
+          Open {finding.targetAgentName}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EndpointDetail({ entry, activity }: { entry: ActivityEndpointEntry; activity: ActivityViewModel }) {
+  const { styles } = activity;
+  const ep = entry.endpoint;
+  return (
+    <div>
+      <DetailRow label="State" styles={styles}>
+        <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded" style={endpointStateStyle(activity, ep.state)}>
+          {ep.stateLabel}
+        </span>
+      </DetailRow>
+      <DetailRow label="Machine" styles={styles}>{entry.machineTitle}</DetailRow>
+      <DetailRow label="Transport" styles={styles}>{ep.transport ?? 'runtime'}</DetailRow>
+      {ep.project && <DetailRow label="Project" styles={styles}>{ep.project}</DetailRow>}
+      {ep.harness && <DetailRow label="Harness" styles={styles}>{ep.harness}</DetailRow>}
+      {ep.lastActiveLabel && <DetailRow label="Last Active" styles={styles}>{ep.lastActiveLabel}</DetailRow>}
+
+      <button
+        type="button"
+        onClick={() => activity.onOpenAgentProfile(ep.agentId)}
+        className="mt-5 text-[11px] font-medium hover:opacity-80"
+        style={{ color: C.accent }}
+      >
+        Open {ep.agentName}
+      </button>
+    </div>
+  );
+}
+
+function SessionDetail({ session, activity }: { session: SessionMetadata; activity: ActivityViewModel }) {
+  const { styles } = activity;
+  return (
+    <div>
+      <DetailRow label="Project" styles={styles}>{session.project}</DetailRow>
+      <DetailRow label="Agent" styles={styles}>{session.agent}</DetailRow>
+      <DetailRow label="Messages" styles={styles}>{session.messageCount}</DetailRow>
+      <DetailRow label="Created" styles={styles}>{activity.formatDate(session.createdAt)}</DetailRow>
+      <DetailRow label="Last Modified" styles={styles}>{activity.formatDate(session.lastModified)}</DetailRow>
+      {session.model && <DetailRow label="Model" styles={styles}>{session.model}</DetailRow>}
+      {session.tokens != null && <DetailRow label="Tokens" styles={styles}>{session.tokens.toLocaleString()}</DetailRow>}
+      {session.tags && session.tags.length > 0 && (
+        <DetailRow label="Tags" styles={styles}>
+          <div className="flex flex-wrap gap-1">
+            {session.tags.map((tag) => (
+              <span key={tag} className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={activity.styles.tagBadge}>{tag}</span>
             ))}
           </div>
-        </div>
+        </DetailRow>
+      )}
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] gap-4">
-            <div className="space-y-4 min-w-0">
-              <section className="border rounded-xl overflow-hidden" style={{ ...activity.styles.surface, borderColor: C.border }}>
-                <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase" style={activity.styles.mutedText}>Work Feed</div>
-                    <div className="text-[11px] mt-1" style={activity.styles.mutedText}>Task-level asks and routed work, newest first.</div>
-                  </div>
-                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={activity.styles.activePill}>
-                    {activity.activityTasks.length} rows
-                  </span>
-                </div>
-                <div className="divide-y" style={{ borderColor: C.border }}>
-                  {activity.activityTasks.length > 0 ? activity.activityTasks.map((task) => (
-                    <div key={task.id} className="px-4 py-4" style={{ backgroundColor: C.surface }}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span
-                              className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                              style={
-                                task.status === 'running'
-                                  ? activity.styles.activePill
-                                  : task.status === 'failed'
-                                    ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
-                                    : task.status === 'completed'
-                                      ? { backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#166534' }
-                                      : activity.styles.tagBadge
-                              }
-                            >
-                              {task.statusLabel}
-                            </span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={activity.styles.tagBadge}>
-                              {task.targetAgentName}
-                            </span>
-                            {task.project ? (
-                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={activity.styles.tagBadge}>
-                                {task.project}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-[13px] font-medium mt-2 leading-[1.5]" style={activity.styles.inkText}>
-                            {task.title}
-                          </div>
-                          {task.statusDetail ? (
-                            <div className="text-[11px] mt-1 leading-[1.6]" style={activity.styles.mutedText}>
-                              {task.statusDetail}
-                            </div>
-                          ) : null}
-                          {task.replyPreview ? (
-                            <div className="mt-2 rounded-lg border px-3 py-2 text-[11px] leading-[1.6]" style={{ borderColor: C.border, backgroundColor: C.bg, color: C.muted }}>
-                              {task.replyPreview}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          <span className="text-[10px] font-mono" style={activity.styles.mutedText}>
-                            {task.ageLabel ?? task.updatedAtLabel ?? task.createdAtLabel}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => activity.onOpenAgentProfile(task.targetAgentId)}
-                            className="text-[10px] font-medium hover:opacity-80"
-                            style={{ color: C.accent }}
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="px-4 py-10 text-[12px] text-center" style={activity.styles.mutedText}>
-                      No task-level activity has been indexed yet.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="border rounded-xl overflow-hidden" style={{ ...activity.styles.surface, borderColor: C.border }}>
-                <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase" style={activity.styles.mutedText}>Recent Coordination</div>
-                    <div className="text-[11px] mt-1" style={activity.styles.mutedText}>The latest human, bridge, and agent interactions crossing the system.</div>
-                  </div>
-                </div>
-                <div className="divide-y" style={{ borderColor: C.border }}>
-                  {activity.activityRecentMessages.length > 0 ? activity.activityRecentMessages.map((message) => {
-                    const agent = activity.interAgentAgentLookup.get(message.authorId) ?? null;
-                    const counterparts = message.recipients.filter((recipient) => recipient !== message.authorId).slice(0, 2).join(', ');
-                    return (
-                      <div key={message.id} className="px-4 py-3 flex items-start gap-3" style={{ backgroundColor: C.surface }}>
-                        <div
-                          className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-[10px] font-bold shrink-0"
-                          style={{ backgroundColor: message.avatarColor }}
-                        >
-                          {message.avatarLabel}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[12px] font-medium" style={activity.styles.inkText}>{message.authorName}</span>
-                            {message.messageClass ? (
-                              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={message.messageClass === 'status' ? activity.styles.activePill : activity.styles.tagBadge}>
-                                {message.messageClass}
-                              </span>
-                            ) : null}
-                            {counterparts ? (
-                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={activity.styles.tagBadge}>
-                                to {counterparts}
-                              </span>
-                            ) : null}
-                            <span className="text-[9px] font-mono" style={activity.styles.mutedText}>{message.timestampLabel}</span>
-                          </div>
-                          <div className="text-[11px] mt-1 leading-[1.6]" style={activity.styles.mutedText}>
-                            {messagePreviewSnippet(message.body, 220)}
-                          </div>
-                        </div>
-                        {agent ? (
-                          <button
-                            type="button"
-                            onClick={() => activity.onOpenAgentProfile(agent.id)}
-                            className="text-[10px] font-medium shrink-0 hover:opacity-80"
-                            style={{ color: C.accent }}
-                          >
-                            Open
-                          </button>
-                        ) : null}
-                      </div>
-                    );
-                  }) : (
-                    <div className="px-4 py-10 text-[12px] text-center" style={activity.styles.mutedText}>
-                      No coordination history has been captured yet.
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-
-            <div className="space-y-4 min-w-0">
-              <section className="border rounded-xl overflow-hidden" style={{ ...activity.styles.surface, borderColor: C.border }}>
-                <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderBottomColor: C.border }}>
-                  <div>
-                    <div className="text-[10px] font-mono tracking-widest uppercase" style={activity.styles.mutedText}>Watchlist</div>
-                    <div className="text-[11px] mt-1" style={activity.styles.mutedText}>Errors and warnings that may need cleanup or intervention.</div>
-                  </div>
-                  <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={activity.activityFindings.some((finding) => finding.severity === 'error') ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' } : activity.styles.tagBadge}>
-                    {activity.activityFindings.length}
-                  </span>
-                </div>
-                <div className="divide-y" style={{ borderColor: C.border }}>
-                  {activity.activityFindings.length > 0 ? activity.activityFindings.map((finding) => (
-                    <div key={finding.id} className="px-4 py-3" style={{ backgroundColor: C.surface }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[12px] font-medium" style={activity.styles.inkText}>{finding.title}</div>
-                        <span
-                          className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded shrink-0"
-                          style={finding.severity === 'error'
-                            ? { backgroundColor: 'rgba(248, 113, 113, 0.14)', color: '#b91c1c' }
-                            : { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' }}
-                        >
-                          {finding.severity}
-                        </span>
-                      </div>
-                      <div className="text-[11px] mt-1 leading-[1.55]" style={activity.styles.mutedText}>{finding.summary}</div>
-                      {finding.detail ? (
-                        <div className="text-[10px] mt-2 leading-[1.5]" style={activity.styles.mutedText}>{finding.detail}</div>
-                      ) : null}
-                    </div>
-                  )) : (
-                    <div className="px-4 py-10 text-[12px] text-center" style={activity.styles.mutedText}>
-                      No blockers are visible right now.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="border rounded-xl overflow-hidden" style={{ ...activity.styles.surface, borderColor: C.border }}>
-                <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                  <div className="text-[10px] font-mono tracking-widest uppercase" style={activity.styles.mutedText}>Runtime Signals</div>
-                  <div className="text-[11px] mt-1" style={activity.styles.mutedText}>Active and waiting endpoints across the current mesh.</div>
-                </div>
-                <div className="divide-y" style={{ borderColor: C.border }}>
-                  {activity.activityEndpoints.length > 0 ? activity.activityEndpoints.map((entry) => (
-                    <div key={entry.endpoint.id} className="px-4 py-3 flex items-start justify-between gap-3" style={{ backgroundColor: C.surface }}>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[12px] font-medium" style={activity.styles.inkText}>{entry.endpoint.agentName}</span>
-                          <span
-                            className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded"
-                            style={
-                              entry.endpoint.state === 'running'
-                                ? activity.styles.activePill
-                                : entry.endpoint.state === 'waiting'
-                                  ? { backgroundColor: 'rgba(245, 158, 11, 0.14)', color: '#b45309' }
-                                  : activity.styles.tagBadge
-                            }
-                          >
-                            {entry.endpoint.stateLabel}
-                          </span>
-                        </div>
-                        <div className="text-[10px] mt-1" style={activity.styles.mutedText}>
-                          {entry.machineTitle} · {entry.endpoint.transport ?? 'runtime'} · {entry.endpoint.project ?? 'no project'}
-                        </div>
-                        {entry.endpoint.activeTask ? (
-                          <div className="text-[11px] mt-2 leading-[1.55]" style={activity.styles.mutedText}>
-                            {entry.endpoint.activeTask}
-                          </div>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => activity.onOpenAgentProfile(entry.endpoint.agentId)}
-                        className="text-[10px] font-medium shrink-0 hover:opacity-80"
-                        style={{ color: C.accent }}
-                      >
-                        Open
-                      </button>
-                    </div>
-                  )) : (
-                    <div className="px-4 py-10 text-[12px] text-center" style={activity.styles.mutedText}>
-                      No runtime endpoints are visible yet.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="border rounded-xl overflow-hidden" style={{ ...activity.styles.surface, borderColor: C.border }}>
-                <div className="px-4 py-3 border-b" style={{ borderBottomColor: C.border }}>
-                  <div className="text-[10px] font-mono tracking-widest uppercase" style={activity.styles.mutedText}>Recent Sessions</div>
-                  <div className="text-[11px] mt-1" style={activity.styles.mutedText}>Fresh session history from local workspaces and harnesses.</div>
-                </div>
-                <div className="divide-y" style={{ borderColor: C.border }}>
-                  {activity.overviewSessions.length > 0 ? activity.overviewSessions.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      onClick={() => activity.onOpenSessionDetail(session)}
-                      className="w-full text-left px-4 py-3 transition-opacity hover:opacity-90"
-                      style={{ backgroundColor: C.surface }}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-[12px] font-medium truncate" style={activity.styles.inkText}>{session.title}</div>
-                          <div className="text-[10px] mt-1" style={activity.styles.mutedText}>{session.project} · {session.agent}</div>
-                        </div>
-                        <span className="text-[10px] font-mono shrink-0" style={activity.styles.mutedText}>{activity.formatDate(session.lastModified)}</span>
-                      </div>
-                    </button>
-                  )) : (
-                    <div className="px-4 py-10 text-[12px] text-center" style={activity.styles.mutedText}>
-                      No session history is available yet.
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-
-        <div className="h-7 border-t flex items-center px-4 shrink-0" style={{ backgroundColor: C.bg, borderTopColor: C.border }}>
-          <span className="text-[9px] font-mono" style={activity.styles.mutedText}>
-            System-wide activity view: tasks first, watchlist second, runtime and coordination side by side
-          </span>
-        </div>
-      </div>
-    </>
+      <button
+        type="button"
+        onClick={() => activity.onOpenSessionDetail(session)}
+        className="mt-5 text-[11px] font-medium hover:opacity-80"
+        style={{ color: C.accent }}
+      >
+        Open Session
+      </button>
+    </div>
   );
 }

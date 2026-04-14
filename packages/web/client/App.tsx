@@ -7,6 +7,8 @@ import { SettingsScreen } from "./screens/SettingsScreen.tsx";
 import { ActivityScreen } from "./screens/ActivityScreen.tsx";
 import { AgentInfoScreen } from "./screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
+import { SessionsScreen } from "./screens/SessionsScreen.tsx";
+import { MeshScreen } from "./screens/MeshScreen.tsx";
 import { HomeScreen } from "./screens/HomeScreen.tsx";
 import type { Agent, Message, Route } from "./lib/types.ts";
 
@@ -36,6 +38,24 @@ function ActivityIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  );
+}
+
+function SessionsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function MeshIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
     </svg>
   );
 }
@@ -71,6 +91,10 @@ function MainPanel({
       return <SettingsScreen navigate={navigate} />;
     case "agents":
       return <AgentsScreen navigate={navigate} selectedAgentId={route.agentId} />;
+    case "sessions":
+      return <SessionsScreen navigate={navigate} />;
+    case "mesh":
+      return <MeshScreen navigate={navigate} />;
     case "activity":
       return <ActivityScreen navigate={navigate} />;
     default:
@@ -103,7 +127,7 @@ export function App() {
   useBrokerEvents(load);
 
   // On mobile, sidebar hides when a content view is open
-  const showingContent = route.view !== "inbox";
+  const showingContent = route.view !== "inbox" && route.view !== "sessions" && route.view !== "mesh";
 
   return (
     <div className={`s-app${showingContent ? " s-app-content-open" : ""}`}>
@@ -134,11 +158,27 @@ export function App() {
           </button>
           <button
             type="button"
+            className={`s-nav-item${route.view === "sessions" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "sessions" })}
+          >
+            <SessionsIcon />
+            <span>Sessions</span>
+          </button>
+          <button
+            type="button"
             className={`s-nav-item${route.view === "activity" ? " s-nav-item-active" : ""}`}
             onClick={() => navigate({ view: "activity" })}
           >
             <ActivityIcon />
             <span>Activity</span>
+          </button>
+          <button
+            type="button"
+            className={`s-nav-item${route.view === "mesh" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "mesh" })}
+          >
+            <MeshIcon />
+            <span>Mesh</span>
           </button>
         </nav>
 

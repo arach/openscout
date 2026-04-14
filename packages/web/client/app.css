@@ -1484,6 +1484,147 @@ body { margin: 0; }
   }
 }
 
+/* ── Sessions screen ── */
+
+.s-sessions-screen,
+.s-mesh-screen {
+  padding: 20px 24px;
+}
+
+.s-sessions-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.s-page-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.s-session-participants {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+/* ── Filter bar ── */
+
+.s-filter-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.s-filter-chip {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.s-filter-chip:hover {
+  background: var(--bg);
+}
+
+.s-filter-chip-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.s-filter-chip-active:hover {
+  background: var(--accent);
+}
+
+/* ── Mesh screen ── */
+
+.s-mesh-status-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 0;
+  margin-bottom: 16px;
+}
+
+.s-mesh-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.s-mesh-warning {
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: rgba(245, 158, 11, 0.08);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.s-mesh-section {
+  margin-bottom: 20px;
+}
+
+.s-mesh-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.s-mesh-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.s-mesh-node {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+.s-mesh-node-local {
+  border-color: var(--accent);
+  border-width: 1.5px;
+}
+
+.s-mesh-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-mesh-node-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.s-mesh-node-detail {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+  padding-left: 14px;
+}
+
 /* ── Scrollbar ── */
 
 ::-webkit-scrollbar { width: 6px; }
