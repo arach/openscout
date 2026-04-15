@@ -62,6 +62,14 @@ function insertStubsForOrphanedFkTargets(
   const referencedActors = new Set<string>();
   const referencedConversations = new Set<string>();
 
+  // Older / partial journal entries occasionally lack fields like
+  // `homeNodeId` or `originNodeId`. Don't propagate those undefineds
+  // into the stub upserts — they'd fail NOT NULL on stub creation
+  // and abort the whole replay.
+  const addRef = (set: Set<string>, value: string | null | undefined): void => {
+    if (typeof value === "string" && value.length > 0) set.add(value);
+  };
+
   for (const entry of entries) {
     switch (entry.kind) {
       case "node.upsert":
@@ -72,46 +80,42 @@ function insertStubsForOrphanedFkTargets(
         break;
       case "agent.upsert":
         providedActors.add(entry.agent.id);
-        referencedNodes.add(entry.agent.homeNodeId);
-        referencedNodes.add(entry.agent.authorityNodeId);
+        addRef(referencedNodes, entry.agent.homeNodeId);
+        addRef(referencedNodes, entry.agent.authorityNodeId);
         break;
       case "agent.endpoint.upsert":
-        referencedNodes.add(entry.endpoint.nodeId);
+        addRef(referencedNodes, entry.endpoint.nodeId);
         break;
       case "conversation.upsert":
         providedConversations.add(entry.conversation.id);
-        referencedNodes.add(entry.conversation.authorityNodeId);
+        addRef(referencedNodes, entry.conversation.authorityNodeId);
         break;
       case "message.record":
-        referencedNodes.add(entry.message.originNodeId);
-        referencedActors.add(entry.message.actorId);
-        referencedConversations.add(entry.message.conversationId);
-        if (entry.message.threadConversationId) {
-          referencedConversations.add(entry.message.threadConversationId);
-        }
+        addRef(referencedNodes, entry.message.originNodeId);
+        addRef(referencedActors, entry.message.actorId);
+        addRef(referencedConversations, entry.message.conversationId);
+        addRef(referencedConversations, entry.message.threadConversationId);
         break;
       case "invocation.record":
-        referencedActors.add(entry.invocation.requesterId);
-        referencedNodes.add(entry.invocation.requesterNodeId);
-        if (entry.invocation.targetNodeId) {
-          referencedNodes.add(entry.invocation.targetNodeId);
-        }
+        addRef(referencedActors, entry.invocation.requesterId);
+        addRef(referencedNodes, entry.invocation.requesterNodeId);
+        addRef(referencedNodes, entry.invocation.targetNodeId);
         break;
       case "flight.record":
-        referencedActors.add(entry.flight.requesterId);
+        addRef(referencedActors, entry.flight.requesterId);
         break;
       case "collaboration.record":
-        referencedActors.add(entry.record.createdById);
-        if (entry.record.ownerId) referencedActors.add(entry.record.ownerId);
-        if (entry.record.nextMoveOwnerId) referencedActors.add(entry.record.nextMoveOwnerId);
-        if (entry.record.conversationId) referencedConversations.add(entry.record.conversationId);
+        addRef(referencedActors, entry.record.createdById);
+        addRef(referencedActors, entry.record.ownerId);
+        addRef(referencedActors, entry.record.nextMoveOwnerId);
+        addRef(referencedConversations, entry.record.conversationId);
         break;
       case "collaboration.event.record":
-        referencedActors.add(entry.event.actorId);
+        addRef(referencedActors, entry.event.actorId);
         break;
       case "deliveries.record":
         for (const d of entry.deliveries) {
-          if (d.targetNodeId) referencedNodes.add(d.targetNodeId);
+          addRef(referencedNodes, d.targetNodeId);
         }
         break;
       default:
@@ -218,19 +222,59 @@ function applyJournalEntryToStore(
   }
 }
 
+/**
+ * Apply each entry independently. A single bad entry (NOT NULL / FK
+ * violation from a malformed historical journal record) must not be
+ * allowed to abort the batch — otherwise the caller invalidates the
+ * whole store and the next write triggers a full re-replay that hits
+ * the same entry again, degrading the projection forever.
+ */
 function applyJournalEntriesToStore(
   store: SQLiteControlPlaneStore,
   entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
+  onSkip?: (entry: BrokerJournalEntry, error: unknown) => void,
 ): ThreadEventEnvelope[] {
   const threadEvents: ThreadEventEnvelope[] = [];
   for (const entry of normalizeEntries(entriesInput)) {
-    threadEvents.push(...applyJournalEntryToStore(store, entry));
+    try {
+      threadEvents.push(...applyJournalEntryToStore(store, entry));
+    } catch (error) {
+      onSkip?.(entry, error);
+    }
   }
   return threadEvents;
 }
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const skippedEntryReasons = new Set<string>();
+
+function reportSkippedEntry(entry: BrokerJournalEntry, error: unknown): void {
+  const reason = formatError(error);
+  const key = `${entry.kind}:${reason}`;
+  if (skippedEntryReasons.has(key)) return;
+  skippedEntryReasons.add(key);
+  console.warn(
+    `[broker] sqlite projection skipped malformed ${entry.kind} entry: ${reason}`,
+  );
+}
+
+/**
+ * Errors that mean the store itself is unusable (closed db, disk full,
+ * locked db, schema mismatch). These must invalidate the store so the
+ * next call rebuilds it. Per-entry constraint violations are NOT in
+ * this set — those are skipped.
+ */
+function isFatalStoreError(error: unknown): boolean {
+  const msg = formatError(error).toLowerCase();
+  if (msg.includes("disk i/o")) return true;
+  if (msg.includes("database is locked")) return true;
+  if (msg.includes("database disk image is malformed")) return true;
+  if (msg.includes("no such table")) return true;
+  if (msg.includes("readonly database")) return true;
+  return false;
 }
 
 export class RecoverableSQLiteProjection {
@@ -267,9 +311,13 @@ export class RecoverableSQLiteProjection {
       }
 
       try {
-        applyJournalEntriesToStore(store, entries);
+        applyJournalEntriesToStore(store, entries, reportSkippedEntry);
       } catch (error) {
-        this.invalidateStore(error);
+        if (isFatalStoreError(error)) {
+          this.invalidateStore(error);
+        } else {
+          reportSkippedEntry({ kind: "unknown" } as never, error);
+        }
       }
     });
   }
@@ -329,9 +377,13 @@ export class RecoverableSQLiteProjection {
       }
 
       try {
-        return applyJournalEntriesToStore(store, entries);
+        return applyJournalEntriesToStore(store, entries, reportSkippedEntry);
       } catch (error) {
-        this.invalidateStore(error);
+        if (isFatalStoreError(error)) {
+          this.invalidateStore(error);
+        } else {
+          reportSkippedEntry({ kind: "unknown" } as never, error);
+        }
         return [];
       }
     });
@@ -429,7 +481,14 @@ export class RecoverableSQLiteProjection {
       entries.sort((a, b) => replayTier(a) - replayTier(b));
       insertStubsForOrphanedFkTargets(store, entries);
       for (const entry of entries) {
-        applyJournalEntryToStore(store, entry);
+        try {
+          applyJournalEntryToStore(store, entry);
+        } catch (error) {
+          if (isFatalStoreError(error)) {
+            throw error;
+          }
+          reportSkippedEntry(entry, error);
+        }
       }
       this.store = store;
       this.lastUnavailableReason = null;
