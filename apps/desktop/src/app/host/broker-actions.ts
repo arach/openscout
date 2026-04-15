@@ -23,6 +23,7 @@ import {
   loadResolvedRelayAgents,
   readOpenScoutSettings,
   resolveRelayAgentConfig,
+  SCOUT_AGENT_ID,
 } from "@openscout/runtime/setup";
 import { runRuntimeBrokerService } from "./runtime-service-client.ts";
 
@@ -93,7 +94,6 @@ const SCOUT_BROKER_OPERATOR_ID = "operator";
 const SCOUT_SHARED_CHANNEL_ID = "channel.shared";
 const SCOUT_VOICE_CHANNEL_ID = "channel.voice";
 const SCOUT_SYSTEM_CHANNEL_ID = "channel.system";
-const SCOUT_AGENT_ID = "scout";
 
 function resolveCurrentDirectory(input?: string): string {
   return input?.trim() || process.cwd();

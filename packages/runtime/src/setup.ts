@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 
 import {
+  BUILT_IN_AGENT_DEFINITION_IDS,
   formatAgentSelector,
   parseAgentSelector,
   normalizeAgentSelectorSegment,
@@ -338,7 +339,6 @@ const LEGACY_DEFAULT_TELEGRAM_CONVERSATION_ID = "channel.shared";
 const DEFAULT_TELEGRAM_CONVERSATION_ID = SCOUT_PRIMARY_CONVERSATION_ID;
 const SETTINGS_VERSION = 1;
 const PROJECT_CONFIG_VERSION = 1;
-const BUILT_IN_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const PROJECT_SCAN_SKIP_DIRECTORIES = new Set([
   ".git",
   ".hg",
@@ -725,7 +725,7 @@ export function buildRelayAgentInstance(agentId: string, projectRoot: string): R
   const nodeQualifier = resolveNodeQualifier();
   const { workspaceQualifier, branch } = resolveWorkspaceQualifier(projectRoot);
   return {
-    id: [agentId, nodeQualifier, workspaceQualifier].filter(Boolean).join("."),
+    id: [agentId, workspaceQualifier, nodeQualifier].filter(Boolean).join("."),
     selector: formatAgentSelector({ definitionId: agentId, nodeQualifier, workspaceQualifier }),
     defaultSelector: formatAgentSelector({ definitionId: agentId }),
     nodeQualifier,
@@ -1716,9 +1716,7 @@ export async function readRelayAgentOverrides(): Promise<Record<string, RelayAge
     Object.entries(agents).map(([agentId, record]) => {
       const definitionId = normalizeAgentId(record.definitionId || record.agentId || agentId);
       const projectRoot = normalizePath(record.projectRoot);
-      const concreteAgentId = BUILT_IN_AGENT_IDS.has(definitionId)
-        ? definitionId
-        : buildRelayAgentInstance(definitionId, projectRoot).id;
+      const concreteAgentId = buildRelayAgentInstance(definitionId, projectRoot).id;
       const defaultHarness = normalizeManagedHarness(
         typeof record.defaultHarness === "string"
           ? record.defaultHarness
@@ -1761,9 +1759,7 @@ export async function writeRelayAgentOverrides(overrides: Record<string, RelayAg
     Object.entries(overrides).map(([agentId, record]) => {
       const definitionId = normalizeAgentId(record.definitionId || record.agentId || agentId);
       const projectRoot = normalizePath(record.projectRoot);
-      const concreteAgentId = BUILT_IN_AGENT_IDS.has(definitionId)
-        ? definitionId
-        : buildRelayAgentInstance(definitionId, projectRoot).id;
+      const concreteAgentId = buildRelayAgentInstance(definitionId, projectRoot).id;
       const defaultHarness = normalizeManagedHarness(
         typeof record.defaultHarness === "string"
           ? record.defaultHarness
@@ -2545,7 +2541,7 @@ export async function loadResolvedRelayAgents(options: {
       ? await resolveManifestBackedAgent(projectRoot, manifest, settings, override)
       : await resolveInferredAgent(projectRoot, settings, override);
 
-    if (!resolvedAgent.agentId || BUILT_IN_AGENT_IDS.has(resolvedAgent.agentId)) {
+    if (!resolvedAgent.agentId || BUILT_IN_AGENT_DEFINITION_IDS.has(resolvedAgent.definitionId)) {
       continue;
     }
 
@@ -2556,7 +2552,7 @@ export async function loadResolvedRelayAgents(options: {
 
   const configuredAgents = dedupedResolvedAgents.filter((agent) => agent.registrationKind === "configured");
   const builtInOverrides = Object.fromEntries(
-    Object.entries(overrides).filter(([agentId]) => BUILT_IN_AGENT_IDS.has(agentId)),
+    Object.entries(overrides).filter(([, record]) => record.definitionId ? BUILT_IN_AGENT_DEFINITION_IDS.has(record.definitionId) : false),
   );
   const nextOverrides = {
     ...builtInOverrides,
@@ -2691,16 +2687,17 @@ export async function ensureScoutRelayAgentConfigured(options: {
 } = {}): Promise<RelayAgentOverride> {
   const settings = await readOpenScoutSettings({ currentDirectory: options.currentDirectory });
   const overrides = await readRelayAgentOverrides();
-  const existing = overrides[SCOUT_AGENT_ID];
   const resolvedProjectRoot = options.projectRoot
     ? normalizePath(options.projectRoot)
     : options.currentDirectory
       ? (await findNearestProjectRoot(options.currentDirectory)) ?? normalizePath(options.currentDirectory)
       : normalizePath(process.cwd());
+  const qualifiedAgentId = buildRelayAgentInstance(SCOUT_AGENT_ID, resolvedProjectRoot).id;
+  const existing = overrides[qualifiedAgentId] ?? overrides[SCOUT_AGENT_ID];
 
   const nextOverride: RelayAgentOverride = {
     ...existing,
-    agentId: SCOUT_AGENT_ID,
+    agentId: qualifiedAgentId,
     definitionId: SCOUT_AGENT_ID,
     displayName: "Scout",
     projectName: "OpenScout",
@@ -2713,7 +2710,7 @@ export async function ensureScoutRelayAgentConfigured(options: {
     defaultHarness: "claude",
     harnessProfiles: buildHarnessProfiles({
       projectRoot: resolvedProjectRoot,
-      sessionKey: SCOUT_AGENT_ID,
+      sessionKey: qualifiedAgentId,
       sessionPrefix: settings.agents.sessionPrefix,
       defaultHarness: "claude",
       profiles: existing?.harnessProfiles,
@@ -2730,8 +2727,11 @@ export async function ensureScoutRelayAgentConfigured(options: {
   };
   nextOverride.launchArgs = nextOverride.harnessProfiles?.claude?.launchArgs ?? [];
 
-  if (JSON.stringify(existing) !== JSON.stringify(nextOverride)) {
-    overrides[SCOUT_AGENT_ID] = nextOverride;
+  if (overrides[SCOUT_AGENT_ID]) {
+    delete overrides[SCOUT_AGENT_ID];
+  }
+  if (JSON.stringify(overrides[qualifiedAgentId]) !== JSON.stringify(nextOverride)) {
+    overrides[qualifiedAgentId] = nextOverride;
     await writeRelayAgentOverrides(overrides);
   }
 

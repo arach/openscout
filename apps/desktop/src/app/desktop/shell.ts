@@ -11,6 +11,7 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
+import { BUILT_IN_AGENT_DEFINITION_IDS } from "@openscout/protocol";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
@@ -77,7 +78,6 @@ import {
 } from "./shell-utils.ts";
 
 const OPERATOR_ID = "operator";
-const BUILT_IN_ROLE_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const RECENT_AGENT_ACTIVITY_WINDOW_SECONDS = 60 * 60 * 24 * 30;
 const RECONCILE_OFFLINE_WAIT_SECONDS = 60 * 3;
 const RECONCILE_NO_FOLLOW_UP_SECONDS = 60 * 10;
@@ -426,7 +426,7 @@ function visibleRelayAgentIds(
 ): Set<string> {
   const visible = new Set<string>([
     ...configuredAgentIds,
-    ...Array.from(BUILT_IN_ROLE_AGENT_IDS),
+    ...Array.from(BUILT_IN_AGENT_DEFINITION_IDS),
   ]);
   const cutoff = Math.floor(Date.now() / 1000) - RECENT_AGENT_ACTIVITY_WINDOW_SECONDS;
 

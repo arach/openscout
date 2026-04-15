@@ -67,6 +67,18 @@ export const normalizeAgentSelectorSegment = normalizeAgentIdentitySegment;
 
 export const SCOUT_DISPATCHER_AGENT_ID = "scout";
 
+export const BUILT_IN_AGENT_DEFINITION_IDS: ReadonlySet<string> = new Set([
+  SCOUT_DISPATCHER_AGENT_ID,
+  "builder",
+  "reviewer",
+  "research",
+]);
+
+export function isBuiltInAgentDefinitionId(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return BUILT_IN_AGENT_DEFINITION_IDS.has(normalizeAgentIdentitySegment(value));
+}
+
 const RESERVED_AGENT_DEFINITION_IDS: ReadonlySet<string> = new Set([
   SCOUT_DISPATCHER_AGENT_ID,
 ]);

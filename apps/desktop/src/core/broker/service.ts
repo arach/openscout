@@ -17,6 +17,7 @@ import {
   type AgentState,
   type ConversationBinding,
   type ConversationDefinition,
+  BUILT_IN_AGENT_DEFINITION_IDS,
   type ControlEvent,
   type CollaborationRecord,
   type MessageRecord,
@@ -205,7 +206,6 @@ const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
 const DEFAULT_BROKER_HOST = "127.0.0.1";
 const DEFAULT_BROKER_PORT = 65535;
-const BUILT_IN_SCOUT_AGENT_IDS = new Set([SCOUT_AGENT_ID, "builder", "reviewer", "research"]);
 
 function buildScoutBrokerUrlFromEnv(): string {
   const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
@@ -1621,7 +1621,10 @@ async function loadConfiguredAgentIds(): Promise<Set<string>> {
     const overrides = await readRelayAgentOverrides();
     return new Set(
       Object.entries(overrides)
-        .filter(([agentId]) => !BUILT_IN_SCOUT_AGENT_IDS.has(agentId))
+        .filter(([agentId, record]) => {
+          const defId = record.definitionId ?? agentId;
+          return !BUILT_IN_AGENT_DEFINITION_IDS.has(defId);
+        })
         .map(([agentId]) => agentId),
     );
   } catch {

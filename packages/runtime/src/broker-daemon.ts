@@ -65,6 +65,7 @@ import {
   resolveAdvertiseScope,
   resolveBrokerHost,
 } from "./broker-service.js";
+import { readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -252,7 +253,13 @@ const systemActor: ActorIdentity = {
   },
 };
 
+async function migrateUnqualifiedRelayAgentKeys(): Promise<void> {
+  const canonical = await readRelayAgentOverrides();
+  await writeRelayAgentOverrides(canonical);
+}
+
 async function bootstrapRegisteredLocalAgents(): Promise<void> {
+  await migrateUnqualifiedRelayAgentKeys();
   await syncRegisteredLocalAgents();
   await ensureCoreLocalAgentsOnline();
 }
@@ -273,18 +280,21 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
     peerDelivery.notifyPeerOnline(node.id);
   }
 
-  // Sync agents from each discovered peer so local broker knows about remote agents.
-  // This enables @mention resolution and message forwarding across the mesh.
-  for (const node of result.discovered) {
+  const peersToSync = new Map<string, NodeDefinition>();
+  for (const node of result.discovered) peersToSync.set(node.id, node);
+  for (const node of Object.values(runtime.snapshot().nodes)) {
+    if (node.id === nodeId || !node.brokerUrl) continue;
+    peersToSync.set(node.id, node);
+  }
+
+  for (const node of peersToSync.values()) {
     if (!node.brokerUrl) continue;
     try {
       const peerAgents = await fetchPeerAgents(node.brokerUrl);
       let syncedCount = 0;
       for (const agent of peerAgents) {
         if (agent.id === nodeId) continue;
-        // Skip agents that claim to be from our own node — stale cached copies
         if (agent.homeNodeId === nodeId) continue;
-        // Only accept agents whose home node is the peer itself
         const agentHome = agent.homeNodeId || node.id;
         if (agentHome !== node.id) continue;
         const remoteAgent: AgentDefinition = {
@@ -1108,6 +1118,9 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
     }
 
     const agent = snapshot.agents[endpoint.agentId];
+    if (agent?.authorityNodeId && agent.authorityNodeId !== nodeId) {
+      continue;
+    }
     const replacementAgentId = staleLocalAgentReplacementId(
       typeof agent?.definitionId === "string" ? agent.definitionId : null,
       activeAgentIdsByDefinition,
@@ -1134,6 +1147,9 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
 
   for (const agent of Object.values(snapshot.agents)) {
     if (activeAgentIds.has(agent.id) || !isGeneratedLocalAgentMetadata(agent.metadata)) {
+      continue;
+    }
+    if (agent.authorityNodeId && agent.authorityNodeId !== nodeId) {
       continue;
     }
 

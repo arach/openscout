@@ -13,7 +13,7 @@ import type {
   AgentHarness,
   InvocationRequest,
 } from "@openscout/protocol";
-import { normalizeAgentSelectorSegment } from "@openscout/protocol";
+import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import {
   ensureClaudeStreamJsonAgentOnline,
@@ -60,7 +60,6 @@ import {
 } from "./local-agent-template.js";
 import { buildManagedAgentShellExports } from "./managed-agent-environment.js";
 
-const BUILT_IN_LOCAL_AGENT_IDS = new Set(["scout", "builder", "reviewer", "research"]);
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
 
@@ -1540,7 +1539,7 @@ export async function resolveLocalAgentByName(name: string): Promise<ResolvedAge
 
   const overrides = await readRelayAgentOverrides();
   for (const [id, override] of Object.entries(overrides)) {
-    if (BUILT_IN_LOCAL_AGENT_IDS.has(id)) continue;
+    if (BUILT_IN_AGENT_DEFINITION_IDS.has(id)) continue;
     const defId = override.definitionId ?? id;
     if (defId === normalized || normalizeAgentSelectorSegment(override.projectName ?? "") === normalized) {
       return { agentId: id, definitionId: defId, projectRoot: override.projectRoot };
@@ -1556,7 +1555,7 @@ export async function listLocalAgents(options: {
   const overrides = await readRelayAgentOverrides();
 
   return Object.entries(overrides)
-    .filter(([agentId]) => !BUILT_IN_LOCAL_AGENT_IDS.has(agentId))
+    .filter(([agentId]) => !BUILT_IN_AGENT_DEFINITION_IDS.has(agentId))
     .map(([agentId, override]) => (
       localAgentStatusFromRecord(
         agentId,
@@ -1589,7 +1588,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const findMatchForRoot = (root: string): { agentId: string; override: RelayAgentOverride } | null => {
     let fallback: { agentId: string; override: RelayAgentOverride } | null = null;
     for (const [id, override] of Object.entries(overrides)) {
-      if (BUILT_IN_LOCAL_AGENT_IDS.has(id)) continue;
+      if (BUILT_IN_AGENT_DEFINITION_IDS.has(id)) continue;
       if (!override.projectRoot) continue;
       if (normalizeProjectPath(override.projectRoot) !== root) continue;
       if (requestedDefinitionId && override.definitionId === requestedDefinitionId) {
@@ -1957,7 +1956,7 @@ export async function loadRegisteredLocalAgentBindings(
 }
 
 export async function inferLocalAgentBinding(agentId: string, nodeId: string): Promise<LocalAgentBinding | null> {
-  if (!agentId || BUILT_IN_LOCAL_AGENT_IDS.has(agentId)) {
+  if (!agentId || BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
     return null;
   }
 
@@ -2000,7 +1999,7 @@ export async function ensureLocalAgentBindingOnline(
     return registeredBinding;
   }
 
-  if (BUILT_IN_LOCAL_AGENT_IDS.has(agentId)) {
+  if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
     return null;
   }
 
