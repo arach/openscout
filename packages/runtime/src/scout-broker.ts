@@ -11,6 +11,11 @@ import {
   type AgentState,
   type ControlEvent,
   type MessageRecord,
+  type ThreadEventEnvelope,
+  type ThreadSnapshot,
+  type ThreadWatchOpenRequest,
+  type ThreadWatchOpenResponse,
+  type ThreadWatchRenewResponse,
 } from "@openscout/protocol";
 
 import {
@@ -144,6 +149,17 @@ export type ScoutWatchOptions = {
   onMessage: (message: ScoutBrokerMessageRecord) => void;
 };
 
+export type ScoutThreadWatchOptions = {
+  baseUrl?: string;
+  conversationId: string;
+  watcherNodeId: string;
+  watcherId: string;
+  afterSeq?: number;
+  leaseMs?: number;
+  signal?: AbortSignal;
+  onEvent: (event: ThreadEventEnvelope) => void;
+};
+
 export type ScoutWhoRegistrationKind = "broker" | "configured" | "discovered";
 
 export type ScoutWhoEntry = {
@@ -220,6 +236,27 @@ function generateMessageId(): string {
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+function nextSseBlock(buffer: string): { block: string; rest: string } | null {
+  const lfIndex = buffer.indexOf("\n\n");
+  const crlfIndex = buffer.indexOf("\r\n\r\n");
+
+  if (lfIndex === -1 && crlfIndex === -1) {
+    return null;
+  }
+
+  if (crlfIndex === -1 || (lfIndex !== -1 && lfIndex < crlfIndex)) {
+    return {
+      block: buffer.slice(0, lfIndex),
+      rest: buffer.slice(lfIndex + 2),
+    };
+  }
+
+  return {
+    block: buffer.slice(0, crlfIndex),
+    rest: buffer.slice(crlfIndex + 4),
+  };
 }
 
 function titleCaseName(value: string): string {
@@ -1161,13 +1198,12 @@ export async function watchScoutMessages(options: ScoutWatchOptions): Promise<vo
 
       buffer += decoder.decode(value, { stream: true });
       while (true) {
-        const delimiterIndex = buffer.indexOf("\n\n");
-        if (delimiterIndex === -1) {
+        const next = nextSseBlock(buffer);
+        if (!next) {
           break;
         }
-        const block = buffer.slice(0, delimiterIndex);
-        buffer = buffer.slice(delimiterIndex + 2);
-        handleBlock(block);
+        buffer = next.rest;
+        handleBlock(next.block);
       }
     }
   } catch (error) {
@@ -1178,6 +1214,187 @@ export async function watchScoutMessages(options: ScoutWatchOptions): Promise<vo
   } finally {
     if (options.signal) {
       options.signal.removeEventListener("abort", abort);
+    }
+  }
+}
+
+export async function openScoutThreadWatch(
+  input: ThreadWatchOpenRequest & { baseUrl?: string },
+): Promise<ThreadWatchOpenResponse> {
+  const baseUrl = input.baseUrl ?? resolveScoutBrokerUrl();
+  return brokerPostJson<ThreadWatchOpenResponse>(baseUrl, "/v1/thread-watches/open", {
+    conversationId: input.conversationId,
+    watcherNodeId: input.watcherNodeId,
+    watcherId: input.watcherId,
+    afterSeq: input.afterSeq,
+    leaseMs: input.leaseMs,
+  });
+}
+
+export async function renewScoutThreadWatch(
+  input: { baseUrl?: string; watchId: string; leaseMs?: number },
+): Promise<ThreadWatchRenewResponse> {
+  const baseUrl = input.baseUrl ?? resolveScoutBrokerUrl();
+  return brokerPostJson<ThreadWatchRenewResponse>(baseUrl, "/v1/thread-watches/renew", {
+    watchId: input.watchId,
+    leaseMs: input.leaseMs,
+  });
+}
+
+export async function closeScoutThreadWatch(
+  input: { baseUrl?: string; watchId: string; reason?: string },
+): Promise<void> {
+  const baseUrl = input.baseUrl ?? resolveScoutBrokerUrl();
+  await brokerPostJson<{ ok: boolean }>(baseUrl, "/v1/thread-watches/close", {
+    watchId: input.watchId,
+    reason: input.reason,
+  });
+}
+
+export async function replayScoutThreadEvents(input: {
+  baseUrl?: string;
+  conversationId: string;
+  afterSeq?: number;
+  limit?: number;
+}): Promise<ThreadEventEnvelope[]> {
+  const baseUrl = input.baseUrl ?? resolveScoutBrokerUrl();
+  const search = new URLSearchParams();
+  if (typeof input.afterSeq === "number" && Number.isFinite(input.afterSeq) && input.afterSeq > 0) {
+    search.set("afterSeq", String(input.afterSeq));
+  }
+  if (typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0) {
+    search.set("limit", String(input.limit));
+  }
+  const suffix = search.size > 0 ? `?${search.toString()}` : "";
+  return brokerReadJson<ThreadEventEnvelope[]>(
+    baseUrl,
+    `/v1/conversations/${encodeURIComponent(input.conversationId)}/thread-events${suffix}`,
+  );
+}
+
+export async function loadScoutThreadSnapshot(input: {
+  baseUrl?: string;
+  conversationId: string;
+}): Promise<ThreadSnapshot> {
+  const baseUrl = input.baseUrl ?? resolveScoutBrokerUrl();
+  return brokerReadJson<ThreadSnapshot>(
+    baseUrl,
+    `/v1/conversations/${encodeURIComponent(input.conversationId)}/thread-snapshot`,
+  );
+}
+
+export async function watchScoutThread(options: ScoutThreadWatchOptions): Promise<void> {
+  const baseUrl = options.baseUrl ?? resolveScoutBrokerUrl();
+  const watch = await openScoutThreadWatch({
+    baseUrl,
+    conversationId: options.conversationId,
+    watcherNodeId: options.watcherNodeId,
+    watcherId: options.watcherId,
+    afterSeq: options.afterSeq,
+    leaseMs: options.leaseMs,
+  });
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      options.signal.addEventListener("abort", abort, { once: true });
+    }
+  }
+
+  const renewEveryMs = Math.max(5_000, Math.floor((watch.leaseExpiresAt - Date.now()) / 2));
+  const renewTimer = setInterval(() => {
+    void renewScoutThreadWatch({
+      baseUrl,
+      watchId: watch.watchId,
+      leaseMs: options.leaseMs,
+    }).catch(() => {});
+  }, renewEveryMs);
+  renewTimer.unref?.();
+
+  try {
+    const response = await fetch(new URL(`/v1/thread-watches/${encodeURIComponent(watch.watchId)}/stream`, baseUrl), {
+      headers: {
+        accept: "text/event-stream",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`/v1/thread-watches/${watch.watchId}/stream returned ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const handleBlock = (block: string) => {
+      const trimmed = block.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      let eventName = "";
+      const dataLines: string[] = [];
+      for (const line of trimmed.split("\n")) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice("event:".length).trim();
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          dataLines.push(line.slice("data:".length).trim());
+        }
+      }
+
+      if (eventName !== "thread.event" || dataLines.length === 0) {
+        return;
+      }
+
+      let event: ThreadEventEnvelope;
+      try {
+        event = JSON.parse(dataLines.join("\n")) as ThreadEventEnvelope;
+      } catch {
+        return;
+      }
+
+      options.onEvent(event);
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      while (true) {
+        const next = nextSseBlock(buffer);
+        if (!next) {
+          break;
+        }
+        buffer = next.rest;
+        handleBlock(next.block);
+      }
+    }
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === "AbortError";
+    if (!isAbort) {
+      throw error;
+    }
+  } finally {
+    clearInterval(renewTimer);
+    if (options.signal) {
+      options.signal.removeEventListener("abort", abort);
+    }
+    try {
+      await closeScoutThreadWatch({
+        baseUrl,
+        watchId: watch.watchId,
+        reason: controller.signal.aborted ? "aborted" : "stream_closed",
+      });
+    } catch {
+      // Best-effort close.
     }
   }
 }

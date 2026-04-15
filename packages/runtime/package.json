@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.39",
+  "version": "0.2.40",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -86,7 +86,7 @@
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
-    "@openscout/protocol": "0.2.39",
+    "@openscout/protocol": "workspace:*",
     "smol-toml": "^1.6.1"
   },
   "publishConfig": {

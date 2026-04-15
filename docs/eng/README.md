@@ -1,0 +1,21 @@
+# Engineering Docs
+
+This folder is the home for engineering-facing design docs, proposals, and
+implementation specs.
+
+## What Goes Here
+
+- proposals for new broker, protocol, runtime, or product architecture
+- design specs that are detailed enough to implement against
+- tradeoff documents for significant engineering decisions
+
+## Conventions
+
+- keep proposal-style docs in this folder
+- prefer numbered proposal filenames like `sco-001-*.md`
+- write specs so they can stand on their own without chat context
+- keep product marketing or user-facing docs elsewhere under `docs/`
+
+## Current Proposals
+
+- [sco-001-authority-thread-events-proposal.md](./sco-001-authority-thread-events-proposal.md)

@@ -1,4 +1,4 @@
-export const CONTROL_PLANE_SCHEMA_VERSION = 1;
+export const CONTROL_PLANE_SCHEMA_VERSION = 2;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -229,6 +229,27 @@ CREATE TABLE IF NOT EXISTS events (
   payload_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS thread_events (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  authority_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  actor_id TEXT REFERENCES actors(id) ON DELETE SET NULL,
+  ts INTEGER NOT NULL,
+  payload_json TEXT NOT NULL,
+  notification_json TEXT,
+  UNIQUE (conversation_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS thread_cursors (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  authority_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  last_applied_seq INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, authority_node_id)
+);
+
 CREATE TABLE IF NOT EXISTS scout_dispatches (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -281,6 +302,10 @@ CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
   ON collaboration_events (record_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_kind_ts
   ON events (kind, ts);
+CREATE INDEX IF NOT EXISTS idx_thread_events_conversation_seq
+  ON thread_events (conversation_id, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_thread_events_conversation_ts
+  ON thread_events (conversation_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_agent_ts
   ON activity_items (agent_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_actor_ts

@@ -1,0 +1,8 @@
+/* Tailwind utilities scoped to @arach/arc.
+ * Arc ships with Tailwind class strings in its JS bundle and expects the host
+ * to provide the matching utility CSS. We point Tailwind v4 directly at Arc's
+ * compiled lib so only the classes it uses get generated — no bleed into the
+ * rest of the app.
+ */
+@import "tailwindcss";
+@source "../node_modules/@arach/arc/lib/arc.es.js";

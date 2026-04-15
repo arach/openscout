@@ -13,3 +13,4 @@ export * from "./scout-dispatch.js";
 export * from "./deliveries.js";
 export * from "./transports.js";
 export * from "./events.js";
+export * from "./thread-events.js";

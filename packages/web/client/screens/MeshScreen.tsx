@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
+import { MeshTopologyView } from "./MeshTopologyView.tsx";
 
 export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
@@ -51,44 +52,61 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
 
   const nodes = Object.values(mesh.nodes);
   const localId = mesh.localNode?.id;
+  const localHostName = mesh.localNode?.hostName?.toLowerCase();
   const remoteNodes = nodes.filter((n) => n.id !== localId);
+  const externalTailscalePeers = mesh.tailscale.peers.filter((p) => {
+    const host = p.hostName?.toLowerCase();
+    if (!host) return true;
+    if (host === "localhost") return false;
+    if (localHostName && (host === localHostName || host.startsWith(`${localHostName.split(".")[0]}.`))) return false;
+    return true;
+  });
 
   return (
     <div className="s-mesh-screen">
       <div className="s-sessions-header">
         <h2 className="s-page-title">Mesh</h2>
         <span className="s-meta">
-          {nodes.length} node{nodes.length !== 1 ? "s" : ""}
-          {mesh.tailscale.available ? ` · ${mesh.tailscale.onlineCount} Tailscale peers` : ""}
+          {remoteNodes.length} peer{remoteNodes.length !== 1 ? "s" : ""}
+          {externalTailscalePeers.length > 0 ? ` · ${externalTailscalePeers.filter((p) => p.online).length}/${externalTailscalePeers.length} tailnet` : ""}
         </span>
       </div>
 
-      {/* Status card */}
-      <div className="s-mesh-status-card">
-        <div className="s-home-card-row">
-          <span className="s-home-card-row-label">Broker</span>
-          <span className="s-home-card-row-value">
+      {/* Hero: this broker's identity */}
+      {mesh.localNode && (
+        <div className="s-mesh-hero">
+          <div className="s-mesh-hero-head">
             <span className="s-dot" style={{ background: mesh.health.reachable ? "var(--green)" : "var(--red)" }} />
-            {mesh.health.reachable ? "Online" : "Unreachable"}
-          </span>
-        </div>
-        {mesh.localNode && (
-          <div className="s-home-card-row">
-            <span className="s-home-card-row-label">Local Node</span>
-            <span className="s-home-card-row-value">{mesh.localNode.name}</span>
+            <span className="s-mesh-hero-title">{mesh.localNode.name}</span>
+            <span className={`s-badge s-badge-${mesh.localNode.advertiseScope === "mesh" ? "ok" : "warn"}`}>
+              {mesh.localNode.advertiseScope ?? "unknown"}
+            </span>
           </div>
-        )}
-        {mesh.meshId && (
-          <div className="s-home-card-row">
-            <span className="s-home-card-row-label">Mesh ID</span>
-            <span className="s-home-card-row-value s-meta">{mesh.meshId}</span>
+          <div className="s-mesh-hero-grid">
+            <div className="s-mesh-hero-field">
+              <span className="s-mesh-hero-label">node id</span>
+              <code className="s-mesh-hero-value">{mesh.localNode.id}</code>
+            </div>
+            <div className="s-mesh-hero-field">
+              <span className="s-mesh-hero-label">mesh</span>
+              <code className="s-mesh-hero-value">{mesh.meshId ?? "—"}</code>
+            </div>
+            <div className="s-mesh-hero-field">
+              <span className="s-mesh-hero-label">broker url</span>
+              <code className="s-mesh-hero-value">{mesh.localNode.brokerUrl ?? mesh.brokerUrl}</code>
+            </div>
+            {mesh.localNode.hostName && (
+              <div className="s-mesh-hero-field">
+                <span className="s-mesh-hero-label">host</span>
+                <code className="s-mesh-hero-value">{mesh.localNode.hostName}</code>
+              </div>
+            )}
           </div>
-        )}
-        <div className="s-home-card-row">
-          <span className="s-home-card-row-label">Broker URL</span>
-          <span className="s-home-card-row-value s-meta">{mesh.brokerUrl}</span>
         </div>
-      </div>
+      )}
+
+      {/* Topology */}
+      <MeshTopologyView mesh={mesh} />
 
       {/* Warnings */}
       {mesh.warnings.length > 0 && (
@@ -99,53 +117,33 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         </div>
       )}
 
-      {/* Nodes */}
+      {/* Remote peers in this mesh */}
       <div className="s-mesh-section">
         <h3 className="s-mesh-section-title">
-          Nodes
-          <span className="s-meta" style={{ marginLeft: 8 }}>{nodes.length}</span>
+          Peers in {mesh.meshId ?? "mesh"}
+          <span className="s-meta" style={{ marginLeft: 8 }}>{remoteNodes.length}</span>
         </h3>
 
-        {nodes.length === 0 ? (
+        {remoteNodes.length === 0 ? (
           <div className="s-empty" style={{ textAlign: "center" }}>
-            <p>No nodes registered</p>
+            <p>No peers discovered yet.</p>
           </div>
         ) : (
           <div className="s-mesh-nodes">
-            {/* Local node first */}
-            {mesh.localNode && (
-              <div className="s-mesh-node s-mesh-node-local">
-                <div className="s-mesh-node-header">
-                  <span className="s-dot" style={{ background: "var(--green)" }} />
-                  <span className="s-mesh-node-name">{mesh.localNode.name}</span>
-                  <span className="s-badge">local</span>
-                </div>
-                {mesh.localNode.hostName && (
-                  <div className="s-mesh-node-detail">{mesh.localNode.hostName}</div>
-                )}
-                {mesh.localNode.brokerUrl && (
-                  <div className="s-mesh-node-detail s-meta">{mesh.localNode.brokerUrl}</div>
-                )}
-              </div>
-            )}
-
-            {/* Remote nodes */}
             {remoteNodes.map((node) => (
               <div key={node.id} className="s-mesh-node">
                 <div className="s-mesh-node-header">
                   <span className="s-dot" style={{ background: "var(--muted)" }} />
                   <span className="s-mesh-node-name">{node.name}</span>
-                  <span className="s-badge">remote</span>
+                  <span className="s-badge">{node.advertiseScope ?? "remote"}</span>
                 </div>
-                {node.hostName && (
-                  <div className="s-mesh-node-detail">{node.hostName}</div>
-                )}
+                <div className="s-mesh-node-detail s-meta"><code>{node.id}</code></div>
                 {node.brokerUrl && (
-                  <div className="s-mesh-node-detail s-meta">{node.brokerUrl}</div>
+                  <div className="s-mesh-node-detail s-meta"><code>{node.brokerUrl}</code></div>
                 )}
-                {node.registeredAt && (
+                {node.lastSeenAt && (
                   <div className="s-mesh-node-detail s-meta">
-                    Registered {timeAgo(node.registeredAt)}
+                    Seen {timeAgo(node.lastSeenAt)}
                   </div>
                 )}
               </div>
@@ -154,27 +152,26 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         )}
       </div>
 
-      {/* Tailscale peers */}
-      {mesh.tailscale.available && (
+      {/* External Tailscale peers (excluding self) */}
+      {externalTailscalePeers.length > 0 && (
         <div className="s-mesh-section">
           <h3 className="s-mesh-section-title">
-            Tailscale Peers
+            Tailnet
             <span className="s-meta" style={{ marginLeft: 8 }}>
-              {mesh.tailscale.onlineCount} online
+              {externalTailscalePeers.filter((p) => p.online).length}/{externalTailscalePeers.length} online
             </span>
           </h3>
 
           <div className="s-mesh-nodes">
-            {mesh.tailscale.peers.map((peer) => (
+            {externalTailscalePeers.map((peer) => (
               <div key={peer.id} className="s-mesh-node">
                 <div className="s-mesh-node-header">
                   <span className="s-dot" style={{ background: peer.online ? "var(--green)" : "var(--dim)" }} />
                   <span className="s-mesh-node-name">{peer.hostName || peer.name}</span>
                   {peer.os && <span className="s-badge">{peer.os}</span>}
-                  {peer.online && <span className="s-badge">online</span>}
                 </div>
                 {peer.addresses?.[0] && (
-                  <div className="s-mesh-node-detail s-meta">{peer.addresses[0]}</div>
+                  <div className="s-mesh-node-detail s-meta"><code>{peer.addresses[0]}</code></div>
                 )}
               </div>
             ))}

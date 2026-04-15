@@ -1,6 +1,6 @@
 {
   "name": "@openscout/web",
-  "version": "0.2.39",
+  "version": "0.2.40",
   "description": "Standalone lightweight Scout web UI with its own bundled Bun server",
   "license": "UNLICENSED",
   "type": "module",
@@ -25,17 +25,21 @@
     "access": "public"
   },
   "dependencies": {
+    "@arach/arc": "^0.4.1",
+    "lucide-react": "^0.577.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "uqr": "^0.1.2"
   },
   "devDependencies": {
     "@hono/trpc-server": "^0.4.2",
+    "@tailwindcss/vite": "^4.1.18",
+    "tailwindcss": "^4.1.18",
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
-    "@openscout/protocol": "0.2.39",
-    "@openscout/runtime": "0.2.39",
+    "@openscout/protocol": "workspace:*",
+    "@openscout/runtime": "workspace:*",
     "@trpc/server": "^11.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",

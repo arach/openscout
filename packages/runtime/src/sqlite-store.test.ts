@@ -97,6 +97,64 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
+  test("derives replayable thread events and summary snapshots for summary conversations", () => {
+    const store = createStore();
+
+    try {
+      store.upsertNode({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "Test node",
+        advertiseScope: "local",
+        registeredAt: Date.now(),
+      });
+      store.upsertActor({
+        id: "operator",
+        kind: "person",
+        displayName: "Operator",
+      });
+      store.upsertConversation({
+        id: "conv-summary",
+        kind: "channel",
+        title: "Summary",
+        visibility: "workspace",
+        shareMode: "summary",
+        authorityNodeId: "node-1",
+        participantIds: ["operator"],
+      });
+
+      store.recordMessage({
+        id: "msg-summary-1",
+        conversationId: "conv-summary",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "hello from a summary conversation",
+        visibility: "workspace",
+        policy: "durable",
+        createdAt: Date.now(),
+      });
+
+      const threadEvents = store.listThreadEvents({ conversationId: "conv-summary" });
+      expect(threadEvents).toHaveLength(1);
+      expect(threadEvents[0]?.seq).toBe(1);
+      expect(threadEvents[0]?.kind).toBe("message.posted");
+      expect((threadEvents[0]?.payload as { message?: { summary?: string; body?: string } }).message?.summary).toBe(
+        "hello from a summary conversation",
+      );
+      expect((threadEvents[0]?.payload as { message?: { body?: string } }).message?.body).toBeUndefined();
+
+      const snapshot = store.getThreadSnapshot("conv-summary");
+      expect(snapshot?.latestSeq).toBe(1);
+      expect((snapshot?.messages?.[0] as { summary?: string; body?: string } | undefined)?.summary).toBe(
+        "hello from a summary conversation",
+      );
+      expect((snapshot?.messages?.[0] as { body?: string } | undefined)?.body).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
   test("indexes latest endpoint lookups used by activity projection", () => {
     const { store, dbPath } = createStoreWithPath();
     const db = new Database(dbPath, { readonly: true });

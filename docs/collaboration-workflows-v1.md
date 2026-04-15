@@ -6,15 +6,18 @@ Scout makes this distinction explicit with two collaboration workflows.
 
 ## Two Kinds of Collaboration
 
-**Question** — an information-seeking interaction. Someone needs an answer, a judgment, or a clarification. The lifecycle is short: ask, answer, close.
+| | Question | Work Item |
+|---|---|---|
+| **Goal** | Get information back | Get something built, fixed, or reviewed |
+| **Lifecycle** | Ask → answer → close | Assign → work → checkpoint → review → done |
+| **Duration** | Short | Long, potentially multi-turn |
+| **Ownership** | Rotates between asker and responder | Stays with assigned owner until handoff |
 
-**Work Item** — a durable unit of execution. Someone needs something built, fixed, reviewed, or completed. The lifecycle is longer: assign, work, checkpoint, wait, review, finish.
-
-These are peers, not stages in a pipeline. A question does not become a work item by getting complex — it spawns one. A work item does not need a question to exist — it can be self-originated.
+These are peers, not stages in a pipeline. A question doesn't become a work item by getting complex — it spawns one. A work item doesn't need a question to exist — it can be self-originated.
 
 ## Why Two, Not One
 
-The broker already handles durable conversations and invocation tracking. But it does not yet express the semantic layer above routing:
+The broker already handles durable conversations and invocation tracking. But it doesn't yet express the semantic layer above routing:
 
 - Some interactions only need an answer.
 - Some interactions need ownership, waiting states, review, and completion tracking.
@@ -52,27 +55,45 @@ Every non-terminal collaboration record must have a `nextMoveOwnerId` — the pa
 
 ### Required Fields
 
-Both workflows carry:
-
-`id` · `title` · `createdById` · `ownerId` · `nextMoveOwnerId` · `createdAt` · `updatedAt`
-
-Work items additionally carry:
-
-`waitingOn` · `progress.completedSteps` · `progress.totalSteps` · `progress.summary`
+| Field | Question | Work Item |
+|---|---|---|
+| `id` | yes | yes |
+| `title` | yes | yes |
+| `createdById` | yes | yes |
+| `ownerId` | yes | yes |
+| `nextMoveOwnerId` | yes | yes |
+| `createdAt` | yes | yes |
+| `updatedAt` | yes | yes |
+| `waitingOn` | — | yes |
+| `progress.completedSteps` | — | yes |
+| `progress.totalSteps` | — | yes |
+| `progress.summary` | — | yes |
 
 ## Sequences
 
 ### Question Flow
 
-Asker creates a question. Scout routes it to a responder. The responder posts an answer. The question is marked `answered`. The asker reviews and closes it — or leaves it open for follow-up.
+1. Asker creates a question
+2. Scout routes it to a responder
+3. Responder posts an answer → state becomes `answered`
+4. Asker reviews and closes — or leaves open for follow-up
 
 ### Question That Spawns Work
 
-Asker creates a question. The responder determines it needs execution, not just an answer. Scout creates a work item linked to the question. The asker sees both the answer and the spawned work item.
+1. Asker creates a question
+2. Responder determines it needs execution, not just an answer
+3. Scout creates a work item linked to the question
+4. Asker sees both the answer and the spawned work item
 
 ### Work Item Flow
 
-Creator opens a work item and assigns an owner. The owner moves to `working` and posts progress checkpoints. When blocked on an external dependency, the owner moves to `waiting` and names what they are waiting on. Scout nudges the next move owner. Once unblocked, work resumes. The owner moves to `review` when done. The creator accepts or reopens. On acceptance, the work item moves to `done`.
+1. Creator opens a work item and assigns an owner
+2. Owner moves to `working` and posts progress checkpoints
+3. If blocked, owner moves to `waiting` and names the dependency
+4. Scout nudges the next move owner
+5. Once unblocked, work resumes
+6. Owner moves to `review` when done
+7. Creator accepts or reopens → on acceptance, state becomes `done`
 
 ## Sweeper
 
@@ -101,8 +122,13 @@ Rules:
 4. Acceptance is only used when a requester or reviewer exists.
 5. Questions do not accumulate long-running execution state. If the interaction becomes durable work, spawn a work item.
 
-## What V1 Does Not Cover
+## Next Iteration
 
-Explicitly out of scope: arbitrary user-defined workflows, rich hierarchy beyond parent-child linking, dependency graphs, mandatory milestone planning, planner-like sweeper behavior, and universal acceptance on every interaction.
+V1 keeps the surface small on purpose. The canonical kinds (question, work item) and required fields are stable — future iterations layer on top without breaking interop.
 
-The future direction is configurable workflows layered on top of stable protocol semantics — keep the canonical kinds and required fields stable, allow user-facing labels and presets later. The protocol stays interoperable even when different projects want different vocabulary.
+What's coming next:
+
+- **Configurable workflows** — user-defined labels and state presets on top of the same protocol semantics
+- **Richer hierarchy** — dependency graphs and parent-child linking beyond simple spawn relationships
+- **Milestone planning** — optional structure for tracking groups of related work items
+- **Selective acceptance** — per-project control over which interactions require reviewer sign-off

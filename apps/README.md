@@ -4,6 +4,7 @@ This folder currently mixes product surfaces with different roles:
 
 - `api` — Next.js API app used for OpenScout feedback ingestion and review UI (`/api/feedback`, `/feedback`).
 - `ios` — Scout iOS client app.
+- `macos` — native macOS menu bar shell for broker state, pairing, and launch affordances.
 - `scout` — Scout desktop app + host/runtime integration.
 
 ## Why this feels uneven

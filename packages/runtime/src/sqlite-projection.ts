@@ -3,6 +3,8 @@ import type {
   ConversationDefinition,
   ControlEvent,
   NodeDefinition,
+  ThreadEventEnvelope,
+  ThreadSnapshot,
 } from "@openscout/protocol";
 
 import { FileBackedBrokerJournal, type BrokerJournalEntry } from "./broker-journal.js";
@@ -162,57 +164,53 @@ function insertStubsForOrphanedFkTargets(
 function applyJournalEntryToStore(
   store: SQLiteControlPlaneStore,
   entry: BrokerJournalEntry,
-): void {
+): ThreadEventEnvelope[] {
   switch (entry.kind) {
     case "node.upsert":
       store.upsertNode(entry.node);
-      return;
+      return [];
     case "actor.upsert":
       store.upsertActor(entry.actor);
-      return;
+      return [];
     case "agent.upsert":
       store.upsertAgent(entry.agent);
-      return;
+      return [];
     case "agent.endpoint.upsert":
       store.upsertEndpoint(entry.endpoint);
-      return;
+      return [];
     case "conversation.upsert":
       store.upsertConversation(entry.conversation);
-      return;
+      return [];
     case "binding.upsert":
       store.upsertBinding(entry.binding);
-      return;
+      return [];
     case "message.record":
-      store.recordMessage(entry.message);
-      return;
+      return store.recordMessage(entry.message);
     case "invocation.record":
       store.recordInvocation(entry.invocation);
-      return;
+      return [];
     case "flight.record":
-      store.recordFlight(entry.flight);
-      return;
+      return store.recordFlight(entry.flight);
     case "collaboration.record":
-      store.recordCollaborationRecord(entry.record);
-      return;
+      return store.recordCollaborationRecord(entry.record);
     case "collaboration.event.record":
-      store.recordCollaborationEvent(entry.event);
-      return;
+      return store.recordCollaborationEvent(entry.event);
     case "deliveries.record":
       store.recordDeliveries(entry.deliveries);
-      return;
+      return [];
     case "delivery.attempt.record":
       store.recordDeliveryAttempt(entry.attempt);
-      return;
+      return [];
     case "delivery.status.update":
       store.updateDeliveryStatus(entry.deliveryId, entry.status, {
         metadata: entry.metadata,
         leaseOwner: entry.leaseOwner,
         leaseExpiresAt: entry.leaseExpiresAt,
       });
-      return;
+      return [];
     case "scout.dispatch.record":
       store.recordScoutDispatch(entry.dispatch);
-      return;
+      return [];
     default: {
       const exhaustive: never = entry;
       return exhaustive;
@@ -223,10 +221,12 @@ function applyJournalEntryToStore(
 function applyJournalEntriesToStore(
   store: SQLiteControlPlaneStore,
   entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
-): void {
+): ThreadEventEnvelope[] {
+  const threadEvents: ThreadEventEnvelope[] = [];
   for (const entry of normalizeEntries(entriesInput)) {
-    applyJournalEntryToStore(store, entry);
+    threadEvents.push(...applyJournalEntryToStore(store, entry));
   }
+  return threadEvents;
 }
 
 function formatError(error: unknown): string {
@@ -316,6 +316,71 @@ export class RecoverableSQLiteProjection {
     await this.queue.catch(() => {});
   }
 
+  async applyEntries(entriesInput: BrokerJournalEntry | BrokerJournalEntry[]): Promise<ThreadEventEnvelope[]> {
+    const entries = normalizeEntries(entriesInput);
+    if (entries.length === 0 || this.options.disabled || this.closed) {
+      return [];
+    }
+
+    return this.enqueueResult(async () => {
+      const store = await this.ensureStore();
+      if (!store) {
+        return [];
+      }
+
+      try {
+        return applyJournalEntriesToStore(store, entries);
+      } catch (error) {
+        this.invalidateStore(error);
+        return [];
+      }
+    });
+  }
+
+  async latestThreadSeq(conversationId: string): Promise<number> {
+    if (this.options.disabled || this.closed) {
+      return 0;
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    return store ? store.latestThreadSeq(conversationId) : 0;
+  }
+
+  async oldestThreadSeq(conversationId: string): Promise<number> {
+    if (this.options.disabled || this.closed) {
+      return 0;
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    return store ? store.oldestThreadSeq(conversationId) : 0;
+  }
+
+  async listThreadEvents(options: {
+    conversationId: string;
+    afterSeq?: number;
+    limit?: number;
+  }): Promise<ThreadEventEnvelope[]> {
+    if (this.options.disabled || this.closed) {
+      return [];
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    return store ? store.listThreadEvents(options) : [];
+  }
+
+  async getThreadSnapshot(conversationId: string): Promise<ThreadSnapshot | null> {
+    if (this.options.disabled || this.closed) {
+      return null;
+    }
+
+    await this.flush();
+    const store = await this.ensureStore();
+    return store ? store.getThreadSnapshot(conversationId) : null;
+  }
+
   close(): void {
     this.closed = true;
     const current = this.store;
@@ -331,6 +396,18 @@ export class RecoverableSQLiteProjection {
     this.queue = this.queue
       .catch(() => {})
       .then(task);
+  }
+
+  private enqueueResult<T>(task: () => Promise<T>): Promise<T> {
+    if (this.closed) {
+      return Promise.resolve(undefined as T);
+    }
+
+    const next = this.queue
+      .catch(() => {})
+      .then(task);
+    this.queue = next.then(() => {}, () => {});
+    return next;
   }
 
   private async ensureStore(): Promise<SQLiteControlPlaneStore | null> {

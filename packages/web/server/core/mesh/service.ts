@@ -99,6 +99,28 @@ function computeWarnings(
 
 /* ── Public API ── */
 
+const STALE_NODE_MS = 24 * 60 * 60 * 1000; // 24h
+
+function filterCurrentMeshNodes(
+  allNodes: Record<string, NodeDefinition>,
+  meshId: string | null,
+  localNodeId: string | undefined,
+  now: number,
+): Record<string, NodeDefinition> {
+  const filtered: Record<string, NodeDefinition> = {};
+  for (const [id, node] of Object.entries(allNodes)) {
+    if (id === localNodeId) {
+      filtered[id] = node;
+      continue;
+    }
+    if (meshId && node.meshId && node.meshId !== meshId) continue;
+    const lastSeen = node.lastSeenAt ?? node.registeredAt ?? 0;
+    if (lastSeen > 0 && now - lastSeen > STALE_NODE_MS) continue;
+    filtered[id] = node;
+  }
+  return filtered;
+}
+
 export async function loadMeshStatus(): Promise<MeshStatusReport> {
   const brokerUrl = resolveScoutBrokerUrl();
   const [health, context, tailscale] = await Promise.all([
@@ -108,8 +130,9 @@ export async function loadMeshStatus(): Promise<MeshStatusReport> {
   ]);
 
   const localNode = context?.node ?? null;
-  const nodes = context?.snapshot.nodes ?? {};
+  const allNodes = context?.snapshot.nodes ?? {};
   const meshId = health.meshId ?? localNode?.meshId ?? null;
+  const nodes = filterCurrentMeshNodes(allNodes, meshId, localNode?.id, Date.now());
   const warnings = computeWarnings(health, localNode, nodes, tailscale);
 
   return { brokerUrl, health, localNode, meshId, nodes, tailscale, warnings };

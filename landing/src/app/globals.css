@@ -231,12 +231,24 @@ body {
   margin-bottom: 0.35rem;
 }
 
+.docs-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.docs-markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+
 .docs-markdown li {
   margin-bottom: 0.3rem;
 }
 
-.docs-markdown :is(ul, ol) {
-  margin-bottom: 0.8rem;
+.docs-markdown li::marker {
+  color: #b0aaa0;
 }
 
 .docs-markdown :is(h1, h2, h3, h4) {
@@ -262,7 +274,6 @@ body {
 /* heading anchor link — breathing room and baseline alignment */
 .docs-markdown :is(h1, h2, h3, h4) > a[title="Link to this section"] {
   flex-shrink: 0;
-  margin-left: 0;
 }
 
 .docs-markdown .hljs-keyword { color: #9a6e4a; font-weight: 500; }

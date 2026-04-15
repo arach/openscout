@@ -16,3 +16,4 @@ export * from "./setup.js";
 export * from "./support-paths.js";
 export * from "./relay-agent-cards.js";
 export * from "./user-config.js";
+export * from "./thread-events.js";

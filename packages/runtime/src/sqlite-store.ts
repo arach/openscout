@@ -27,6 +27,14 @@ import type {
   MessageRecord,
   NodeDefinition,
   ScoutDispatchRecord,
+  ThreadCollaborationEventSummary,
+  ThreadCollaborationSummary,
+  ThreadEventEnvelope,
+  ThreadEventKind,
+  ThreadEventNotification,
+  ThreadFlightSummary,
+  ThreadMessageSummary,
+  ThreadSnapshot,
 } from "@openscout/protocol";
 
 import {
@@ -310,6 +318,25 @@ interface EventRow {
   node_id: string | null;
   ts: number;
   payload_json: string;
+}
+
+interface ThreadEventRow {
+  id: string;
+  conversation_id: string;
+  authority_node_id: string;
+  seq: number;
+  kind: ThreadEventKind;
+  actor_id: string | null;
+  ts: number;
+  payload_json: string;
+  notification_json: string | null;
+}
+
+interface ThreadCursorRow {
+  conversation_id: string;
+  authority_node_id: string;
+  last_applied_seq: number;
+  updated_at: number;
 }
 
 export type ActivityItemKind =
@@ -687,6 +714,108 @@ export class SQLiteControlPlaneStore {
     })) as ControlEvent[];
   }
 
+  latestThreadSeq(conversationId: string): number {
+    const row = queryGet<{ max_seq: number | null }, [string]>(
+      this.readDb,
+      "SELECT MAX(seq) AS max_seq FROM thread_events WHERE conversation_id = ?1",
+      conversationId,
+    );
+    return row?.max_seq ?? 0;
+  }
+
+  oldestThreadSeq(conversationId: string): number {
+    const row = queryGet<{ seq: number }, [string]>(
+      this.readDb,
+      "SELECT seq FROM thread_events WHERE conversation_id = ?1 ORDER BY seq ASC LIMIT 1",
+      conversationId,
+    );
+    return row?.seq ?? 0;
+  }
+
+  listThreadEvents(options: {
+    conversationId: string;
+    afterSeq?: number;
+    limit?: number;
+  }): ThreadEventEnvelope[] {
+    const rows = queryAll<ThreadEventRow, [string, number, number]>(
+      this.readDb,
+      `SELECT *
+      FROM thread_events
+      WHERE conversation_id = ?1 AND seq > ?2
+      ORDER BY seq ASC
+      LIMIT ?3`,
+      options.conversationId,
+      options.afterSeq ?? 0,
+      options.limit ?? 500,
+    );
+
+    return rows.map((row) => this.buildThreadEvent(row));
+  }
+
+  getThreadSnapshot(conversationId: string): ThreadSnapshot | null {
+    const conversation = this.loadConversation(conversationId);
+    if (!conversation) {
+      return null;
+    }
+
+    return {
+      conversation,
+      latestSeq: this.latestThreadSeq(conversationId),
+      messages: this.listConversationThreadMessages(conversation),
+      collaboration: this.listConversationThreadCollaboration(conversation),
+      activeFlights: this.listConversationThreadFlights(conversation),
+    };
+  }
+
+  upsertThreadCursor(
+    conversationId: string,
+    authorityNodeId: string,
+    lastAppliedSeq: number,
+    updatedAt: number,
+  ): void {
+    this.db.query(
+      `INSERT INTO thread_cursors (
+        conversation_id, authority_node_id, last_applied_seq, updated_at
+      ) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(conversation_id, authority_node_id) DO UPDATE SET
+        last_applied_seq = excluded.last_applied_seq,
+        updated_at = excluded.updated_at`,
+    ).run(
+      conversationId,
+      authorityNodeId,
+      lastAppliedSeq,
+      updatedAt,
+    );
+  }
+
+  getThreadCursor(conversationId: string, authorityNodeId: string): {
+    conversationId: string;
+    authorityNodeId: string;
+    lastAppliedSeq: number;
+    updatedAt: number;
+  } | null {
+    const row = queryGet<ThreadCursorRow, [string, string]>(
+      this.readDb,
+      `SELECT *
+      FROM thread_cursors
+      WHERE conversation_id = ?1 AND authority_node_id = ?2
+      LIMIT 1`,
+      conversationId,
+      authorityNodeId,
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      conversationId: row.conversation_id,
+      authorityNodeId: row.authority_node_id,
+      lastAppliedSeq: row.last_applied_seq,
+      updatedAt: row.updated_at,
+    };
+  }
+
   upsertNode(node: NodeDefinition): void {
     this.db.query(
       `INSERT INTO nodes (
@@ -877,7 +1006,8 @@ export class SQLiteControlPlaneStore {
     );
   }
 
-  recordMessage(message: MessageRecord): void {
+  recordMessage(message: MessageRecord): ThreadEventEnvelope[] {
+    let threadEvents: ThreadEventEnvelope[] = [];
     (this.db as SQLiteTransactionalDatabase).transaction((nextMessage: MessageRecord) => {
       this.db.query(
         `INSERT OR REPLACE INTO messages (
@@ -923,7 +1053,9 @@ export class SQLiteControlPlaneStore {
         );
       }
       this.recordActivityItem(this.projectMessageActivity(nextMessage));
+      threadEvents = this.recordThreadMessageEvent(nextMessage);
     })(message);
+    return threadEvents;
   }
 
   recordInvocation(invocation: InvocationRequest): void {
@@ -954,7 +1086,7 @@ export class SQLiteControlPlaneStore {
     this.recordActivityItem(this.projectInvocationActivity(invocation));
   }
 
-  recordFlight(flight: FlightRecord): void {
+  recordFlight(flight: FlightRecord): ThreadEventEnvelope[] {
     this.db.query(
       `INSERT OR REPLACE INTO flights (
         id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
@@ -975,6 +1107,7 @@ export class SQLiteControlPlaneStore {
     );
 
     this.recordActivityItem(this.projectFlightActivity(flight));
+    return this.recordThreadFlightEvent(flight);
   }
 
   recordScoutDispatch(dispatch: ScoutDispatchRecord): void {
@@ -997,7 +1130,7 @@ export class SQLiteControlPlaneStore {
     );
   }
 
-  recordCollaborationRecord(record: CollaborationRecord): void {
+  recordCollaborationRecord(record: CollaborationRecord): ThreadEventEnvelope[] {
     const detail: Record<string, unknown> = {
       metadata: record.metadata,
     };
@@ -1042,9 +1175,10 @@ export class SQLiteControlPlaneStore {
       record.createdAt,
       record.updatedAt,
     );
+    return this.recordThreadCollaborationEvent(record);
   }
 
-  recordCollaborationEvent(event: CollaborationEvent): void {
+  recordCollaborationEvent(event: CollaborationEvent): ThreadEventEnvelope[] {
     this.db.query(
       `INSERT OR REPLACE INTO collaboration_events (
         id, record_id, record_kind, kind, actor_id, summary, metadata_json, created_at
@@ -1074,6 +1208,7 @@ export class SQLiteControlPlaneStore {
         metadata: event.metadata,
       },
     });
+    return this.recordThreadCollaborationEventAppend(event);
   }
 
   listActivityItems(options: {
@@ -1526,13 +1661,13 @@ export class SQLiteControlPlaneStore {
     return null;
   }
 
-  private listConversationAgentIds(conversationId: string | undefined): string[] {
+  private listConversationAgentIds(conversationId: string | undefined, db: Database = this.readDb): string[] {
     if (!conversationId) {
       return [];
     }
 
     return queryAll<{ actor_id: string }, [string]>(
-      this.readDb,
+      db,
       `SELECT cm.actor_id
       FROM conversation_members cm
       JOIN agents a ON a.id = cm.actor_id
@@ -1541,25 +1676,25 @@ export class SQLiteControlPlaneStore {
     ).map((row) => row.actor_id);
   }
 
-  private listConversationMemberIds(conversationId: string | undefined): string[] {
+  private listConversationMemberIds(conversationId: string | undefined, db: Database = this.readDb): string[] {
     if (!conversationId) {
       return [];
     }
 
     return queryAll<{ actor_id: string }, [string]>(
-      this.readDb,
+      db,
       "SELECT actor_id FROM conversation_members WHERE conversation_id = ?1",
       conversationId,
     ).map((row) => row.actor_id);
   }
 
-  private isKnownAgentId(actorId: string | undefined | null): actorId is string {
+  private isKnownAgentId(actorId: string | undefined | null, db: Database = this.readDb): actorId is string {
     if (!actorId) {
       return false;
     }
 
     const row = queryGet<{ id: string }, [string]>(
-      this.readDb,
+      db,
       "SELECT id FROM agents WHERE id = ?1 LIMIT 1",
       actorId,
     );
@@ -1585,6 +1720,405 @@ export class SQLiteControlPlaneStore {
       workspaceRoot: row?.project_root ?? row?.cwd ?? null,
       sessionId: row?.session_id ?? null,
     };
+  }
+
+  private loadConversation(conversationId: string): ConversationDefinition | null {
+    const row = queryGet<ConversationRow, [string]>(
+      this.db,
+      "SELECT * FROM conversations WHERE id = ?1 LIMIT 1",
+      conversationId,
+    );
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      visibility: row.visibility,
+      shareMode: row.share_mode,
+      authorityNodeId: row.authority_node_id,
+      participantIds: this.listConversationMemberIds(row.id, this.db),
+      topic: row.topic ?? undefined,
+      parentConversationId: row.parent_conversation_id ?? undefined,
+      messageId: row.message_id ?? undefined,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+    };
+  }
+
+  private buildThreadEvent(row: ThreadEventRow): ThreadEventEnvelope {
+    return {
+      id: row.id,
+      conversationId: row.conversation_id,
+      authorityNodeId: row.authority_node_id,
+      seq: row.seq,
+      kind: row.kind,
+      actorId: row.actor_id ?? undefined,
+      ts: row.ts,
+      payload: parseJson<ThreadEventEnvelope["payload"]>(
+        row.payload_json,
+        {} as ThreadEventEnvelope["payload"],
+      ),
+      notification: parseJson<ThreadEventNotification | undefined>(
+        row.notification_json,
+        undefined,
+      ),
+    };
+  }
+
+  private threadModeForConversation(conversation: ConversationDefinition): "summary" | "shared" {
+    return conversation.shareMode === "summary" ? "summary" : "shared";
+  }
+
+  private appendThreadEvent(input: {
+    id: string;
+    conversation: ConversationDefinition;
+    kind: ThreadEventKind;
+    actorId?: string;
+    ts: number;
+    payload: ThreadEventEnvelope["payload"];
+    notification?: ThreadEventNotification;
+  }): ThreadEventEnvelope {
+    const existing = queryGet<ThreadEventRow, [string]>(
+      this.db,
+      "SELECT * FROM thread_events WHERE id = ?1 LIMIT 1",
+      input.id,
+    );
+    if (existing) {
+      return this.buildThreadEvent(existing);
+    }
+
+    const nextSeqRow = queryGet<{ next_seq: number | null }, [string]>(
+      this.db,
+      "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM thread_events WHERE conversation_id = ?1",
+      input.conversation.id,
+    );
+    const seq = nextSeqRow?.next_seq ?? 1;
+
+    this.db.query(
+      `INSERT INTO thread_events (
+        id, conversation_id, authority_node_id, seq, kind, actor_id, ts, payload_json, notification_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    ).run(
+      input.id,
+      input.conversation.id,
+      input.conversation.authorityNodeId,
+      seq,
+      input.kind,
+      input.actorId ?? null,
+      input.ts,
+      JSON.stringify(input.payload),
+      stringify(input.notification),
+    );
+
+    return {
+      id: input.id,
+      conversationId: input.conversation.id,
+      authorityNodeId: input.conversation.authorityNodeId,
+      seq,
+      kind: input.kind,
+      actorId: input.actorId,
+      ts: input.ts,
+      payload: input.payload,
+      notification: input.notification,
+    };
+  }
+
+  private recordThreadMessageEvent(message: MessageRecord): ThreadEventEnvelope[] {
+    const conversation = this.loadConversation(message.conversationId);
+    if (!conversation) {
+      return [];
+    }
+
+    const payload = this.threadModeForConversation(conversation) === "summary"
+      ? { message: this.buildThreadMessageSummary(message) }
+      : { message };
+
+    return [this.appendThreadEvent({
+      id: `thread-event:message:${message.id}:${message.createdAt}`,
+      conversation,
+      kind: "message.posted",
+      actorId: message.actorId,
+      ts: message.createdAt,
+      payload,
+      notification: this.buildMessageThreadNotification(message),
+    })];
+  }
+
+  private recordThreadFlightEvent(flight: FlightRecord): ThreadEventEnvelope[] {
+    const invocation = queryGet<Pick<InvocationRow, "conversation_id">, [string]>(
+      this.db,
+      "SELECT conversation_id FROM invocations WHERE id = ?1 LIMIT 1",
+      flight.invocationId,
+    );
+    if (!invocation?.conversation_id) {
+      return [];
+    }
+
+    const conversation = this.loadConversation(invocation.conversation_id);
+    if (!conversation) {
+      return [];
+    }
+
+    const payload = this.threadModeForConversation(conversation) === "summary"
+      ? { flight: this.buildThreadFlightSummary(flight) }
+      : { flight };
+    const ts = flight.completedAt ?? flight.startedAt ?? Date.now();
+
+    return [this.appendThreadEvent({
+      id: `thread-event:flight:${flight.id}:${flight.state}:${ts}`,
+      conversation,
+      kind: "flight.updated",
+      actorId: flight.requesterId,
+      ts,
+      payload,
+      notification: this.buildFlightThreadNotification(flight),
+    })];
+  }
+
+  private recordThreadCollaborationEvent(record: CollaborationRecord): ThreadEventEnvelope[] {
+    if (!record.conversationId) {
+      return [];
+    }
+
+    const conversation = this.loadConversation(record.conversationId);
+    if (!conversation) {
+      return [];
+    }
+
+    const payload = this.threadModeForConversation(conversation) === "summary"
+      ? { record: this.buildThreadCollaborationSummary(record) }
+      : { record };
+
+    return [this.appendThreadEvent({
+      id: `thread-event:collaboration:${record.id}:${record.updatedAt}`,
+      conversation,
+      kind: "collaboration.upserted",
+      actorId: record.createdById,
+      ts: record.updatedAt,
+      payload,
+      notification: this.buildCollaborationThreadNotification(record),
+    })];
+  }
+
+  private recordThreadCollaborationEventAppend(event: CollaborationEvent): ThreadEventEnvelope[] {
+    const record = queryGet<CollaborationRecordRow, [string]>(
+      this.db,
+      "SELECT * FROM collaboration_records WHERE id = ?1 LIMIT 1",
+      event.recordId,
+    );
+    if (!record?.conversation_id) {
+      return [];
+    }
+
+    const conversation = this.loadConversation(record.conversation_id);
+    if (!conversation) {
+      return [];
+    }
+
+    const payload = this.threadModeForConversation(conversation) === "summary"
+      ? { event: this.buildThreadCollaborationEventSummary(event) }
+      : { event };
+
+    return [this.appendThreadEvent({
+      id: `thread-event:collaboration-event:${event.id}:${event.at}`,
+      conversation,
+      kind: "collaboration.event.appended",
+      actorId: event.actorId,
+      ts: event.at,
+      payload,
+      notification: undefined,
+    })];
+  }
+
+  private buildThreadMessageSummary(message: MessageRecord): ThreadMessageSummary {
+    return {
+      id: message.id,
+      actorId: message.actorId,
+      class: message.class,
+      replyToMessageId: message.replyToMessageId,
+      threadConversationId: message.threadConversationId,
+      mentionActorIds: (message.mentions ?? []).map((mention) => mention.actorId),
+      createdAt: message.createdAt,
+      summary: summarizeText(message.body),
+    };
+  }
+
+  private buildThreadFlightSummary(flight: FlightRecord): ThreadFlightSummary {
+    return {
+      id: flight.id,
+      invocationId: flight.invocationId,
+      requesterId: flight.requesterId,
+      targetAgentId: flight.targetAgentId,
+      state: flight.state,
+      summary: flight.summary,
+      error: flight.error,
+      startedAt: flight.startedAt,
+      completedAt: flight.completedAt,
+    };
+  }
+
+  private buildThreadCollaborationSummary(record: CollaborationRecord): ThreadCollaborationSummary {
+    return {
+      id: record.id,
+      kind: record.kind,
+      state: record.state,
+      acceptanceState: record.acceptanceState,
+      title: record.title,
+      summary: record.summary,
+      ownerId: record.ownerId,
+      nextMoveOwnerId: record.nextMoveOwnerId,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  private buildThreadCollaborationEventSummary(event: CollaborationEvent): ThreadCollaborationEventSummary {
+    return {
+      id: event.id,
+      recordId: event.recordId,
+      recordKind: event.recordKind,
+      kind: event.kind,
+      actorId: event.actorId,
+      at: event.at,
+      summary: event.summary,
+    };
+  }
+
+  private buildMessageThreadNotification(message: MessageRecord): ThreadEventNotification | undefined {
+    const mentionActorIds = [...new Set(
+      (message.mentions ?? [])
+        .map((mention) => mention.actorId)
+        .filter((actorId) => actorId && actorId !== message.actorId),
+    )];
+    if (mentionActorIds.length > 0) {
+      return {
+        tier: "badge",
+        targetActorIds: mentionActorIds,
+        reason: "mention",
+        summary: summarizeText(message.body, 80),
+      };
+    }
+
+    if (!message.replyToMessageId) {
+      return undefined;
+    }
+
+    const replyTarget = queryGet<{ actor_id: string }, [string]>(
+      this.db,
+      "SELECT actor_id FROM messages WHERE id = ?1 LIMIT 1",
+      message.replyToMessageId,
+    );
+    if (!replyTarget?.actor_id || replyTarget.actor_id === message.actorId) {
+      return undefined;
+    }
+
+    return {
+      tier: "badge",
+      targetActorIds: [replyTarget.actor_id],
+      reason: "thread_reply",
+      summary: summarizeText(message.body, 80),
+    };
+  }
+
+  private buildFlightThreadNotification(flight: FlightRecord): ThreadEventNotification | undefined {
+    if (flight.state === "completed") {
+      return {
+        tier: "badge",
+        targetActorIds: [flight.requesterId],
+        reason: "flight_completed",
+        summary: summarizeText(flight.summary ?? `${flight.targetAgentId} completed`, 80),
+      };
+    }
+
+    if (flight.state === "failed") {
+      return {
+        tier: "interrupt",
+        targetActorIds: [flight.requesterId],
+        reason: "flight_failed",
+        summary: summarizeText(flight.error ?? flight.summary ?? `${flight.targetAgentId} failed`, 80),
+      };
+    }
+
+    return undefined;
+  }
+
+  private buildCollaborationThreadNotification(record: CollaborationRecord): ThreadEventNotification | undefined {
+    if (!record.nextMoveOwnerId || record.nextMoveOwnerId === record.createdById) {
+      return undefined;
+    }
+
+    return {
+      tier: record.kind === "question" ? "interrupt" : "badge",
+      targetActorIds: [record.nextMoveOwnerId],
+      reason: "next_move",
+      summary: summarizeText(record.summary ?? record.title, 80),
+    };
+  }
+
+  private listConversationThreadMessages(
+    conversation: ConversationDefinition,
+  ): ThreadSnapshot["messages"] {
+    const snapshot = this.loadSnapshot();
+    const messages = Object.values(snapshot.messages)
+      .filter((message) => message.conversationId === conversation.id)
+      .sort((lhs, rhs) => lhs.createdAt - rhs.createdAt);
+
+    return messages.map((message) => (
+      this.threadModeForConversation(conversation) === "summary"
+        ? this.buildThreadMessageSummary(message)
+        : message
+    ));
+  }
+
+  private listConversationThreadCollaboration(
+    conversation: ConversationDefinition,
+  ): ThreadSnapshot["collaboration"] {
+    const snapshot = this.loadSnapshot();
+    const records = Object.values(snapshot.collaborationRecords)
+      .filter((record) => record.conversationId === conversation.id)
+      .sort((lhs, rhs) => lhs.updatedAt - rhs.updatedAt);
+
+    return records.map((record) => (
+      this.threadModeForConversation(conversation) === "summary"
+        ? this.buildThreadCollaborationSummary(record)
+        : record
+    ));
+  }
+
+  private listConversationThreadFlights(
+    conversation: ConversationDefinition,
+  ): ThreadSnapshot["activeFlights"] {
+    const rows = queryAll<FlightRow, [string]>(
+      this.readDb,
+      `SELECT f.*
+      FROM flights f
+      JOIN invocations i ON i.id = f.invocation_id
+      WHERE i.conversation_id = ?1
+        AND f.state IN ('queued', 'waking', 'running', 'waiting')
+      ORDER BY COALESCE(f.completed_at, f.started_at, 0) ASC`,
+      conversation.id,
+    );
+
+    return rows.map((row) => {
+      const flight: FlightRecord = {
+        id: row.id,
+        invocationId: row.invocation_id,
+        requesterId: row.requester_id,
+        targetAgentId: row.target_agent_id,
+        state: row.state,
+        summary: row.summary ?? undefined,
+        output: row.output ?? undefined,
+        error: row.error ?? undefined,
+        metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+        startedAt: row.started_at ?? undefined,
+        completedAt: row.completed_at ?? undefined,
+      };
+
+      return this.threadModeForConversation(conversation) === "summary"
+        ? this.buildThreadFlightSummary(flight)
+        : flight;
+    });
   }
 
   recordEvent(event: ControlEvent): void {

@@ -22,6 +22,9 @@ import {
   type NodeDefinition,
   type ScoutDispatchEnvelope,
   type ScoutDispatchRecord,
+  type ThreadWatchCloseRequest,
+  type ThreadWatchOpenRequest,
+  type ThreadWatchRenewRequest,
   SCOUT_DISPATCHER_AGENT_ID,
 } from "@openscout/protocol";
 
@@ -57,6 +60,7 @@ import {
   shouldDisableGeneratedCodexEndpoint,
 } from "./local-agents.js";
 import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
+import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
 import {
   buildDefaultBrokerUrl,
@@ -108,6 +112,14 @@ function badRequest(response: ServerResponse, error: unknown): void {
   });
 }
 
+function threadWatchError(response: ServerResponse, error: unknown): void {
+  if (error instanceof ThreadWatchProtocolError) {
+    json(response, error.status, error.body);
+    return;
+  }
+  badRequest(response, error);
+}
+
 const controlHome = resolveControlPlaneHome();
 const dbPath = join(controlHome, "control-plane.sqlite");
 const journalPath = join(controlHome, "broker-journal.jsonl");
@@ -145,6 +157,11 @@ await journal.load();
 const sqliteDisabled = process.env.OPENSCOUT_DISABLE_SQLITE === "1";
 const runtime = createInMemoryControlRuntime(journal.snapshot(), { localNodeId: nodeId });
 const projection = new RecoverableSQLiteProjection(dbPath, journal, { disabled: sqliteDisabled });
+const threadEvents = new ThreadEventPlane({
+  nodeId,
+  runtime,
+  projection,
+});
 const eventClients = new Set<ServerResponse>();
 const activeInvocationTasks = new Map<string, Promise<void>>();
 const knownInvocations = new Map<string, InvocationRequest>();
@@ -345,9 +362,42 @@ async function commitDurableEntries(
   }
   await applyRuntime(entries);
   if (options.enqueueProjection !== false) {
-    projection.enqueueEntries(entries);
+    await applyProjectedEntries(entries);
   }
   return entries;
+}
+
+async function applyProjectedEntries(entriesInput: BrokerJournalEntry | BrokerJournalEntry[]): Promise<void> {
+  const entries = normalizeJournalEntries(entriesInput);
+  if (entries.length === 0) {
+    return;
+  }
+
+  const threadEventEnvelopes = await projection.applyEntries(entries);
+  if (threadEventEnvelopes.length > 0) {
+    threadEvents.publish(threadEventEnvelopes);
+  }
+}
+
+async function brokerPostJson<TResponse>(
+  brokerBaseUrl: string,
+  path: string,
+  payload: unknown,
+): Promise<TResponse> {
+  const response = await fetch(`${brokerBaseUrl.replace(/\/$/, "")}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
+  }
+
+  return await response.json() as TResponse;
 }
 
 async function upsertNodeDurably(node: NodeDefinition): Promise<void> {
@@ -574,12 +624,22 @@ async function recordInvocationDurably(
 
 async function recordFlightDurably(flight: FlightRecord): Promise<void> {
   await runDurableWrite(async () => {
-    await commitDurableEntries(
+    const entries = await commitDurableEntries(
       { kind: "flight.record", flight },
       async () => {
         await runtime.upsertFlight(flight);
       },
+      { enqueueProjection: false },
     );
+    await applyProjectedEntries(entries);
+    try {
+      await maybeForwardFlightToAuthority(flight);
+    } catch (error) {
+      console.warn(
+        `[openscout-runtime] failed to forward flight ${flight.id} to conversation authority:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   });
 }
 
@@ -1276,14 +1336,121 @@ function messageVisibilityForConversation(conversation?: ConversationDefinition)
   }
 }
 
+function authorityNodeForConversation(conversationId: string): {
+  conversation: ConversationDefinition;
+  authorityNode: NodeDefinition;
+} | null {
+  const conversation = runtime.conversation(conversationId);
+  if (!conversation || conversation.authorityNodeId === nodeId) {
+    return null;
+  }
+
+  const authorityNode = runtime.node(conversation.authorityNodeId);
+  if (!authorityNode?.brokerUrl) {
+    throw new Error(`authority node ${conversation.authorityNodeId} is not reachable`);
+  }
+
+  return { conversation, authorityNode };
+}
+
+async function forwardConversationMessageToAuthority(message: MessageRecord): Promise<{
+  forwarded: true;
+  authorityNodeId: string;
+  duplicate?: boolean;
+  deliveries?: DeliveryIntent[];
+}> {
+  const authority = authorityNodeForConversation(message.conversationId);
+  if (!authority) {
+    throw new Error(`conversation ${message.conversationId} is locally owned`);
+  }
+
+  const bundle = buildMeshMessageBundle(runtime.peek(), currentLocalNode(), message, {
+    bindings: runtime.bindingsForConversation(authority.conversation.id),
+  });
+  const result = await forwardMeshMessage(authority.authorityNode.brokerUrl!, bundle);
+  return {
+    forwarded: true,
+    authorityNodeId: authority.conversation.authorityNodeId,
+    duplicate: result.duplicate,
+    deliveries: result.deliveries,
+  };
+}
+
+async function forwardCollaborationRecordToAuthority(record: CollaborationRecord): Promise<{
+  forwarded: true;
+  authorityNodeId: string;
+  duplicate?: boolean;
+}> {
+  if (!record.conversationId) {
+    throw new Error(`collaboration record ${record.id} is not thread-scoped`);
+  }
+
+  const authority = authorityNodeForConversation(record.conversationId);
+  if (!authority) {
+    throw new Error(`conversation ${record.conversationId} is locally owned`);
+  }
+
+  const bundle = buildMeshCollaborationRecordBundle(runtime.peek(), currentLocalNode(), record);
+  const result = await forwardMeshCollaborationRecord(authority.authorityNode.brokerUrl!, bundle);
+  return {
+    forwarded: true,
+    authorityNodeId: authority.conversation.authorityNodeId,
+    duplicate: result.duplicate,
+  };
+}
+
+async function forwardCollaborationEventToAuthority(event: CollaborationEvent): Promise<{
+  forwarded: true;
+  authorityNodeId: string;
+  duplicate?: boolean;
+}> {
+  const record = runtime.collaborationRecord(event.recordId);
+  if (!record?.conversationId) {
+    throw new Error(`collaboration event ${event.id} is not thread-scoped`);
+  }
+
+  const authority = authorityNodeForConversation(record.conversationId);
+  if (!authority) {
+    throw new Error(`conversation ${record.conversationId} is locally owned`);
+  }
+
+  const bundle = buildMeshCollaborationEventBundle(runtime.peek(), currentLocalNode(), event, record);
+  const result = await forwardMeshCollaborationEvent(authority.authorityNode.brokerUrl!, bundle);
+  return {
+    forwarded: true,
+    authorityNodeId: authority.conversation.authorityNodeId,
+    duplicate: result.duplicate,
+  };
+}
+
+async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void> {
+  const invocation = knownInvocations.get(flight.invocationId);
+  if (!invocation?.conversationId) {
+    return;
+  }
+
+  const authority = authorityNodeForConversation(invocation.conversationId);
+  if (!authority) {
+    return;
+  }
+
+  await brokerPostJson<{ ok: boolean }>(authority.authorityNode.brokerUrl!, "/v1/flights", flight);
+}
+
 async function postConversationMessage(
   message: MessageRecord,
 ): Promise<void> {
+  const authority = authorityNodeForConversation(message.conversationId);
+  if (authority) {
+    await forwardConversationMessageToAuthority(message);
+    return;
+  }
+
   const { deliveries, entries } = await recordMessageDurably(message, {
     enqueueProjection: false,
   });
   await forwardPeerBrokerDeliveries(message, deliveries);
-  projection.enqueueEntries(entries);
+  await applyProjectedEntries(entries);
 }
 
 async function postInvocationStatusMessage(
@@ -1554,44 +1721,11 @@ async function forwardPeerBrokerDeliveries(
   message: MessageRecord,
   deliveries: DeliveryIntent[],
 ): Promise<{ forwarded: string[]; failed: string[] }> {
-  const conversation = runtime.conversation(message.conversationId);
-  if (!conversation || conversation.shareMode === "local") {
-    return { forwarded: [], failed: [] };
-  }
-
-  const targetNodeIds = [...new Set(
-    deliveries
-      .filter((delivery) => delivery.transport === "peer_broker" && delivery.targetNodeId)
-      .map((delivery) => delivery.targetNodeId as string),
-  )];
-  if (targetNodeIds.length === 0) {
-    return { forwarded: [], failed: [] };
-  }
-
-  const registry = runtime.peek();
-  const originNode = currentLocalNode();
-  const bundle = buildMeshMessageBundle(registry, originNode, message, {
-    bindings: runtime.bindingsForConversation(conversation.id),
-  });
-  const forwarded: string[] = [];
-  const failed: string[] = [];
-
-  for (const targetNodeId of targetNodeIds) {
-    const targetNode = runtime.node(targetNodeId);
-    if (!targetNode?.brokerUrl) {
-      failed.push(targetNodeId);
-      continue;
-    }
-
-    try {
-      await forwardMeshMessage(targetNode.brokerUrl, bundle);
-      forwarded.push(targetNodeId);
-    } catch {
-      failed.push(targetNodeId);
-    }
-  }
-
-  return { forwarded, failed };
+  void message;
+  void deliveries;
+  // Canonical thread history stays on the authority broker. Remote nodes learn
+  // about updates through watches/replay instead of mirrored message writes.
+  return { forwarded: [], failed: [] };
 }
 
 function actorIdsForCollaboration(
@@ -1809,11 +1943,24 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       await upsertBindingDurably(command.binding);
       return { ok: true };
     case "collaboration.upsert": {
+      if (command.record.conversationId) {
+        const authority = authorityNodeForConversation(command.record.conversationId);
+        if (authority) {
+          return {
+            ok: true,
+            recordId: command.record.id,
+            mesh: await forwardCollaborationRecordToAuthority(command.record),
+          };
+        }
+      }
+
       const entries = await recordCollaborationDurably(command.record, {
         enqueueProjection: false,
       });
-      const mesh = await forwardPeerBrokerCollaborationRecord(command.record);
-      projection.enqueueEntries(entries);
+      const mesh = command.record.conversationId
+        ? { forwarded: [], failed: [] }
+        : await forwardPeerBrokerCollaborationRecord(command.record);
+      await applyProjectedEntries(entries);
       return {
         ok: true,
         recordId: command.record.id,
@@ -1821,11 +1968,25 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       };
     }
     case "collaboration.event.append": {
+      const record = runtime.collaborationRecord(command.event.recordId);
+      if (record?.conversationId) {
+        const authority = authorityNodeForConversation(record.conversationId);
+        if (authority) {
+          return {
+            ok: true,
+            eventId: command.event.id,
+            mesh: await forwardCollaborationEventToAuthority(command.event),
+          };
+        }
+      }
+
       const entries = await appendCollaborationEventDurably(command.event, {
         enqueueProjection: false,
       });
-      const mesh = await forwardPeerBrokerCollaborationEvent(command.event);
-      projection.enqueueEntries(entries);
+      const mesh = record?.conversationId
+        ? { forwarded: [], failed: [] }
+        : await forwardPeerBrokerCollaborationEvent(command.event);
+      await applyProjectedEntries(entries);
       return {
         ok: true,
         eventId: command.event.id,
@@ -1833,11 +1994,20 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
       };
     }
     case "conversation.post": {
+      const authority = authorityNodeForConversation(command.message.conversationId);
+      if (authority) {
+        return {
+          ok: true,
+          message: command.message,
+          mesh: await forwardConversationMessageToAuthority(command.message),
+        };
+      }
+
       const { deliveries, entries } = await recordMessageDurably(command.message, {
         enqueueProjection: false,
       });
       const mesh = await forwardPeerBrokerDeliveries(command.message, deliveries);
-      projection.enqueueEntries(entries);
+      await applyProjectedEntries(entries);
       console.log(
         `[openscout-runtime] message ${command.message.id} posted by ${command.message.actorId} to ${command.message.conversationId} with ${deliveries.length} deliveries`,
       );
@@ -1880,7 +2050,7 @@ async function acceptInvocationDurably(invocation: InvocationRequest): Promise<F
   const { flight, entries } = await recordInvocationDurably(invocation, {
     enqueueProjection: false,
   });
-  projection.enqueueEntries(entries);
+  await applyProjectedEntries(entries);
   return flight;
 }
 
@@ -1958,6 +2128,15 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   const collaborationInvokeMatch = method === "POST"
     ? url.pathname.match(/^\/v1\/collaboration\/records\/([^/]+)\/invoke$/)
     : null;
+  const threadEventsMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/conversations\/([^/]+)\/thread-events$/)
+    : null;
+  const threadSnapshotMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/conversations\/([^/]+)\/thread-snapshot$/)
+    : null;
+  const threadWatchStreamMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
+    : null;
 
   if (method === "GET" && url.pathname === "/health") {
     const snapshot = runtime.snapshot();
@@ -2005,6 +2184,31 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       .slice(0, limit)
       .reverse();
     json(response, 200, messages);
+    return;
+  }
+
+  if (threadEventsMatch) {
+    try {
+      const conversationId = decodeURIComponent(threadEventsMatch[1] ?? "");
+      const afterSeq = Number.parseInt(url.searchParams.get("afterSeq") ?? "0", 10);
+      json(response, 200, await threadEvents.replay({
+        conversationId,
+        afterSeq: Number.isFinite(afterSeq) && afterSeq > 0 ? afterSeq : 0,
+        limit: parseLimit(url),
+      }));
+    } catch (error) {
+      threadWatchError(response, error);
+    }
+    return;
+  }
+
+  if (threadSnapshotMatch) {
+    try {
+      const conversationId = decodeURIComponent(threadSnapshotMatch[1] ?? "");
+      json(response, 200, await threadEvents.snapshot(conversationId));
+    } catch (error) {
+      threadWatchError(response, error);
+    }
     return;
   }
 
@@ -2166,6 +2370,16 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (threadWatchStreamMatch) {
+    try {
+      const watchId = decodeURIComponent(threadWatchStreamMatch[1] ?? "");
+      await threadEvents.streamWatch(watchId, request, response);
+    } catch (error) {
+      threadWatchError(response, error);
+    }
+    return;
+  }
+
   if (method === "POST" && url.pathname === "/v1/commands") {
     try {
       const command = await readRequestBody<ControlCommand>(request);
@@ -2173,6 +2387,37 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       json(response, 200, result);
     } catch (error) {
       badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/thread-watches/open") {
+    try {
+      const body = await readRequestBody<ThreadWatchOpenRequest>(request);
+      json(response, 200, await threadEvents.openWatch(body));
+    } catch (error) {
+      threadWatchError(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/thread-watches/renew") {
+    try {
+      const body = await readRequestBody<ThreadWatchRenewRequest>(request);
+      json(response, 200, await threadEvents.renewWatch(body));
+    } catch (error) {
+      threadWatchError(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/thread-watches/close") {
+    try {
+      const body = await readRequestBody<ThreadWatchCloseRequest>(request);
+      await threadEvents.closeWatch(body);
+      json(response, 200, { ok: true, watchId: body.watchId });
+    } catch (error) {
+      threadWatchError(response, error);
     }
     return;
   }
@@ -2199,9 +2444,17 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
           enqueueProjection: false,
         });
 
+        if (bundle.conversation.authorityNodeId !== nodeId) {
+          return {
+            kind: "not_authority" as const,
+            bundleEntries,
+            authorityNodeId: bundle.conversation.authorityNodeId,
+          };
+        }
+
         if (runtime.message(bundle.message.id)) {
           return {
-            duplicate: true as const,
+            kind: "duplicate" as const,
             bundleEntries,
             messageEntries: [] as BrokerJournalEntry[],
             deliveries: [] as DeliveryIntent[],
@@ -2221,15 +2474,30 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         );
 
         return {
-          duplicate: false as const,
+          kind: "ok" as const,
           bundleEntries,
           messageEntries,
           deliveries,
         };
       });
 
-      projection.enqueueEntries([...result.bundleEntries, ...result.messageEntries]);
-      json(response, 200, result.duplicate ? { ok: true, duplicate: true } : { ok: true, deliveries: result.deliveries });
+      if (result.kind === "not_authority") {
+        await applyProjectedEntries(result.bundleEntries);
+        json(response, 409, {
+          error: "not_authority",
+          detail: `conversation ${bundle.conversation.id} is owned by ${result.authorityNodeId}`,
+        });
+        return;
+      }
+
+      await applyProjectedEntries([...result.bundleEntries, ...result.messageEntries]);
+      json(
+        response,
+        200,
+        result.kind === "duplicate"
+          ? { ok: true, duplicate: true }
+          : { ok: true, deliveries: result.deliveries },
+      );
     } catch (error) {
       badRequest(response, error);
     }
@@ -2286,7 +2554,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       });
 
       if (result.kind === "not_authority") {
-        projection.enqueueEntries(result.bundleEntries);
+        await applyProjectedEntries(result.bundleEntries);
         json(response, 409, {
           error: "not_authority",
           detail: `agent ${result.targetAgent.id} is owned by ${result.targetAgent.authorityNodeId}`,
@@ -2295,12 +2563,12 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       }
 
       if (result.kind === "duplicate") {
-        projection.enqueueEntries(result.bundleEntries);
+        await applyProjectedEntries(result.bundleEntries);
         json(response, 200, { ok: true, duplicate: true, flight: result.flight });
         return;
       }
 
-      projection.enqueueEntries([...result.bundleEntries, ...result.invocationEntries]);
+      await applyProjectedEntries([...result.bundleEntries, ...result.invocationEntries]);
       json(response, 200, { ok: true, flight: result.flight });
     } catch (error) {
       badRequest(response, error);
@@ -2312,13 +2580,31 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     try {
       const bundle = await readRequestBody<MeshCollaborationRecordBundle>(request);
       const result = await runDurableWrite(async () => {
+        if (bundle.conversation && bundle.conversation.authorityNodeId !== nodeId) {
+          return {
+            kind: "not_authority" as const,
+            authorityNodeId: bundle.conversation.authorityNodeId,
+            entries: [] as BrokerJournalEntry[],
+            existing: null as CollaborationRecord | null,
+          };
+        }
+
         const existing = runtime.collaborationRecord(bundle.record.id);
         const entries = await applyMeshBundleDurably(bundle, {
           enqueueProjection: false,
         });
-        return { existing, entries };
+        return { kind: "ok" as const, existing, entries };
       });
-      projection.enqueueEntries(result.entries);
+
+      if (result.kind === "not_authority") {
+        json(response, 409, {
+          error: "not_authority",
+          detail: `conversation ${bundle.conversation?.id ?? bundle.record.conversationId ?? bundle.record.id} is owned by ${result.authorityNodeId}`,
+        });
+        return;
+      }
+
+      await applyProjectedEntries(result.entries);
       json(response, 200, result.existing ? { ok: true, duplicate: true } : { ok: true });
     } catch (error) {
       badRequest(response, error);
@@ -2329,10 +2615,18 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/collaboration/events") {
     try {
       const bundle = await readRequestBody<MeshCollaborationEventBundle>(request);
+      if (bundle.conversation && bundle.conversation.authorityNodeId !== nodeId) {
+        json(response, 409, {
+          error: "not_authority",
+          detail: `conversation ${bundle.conversation.id} is owned by ${bundle.conversation.authorityNodeId}`,
+        });
+        return;
+      }
+
       const entries = await runDurableWrite(async () => applyMeshBundleDurably(bundle, {
         enqueueProjection: false,
       }));
-      projection.enqueueEntries(entries);
+      await applyProjectedEntries(entries);
       json(response, 200, { ok: true });
     } catch (error) {
       badRequest(response, error);
@@ -2422,6 +2716,17 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const event = await readRequestBody<CollaborationEvent>(request);
       const result = await handleCommand({ kind: "collaboration.event.append", event });
       json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/flights") {
+    try {
+      const flight = await readRequestBody<FlightRecord>(request);
+      await recordFlightDurably(flight);
+      json(response, 200, { ok: true, flightId: flight.id });
     } catch (error) {
       badRequest(response, error);
     }

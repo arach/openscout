@@ -1,6 +1,6 @@
 {
   "name": "@openscout/scout",
-  "version": "0.2.39",
+  "version": "0.2.40",
   "description": "Published Scout package that installs the `scout` command",
   "license": "UNLICENSED",
   "type": "module",
@@ -23,6 +23,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@openscout/runtime": "0.2.39"
+    "@openscout/runtime": "workspace:*"
   }
 }

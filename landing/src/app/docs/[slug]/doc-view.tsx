@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import GithubSlugger from "github-slugger";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronRight, ArrowRightIcon } from "lucide-react";
 import { MarkdownContent } from "@arach/dewey";
+import { MDXRemote } from "next-mdx-remote";
+import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
+import { docsComponents } from "./mdx-components";
 
 const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
   () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
@@ -56,19 +59,43 @@ function extractHeadings(content: string): Heading[] {
 
 type ContentSegment =
   | { type: "markdown"; content: string }
-  | { type: "arc"; src: string };
+  | { type: "arc"; src: string }
+  | { type: "stateflow"; label: string; states: string[]; terminal?: string[] };
 
-function splitArcDiagrams(content: string): ContentSegment[] {
-  const pattern = /!\[[^\]]*\]\(arc:([^)]+)\)/g;
+function splitCustomSegments(content: string): ContentSegment[] {
+  // Match arc diagrams and state flow lines
+  const arcPattern = /!\[[^\]]*\]\(arc:([^)]+)\)/g;
+  const statePattern = /^\*\*States?:\*\*\s*(.+)$/gm;
+
+  type RawMatch = { index: number; length: number; segment: ContentSegment };
+  const matches: RawMatch[] = [];
+
+  for (const m of content.matchAll(arcPattern)) {
+    matches.push({ index: m.index, length: m[0].length, segment: { type: "arc", src: m[1] } });
+  }
+
+  for (const m of content.matchAll(statePattern)) {
+    const raw = m[1];
+    const states = raw.split(/\s*[·•|→]\s*/).map(s => s.replace(/`/g, "").trim()).filter(Boolean);
+    const terminal = ["closed", "declined", "done", "cancelled"];
+    matches.push({
+      index: m.index,
+      length: m[0].length,
+      segment: { type: "stateflow", label: "", states, terminal },
+    });
+  }
+
+  matches.sort((a, b) => a.index - b.index);
+
   const segments: ContentSegment[] = [];
   let last = 0;
 
-  for (const match of content.matchAll(pattern)) {
-    if (match.index > last) {
-      segments.push({ type: "markdown", content: content.slice(last, match.index) });
+  for (const { index, length, segment } of matches) {
+    if (index > last) {
+      segments.push({ type: "markdown", content: content.slice(last, index) });
     }
-    segments.push({ type: "arc", src: match[1] });
-    last = match.index + match[0].length;
+    segments.push(segment);
+    last = index + length;
   }
 
   if (last < content.length) {
@@ -76,6 +103,55 @@ function splitArcDiagrams(content: string): ContentSegment[] {
   }
 
   return segments.length > 0 ? segments : [{ type: "markdown", content }];
+}
+
+const STATE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  open:      { bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" },
+  answered:  { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0" },
+  closed:    { bg: "#f9fafb", text: "#6b7280", border: "#e5e7eb" },
+  declined:  { bg: "#fef2f2", text: "#b91c1c", border: "#fecaca" },
+  working:   { bg: "#fefce8", text: "#a16207", border: "#fde68a" },
+  waiting:   { bg: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
+  review:    { bg: "#faf5ff", text: "#7e22ce", border: "#e9d5ff" },
+  done:      { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0" },
+  cancelled: { bg: "#f9fafb", text: "#6b7280", border: "#e5e7eb" },
+};
+
+function StateFlow({ states, terminal = [] }: { states: string[]; terminal?: string[] }) {
+  const [active, setActive] = useState<string | null>(null);
+
+  return (
+    <div className="my-4 flex flex-wrap items-center gap-1.5">
+      {states.map((state, i) => {
+        const isTerminal = terminal.includes(state);
+        const colors = STATE_COLORS[state] || { bg: "#f9fafb", text: "#374151", border: "#e5e7eb" };
+        const isActive = active === state;
+
+        return (
+          <span key={state} className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onMouseEnter={() => setActive(state)}
+              onMouseLeave={() => setActive(null)}
+              className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium font-mono transition-all"
+              style={{
+                background: colors.bg,
+                color: colors.text,
+                border: `1px solid ${colors.border}`,
+                opacity: isTerminal ? 0.75 : 1,
+                transform: isActive ? "scale(1.05)" : "scale(1)",
+              }}
+            >
+              {state}
+            </button>
+            {i < states.length - 1 && (
+              <ArrowRightIcon className="h-3 w-3 text-[#c4c0b8] flex-shrink-0" />
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 const DIAGRAM_CODES: Record<string, string> = {
@@ -130,6 +206,7 @@ export function DocView({
   title,
   description,
   content,
+  mdxSource,
   navigation,
   slug,
   prevPage,
@@ -138,6 +215,7 @@ export function DocView({
   title: string;
   description: string;
   content: string;
+  mdxSource?: MDXRemoteSerializeResult;
   navigation: NavGroup[];
   slug: string;
   prevPage?: { id: string; title: string };
@@ -146,7 +224,11 @@ export function DocView({
   const currentGroup = navigation.find((group) => group.items.some((item) => item.id === slug));
   const renderedContent = useMemo(() => stripLeadHeading(content), [content]);
   const headings = useMemo(() => extractHeadings(renderedContent), [renderedContent]);
-  const segments = useMemo(() => splitArcDiagrams(renderedContent), [renderedContent]);
+  const segments = useMemo(() => splitCustomSegments(renderedContent), [renderedContent]);
+
+  // MDX rendering is wired up but disabled until next-mdx-remote supports React 19.
+  // For now, all pages use the segment pipeline (MarkdownContent + custom components).
+  const useMdx = false;
 
   const [activeId, setActiveId] = useState<string>("");
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -306,12 +388,18 @@ export function DocView({
             ) : null}
 
             <div className="docs-markdown mt-2 max-w-none">
-              {segments.map((seg, i) =>
-                seg.type === "arc" ? (
-                  <ArcDiagramEmbed key={i} src={seg.src} />
-                ) : (
-                  <MarkdownContent key={i} content={seg.content} />
-                ),
+              {useMdx && mdxSource ? (
+                <MDXRemote {...mdxSource} components={docsComponents} />
+              ) : (
+                segments.map((seg, i) =>
+                  seg.type === "arc" ? (
+                    <ArcDiagramEmbed key={i} src={seg.src} />
+                  ) : seg.type === "stateflow" ? (
+                    <StateFlow key={i} states={seg.states} terminal={seg.terminal} />
+                  ) : (
+                    <MarkdownContent key={i} content={seg.content} />
+                  ),
+                )
               )}
             </div>
 
