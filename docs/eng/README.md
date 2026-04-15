@@ -19,3 +19,7 @@ implementation specs.
 ## Current Proposals
 
 - [sco-001-authority-thread-events-proposal.md](./sco-001-authority-thread-events-proposal.md)
+
+## Operations
+
+- [releasing.md](./releasing.md) — npm package and macOS DMG release flow
