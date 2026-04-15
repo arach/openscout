@@ -38,6 +38,7 @@ import {
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
+  DEFAULT_MESH_FORWARD_TIMEOUT_MS,
   buildMeshCollaborationEventBundle,
   buildMeshCollaborationRecordBundle,
   buildMeshMessageBundle,
@@ -391,6 +392,7 @@ async function brokerPostJson<TResponse>(
       accept: "application/json",
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(DEFAULT_MESH_FORWARD_TIMEOUT_MS),
   });
 
   if (!response.ok) {

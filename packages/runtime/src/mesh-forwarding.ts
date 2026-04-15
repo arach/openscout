@@ -289,7 +289,25 @@ export class PeerRejectedError extends Error {
   }
 }
 
-async function postJson<TResponse>(url: string, payload: unknown): Promise<TResponse> {
+export interface MeshForwardRequestOptions {
+  timeoutMs?: number;
+}
+
+export const DEFAULT_MESH_FORWARD_TIMEOUT_MS = 5_000;
+
+function resolveMeshForwardTimeoutMs(options?: MeshForwardRequestOptions): number {
+  if (typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0) {
+    return Math.floor(options.timeoutMs);
+  }
+  return DEFAULT_MESH_FORWARD_TIMEOUT_MS;
+}
+
+async function postJson<TResponse>(
+  url: string,
+  payload: unknown,
+  options?: MeshForwardRequestOptions,
+): Promise<TResponse> {
+  const timeoutMs = resolveMeshForwardTimeoutMs(options);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -299,6 +317,7 @@ async function postJson<TResponse>(url: string, payload: unknown): Promise<TResp
         accept: "application/json",
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     throw new PeerUnreachableError(
@@ -330,29 +349,33 @@ async function postJson<TResponse>(url: string, payload: unknown): Promise<TResp
 export async function forwardMeshMessage(
   brokerUrl: string,
   bundle: MeshMessageBundle,
+  options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; deliveries?: DeliveryIntent[]; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/messages`, bundle);
+  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/messages`, bundle, options);
 }
 
 export async function forwardMeshInvocation(
   brokerUrl: string,
   bundle: MeshInvocationBundle,
+  options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; flight: FlightRecord; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/invocations`, bundle);
+  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/invocations`, bundle, options);
 }
 
 export async function forwardMeshCollaborationRecord(
   brokerUrl: string,
   bundle: MeshCollaborationRecordBundle,
+  options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/records`, bundle);
+  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/records`, bundle, options);
 }
 
 export async function forwardMeshCollaborationEvent(
   brokerUrl: string,
   bundle: MeshCollaborationEventBundle,
+  options?: MeshForwardRequestOptions,
 ): Promise<{ ok: true; duplicate?: boolean }> {
-  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/events`, bundle);
+  return postJson(`${brokerUrl.replace(/\/$/, "")}/v1/mesh/collaboration/events`, bundle, options);
 }
 
 export async function fetchPeerAgents(

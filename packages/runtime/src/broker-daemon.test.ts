@@ -15,6 +15,7 @@ type BrokerHarness = {
 };
 
 const harnesses = new Set<BrokerHarness>();
+const hangingServers = new Set<ReturnType<typeof Bun.serve>>();
 
 afterEach(async () => {
   for (const harness of harnesses) {
@@ -23,6 +24,10 @@ afterEach(async () => {
     rmSync(harness.controlHome, { recursive: true, force: true });
   }
   harnesses.clear();
+  for (const server of hangingServers) {
+    server.stop(true);
+  }
+  hangingServers.clear();
 });
 
 async function startBroker(input: {
@@ -149,6 +154,17 @@ async function requestJson(baseUrl: string, path: string, init: RequestInit = {}
     ok: response.ok,
     body,
   };
+}
+
+function startHangingPeerServer(): string {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Promise<Response>(() => {});
+    },
+  });
+  hangingServers.add(server);
+  return `http://127.0.0.1:${server.port}`;
 }
 
 function nextSseBlock(buffer: string): { block: string; rest: string } | null {
@@ -625,6 +641,97 @@ describe("broker daemon comms layer", () => {
     );
     expect(remoteSnapshot.messages["msg-remote-1"]).toBeUndefined();
   }, 40_000);
+
+  test("fails remote-authority message posts when the authority broker stalls", async () => {
+    const harness = await startBroker();
+    const hangingBrokerUrl = startHangingPeerServer();
+    const authorityNodeId = "peer-authority";
+    const conversationId = "dm.sender-air.target-mini";
+
+    await postJson(harness.baseUrl, "/v1/nodes", {
+      id: authorityNodeId,
+      meshId: "openscout",
+      name: "Peer Authority",
+      advertiseScope: "mesh",
+      brokerUrl: hangingBrokerUrl,
+      registeredAt: Date.now(),
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "sender-air",
+      kind: "agent",
+      definitionId: "sender-air",
+      displayName: "Sender Air",
+      handle: "sender-air",
+      labels: ["test"],
+      selector: "@sender-air",
+      defaultSelector: "@sender-air",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "target-mini",
+      kind: "agent",
+      definitionId: "target-mini",
+      displayName: "Target Mini",
+      handle: "target-mini",
+      labels: ["test"],
+      selector: "@target-mini",
+      defaultSelector: "@target-mini",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: authorityNodeId,
+      authorityNodeId,
+      advertiseScope: "local",
+    });
+
+    await postJson(harness.baseUrl, "/v1/conversations", {
+      id: conversationId,
+      kind: "direct",
+      title: "sender-air <> target-mini",
+      visibility: "private",
+      shareMode: "shared",
+      authorityNodeId,
+      participantIds: ["sender-air", "target-mini"],
+      metadata: { surface: "test" },
+    });
+
+    const startedAt = Date.now();
+    const response = await fetch(`${harness.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        id: "msg-stalled-authority",
+        conversationId,
+        actorId: "sender-air",
+        originNodeId: harness.nodeId,
+        class: "agent",
+        body: "stalled authority forward",
+        visibility: "private",
+        policy: "durable",
+        createdAt: Date.now(),
+      }),
+      signal: AbortSignal.timeout(6_500),
+    });
+
+    expect(response.status).toBe(400);
+    expect(Date.now() - startedAt).toBeLessThan(6_500);
+
+    const body = await response.json() as { error?: string; detail?: string };
+    expect(body.error).toBe("bad_request");
+    expect(body.detail).toContain("peer broker unreachable");
+  }, 10_000);
 
   test("rejects thread protocol requests on a non-authority broker", async () => {
     const authority = await startBroker();
