@@ -20,6 +20,7 @@ implementation specs.
 
 - [sco-001-authority-thread-events-proposal.md](./sco-001-authority-thread-events-proposal.md)
 - [sco-002-work-projection-and-trace-spec.md](./sco-002-work-projection-and-trace-spec.md)
+- [sco-003-agent-sessions-capability-proposal.md](./sco-003-agent-sessions-capability-proposal.md)
 
 ## Operations
 
