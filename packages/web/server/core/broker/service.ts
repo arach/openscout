@@ -6,11 +6,12 @@ import {
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
+  diagnoseAgentIdentity,
   extractAgentMentions,
   extractAgentSelectors,
+  formatMinimalAgentIdentity,
   type FlightRecord,
   type NodeDefinition,
-  resolveAgentSelector,
   type AgentHarness,
   type AgentSelector,
   type AgentSelectorCandidate,
@@ -145,11 +146,21 @@ export type ScoutAskResult = {
   targetDiagnostic?: ScoutAskTargetDiagnostic;
 };
 
-export type ScoutAskTargetDiagnostic = {
+export type ScoutAskTargetDiagnostic =
+  | {
+      agentId: string;
+      state: AgentState | "discovered" | "unknown";
+      registrationKind: ScoutWhoRegistrationKind | null;
+      projectRoot: string | null;
+    }
+  | {
+      state: "ambiguous";
+      candidates: ScoutAskAmbiguousCandidate[];
+    };
+
+export type ScoutAskAmbiguousCandidate = {
   agentId: string;
-  state: AgentState | "discovered" | "unknown";
-  registrationKind: ScoutWhoRegistrationKind | null;
-  projectRoot: string | null;
+  label: string;
 };
 
 export type ScoutDirectSessionResult = {
@@ -493,15 +504,48 @@ export function scoutConversationIdForChannel(channel?: string): string {
   return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
 }
 
+function buildMentionCandidate(
+  snapshot: ScoutBrokerSnapshot,
+  agent: AgentDefinition,
+): AgentSelectorCandidate {
+  const endpoints = Object.values(snapshot.endpoints ?? {}).filter(
+    (endpoint) => endpoint.agentId === agent.id,
+  );
+  const preferred = endpoints.find((endpoint) => endpoint.state === "active")
+    ?? endpoints.find((endpoint) => endpoint.state === "idle" || endpoint.state === "waiting")
+    ?? endpoints[0];
+  const harness = preferred?.harness
+    ?? metadataString(agent.metadata, "harness")
+    ?? metadataString(agent.metadata, "defaultHarness");
+  const profile = metadataString(agent.metadata, "profile");
+  return {
+    agentId: agent.id,
+    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
+    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
+    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+    ...(harness ? { harness } : {}),
+    ...(profile ? { profile } : {}),
+    aliases: [
+      metadataString(agent.metadata, "selector"),
+      metadataString(agent.metadata, "defaultSelector"),
+    ].filter(Boolean) as string[],
+  };
+}
+
 async function resolveMentionTargets(
   snapshot: ScoutBrokerSnapshot,
   text: string,
   currentDirectory: string,
-): Promise<{ resolved: ScoutMentionTarget[]; unresolved: string[] }> {
+): Promise<{
+  resolved: ScoutMentionTarget[];
+  unresolved: string[];
+  ambiguous: ScoutMentionAmbiguity[];
+}> {
   const mentions = extractAgentMentions(text);
   const selectors = mentions.parsed;
   const resolved = new Map<string, ScoutMentionTarget>();
   const unresolved: string[] = [...mentions.unparsed];
+  const ambiguous: ScoutMentionAmbiguity[] = [];
   const candidateMap = new Map<string, AgentSelectorCandidate>();
   const endpointBackedAgentIds = [...new Set(
     Object.values(snapshot.endpoints).map((endpoint) => endpoint.agentId).filter((agentId) => agentId && agentId !== OPERATOR_ID),
@@ -511,16 +555,7 @@ async function resolveMentionTargets(
     if (isSupersededBrokerAgent(snapshot, agent.id)) {
       continue;
     }
-    candidateMap.set(agent.id, {
-      agentId: agent.id,
-      definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
-      nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
-      workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
-      aliases: [
-        metadataString(agent.metadata, "selector"),
-        metadataString(agent.metadata, "defaultSelector"),
-      ].filter(Boolean) as string[],
-    });
+    candidateMap.set(agent.id, buildMentionCandidate(snapshot, agent));
   }
 
   for (const selector of selectors) {
@@ -546,35 +581,70 @@ async function resolveMentionTargets(
       continue;
     }
 
-    const match = resolveAgentSelector(selector, candidates);
-    if (!match) {
-      unresolved.push(selector.label);
+    const diagnosis = diagnoseAgentIdentity(selector, candidates);
+    if (diagnosis.kind === "resolved") {
+      resolved.set(diagnosis.match.agentId, {
+        agentId: diagnosis.match.agentId,
+        label: selector.label,
+        selector,
+      });
       continue;
     }
-    resolved.set(match.agentId, { agentId: match.agentId, label: selector.label, selector });
+    if (diagnosis.kind === "ambiguous") {
+      ambiguous.push({
+        label: selector.label,
+        selector,
+        candidates: diagnosis.candidates.map((candidate) => ({
+          agentId: candidate.agentId,
+          label: formatMinimalAgentIdentity(candidate, diagnosis.candidates),
+        })),
+      });
+      continue;
+    }
+    unresolved.push(selector.label);
   }
 
   return {
     resolved: Array.from(resolved.values()).sort((lhs, rhs) => lhs.agentId.localeCompare(rhs.agentId)),
     unresolved: Array.from(new Set(unresolved)).sort(),
+    ambiguous,
   };
 }
+
+type ScoutMentionAmbiguity = {
+  label: string;
+  selector: AgentSelector;
+  candidates: ScoutAskAmbiguousCandidate[];
+};
+
+type ScoutSingleTargetResolution =
+  | { kind: "resolved"; target: ScoutMentionTarget }
+  | { kind: "ambiguous"; candidates: ScoutAskAmbiguousCandidate[] }
+  | { kind: "unresolved" };
 
 async function resolveSingleBrokerTarget(
   snapshot: ScoutBrokerSnapshot,
   label: string,
   currentDirectory: string,
-): Promise<ScoutMentionTarget | null> {
+): Promise<ScoutSingleTargetResolution> {
   const normalized = label.trim();
   if (!normalized) {
-    return null;
+    return { kind: "unresolved" };
   }
   const resolution = await resolveMentionTargets(
     snapshot,
     normalized.startsWith("@") ? normalized : `@${normalized}`,
     currentDirectory,
   );
-  return resolution.resolved[0] ?? null;
+  const firstAmbiguous = resolution.ambiguous[0];
+  if (firstAmbiguous) {
+    return { kind: "ambiguous", candidates: firstAmbiguous.candidates };
+  }
+  const first = resolution.resolved[0];
+  if (first) {
+    return { kind: "resolved", target: first };
+  }
+  return { kind: "unresolved" };
 }
 
 async function describeScoutTargetAvailability(
@@ -1092,7 +1162,8 @@ export async function sendScoutMessage(input: {
   const unresolvedTargets = mentionResolution.resolved
     .filter((target) => !validTargets.includes(target.agentId))
     .map((target) => target.label)
-    .concat(mentionResolution.unresolved);
+    .concat(mentionResolution.unresolved)
+    .concat(mentionResolution.ambiguous.map((entry) => entry.label));
   const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const speechText = input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : "";
   const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
@@ -1333,10 +1404,21 @@ export async function askScoutQuestion(input: {
     currentDirectory,
   );
 
-  const target = await resolveSingleBrokerTarget(broker.snapshot, input.targetLabel, currentDirectory);
-  if (!target) {
+  const targetResolution = await resolveSingleBrokerTarget(broker.snapshot, input.targetLabel, currentDirectory);
+  if (targetResolution.kind === "ambiguous") {
+    return {
+      usedBroker: true,
+      unresolvedTarget: input.targetLabel,
+      targetDiagnostic: {
+        state: "ambiguous",
+        candidates: targetResolution.candidates,
+      },
+    };
+  }
+  if (targetResolution.kind !== "resolved") {
     return { usedBroker: true, unresolvedTarget: input.targetLabel };
   }
+  const target = targetResolution.target;
   const targetReady = await ensureTargetRelayAgentRegistered(
     broker.baseUrl,
     broker.snapshot,

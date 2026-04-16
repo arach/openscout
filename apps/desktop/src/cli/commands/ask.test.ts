@@ -24,4 +24,23 @@ describe("formatScoutAskRoutingError", () => {
       "target @talkie is not currently routable; nothing was sent.",
     );
   });
+
+  test("lists candidates when the short @name matches multiple agents", () => {
+    const message = formatScoutAskRoutingError(
+      {
+        targetDiagnostic: {
+          state: "ambiguous",
+          candidates: [
+            { agentId: "vox.mini.codex", label: "@vox.harness:codex" },
+            { agentId: "vox.mini.claude", label: "@vox.harness:claude" },
+          ],
+        },
+      },
+      "vox",
+    );
+    expect(message).toContain("target @vox matches multiple agents");
+    expect(message).toContain("@vox.harness:codex");
+    expect(message).toContain("@vox.harness:claude");
+    expect(message).toContain("Re-run with the fully qualified form");
+  });
 });

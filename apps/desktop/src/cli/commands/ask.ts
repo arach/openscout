@@ -19,12 +19,28 @@ function renderScoutUpCommand(projectRoot: string): string {
   return `scout up "${projectRoot}"`;
 }
 
+function renderAmbiguousCandidate(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+}
+
 export function formatScoutAskRoutingError(
   result: Pick<ScoutAskResult, "targetDiagnostic">,
   targetLabel: string,
 ): string {
   const renderedTarget = renderScoutTargetLabel(targetLabel);
   const diagnostic = result.targetDiagnostic;
+
+  if (diagnostic?.state === "ambiguous") {
+    const rendered = diagnostic.candidates
+      .map((candidate) => renderAmbiguousCandidate(candidate.label || candidate.agentId))
+      .filter((label) => label.length > 0);
+    if (rendered.length > 0) {
+      return `target ${renderedTarget} matches multiple agents: ${rendered.join(", ")}. Re-run with the fully qualified form (e.g. \`scout ask --to ${rendered[0].replace(/^@/, "")} ...\`).`;
+    }
+    return `target ${renderedTarget} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
+  }
 
   if (diagnostic?.state === "discovered") {
     if (diagnostic.projectRoot) {

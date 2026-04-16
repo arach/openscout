@@ -157,4 +157,108 @@ describe("askScoutQuestion", () => {
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(true);
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(false);
   }, 15000);
+
+  test("returns an ambiguous diagnostic when @name matches multiple agents", async () => {
+    useIsolatedOpenScoutHome();
+
+    const voxCodexAgent = {
+      id: "vox.mini.codex",
+      kind: "agent",
+      definitionId: "vox",
+      displayName: "Vox (codex)",
+      handle: "vox",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+      metadata: {
+        definitionId: "vox",
+        nodeQualifier: "mini",
+      },
+    };
+    const voxClaudeAgent = {
+      id: "vox.mini.claude",
+      kind: "agent",
+      definitionId: "vox",
+      displayName: "Vox (claude)",
+      handle: "vox",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+      metadata: {
+        definitionId: "vox",
+        nodeQualifier: "mini",
+      },
+    };
+    const voxCodexEndpoint = {
+      id: "ep-vox-codex",
+      agentId: "vox.mini.codex",
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "local_socket",
+      state: "active",
+    };
+    const voxClaudeEndpoint = {
+      id: "ep-vox-claude",
+      agentId: "vox.mini.claude",
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "local_socket",
+      state: "active",
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {
+            [voxCodexAgent.id]: voxCodexAgent,
+            [voxClaudeAgent.id]: voxClaudeAgent,
+          },
+          endpoints: {
+            [voxCodexEndpoint.id]: voxCodexEndpoint,
+            [voxClaudeEndpoint.id]: voxClaudeEndpoint,
+          },
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutQuestion({
+      senderId: "operator",
+      targetLabel: "vox",
+      body: "are you there?",
+      currentDirectory: process.cwd(),
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.flight).toBeUndefined();
+    expect(result.unresolvedTarget).toBe("vox");
+    expect(result.targetDiagnostic?.state).toBe("ambiguous");
+    if (result.targetDiagnostic?.state === "ambiguous") {
+      const ids = result.targetDiagnostic.candidates.map((candidate) => candidate.agentId).sort();
+      expect(ids).toEqual(["vox.mini.claude", "vox.mini.codex"]);
+      const labels = result.targetDiagnostic.candidates.map((candidate) => candidate.label).sort();
+      expect(labels).toEqual(["@vox.harness:claude", "@vox.harness:codex"]);
+    }
+  }, 15000);
 });
