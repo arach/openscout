@@ -238,6 +238,7 @@ packages/agent-sessions/
       adapter.ts
       approval-normalization.ts
       index.ts
+    client.ts
     adapters/
       claude-code.ts
       codex.ts
@@ -284,20 +285,26 @@ Rules:
    transport module.
 5. `@openscout/agent-sessions` MUST NOT reference broker or control-plane
    SQLite state.
-6. `@openscout/session-trace` MUST depend on `@openscout/agent-sessions`.
-7. `@openscout/session-trace` and `@openscout/session-trace-react` MUST NOT
+6. `@openscout/agent-sessions` MUST expose a browser-safe entrypoint such as
+   `@openscout/agent-sessions/client`. That entrypoint MUST export only
+   browser-safe protocol types, snapshot/event types, approval helpers, and
+   other pure helpers needed by trace consumers. It MUST NOT expose adapters,
+   registry implementations, or any Node-only code paths.
+7. `@openscout/session-trace` MUST depend on that browser-safe
+   `@openscout/agent-sessions` entrypoint rather than on the package root.
+8. `@openscout/session-trace` and `@openscout/session-trace-react` MUST NOT
    depend on the bridge, relay, pairing QR flows, or broker projection
    tables.
-8. `@openscout/session-trace-react` MUST NOT contain routing, queue
+9. `@openscout/session-trace-react` MUST NOT contain routing, queue
    management, or application-level state. Components render a single
    presentational unit at a time. Any "queue," "inbox," or "list"
    composition belongs in the consuming app.
-9. `packages/web/server/core/pairing/runtime/` and
+10. `packages/web/server/core/pairing/runtime/` and
    `apps/desktop/src/core/pairing/runtime/` MUST migrate to depend on
    `@openscout/agent-sessions` and delete their duplicated copies.
-10. Trace interpretation logic that belongs in `@openscout/session-trace` MUST
+11. Trace interpretation logic that belongs in `@openscout/session-trace` MUST
     NOT remain duplicated inside app-specific controllers after the carve.
-11. Native (non-React) consumers MUST be able to depend on
+12. Native (non-React) consumers MUST be able to depend on
     `@openscout/session-trace` alone, without pulling React transitively.
 
 ### 2. Protocol Compatibility
@@ -348,7 +355,10 @@ Rules:
    `block:action:approval` and the action block state itself.
 5. `SessionSnapshot` MUST preserve raw block payloads, output, status,
    approval metadata, and question answers.
-6. `@openscout/session-trace` MUST render directly from this protocol and
+6. The browser-safe `@openscout/agent-sessions` entrypoint MUST expose this
+   protocol and snapshot shape without pulling adapters, registries, or
+   Node-only dependencies into browser consumers.
+7. `@openscout/session-trace` MUST render directly from this protocol and
    snapshot shape. It MUST NOT require broker projections or durable session
    logs to render live trace.
 
@@ -364,7 +374,7 @@ interface SessionRegistry {
   getSnapshot(sessionId: string): SessionSnapshot | null;
 
   subscribe(
-    filter: { sessionId?: string },
+    sessionId: string,
     handler: (event: SequencedSessionEvent) => void,
   ): () => void;
 
@@ -396,14 +406,23 @@ Rules:
 
 1. The capability package MUST expose one `SessionRegistry` per process.
 2. Each session MUST have its own monotonic sequence space. `SequencedSessionEvent.seq` is scoped to the owning session, not the registry as a whole.
-3. `subscribe` MUST deliver live events in per-session sequence order. Cross-session ordering is not guaranteed.
+3. `subscribe(sessionId, ...)` MUST target exactly one session and MUST
+   deliver live events in that session's sequence order.
 4. `replay(sessionId, afterSeq)` MUST return events strictly after `afterSeq` in that session's sequence space, in sequence order, before any further live events for that session.
 5. `currentSeq(sessionId)` and `oldestBufferedSeq(sessionId)` MUST reflect per-session buffer state so that consumers can detect replay gaps without reasoning about other sessions.
 6. `sendTurn`, `answer`, `decide`, and `interrupt` MUST route through the
    adapter write path. They MUST NOT bypass adapter normalization.
-7. `attach` MUST NOT consult bridge policy.
-8. The registry MUST accept externally-started sessions as first-class.
-9. The registry MUST NOT own broker persistence or durable projection logic.
+7. The core registry API MUST NOT expose a mixed all-sessions subscription
+   with per-session sequence numbers and no cross-session cursor contract.
+   If OpenScout later needs an all-sessions feed, it MUST be specified as a
+   separate surface with distinct cursor semantics.
+8. `decide` MUST compare the supplied approval `version` against the current
+   approval state in the session snapshot before invoking the adapter. If the
+   approval is missing or the version is stale, `decide` MUST fail with a
+   conflict-style error and MUST NOT call `adapter.decide(...)`.
+9. `attach` MUST NOT consult bridge policy.
+10. The registry MUST accept externally-started sessions as first-class.
+11. The registry MUST NOT own broker persistence or durable projection logic.
 
 ### 4. Adapter Contract
 
@@ -582,6 +601,13 @@ Rules:
 7. `session.sendTurn`, `session.answer`, `session.decide`, and
    `session.interrupt` MUST be authorized before the bridge calls the
    underlying registry method.
+8. Before the bridge forwards `session.decide`, it MUST validate the decision
+   against its current view of the approval state, including version matching,
+   and MUST fail stale or missing approvals with a conflict-style error rather
+   than forwarding to the adapter. This bridge-side check is a fast-fail
+   optimization for remote callers; the registry check in §3.8 remains the
+   authoritative source of truth, and any disagreement between the two MUST
+   resolve in favor of the registry.
 
 ### 8. Authorization Model
 
