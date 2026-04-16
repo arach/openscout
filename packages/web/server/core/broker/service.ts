@@ -1352,14 +1352,22 @@ export async function askScoutQuestion(input: {
     };
   }
 
-  const conversation = await ensureBrokerConversation(
-    broker.baseUrl,
-    broker.snapshot,
-    broker.node.id,
-    input.channel,
-    senderId,
-    [target.agentId],
-  );
+  // Route to a DM conversation when the caller didn't pin an explicit channel.
+  // `scout ask --to dewey` reads as a pointed two-party exchange, not a broadcast.
+  let conversation: ScoutBrokerConversationRecord;
+  if (!input.channel) {
+    const dm = await ensureBrokerDirectConversationBetween(
+      broker.baseUrl, broker.snapshot, broker.node.id,
+      senderId, target.agentId,
+    );
+    conversation = dm.conversation;
+  } else {
+    conversation = await ensureBrokerConversation(
+      broker.baseUrl, broker.snapshot, broker.node.id,
+      input.channel, senderId,
+      [target.agentId],
+    );
+  }
   const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const messageBody = input.body.trim().startsWith(target.label) ? input.body.trim() : `${target.label} ${input.body.trim()}`;
   const speechText = input.shouldSpeak ? stripScoutAgentSelectorLabels(messageBody) : "";
@@ -1383,7 +1391,7 @@ export async function askScoutQuestion(input: {
     createdAt: input.createdAtMs ?? Date.now(),
     metadata: {
       source: "scout-cli",
-      relayChannel: input.channel ?? "shared",
+      relayChannel: input.channel ?? (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: target.agentId,
       returnAddress,
     },
@@ -1404,7 +1412,7 @@ export async function askScoutQuestion(input: {
     createdAt: Date.now(),
     metadata: {
       source: "scout-cli",
-      relayChannel: input.channel ?? "shared",
+      relayChannel: input.channel ?? (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: target.agentId,
       returnAddress,
     },
