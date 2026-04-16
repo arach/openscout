@@ -3,8 +3,9 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { WorkList } from "../components/WorkList.tsx";
 import { conversationForAgent } from "../lib/router.ts";
-import type { Agent, Message, Route } from "../lib/types.ts";
+import type { Agent, Message, Route, WorkItem } from "../lib/types.ts";
 
 /** Build a display label that disambiguates agents sharing the same name. */
 function agentLabel(agent: Agent, allAgents: Agent[]): { name: string; qualifier: string | null } {
@@ -39,6 +40,18 @@ function AgentDetail({
     m.body.includes(`@${agent.name}`)
   );
   agentMessages.sort((a, b) => b.createdAt - a.createdAt);
+  const [work, setWork] = useState<WorkItem[]>([]);
+
+  const load = useCallback(async () => {
+    try {
+      setWork(await api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}`));
+    } catch {
+      setWork([]);
+    }
+  }, [agent.id]);
+
+  useEffect(() => { void load(); }, [load]);
+  useBrokerEvents(load);
 
   return (
     <div className="s-agent-detail">
@@ -67,6 +80,16 @@ function AgentDetail({
         {agent.transport && <DetailRow label="Transport" value={agent.transport.replace(/_/g, " ")} />}
         {agent.role && <DetailRow label="Role" value={agent.role} />}
         {agent.capabilities?.length > 0 && <DetailRow label="Capabilities" value={agent.capabilities.join(", ")} />}
+      </div>
+
+      <div className="s-agent-detail-section">
+        <div className="s-home-section-title">Current work</div>
+        <WorkList
+          items={work}
+          navigate={navigate}
+          emptyTitle="No active work"
+          emptyDetail="Owned or next-move work for this agent will show up here."
+        />
       </div>
 
       {agentMessages.length > 0 && (

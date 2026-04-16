@@ -11,6 +11,7 @@ import type {
   ActionBlock,
   Block,
   PairingEvent,
+  QuestionBlock,
   Session,
   TextBlock,
   ReasoningBlock,
@@ -150,6 +151,10 @@ export class StateTracker {
 
       case "block:action:approval":
         this.handleBlockActionApproval(state, event);
+        break;
+
+      case "block:question:answer":
+        this.handleBlockQuestionAnswer(state, event);
         break;
 
       case "block:end":
@@ -296,6 +301,21 @@ export class StateTracker {
     if (block.type === "action") {
       (block as ActionBlock).action.status = "awaiting_approval";
       (block as ActionBlock).action.approval = { ...event.approval };
+    }
+  }
+
+  private handleBlockQuestionAnswer(
+    state: SessionState,
+    event: Extract<PairingEvent, { event: "block:question:answer" }>,
+  ): void {
+    const blockState = this.findBlock(state, event.turnId, event.blockId);
+    if (!blockState) return;
+
+    const block = blockState.block;
+    if (block.type === "question") {
+      const questionBlock = block as QuestionBlock;
+      questionBlock.questionStatus = event.questionStatus;
+      questionBlock.answer = event.answer ? [...event.answer] : undefined;
     }
   }
 

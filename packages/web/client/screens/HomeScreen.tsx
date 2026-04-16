@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
+import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
-import type { Agent, ActivityItem, Route } from "../lib/types.ts";
+import { WorkList } from "../components/WorkList.tsx";
+import type { Agent, ActivityItem, Route, WorkItem } from "../lib/types.ts";
 
 type ShellState = {
   runtime?: {
@@ -41,11 +43,25 @@ export function HomeScreen({
 }) {
   const [shell, setShell] = useState<ShellState | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [work, setWork] = useState<WorkItem[]>([]);
 
-  useEffect(() => {
-    api<ShellState>("/api/shell-state").then(setShell).catch(() => {});
-    api<ActivityItem[]>("/api/activity").then(setActivity).catch(() => {});
+  const load = useCallback(async () => {
+    try {
+      const [nextShell, nextActivity, nextWork] = await Promise.all([
+        api<ShellState>("/api/shell-state"),
+        api<ActivityItem[]>("/api/activity"),
+        api<WorkItem[]>("/api/work"),
+      ]);
+      setShell(nextShell);
+      setActivity(nextActivity);
+      setWork(nextWork);
+    } catch {
+      // stay empty on error
+    }
   }, []);
+
+  useEffect(() => { void load(); }, [load]);
+  useBrokerEvents(load);
 
   const rt = shell?.runtime;
   const brokerRunning = rt?.brokerReachable ?? false;
@@ -109,6 +125,16 @@ export function HomeScreen({
           </div>
         </div>
       )}
+
+      <div className="s-home-section">
+        <div className="s-home-section-title">Active work</div>
+        <WorkList
+          items={work}
+          navigate={navigate}
+          emptyTitle="No active work"
+          emptyDetail={hasAgents ? "Open work items will appear here as agents pick them up." : undefined}
+        />
+      </div>
 
       {/* Activity stream */}
       <div className="s-home-section">

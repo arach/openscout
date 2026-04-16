@@ -52,7 +52,7 @@ OpenScout should separate operator visibility into four layers:
 1. `Fleet overview`
    A normalized list of active work across agents.
 2. `Work detail`
-   A normalized work view with durable status, progress, delegations, and
+   A normalized work view with durable status, progress, child work, and
    attention.
 3. `Coordination timeline`
    A durable, operator-facing narrative of handoff, ownership, waiting, review,
@@ -69,6 +69,11 @@ durable inventory attached to work and surfaced alongside the layers above.
 - `Coordination timeline` is durable and operator-facing.
 - `Live trace` is mostly raw.
 - `Artifacts` are broker-owned resources, not scraped tool output.
+
+The layer names in this document are architectural labels, not mandatory
+first-pass navigation labels. Near-term surfaces may map these layers onto the
+existing shell vocabulary such as agent detail, recent activity, open threads,
+and live session until the product language converges.
 
 ## Non-Goals
 
@@ -161,7 +166,8 @@ It should answer, at a glance:
 - what state it is in
 - what the current phase is
 - whether attention is needed
-- how many active delegations or child efforts exist
+- how many active child efforts exist
+- how many transient helper actions exist
 - how many durable artifacts were published
 - what changed most recently
 
@@ -175,8 +181,9 @@ Recommended row shape:
 | `nextMoveOwnerId` | current responsibility holder | collaboration |
 | `state` | `open`, `working`, `waiting`, `review`, `done`, `cancelled` | collaboration |
 | `currentPhase` | short normalized execution label | flights + promoted trace |
-| `attention` | `none`, `badge`, `interrupt` | collaboration + flights + approval |
-| `activeDelegationCount` | active child work or trace-level helper count | collaboration, secondarily trace |
+| `attention` | `silent`, `badge`, `interrupt` | collaboration + flights + approval |
+| `activeChildWorkCount` | durable child work or spawned work items | collaboration |
+| `activeHelperCount` | transient trace-level helper or subagent activity | promoted trace |
 | `artifactCount` | durable published outputs | resources / artifact records |
 | `lastMeaningfulAt` | most recent high-signal change | projected |
 | `lastMeaningfulSummary` | short summary of that change | projected |
@@ -194,12 +201,17 @@ It should contain:
 - progress summary and checkpoint
 - waiting / review / acceptance state
 - active flight summary
-- active delegations and child work
+- active child work
+- transient helper activity summary
 - durable artifact inventory
 - coordination timeline
 - optional live trace drawer
 
 This is the main page for understanding long-running work.
+
+The current shell does not yet expose this as a single page. Near-term
+implementation may realize it across existing agent, activity, thread, and live
+session surfaces while the read model stabilizes.
 
 ### Coordination Timeline
 
@@ -223,6 +235,13 @@ It should not include:
 - command stdout chunks
 - every tool call
 - ephemeral session churn
+
+Each timeline item should declare whether it comes from:
+
+- a durable collaboration event
+- a collaboration record diff or inferred durable transition
+- a flight lifecycle change
+- an explicitly promoted runtime event such as approval needed
 
 ### Live Trace
 
@@ -251,6 +270,11 @@ Rendering rules:
 
 The trace is for observation and diagnosis. It is not the canonical work model.
 
+Durable collaboration `question` records and runtime `question` blocks are
+different concepts. A runtime `question` block is an interactive execution
+event, not a durable collaboration question unless the broker writes a separate
+collaboration record.
+
 ### Artifacts
 
 Artifacts are durable outputs that can be reopened later.
@@ -278,6 +302,28 @@ arbitrary tool output.
 4. `MessageRecord` is the source of truth for durable communicative turns.
 5. Runtime `turn` / `block` events are the source of truth for live trace only.
 6. Resource or artifact records are the source of truth for artifact inventory.
+7. Work-scoped execution should join to work by explicit collaboration linkage
+   when present, not by thread heuristics alone.
+8. Conversation or message linkage by itself is insufficient to claim that an
+   invocation, flight, or artifact belongs to one specific work item.
+
+### Canonical Work-To-Execution Linkage
+
+The preferred join from work to execution is `collaborationRecordId`.
+
+The current runtime already emits this on collaboration-generated invocations in
+context and metadata. Work-detail projections should treat that linkage as the
+canonical join whenever it exists.
+
+Practical rules:
+
+- invocation belongs to work item when `context.collaboration.recordId` or
+  `metadata.collaborationRecordId` matches the work record id
+- flight belongs to work item through its invocation
+- artifact belongs to work item only when it links to a source invocation or an
+  explicit linked record id
+- if no explicit work linkage exists, the item may still be conversation-scoped
+  but should not be shown as owned by a specific work item by default
 
 ### Promotion Rule
 
@@ -312,7 +358,7 @@ Everything else stays in trace.
 | action block `tool_call` | current phase only | no by default | yes |
 | action block `subagent` | helper count only | no by default | yes |
 | `block:action:approval` | attention `interrupt` | yes | yes |
-| `block:question:answer` | maybe attention clear | yes if user-facing | yes |
+| `block:question:answer` | no by default | only if a durable collaboration or attention change is written separately | yes, once bridge snapshots carry it |
 | resource / artifact published | artifact count | yes | optional link only |
 
 ## Normalized Work Signals
@@ -344,7 +390,7 @@ Recommended vocabulary:
 - `Running command`
 - `Editing files`
 - `Using tool`
-- `Delegating`
+- `Using helper`
 - `Awaiting approval`
 - `Preparing reply`
 - `Waiting`
@@ -368,7 +414,7 @@ Phase precedence should be:
 
 Reuse the existing notification tier shape:
 
-- `none`
+- `silent`
 - `badge`
 - `interrupt`
 
@@ -383,7 +429,7 @@ Recommended mapping:
   - durable reply posted
   - artifact published
   - work completed
-- `none`
+- `silent`
   - ordinary progress churn
 
 ### Last Meaningful Event
@@ -413,7 +459,7 @@ They should only affect normalized work when they change one of:
 
 - `currentPhase`
 - `attention`
-- `activeDelegationCount`
+- `activeHelperCount`
 - `lastMeaningfulEvent`
 
 ### Duration Threshold
@@ -436,6 +482,7 @@ Rules:
 - durable delegation should come from collaboration, delivery, or explicit child
   work records
 - fleet and work detail should prefer durable child work over trace heuristics
+- helper activity should never be presented as ownership transfer on its own
 
 ### Approval
 
@@ -488,9 +535,11 @@ records alone:
 - invocations
 - flights
 - resources
-- activity projections
 
 Losing a live session or trace buffer must not erase the work story.
+
+`activity_items` remain useful accelerators for operational reads, but they are
+rebuildable projections rather than canonical recovery inputs.
 
 ### Live Trace Recovery
 
@@ -514,19 +563,20 @@ normalized work projection path.
 Operator request:
 
 > Ask `@vox-dj` to implement real-time voice commands and let it work for 20
-> minutes with optional delegations.
+> minutes with optional child work and helper usage.
 
-Expected projection:
+Expected target-state projection:
 
 ### Fleet Overview
 
 - `@vox-dj`
 - `Working`
 - `Current phase: Running command`
-- `2 active delegations`
+- `1 active child work`
+- `1 active helper`
 - `3 artifacts`
 - `Last meaningful event: published latency benchmark`
-- `Attention: none`
+- `Attention: silent`
 
 ### Work Detail
 
@@ -556,10 +606,10 @@ work model.
 
 ## API Direction
 
-This proposal does not require a new canonical store. It requires a stable read
-contract.
+This proposal does not require a new canonical store. It requires a stable
+target-state read contract.
 
-Suggested read models:
+Suggested target-state read models:
 
 - `fleet_work_rows`
 - `work_detail_projection`
@@ -567,7 +617,8 @@ Suggested read models:
 - `live_trace_stream`
 - `artifact_inventory`
 
-These may be implemented as:
+These are not all exposed today as stable broker or web APIs. They may be
+implemented as:
 
 - broker read helpers
 - SQLite-backed projection tables
@@ -590,6 +641,8 @@ assembled at read time.
 - attach runtime trace drawers using the existing `turn` / `block` model
 - promote only approval, phase, helper count, and terminal failure
 - keep reasoning collapsed and trace minimally interpreted
+- wire `block:question:answer` through bridge snapshots so live trace recovery
+  matches the protocol surface
 
 ### Phase 3
 

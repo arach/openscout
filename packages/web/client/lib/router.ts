@@ -26,6 +26,9 @@ function routeFromPath(): Route {
   if (parts[0] === "sessions") return { view: "sessions" };
   if (parts[0] === "mesh") return { view: "mesh" };
   if (parts[0] === "activity") return { view: "activity" };
+  if (parts[0] === "work" && parts[1]) {
+    return { view: "work", workId: decodeURIComponent(parts[1]) };
+  }
   if (parts[0] === "settings") return { view: "settings" };
   return { view: "inbox" };
 }
@@ -39,6 +42,7 @@ function routePath(r: Route): string {
     case "sessions": return r.sessionId ? `/sessions/${encodeURIComponent(r.sessionId)}` : "/sessions";
     case "mesh": return "/mesh";
     case "activity": return "/activity";
+    case "work": return `/work/${encodeURIComponent(r.workId)}`;
     case "settings": return "/settings";
   }
 }
@@ -49,6 +53,7 @@ function routeKey(r: Route): string {
     case "agent-info": return `agent-info:${r.conversationId}`;
     case "agents": return r.agentId ? `agent:${r.agentId}` : "agents";
     case "sessions": return r.sessionId ? `session:${r.sessionId}` : "sessions";
+    case "work": return `work:${r.workId}`;
     default: return r.view;
   }
 }

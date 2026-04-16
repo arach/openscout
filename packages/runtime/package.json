@@ -80,6 +80,8 @@
     "broker": "node ./bin/openscout-runtime.mjs broker",
     "service": "node ./bin/openscout-runtime.mjs service",
     "discover": "node ./bin/openscout-runtime.mjs discover",
+    "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "bun ./src/drizzle-migrate.ts",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test src/*.test.ts",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
@@ -87,6 +89,7 @@
   },
   "dependencies": {
     "@openscout/protocol": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1"
   },
   "publishConfig": {
@@ -94,6 +97,7 @@
   },
   "devDependencies": {
     "@types/node": "^22",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5"
   }
 }

@@ -174,6 +174,7 @@ export function buildCollaborationInvocation(
     targetAgentId,
     action: options.action ?? "consult",
     task: options.task?.trim() || defaultTaskForRecord(record, wakeReason),
+    collaborationRecordId: record.id,
     conversationId: options.conversationId ?? record.conversationId,
     messageId: options.messageId,
     context,

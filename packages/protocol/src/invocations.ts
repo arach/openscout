@@ -29,6 +29,7 @@ export interface InvocationRequest {
   targetNodeId?: ScoutId;
   action: InvocationAction;
   task: string;
+  collaborationRecordId?: ScoutId;
   conversationId?: ScoutId;
   messageId?: ScoutId;
   context?: MetadataMap;

@@ -2,6 +2,7 @@ export * from "./registry.js";
 export * from "./harness-catalog.js";
 export * from "./planner.js";
 export * from "./schema.js";
+export * from "./drizzle-client.js";
 export * from "./service.js";
 export * from "./broker.js";
 export * from "./sqlite-store.js";

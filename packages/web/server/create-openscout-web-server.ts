@@ -22,6 +22,8 @@ import {
   queryActivity,
   queryFlights,
   queryRecentMessages,
+  queryWorkItems,
+  queryWorkItemById,
   querySessions,
   querySessionById,
 } from "./db-queries.ts";
@@ -98,13 +100,27 @@ export function createOpenScoutWebServer(
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/messages", (c) => c.json(queryRecentMessages()));
+  app.get("/api/work", (c) => {
+    const agentId = c.req.query("agentId");
+    const activeOnly = c.req.query("active") !== "false";
+    return c.json(queryWorkItems({
+      agentId: agentId || undefined,
+      activeOnly,
+    }));
+  });
+  app.get("/api/work/:id", (c) => {
+    const detail = queryWorkItemById(c.req.param("id"));
+    return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
+  });
   app.get("/api/flights", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
+    const collaborationRecordId = c.req.query("collaborationRecordId");
     const activeOnly = c.req.query("active") !== "false";
     return c.json(queryFlights({
       agentId: agentId || undefined,
       conversationId: conversationId || undefined,
+      collaborationRecordId: collaborationRecordId || undefined,
       activeOnly,
     }));
   });

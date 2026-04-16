@@ -1,4 +1,6 @@
-export const CONTROL_PLANE_SCHEMA_VERSION = 2;
+export * from "./drizzle-schema.js";
+
+export const CONTROL_PLANE_SCHEMA_VERSION = 3;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -125,6 +127,7 @@ CREATE TABLE IF NOT EXISTS invocations (
   target_node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL,
   action TEXT NOT NULL,
   task TEXT NOT NULL,
+  collaboration_record_id TEXT REFERENCES collaboration_records(id) ON DELETE SET NULL,
   conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
   message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   context_json TEXT,

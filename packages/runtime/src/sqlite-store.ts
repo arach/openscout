@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { Database } from "bun:sqlite";
+import { and, asc, eq } from "drizzle-orm";
 
 import type {
   ActorIdentity,
@@ -41,7 +42,8 @@ import {
   createRuntimeRegistrySnapshot,
   type RuntimeRegistrySnapshot,
 } from "./registry.js";
-import { CONTROL_PLANE_SQLITE_SCHEMA } from "./schema.js";
+import { openControlPlaneDrizzle } from "./drizzle-client.js";
+import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -55,6 +57,54 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 
 function stringify(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function metadataValue(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): unknown {
+  return metadata?.[key];
+}
+
+function stringValue(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadataValue(metadata, key);
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function invocationStringValue(invocation: InvocationRequest, key: string): string | undefined {
+  const contextValue = stringValue(invocation.context, key);
+  if (contextValue) {
+    return contextValue;
+  }
+
+  const nestedContext = metadataValue(invocation.context, "collaboration");
+  if (nestedContext && typeof nestedContext === "object" && !Array.isArray(nestedContext)) {
+    const nestedValue = stringValue(nestedContext as Record<string, unknown>, key);
+    if (nestedValue) {
+      return nestedValue;
+    }
+  }
+
+  const metadataEntry = stringValue(invocation.metadata, key);
+  if (metadataEntry) {
+    return metadataEntry;
+  }
+
+  const nestedMetadata = metadataValue(invocation.metadata, "collaboration");
+  if (nestedMetadata && typeof nestedMetadata === "object" && !Array.isArray(nestedMetadata)) {
+    return stringValue(nestedMetadata as Record<string, unknown>, key);
+  }
+
+  return undefined;
+}
+
+function resolveInvocationCollaborationRecordId(invocation: InvocationRequest): string | undefined {
+  return invocation.collaborationRecordId?.trim()
+    || invocationStringValue(invocation, "collaborationRecordId")
+    || invocationStringValue(invocation, "recordId");
 }
 
 type SQLiteBinding =
@@ -227,6 +277,7 @@ interface InvocationRow {
   target_node_id: string | null;
   action: InvocationRequest["action"];
   task: string;
+  collaboration_record_id: string | null;
   conversation_id: string | null;
   message_id: string | null;
   context_json: string | null;
@@ -279,34 +330,6 @@ interface CollaborationEventRow {
   kind: string;
   actor_id: string;
   summary: string | null;
-  metadata_json: string | null;
-  created_at: number;
-}
-
-interface DeliveryRow {
-  id: string;
-  message_id: string | null;
-  invocation_id: string | null;
-  target_id: string;
-  target_node_id: string | null;
-  target_kind: DeliveryIntent["targetKind"];
-  transport: DeliveryIntent["transport"];
-  reason: DeliveryIntent["reason"];
-  policy: DeliveryIntent["policy"];
-  status: DeliveryIntent["status"];
-  binding_id: string | null;
-  lease_owner: string | null;
-  lease_expires_at: number | null;
-  metadata_json: string | null;
-}
-
-interface DeliveryAttemptRow {
-  id: string;
-  delivery_id: string;
-  attempt: number;
-  status: DeliveryAttempt["status"];
-  error: string | null;
-  external_ref: string | null;
   metadata_json: string | null;
   created_at: number;
 }
@@ -441,6 +464,8 @@ function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRec
 export class SQLiteControlPlaneStore {
   private readonly db: Database;
   private readonly readDb: Database;
+  private readonly drizzleDb: ReturnType<typeof openControlPlaneDrizzle>;
+  private readonly drizzleReadDb: ReturnType<typeof openControlPlaneDrizzle>;
   private readonly persistEventsBatch: (events: ControlEvent[]) => void;
   private pendingEvents: ControlEvent[] = [];
   private flushPendingEventsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -448,15 +473,18 @@ export class SQLiteControlPlaneStore {
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new SQLiteDatabase(dbPath, { create: true });
-    this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
     // Set busy_timeout FIRST — journal_mode = WAL requires a write lock and will
     // fail with SQLITE_BUSY if another process holds one.
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
     this.db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
+    this.ensureSchemaMigrations();
+    this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
     this.readDb.exec("PRAGMA busy_timeout = 5000;");
     this.readDb.exec("PRAGMA query_only = ON;");
+    this.drizzleDb = openControlPlaneDrizzle(this.db);
+    this.drizzleReadDb = openControlPlaneDrizzle(this.readDb);
     this.persistEventsBatch = (this.db as SQLiteTransactionalDatabase).transaction((events: ControlEvent[]) => {
       const statement = this.db.query(
         `INSERT OR REPLACE INTO events (id, kind, actor_id, node_id, ts, payload_json)
@@ -474,6 +502,27 @@ export class SQLiteControlPlaneStore {
         );
       }
     });
+  }
+
+  private ensureSchemaMigrations(): void {
+    if (!this.hasColumn("invocations", "collaboration_record_id")) {
+      this.db.exec(
+        "ALTER TABLE invocations ADD COLUMN collaboration_record_id TEXT REFERENCES collaboration_records(id) ON DELETE SET NULL",
+      );
+    }
+
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_invocations_collaboration_record_id_created_at ON invocations(collaboration_record_id, created_at)",
+    );
+  }
+
+  private hasColumn(tableName: string, columnName: string): boolean {
+    const escapedTableName = tableName.replaceAll("'", "''");
+    const rows = queryAll<{ name: string }>(
+      this.db,
+      `SELECT name FROM pragma_table_info('${escapedTableName}')`,
+    );
+    return rows.some((row) => row.name === columnName);
   }
 
   close(): void {
@@ -1059,12 +1108,13 @@ export class SQLiteControlPlaneStore {
   }
 
   recordInvocation(invocation: InvocationRequest): void {
+    const collaborationRecordId = resolveInvocationCollaborationRecordId(invocation);
     this.db.query(
       `INSERT OR REPLACE INTO invocations (
         id, requester_id, requester_node_id, target_agent_id, target_node_id, action, task,
-        conversation_id, message_id, context_json, execution_json, ensure_awake, stream,
-        timeout_ms, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`,
+        collaboration_record_id, conversation_id, message_id, context_json, execution_json,
+        ensure_awake, stream, timeout_ms, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
     ).run(
       invocation.id,
       invocation.requesterId,
@@ -1073,6 +1123,7 @@ export class SQLiteControlPlaneStore {
       invocation.targetNodeId ?? null,
       invocation.action,
       invocation.task,
+      collaborationRecordId ?? null,
       invocation.conversationId ?? null,
       invocation.messageId ?? null,
       stringify(invocation.context),
@@ -1329,29 +1380,44 @@ export class SQLiteControlPlaneStore {
   }
 
   recordDeliveries(deliveries: DeliveryIntent[]): void {
-    const stmt = this.db.query(
-      `INSERT OR REPLACE INTO deliveries (
-        id, message_id, invocation_id, target_id, target_node_id, target_kind, transport,
-        reason, policy, status, binding_id, lease_owner, lease_expires_at, metadata_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
-    );
     for (const delivery of deliveries) {
-      stmt.run(
-        delivery.id,
-        delivery.messageId ?? null,
-        delivery.invocationId ?? null,
-        delivery.targetId,
-        delivery.targetNodeId ?? null,
-        delivery.targetKind,
-        delivery.transport,
-        delivery.reason,
-        delivery.policy,
-        delivery.status,
-        delivery.bindingId ?? null,
-        delivery.leaseOwner ?? null,
-        delivery.leaseExpiresAt ?? null,
-        stringify(delivery.metadata),
-      );
+      this.drizzleDb
+        .insert(deliveriesTable)
+        .values({
+          id: delivery.id,
+          messageId: delivery.messageId ?? null,
+          invocationId: delivery.invocationId ?? null,
+          targetId: delivery.targetId,
+          targetNodeId: delivery.targetNodeId ?? null,
+          targetKind: delivery.targetKind,
+          transport: delivery.transport,
+          reason: delivery.reason,
+          policy: delivery.policy,
+          status: delivery.status,
+          bindingId: delivery.bindingId ?? null,
+          leaseOwner: delivery.leaseOwner ?? null,
+          leaseExpiresAt: delivery.leaseExpiresAt ?? null,
+          metadataJson: stringify(delivery.metadata),
+        })
+        .onConflictDoUpdate({
+          target: deliveriesTable.id,
+          set: {
+            messageId: delivery.messageId ?? null,
+            invocationId: delivery.invocationId ?? null,
+            targetId: delivery.targetId,
+            targetNodeId: delivery.targetNodeId ?? null,
+            targetKind: delivery.targetKind,
+            transport: delivery.transport,
+            reason: delivery.reason,
+            policy: delivery.policy,
+            status: delivery.status,
+            bindingId: delivery.bindingId ?? null,
+            leaseOwner: delivery.leaseOwner ?? null,
+            leaseExpiresAt: delivery.leaseExpiresAt ?? null,
+            metadataJson: stringify(delivery.metadata),
+          },
+        })
+        .run();
     }
   }
 
@@ -1360,41 +1426,41 @@ export class SQLiteControlPlaneStore {
     status?: DeliveryIntent["status"];
     limit?: number;
   } = {}): DeliveryIntent[] {
-    const filters: string[] = [];
-    const values: Array<string | number> = [];
-
-    if (options.transport) {
-      filters.push(`transport = ?${values.length + 1}`);
-      values.push(options.transport);
-    }
-    if (options.status) {
-      filters.push(`status = ?${values.length + 1}`);
-      values.push(options.status);
-    }
-
     const limit = options.limit ?? 200;
-    const sql = [
-      "SELECT * FROM deliveries",
-      filters.length ? `WHERE ${filters.join(" AND ")}` : "",
-      "ORDER BY created_at ASC",
-      `LIMIT ?${values.length + 1}`,
-    ].filter(Boolean).join(" ");
-    const rows = queryAll<DeliveryRow, Array<string | number>>(this.readDb, sql, ...values, limit);
+
+    const baseQuery = this.drizzleReadDb
+      .select()
+      .from(deliveriesTable)
+      .orderBy(asc(deliveriesTable.createdAt))
+      .limit(limit);
+    const rows = options.transport && options.status
+      ? baseQuery.where(
+        and(
+          eq(deliveriesTable.transport, options.transport),
+          eq(deliveriesTable.status, options.status),
+        ),
+      ).all()
+      : options.transport
+        ? baseQuery.where(eq(deliveriesTable.transport, options.transport)).all()
+        : options.status
+          ? baseQuery.where(eq(deliveriesTable.status, options.status)).all()
+          : baseQuery.all();
+
     return rows.map((row) => ({
       id: row.id,
-      messageId: row.message_id ?? undefined,
-      invocationId: row.invocation_id ?? undefined,
-      targetId: row.target_id,
-      targetNodeId: row.target_node_id ?? undefined,
-      targetKind: row.target_kind,
+      messageId: row.messageId ?? undefined,
+      invocationId: row.invocationId ?? undefined,
+      targetId: row.targetId,
+      targetNodeId: row.targetNodeId ?? undefined,
+      targetKind: row.targetKind,
       transport: row.transport,
       reason: row.reason,
       policy: row.policy,
       status: row.status,
-      bindingId: row.binding_id ?? undefined,
-      leaseOwner: row.lease_owner ?? undefined,
-      leaseExpiresAt: row.lease_expires_at ?? undefined,
-      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+      bindingId: row.bindingId ?? undefined,
+      leaseOwner: row.leaseOwner ?? undefined,
+      leaseExpiresAt: row.leaseExpiresAt ?? undefined,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadataJson, undefined),
     }));
   }
 
@@ -1407,70 +1473,78 @@ export class SQLiteControlPlaneStore {
       leaseExpiresAt?: number | null;
     } = {},
   ): void {
-    const current = queryGet<Pick<DeliveryRow, "metadata_json">, [string]>(
-      this.db,
-      "SELECT metadata_json FROM deliveries WHERE id = ?1",
-      deliveryId,
-    );
+    const current = this.drizzleDb
+      .select({ metadataJson: deliveriesTable.metadataJson })
+      .from(deliveriesTable)
+      .where(eq(deliveriesTable.id, deliveryId))
+      .get();
     const mergedMetadata = options.metadata
       ? {
-          ...parseJson<Record<string, unknown>>(current?.metadata_json, {}),
+          ...parseJson<Record<string, unknown>>(current?.metadataJson, {}),
           ...options.metadata,
         }
-      : current?.metadata_json
-        ? parseJson<Record<string, unknown>>(current.metadata_json, {})
+      : current?.metadataJson
+        ? parseJson<Record<string, unknown>>(current.metadataJson, {})
         : undefined;
 
-    this.db.query(
-      `UPDATE deliveries
-      SET status = ?2,
-          lease_owner = ?3,
-          lease_expires_at = ?4,
-          metadata_json = ?5
-      WHERE id = ?1`,
-    ).run(
-      deliveryId,
-      status,
-      options.leaseOwner ?? null,
-      options.leaseExpiresAt ?? null,
-      stringify(mergedMetadata),
-    );
+    this.drizzleDb
+      .update(deliveriesTable)
+      .set({
+        status,
+        leaseOwner: options.leaseOwner ?? null,
+        leaseExpiresAt: options.leaseExpiresAt ?? null,
+        metadataJson: stringify(mergedMetadata),
+      })
+      .where(eq(deliveriesTable.id, deliveryId))
+      .run();
   }
 
   listDeliveryAttempts(deliveryId: string): DeliveryAttempt[] {
-    const rows = queryAll<DeliveryAttemptRow, [string]>(
-      this.readDb,
-      "SELECT * FROM delivery_attempts WHERE delivery_id = ?1 ORDER BY attempt ASC, created_at ASC",
-      deliveryId,
-    );
+    const rows = this.drizzleReadDb
+      .select()
+      .from(deliveryAttemptsTable)
+      .where(eq(deliveryAttemptsTable.deliveryId, deliveryId))
+      .orderBy(asc(deliveryAttemptsTable.attempt), asc(deliveryAttemptsTable.createdAt))
+      .all();
 
     return rows.map((row) => ({
       id: row.id,
-      deliveryId: row.delivery_id,
+      deliveryId: row.deliveryId,
       attempt: row.attempt,
       status: row.status,
       error: row.error ?? undefined,
-      externalRef: row.external_ref ?? undefined,
-      createdAt: row.created_at,
-      metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+      externalRef: row.externalRef ?? undefined,
+      createdAt: row.createdAt,
+      metadata: parseJson<Record<string, unknown> | undefined>(row.metadataJson, undefined),
     }));
   }
 
   recordDeliveryAttempt(attempt: DeliveryAttempt): void {
-    this.db.query(
-      `INSERT OR REPLACE INTO delivery_attempts (
-        id, delivery_id, attempt, status, error, external_ref, metadata_json, created_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-    ).run(
-      attempt.id,
-      attempt.deliveryId,
-      attempt.attempt,
-      attempt.status,
-      attempt.error ?? null,
-      attempt.externalRef ?? null,
-      stringify(attempt.metadata),
-      attempt.createdAt,
-    );
+    this.drizzleDb
+      .insert(deliveryAttemptsTable)
+      .values({
+        id: attempt.id,
+        deliveryId: attempt.deliveryId,
+        attempt: attempt.attempt,
+        status: attempt.status,
+        error: attempt.error ?? null,
+        externalRef: attempt.externalRef ?? null,
+        metadataJson: stringify(attempt.metadata),
+        createdAt: attempt.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: deliveryAttemptsTable.id,
+        set: {
+          deliveryId: attempt.deliveryId,
+          attempt: attempt.attempt,
+          status: attempt.status,
+          error: attempt.error ?? null,
+          externalRef: attempt.externalRef ?? null,
+          metadataJson: stringify(attempt.metadata),
+          createdAt: attempt.createdAt,
+        },
+      })
+      .run();
   }
 
   private recordActivityItem(item: ActivityItem): void {

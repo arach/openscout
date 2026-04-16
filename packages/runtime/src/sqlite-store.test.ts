@@ -175,4 +175,251 @@ describe("SQLiteControlPlaneStore", () => {
       store.close();
     }
   });
+
+  test("persists invocation collaboration record ids, including context fallback", () => {
+    const { store, dbPath } = createStoreWithPath();
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      store.upsertNode({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "Test node",
+        advertiseScope: "local",
+        registeredAt: Date.now(),
+      });
+      store.upsertActor({
+        id: "operator",
+        kind: "person",
+        displayName: "Operator",
+      });
+      store.upsertActor({
+        id: "agent-1",
+        kind: "agent",
+        displayName: "Agent One",
+      });
+      store.upsertAgent({
+        id: "agent-1",
+        kind: "agent",
+        definitionId: "agent-1",
+        displayName: "Agent One",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.recordCollaborationRecord({
+        id: "work-1",
+        kind: "work_item",
+        title: "Top-level work",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "agent-1",
+        state: "working",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      store.recordCollaborationRecord({
+        id: "work-2",
+        kind: "work_item",
+        title: "Context work",
+        createdById: "operator",
+        ownerId: "agent-1",
+        nextMoveOwnerId: "agent-1",
+        state: "working",
+        acceptanceState: "none",
+        requestedById: "operator",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      store.recordInvocation({
+        id: "inv-top-level",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Handle the top-level join",
+        collaborationRecordId: "work-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: Date.now(),
+      });
+
+      store.recordInvocation({
+        id: "inv-context-fallback",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Handle the context join",
+        context: {
+          collaborationRecordId: "work-2",
+        },
+        ensureAwake: true,
+        stream: false,
+        createdAt: Date.now(),
+      });
+
+      const rows = db.query(
+        `SELECT id, collaboration_record_id
+         FROM invocations
+         WHERE id IN ('inv-top-level', 'inv-context-fallback')
+         ORDER BY id ASC`,
+      ).all() as Array<{ id: string; collaboration_record_id: string | null }>;
+
+      expect(rows).toEqual([
+        { id: "inv-context-fallback", collaboration_record_id: "work-2" },
+        { id: "inv-top-level", collaboration_record_id: "work-1" },
+      ]);
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
+  test("migrates legacy databases to add invocation collaboration joins", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-sqlite-store-"));
+    dbRoots.add(root);
+    const dbPath = join(root, "control-plane.sqlite");
+
+    {
+      const legacyDb = new Database(dbPath);
+      legacyDb.exec(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE IF NOT EXISTS invocations (
+          id TEXT PRIMARY KEY,
+          requester_id TEXT NOT NULL,
+          requester_node_id TEXT NOT NULL,
+          target_agent_id TEXT NOT NULL,
+          target_node_id TEXT,
+          action TEXT NOT NULL,
+          task TEXT NOT NULL,
+          conversation_id TEXT,
+          message_id TEXT,
+          context_json TEXT,
+          execution_json TEXT,
+          ensure_awake INTEGER NOT NULL DEFAULT 1,
+          stream INTEGER NOT NULL DEFAULT 1,
+          timeout_ms INTEGER,
+          metadata_json TEXT,
+          created_at INTEGER NOT NULL
+        );
+      `);
+      legacyDb.close();
+    }
+
+    const store = new SQLiteControlPlaneStore(dbPath);
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      const columns = db.query("SELECT name FROM pragma_table_info('invocations')").all() as Array<{ name: string }>;
+      const indexes = db.query(
+        `SELECT name
+         FROM sqlite_master
+         WHERE type = 'index' AND tbl_name = 'invocations'`,
+      ).all() as Array<{ name: string }>;
+
+      expect(columns.some((column) => column.name === "collaboration_record_id")).toBe(true);
+      expect(indexes.some((index) => index.name === "idx_invocations_collaboration_record_id_created_at")).toBe(true);
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
+  test("round-trips deliveries and delivery attempts through the Drizzle proof path", () => {
+    const store = createStore();
+
+    try {
+      store.recordDeliveries([
+        {
+          id: "delivery-1",
+          targetId: "peer-node",
+          targetKind: "node",
+          transport: "peer_broker",
+          reason: "invocation",
+          policy: "must_ack",
+          status: "accepted",
+          metadata: {
+            firstAttemptQueuedAt: 100,
+          },
+        },
+        {
+          id: "delivery-2",
+          targetId: "thread-1",
+          targetKind: "binding",
+          transport: "thread_binding",
+          reason: "message",
+          policy: "best_effort",
+          status: "accepted",
+        },
+      ]);
+
+      store.updateDeliveryStatus("delivery-1", "peer_acked", {
+        metadata: {
+          peerAckedAt: 200,
+        },
+      });
+      store.recordDeliveryAttempt({
+        id: "attempt-1",
+        deliveryId: "delivery-1",
+        attempt: 1,
+        status: "acknowledged",
+        externalRef: "peer-flight-1",
+        createdAt: 250,
+        metadata: {
+          durationMs: 50,
+        },
+      });
+
+      expect(store.listDeliveries({ transport: "peer_broker" })).toEqual([
+        {
+          id: "delivery-1",
+          targetId: "peer-node",
+          targetKind: "node",
+          transport: "peer_broker",
+          reason: "invocation",
+          policy: "must_ack",
+          status: "peer_acked",
+          metadata: {
+            firstAttemptQueuedAt: 100,
+            peerAckedAt: 200,
+          },
+        },
+      ]);
+      expect(store.listDeliveries({ status: "accepted" })).toEqual([
+        {
+          id: "delivery-2",
+          targetId: "thread-1",
+          targetKind: "binding",
+          transport: "thread_binding",
+          reason: "message",
+          policy: "best_effort",
+          status: "accepted",
+          metadata: undefined,
+        },
+      ]);
+      expect(store.listDeliveryAttempts("delivery-1")).toEqual([
+        {
+          id: "attempt-1",
+          deliveryId: "delivery-1",
+          attempt: 1,
+          status: "acknowledged",
+          externalRef: "peer-flight-1",
+          createdAt: 250,
+          metadata: {
+            durationMs: 50,
+          },
+        },
+      ]);
+    } finally {
+      store.close();
+    }
+  });
 });

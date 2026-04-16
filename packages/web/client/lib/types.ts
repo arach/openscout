@@ -75,10 +75,31 @@ export type Flight = {
   agentId: string;
   agentName: string | null;
   conversationId: string | null;
+  collaborationRecordId: string | null;
   state: string;
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+};
+
+export type WorkItem = {
+  id: string;
+  title: string;
+  summary: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  nextMoveOwnerId: string | null;
+  nextMoveOwnerName: string | null;
+  conversationId: string | null;
+  state: string;
+  acceptanceState: string;
+  priority: string | null;
+  currentPhase: string;
+  attention: "silent" | "badge" | "interrupt";
+  activeChildWorkCount: number;
+  activeFlightCount: number;
+  lastMeaningfulAt: number;
+  lastMeaningfulSummary: string | null;
 };
 
 /** An inbox row: agent + conversation summary merged. */
@@ -143,6 +164,36 @@ export type MeshStatus = {
   warnings: string[];
 };
 
+export type WorkTimelineKind =
+  | "collaboration_event"
+  | "flight_started"
+  | "flight_completed"
+  | "message";
+
+export type WorkTimelineItem = {
+  id: string;
+  kind: WorkTimelineKind;
+  at: number;
+  actorId: string | null;
+  actorName: string | null;
+  title: string | null;
+  summary: string | null;
+  detailKind: string | null;
+  flightId: string | null;
+  messageId: string | null;
+  conversationId: string | null;
+};
+
+export type WorkDetail = WorkItem & {
+  createdAt: number;
+  updatedAt: number;
+  parentId: string | null;
+  parentTitle: string | null;
+  childWork: WorkItem[];
+  activeFlights: Flight[];
+  timeline: WorkTimelineItem[];
+};
+
 export type Route =
   | { view: "inbox" }
   | { view: "conversation"; conversationId: string }
@@ -151,4 +202,5 @@ export type Route =
   | { view: "sessions"; sessionId?: string }
   | { view: "mesh" }
   | { view: "activity" }
+  | { view: "work"; workId: string }
   | { view: "settings" };

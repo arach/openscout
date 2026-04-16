@@ -10,6 +10,7 @@ import { AgentsScreen } from "./screens/AgentsScreen.tsx";
 import { SessionsScreen } from "./screens/SessionsScreen.tsx";
 import { MeshScreen } from "./screens/MeshScreen.tsx";
 import { HomeScreen } from "./screens/HomeScreen.tsx";
+import { WorkDetailScreen } from "./screens/WorkDetailScreen.tsx";
 import type { Agent, Message, Route } from "./lib/types.ts";
 
 /* ── Icons ── */
@@ -100,6 +101,8 @@ function MainPanel({
       return <MeshScreen navigate={navigate} />;
     case "activity":
       return <ActivityScreen navigate={navigate} />;
+    case "work":
+      return <WorkDetailScreen workId={route.workId} navigate={navigate} />;
     default:
       return <HomeScreen agents={agents} messages={messages} navigate={navigate} />;
   }

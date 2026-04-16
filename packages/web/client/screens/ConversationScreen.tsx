@@ -77,6 +77,7 @@ function mapEventFlight(flight: EventFlightRecord, conversationId: string, fallb
     agentId: flight.targetAgentId || fallbackAgentId,
     agentName: null,
     conversationId,
+    collaborationRecordId: null,
     state: flight.state,
     summary: flight.summary ?? null,
     startedAt: flight.startedAt ?? null,
