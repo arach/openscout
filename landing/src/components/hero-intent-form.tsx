@@ -23,7 +23,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const intentOptions = [
   { value: "", label: "What brings you here?" },
   { value: "manage-agents", label: "Managing AI agents from one place" },
-  { value: "pairing", label: "Pairing my phone to see agent activity" },
+  { value: "pairing", label: "Using Scout iOS to reach my agents" },
   { value: "multi-agent", label: "Running multiple agents together" },
   { value: "desktop", label: "A desktop app for Claude / Codex" },
   { value: "building", label: "Building on the runtime or API" },
@@ -198,7 +198,7 @@ export function HeroIntentForm() {
                     You&apos;re on the list.
                   </h2>
                   <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[#4d4b45]">
-                    I&apos;ll follow up when the Mac app is ready and use your note to understand what you want from Scout first.
+                    I&apos;ll follow up when the Mac app is ready and use your note to understand whether you care most about the desktop app, Scout iOS, or both.
                   </p>
                   <div className="mt-6">
                     <button
@@ -217,6 +217,9 @@ export function HeroIntentForm() {
                   <h2 className="text-2xl font-semibold tracking-tight text-[#111110] sm:text-3xl">
                     Install Scout for Mac
                   </h2>
+                  <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[#4d4b45]">
+                    The same broker backs the desktop shell and Scout iOS, so one install on the Mac is enough to join the same human-and-agent system.
+                  </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="mt-6 grid max-w-2xl content-start gap-4">
@@ -257,7 +260,7 @@ export function HeroIntentForm() {
                         type="text"
                         value={interest}
                         onChange={(event) => setInterest(event.target.value)}
-                        placeholder="Agent routing, pairing, runtime..."
+                        placeholder="Agent routing, Scout iOS, runtime..."
                         className="h-12 rounded-xl border border-[#ddd8cf] bg-white px-4 text-sm text-[#111110] outline-none transition-colors placeholder:text-[#9a978f] focus:border-[#2a57cb]"
                       />
                     </label>

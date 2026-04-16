@@ -112,11 +112,11 @@ const relayViews: RelayView[] = [
 ];
 
 const pairingView: ShowcaseView = {
-  label: "Pair Mode",
-  title: "Scout pairing host",
+  label: "Scout iOS",
+  title: "Pairing host for Scout iOS",
   description:
-    "Scout keeps pairing, bridge logs, and runtime settings on a dedicated host surface so companion devices can plug in cleanly.",
-  focus: "Current desktop host surface for pairing, logs, and settings.",
+    "Scout keeps pairing, bridge logs, and runtime settings on the host so Scout iOS can join the same broker-backed system as a real human surface.",
+  focus: "The desktop host and Scout iOS share the same broker state instead of living in separate inboxes.",
   src: "/scout/pair-mode.png",
   alt: "Scout pair mode captured March 31, 2026 at 10:17:29 AM",
 };
@@ -338,10 +338,10 @@ export function LandingProductShowcase({
               }
             />
             <ShowcaseCaption
-              eyebrow="Scout"
+              eyebrow={pairingView.label}
               title={pairingView.title}
               description={pairingView.description}
-              focus={`${pairingView.focus} Mobile and companion views can slot in here as they land.`}
+              focus={pairingView.focus}
             />
           </div>
         </div>

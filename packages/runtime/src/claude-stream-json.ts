@@ -26,6 +26,7 @@ type ActiveTurn = {
   id: string;
   output: string[];
   timer: NodeJS.Timeout | null;
+  stallMs: number;
   resolve: (output: string) => void;
   reject: (error: Error) => void;
 };
@@ -111,7 +112,7 @@ class ClaudeStreamJsonSession {
     };
   }
 
-  async invoke(prompt: string, timeoutMs = 5 * 60_000): Promise<{ output: string; sessionId: string | null }> {
+  async invoke(prompt: string, stallTimeoutMs = 10 * 60_000): Promise<{ output: string; sessionId: string | null }> {
     await this.ensureStarted();
     if (!this.process?.stdin) {
       throw new Error(`Claude stream-json session for ${this.options.agentName} is not running.`);
@@ -124,17 +125,13 @@ class ClaudeStreamJsonSession {
       const turn: ActiveTurn = {
         id: randomUUID(),
         output: [],
-        timer: setTimeout(() => {
-          void this.interrupt().catch(() => undefined);
-          if (this.activeTurn?.id === turn.id) {
-            this.activeTurn = null;
-          }
-          reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
-        }, timeoutMs),
+        timer: null,
+        stallMs: stallTimeoutMs,
         resolve,
         reject,
       };
       this.activeTurn = turn;
+      this.resetTurnWatchdog(turn);
     });
 
     const payload = JSON.stringify({
@@ -160,6 +157,23 @@ class ClaudeStreamJsonSession {
     if (this.process && !this.process.killed) {
       this.process.kill("SIGINT");
     }
+  }
+
+  private resetTurnWatchdog(turn: ActiveTurn): void {
+    if (turn.timer) {
+      clearTimeout(turn.timer);
+    }
+    turn.timer = setTimeout(() => {
+      void this.interrupt().catch(() => undefined);
+      if (this.activeTurn?.id === turn.id) {
+        this.activeTurn = null;
+      }
+      turn.reject(
+        new Error(
+          `${this.options.agentName} stalled — no stream event in ${turn.stallMs}ms`,
+        ),
+      );
+    }, turn.stallMs);
   }
 
   async shutdown(options: { resetSession?: boolean } = {}): Promise<void> {
@@ -307,6 +321,8 @@ class ClaudeStreamJsonSession {
     if (!turn) {
       return;
     }
+
+    this.resetTurnWatchdog(turn);
 
     if (event.type === "assistant") {
       const content = event.message?.content ?? event.content ?? [];

@@ -1,10 +1,28 @@
 # Architecture
 
+This document is the system-level map for OpenScout. If you are new, read it as a guide to three things: what the broker is, what the runtime does, and what the protocol defines.
+
+Read this after the repo [`README.md`](../README.md) if you are orienting to the project for the first time. If you want the command-first ramp first, read [`quickstart.md`](./quickstart.md) before this page. If you need naming rules or workflow semantics after this, continue with [`agent-identity.md`](./agent-identity.md) and [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
+
 ## Working Thesis
 
-Scout is a local-first runtime and protocol for orchestrating AI agents across harnesses, machines, and interfaces.
+Scout is a local-first control plane for orchestrating AI agents across harnesses, machines, and interfaces.
 
-It doesn't replace Claude Code, Codex, or any other agent tool. It's the substrate — the layer where agents get registered, addressed, observed, and composed, regardless of which harness runs them or which machine they live on.
+Remember these three things:
+
+- **Broker**: the local daemon that stores state, routes messages, and acts as the source of truth.
+- **Protocol**: the shared language for agent identities, records, and requests.
+- **Runtime**: the part that starts, stops, and health-checks agent sessions on a given harness.
+
+It does not replace Claude Code, Codex, or any other agent tool. It is the substrate: the layer where agents get registered, addressed, observed, and composed, regardless of which harness runs them or which machine they live on. A harness is just the agent runner and transport wrapper for a specific tool.
+
+In practice, the architecture is aiming for three stable outcomes:
+
+- one canonical writer for local state: the broker
+- one shared model for messages, invocations, flights, and identities: the protocol
+- many possible operator surfaces and harness adapters around that core
+
+That framing matters because most of the design choices below are about protecting those boundaries.
 
 ## Principles
 
@@ -24,7 +42,7 @@ A small set of constraints shape every design decision.
 
 ![Scout communication flow](arc:communication-flow)
 
-Agent sessions connect to a single Scout broker over HTTP and SSE. The broker owns the agent registry and routes messages between sessions. Each harness uses its own transport — `stream-JSON` for Claude Code, `app-server` for Codex — but the protocol layer above is shared.
+Agent sessions connect to a single Scout broker over HTTP and SSE. The broker owns the agent registry and routes messages between sessions. Each harness uses its own transport -- `stream-JSON` for Claude Code, `app-server` for Codex -- but the protocol layer above is shared.
 
 A typical exchange looks like this:
 
@@ -36,25 +54,27 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
+One concrete example: `scout ask "@codex review the auth module"` sends an ask-style request to the broker. The broker resolves `@codex` to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
+
 ## Core Moving Parts
 
 | Layer | Role | Key detail |
 |-------|------|------------|
-| **Protocol** | Shared type system and address grammar | Defines `@agent.node.branch` identity, message records, invocation requests, collaboration contracts |
-| **Broker** | Local message bus and state store | SQLite-backed daemon — owns registration, routing, threading, dispatch. HTTP API + SSE stream |
-| **Runtime** | Agent lifecycle management | Starts, stops, health-checks agents across harnesses. Manages tmux sessions, system prompts, transport adapters |
-| **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` — resolves short names, infers sender identity, handles mention routing |
-| **Surfaces** | Views into broker state | Desktop, web, iOS, terminal. They read from the broker — none of them own agent state |
+| **Protocol** | Shared type system and address grammar | Defines the agent identity grammar, message records, invocation requests, flight records, collaboration contracts, and bindings |
+| **Broker** | Local message bus and state store | SQLite-backed daemon that owns registration, routing, threading, dispatch, HTTP reads/writes, and SSE updates |
+| **Runtime** | Agent lifecycle management | Starts, stops, and health-checks agents across harnesses. Manages tmux sessions, system prompts, and transport adapters |
+| **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` -- resolves short names, infers sender identity, and handles mention routing |
+| **Surfaces** | Views into broker state | Desktop, web, iOS, and terminal views. They read from the broker; none of them own agent state |
 
 ### Protocol
 
-The shared grammar everything speaks. Defines agent identity (the `@agent.node.branch` addressing scheme), message records, invocation requests, flight tracking, collaboration contracts, and bindings.
+The shared grammar everything speaks. It defines agent identity (the address grammar described in [`agent-identity.md`](./agent-identity.md)), message records, invocation requests, flight tracking, collaboration contracts, and bindings.
 
 Anything that crosses a boundary — between agents, harnesses, or machines — is described here.
 
 ### Broker
 
-A single SQLite-backed daemon per machine. Agents post messages to it; it resolves mentions, routes to endpoints, and records history. Exposes HTTP for reads and writes, SSE for live updates.
+A single SQLite-backed daemon per machine. Agents post messages to it; it resolves mentions, routes to endpoints, and records history. It is the canonical writer for local state. Exposes HTTP for reads and writes, SSE for live updates.
 
 ```bash
 # What the broker handles
@@ -71,7 +91,7 @@ Also owns the file-based agent override registry, project discovery, and harness
 
 ### CLI
 
-The operator's main interface. Resolves short agent names (`@hudson`) to fully-qualified names (`@hudson.macbook.main`), infers sender identity from the current project or `~/.openscout/user.json`, and handles mention-based routing.
+The operator's main interface. Resolves short agent names (`@hudson`) to the specific registered agent they refer to, infers sender identity from the current project or `~/.openscout/user.json`, and handles mention-based routing.
 
 ### Surfaces
 
@@ -95,7 +115,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 3. **Route.** Messages mentioning `@agent` hit the broker, which resolves the name, finds the endpoint, and dispatches.
 
-4. **Invoke.** For ask-style interactions, the broker creates a flight record — tracking the request-response lifecycle with timeout and retry semantics.
+4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with timeout and retry semantics.
 
 5. **Stop.** `scout down` terminates the session and marks the agent offline.
 

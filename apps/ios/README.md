@@ -1,12 +1,15 @@
 ## Scout iOS
 
-This directory contains the restored iOS app that is now being refactored into
-the Scout mobile client.
+This directory contains the Scout iOS app, the mobile human surface for the
+same broker/runtime that powers the desktop and CLI. Once the agent substrate
+exists, this app is where a human reaches, reads, and responds to their agents
+without treating mobile as a separate product.
 
 Status:
 - restored intact first to preserve behavior
 - product identity is now Scout
-- deeper internal renames will land in-place
+- deeper internal renames will land in-place as the mobile surface is aligned
+- human-facing copy should describe the app as part of the Scout product, not a sidecar
 
 Expected migration order:
 1. user-facing copy and product identity

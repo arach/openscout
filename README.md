@@ -2,18 +2,23 @@
 
 > **Requires [Bun](https://bun.sh).** Scout uses Bun as its JavaScript runtime and package manager. Install it first: `brew install bun` or `curl -fsSL https://bun.sh/install | bash`
 
-OpenScout is the active Scout codebase: desktop app, CLI, broker runtime, and shared protocol.
+OpenScout is a local-first control plane for AI agents. It gives Claude Code, Codex, and future harnesses one shared broker, runtime, and protocol so agents can be registered, addressed, observed, and composed without each surface inventing its own state model. Once that substrate exists, humans can talk to their agents through the same system instead of managing separate chat threads, and the desktop and iOS surfaces are the natural human entry points into that shared broker/runtime.
 
-The live product path is:
+This repository is the active Scout product codebase. The main path through it is:
 
-- `apps/desktop` for product logic, CLI, UI, and app-layer services
+- `apps/desktop` for the desktop human surface, CLI, UI, and app-layer services
+- `apps/ios` for the mobile human surface over the same broker/runtime
 - `packages/runtime` for the broker/runtime foundation
 - `packages/protocol` for shared contracts and identity grammar
 - `packages/cli` for the published `@openscout/scout` wrapper that installs `scout`
 
+## Start Here
+
+If you are new to the docs, start with [`docs/README.md`](./docs/README.md) for the reading order. The shortest newcomer path is [`docs/quickstart.md`](./docs/quickstart.md), then [`docs/architecture.md`](./docs/architecture.md), then [`docs/agent-identity.md`](./docs/agent-identity.md).
+
 ## Why The Broker Matters
 
-The product story is not just "chat between terminals." The current control-plane direction is:
+OpenScout is not just "chat between terminals." The product bet is that agent collaboration needs a durable control plane, not a pile of harness-specific sessions. The current direction is:
 
 - explicit: conversation, work, delivery, and bindings are different records
 - durable: the broker is the only writer and local state is stored canonically
@@ -25,9 +30,9 @@ The product story is not just "chat between terminals." The current control-plan
 
 ## Product Shape
 
-Scout is structured around one product path:
+At the repo level, Scout is organized around one product path:
 
-- `apps/desktop` owns product behavior
+- `apps/desktop` and `apps/ios` own the human-facing surfaces
 - `packages/runtime` and `packages/protocol` are the shared broker/runtime foundation
 - `packages/cli` is the thin publish wrapper around the Scout package
 
@@ -43,6 +48,12 @@ scout doctor
 `scout setup` creates or updates machine-local settings, discovers workspace projects, writes `.openscout/project.json` for the current repo when needed, registers known agents, installs the broker launch agent, and attempts to start the broker service.
 
 `scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
+
+What success looks like after setup:
+
+- `scout doctor` exits cleanly and reports the broker as reachable
+- the support directory exists under `~/Library/Application Support/OpenScout`
+- `scout --help` works and `bun run dev` starts the desktop shell without repeating setup prompts
 
 ## Run The Desktop App
 
@@ -82,25 +93,9 @@ The support directory is now organized as:
     └── agents/
 ```
 
-## Repo Layout
-
-```text
-.
-├── apps/
-│   └── desktop/
-├── docs/
-│   ├── architecture.md
-│   └── agent-identity.md
-├── packages/
-│   ├── cli/
-│   ├── protocol/
-│   └── runtime/
-└── scripts/
-```
-
 ## Read Next
 
-- `docs/architecture.md`
-- `docs/agent-identity.md`
-- `packages/protocol/README.md`
-- `packages/runtime/README.md`
+- [`docs/README.md`](./docs/README.md) for the docs map and reading order
+- [`docs/quickstart.md`](./docs/quickstart.md) for the first successful local flow
+- [`docs/architecture.md`](./docs/architecture.md) for the broker/runtime/protocol split
+- [`docs/agent-identity.md`](./docs/agent-identity.md) for address grammar and name resolution

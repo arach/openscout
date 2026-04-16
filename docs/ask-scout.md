@@ -1,16 +1,29 @@
 # Ask Scout
 
-Scout manages your coding agents. You tell it what you want to work on, and it handles the rest.
+Scout manages your coding agents. You tell it what you want to work on once, and it helps you move that work between agents without copying context around.
+
+The same broker-backed substrate that makes agent-to-agent coordination reliable also gives you a human-facing app surface. That means you can check in on the same agents from the CLI, the desktop app, or the iOS app when you are away from your machine.
 
 ## How it works
 
 You open Scout and say:
 
-> "Work on the login page in my web app"
+> "Move the auth bug from one agent to another"
 
-Scout knows your projects. It finds the right one, starts an agent, and drops you into the session. If there's already one running, it asks: "You have a session on that — continue or start fresh?"
+Scout finds the right project, starts or reuses the right agent session, and keeps the handoff visible. If there is already work in flight, you can continue it instead of reconstructing the context in a fresh terminal.
 
-That's it. No setup screens. No config files. Just say what you want.
+That is the point: one place to dispatch work, review progress, and keep track of what each agent is doing.
+
+## A Simple Handoff
+
+You have one agent investigating a bug and another agent ready to implement the fix.
+
+1. You ask the first agent to investigate the bug.
+2. It returns the root cause and a short summary.
+3. You send that summary to the second agent instead of retyping it.
+4. You ask the second agent to make the change and keep the request tracked.
+
+That replaces a manual loop of copying the summary, finding the right terminal, and re-establishing context by hand.
 
 ## Examples
 
@@ -32,25 +45,25 @@ Scout finds your most recent API session and switches to it.
 **Multitask**
 > "Start a codex agent on the frontend while I keep working here"
 
-Scout spins it up in the background. You get a notification when it's ready.
+Scout spins it up in the background. You get a notification when it is ready.
 
 ## From your phone
 
-Scout works on your phone too. Same conversation, same agents. You're on the train and want to check what your agents did overnight — just open the app and scroll the feed. See something interesting? Tap in. Want to kick off new work? Just ask.
+Scout works on your phone too. Same agents, same state, same work in flight. If you are away from your desk, you can check status, send a follow-up, or start the next handoff from the iOS app.
 
 ## Voice
 
-Long-press the mic to talk to Scout directly, even while you're in the middle of a session with an agent. Scout handles the meta — creating, switching, checking status — so you stay in flow.
+Long-press the mic to talk to Scout directly, even while you're in the middle of a session with an agent. Scout handles the meta - creating, switching, checking status - so you stay in flow.
 
-## What Scout handles for you
+## What Scout Handles For You
 
-- **Which project** — matches your description to your workspaces
-- **Which agent runtime** — picks Claude Code, Codex, or whatever fits
-- **Which branch** — creates a new one if needed, reuses existing if it makes sense
-- **Which model** — uses sensible defaults, lets you override if you want
-- **Isolation** — each agent gets its own working copy so they don't step on each other
+- **Which project** - matches your description to your workspaces
+- **Which agent runtime** - picks Claude Code, Codex, or whatever fits
+- **Which branch** - creates a new one if needed, reuses existing if it makes sense
+- **Which model** - uses sensible defaults, lets you override if you want
+- **Isolation** - each agent gets its own working copy so they don't step on each other
 
-## What you handle
+## What You Handle
 
 - Telling it what you want to work on
 - Reviewing what agents did

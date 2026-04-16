@@ -1,8 +1,10 @@
 # Agent Identity
 
+This doc explains how Scout turns a human-friendly handle like `@hudson` into one exact agent identity. Read it after [`quickstart.md`](./quickstart.md) when you want to understand what an agent name represents, why short names sometimes work, and when Scout needs more qualifiers.
+
 Every agent in Scout has a name. When there is only one agent on one machine, the name is simple — `@arc` or `@hudson`. But agents multiply. The same project might run on two machines. The same workspace might have a main branch and a feature branch, each with its own agent. A project might use Claude for one task and Codex for another.
 
-The identity grammar exists to make every agent unambiguously addressable without forcing humans to type fully qualified names every time.
+The identity grammar exists to keep every agent unambiguously addressable while still letting humans type the shortest useful name.
 
 ## Three Layers
 
