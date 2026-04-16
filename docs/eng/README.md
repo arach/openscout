@@ -19,6 +19,7 @@ implementation specs.
 ## Current Proposals
 
 - [sco-001-authority-thread-events-proposal.md](./sco-001-authority-thread-events-proposal.md)
+- [sco-002-work-projection-and-trace-spec.md](./sco-002-work-projection-and-trace-spec.md)
 
 ## Operations
 
