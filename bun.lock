@@ -102,7 +102,7 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.39",
+      "version": "0.2.44",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
@@ -112,14 +112,14 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.2.39",
+      "version": "0.2.44",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.2.39",
+      "version": "0.2.44",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
@@ -134,7 +134,7 @@
     },
     "packages/web": {
       "name": "@openscout/web",
-      "version": "0.2.39",
+      "version": "0.2.44",
       "bin": {
         "openscout-web": "./bin/openscout-web.mjs",
       },
