@@ -38,6 +38,25 @@ scout hey @hudson please inspect the failing test
 scout --as vox --timeout 900 @talkie take another pass on the keyboard port
 ```
 
+### Addressing specific agents
+
+Agent identity has five dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `node`. Canonical form:
+
+```
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
+```
+
+Short `@name` only resolves when exactly one live agent matches. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
+
+```bash
+scout @vox.harness:codex relay from hudson: please retry the build
+scout ask --to vox.harness:claude "what did the reviewer flag?"
+scout @arc.profile:reviewer take another pass
+scout @vox.harness:codex.node:mini run locally on mini
+```
+
+Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Dimensions combine in any order.
+
 ## Current Commands
 
 ```bash

@@ -23,9 +23,21 @@ If `scout` is not on `PATH`, or the installed `scout` on `PATH` is stale for thi
 bun /Users/arach/dev/openscout/packages/cli/bin/scout.mjs env --json
 ```
 
+## Routing is decided by addressee count, not verb
+
+Scout has three destinations: **DM**, **named channel**, **shared broadcast**. Pick by who the message is for:
+
+| Situation | Destination | Command |
+| --- | --- | --- |
+| You're addressing one specific agent | DM (two-party, private) | `scout send "@x msg"` or `scout ask --to x "msg"` |
+| You're posting into a named channel | that channel | `scout send --channel foo "msg"` |
+| You want every agent to see it | `channel.shared` | `scout broadcast "msg"` |
+
+`channel.shared` is a broadcast surface, not a default. A pointed `@x` message is a DM — the broker opens or resumes a two-party conversation and nobody else sees it. Do **not** rely on implicit fallback to `channel.shared`; if you don't name an addressee, the command is wrong.
+
 ## Tell vs Ask
 
-Two patterns. The parent never blocks on a relay round-trip.
+Two patterns. The parent never blocks on a relay round-trip. Both DM by default.
 
 ### Tell — statement, no reply needed
 
@@ -35,7 +47,7 @@ Phrasing: *"tell @x …"*, *"let @x know …"*, *"@x done with X"*, status updat
 scout send "@x msg"
 ```
 
-Inline, fire-and-forget. Returns immediately.
+Inline, fire-and-forget. Returns immediately. Lands in the `@x` DM.
 
 ### Ask — question, reply needed (always via subagent)
 
@@ -53,19 +65,47 @@ Agent({
 })
 ```
 
-The parent keeps working. You'll be notified when the subagent finishes; surface the reply then.
+`scout ask --to <agent>` lands in the DM with that agent. The parent keeps working. You'll be notified when the subagent finishes; surface the reply then.
 
 ### Fan-out — multiple `@`s in one message
 
-If the user's message contains N `@name` mentions, spawn N subagents in parallel (one per target) in the same parent message. Same Agent shape as above, one call per target.
+If the user's message contains N `@name` mentions, spawn N subagents in parallel (one per target) in the same parent message. Same Agent shape as above, one call per target. Each subagent's `scout send "@x ..."` / `scout ask --to x` lands in its own DM — they don't see each other's conversations.
 
-For `@all`: run `scout who` first to enumerate routable agents, then fan out one subagent per online agent. Confirm with the user before fanning out to more than 4 targets.
+### Broadcast — every agent should see it
+
+For true broadcasts (release notes, cross-cutting announcements) use `scout broadcast`. It resolves `@all`, posts once to `channel.shared`, and fans notifications to every registered agent.
+
+```bash
+scout broadcast "shipping 0.3.0 in 15min, pause long flights"
+```
+
+Confirm with the user before broadcasting to more than 4 targets.
+
+## Addressing
+
+Agent identity has five dimensions: `definitionId`, `workspaceQualifier`, `profile`, `harness`, `node`. Canonical form:
+
+```
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
+```
+
+When a short `@name` could match multiple live agents (same name, different harness or profile), pin the dimension you care about with a **typed qualifier**:
+
+- `@vox.harness:codex` — the Codex-backed Vox
+- `@vox.harness:claude` — the Claude-backed Vox
+- `@arc.profile:reviewer` — the reviewer profile of Arc
+- `@vox.harness:codex.node:mini` — fully qualified across machines
+
+Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier.
+
+Use typed qualifiers any time the user's message implies a specific harness or profile ("via Codex", "on Claude", "the reviewer one") — don't rely on short-name resolution to guess right.
 
 ## Resolution rule
 
-Short `@name` only resolves when **exactly one matching agent is currently routable**. If `scout send "@x ..."` returns `unresolvedTargets: ["@x"]`, the agent isn't online. Options:
+Short `@name` only resolves when **exactly one matching agent is currently routable**. If `scout send "@x ..."` returns `unresolvedTargets: ["@x"]`, the agent isn't online. If the CLI reports multiple candidates, re-run with a typed qualifier. Options:
 
 - Bring it up: `scout up <name>`
+- Disambiguate with a typed qualifier: `@x.harness:codex`
 - Use the full FQN: `@x.host.x-main-abc123`
 - Tell the user the target is offline before silently moving on
 
