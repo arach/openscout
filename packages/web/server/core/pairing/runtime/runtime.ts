@@ -1,17 +1,19 @@
 import { homedir } from "node:os";
 
-import { createAdapter as createClaudeCode } from "./adapters/claude-code";
-import { createAdapter as createCodex } from "./adapters/codex";
-import { createAdapter as createOpenAI } from "./adapters/openai-compat";
-import { createAdapter as createOpenCode } from "./adapters/opencode";
-import { createAdapter as createPi } from "./adapters/pi";
+import {
+  createClaudeCodeAdapter as createClaudeCode,
+  createCodexAdapter as createCodex,
+  createOpenAiCompatAdapter as createOpenAI,
+  createOpencodeAdapter as createOpenCode,
+  createPiAdapter as createPi,
+  type AdapterFactory,
+} from "@openscout/agent-sessions";
 import { Bridge } from "./bridge/bridge";
 import { type AdapterEntry, resolveConfig, type SessionEntry } from "./bridge/config";
 import { startFileServer, type FileServer } from "./bridge/fileserver";
 import { connectToRelay, type RelayConnection, type RelayEventHandlers } from "./bridge/relay-client";
 import { startBridgeServerTRPC as startBridgeServer } from "./bridge/server-trpc";
 import { loadOrCreateIdentity, type KeyPair, type QRPayload } from "./security";
-import type { AdapterFactory } from "./protocol";
 
 export type PairingRuntimeEvents = RelayEventHandlers;
 

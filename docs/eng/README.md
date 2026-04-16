@@ -21,6 +21,8 @@ implementation specs.
 - [sco-001-authority-thread-events-proposal.md](./sco-001-authority-thread-events-proposal.md)
 - [sco-002-work-projection-and-trace-spec.md](./sco-002-work-projection-and-trace-spec.md)
 - [sco-003-agent-sessions-capability-proposal.md](./sco-003-agent-sessions-capability-proposal.md)
+  - [sco-003-implementation-plan.md](./sco-003-implementation-plan.md)
+- [sco-004-addressable-identities-and-session-bindings-proposal.md](./sco-004-addressable-identities-and-session-bindings-proposal.md)
 
 ## Operations
 

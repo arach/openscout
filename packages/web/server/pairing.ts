@@ -13,12 +13,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findNearestProjectRoot } from "@openscout/runtime/setup";
-import type { SessionState, SessionSummary } from "./core/pairing/runtime/bridge/state.ts";
 import {
   extractPendingApprovalRequests,
   type NormalizedApprovalRequest,
-} from "./core/pairing/runtime/protocol/approval-normalization.ts";
+  type SessionState,
+  type SessionSummary,
+} from "@openscout/agent-sessions";
+import { findNearestProjectRoot } from "@openscout/runtime/setup";
 
 export const SCOUT_PAIRING_HOME_DIRECTORY = ".scout/pairing";
 export const SCOUT_PAIRING_CONFIG_FILE = "config.json";

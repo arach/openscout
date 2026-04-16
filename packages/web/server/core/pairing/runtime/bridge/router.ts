@@ -8,13 +8,16 @@
 
 import { initTRPC, tracked, TRPCError } from "@trpc/server";
 import { z } from "zod";
+import {
+  isSessionRegistryError,
+  type ActionBlock,
+  type Prompt,
+  type SequencedEvent,
+} from "@openscout/agent-sessions";
 
 import { log } from "./log.ts";
 import { resolveConfig } from "./config.ts";
 import type { Bridge } from "./bridge.ts";
-import type { SequencedEvent } from "./buffer.ts";
-import type { SessionState } from "./state.ts";
-import type { ActionBlock, Prompt } from "../protocol/index.ts";
 import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
@@ -317,6 +320,31 @@ function bridgeEventIterable(
       };
     },
   };
+}
+
+function getEventSessionId(event: SequencedEvent): string | undefined {
+  const payload = event.event as Record<string, unknown>;
+  return (payload.sessionId as string | undefined)
+    ?? ((payload.session as { id?: string } | undefined)?.id);
+}
+
+function trackedSequencedEventId(event: SequencedEvent): string {
+  return `${getEventSessionId(event) ?? "unknown"}:${event.seq}`;
+}
+
+function toTRPCRegistryError(error: unknown): TRPCError | null {
+  if (!isSessionRegistryError(error)) {
+    return null;
+  }
+
+  switch (error.code) {
+    case "NOT_FOUND":
+      return new TRPCError({ code: "NOT_FOUND", message: error.message });
+    case "CONFLICT":
+      return new TRPCError({ code: "CONFLICT", message: error.message });
+    case "BAD_REQUEST":
+      return new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -809,21 +837,43 @@ const promptRouter = t.router({
 
 // -- Sync -------------------------------------------------------------------
 
+function replaySyncEvents(
+  bridge: Bridge,
+  sessionId: string,
+  lastSeq: number,
+): ReturnType<Bridge["replay"]> {
+  return bridge.replay(sessionId, lastSeq);
+}
+
+function readSyncStatus(
+  bridge: Bridge,
+  sessionId: string,
+): {
+  currentSeq: ReturnType<Bridge["currentSeq"]>;
+  oldestBufferedSeq: ReturnType<Bridge["oldestBufferedSeq"]>;
+} {
+  return {
+    currentSeq: bridge.currentSeq(sessionId),
+    oldestBufferedSeq: bridge.oldestBufferedSeq(sessionId),
+  };
+}
+
 const syncRouter = t.router({
   replay: procedure
-    .input(z.object({ lastSeq: z.number() }))
+    .input(z.object({ lastSeq: z.number(), sessionId: z.string() }))
     .query(({ input, ctx }) => {
-      const events = ctx.bridge.replay(input.lastSeq);
+      const events = replaySyncEvents(ctx.bridge, input.sessionId, input.lastSeq);
       return { events };
     }),
 
-  status: procedure.query(({ ctx }) => {
-    return {
-      currentSeq: ctx.bridge.currentSeq(),
-      oldestBufferedSeq: ctx.bridge.oldestBufferedSeq(),
-      sessionCount: ctx.bridge.listSessions().length,
-    };
-  }),
+  status: procedure
+    .input(z.object({ sessionId: z.string() }))
+    .query(({ input, ctx }) => {
+      return {
+        ...readSyncStatus(ctx.bridge, input.sessionId),
+        sessionCount: ctx.bridge.listSessions().length,
+      };
+    }),
 });
 
 // ---------------------------------------------------------------------------
@@ -863,7 +913,11 @@ export const bridgeRouter = t.router({
       answer: z.array(z.string()),
     }))
     .mutation(({ input, ctx }) => {
-      ctx.bridge.answerQuestion(input);
+      try {
+        ctx.bridge.answerQuestion(input);
+      } catch (error) {
+        throw toTRPCRegistryError(error) ?? error;
+      }
       return { ok: true };
     }),
 
@@ -912,12 +966,18 @@ export const bridgeRouter = t.router({
         });
       }
 
-      ctx.bridge.decide(
-        input.sessionId,
-        input.blockId,
-        input.decision,
-        input.reason,
-      );
+      try {
+        ctx.bridge.decide({
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          blockId: input.blockId,
+          version: input.version,
+          decision: input.decision,
+          reason: input.reason,
+        });
+      } catch (error) {
+        throw toTRPCRegistryError(error) ?? error;
+      }
       return { ok: true };
     }),
 
@@ -929,16 +989,13 @@ export const bridgeRouter = t.router({
       for await (const event of bridgeEventIterable(ctx.bridge, signal)) {
         // Filter by sessionId if provided
         if (input?.sessionId) {
-          const e = event.event as Record<string, unknown>;
-          const eventSessionId =
-            (e.sessionId as string) ??
-            ((e.session as any)?.id as string | undefined);
+          const eventSessionId = getEventSessionId(event);
           if (eventSessionId && eventSessionId !== input.sessionId) {
             continue;
           }
         }
 
-        yield tracked(String(event.seq), {
+        yield tracked(trackedSequencedEventId(event), {
           seq: event.seq,
           event: event.event,
           timestamp: event.timestamp,

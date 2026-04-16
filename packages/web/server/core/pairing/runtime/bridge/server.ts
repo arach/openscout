@@ -16,9 +16,14 @@ import { readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
 import { basename, isAbsolute, join, relative } from "path";
 import { homedir } from "os";
+import {
+  isSessionRegistryError,
+  type ActionBlock,
+  type Prompt,
+  type QuestionAnswer,
+} from "@openscout/agent-sessions";
 import type { AgentHarness } from "@openscout/protocol";
 import type { Bridge } from "./bridge.ts";
-import type { Prompt, QuestionAnswer } from "../protocol/index.ts";
 import { resolveConfig } from "./config.ts";
 import {
   createScoutSession,
@@ -66,6 +71,42 @@ interface SocketState {
   unsub?: () => void;
   transport?: SecureTransport;
   deviceId?: string;
+}
+
+function replaySyncEvents(
+  bridge: Bridge,
+  sessionId: string,
+  lastSeq: number,
+): ReturnType<Bridge["replay"]> {
+  return bridge.replay(sessionId, lastSeq);
+}
+
+function readSyncStatus(
+  bridge: Bridge,
+  sessionId: string,
+): {
+  currentSeq: ReturnType<Bridge["currentSeq"]>;
+  oldestBufferedSeq: ReturnType<Bridge["oldestBufferedSeq"]>;
+} {
+  return {
+    currentSeq: bridge.currentSeq(sessionId),
+    oldestBufferedSeq: bridge.oldestBufferedSeq(sessionId),
+  };
+}
+
+function sessionRegistryErrorResponse(reqId: string, error: unknown): RPCResponse | null {
+  if (!isSessionRegistryError(error)) {
+    return null;
+  }
+
+  switch (error.code) {
+    case "NOT_FOUND":
+      return { id: reqId, error: { code: -32001, message: error.message } };
+    case "CONFLICT":
+      return { id: reqId, error: { code: -32010, message: error.message } };
+    case "BAD_REQUEST":
+      return { id: reqId, error: { code: -32602, message: error.message } };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,24 +333,35 @@ async function handleRPCInner(
 
       case "question/answer": {
         const answer = req.params as QuestionAnswer;
-        bridge.answerQuestion(answer);
+        try {
+          bridge.answerQuestion(answer);
+        } catch (error) {
+          return sessionRegistryErrorResponse(req.id, error)
+            ?? { id: req.id, error: { code: -32000, message: error instanceof Error ? error.message : "Internal error" } };
+        }
         return { id: req.id, result: { ok: true } };
       }
 
       // -- Reconnect / buffer ------------------------------------------------
 
       case "sync/replay": {
-        const p = req.params as { lastSeq: number };
-        const events = bridge.replay(p.lastSeq);
+        const p = req.params as { lastSeq: number; sessionId?: string };
+        if (!p.sessionId) {
+          return { id: req.id, error: { code: -32602, message: "sessionId is required" } };
+        }
+        const events = replaySyncEvents(bridge, p.sessionId, p.lastSeq);
         return { id: req.id, result: { events } };
       }
 
       case "sync/status": {
+        const p = (req.params ?? {}) as { sessionId?: string };
+        if (!p.sessionId) {
+          return { id: req.id, error: { code: -32602, message: "sessionId is required" } };
+        }
         return {
           id: req.id,
           result: {
-            currentSeq: bridge.currentSeq(),
-            oldestBufferedSeq: bridge.oldestBufferedSeq(),
+            ...readSyncStatus(bridge, p.sessionId),
             sessionCount: bridge.listSessions().length,
           },
         };
@@ -359,12 +411,24 @@ async function handleRPCInner(
           return { id: req.id, error: { code: -32001, message: `No action block: ${p.blockId}` } };
         }
 
-        const action = (blockState.block as import("../protocol/index.ts").ActionBlock).action;
+        const action = (blockState.block as ActionBlock).action;
         if (!action.approval || action.approval.version !== p.version) {
           return { id: req.id, error: { code: -32010, message: "Stale approval version" } };
         }
 
-        bridge.decide(p.sessionId, p.blockId, p.decision, p.reason);
+        try {
+          bridge.decide({
+            sessionId: p.sessionId,
+            turnId: p.turnId,
+            blockId: p.blockId,
+            version: p.version,
+            decision: p.decision,
+            reason: p.reason,
+          });
+        } catch (error) {
+          return sessionRegistryErrorResponse(req.id, error)
+            ?? { id: req.id, error: { code: -32000, message: error instanceof Error ? error.message : "Internal error" } };
+        }
         return { id: req.id, result: { ok: true } };
       }
 

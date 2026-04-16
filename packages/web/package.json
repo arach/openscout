@@ -38,6 +38,7 @@
     "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
+    "@openscout/agent-sessions": "workspace:*",
     "@openscout/protocol": "workspace:*",
     "@openscout/runtime": "workspace:*",
     "@trpc/server": "^11.16.0",
