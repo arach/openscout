@@ -27,6 +27,11 @@ export default function HomePage() {
             description="Public landing-page intent capture endpoint for OpenScout interest and email collection."
           />
           <EndpointCard
+            method="GET"
+            path="/intents?token=..."
+            description="Token-gated intent capture dashboard with stats, intent breakdown, and submission history."
+          />
+          <EndpointCard
             method="POST"
             path="/api/feedback"
             description="Public feedback submission endpoint for Scout desktop builds."
