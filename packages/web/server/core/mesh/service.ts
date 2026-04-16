@@ -80,12 +80,6 @@ function computeWarnings(
   }
 
   const remoteNodes = Object.values(nodes).filter((n) => n.id !== localNode?.id);
-  if (remoteNodes.length === 0 && tailscale.onlineCount > 0) {
-    warnings.push(
-      `Tailscale has ${tailscale.onlineCount} online peer${tailscale.onlineCount === 1 ? "" : "s"} but no remote nodes were discovered. ` +
-      "Run `scout mesh discover` to probe peers.",
-    );
-  }
 
   if (!tailscale.available && remoteNodes.length === 0) {
     warnings.push(
