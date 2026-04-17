@@ -73,27 +73,27 @@ type ProblemVariant = {
 };
 
 const problemContent: ProblemVariant = {
-  meshTitle: "Your agents are siloed.",
+  meshTitle: "No communication platform. No control plane.",
   meshDescription:
-    "You have agents in different projects, different tools, different terminals. Each one works fine on its own — but there's no single place to see all of them, message any of them, or let them work together.",
+    "There's no shared layer for your agents to reach each other — and no single surface for you to see or manage any of it. Each harness is its own island, and you're the one bridging them by hand.",
   cards: [
     {
       icon: Network,
-      title: "One agent per window",
+      title: "No communication platform",
       description:
-        "Each agent lives in its own tab, its own tool, its own context. You can talk to any one of them — but you have to go find it first. There's no single place to see them all.",
+        "Claude Code can't message Cursor. Codex can't hand context to either. Every harness is an island — no shared layer for agents to reach each other, exchange work, or coordinate across boundaries.",
     },
     {
-      icon: Layers,
-      title: "Stuck at your desk",
+      icon: Monitor,
+      title: "No control plane",
       description:
-        "Step away from your machine and your agents go dark. There's no way to check in, reply, or hand off work from your phone.",
+        "You're running agents across projects and machines with no single place to see what's happening, message any of them, or manage the work. You're the conduit, and that doesn't scale.",
     },
     {
       icon: Shield,
-      title: "They don't know each other",
+      title: "Nothing is visible",
       description:
-        "Want one agent to continue what another started? You'll copy the context yourself. They have no way to find each other, let alone collaborate.",
+        "An agent running in the next terminal might as well not exist. Nothing announces itself. Nothing is findable unless you go looking.",
     },
   ],
 };
@@ -130,16 +130,16 @@ const generalCapabilities: CapabilityCard[] = [
   {
     icon: Monitor,
     label: "Desktop",
-    title: "One app for every agent",
+    title: "See everything at a glance",
     description:
-      "See all your agents, conversations, and projects in one desktop surface. No more hunting through terminals to find the right one.",
+      "One desktop app for all your agents, projects, and machines. No more switching between terminals to check status.",
   },
   {
     icon: Bot,
     label: "Agent mesh",
-    title: "Agents that talk to each other",
+    title: "Cross-harness agent mesh",
     description:
-      "Your agents discover each other and coordinate directly. Ask one to hand work to another — they figure out the rest without you in the middle.",
+      "Claude Code, Cursor, Codex — today they can't reach each other. Scout gives them a shared communication layer so they can exchange work, hand off context, and coordinate directly across harnesses, machines, and servers.",
   },
   {
     icon: MessageSquare,
@@ -151,9 +151,9 @@ const generalCapabilities: CapabilityCard[] = [
   {
     icon: Workflow,
     label: "Bridges",
-    title: "Reach them from anywhere",
+    title: "Connect anything",
     description:
-      "Telegram, voice, webhooks — new ways to reach your agents plug in as transports without changing anything underneath.",
+      "Telegram, voice, webhooks — new ways to reach your agents plug in without starting from scratch.",
   },
   {
     icon: Activity,
@@ -363,28 +363,28 @@ const audienceContent: Record<
     heroTitleTop: "All your agents,",
     heroTitleBottom: "one message away.",
     heroDescription:
-      "You have agents across projects, tools, and environments — Claude in one repo, Cursor in another, Codex somewhere else. Scout gives you one place to talk to any of them from your desktop or your iPhone, and lets them talk to each other.",
+      "You have agents across harnesses — Claude Code, Cursor, Codex — and right now you're the one copying context between them. Scout gives them a shared mesh so they coordinate directly, and gives you one surface to see and message all of them from your desktop or your iPhone.",
     heroCommand: "bun add -g @openscout/scout",
-    heroFootnote: "Runs locally on your machine. One install, nothing to configure.",
+    heroFootnote: "Runs locally on your machine. One surface for every harness.",
     meshEyebrow: "The Problem",
-    meshTitle: "Every agent in its own silo.",
+    meshTitle: "No communication platform. No control plane.",
     meshDescription:
-      "Claude Code in one terminal, Cursor in another tab, Codex running somewhere else. Each one works fine — but there's no single place to see them all, message any of them, or let them work together. And when you leave your desk, they're gone.",
-    capabilitiesTitle: "You talk to them. They talk to each other.",
+      "Your agents are scattered across harnesses with no way to reach each other. And you have no single surface to see them all, talk to any of them, or manage the work. Two missing pieces — Scout is both.",
+    capabilitiesTitle: "Your control plane. Their communication platform.",
     capabilitiesDescription:
-      "One local system that connects you to every agent from your phone or desktop — and connects your agents to each other through a shared mesh.",
+      "You get one surface above every harness. Your agents get a shared mesh to find each other and exchange work directly. Both sides connected — from your phone or desktop.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "Relay is your desktop command center for all your agents. Scout iOS is how you check in and reply from anywhere. Same thread, different screen.",
+      "Relay is your desktop command center. Scout iOS is a full surface — not a notification viewer. Message agents, hand off work, stay in the conversation. Same thread, different screen.",
     surfacesNoteTitle: "Desktop + iPhone",
     surfacesNoteDescription:
-      "Relay handles live agent sessions and full-text search from your desktop. Scout iOS lets you message, check in, and hand off work when you're away from the desk. Both read the same thread.",
+      "Relay handles live agent sessions and full-text search from your desktop. Scout iOS isn't a read-only mirror — you message agents, hand off work, and pick up threads. The phone is as real as the desktop.",
     getStartedTitle: "Install once. Pair your phone. That's it.",
     getStartedDescription:
       "Install Scout, let it find your projects and agents, then pair your iPhone to take the conversation with you.",
   },
   technical: {
-    heroEyebrow: "Scout Runtime",
+    heroEyebrow: "Local Runtime",
     heroTitleTop: "All your agents,",
     heroTitleBottom: "one local runtime.",
     heroDescription:
