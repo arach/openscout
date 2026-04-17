@@ -14,6 +14,7 @@ import {
 } from "@openscout/runtime/setup";
 
 import { upScoutAgent } from "../agents/service.ts";
+import { queryFleet } from "../../server/db-queries.ts";
 import {
   loadScoutBrokerContext,
   loadScoutActivityItems,
@@ -544,6 +545,12 @@ export async function getScoutMobileSessions(
   void currentDirectory;
   const relay = await loadMobileRelayState();
   return withQueryAndLimit(relay.sessions, filters, matchesSession);
+}
+
+export async function getScoutFleet(
+  options?: Parameters<typeof queryFleet>[0],
+): Promise<ReturnType<typeof queryFleet>> {
+  return queryFleet(options);
 }
 
 export async function getScoutMobileSessionSnapshot(

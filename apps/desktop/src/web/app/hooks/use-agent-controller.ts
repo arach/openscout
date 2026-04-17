@@ -1,4 +1,5 @@
 import React from "react";
+import type { TraceIntent } from "@openscout/session-trace";
 
 import { copyTextToClipboard } from "@web/features/messages/components/relay-timeline";
 import {
@@ -536,7 +537,7 @@ export function useAgentController({
   }, [activeView, isAgentConfigEditing]);
 
   React.useEffect(() => {
-    if (!visibleAgentSession?.body) {
+    if (!visibleAgentSession || (visibleAgentSession.mode !== "trace" && !visibleAgentSession.body)) {
       return;
     }
 
@@ -553,8 +554,12 @@ export function useAgentController({
   }, [
     isAgentSessionPeekOpen,
     scrollAgentSessionToBottom,
+    visibleAgentSession?.mode,
     visibleAgentSession?.agentId,
     visibleAgentSession?.body,
+    visibleAgentSession?.trace,
+    visibleAgentSession?.trace?.turns.length,
+    visibleAgentSession?.trace?.currentTurnId,
     visibleAgentSession?.updatedAtLabel,
   ]);
 
@@ -747,18 +752,29 @@ export function useAgentController({
     }
   }, [agentConfig, agentConfigDirty, scoutDesktop, selectedInterAgent, selectedInterAgentId, setShellError, setShellState, visibleAgentConfig]);
 
+  const refreshAgentSession = React.useCallback(() => {
+    setAgentSessionRefreshTick((current) => current + 1);
+  }, []);
+
   const handleOpenAgentSession = React.useCallback(async () => {
+    if (agentSession?.mode === "trace") {
+      setAgentSessionFeedback(null);
+      setIsAgentSessionPeekOpen(true);
+      refreshAgentSession();
+      return;
+    }
+
     if (!surfaceCaps?.canOpenNativeSession || !currentSessionTargetAgentId || !scoutDesktop?.openAgentSession) {
       return;
     }
 
     try {
       await scoutDesktop.openAgentSession(currentSessionTargetAgentId);
-      setAgentSessionFeedback(agentSession?.mode === "tmux" ? "Opening tmux session in Terminal." : "Opening session logs.");
+      setAgentSessionFeedback(agentSession?.debugMode === "tmux" ? "Opening tmux session in Terminal." : "Opening session debug output.");
     } catch (error) {
       setAgentSessionFeedback(asErrorMessage(error));
     }
-  }, [agentSession?.mode, currentSessionTargetAgentId, scoutDesktop, surfaceCaps]);
+  }, [agentSession?.debugMode, agentSession?.mode, currentSessionTargetAgentId, refreshAgentSession, scoutDesktop, surfaceCaps]);
 
   const handleCopyAgentSessionCommand = React.useCallback(async () => {
     if (!agentSession?.commandLabel) {
@@ -774,9 +790,94 @@ export function useAgentController({
     }
   }, [agentSession]);
 
-  const refreshAgentSession = React.useCallback(() => {
-    setAgentSessionRefreshTick((current) => current + 1);
-  }, []);
+  const handleAgentSessionTraceIntent = React.useCallback(async (intent: TraceIntent) => {
+    if (intent.type === "copy") {
+      try {
+        await copyTextToClipboard(intent.text);
+        setAgentSessionFeedback("Copied trace content.");
+      } catch (error) {
+        setAgentSessionFeedback(asErrorMessage(error));
+      }
+      return;
+    }
+
+    if (intent.type === "jump" || intent.type === "collapse") {
+      return;
+    }
+
+    if (intent.type === "decide") {
+      if (agentSession?.traceSource !== "pairing_bridge") {
+        setAgentSessionFeedback("This session does not expose approval decisions.");
+        return;
+      }
+
+      if (!scoutDesktop?.decidePairingApproval) {
+        setAgentSessionFeedback("Session approvals are unavailable.");
+        return;
+      }
+
+      try {
+        await scoutDesktop.decidePairingApproval({
+          sessionId: intent.sessionId,
+          turnId: intent.turnId,
+          blockId: intent.blockId,
+          version: intent.version,
+          decision: intent.decision,
+          reason: intent.reason,
+        });
+        setAgentSessionFeedback(intent.decision === "approve" ? "Approval sent." : "Action denied.");
+        refreshAgentSession();
+      } catch (error) {
+        setAgentSessionFeedback(asErrorMessage(error));
+      }
+      return;
+    }
+
+    if (agentSession?.traceSource === "pairing_bridge") {
+      if (!scoutDesktop?.answerPairingQuestion) {
+        setAgentSessionFeedback("Session answers are unavailable.");
+        return;
+      }
+
+      try {
+        await scoutDesktop.answerPairingQuestion({
+          sessionId: intent.sessionId,
+          turnId: intent.turnId,
+          blockId: intent.blockId,
+          answer: intent.answer,
+        });
+        setAgentSessionFeedback("Answer sent.");
+        refreshAgentSession();
+      } catch (error) {
+        setAgentSessionFeedback(asErrorMessage(error));
+      }
+      return;
+    }
+
+    if (agentSession?.traceSource === "local_runtime") {
+      if (!currentSessionTargetAgentId || !scoutDesktop?.answerAgentSessionQuestion) {
+        setAgentSessionFeedback("Local session answers are unavailable.");
+        return;
+      }
+
+      try {
+        await scoutDesktop.answerAgentSessionQuestion({
+          agentId: currentSessionTargetAgentId,
+          sessionId: intent.sessionId,
+          turnId: intent.turnId,
+          blockId: intent.blockId,
+          answer: intent.answer,
+        });
+        setAgentSessionFeedback("Answer sent.");
+        refreshAgentSession();
+      } catch (error) {
+        setAgentSessionFeedback(asErrorMessage(error));
+      }
+      return;
+    }
+
+    setAgentSessionFeedback("Session answers are unavailable.");
+  }, [agentSession?.traceSource, currentSessionTargetAgentId, refreshAgentSession, scoutDesktop]);
 
   const handlePeekAgentSession = React.useCallback(() => {
     setAgentSessionFeedback(null);
@@ -866,6 +967,7 @@ export function useAgentController({
     handlePeekAgentSessionScroll,
     handleOpenAgentSession,
     handleCopyAgentSessionCommand,
+    handleAgentSessionTraceIntent,
     handlePeekAgentSession,
     refreshAgentSession,
   };

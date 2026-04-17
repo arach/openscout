@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -16,6 +16,7 @@ type BrokerHarness = {
 
 const harnesses = new Set<BrokerHarness>();
 const hangingServers = new Set<ReturnType<typeof Bun.serve>>();
+const pairingHomes = new Set<string>();
 
 afterEach(async () => {
   for (const harness of harnesses) {
@@ -28,6 +29,10 @@ afterEach(async () => {
     server.stop(true);
   }
   hangingServers.clear();
+  for (const home of pairingHomes) {
+    rmSync(home, { recursive: true, force: true });
+  }
+  pairingHomes.clear();
 });
 
 async function startBroker(input: {
@@ -165,6 +170,139 @@ function startHangingPeerServer(): string {
   });
   hangingServers.add(server);
   return `http://127.0.0.1:${server.port}`;
+}
+
+function startPairingBridgeServer(input: {
+  sessions: Array<{
+    id: string;
+    name: string;
+    adapterType: string;
+    status: "connecting" | "active" | "idle" | "error" | "closed";
+    cwd?: string;
+    model?: string;
+    providerMeta?: Record<string, unknown>;
+  }>;
+}): { port: number } {
+  const sessions = new Map(input.sessions.map((session) => [
+    session.id,
+    {
+      session,
+      turns: [],
+      currentTurnId: undefined,
+    },
+  ]));
+
+  const server = Bun.serve({
+    port: 0,
+    fetch(request, server) {
+      if (server.upgrade(request)) {
+        return undefined;
+      }
+      return new Response("not found", { status: 404 });
+    },
+    websocket: {
+      message(ws, message) {
+        const payload = JSON.parse(String(message)) as {
+          id?: number;
+          method?: string;
+          params?: { path?: string; input?: Record<string, unknown> };
+        };
+        const requestId = payload.id ?? null;
+        const path = payload.params?.path;
+
+        const respond = (body: unknown) => {
+          ws.send(JSON.stringify({
+            id: requestId,
+            jsonrpc: "2.0",
+            ...body,
+          }));
+        };
+
+        if (!path) {
+          respond({ error: { message: "unsupported" } });
+          return;
+        }
+
+        if (payload.method === "query" && path === "session.list") {
+          respond({
+            result: {
+              type: "data",
+              data: [...sessions.values()].map((entry) => entry.session),
+            },
+          });
+          return;
+        }
+
+        if (payload.method === "query" && path === "session.snapshot") {
+          const sessionId = typeof payload.params?.input?.sessionId === "string"
+            ? payload.params.input.sessionId
+            : "";
+          const snapshot = sessions.get(sessionId);
+          if (!snapshot) {
+            respond({ error: { message: `unknown session ${sessionId}` } });
+            return;
+          }
+          respond({
+            result: {
+              type: "data",
+              data: snapshot,
+            },
+          });
+          return;
+        }
+
+        if (payload.method === "mutation" && path === "session.create") {
+          const inputValue = payload.params?.input ?? {};
+          const adapterType = typeof inputValue.adapterType === "string" ? inputValue.adapterType : "codex";
+          const name = typeof inputValue.name === "string" ? inputValue.name : `${adapterType} attached`;
+          const cwd = typeof inputValue.cwd === "string" ? inputValue.cwd : undefined;
+          const options = typeof inputValue.options === "object" && inputValue.options
+            ? inputValue.options as Record<string, unknown>
+            : {};
+          const threadId = typeof options.threadId === "string"
+            ? options.threadId
+            : `thread-${sessions.size + 1}`;
+          const sessionId = `pairing-${threadId.slice(0, 8)}`;
+          const session = {
+            id: sessionId,
+            name,
+            adapterType,
+            status: "idle" as const,
+            cwd,
+            providerMeta: {
+              threadId,
+            },
+          };
+          sessions.set(sessionId, {
+            session,
+            turns: [],
+            currentTurnId: undefined,
+          });
+          respond({
+            result: {
+              type: "data",
+              data: session,
+            },
+          });
+          return;
+        }
+
+        respond({ error: { message: `unsupported path ${path}` } });
+      },
+    },
+  });
+  hangingServers.add(server);
+  return { port: server.port };
+}
+
+function configurePairingHome(port: number): string {
+  const home = mkdtempSync(join(tmpdir(), "openscout-pairing-home-"));
+  pairingHomes.add(home);
+  const pairingRoot = join(home, ".scout", "pairing");
+  mkdirSync(pairingRoot, { recursive: true });
+  writeFileSync(join(pairingRoot, "config.json"), JSON.stringify({ port }), "utf8");
+  writeFileSync(join(pairingRoot, "runtime.json"), JSON.stringify({ status: "paired" }), "utf8");
+  return home;
 }
 
 function nextSseBlock(buffer: string): { block: string; rest: string } | null {
@@ -824,6 +962,151 @@ describe("broker daemon comms layer", () => {
     expect(
       events.some((event) => event.kind === "flight.updated" && event.payload.flight?.targetAgentId === "ghost" && event.payload.flight?.state === "waking"),
     ).toBe(true);
+  }, 15_000);
+
+  test("attaches and detaches pairing sessions as Scout-managed fleet identities", async () => {
+    const pairing = startPairingBridgeServer({
+      sessions: [
+        {
+          id: "session-newell-1",
+          name: "Majestic Newell",
+          adapterType: "codex",
+          status: "active",
+          cwd: "/tmp/majestic",
+          model: "gpt-5.4",
+        },
+      ],
+    });
+    const home = configurePairingHome(pairing.port);
+    const harness = await startBroker({
+      env: {
+        HOME: home,
+      },
+    });
+
+    const browse = await getJson<Array<{
+      externalSessionId: string;
+      suggestedSelector: string;
+    }>>(harness.baseUrl, "/v1/pairing/sessions");
+    expect(browse).toHaveLength(1);
+    expect(browse[0]?.externalSessionId).toBe("session-newell-1");
+
+    const attached = await postJson<{
+      ok: boolean;
+      agentId: string;
+      selector: string;
+      endpointId: string;
+    }>(harness.baseUrl, "/v1/pairing/attach", {
+      externalSessionId: "session-newell-1",
+      alias: "@newell",
+      displayName: "Newell",
+    });
+    expect(attached.ok).toBe(true);
+    expect(attached.selector).toBe("@newell");
+
+    const attachedSnapshot = await getJson<{
+      agents: Record<string, {
+        id: string;
+        displayName: string;
+        selector?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+      endpoints: Record<string, {
+        id: string;
+        state: string;
+        sessionId?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+
+    expect(attachedSnapshot.agents[attached.agentId]?.displayName).toBe("Newell");
+    expect(attachedSnapshot.agents[attached.agentId]?.selector).toBe("@newell");
+    expect(attachedSnapshot.agents[attached.agentId]?.metadata?.source).toBe("scout-managed");
+    expect(attachedSnapshot.endpoints[attached.endpointId]?.sessionId).toBe("session-newell-1");
+    expect(attachedSnapshot.endpoints[attached.endpointId]?.metadata?.managedByScout).toBe(true);
+
+    const detached = await postJson<{
+      ok: boolean;
+      agentId: string;
+      endpointId: string;
+      detached: boolean;
+    }>(harness.baseUrl, "/v1/pairing/detach", {
+      agentId: attached.agentId,
+    });
+    expect(detached.ok).toBe(true);
+    expect(detached.detached).toBe(true);
+
+    const detachedSnapshot = await getJson<{
+      agents: Record<string, {
+        id: string;
+        selector?: string;
+      }>;
+      endpoints: Record<string, {
+        id: string;
+        state: string;
+        sessionId?: string;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+
+    expect(detachedSnapshot.agents[attached.agentId]?.selector).toBe("@newell");
+    expect(detachedSnapshot.endpoints[attached.endpointId]?.state).toBe("offline");
+    expect(detachedSnapshot.endpoints[attached.endpointId]?.sessionId).toBeUndefined();
+  }, 15_000);
+
+  test("attaches Codex local sessions as bridge-backed managed identities", async () => {
+    const pairing = startPairingBridgeServer({
+      sessions: [],
+    });
+    const home = configurePairingHome(pairing.port);
+    const harness = await startBroker({
+      env: {
+        HOME: home,
+      },
+    });
+
+    const attached = await postJson<{
+      ok: boolean;
+      agentId: string;
+      selector: string;
+      endpointId: string;
+      sessionId: string;
+    }>(harness.baseUrl, "/v1/local-sessions/attach", {
+      externalSessionId: "019d9762-19f7-7792-8962-90d924ce7faa",
+      transport: "codex_app_server",
+      cwd: "/tmp/codex-here",
+      alias: "@codex-here",
+      displayName: "Codex Here",
+    });
+
+    expect(attached.ok).toBe(true);
+    expect(attached.selector).toBe("@codex-here");
+    expect(attached.sessionId).toBe("pairing-019d9762");
+
+    const snapshot = await getJson<{
+      agents: Record<string, {
+        id: string;
+        displayName: string;
+        selector?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+      endpoints: Record<string, {
+        id: string;
+        transport: string;
+        state: string;
+        sessionId?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+
+    expect(snapshot.agents[attached.agentId]?.displayName).toBe("Codex Here");
+    expect(snapshot.agents[attached.agentId]?.selector).toBe("@codex-here");
+    expect(snapshot.agents[attached.agentId]?.metadata?.externalSource).toBe("local-session");
+    expect(snapshot.endpoints[attached.endpointId]?.transport).toBe("pairing_bridge");
+    expect(snapshot.endpoints[attached.endpointId]?.sessionId).toBe("pairing-019d9762");
+    expect(snapshot.endpoints[attached.endpointId]?.metadata?.source).toBe("local-session");
+    expect(snapshot.endpoints[attached.endpointId]?.metadata?.externalSessionId).toBe("019d9762-19f7-7792-8962-90d924ce7faa");
+    expect(snapshot.endpoints[attached.endpointId]?.metadata?.pairingSessionId).toBe("pairing-019d9762");
+    expect(snapshot.endpoints[attached.endpointId]?.metadata?.threadId).toBe("019d9762-19f7-7792-8962-90d924ce7faa");
   }, 15_000);
 
   test("persists valid collaboration records and emits collaboration events", async () => {

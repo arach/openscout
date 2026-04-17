@@ -6,8 +6,8 @@
 // Credentials stay local — apiKey lives in the adapter config, never
 // leaves the bridge process.
 
-import { BaseAdapter } from "../protocol/adapter.ts";
-import type { AdapterConfig } from "../protocol/adapter.ts";
+import { BaseAdapter } from "../protocol/adapter";
+import type { AdapterConfig } from "../protocol/adapter";
 import type {
   Action,
   Block,
@@ -15,7 +15,7 @@ import type {
   Prompt,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.ts";
+} from "../protocol/primitives";
 
 // ---------------------------------------------------------------------------
 // OpenAI streaming types — minimal surface for what we actually read

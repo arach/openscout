@@ -15,16 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)..3</string>
+	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>4</string>
-	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string>LaunchBackground</string>
-	</dict>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
+	<string>1</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>

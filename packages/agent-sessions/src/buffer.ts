@@ -5,7 +5,7 @@
 // it provides its last-seen seq and the bridge replays everything after
 // that point.  This gives us seamless reconnection without persistence.
 
-import type { PairingEvent } from "./protocol/index.ts";
+import type { PairingEvent } from "./protocol/index";
 
 // ---------------------------------------------------------------------------
 // Sequenced event — a Pairing event annotated with ordering metadata

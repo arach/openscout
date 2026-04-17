@@ -18,8 +18,8 @@
 // from the project's config unless explicitly disabled. The adapter reproduces
 // the full environment.
 
-import { BaseAdapter } from "../protocol/adapter.ts";
-import type { AdapterConfig } from "../protocol/adapter.ts";
+import { BaseAdapter } from "../protocol/adapter";
+import type { AdapterConfig } from "../protocol/adapter";
 import type {
   Action,
   Block,
@@ -27,7 +27,7 @@ import type {
   Prompt,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.ts";
+} from "../protocol/primitives";
 import type { Subprocess } from "bun";
 
 // ---------------------------------------------------------------------------

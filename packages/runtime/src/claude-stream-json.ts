@@ -3,6 +3,16 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import type {
+  Action,
+  ActionBlock,
+  BlockState,
+  QuestionBlock,
+  SessionState,
+  TextBlock,
+  ReasoningBlock,
+  TurnState,
+} from "@openscout/agent-sessions";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 
 type SessionRequestOptions = {
@@ -37,6 +47,11 @@ type ClaudeEvent =
   | { type: "result"; subtype?: string; result?: string }
   | { type: "error"; error?: { message?: string }; message?: string };
 
+export type ClaudeSessionSnapshotOptions = Pick<
+  SessionRequestOptions,
+  "agentName" | "sessionId" | "cwd"
+>;
+
 export function resolveClaudeStreamJsonOutput(
   result: string | undefined,
   fallbackParts: string[],
@@ -64,6 +79,526 @@ async function readOptionalFile(filePath: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function appendActionOutput(blockState: BlockState | undefined, output: string): void {
+  if (!blockState || blockState.block.type !== "action" || !output) {
+    return;
+  }
+
+  const actionBlock = blockState.block as ActionBlock;
+  actionBlock.action.output += output;
+}
+
+function updateBlockCompletion(blockState: BlockState | undefined, completed: boolean): void {
+  if (!blockState) {
+    return;
+  }
+
+  blockState.status = completed ? "completed" : "streaming";
+  blockState.block.status = completed ? "completed" : "streaming";
+}
+
+function parseQuestionAnswer(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => typeof entry === "string" ? entry.trim() : String(entry).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  if (value == null) {
+    return [];
+  }
+
+  return [String(value)];
+}
+
+function isClaudeSessionGlobalEvent(event: Record<string, unknown>): boolean {
+  return event.type === "system" && event.subtype === "init";
+}
+
+function stringifyToolResultContent(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => stringifyToolResultContent(entry)).filter(Boolean).join("\n");
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildClaudeAction(toolName: string, toolUseId: string, input: Record<string, unknown>): Action {
+  if (toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit") {
+    return {
+      kind: "file_change",
+      path: typeof input.file_path === "string"
+        ? input.file_path
+        : typeof input.path === "string"
+          ? input.path
+          : "",
+      diff: "",
+      status: "running",
+      output: "",
+    };
+  }
+
+  if (toolName === "Bash") {
+    return {
+      kind: "command",
+      command: typeof input.command === "string" ? input.command : "",
+      status: "running",
+      output: "",
+    };
+  }
+
+  if (toolName === "Agent") {
+    return {
+      kind: "subagent",
+      agentId: toolUseId,
+      agentName: typeof input.description === "string" ? input.description : undefined,
+      prompt: typeof input.prompt === "string" ? input.prompt : undefined,
+      status: "running",
+      output: "",
+    };
+  }
+
+  return {
+    kind: "tool_call",
+    toolName,
+    toolCallId: toolUseId,
+    input,
+    status: "running",
+    output: "",
+  };
+}
+
+export function buildClaudeStreamJsonSessionSnapshot(
+  raw: string,
+  options: ClaudeSessionSnapshotOptions,
+  targetClaudeSessionId?: string | null,
+): SessionState | null {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let resolvedSessionId = targetClaudeSessionId?.trim() || null;
+  if (!resolvedSessionId) {
+    for (const line of lines) {
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        const nextSessionId = typeof event.session_id === "string"
+          ? event.session_id
+          : typeof event.sessionId === "string"
+            ? event.sessionId
+            : null;
+        if (event.type === "system" && event.subtype === "init" && nextSessionId) {
+          resolvedSessionId = nextSessionId;
+        } else if (!resolvedSessionId && nextSessionId) {
+          resolvedSessionId = nextSessionId;
+        }
+      } catch {
+        // Ignore malformed history lines in snapshot mode.
+      }
+    }
+  }
+
+  const snapshot: SessionState = {
+    session: {
+      id: options.sessionId,
+      name: options.agentName,
+      adapterType: "claude_stream_json",
+      status: "idle",
+      cwd: options.cwd,
+      providerMeta: resolvedSessionId ? { transportSessionId: resolvedSessionId } : undefined,
+    },
+    turns: [],
+  };
+
+  type PendingToolBlock = {
+    toolUseId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+    inputJson: string;
+    blockIndex: number;
+  };
+
+  let currentTurn: (TurnState & { nextBlockIndex: number; nextMessageIndex: number }) | null = null;
+  const blockById = new Map<string, BlockState>();
+  let activeContentBlocks = new Map<number, BlockState>();
+  let pendingToolBlocks = new Map<number, PendingToolBlock>();
+
+  const startTurn = () => {
+    const turn: TurnState & { nextBlockIndex: number; nextMessageIndex: number } = {
+      id: `${options.sessionId}:turn:${snapshot.turns.length + 1}`,
+      status: "streaming",
+      blocks: [],
+      startedAt: Date.now(),
+      nextBlockIndex: 0,
+      nextMessageIndex: 0,
+    };
+    snapshot.turns.push(turn);
+    snapshot.currentTurnId = turn.id;
+    currentTurn = turn;
+    activeContentBlocks = new Map();
+    pendingToolBlocks = new Map();
+    snapshot.session.status = "active";
+    return turn;
+  };
+
+  const ensureTurn = () => currentTurn ?? startTurn();
+
+  const startTextualBlock = (type: "text" | "reasoning", index: number, initialText = ""): BlockState => {
+    const turn = ensureTurn();
+    const blockId = `${turn.id}:m${turn.nextMessageIndex}:i${index}`;
+    const block = type === "text"
+      ? {
+          id: blockId,
+          turnId: turn.id,
+          index: turn.nextBlockIndex++,
+          type: "text",
+          text: initialText,
+          status: "streaming",
+        } satisfies TextBlock
+      : {
+          id: blockId,
+          turnId: turn.id,
+          index: turn.nextBlockIndex++,
+          type: "reasoning",
+          text: initialText,
+          status: "streaming",
+        } satisfies ReasoningBlock;
+    const blockState: BlockState = {
+      block,
+      status: "streaming",
+    };
+    turn.blocks.push(blockState);
+    blockById.set(blockId, blockState);
+    activeContentBlocks.set(index, blockState);
+    return blockState;
+  };
+
+  const finalizeCurrentTurn = (status: TurnState["status"]) => {
+    if (!currentTurn) {
+      return;
+    }
+
+    for (const blockState of activeContentBlocks.values()) {
+      updateBlockCompletion(blockState, true);
+    }
+    activeContentBlocks.clear();
+
+    currentTurn.status = status;
+    currentTurn.endedAt = Date.now();
+    currentTurn = null;
+    snapshot.currentTurnId = undefined;
+    snapshot.session.status = status === "error" ? "error" : "idle";
+  };
+
+  for (const line of lines) {
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const eventSessionId = typeof event.session_id === "string"
+      ? event.session_id
+      : typeof event.sessionId === "string"
+        ? event.sessionId
+        : null;
+    if (resolvedSessionId) {
+      if (eventSessionId && eventSessionId !== resolvedSessionId) {
+        continue;
+      }
+      if (!eventSessionId && !isClaudeSessionGlobalEvent(event)) {
+        continue;
+      }
+    }
+
+    if (event.type === "system" && event.subtype === "init") {
+      if (typeof event.model === "string" && event.model.trim()) {
+        snapshot.session.model = event.model;
+      }
+      if (typeof event.cwd === "string" && event.cwd.trim()) {
+        snapshot.session.cwd = event.cwd;
+      }
+      snapshot.session.status = currentTurn ? "active" : "idle";
+      continue;
+    }
+
+    if (event.type === "stream_event") {
+      const streamEvent = event.event as Record<string, unknown> | undefined;
+      const streamEventType = typeof streamEvent?.type === "string" ? streamEvent.type : "";
+
+      if (streamEventType === "message_start") {
+        const turn = ensureTurn();
+        turn.nextMessageIndex += 1;
+        activeContentBlocks.clear();
+        pendingToolBlocks.clear();
+        snapshot.session.status = "active";
+        continue;
+      }
+
+      if (streamEventType === "content_block_start") {
+        const turn = ensureTurn();
+        const blockIndex = typeof streamEvent?.index === "number" ? streamEvent.index : 0;
+        const contentBlock = streamEvent?.content_block as Record<string, unknown> | undefined;
+        const contentType = typeof contentBlock?.type === "string" ? contentBlock.type : "";
+
+        if (contentType === "thinking") {
+          startTextualBlock("reasoning", blockIndex, typeof contentBlock?.thinking === "string" ? contentBlock.thinking : "");
+        } else if (contentType === "text") {
+          startTextualBlock("text", blockIndex, typeof contentBlock?.text === "string" ? contentBlock.text : "");
+        } else if (contentType === "tool_use") {
+          pendingToolBlocks.set(blockIndex, {
+            toolUseId: typeof contentBlock?.id === "string" ? contentBlock.id : `${turn.id}:tool:${blockIndex}`,
+            toolName: typeof contentBlock?.name === "string" ? contentBlock.name : "unknown",
+            input: contentBlock?.input && typeof contentBlock.input === "object" && !Array.isArray(contentBlock.input)
+              ? contentBlock.input as Record<string, unknown>
+              : {},
+            inputJson: "",
+            blockIndex: turn.nextBlockIndex++,
+          });
+        }
+        continue;
+      }
+
+      if (streamEventType === "content_block_delta") {
+        const blockIndex = typeof streamEvent?.index === "number" ? streamEvent.index : 0;
+        const delta = streamEvent?.delta as Record<string, unknown> | undefined;
+        const deltaType = typeof delta?.type === "string" ? delta.type : "";
+
+        if (deltaType === "text_delta") {
+          const blockState = activeContentBlocks.get(blockIndex);
+          if (blockState?.block.type === "text" && typeof delta?.text === "string") {
+            (blockState.block as TextBlock).text += delta.text;
+          }
+          continue;
+        }
+
+        if (deltaType === "thinking_delta") {
+          const blockState = activeContentBlocks.get(blockIndex);
+          if (blockState?.block.type === "reasoning" && typeof delta?.thinking === "string") {
+            (blockState.block as ReasoningBlock).text += delta.thinking;
+          }
+          continue;
+        }
+
+        if (deltaType === "input_json_delta") {
+          const pending = pendingToolBlocks.get(blockIndex);
+          if (pending && typeof delta?.partial_json === "string") {
+            pending.inputJson += delta.partial_json;
+          }
+        }
+        continue;
+      }
+
+      if (streamEventType === "content_block_stop") {
+        const blockIndex = typeof streamEvent?.index === "number" ? streamEvent.index : 0;
+        const blockState = activeContentBlocks.get(blockIndex);
+        if (blockState) {
+          updateBlockCompletion(blockState, true);
+          activeContentBlocks.delete(blockIndex);
+          continue;
+        }
+
+        const pendingTool = pendingToolBlocks.get(blockIndex);
+        if (!pendingTool) {
+          continue;
+        }
+
+        const turn = ensureTurn();
+        const parsedInput = {
+          ...pendingTool.input,
+          ...parseJsonObject(pendingTool.inputJson),
+        };
+
+        if (pendingTool.toolName === "AskUserQuestion") {
+          const questions = Array.isArray(parsedInput.questions)
+            ? parsedInput.questions as Array<Record<string, unknown>>
+            : [];
+          const firstQuestion = questions[0] ?? {};
+          const block: QuestionBlock = {
+            id: pendingTool.toolUseId,
+            turnId: turn.id,
+            index: pendingTool.blockIndex,
+            type: "question",
+            header: typeof firstQuestion.header === "string" ? firstQuestion.header : undefined,
+            question: typeof firstQuestion.question === "string" ? firstQuestion.question : "",
+            options: Array.isArray(firstQuestion.options)
+              ? firstQuestion.options.map((option) => {
+                  if (typeof option === "string") {
+                    return { label: option };
+                  }
+
+                  const optionRecord = option as Record<string, unknown>;
+                  return {
+                    label: typeof optionRecord.label === "string" ? optionRecord.label : String(option),
+                    description: typeof optionRecord.description === "string" ? optionRecord.description : undefined,
+                  };
+                })
+              : [],
+            multiSelect: Boolean(firstQuestion.multiSelect),
+            questionStatus: "awaiting_answer",
+            status: "streaming",
+          };
+          const nextBlockState: BlockState = { block, status: "streaming" };
+          turn.blocks.push(nextBlockState);
+          blockById.set(block.id, nextBlockState);
+        } else {
+          const block: ActionBlock = {
+            id: pendingTool.toolUseId,
+            turnId: turn.id,
+            index: pendingTool.blockIndex,
+            type: "action",
+            action: buildClaudeAction(pendingTool.toolName, pendingTool.toolUseId, parsedInput),
+            status: "streaming",
+          };
+          const nextBlockState: BlockState = { block, status: "streaming" };
+          turn.blocks.push(nextBlockState);
+          blockById.set(block.id, nextBlockState);
+        }
+
+        pendingToolBlocks.delete(blockIndex);
+      }
+
+      continue;
+    }
+
+    if (event.type === "user") {
+      const message = event.message as Record<string, unknown> | undefined;
+      const content = Array.isArray(message?.content) ? message.content : [];
+      for (const entry of content) {
+        const result = entry as Record<string, unknown>;
+        if (result.type !== "tool_result" || typeof result.tool_use_id !== "string") {
+          continue;
+        }
+
+        const blockState = blockById.get(result.tool_use_id);
+        if (!blockState) {
+          continue;
+        }
+
+        if (blockState.block.type === "question") {
+          const questionBlock = blockState.block as QuestionBlock;
+          questionBlock.questionStatus = result.is_error ? "denied" : "answered";
+          const answer = parseQuestionAnswer(result.content);
+          questionBlock.answer = answer.length > 0 ? answer : undefined;
+          updateBlockCompletion(blockState, true);
+          continue;
+        }
+
+        appendActionOutput(blockState, stringifyToolResultContent(result.content));
+        if (blockState.block.type === "action") {
+          blockState.block.action.status = result.is_error ? "failed" : "completed";
+        }
+        updateBlockCompletion(blockState, true);
+      }
+      continue;
+    }
+
+    if (event.type === "result") {
+      const permissionDenials = Array.isArray(event.permission_denials)
+        ? event.permission_denials as Array<Record<string, unknown>>
+        : [];
+      for (const denial of permissionDenials) {
+        if (denial.tool_name !== "AskUserQuestion") {
+          continue;
+        }
+
+        const toolUseId = typeof denial.tool_use_id === "string" ? denial.tool_use_id : null;
+        const blockState = toolUseId ? blockById.get(toolUseId) : undefined;
+        if (blockState?.block.type === "question") {
+          (blockState.block as QuestionBlock).questionStatus = "denied";
+          updateBlockCompletion(blockState, true);
+          continue;
+        }
+
+        const input = denial.tool_input && typeof denial.tool_input === "object" && !Array.isArray(denial.tool_input)
+          ? denial.tool_input as Record<string, unknown>
+          : {};
+        const questions = Array.isArray(input.questions) ? input.questions as Array<Record<string, unknown>> : [];
+        const firstQuestion = questions[0] ?? {};
+        const turn = ensureTurn();
+        const block: QuestionBlock = {
+          id: toolUseId ?? `${turn.id}:denied:${turn.nextBlockIndex}`,
+          turnId: turn.id,
+          index: turn.nextBlockIndex++,
+          type: "question",
+          header: typeof firstQuestion.header === "string" ? firstQuestion.header : undefined,
+          question: typeof firstQuestion.question === "string" ? firstQuestion.question : "",
+          options: Array.isArray(firstQuestion.options)
+            ? firstQuestion.options.map((option) => {
+                if (typeof option === "string") {
+                  return { label: option };
+                }
+
+                const optionRecord = option as Record<string, unknown>;
+                return {
+                  label: typeof optionRecord.label === "string" ? optionRecord.label : String(option),
+                  description: typeof optionRecord.description === "string" ? optionRecord.description : undefined,
+                };
+              })
+            : [],
+          multiSelect: Boolean(firstQuestion.multiSelect),
+          questionStatus: "denied",
+          status: "completed",
+        };
+        const deniedBlock: BlockState = { block, status: "completed" };
+        turn.blocks.push(deniedBlock);
+        blockById.set(block.id, deniedBlock);
+      }
+
+      finalizeCurrentTurn(event.is_error ? "error" : "completed");
+      continue;
+    }
+
+    if (event.type === "error") {
+      finalizeCurrentTurn("error");
+    }
+  }
+
+  if (!resolvedSessionId && snapshot.turns.length === 0) {
+    return null;
+  }
+
+  snapshot.session.status = currentTurn ? "active" : snapshot.session.status;
+  return snapshot;
 }
 
 class ClaudeStreamJsonSession {
@@ -157,6 +692,20 @@ class ClaudeStreamJsonSession {
     if (this.process && !this.process.killed) {
       this.process.kill("SIGINT");
     }
+  }
+
+  async answerQuestion(blockId: string, answer: string[]): Promise<void> {
+    if (!this.process?.stdin) {
+      throw new Error(`Claude stream-json session for ${this.options.agentName} is not running.`);
+    }
+
+    this.process.stdin.write(
+      JSON.stringify({
+        type: "tool_result",
+        tool_use_id: blockId,
+        content: answer.join(", "),
+      }) + "\n",
+    );
   }
 
   private resetTurnWatchdog(turn: ActiveTurn): void {
@@ -395,6 +944,36 @@ export async function interruptClaudeStreamJsonAgent(options: InterruptOptions):
 export function isClaudeStreamJsonAgentAlive(options: SessionRequestOptions): boolean {
   const session = sessions.get(sessionKey(options));
   return Boolean(session?.isAlive());
+}
+
+export async function answerClaudeStreamJsonQuestion(
+  options: SessionRequestOptions,
+  input: { blockId: string; answer: string[] },
+): Promise<void> {
+  const session = sessions.get(sessionKey(options));
+  if (!session) {
+    throw new Error(`Claude stream-json session for ${options.agentName} is not running.`);
+  }
+
+  session.update(options);
+  await session.answerQuestion(input.blockId, input.answer);
+}
+
+export async function getClaudeStreamJsonAgentSnapshot(
+  options: SessionRequestOptions,
+): Promise<SessionState | null> {
+  const stdoutLogPath = join(options.logsDirectory, "stdout.log");
+  const sessionStatePath = join(options.runtimeDirectory, "claude-session-id.txt");
+  const [rawLog, persistedSessionId] = await Promise.all([
+    readOptionalFile(stdoutLogPath),
+    readOptionalFile(sessionStatePath),
+  ]);
+
+  if (!rawLog) {
+    return null;
+  }
+
+  return buildClaudeStreamJsonSessionSnapshot(rawLog, options, persistedSessionId);
 }
 
 export async function shutdownClaudeStreamJsonAgent(

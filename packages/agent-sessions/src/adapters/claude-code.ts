@@ -16,6 +16,9 @@
 //   result                → turn complete
 //   error                 → error blocks
 
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { BaseAdapter } from "../protocol/adapter.ts";
 import type { AdapterConfig } from "../protocol/adapter.ts";
 import type {
@@ -28,6 +31,14 @@ import type {
   TurnStatus,
 } from "../protocol/primitives.ts";
 import type { Subprocess } from "bun";
+
+type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
+
+interface ClaudeResumeContext {
+  cwd: string;
+  resumeId: string;
+  sessionPath: string;
+}
 
 // ---------------------------------------------------------------------------
 // Adapter
@@ -50,8 +61,31 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   // Resolvers waiting for the user's answer: blockId → resolve fn
   private pendingAnswers = new Map<string, (answer: string[]) => void>();
 
+  private activeStreamBlocks = new Map<number, TextualBlock>();
+  private sawStreamTextThisTurn = false;
+
   constructor(config: AdapterConfig) {
-    super(config);
+    const resumeContext = resolveClaudeResumeContext(config);
+    const resolvedConfig: AdapterConfig = resumeContext
+      ? {
+          ...config,
+          cwd: resumeContext.cwd,
+          options: {
+            ...config.options,
+            resume: resumeContext.resumeId,
+          },
+        }
+      : config;
+
+    super(resolvedConfig);
+
+    if (resumeContext) {
+      this.session.providerMeta = {
+        ...(this.session.providerMeta ?? {}),
+        resumeSessionPath: resumeContext.sessionPath,
+        resumeProjectCwd: resumeContext.cwd,
+      };
+    }
   }
 
   async start(): Promise<void> {
@@ -102,6 +136,8 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
     this.blockIndex = 0;
     this.toolBlockMap.clear();
+    this.activeStreamBlocks.clear();
+    this.sawStreamTextThisTurn = false;
 
     const turn: Turn = {
       id: crypto.randomUUID(),
@@ -213,6 +249,13 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         if (event.subtype === "init") {
           const sid = event.session_id ?? event.sessionId;
           if (sid) this.claudeSessionId = sid;
+          if (typeof event.cwd === "string" && event.cwd.trim()) {
+            this.session.cwd = event.cwd;
+          }
+          if (typeof event.model === "string" && event.model.trim()) {
+            this.session.model = event.model;
+          }
+          this.emit("event", { event: "session:update", session: { ...this.session } });
         }
         // Skip hooks and other system events.
         break;
@@ -233,7 +276,14 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         break;
       }
 
+      case "stream_event": {
+        this.handleStreamEvent(event);
+        break;
+      }
+
       case "result": {
+        this.completeOpenStreamBlocks();
+
         // Surface any permission-denied AskUserQuestion calls as denied blocks.
         const denials: any[] = Array.isArray(event.permission_denials) ? event.permission_denials : [];
         for (const denial of denials) {
@@ -272,7 +322,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         break;
       }
 
-      // stream_event, rate_limit_event, etc. — ignore for now.
+      // rate_limit_event, etc. — ignore for now.
     }
   }
 
@@ -282,6 +332,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
   private handleAssistant(event: any): void {
     if (!this.currentTurn) return;
+    if (this.sawStreamTextThisTurn) return;
 
     const content = event.message?.content ?? event.content;
     if (!Array.isArray(content)) return;
@@ -302,6 +353,73 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         });
         this.emitBlockEnd(this.currentTurn, block, "completed");
       }
+    }
+  }
+
+  private handleStreamEvent(event: any): void {
+    if (!this.currentTurn) return;
+
+    const streamEvent = event.event;
+    if (!streamEvent || typeof streamEvent !== "object") return;
+
+    const streamType = typeof streamEvent.type === "string" ? streamEvent.type : "";
+    if (streamType === "message_start") {
+      this.activeStreamBlocks.clear();
+      this.sawStreamTextThisTurn = false;
+      return;
+    }
+
+    if (streamType === "content_block_start") {
+      const index = typeof streamEvent.index === "number" ? streamEvent.index : 0;
+      const contentBlock = streamEvent.content_block;
+      if (!contentBlock || typeof contentBlock !== "object") return;
+
+      const contentType = typeof contentBlock.type === "string" ? contentBlock.type : "";
+      if (contentType !== "text" && contentType !== "thinking") {
+        return;
+      }
+
+      const block = this.startBlock(this.currentTurn, {
+        type: contentType === "thinking" ? "reasoning" : "text",
+        text: "",
+        status: "streaming",
+      }) as TextualBlock;
+
+      this.activeStreamBlocks.set(index, block);
+      this.sawStreamTextThisTurn = true;
+
+      const initialText = contentType === "thinking"
+        ? typeof contentBlock.thinking === "string" ? contentBlock.thinking : ""
+        : typeof contentBlock.text === "string" ? contentBlock.text : "";
+      this.appendTextDelta(block, initialText);
+      return;
+    }
+
+    if (streamType === "content_block_delta") {
+      const index = typeof streamEvent.index === "number" ? streamEvent.index : 0;
+      const block = this.activeStreamBlocks.get(index);
+      const delta = streamEvent.delta;
+      if (!block || !delta || typeof delta !== "object") return;
+
+      const deltaType = typeof delta.type === "string" ? delta.type : "";
+      if (deltaType === "text_delta") {
+        this.appendTextDelta(block, typeof delta.text === "string" ? delta.text : "");
+        return;
+      }
+
+      if (deltaType === "thinking_delta") {
+        this.appendTextDelta(block, typeof delta.thinking === "string" ? delta.thinking : "");
+      }
+      return;
+    }
+
+    if (streamType === "content_block_stop") {
+      const index = typeof streamEvent.index === "number" ? streamEvent.index : 0;
+      const block = this.activeStreamBlocks.get(index);
+      if (!block || !this.currentTurn) return;
+
+      this.emitBlockEnd(this.currentTurn, block, "completed");
+      this.activeStreamBlocks.delete(index);
     }
   }
 
@@ -512,12 +630,36 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     turn.status = status;
     turn.endedAt = new Date().toISOString();
     this.currentTurn = null;
+    this.activeStreamBlocks.clear();
+    this.sawStreamTextThisTurn = false;
     this.emit("event", {
       event: "turn:end",
       sessionId: this.session.id,
       turnId: turn.id,
       status,
     });
+  }
+
+  private appendTextDelta(block: TextualBlock, text: string): void {
+    if (!text || !this.currentTurn) return;
+
+    block.text += text;
+    this.emit("event", {
+      event: "block:delta",
+      sessionId: this.session.id,
+      turnId: this.currentTurn.id,
+      blockId: block.id,
+      text,
+    });
+  }
+
+  private completeOpenStreamBlocks(): void {
+    if (!this.currentTurn) return;
+
+    for (const block of this.activeStreamBlocks.values()) {
+      this.emitBlockEnd(this.currentTurn, block, "completed");
+    }
+    this.activeStreamBlocks.clear();
   }
 }
 
@@ -526,3 +668,64 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 // ---------------------------------------------------------------------------
 
 export const createAdapter = (config: AdapterConfig) => new ClaudeCodeAdapter(config);
+
+function resolveClaudeResumeContext(config: AdapterConfig): ClaudeResumeContext | null {
+  const rawResumeId = config.options?.["resume"];
+  const resumeId = typeof rawResumeId === "string" ? rawResumeId.trim().replace(/\.jsonl$/u, "") : "";
+  if (!resumeId) {
+    return null;
+  }
+
+  const projectsRoot = join(homedir(), ".claude", "projects");
+  if (!existsSync(projectsRoot)) {
+    return null;
+  }
+
+  let projectSlugs: string[];
+  try {
+    projectSlugs = readdirSync(projectsRoot);
+  } catch {
+    return null;
+  }
+
+  for (const slug of projectSlugs) {
+    const sessionPath = join(projectsRoot, slug, `${resumeId}.jsonl`);
+    if (!existsSync(sessionPath)) {
+      continue;
+    }
+
+    const cwd = decodeClaudeProjectsSlug(slug);
+    if (!cwd) {
+      continue;
+    }
+
+    try {
+      if (!statSync(cwd).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    return {
+      cwd,
+      resumeId,
+      sessionPath,
+    };
+  }
+
+  return null;
+}
+
+function decodeClaudeProjectsSlug(slug: string): string | null {
+  if (!slug.startsWith("-")) {
+    return null;
+  }
+
+  const tail = slug.slice(1);
+  if (!tail) {
+    return null;
+  }
+
+  return `/${tail.replace(/-/g, "/")}`;
+}

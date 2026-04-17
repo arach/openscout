@@ -53,6 +53,7 @@
 		A1B5F24217CBB3425E19F75C /* SessionHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61B31D0E2A906FC93D58001 /* SessionHistoryView.swift */; };
 		A50AB845B5B69E8F3839348C /* Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E41DEC22E607215EDBB5203 /* Events.swift */; };
 		A6C0D4FC3028FA5637640C66 /* SessionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51A81D21A37B458E927F61B /* SessionCache.swift */; };
+		A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */; };
 		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
 		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
 		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
@@ -107,6 +108,7 @@
 		2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionAuthorizations.swift; sourceTree = "<group>"; };
 		3161549947E066F37145FB0C /* SessionDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDiscoveryView.swift; sourceTree = "<group>"; };
 		37311097FD4418A4CC259888 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
+		37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDetailView.swift; sourceTree = "<group>"; };
 		3967724C6396B93527EC3A5C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		3D43A2017A04707A443F35BA /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReasoningBlockView.swift; sourceTree = "<group>"; };
@@ -436,6 +438,7 @@
 		FAF4F04B7B7D29C2F3133636 /* Agents */ = {
 			isa = PBXGroup;
 			children = (
+				37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */,
 				3D43A2017A04707A443F35BA /* AgentsView.swift */,
 			);
 			path = Agents;
@@ -542,6 +545,7 @@
 				C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */,
 				0925DEE6A5BFA1C0199C2EB5 /* ActivityFeedView.swift in Sources */,
 				DA89CEF284347FCCA2AB04E8 /* AddressBarPill.swift in Sources */,
+				A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */,
 				4F6B19AF43BFDFA1FD35963C /* AgentsView.swift in Sources */,
 				1BF5B43FCC85EB3FAD07F724 /* AllSessionsGridView.swift in Sources */,
 				97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */,
@@ -626,7 +630,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scout/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Scout;
@@ -794,7 +798,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scout/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Scout;

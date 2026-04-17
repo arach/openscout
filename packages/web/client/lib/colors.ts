@@ -1,3 +1,5 @@
+import { normalizeAgentState } from "./agent-state.ts";
+
 /* ── Kind labels and color helpers ── */
 
 const KIND_LABELS: Record<string, string> = {
@@ -38,7 +40,12 @@ export function actorColor(name: string): string {
 
 /** State dot color from agent endpoint state. */
 export function stateColor(state: string | null): string {
-  if (state === "active") return "var(--green)";
-  if (state === "listening" || state === "idle") return "var(--accent)";
-  return "var(--dim)";
+  switch (normalizeAgentState(state)) {
+    case "working":
+      return "var(--green)";
+    case "available":
+      return "var(--accent)";
+    default:
+      return "var(--dim)";
+  }
 }

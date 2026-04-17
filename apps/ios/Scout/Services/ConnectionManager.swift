@@ -1050,6 +1050,11 @@ final class ConnectionManager: @unchecked Sendable {
         _ = try await sendRPC(method: "turn/interrupt", params: params)
     }
 
+    func interruptAgent(_ agentId: String) async throws {
+        let params = AgentIdParams(agentId: agentId)
+        _ = try await sendRPC(method: "mobile/agent/interrupt", params: params)
+    }
+
     func answerQuestion(sessionId: String, blockId: String, answer: [String]) async throws {
         struct Params: Encodable {
             let sessionId: String

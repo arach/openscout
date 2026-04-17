@@ -12,12 +12,13 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { findNearestProjectRoot } from "@openscout/runtime/setup";
-import type { SessionState, SessionSummary } from "../../core/pairing/runtime/bridge/state.ts";
 import {
   extractPendingApprovalRequests,
   type NormalizedApprovalRequest,
-} from "../../core/pairing/runtime/protocol/approval-normalization.ts";
+  type SessionState,
+  type SessionSummary,
+} from "@openscout/agent-sessions";
+import { findNearestProjectRoot } from "@openscout/runtime/setup";
 
 import { resolveScoutAppRoot } from "../../shared/paths.ts";
 
@@ -90,6 +91,13 @@ export type DecideScoutPairingApprovalInput = {
   version: number;
   decision: ScoutPairingApprovalDecision;
   reason?: string | null;
+};
+
+export type AnswerScoutPairingQuestionInput = {
+  sessionId: string;
+  turnId: string;
+  blockId: string;
+  answer: string[];
 };
 
 export type ScoutPairingRuntimeStatus =
@@ -923,6 +931,21 @@ export async function refreshScoutDesktopPairingState(currentDirectory?: string)
   return readScoutPairingState(currentDirectory);
 }
 
+export async function getScoutDesktopPairingSessionSnapshot(sessionId: string): Promise<SessionState | null> {
+  if (!isScoutPairingRuntimeRunning()) {
+    return null;
+  }
+
+  const resolvedConfig = resolveScoutPairingConfig();
+  try {
+    return await withScoutPairingBridgeClient(resolvedConfig.port, async (client) =>
+      client.query<SessionState>("session.snapshot", { sessionId }),
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function controlScoutDesktopPairingService(
   action: ScoutPairingControlAction,
   currentDirectory?: string,
@@ -968,6 +991,21 @@ export async function decideScoutDesktopPairingApproval(
       version: input.version,
       decision: input.decision,
       ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+    });
+  });
+  return readScoutPairingState(currentDirectory);
+}
+
+export async function answerScoutDesktopPairingQuestion(
+  input: AnswerScoutPairingQuestionInput,
+  currentDirectory?: string,
+): Promise<ScoutPairingState> {
+  const resolvedConfig = resolveScoutPairingConfig();
+  await withScoutPairingBridgeClient(resolvedConfig.port, async (client) => {
+    await client.mutation<{ ok: true }>("questionAnswer", {
+      sessionId: input.sessionId,
+      blockId: input.blockId,
+      answer: input.answer,
     });
   });
   return readScoutPairingState(currentDirectory);

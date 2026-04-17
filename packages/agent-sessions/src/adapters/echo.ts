@@ -10,8 +10,8 @@
 // Each block follows the full block:start -> block:delta -> block:end lifecycle.
 // Supports interrupt() — stops mid-stream and emits turn:end with "stopped".
 
-import { BaseAdapter, type AdapterConfig } from "../protocol/adapter.ts";
-import type { Prompt, Turn, Block } from "../protocol/primitives.ts";
+import { BaseAdapter, type AdapterConfig } from "../protocol/adapter";
+import type { Prompt, Turn, Block } from "../protocol/primitives";
 
 // ---------------------------------------------------------------------------
 // Configuration

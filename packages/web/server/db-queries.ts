@@ -9,6 +9,8 @@
 import { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { relayAgentLogsDirectory } from "@openscout/runtime/support-paths";
+import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 /* ── Types (match what the client expects) ── */
 
@@ -29,6 +31,9 @@ export type WebAgent = {
   project: string | null;
   branch: string | null;
   role: string | null;
+  harnessSessionId: string | null;
+  harnessLogPath: string | null;
+  conversationId: string;
 };
 
 export type WebActivityItem = {
@@ -53,6 +58,7 @@ export type WebMessage = {
 };
 
 type WorkAttention = "silent" | "badge" | "interrupt";
+type AgentSummaryState = "offline" | "available" | "working";
 
 export type WebWorkItem = {
   id: string;
@@ -119,6 +125,75 @@ function compact(p: string | null): string | null {
   return p.startsWith(HOME) ? `~${p.slice(HOME.length)}` : p;
 }
 
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function pairingHarnessLogPath(adapterType: string | null, sessionId: string | null): string | null {
+  const normalizedAdapter = adapterType?.trim();
+  const normalizedSessionId = sessionId?.trim();
+  if (!normalizedAdapter || !normalizedSessionId) {
+    return null;
+  }
+  return join(HOME, ".scout", "pairing", normalizedAdapter, normalizedSessionId, "logs", "stdout.log");
+}
+
+function relayHarnessLogPath(agentId: string): string {
+  return join(relayAgentLogsDirectory(agentId), "stdout.log");
+}
+
+function resolveHarnessSessionId(
+  transport: string | null,
+  endpointSessionId: string | null,
+  metadata: Record<string, unknown> | undefined,
+): string | null {
+  if (transport === "pairing_bridge") {
+    const attachedTransport = metadataString(metadata, "attachedTransport");
+    if (attachedTransport === "codex_app_server") {
+      return metadataString(metadata, "threadId")
+        ?? metadataString(metadata, "externalSessionId")
+        ?? endpointSessionId;
+    }
+    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
+  }
+
+  if (transport === "codex_app_server") {
+    return metadataString(metadata, "threadId") ?? endpointSessionId;
+  }
+
+  if (transport === "claude_stream_json") {
+    return endpointSessionId ?? metadataString(metadata, "externalSessionId");
+  }
+
+  return null;
+}
+
+function resolveHarnessLogPath(
+  agentId: string,
+  transport: string | null,
+  endpointSessionId: string | null,
+  metadata: Record<string, unknown> | undefined,
+): string | null {
+  if (transport === "pairing_bridge") {
+    const pairingSessionId = metadataString(metadata, "pairingSessionId") ?? endpointSessionId;
+    const attachedTransport = metadataString(metadata, "attachedTransport");
+    const adapterType = metadataString(metadata, "pairingAdapterType")
+      ?? (attachedTransport === "codex_app_server"
+        ? "codex"
+        : attachedTransport === "claude_stream_json"
+          ? "claude"
+          : null);
+    return pairingHarnessLogPath(adapterType, pairingSessionId);
+  }
+
+  if (transport === "codex_app_server" || transport === "claude_stream_json") {
+    return relayHarnessLogPath(agentId);
+  }
+
+  return null;
+}
+
 function coerceNumber(value: number | string | null): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -128,6 +203,57 @@ function coerceNumber(value: number | string | null): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
+  SELECT ep2.id
+  FROM agent_endpoints ep2
+  WHERE ep2.agent_id = a.id
+  ORDER BY ep2.updated_at DESC
+  LIMIT 1
+)`;
+
+function queryWorkingAgentIds(): Set<string> {
+  return new Set(
+    (db().prepare(
+      `SELECT DISTINCT target_agent_id FROM flights
+       WHERE state NOT IN ('completed','failed','cancelled')`,
+    ).all() as Array<{ target_agent_id: string }>).map((row) => row.target_agent_id),
+  );
+}
+
+function summarizeAgentState(rawState: string | null, isWorking: boolean): AgentSummaryState {
+  if (isWorking || rawState === "active" || rawState === "waiting" || rawState === "working") {
+    return "working";
+  }
+  return rawState && rawState !== "offline" ? "available" : "offline";
+}
+
+function summarizeAgentStatusLabel(rawState: string | null, isWorking: boolean): string {
+  switch (summarizeAgentState(rawState, isWorking)) {
+    case "working":
+      return "Working";
+    case "available":
+      return "Available";
+    default:
+      return "Offline";
+  }
+}
+
+function normalizeTimestampMs(value: number | string | null): number | null {
+  const numeric = coerceNumber(value);
+  if (numeric === null) {
+    return null;
+  }
+  return numeric < 1e12 ? numeric * 1000 : numeric;
+}
+
+function transientBrokerWorkingStatusPredicate(alias: string): string {
+  return `NOT (
+    ${alias}.class = 'status'
+    AND COALESCE(json_extract(${alias}.metadata_json, '$.source'), '') = 'broker'
+    AND ${alias}.body LIKE '% is working.'
+  )`;
 }
 
 function workPhaseFromFlightState(state: string | null): string | null {
@@ -256,6 +382,7 @@ function projectWorkItemRow(row: {
 /* ── Queries ── */
 
 export function queryAgents(limit = 50): WebAgent[] {
+  const workingAgentIds = queryWorkingAgentIds();
   const rows = db()
     .prepare(
       `SELECT
@@ -272,11 +399,14 @@ export function queryAgents(limit = 50): WebAgent[] {
          ep.state,
          ep.project_root,
          ep.cwd,
+         ep.session_id,
+         ep.metadata_json AS endpoint_metadata_json,
          ep.updated_at
        FROM agents a
        JOIN actors ac ON ac.id = a.id
-       LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
-       ORDER BY ep.updated_at DESC NULLS LAST
+       ${LATEST_AGENT_ENDPOINT_JOIN}
+       WHERE COALESCE(json_extract(a.metadata_json, '$.retiredFromFleet'), 0) != 1
+       ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
        LIMIT ?`,
     )
     .all(limit) as Array<{
@@ -293,6 +423,8 @@ export function queryAgents(limit = 50): WebAgent[] {
     state: string | null;
     project_root: string | null;
     cwd: string | null;
+    session_id: string | null;
+    endpoint_metadata_json: string | null;
     updated_at: number | null;
   }>;
 
@@ -303,13 +435,16 @@ export function queryAgents(limit = 50): WebAgent[] {
     let meta: Record<string, unknown> = {};
     try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : {}; } catch {}
 
+    let endpointMeta: Record<string, unknown> = {};
+    try { endpointMeta = r.endpoint_metadata_json ? JSON.parse(r.endpoint_metadata_json) : {}; } catch {}
+
     return {
       id: r.id,
       name: r.name,
       handle: r.handle,
       agentClass: r.agent_class,
       harness: r.harness,
-      state: r.state,
+      state: summarizeAgentState(r.state, workingAgentIds.has(r.id)),
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
       updatedAt: r.updated_at,
@@ -320,6 +455,9 @@ export function queryAgents(limit = 50): WebAgent[] {
       project: (meta.project as string) ?? null,
       branch: (meta.branch as string) ?? null,
       role: (meta.role as string) ?? null,
+      harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
+      harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
+      conversationId: conversationIdForAgent(r.id),
     };
   });
 }
@@ -364,7 +502,15 @@ export function queryActivity(limit = 60): WebActivityItem[] {
   }));
 }
 
-export function queryRecentMessages(limit = 80): WebMessage[] {
+export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
+  const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
+  const where = [
+    transientBrokerWorkingStatusPredicate("m"),
+    conversationIds.length > 0
+      ? `m.conversation_id IN (${conversationIds.map(() => "?").join(", ")})`
+      : null,
+  ].filter(Boolean).join(" AND ");
+
   const rows = db()
     .prepare(
       `SELECT
@@ -377,10 +523,11 @@ export function queryRecentMessages(limit = 80): WebMessage[] {
          m.metadata_json
        FROM messages m
        JOIN actors ac ON ac.id = m.actor_id
+       WHERE ${where}
        ORDER BY m.created_at DESC
        LIMIT ?`,
     )
-    .all(limit) as Array<{
+    .all(...conversationIds, limit) as Array<{
     id: string;
     conversation_id: string;
     actor_name: string;
@@ -429,10 +576,13 @@ export function queryFlights(opts?: {
   activeOnly?: boolean;
 }): WebFlight[] {
   const activeStates = "('running','waking','waiting','queued')";
+  const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
   const where = [
     opts?.activeOnly ? `f.state IN ${activeStates}` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
-    opts?.conversationId ? `inv.conversation_id = ?` : null,
+    conversationIds.length > 0
+      ? `inv.conversation_id IN (${conversationIds.map(() => "?").join(", ")})`
+      : null,
     opts?.collaborationRecordId ? `inv.collaboration_record_id = ?` : null,
   ].filter(Boolean).join(" AND ");
 
@@ -456,7 +606,7 @@ export function queryFlights(opts?: {
 
   const params: string[] = [];
   if (opts?.agentId) params.push(opts.agentId);
-  if (opts?.conversationId) params.push(opts.conversationId);
+  if (conversationIds.length > 0) params.push(...conversationIds);
   if (opts?.collaborationRecordId) params.push(opts.collaborationRecordId);
 
   const rows = db().prepare(sql).all(...params) as Array<{
@@ -939,6 +1089,67 @@ export function queryWorkItems(opts?: {
 
 /* ── Sessions (all conversation kinds) ── */
 
+function isLikelyLocalSessionAgentId(actorId: string): boolean {
+  return actorId.startsWith("local-session-agent-");
+}
+
+function pickDirectConversationAgentId(participants: string[], candidateAgentIds: string[]): string | null {
+  const uniqueAgentIds = Array.from(new Set(candidateAgentIds.filter(Boolean)));
+  if (uniqueAgentIds.length === 0) {
+    return null;
+  }
+  if (uniqueAgentIds.length === 1) {
+    return uniqueAgentIds[0] ?? null;
+  }
+
+  const operatorActorIds = new Set(configuredOperatorActorIds());
+  const nonOperatorAgentIds = uniqueAgentIds.filter((agentId) => !operatorActorIds.has(agentId));
+  if (nonOperatorAgentIds.length === 1) {
+    return nonOperatorAgentIds[0] ?? null;
+  }
+
+  const localSessionCandidate = nonOperatorAgentIds.find(isLikelyLocalSessionAgentId)
+    ?? uniqueAgentIds.find(isLikelyLocalSessionAgentId);
+  if (localSessionCandidate) {
+    return localSessionCandidate;
+  }
+
+  if (participants.length === 2) {
+    const orderedAgentIds = participants.filter((participantId) => uniqueAgentIds.includes(participantId));
+    if (orderedAgentIds.length > 0) {
+      return orderedAgentIds[0] ?? null;
+    }
+  }
+
+  return nonOperatorAgentIds[0] ?? uniqueAgentIds[0] ?? null;
+}
+
+function shouldPreferSessionSummary(
+  candidate: MobileSessionSummary,
+  existing: MobileSessionSummary,
+  agentId: string,
+): boolean {
+  const canonicalConversationId = conversationIdForAgent(agentId);
+  const candidateIsCanonical = candidate.id === canonicalConversationId;
+  const existingIsCanonical = existing.id === canonicalConversationId;
+
+  if (candidateIsCanonical !== existingIsCanonical) {
+    return candidateIsCanonical;
+  }
+
+  const candidateLastAt = candidate.lastMessageAt ?? 0;
+  const existingLastAt = existing.lastMessageAt ?? 0;
+  if (candidateLastAt !== existingLastAt) {
+    return candidateLastAt > existingLastAt;
+  }
+
+  if (candidate.messageCount !== existing.messageCount) {
+    return candidate.messageCount > existing.messageCount;
+  }
+
+  return candidate.id < existing.id;
+}
+
 export function querySessions(limit = 80): MobileSessionSummary[] {
   const rows = db().prepare(
     `SELECT
@@ -959,17 +1170,48 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
   const memberStmt = db().prepare(
     `SELECT actor_id FROM conversation_members WHERE conversation_id = ?`,
   );
+  const agentMemberStmt = db().prepare(
+    `SELECT
+       a.id AS agent_id,
+       ac.display_name,
+       ep.harness,
+       ep.project_root,
+       a.metadata_json
+     FROM conversation_members cm
+     JOIN agents a ON a.id = cm.actor_id
+     JOIN actors ac ON ac.id = a.id
+     ${LATEST_AGENT_ENDPOINT_JOIN}
+     WHERE cm.conversation_id = ?`,
+  );
   const statsStmt = db().prepare(
     `SELECT COUNT(*) AS cnt, MAX(created_at) AS last_at FROM messages WHERE conversation_id = ?`,
   );
   const previewStmt = db().prepare(
-    `SELECT body FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT body
+     FROM messages m
+     WHERE conversation_id = ?
+       AND ${transientBrokerWorkingStatusPredicate("m")}
+     ORDER BY created_at DESC
+     LIMIT 1`,
   );
 
-  return rows.map((r) => {
+  const summaries = rows.flatMap((r) => {
     const participants = (memberStmt.all(r.id) as Array<{ actor_id: string }>)
       .map((m) => m.actor_id);
-    const agentId = participants.find((p) => p !== "operator") ?? null;
+    const agentParticipants = agentMemberStmt.all(r.id) as Array<{
+      agent_id: string;
+      display_name: string;
+      harness: string | null;
+      project_root: string | null;
+      metadata_json: string | null;
+    }>;
+    const primaryAgentId = r.kind === "direct"
+      ? pickDirectConversationAgentId(participants, agentParticipants.map((entry) => entry.agent_id))
+      : (agentParticipants.length === 1 ? agentParticipants[0]?.agent_id ?? null : null);
+    const primaryAgent = primaryAgentId
+      ? agentParticipants.find((entry) => entry.agent_id === primaryAgentId) ?? null
+      : null;
+    const agentId = primaryAgent?.agent_id ?? null;
     const stats = statsStmt.get(r.id) as { cnt: number; last_at: number | null } | null;
 
     let agentName: string | null = null;
@@ -977,34 +1219,22 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
     let branch: string | null = null;
     let workspaceRoot: string | null = null;
 
-    if (agentId) {
-      const agentRow = db().prepare(
-        `SELECT ac.display_name, ep.harness, ep.project_root, a.metadata_json
-         FROM agents a
-         JOIN actors ac ON ac.id = a.id
-         LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
-         WHERE a.id = ?`,
-      ).get(agentId) as {
-        display_name: string;
-        harness: string | null;
-        project_root: string | null;
-        metadata_json: string | null;
-      } | null;
-
-      if (agentRow) {
-        agentName = agentRow.display_name;
-        harness = agentRow.harness;
-        workspaceRoot = compact(agentRow.project_root);
-        try {
-          const meta = agentRow.metadata_json ? JSON.parse(agentRow.metadata_json) : {};
-          branch = (meta.branch as string) ?? (meta.workspaceQualifier as string) ?? null;
-        } catch {}
-      }
+    if (primaryAgent) {
+      agentName = primaryAgent.display_name;
+      harness = primaryAgent.harness;
+      workspaceRoot = compact(primaryAgent.project_root);
+      try {
+        const meta = primaryAgent.metadata_json ? JSON.parse(primaryAgent.metadata_json) : {};
+        if ((meta.retiredFromFleet as boolean | undefined) === true) {
+          return [];
+        }
+        branch = (meta.branch as string) ?? (meta.workspaceQualifier as string) ?? null;
+      } catch {}
     }
 
     const preview = (previewStmt.get(r.id) as { body: string } | null)?.body ?? null;
 
-    return {
+    return [{
       id: r.id,
       kind: r.kind,
       title: agentName ?? r.title,
@@ -1017,23 +1247,174 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
       messageCount: stats?.cnt ?? 0,
       lastMessageAt: stats?.last_at ?? null,
       workspaceRoot,
-    };
+    }];
   });
+
+  const deduped = new Map<string, MobileSessionSummary>();
+
+  for (const summary of summaries) {
+    if (
+      summary.kind !== "direct"
+      || !summary.agentId
+      || !isLikelyLocalSessionAgentId(summary.agentId)
+    ) {
+      deduped.set(`id:${summary.id}`, summary);
+      continue;
+    }
+
+    const key = `local-session-direct:${summary.agentId}`;
+    const current = deduped.get(key);
+    if (!current || shouldPreferSessionSummary(summary, current, summary.agentId)) {
+      deduped.set(key, summary);
+    }
+  }
+
+  return [...deduped.values()].sort((left, right) => {
+    const leftTs = left.lastMessageAt ?? 0;
+    const rightTs = right.lastMessageAt ?? 0;
+    if (rightTs !== leftTs) {
+      return rightTs - leftTs;
+    }
+    return right.messageCount - left.messageCount;
+  }).slice(0, limit);
 }
 
 export function querySessionById(conversationId: string): MobileSessionSummary | null {
   const results = querySessions(200);
-  return results.find((s) => s.id === conversationId) ?? null;
+  const existing = results.find((s) => s.id === conversationId) ?? null;
+  if (existing) {
+    return existing;
+  }
+
+  const directConversation = parseDirectConversationId(conversationId);
+  if (!directConversation) {
+    return null;
+  }
+
+  return synthesizeDirectSession(conversationId, directConversation.agentId, directConversation.operatorId);
 }
 
 /* ── ID derivation (no DB needed) ── */
 
 /**
- * Derive the conversation ID for an operator↔agent direct message.
- * Convention: `dm.operator.{agentId}`
+ * Derive the direct conversation ID for an operator↔agent chat.
  */
 export function conversationIdForAgent(agentId: string): string {
-  return `dm.operator.${agentId}`;
+  return buildDirectConversationId("operator", agentId);
+}
+
+function configuredOperatorActorIds(): string[] {
+  const operatorName = resolveOperatorName().trim() || "operator";
+  return Array.from(new Set(["operator", operatorName]));
+}
+
+function buildDirectConversationId(operatorId: string, agentId: string): string {
+  return `dm.${operatorId}.${agentId}`;
+}
+
+function buildLegacyScoutSessionConversationId(agentId: string): string {
+  return `dm.${[agentId, "scout.main.mini"].sort().join(".")}`;
+}
+
+function directConversationIdCandidates(agentId: string): string[] {
+  const ids = [
+    conversationIdForAgent(agentId),
+    ...configuredOperatorActorIds().map((operatorId) => buildDirectConversationId(operatorId, agentId)),
+  ];
+  if (isLikelyLocalSessionAgentId(agentId)) {
+    ids.push(buildLegacyScoutSessionConversationId(agentId));
+  }
+  return Array.from(new Set(ids));
+}
+
+function parseLegacyScoutSessionConversationId(conversationId: string): string | null {
+  const match = conversationId.match(/^dm\.(local-session-agent-[^.]+)\.scout\.main\.mini$/);
+  return match?.[1] ?? null;
+}
+
+function conversationIdAliases(conversationId: string): string[] {
+  const fromDirect = parseDirectConversationId(conversationId);
+  if (fromDirect && isLikelyLocalSessionAgentId(fromDirect.agentId)) {
+    return directConversationIdCandidates(fromDirect.agentId);
+  }
+
+  const fromLegacyScout = parseLegacyScoutSessionConversationId(conversationId);
+  if (fromLegacyScout) {
+    return directConversationIdCandidates(fromLegacyScout);
+  }
+
+  return [conversationId];
+}
+
+function parseDirectConversationId(conversationId: string): { operatorId: string; agentId: string } | null {
+  const legacyScoutAgentId = parseLegacyScoutSessionConversationId(conversationId);
+  if (legacyScoutAgentId) {
+    return { operatorId: "operator", agentId: legacyScoutAgentId };
+  }
+
+  for (const operatorId of configuredOperatorActorIds()) {
+    const prefix = `dm.${operatorId}.`;
+    if (!conversationId.startsWith(prefix)) {
+      continue;
+    }
+
+    const agentId = conversationId.slice(prefix.length);
+    if (agentId.length > 0) {
+      return { operatorId, agentId };
+    }
+  }
+
+  return null;
+}
+
+function synthesizeDirectSession(
+  conversationId: string,
+  agentId: string,
+  operatorId: string,
+): MobileSessionSummary | null {
+  const agent = db().prepare(
+    `SELECT
+       a.id AS agent_id,
+       ac.display_name,
+       ep.harness,
+       ep.project_root,
+       a.metadata_json
+     FROM agents a
+     JOIN actors ac ON ac.id = a.id
+     ${LATEST_AGENT_ENDPOINT_JOIN}
+     WHERE a.id = ?`,
+  ).get(agentId) as {
+    agent_id: string;
+    display_name: string;
+    harness: string | null;
+    project_root: string | null;
+    metadata_json: string | null;
+  } | null;
+
+  if (!agent) {
+    return null;
+  }
+
+  let currentBranch: string | null = null;
+  try {
+    const metadata = agent.metadata_json ? JSON.parse(agent.metadata_json) : {};
+    currentBranch = (metadata.branch as string) ?? (metadata.workspaceQualifier as string) ?? null;
+  } catch {}
+
+  return {
+    id: conversationId,
+    kind: "direct",
+    title: agent.display_name,
+    participantIds: [operatorId, agentId],
+    agentId,
+    agentName: agent.display_name,
+    harness: agent.harness,
+    currentBranch,
+    preview: null,
+    messageCount: 0,
+    lastMessageAt: null,
+    workspaceRoot: compact(agent.project_root),
+  };
 }
 
 /* ── Mobile-compatible queries ── */
@@ -1055,13 +1436,7 @@ export type MobileAgentSummary = {
 };
 
 export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
-  // Active flights determine "working" state
-  const workingAgentIds = new Set(
-    (db().prepare(
-      `SELECT DISTINCT target_agent_id FROM flights
-       WHERE state NOT IN ('completed','failed','cancelled')`,
-    ).all() as Array<{ target_agent_id: string }>).map((r) => r.target_agent_id),
-  );
+  const workingAgentIds = queryWorkingAgentIds();
 
   // Latest message timestamp per actor (for lastActiveAt)
   const lastMessageAt = new Map(
@@ -1084,8 +1459,8 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
        ep.updated_at
      FROM agents a
      JOIN actors ac ON ac.id = a.id
-     LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
-     ORDER BY ep.updated_at DESC NULLS LAST
+     ${LATEST_AGENT_ENDPOINT_JOIN}
+     ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
      LIMIT ?`,
   ).all(limit) as Array<{
     id: string;
@@ -1105,14 +1480,8 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
     try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : {}; } catch {}
 
     const isWorking = workingAgentIds.has(r.id);
-    const state: MobileAgentSummary["state"] = isWorking
-      ? "working"
-      : r.state && r.state !== "offline" ? "available" : "offline";
-
-    const statusLabel = isWorking
-      ? "Working"
-      : r.state === "active" ? "Available"
-      : r.state ?? "Offline";
+    const state = summarizeAgentState(r.state, isWorking);
+    const statusLabel = summarizeAgentStatusLabel(r.state, isWorking);
 
     return {
       id: r.id,
@@ -1123,7 +1492,7 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
       harness: r.harness,
       transport: r.transport,
       state,
-      statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
+      statusLabel,
       sessionId: conversationIdForAgent(r.id),
       lastActiveAt: lastMessageAt.get(r.id) ?? null,
     };
@@ -1171,7 +1540,11 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
     `SELECT COUNT(*) AS cnt, MAX(created_at) AS last_at FROM messages WHERE conversation_id = ?`,
   );
   const previewStmt = db().prepare(
-    `SELECT body FROM messages WHERE conversation_id = ? AND actor_id != 'operator'
+    `SELECT body
+     FROM messages m
+     WHERE conversation_id = ?
+       AND actor_id != 'operator'
+       AND ${transientBrokerWorkingStatusPredicate("m")}
      ORDER BY created_at DESC LIMIT 1`,
   );
 
@@ -1350,7 +1723,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
        ep.updated_at
      FROM agents a
      JOIN actors ac ON ac.id = a.id
-     LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
+     ${LATEST_AGENT_ENDPOINT_JOIN}
      WHERE a.id = ?`,
   ).get(agentId) as {
     id: string;
@@ -1376,12 +1749,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   let capabilities: string[] = [];
   try { capabilities = row.capabilities_json ? JSON.parse(row.capabilities_json) : []; } catch {}
 
-  const workingAgentIds = new Set(
-    (db().prepare(
-      `SELECT DISTINCT target_agent_id FROM flights
-       WHERE state NOT IN ('completed','failed','cancelled')`,
-    ).all() as Array<{ target_agent_id: string }>).map((r) => r.target_agent_id),
-  );
+  const workingAgentIds = queryWorkingAgentIds();
 
   const activeFlights = (db().prepare(
     `SELECT id, state, summary, started_at
@@ -1430,14 +1798,8 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   ).get(agentId) as { last_at: number | null } | null)?.last_at ?? null;
 
   const isWorking = workingAgentIds.has(row.id);
-  const state: MobileAgentSummary["state"] = isWorking
-    ? "working"
-    : row.state && row.state !== "offline" ? "available" : "offline";
-
-  const statusLabel = isWorking
-    ? "Working"
-    : row.state === "active" ? "Available"
-    : row.state ?? "Offline";
+  const state = summarizeAgentState(row.state, isWorking);
+  const statusLabel = summarizeAgentStatusLabel(row.state, isWorking);
 
   return {
     id: row.id,
@@ -1448,7 +1810,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     harness: row.harness,
     transport: row.transport,
     state,
-    statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
+    statusLabel,
     sessionId: conversationIdForAgent(row.id),
     lastActiveAt: lastMessageAt,
     cwd: compact(row.cwd),
@@ -1460,5 +1822,440 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     activeFlights,
     recentActivity,
     messageCount,
+  };
+}
+
+/* ── Fleet ── */
+
+export type WebFleetActivity = WebActivityItem & {
+  actorId: string | null;
+  agentId: string | null;
+  flightId: string | null;
+  invocationId: string | null;
+  messageId: string | null;
+  recordId: string | null;
+  sessionId: string | null;
+};
+
+export type WebFleetAskStatus =
+  | "queued"
+  | "working"
+  | "needs_attention"
+  | "completed"
+  | "failed";
+
+export type WebFleetAsk = {
+  invocationId: string;
+  flightId: string | null;
+  agentId: string;
+  agentName: string | null;
+  conversationId: string | null;
+  collaborationRecordId: string | null;
+  task: string;
+  status: WebFleetAskStatus;
+  statusLabel: string;
+  attention: WorkAttention;
+  agentState: AgentSummaryState;
+  harness: string | null;
+  transport: string | null;
+  summary: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  updatedAt: number;
+};
+
+export type WebFleetAttentionItem = {
+  kind: "question" | "work_item";
+  recordId: string;
+  title: string;
+  summary: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  conversationId: string | null;
+  state: string;
+  acceptanceState: string;
+  updatedAt: number;
+};
+
+export type WebFleetState = {
+  generatedAt: number;
+  totals: {
+    active: number;
+    recentCompleted: number;
+    needsAttention: number;
+    activity: number;
+  };
+  activeAsks: WebFleetAsk[];
+  recentCompleted: WebFleetAsk[];
+  needsAttention: WebFleetAttentionItem[];
+  activity: WebFleetActivity[];
+};
+
+type FleetActivityRow = {
+  id: string;
+  kind: string;
+  ts: number;
+  actor_name: string | null;
+  title: string | null;
+  summary: string | null;
+  conversation_id: string | null;
+  workspace_root: string | null;
+  actor_id: string | null;
+  agent_id: string | null;
+  message_id: string | null;
+  invocation_id: string | null;
+  flight_id: string | null;
+  record_id: string | null;
+  session_id: string | null;
+};
+
+type FleetAskRow = {
+  invocation_id: string;
+  requester_id: string;
+  target_agent_id: string;
+  agent_name: string | null;
+  conversation_id: string | null;
+  collaboration_record_id: string | null;
+  task: string;
+  created_at: number;
+  flight_id: string | null;
+  flight_state: string | null;
+  flight_summary: string | null;
+  started_at: number | null;
+  completed_at: number | null;
+  status_kind: string | null;
+  status_title: string | null;
+  status_summary: string | null;
+  status_ts: number | string | null;
+  harness: string | null;
+  transport: string | null;
+  endpoint_state: string | null;
+  work_title: string | null;
+  work_summary: string | null;
+  work_state: string | null;
+  acceptance_state: string | null;
+  next_move_owner_id: string | null;
+  work_updated_at: number | string | null;
+};
+
+type FleetAttentionRow = {
+  record_kind: "question" | "work_item";
+  record_id: string;
+  title: string;
+  summary: string | null;
+  conversation_id: string | null;
+  state: string;
+  acceptance_state: string;
+  updated_at: number;
+  agent_id: string | null;
+  agent_name: string | null;
+};
+
+function projectFleetActivity(row: FleetActivityRow): WebFleetActivity {
+  return {
+    id: row.id,
+    kind: row.kind,
+    ts: row.ts,
+    actorName: row.actor_name,
+    title: row.title,
+    summary: row.summary,
+    conversationId: row.conversation_id,
+    workspaceRoot: compact(row.workspace_root),
+    actorId: row.actor_id,
+    agentId: row.agent_id,
+    flightId: row.flight_id,
+    invocationId: row.invocation_id,
+    messageId: row.message_id,
+    recordId: row.record_id,
+    sessionId: row.session_id,
+  };
+}
+
+function queryFleetActivity(opts?: {
+  limit?: number;
+  agentId?: string | null;
+  sessionId?: string | null;
+  conversationId?: string | null;
+}): WebFleetActivity[] {
+  const filters: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (opts?.agentId) {
+    filters.push(`(
+      ai.agent_id = ?
+      OR ai.actor_id = ?
+      OR ai.record_id IN (
+        SELECT cr.id
+        FROM collaboration_records cr
+        WHERE cr.owner_id = ?
+          OR cr.next_move_owner_id = ?
+      )
+    )`);
+    params.push(opts.agentId, opts.agentId, opts.agentId, opts.agentId);
+  }
+  if (opts?.sessionId) {
+    filters.push("ai.session_id = ?");
+    params.push(opts.sessionId);
+  }
+  if (opts?.conversationId) {
+    filters.push("ai.conversation_id = ?");
+    params.push(opts.conversationId);
+  }
+
+  const sql = `SELECT
+    ai.id,
+    ai.kind,
+    ai.ts,
+    ac.display_name AS actor_name,
+    ai.title,
+    ai.summary,
+    ai.conversation_id,
+    ai.workspace_root,
+    ai.actor_id,
+    ai.agent_id,
+    ai.message_id,
+    ai.invocation_id,
+    ai.flight_id,
+    ai.record_id,
+    ai.session_id
+  FROM activity_items ai
+  LEFT JOIN actors ac ON ac.id = ai.actor_id
+  ${filters.length ? `WHERE ${filters.join(" OR ")}` : ""}
+  ORDER BY ai.ts DESC
+  LIMIT ?`;
+
+  const rows = db().prepare(sql).all(...params, opts?.limit ?? 80) as Array<FleetActivityRow>;
+  return rows.map(projectFleetActivity);
+}
+
+const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
+const FLEET_RECENT_COMPLETED_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+function fleetRequesterIds(): string[] {
+  const operatorName = resolveOperatorName().trim() || "operator";
+  return Array.from(new Set([operatorName, "operator"]));
+}
+
+function fleetStatusLabel(status: WebFleetAskStatus): string {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "working":
+      return "Working";
+    case "needs_attention":
+      return "Needs your input";
+    case "failed":
+      return "Failed";
+    default:
+      return "Completed";
+  }
+}
+
+function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[] {
+  const requesterClause = requesterIds.map(() => "?").join(", ");
+  return db().prepare(
+    `SELECT
+       inv.id AS invocation_id,
+       inv.requester_id,
+       inv.target_agent_id,
+       ac.display_name AS agent_name,
+       inv.conversation_id,
+       inv.collaboration_record_id,
+       inv.task,
+       inv.created_at,
+       f.id AS flight_id,
+       f.state AS flight_state,
+       f.summary AS flight_summary,
+       f.started_at,
+       f.completed_at,
+       (
+         SELECT ai.kind
+         FROM activity_items ai
+         WHERE ai.conversation_id = inv.conversation_id
+           AND ai.agent_id = inv.target_agent_id
+           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
+           AND ai.ts >= inv.created_at
+         ORDER BY ai.ts DESC
+         LIMIT 1
+       ) AS status_kind,
+       (
+         SELECT ai.title
+         FROM activity_items ai
+         WHERE ai.conversation_id = inv.conversation_id
+           AND ai.agent_id = inv.target_agent_id
+           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
+           AND ai.ts >= inv.created_at
+         ORDER BY ai.ts DESC
+         LIMIT 1
+       ) AS status_title,
+       (
+         SELECT ai.summary
+         FROM activity_items ai
+         WHERE ai.conversation_id = inv.conversation_id
+           AND ai.agent_id = inv.target_agent_id
+           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
+           AND ai.ts >= inv.created_at
+         ORDER BY ai.ts DESC
+         LIMIT 1
+       ) AS status_summary,
+       (
+         SELECT ai.ts
+         FROM activity_items ai
+         WHERE ai.conversation_id = inv.conversation_id
+           AND ai.agent_id = inv.target_agent_id
+           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
+           AND ai.ts >= inv.created_at
+         ORDER BY ai.ts DESC
+         LIMIT 1
+       ) AS status_ts,
+       ep.harness,
+       ep.transport,
+       ep.state AS endpoint_state,
+       cr.title AS work_title,
+       cr.summary AS work_summary,
+       cr.state AS work_state,
+       cr.acceptance_state,
+       cr.next_move_owner_id,
+       cr.updated_at AS work_updated_at
+     FROM invocations inv
+     LEFT JOIN actors ac ON ac.id = inv.target_agent_id
+     LEFT JOIN flights f ON f.id = (
+       SELECT f2.id
+       FROM flights f2
+       WHERE f2.invocation_id = inv.id
+       ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC
+       LIMIT 1
+     )
+     LEFT JOIN agent_endpoints ep ON ep.id = (
+       SELECT ep2.id
+       FROM agent_endpoints ep2
+       WHERE ep2.agent_id = inv.target_agent_id
+       ORDER BY ep2.updated_at DESC
+       LIMIT 1
+     )
+     LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
+     WHERE inv.requester_id IN (${requesterClause})
+     ORDER BY COALESCE(f.completed_at, f.started_at, inv.created_at) DESC
+     LIMIT ?`,
+  ).all(...requesterIds, limit) as Array<FleetAskRow>;
+}
+
+function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFleetAsk {
+  const hasFlight = typeof row.flight_id === "string" && row.flight_id.length > 0;
+  const isActiveFlight = hasFlight && row.flight_state !== null && !TERMINAL_FLIGHT_STATES.has(row.flight_state);
+  const awaitingOperator = Boolean(
+    (row.next_move_owner_id && requesterIdSet.has(row.next_move_owner_id))
+    || row.acceptance_state === "pending",
+  );
+
+  let status: WebFleetAskStatus;
+  if (!hasFlight) {
+    status = "queued";
+  } else if (isActiveFlight) {
+    status = "working";
+  } else if (awaitingOperator) {
+    status = "needs_attention";
+  } else if (row.flight_state === "failed" || row.status_kind === "ask_failed") {
+    status = "failed";
+  } else {
+    status = "completed";
+  }
+
+  const updatedAt = normalizeTimestampMs(
+    row.status_ts ?? row.completed_at ?? row.started_at ?? row.work_updated_at ?? row.created_at,
+  ) ?? Date.now();
+
+  return {
+    invocationId: row.invocation_id,
+    flightId: row.flight_id,
+    agentId: row.target_agent_id,
+    agentName: row.agent_name,
+    conversationId: row.conversation_id,
+    collaborationRecordId: row.collaboration_record_id,
+    task: row.task,
+    status,
+    statusLabel: fleetStatusLabel(status),
+    attention: status === "needs_attention" ? "badge" : status === "failed" ? "interrupt" : "silent",
+    agentState: summarizeAgentState(row.endpoint_state, isActiveFlight),
+    harness: row.harness,
+    transport: row.transport,
+    summary: row.status_summary ?? row.status_title ?? row.flight_summary ?? row.work_summary ?? row.work_title ?? null,
+    startedAt: normalizeTimestampMs(row.started_at ?? row.created_at),
+    completedAt: normalizeTimestampMs(row.completed_at),
+    updatedAt,
+  };
+}
+
+function queryFleetAttentionRows(requesterIds: string[], limit: number): FleetAttentionRow[] {
+  const requesterClause = requesterIds.map(() => "?").join(", ");
+  return db().prepare(
+    `SELECT
+       cr.kind AS record_kind,
+       cr.id AS record_id,
+       cr.title,
+       cr.summary,
+       cr.conversation_id,
+       cr.state,
+       cr.acceptance_state,
+       cr.updated_at,
+       cr.owner_id AS agent_id,
+       owner.display_name AS agent_name
+     FROM collaboration_records cr
+     LEFT JOIN actors owner ON owner.id = cr.owner_id
+     WHERE (
+         (cr.kind = 'work_item' AND cr.state IN ('open', 'working', 'waiting', 'review'))
+         OR (cr.kind = 'question' AND cr.state IN ('open', 'answered'))
+       )
+       AND (
+         cr.next_move_owner_id IN (${requesterClause})
+         OR cr.acceptance_state = 'pending'
+       )
+     ORDER BY cr.updated_at DESC
+     LIMIT ?`,
+  ).all(...requesterIds, limit) as Array<FleetAttentionRow>;
+}
+
+export function queryFleet(opts?: {
+  limit?: number;
+  activityLimit?: number;
+}): WebFleetState {
+  const limit = opts?.limit ?? 12;
+  const activityLimit = opts?.activityLimit ?? 80;
+  const requesterIds = fleetRequesterIds();
+  const requesterIdSet = new Set(requesterIds);
+  const asks = queryFleetAskRows(requesterIds, Math.max(limit * 3, 24)).map((row) => projectFleetAsk(row, requesterIdSet));
+  const activeAsks = asks
+    .filter((ask) => ask.status === "queued" || ask.status === "working")
+    .slice(0, limit);
+  const recentCompleted = asks
+    .filter((ask) => ask.status === "completed" || ask.status === "failed")
+    .filter((ask) => Date.now() - ask.updatedAt <= FLEET_RECENT_COMPLETED_MAX_AGE_MS)
+    .slice(0, limit);
+  const needsAttention = queryFleetAttentionRows(requesterIds, limit).map((row) => ({
+    kind: row.record_kind,
+    recordId: row.record_id,
+    title: row.title,
+    summary: row.summary,
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    conversationId: row.conversation_id,
+    state: row.state,
+    acceptanceState: row.acceptance_state,
+    updatedAt: normalizeTimestampMs(row.updated_at) ?? Date.now(),
+  }));
+  const activity = queryFleetActivity({ limit: activityLimit });
+
+  return {
+    generatedAt: Date.now(),
+    totals: {
+      active: activeAsks.length,
+      recentCompleted: recentCompleted.length,
+      needsAttention: needsAttention.length,
+      activity: activity.length,
+    },
+    activeAsks,
+    recentCompleted,
+    needsAttention,
+    activity,
   };
 }

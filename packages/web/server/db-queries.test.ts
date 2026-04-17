@@ -1,9 +1,20 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { closeDb, queryFlights, queryWorkItemById, queryWorkItems } from "./db-queries.ts";
+import {
+  closeDb,
+  queryAgents,
+  queryFleet,
+  queryFlights,
+  queryRecentMessages,
+  querySessions,
+  querySessionById,
+  queryWorkItemById,
+  queryWorkItems,
+} from "./db-queries.ts";
 import { SQLiteControlPlaneStore } from "../../runtime/src/sqlite-store.ts";
 
 const tempRoots = new Set<string>();
@@ -152,6 +163,557 @@ describe("web db query flights", () => {
           completedAt: null,
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db query agents", () => {
+  test("returns one row per agent using the latest endpoint and normalized state", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-old",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "claude_stream_json",
+        state: "offline",
+        projectRoot: "/tmp/agent-1-old",
+      });
+      store.upsertEndpoint({
+        id: "agent-1-new",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        projectRoot: "/tmp/agent-1-new",
+      });
+
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "agent-2-old",
+        agentId: "agent-2",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "claude_stream_json",
+        state: "offline",
+        projectRoot: "/tmp/agent-2-old",
+      });
+      store.upsertEndpoint({
+        id: "agent-2-new",
+        agentId: "agent-2",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        projectRoot: "/tmp/agent-2-new",
+      });
+
+      const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
+      try {
+        const setUpdatedAt = rawDb.query("UPDATE agent_endpoints SET updated_at = ?1 WHERE id = ?2");
+        setUpdatedAt.run(5, "agent-1-old");
+        setUpdatedAt.run(20, "agent-1-new");
+        setUpdatedAt.run(10, "agent-2-old");
+        setUpdatedAt.run(30, "agent-2-new");
+      } finally {
+        rawDb.close();
+      }
+
+      const agents = queryAgents(10);
+
+      expect(agents).toHaveLength(2);
+      expect(agents.map((agent) => agent.id)).toEqual(["agent-2", "agent-1"]);
+      expect(agents.map((agent) => agent.harness)).toEqual(["codex", "codex"]);
+      expect(agents.map((agent) => agent.transport)).toEqual(["codex_app_server", "codex_app_server"]);
+      expect(agents.map((agent) => agent.state)).toEqual(["available", "working"]);
+      expect(agents.map((agent) => agent.projectRoot)).toEqual(["/tmp/agent-2-new", "/tmp/agent-1-new"]);
+      expect(agents.map((agent) => agent.conversationId)).toEqual(["dm.operator.agent-2", "dm.operator.agent-1"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("synthesizes a direct session for an agent even before the first message", () => {
+    const store = createSeededStore();
+
+    try {
+      const session = querySessionById("dm.operator.agent-1");
+
+      expect(session).toEqual({
+        id: "dm.operator.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        participantIds: ["operator", "agent-1"],
+        agentId: "agent-1",
+        agentName: "Agent One",
+        harness: null,
+        currentBranch: null,
+        preview: null,
+        messageCount: 0,
+        lastMessageAt: null,
+        workspaceRoot: null,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("resolves a target agent for direct sessions with two agent participants", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "scout.main.mini",
+        kind: "agent",
+        displayName: "Scout",
+      });
+      store.upsertAgent({
+        id: "scout.main.mini",
+        kind: "agent",
+        definitionId: "scout.main.mini",
+        displayName: "Scout",
+        agentClass: "relay",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertActor({
+        id: "local-session-agent-test",
+        kind: "agent",
+        displayName: "Codex 023e",
+      });
+      store.upsertAgent({
+        id: "local-session-agent-test",
+        kind: "agent",
+        definitionId: "local-session-agent-test",
+        displayName: "Codex 023e",
+        agentClass: "relay",
+        capabilities: ["chat"],
+        wakePolicy: "manual",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "local-session-agent-test-endpoint",
+        agentId: "local-session-agent-test",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        projectRoot: "/tmp/openscout",
+      });
+      store.upsertConversation({
+        id: "dm.local-session-agent-test.scout.main.mini",
+        kind: "direct",
+        title: "Scout <> Codex 023e",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["local-session-agent-test", "scout.main.mini"],
+      });
+
+      const session = querySessionById("dm.local-session-agent-test.scout.main.mini");
+
+      expect(session?.agentId).toBe("local-session-agent-test");
+      expect(session?.agentName).toBe("Codex 023e");
+      expect(session?.harness).toBe("codex");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("collapses local-session DM forks to a single canonical thread id", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "scout.main.mini",
+        kind: "agent",
+        displayName: "Scout",
+      });
+      store.upsertAgent({
+        id: "scout.main.mini",
+        kind: "agent",
+        definitionId: "scout.main.mini",
+        displayName: "Scout",
+        agentClass: "relay",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertActor({
+        id: "local-session-agent-test",
+        kind: "agent",
+        displayName: "Codex 023e",
+      });
+      store.upsertAgent({
+        id: "local-session-agent-test",
+        kind: "agent",
+        definitionId: "local-session-agent-test",
+        displayName: "Codex 023e",
+        agentClass: "relay",
+        capabilities: ["chat"],
+        wakePolicy: "manual",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "dm.operator.local-session-agent-test",
+        kind: "direct",
+        title: "Codex 023e",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "local-session-agent-test"],
+      });
+      store.upsertConversation({
+        id: "dm.local-session-agent-test.scout.main.mini",
+        kind: "direct",
+        title: "Scout <> Codex 023e",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["local-session-agent-test", "scout.main.mini"],
+      });
+      store.recordMessage({
+        id: "legacy-msg",
+        conversationId: "dm.local-session-agent-test.scout.main.mini",
+        actorId: "scout.main.mini",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "legacy fork message",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 200,
+      });
+      store.recordMessage({
+        id: "canonical-msg",
+        conversationId: "dm.operator.local-session-agent-test",
+        actorId: "local-session-agent-test",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "canonical thread message",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 100,
+      });
+
+      const sessions = querySessions(80).filter((entry) => entry.agentId === "local-session-agent-test");
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.id).toBe("dm.operator.local-session-agent-test");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reads canonical DM history through legacy local-session fork aliases", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "scout.main.mini",
+        kind: "agent",
+        displayName: "Scout",
+      });
+      store.upsertActor({
+        id: "local-session-agent-test",
+        kind: "agent",
+        displayName: "Codex 023e",
+      });
+      store.upsertAgent({
+        id: "local-session-agent-test",
+        kind: "agent",
+        definitionId: "local-session-agent-test",
+        displayName: "Codex 023e",
+        agentClass: "relay",
+        capabilities: ["chat"],
+        wakePolicy: "manual",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "dm.local-session-agent-test.scout.main.mini",
+        kind: "direct",
+        title: "Scout <> Codex 023e",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["local-session-agent-test", "scout.main.mini"],
+      });
+      store.recordMessage({
+        id: "legacy-msg",
+        conversationId: "dm.local-session-agent-test.scout.main.mini",
+        actorId: "scout.main.mini",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "legacy alias message",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 200,
+      });
+
+      const messages = queryRecentMessages(20, {
+        conversationId: "dm.operator.local-session-agent-test",
+      });
+
+      expect(messages.map((message) => message.body)).toContain("legacy alias message");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("surfaces harness session ids and log paths for bridge-backed local codex agents", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-bridge",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "pairing_bridge",
+        state: "idle",
+        sessionId: "pairing-019d9762",
+        projectRoot: "/tmp/agent-1-bridge",
+        metadata: {
+          attachedTransport: "codex_app_server",
+          pairingAdapterType: "codex",
+          pairingSessionId: "pairing-019d9762",
+          threadId: "019d9762-19f7-7792-8962-90d924ce7faa",
+          externalSessionId: "019d9762-19f7-7792-8962-90d924ce7faa",
+        },
+      });
+
+      const agent = queryAgents(10).find((entry) => entry.id === "agent-1");
+
+      expect(agent?.harnessSessionId).toBe("019d9762-19f7-7792-8962-90d924ce7faa");
+      expect(agent?.harnessLogPath).toBe(
+        join(homedir(), ".scout", "pairing", "codex", "pairing-019d9762", "logs", "stdout.log"),
+      );
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db query fleet", () => {
+  test("focuses on active asks, recent completions, and attention owned by the operator", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+    const old = now - (5 * 24 * 60 * 60 * 1000);
+
+    try {
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "conv-2",
+        kind: "direct",
+        title: "Direct Two",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-2", "operator"],
+      });
+      store.recordInvocation({
+        id: "inv-2",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-2",
+        action: "consult",
+        task: "Old completed ask",
+        conversationId: "conv-2",
+        ensureAwake: true,
+        stream: false,
+        createdAt: old,
+      });
+      store.recordFlight({
+        id: "flight-2",
+        invocationId: "inv-2",
+        requesterId: "operator",
+        targetAgentId: "agent-2",
+        state: "completed",
+        summary: "Agent Two replied.",
+        startedAt: old + 1_000,
+        completedAt: old + 2_000,
+      });
+      store.recordMessage({
+        id: "msg-2",
+        conversationId: "conv-2",
+        actorId: "agent-2",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Old done.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: old + 3_000,
+      });
+
+      store.upsertActor({
+        id: "agent-3",
+        kind: "agent",
+        displayName: "Agent Three",
+      });
+      store.upsertAgent({
+        id: "agent-3",
+        kind: "agent",
+        definitionId: "agent-3",
+        displayName: "Agent Three",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "endpoint-3",
+        agentId: "agent-3",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        sessionId: "session-3",
+        cwd: join(tmpdir(), "openscout-agent-3", "cwd"),
+        projectRoot: join(tmpdir(), "openscout-agent-3"),
+      });
+      store.upsertConversation({
+        id: "conv-3",
+        kind: "direct",
+        title: "Direct Three",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-3", "operator"],
+      });
+      store.recordInvocation({
+        id: "inv-3",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-3",
+        action: "consult",
+        task: "Recent completed ask",
+        conversationId: "conv-3",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 60_000,
+      });
+      store.recordFlight({
+        id: "flight-3",
+        invocationId: "inv-3",
+        requesterId: "operator",
+        targetAgentId: "agent-3",
+        state: "completed",
+        summary: "Agent Three replied.",
+        startedAt: now - 59_000,
+        completedAt: now - 30_000,
+      });
+      store.recordMessage({
+        id: "msg-3",
+        conversationId: "conv-3",
+        actorId: "agent-3",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Done.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 29_000,
+      });
+      store.recordCollaborationRecord({
+        id: "question-1",
+        kind: "question",
+        title: "Need your decision",
+        summary: "Should I ship this as-is?",
+        createdById: "agent-3",
+        ownerId: "agent-3",
+        nextMoveOwnerId: "operator",
+        conversationId: "conv-3",
+        state: "open",
+        acceptanceState: "none",
+        askedById: "agent-3",
+        askedOfId: "operator",
+        createdAt: now - 20_000,
+        updatedAt: now - 10_000,
+      });
+
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+
+      expect(fleet.totals).toMatchObject({
+        active: 1,
+        recentCompleted: 1,
+        needsAttention: 1,
+      });
+
+      expect(fleet.activeAsks).toHaveLength(1);
+      expect(fleet.activeAsks[0]).toMatchObject({
+        agentId: "agent-1",
+        status: "working",
+        agentState: "working",
+      });
+
+      expect(fleet.recentCompleted).toHaveLength(1);
+      expect(fleet.recentCompleted[0]).toMatchObject({
+        agentId: "agent-3",
+        status: "completed",
+        agentState: "available",
+      });
+
+      expect(fleet.needsAttention).toEqual([
+        expect.objectContaining({
+          kind: "question",
+          recordId: "question-1",
+          title: "Need your decision",
+          agentId: "agent-3",
+          agentName: "Agent Three",
+          conversationId: "conv-3",
+          state: "open",
+          acceptanceState: "none",
+        }),
+      ]);
+      expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
     } finally {
       store.close();
     }

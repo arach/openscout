@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import type { TraceIntent } from "@openscout/session-trace";
 import {
   AtSign,
   Bot,
@@ -13,6 +14,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
+import { AgentSessionTraceSurface } from "@/components/agent-session-trace-surface";
 import { Spinner } from "@/components/primitives/spinner";
 import type {
   AgentSessionInspector,
@@ -143,6 +145,7 @@ export function MessagesView({
   agentSessionCopied,
   onCopyAgentSessionCommand,
   onOpenAgentSession,
+  onAgentSessionTraceIntent,
   onPeekAgentSession,
   onOpenAgentSettings,
   desktopVoiceEnabled,
@@ -218,6 +221,7 @@ export function MessagesView({
   agentSessionCopied: boolean;
   onCopyAgentSessionCommand: () => void | Promise<void>;
   onOpenAgentSession: () => void | Promise<void>;
+  onAgentSessionTraceIntent: (intent: TraceIntent) => void | Promise<void>;
   onPeekAgentSession: () => void;
   onOpenAgentSettings: (agentId: string, isProjectAgent: boolean) => void;
   desktopVoiceEnabled: boolean;
@@ -331,6 +335,7 @@ export function MessagesView({
           agentSessionCopied={agentSessionCopied}
           onCopyAgentSessionCommand={onCopyAgentSessionCommand}
           onOpenAgentSession={onOpenAgentSession}
+          onAgentSessionTraceIntent={onAgentSessionTraceIntent}
           onPeekAgentSession={onPeekAgentSession}
           onOpenAgentSettings={onOpenAgentSettings}
         />
@@ -1209,6 +1214,7 @@ function MessagesDetailDrawer({
   agentSessionCopied,
   onCopyAgentSessionCommand,
   onOpenAgentSession,
+  onAgentSessionTraceIntent,
   onPeekAgentSession,
   onOpenAgentSettings,
 }: {
@@ -1235,6 +1241,7 @@ function MessagesDetailDrawer({
   agentSessionCopied: boolean;
   onCopyAgentSessionCommand: () => void | Promise<void>;
   onOpenAgentSession: () => void | Promise<void>;
+  onAgentSessionTraceIntent: (intent: TraceIntent) => void | Promise<void>;
   onPeekAgentSession: () => void;
   onOpenAgentSettings: (agentId: string, isProjectAgent: boolean) => void;
 }) {
@@ -1397,7 +1404,11 @@ function MessagesDetailDrawer({
             <div className="px-3 py-3 border-b flex items-center justify-between gap-2" style={{ borderBottomColor: C.border }}>
               <div>
                 <div className="text-[10px] font-mono tracking-widest uppercase" style={styles.mutedText}>Live Session</div>
-                <div className="text-[11px] mt-1" style={styles.mutedText}>Runtime, tmux, or log tail for the selected agent.</div>
+                <div className="text-[11px] mt-1" style={styles.mutedText}>
+                  {visibleAgentSession?.mode === "trace"
+                    ? "Turn and block trace for the selected agent."
+                    : "Debug session output for the selected agent."}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {visibleAgentSession?.commandLabel ? (
@@ -1419,7 +1430,7 @@ function MessagesDetailDrawer({
                     style={{ color: C.ink }}
                   >
                     <ExternalLink size={11} />
-                    Open
+                    {visibleAgentSession?.mode === "trace" ? "Open Trace" : "Open"}
                   </button>
                 ) : null}
               </div>
@@ -1430,13 +1441,20 @@ function MessagesDetailDrawer({
                   <Spinner className="text-[12px]" />
                   Loading live session…
                 </div>
+              ) : visibleAgentSession?.mode === "trace" && visibleAgentSession.trace ? (
+                <div className="max-h-[280px] overflow-y-auto">
+                  <AgentSessionTraceSurface
+                    snapshot={visibleAgentSession.trace}
+                    onIntent={onAgentSessionTraceIntent}
+                  />
+                </div>
               ) : visibleAgentSession?.body ? (
                 <pre className="max-h-[280px] overflow-y-auto text-[11px] leading-[1.55] whitespace-pre-wrap break-words font-mono" style={{ color: C.termFg, backgroundColor: C.termBg, padding: "12px", borderRadius: C.radiusMd as string }}>
                   {visibleAgentSession.body}
                 </pre>
               ) : (
                 <div className="text-[11px] leading-[1.6]" style={styles.mutedText}>
-                  {agentSessionFeedback ?? "No live session output is available for this thread yet."}
+                  {agentSessionFeedback ?? "No live session state is available for this thread yet."}
                 </div>
               )}
             </div>

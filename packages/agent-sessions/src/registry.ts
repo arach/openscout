@@ -6,10 +6,10 @@ import type {
   Prompt,
   QuestionAnswer,
   Session,
-} from "./protocol/index.ts";
-import { OutboundBuffer, type SequencedEvent } from "./buffer.ts";
-import { StateTracker } from "./state.ts";
-import type { SessionState, SessionSummary } from "./state.ts";
+} from "./protocol/index";
+import { OutboundBuffer, type SequencedEvent } from "./buffer";
+import { StateTracker } from "./state";
+import type { SessionState, SessionSummary } from "./state";
 
 export interface SessionRegistryConfig {
   adapters: Record<string, AdapterFactory>;

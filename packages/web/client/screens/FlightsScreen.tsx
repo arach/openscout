@@ -1,6 +1,5 @@
 import { timeAgo } from "../lib/time.ts";
 import { actorColor } from "../lib/colors.ts";
-import { conversationForAgent } from "../lib/router.ts";
 import type { Flight, Route } from "../lib/types.ts";
 
 const STATE_COLORS: Record<string, string> = {
@@ -38,7 +37,7 @@ export function FlightsScreen({
               <div
                 key={f.id}
                 className="s-flight-row"
-                onClick={() => navigate({ view: "conversation", conversationId: conversationForAgent(f.agentId) })}
+                onClick={() => f.conversationId && navigate({ view: "conversation", conversationId: f.conversationId })}
               >
                 <div
                   className="s-avatar s-avatar-sm"

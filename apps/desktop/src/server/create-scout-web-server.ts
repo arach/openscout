@@ -13,6 +13,7 @@ import type { ScoutSurfaceCapabilities } from "../shared/surface-capabilities.ts
 import {
   createScoutSession,
   getScoutMobileAgents,
+  getScoutFleet,
   getScoutMobileHome,
   getScoutMobileSessionSnapshot,
   getScoutMobileSessions,
@@ -26,6 +27,7 @@ import {
   registerScoutWebAssets,
   type ScoutWebAssetMode,
 } from "./server-core.ts";
+import { queryFleet } from "./db-queries.ts";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -251,6 +253,7 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
     return c.json(result);
   });
   app.post("/api/pairing/config", async (c) => c.json(await services.updatePairingConfig(await c.req.json())));
+  app.post("/api/pairing/question-answer", async (c) => c.json(await services.answerPairingQuestion(await c.req.json())));
   app.post("/api/agent/restart", async (c) => {
     const result = await services.restartAgent(await c.req.json());
     invalidateShellStateCache();
@@ -284,6 +287,7 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   app.post("/api/keep-alive/acquire", async (c) => c.json(await services.acquireKeepAliveLease(await c.req.json())));
   app.post("/api/keep-alive/release", async (c) => c.json(await services.releaseKeepAliveLease(await c.req.json())));
   app.get("/api/agent-session/:agentId", async (c) => c.json(await services.getAgentSession(c.req.param("agentId"))));
+  app.post("/api/agent-session/question-answer", async (c) => c.json(await services.answerAgentSessionQuestion(await c.req.json())));
   app.post("/api/agent-session/:agentId/open", async (c) => c.json(await services.openAgentSession(c.req.param("agentId"))));
   app.post("/api/voice/toggle-capture", async (c) => c.json(await services.toggleVoiceCapture()));
   app.post("/api/voice/replies", async (c) => {
@@ -295,6 +299,16 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
   app.get("/api/feedback-bundle", async (c) => c.json(await services.getFeedbackBundle()));
   app.post("/api/feedback-report", async (c) => c.json(await services.submitFeedbackReport(await c.req.json())));
   app.post("/api/log-source", async (c) => c.json(await services.readLogSource(await c.req.json())));
+  app.get("/api/fleet", (c) =>
+    c.json(queryFleet({
+      limit: parseOptionalPositiveInt(c.req.query("limit")),
+      activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+    })));
+  app.get("/api/mobile/fleet", async (c) =>
+    c.json(await getScoutFleet({
+      limit: parseOptionalPositiveInt(c.req.query("limit")),
+      activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+    })));
   app.get("/api/mobile/home", async (c) =>
     c.json(
       await getScoutMobileHome({
@@ -347,6 +361,26 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
     ));
   app.post("/api/mobile/session/create", async (c) => c.json(await createScoutSession(await c.req.json(), currentDirectory)));
   app.post("/api/mobile/message/send", async (c) => c.json(await sendScoutMobileMessage(await c.req.json(), currentDirectory)));
+  app.get("/api/events", async (c) => {
+    const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
+    const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
+    const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+    try {
+      const upstream = await fetch(`${brokerUrl}/v1/events/stream`);
+      if (!upstream.ok || !upstream.body) {
+        return c.text("Broker event stream unavailable", 502);
+      }
+      return new Response(upstream.body, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        },
+      });
+    } catch {
+      return c.text("Broker unreachable", 502);
+    }
+  });
 
   registerScoutWebAssets(app, {
     assetMode: options.assetMode,

@@ -14,13 +14,12 @@ import {
   Settings,
   Shield,
   Terminal,
-  X,
 } from "lucide-react";
 import { renderSVG } from "uqr";
 import { LogPanel } from "@/components/log-panel";
+import { PairingTraceSurface } from "@/components/pairing-trace-surface";
 import { Button } from "@/components/primitives/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/primitives/collapsible";
-import { Spinner } from "@/components/primitives/spinner";
 import { C } from "@/lib/theme";
 import type { PairingState, UpdatePairingConfigInput } from "@/lib/scout-desktop";
 
@@ -465,10 +464,10 @@ export function PairingSurfacePlaceholder({
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-[15px] font-medium tracking-tight" style={{ color: C.ink }}>
-                        Pending Approvals
+                        Live Trace
                       </div>
                       <div className="mt-1 text-[11px] font-light" style={{ color: C.muted }}>
-                        One normalized approval queue for any pairing adapter that can pause and wait.
+                        Shared trace cards for live approvals on this node.
                       </div>
                     </div>
                     <span
@@ -481,73 +480,13 @@ export function PairingSurfacePlaceholder({
                     </span>
                   </div>
 
-                  {pendingApprovals.length > 0 ? (
-                    <div className="mt-4 flex flex-col gap-3">
-                      {pendingApprovals.map((approval) => {
-                        const approvalIdBase = `${approval.sessionId}:${approval.turnId}:${approval.blockId}`;
-                        const isApprovePending = pairingApprovalPendingId === `${approvalIdBase}:approve`;
-                        const isDenyPending = pairingApprovalPendingId === `${approvalIdBase}:deny`;
-                        return (
-                          <div key={approvalIdBase} className="rounded-2xl border px-4 py-4" style={subtlePanelStyle}>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className="rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]"
-                                style={approval.risk === "high"
-                                  ? { backgroundColor: "#fff1f2", borderColor: "#fecdd3", color: "#be123c" }
-                                  : approval.risk === "medium"
-                                    ? { backgroundColor: "#fff7ed", borderColor: "#fed7aa", color: "#c2410c" }
-                                    : { backgroundColor: "#ecfdf3", borderColor: "#bbf7d0", color: "#15803d" }}
-                              >
-                                {approval.risk} risk
-                              </span>
-                              <span className="text-[11px] font-medium" style={{ color: C.ink }}>
-                                {approval.title}
-                              </span>
-                              <span className="text-[11px]" style={{ color: C.muted }}>
-                                {approval.sessionName}
-                              </span>
-                            </div>
-                            <div className="mt-3 text-[13px] leading-[1.6]" style={{ color: C.ink }}>
-                              {approval.description}
-                            </div>
-                            {approval.detail && approval.detail !== approval.description ? (
-                              <div
-                                className="mt-3 rounded-xl border px-3 py-2 text-[11px] font-mono break-words"
-                                style={{ backgroundColor: "#ffffff", borderColor: C.border, color: C.ink }}
-                              >
-                                {approval.detail}
-                              </div>
-                            ) : null}
-                            <div className="mt-4 flex flex-wrap items-center gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => onDecideApproval(approval, "approve")}
-                                disabled={Boolean(pairingApprovalPendingId)}
-                              >
-                                {isApprovePending ? <Spinner className="text-[12px]" /> : <Check size={14} />}
-                                Approve
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onDecideApproval(approval, "deny")}
-                                disabled={Boolean(pairingApprovalPendingId)}
-                              >
-                                {isDenyPending ? <Spinner className="text-[12px]" /> : <X size={14} />}
-                                Deny
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border px-4 py-4 text-[12px] leading-[1.7]" style={subtlePanelStyle}>
-                      No approvals are waiting right now. When an adapter emits `awaiting_approval`, it will appear here.
-                    </div>
-                  )}
+                  <div className="mt-4">
+                    <PairingTraceSurface
+                      pendingApprovals={pendingApprovals}
+                      pairingApprovalPendingId={pairingApprovalPendingId}
+                      onDecideApproval={onDecideApproval}
+                    />
+                  </div>
                 </section>
               </div>
 

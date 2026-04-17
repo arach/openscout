@@ -3,9 +3,9 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { agentStateLabel, isAgentOnline } from "../lib/agent-state.ts";
 import { WorkList } from "../components/WorkList.tsx";
-import { conversationForAgent } from "../lib/router.ts";
-import type { Agent, Message, Route, WorkItem } from "../lib/types.ts";
+import type { Agent, Message, Route, SessionEntry, WorkItem } from "../lib/types.ts";
 
 /** Build a display label that disambiguates agents sharing the same name. */
 function agentLabel(agent: Agent, allAgents: Agent[]): { name: string; qualifier: string | null } {
@@ -25,15 +25,16 @@ function AgentDetail({
   agent,
   allAgents,
   messages,
+  conversationId,
   navigate,
 }: {
   agent: Agent;
   allAgents: Agent[];
   messages: Message[];
+  conversationId: string | null;
   navigate: (r: Route) => void;
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
-  const conversationId = conversationForAgent(agent.id);
   const agentMessages = messages.filter((m) =>
     m.actorName === agent.name ||
     m.conversationId.includes(agent.id) ||
@@ -66,7 +67,7 @@ function AgentDetail({
           </div>
           <div className="s-agent-detail-state">
             <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-            <span>{agent.state ?? "offline"}</span>
+            <span>{agentStateLabel(agent.state)}</span>
             {agent.harness && <span className="s-badge">{agent.harness}</span>}
           </div>
         </div>
@@ -78,6 +79,8 @@ function AgentDetail({
         {agent.branch && <DetailRow label="Branch" value={agent.branch} />}
         {agent.projectRoot && <DetailRow label="Path" value={agent.projectRoot} />}
         {agent.transport && <DetailRow label="Transport" value={agent.transport.replace(/_/g, " ")} />}
+        {agent.harnessSessionId && <DetailRow label="Harness Session" value={agent.harnessSessionId} />}
+        {agent.harnessLogPath && <DetailRow label="Harness Log" value={agent.harnessLogPath} />}
         {agent.role && <DetailRow label="Role" value={agent.role} />}
         {agent.capabilities?.length > 0 && <DetailRow label="Capabilities" value={agent.capabilities.join(", ")} />}
       </div>
@@ -115,9 +118,10 @@ function AgentDetail({
         type="button"
         className="s-btn"
         style={{ marginTop: 16 }}
-        onClick={() => navigate({ view: "conversation", conversationId })}
+        onClick={() => conversationId && navigate({ view: "conversation", conversationId })}
+        disabled={!conversationId}
       >
-        Open conversation
+        {conversationId ? "Open conversation" : "Conversation unavailable"}
       </button>
     </div>
   );
@@ -141,26 +145,37 @@ export function AgentsScreen({
 }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [sessions, setSessions] = useState<SessionEntry[]>([]);
 
   const load = useCallback(async () => {
-    try {
-      const [a, m] = await Promise.all([
-        api<Agent[]>("/api/agents"),
-        api<Message[]>("/api/messages"),
-      ]);
-      setAgents(a);
-      setMessages(m);
-    } catch {
-      // stay empty
+    const [agentsResult, messagesResult, sessionsResult] = await Promise.allSettled([
+      api<Agent[]>("/api/agents"),
+      api<Message[]>("/api/messages"),
+      api<SessionEntry[]>("/api/sessions"),
+    ]);
+
+    if (agentsResult.status === "fulfilled") {
+      setAgents(agentsResult.value);
+    }
+    if (messagesResult.status === "fulfilled") {
+      setMessages(messagesResult.value);
+    }
+    if (sessionsResult.status === "fulfilled") {
+      setSessions(sessionsResult.value);
     }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
   useBrokerEvents(load);
 
-  const active = agents.filter((a) => a.state === "active");
-  const offline = agents.filter((a) => a.state !== "active");
+  const online = agents.filter((a) => isAgentOnline(a.state));
+  const offline = agents.filter((a) => !isAgentOnline(a.state));
   const selectedAgent = selectedAgentId ? agents.find((a) => a.id === selectedAgentId) : null;
+  const directConversationByAgentId = new Map(
+    sessions
+      .filter((session) => session.kind === "direct" && session.agentId)
+      .map((session) => [session.agentId!, session.id]),
+  );
 
   return (
     <div className={`s-agents-layout${selectedAgent ? " s-agents-layout-split" : ""}`}>
@@ -175,10 +190,10 @@ export function AgentsScreen({
           </div>
         ) : (
           <>
-            {active.length > 0 && (
+            {online.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div className="s-home-section-title" style={{ padding: "0 8px" }}>Active ({active.length})</div>
-                {active.map((agent) => (
+                <div className="s-home-section-title" style={{ padding: "0 8px" }}>Online ({online.length})</div>
+                {online.map((agent) => (
                   <AgentRow
                     key={agent.id}
                     agent={agent}
@@ -214,6 +229,7 @@ export function AgentsScreen({
             agent={selectedAgent}
             allAgents={agents}
             messages={messages}
+            conversationId={directConversationByAgentId.get(selectedAgent.id) ?? selectedAgent.conversationId ?? null}
             navigate={navigate}
           />
         </div>
@@ -249,6 +265,7 @@ function AgentRow({
           <span className="s-dot" style={{ background: stateColor(agent.state) }} />
         </div>
         <div className="s-agent-list-meta">
+          <span>{agentStateLabel(agent.state)}</span>
           {agent.harness && <span>{agent.harness}</span>}
           {agent.updatedAt && <span>{timeAgo(agent.updatedAt)}</span>}
         </div>

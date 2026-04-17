@@ -56,12 +56,14 @@ import {
   type ScoutKeepAliveState,
 } from "./keep-alive.ts";
 import type {
+  AnswerScoutPairingQuestionInput,
   DecideScoutPairingApprovalInput,
   ScoutPairingControlAction,
   ScoutPairingState,
   UpdateScoutPairingConfigInput,
 } from "./pairing.ts";
 import {
+  answerScoutDesktopPairingQuestion,
   controlScoutDesktopPairingService,
   decideScoutDesktopPairingApproval,
   getScoutDesktopPairingState,
@@ -69,8 +71,10 @@ import {
   updateScoutDesktopPairingConfig,
 } from "./pairing.ts";
 import {
+  answerScoutDesktopAgentSessionQuestion,
   getScoutDesktopAgentSession,
   openScoutDesktopAgentSession,
+  type AnswerScoutDesktopAgentSessionQuestionInput,
   type ScoutDesktopAgentSessionHost,
   type ScoutDesktopAgentSessionInspector,
 } from "./agent-session.ts";
@@ -157,6 +161,7 @@ export type PairingServices = {
   controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
   updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
   decidePairingApproval: (input: DecideScoutPairingApprovalInput) => Promise<ScoutPairingState>;
+  answerPairingQuestion: (input: AnswerScoutPairingQuestionInput) => Promise<ScoutPairingState>;
 };
 
 export type RelayActivityServices = {
@@ -166,6 +171,7 @@ export type RelayActivityServices = {
   acquireKeepAliveLease: (input: AcquireScoutKeepAliveLeaseInput) => Promise<ScoutKeepAliveLease> | ScoutKeepAliveLease;
   releaseKeepAliveLease: (input: ReleaseScoutKeepAliveLeaseInput) => Promise<boolean> | boolean;
   getAgentSession: (agentId: string) => Promise<ScoutDesktopAgentSessionInspector>;
+  answerAgentSessionQuestion: (input: AnswerScoutDesktopAgentSessionQuestionInput) => Promise<boolean>;
   openAgentSession: (agentId: string) => Promise<boolean>;
   toggleVoiceCapture: () => Promise<ScoutDesktopShellState>;
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
@@ -271,6 +277,7 @@ export function createPairingServices(
     controlPairingService: (action) => controlScoutDesktopPairingService(action, currentDirectory),
     updatePairingConfig: (nextInput) => updateScoutDesktopPairingConfig(nextInput, currentDirectory),
     decidePairingApproval: (nextInput) => decideScoutDesktopPairingApproval(nextInput, currentDirectory),
+    answerPairingQuestion: (nextInput) => answerScoutDesktopPairingQuestion(nextInput, currentDirectory),
   };
 }
 
@@ -292,6 +299,10 @@ export function createRelayActivityServices(
     acquireKeepAliveLease: (nextInput) => acquireScoutKeepAliveLease(nextInput),
     releaseKeepAliveLease: (nextInput) => releaseScoutKeepAliveLease(nextInput.leaseId),
     getAgentSession: (agentId) => getScoutDesktopAgentSession(agentId),
+    answerAgentSessionQuestion: async (nextInput) => {
+      await answerScoutDesktopAgentSessionQuestion(nextInput);
+      return true;
+    },
     openAgentSession: (agentId) => openScoutDesktopAgentSession(agentId, agentSessionHost),
     toggleVoiceCapture: () => toggleScoutDesktopVoiceCapture({ currentDirectory, appInfo, voice }),
     setVoiceRepliesEnabled: (enabled) => setScoutDesktopVoiceRepliesEnabled(enabled, { currentDirectory, appInfo, voice }),

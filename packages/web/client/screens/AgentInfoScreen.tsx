@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { agentStateLabel } from "../lib/agent-state.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
-import type { Agent, Route } from "../lib/types.ts";
+import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -24,17 +25,21 @@ export function AgentInfoScreen({
   const [agent, setAgent] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const agentId = agentIdFromConversation(conversationId);
+  const legacyAgentId = agentIdFromConversation(conversationId);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const agents = await api<Agent[]>("/api/agents");
-      setAgent(agents.find((a) => a.id === agentId) ?? null);
+      const [agents, session] = await Promise.all([
+        api<Agent[]>("/api/agents"),
+        api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`).catch(() => null),
+      ]);
+      const resolvedAgentId = session?.agentId ?? legacyAgentId;
+      setAgent(agents.find((a) => a.id === resolvedAgentId) ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [agentId]);
+  }, [conversationId, legacyAgentId]);
 
   useEffect(() => { void load(); }, [load]);
   useBrokerEvents(load);
@@ -80,7 +85,7 @@ export function AgentInfoScreen({
         )}
         <div className="s-agent-profile-state">
           <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-          <span>{agent.state ?? "offline"}</span>
+          <span>{agentStateLabel(agent.state)}</span>
         </div>
       </div>
 
@@ -90,6 +95,8 @@ export function AgentInfoScreen({
         {agent.projectRoot && <DetailRow label="Path" value={agent.projectRoot} />}
         {agent.harness && <DetailRow label="Harness" value={agent.harness} />}
         {agent.transport && <DetailRow label="Transport" value={agent.transport.replace(/_/g, " ")} />}
+        {agent.harnessSessionId && <DetailRow label="Harness Session" value={agent.harnessSessionId} />}
+        {agent.harnessLogPath && <DetailRow label="Harness Log" value={agent.harnessLogPath} />}
         {agent.agentClass && <DetailRow label="Class" value={agent.agentClass} />}
         {agent.wakePolicy && <DetailRow label="Wake" value={agent.wakePolicy.replace(/_/g, " ")} />}
         {agent.capabilities?.length > 0 && (

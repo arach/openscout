@@ -5,6 +5,7 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { SessionState } from "@openscout/agent-sessions";
 import type {
   AgentCapability,
   ActorIdentity,
@@ -16,14 +17,18 @@ import type {
 import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import {
+  answerClaudeStreamJsonQuestion,
   ensureClaudeStreamJsonAgentOnline,
+  getClaudeStreamJsonAgentSnapshot,
   invokeClaudeStreamJsonAgent,
   isClaudeStreamJsonAgentAlive,
   shutdownClaudeStreamJsonAgent,
 } from "./claude-stream-json.js";
 import {
   ensureCodexAppServerAgentOnline,
+  getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
+  sendCodexAppServerAgent,
   isCodexAppServerAgentAlive,
   shutdownCodexAppServerAgent,
 } from "./codex-app-server.js";
@@ -839,20 +844,92 @@ async function assertDirectoryExists(directory: string): Promise<void> {
   }
 }
 
-export async function getLocalAgentConfig(agentId: string): Promise<LocalAgentConfigState | null> {
+async function resolveConfiguredLocalAgentRecord(agentId: string): Promise<LocalAgentRecord | null> {
   const overrides = await readRelayAgentOverrides();
   const override = overrides[agentId];
   if (override) {
-    return buildLocalAgentConfigState(agentId, localAgentRecordFromRelayAgentOverride(agentId, override));
+    return localAgentRecordFromRelayAgentOverride(agentId, override);
   }
 
   const registry = await readLocalAgentRegistry();
   const record = registry[agentId];
+  return record ? normalizeLocalAgentRecord(agentId, record) : null;
+}
+
+export async function getLocalAgentConfig(agentId: string): Promise<LocalAgentConfigState | null> {
+  const record = await resolveConfiguredLocalAgentRecord(agentId);
   if (!record) {
     return null;
   }
 
   return buildLocalAgentConfigState(agentId, record);
+}
+
+export async function getLocalAgentSessionSnapshot(agentId: string): Promise<SessionState | null> {
+  const record = await resolveConfiguredLocalAgentRecord(agentId);
+  if (!record) {
+    return null;
+  }
+
+  if (record.transport === "codex_app_server") {
+    return getCodexAppServerAgentSnapshot(buildCodexAgentSessionOptions(agentId, record));
+  }
+
+  if (record.transport === "claude_stream_json") {
+    return getClaudeStreamJsonAgentSnapshot(buildClaudeAgentSessionOptions(agentId, record));
+  }
+
+  return null;
+}
+
+export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoint): Promise<SessionState | null> {
+  if (endpoint.transport === "codex_app_server") {
+    return getCodexAppServerAgentSnapshot(buildCodexEndpointSessionOptions(endpoint));
+  }
+
+  if (endpoint.transport === "claude_stream_json") {
+    return getClaudeStreamJsonAgentSnapshot(buildClaudeEndpointSessionOptions(endpoint));
+  }
+
+  return null;
+}
+
+export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<void> {
+  if (endpoint.transport === "codex_app_server") {
+    await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (endpoint.transport === "claude_stream_json") {
+    await ensureClaudeStreamJsonAgentOnline(buildClaudeEndpointSessionOptions(endpoint));
+  }
+}
+
+export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Promise<void> {
+  if (endpoint.transport === "codex_app_server") {
+    await shutdownCodexAppServerAgent(buildCodexEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (endpoint.transport === "claude_stream_json") {
+    await shutdownClaudeStreamJsonAgent(buildClaudeEndpointSessionOptions(endpoint));
+  }
+}
+
+export async function answerLocalAgentSessionQuestion(
+  agentId: string,
+  input: { blockId: string; answer: string[] },
+): Promise<void> {
+  const record = await resolveConfiguredLocalAgentRecord(agentId);
+  if (!record) {
+    throw new Error(`Agent ${agentId} is not configured.`);
+  }
+
+  if (record.transport !== "claude_stream_json") {
+    throw new Error(`Agent ${agentId} does not support direct question answers for transport ${record.transport}.`);
+  }
+
+  await answerClaudeStreamJsonQuestion(buildClaudeAgentSessionOptions(agentId, record), input);
 }
 
 export async function updateLocalAgentConfig(
@@ -926,6 +1003,8 @@ function buildCodexAgentSessionOptions(
   runtimeDirectory: string;
   logsDirectory: string;
   launchArgs: string[];
+  threadId?: string;
+  requireExistingThread?: boolean;
 } {
   return {
     agentName,
@@ -962,6 +1041,129 @@ function buildClaudeAgentSessionOptions(
   };
 }
 
+function endpointMetadataString(endpoint: AgentEndpoint, key: string): string | undefined {
+  const value = endpoint.metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function endpointInvocationPrompt(
+  endpoint: AgentEndpoint,
+  agentName: string,
+  invocation: InvocationRequest,
+): string {
+  const source = endpointMetadataString(endpoint, "source");
+  const externalSource = endpointMetadataString(endpoint, "externalSource");
+  const attachedTransport = endpointMetadataString(endpoint, "attachedTransport");
+  const sessionBacked = endpoint.metadata?.sessionBacked === true;
+
+  if (
+    invocation.action === "consult"
+    && (
+      sessionBacked
+      || source === "local-session"
+      || externalSource === "local-session"
+      || attachedTransport === "codex_app_server"
+      || attachedTransport === "claude_stream_json"
+    )
+  ) {
+    return invocation.task;
+  }
+
+  if (sessionBacked) {
+    return buildAttachedSessionInvocationPrompt(invocation);
+  }
+
+  return buildLocalAgentDirectInvocationPrompt(agentName, invocation);
+}
+
+function isSessionBackedEndpoint(endpoint: AgentEndpoint): boolean {
+  const source = endpointMetadataString(endpoint, "source");
+  const externalSource = endpointMetadataString(endpoint, "externalSource");
+  const attachedTransport = endpointMetadataString(endpoint, "attachedTransport");
+  return endpoint.metadata?.sessionBacked === true
+    || source === "local-session"
+    || externalSource === "local-session"
+    || attachedTransport === "codex_app_server"
+    || attachedTransport === "claude_stream_json";
+}
+
+function endpointAgentName(endpoint: AgentEndpoint): string {
+  return endpointMetadataString(endpoint, "agentName")
+    ?? endpointMetadataString(endpoint, "definitionId")
+    ?? endpoint.agentId;
+}
+
+function endpointRuntimeInstanceId(endpoint: AgentEndpoint): string {
+  return endpointMetadataString(endpoint, "runtimeInstanceId")
+    ?? endpointMetadataString(endpoint, "runtimeSessionId")
+    ?? endpoint.sessionId
+    ?? `relay-${endpointAgentName(endpoint)}`;
+}
+
+function endpointCwd(endpoint: AgentEndpoint): string {
+  return endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+}
+
+function attachedLocalSessionSystemPrompt(endpoint: AgentEndpoint): string {
+  const explicit = endpointMetadataString(endpoint, "systemPrompt");
+  if (explicit) {
+    return explicit;
+  }
+
+  return "Resume the existing session without changing its identity or prior context.";
+}
+
+function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+  threadId?: string;
+  requireExistingThread?: boolean;
+} {
+  const agentName = endpointAgentName(endpoint);
+  const threadId = endpointMetadataString(endpoint, "threadId")
+    ?? endpointMetadataString(endpoint, "externalSessionId")
+    ?? endpoint.sessionId
+    ?? undefined;
+
+  return {
+    agentName,
+    sessionId: endpointRuntimeInstanceId(endpoint),
+    cwd: endpointCwd(endpoint),
+    systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
+    runtimeDirectory: relayAgentRuntimeDirectory(agentName),
+    logsDirectory: relayAgentLogsDirectory(agentName),
+    launchArgs: [],
+    threadId,
+    requireExistingThread: Boolean(threadId),
+  };
+}
+
+function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
+  agentName: string;
+  sessionId: string;
+  cwd: string;
+  systemPrompt: string;
+  runtimeDirectory: string;
+  logsDirectory: string;
+  launchArgs: string[];
+} {
+  const agentName = endpointAgentName(endpoint);
+  return {
+    agentName,
+    sessionId: endpointRuntimeInstanceId(endpoint),
+    cwd: endpointCwd(endpoint),
+    systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
+    runtimeDirectory: relayAgentRuntimeDirectory(agentName),
+    logsDirectory: relayAgentLogsDirectory(agentName),
+    launchArgs: [],
+  };
+}
+
 function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): boolean {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (normalizedRecord.transport === "codex_app_server") {
@@ -985,40 +1187,16 @@ export function isLocalAgentSessionAlive(sessionName: string): boolean {
 }
 
 export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
+  if (endpoint.transport === "pairing_bridge") {
+    return endpoint.state !== "offline";
+  }
+
   if (endpoint.transport === "codex_app_server") {
-    const agentName = String(endpoint.metadata?.agentName ?? endpoint.agentId);
-    const sessionId = String(endpoint.sessionId ?? endpoint.metadata?.runtimeSessionId ?? `relay-${agentName}`);
-    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const projectName = typeof endpoint.metadata?.project === "string"
-      ? String(endpoint.metadata.project)
-      : basename(cwd);
-    return isCodexAppServerAgentAlive({
-      agentName,
-      sessionId,
-      cwd,
-      systemPrompt: buildLocalAgentSystemPrompt(agentName, projectName, cwd, { transport: "codex_app_server" }),
-      runtimeDirectory: relayAgentRuntimeDirectory(agentName),
-      logsDirectory: relayAgentLogsDirectory(agentName),
-      launchArgs: [],
-    });
+    return isCodexAppServerAgentAlive(buildCodexEndpointSessionOptions(endpoint));
   }
 
   if (endpoint.transport === "claude_stream_json") {
-    const agentName = String(endpoint.metadata?.agentName ?? endpoint.agentId);
-    const sessionId = String(endpoint.sessionId ?? endpoint.metadata?.runtimeSessionId ?? `relay-${agentName}`);
-    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const projectName = typeof endpoint.metadata?.project === "string"
-      ? String(endpoint.metadata.project)
-      : basename(cwd);
-    return isClaudeStreamJsonAgentAlive({
-      agentName,
-      sessionId,
-      cwd,
-      systemPrompt: buildLocalAgentSystemPrompt(agentName, projectName, cwd, { transport: "claude_stream_json" }),
-      runtimeDirectory: relayAgentRuntimeDirectory(agentName),
-      logsDirectory: relayAgentLogsDirectory(agentName),
-      launchArgs: [],
-    });
+    return isClaudeStreamJsonAgentAlive(buildClaudeEndpointSessionOptions(endpoint));
   }
 
   const sessionId =
@@ -1056,7 +1234,7 @@ function buildLocalAgentInitialMessage(projectName: string, agentName: string): 
   return `You are now online as the ${agentName} relay agent for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
 }
 
-function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
+export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
   const collaborationContract = buildCollaborationContractPrompt(agentName);
@@ -1079,6 +1257,24 @@ function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: In
     collaborationContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "Task:",
+    invocation.task,
+  ]
+    .filter((value): value is string => Boolean(value && value.length > 0))
+    .join("\n");
+}
+
+export function buildAttachedSessionInvocationPrompt(invocation: InvocationRequest): string {
+  const contextLines = Object.entries(invocation.context ?? {})
+    .map(([key, value]) => `- ${key}: ${String(value)}`);
+
+  return [
+    `Scout message from ${invocation.requesterId}.`,
+    invocation.conversationId ? `Conversation: ${invocation.conversationId}.` : undefined,
+    invocation.messageId ? `Reply-To Message: ${invocation.messageId}.` : undefined,
+    invocation.action !== "consult" ? `Requested action: ${invocation.action}.` : undefined,
+    "Treat this as a direct message to the current session and reply normally as yourself in this session.",
+    contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
+    "",
     invocation.task,
   ]
     .filter((value): value is string => Boolean(value && value.length > 0))
@@ -1785,6 +1981,24 @@ export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentSt
   };
 }
 
+export async function interruptLocalAgent(agentId: string): Promise<{ ok: boolean; agentId: string }> {
+  const registry = await readLocalAgentRegistry();
+  const record = registry[agentId];
+  if (!record) {
+    return { ok: false, agentId };
+  }
+
+  const normalizedRecord = normalizeLocalAgentRecord(agentId, record);
+  const sessionName = normalizedRecord.tmuxSession;
+
+  try {
+    execSync(`tmux send-keys -t ${JSON.stringify(sessionName)} C-c`, { stdio: "pipe" });
+    return { ok: true, agentId };
+  } catch {
+    return { ok: false, agentId };
+  }
+}
+
 export async function stopAllLocalAgents(options: {
   currentDirectory?: string;
 } = {}): Promise<ScoutLocalAgentStatus[]> {
@@ -1894,7 +2108,7 @@ function buildLocalAgentBinding(
         source,
         agentName: definitionId,
         tmuxSession: normalizedRecord.tmuxSession,
-        runtimeSessionId: normalizedRecord.tmuxSession,
+        runtimeInstanceId: normalizedRecord.tmuxSession,
         transport: normalizedRecord.transport,
         project: normalizedRecord.project,
         projectRoot,
@@ -2058,9 +2272,40 @@ export async function invokeLocalAgentEndpoint(
   invocation: InvocationRequest,
 ): Promise<LocalAgentInvocationResult> {
   const agentRuntimeId = endpoint.agentId;
-  const definitionId = String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? endpoint.agentId);
+  const definitionId = String(endpoint.metadata?.definitionId ?? endpoint.metadata?.agentName ?? endpoint.agentId);
+  const prompt = endpointInvocationPrompt(endpoint, definitionId, invocation);
   const registry = await readLocalAgentRegistry();
   const existing = registry[agentRuntimeId];
+
+  if (!existing && endpoint.transport === "codex_app_server") {
+    await ensureLocalSessionEndpointOnline(endpoint);
+    const invoke = isSessionBackedEndpoint(endpoint)
+      ? sendCodexAppServerAgent
+      : invokeCodexAppServerAgent;
+    const result = await invoke({
+      ...buildCodexEndpointSessionOptions(endpoint),
+      prompt,
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+    };
+  }
+
+  if (!existing && endpoint.transport === "claude_stream_json") {
+    await ensureLocalSessionEndpointOnline(endpoint);
+    const result = await invokeClaudeStreamJsonAgent({
+      ...buildClaudeEndpointSessionOptions(endpoint),
+      prompt,
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+    };
+  }
+
   const projectRoot = endpoint.projectRoot ?? endpoint.cwd;
   const requestedHarness = invocation.execution?.harness;
 
@@ -2078,7 +2323,12 @@ export async function invokeLocalAgentEndpoint(
         harnessProfiles: {
           [normalizeManagedHarness(typeof endpoint.harness === "string" ? endpoint.harness : undefined, "claude")]: {
             cwd: projectRoot,
-            sessionId: String(endpoint.sessionId ?? endpoint.metadata?.runtimeSessionId ?? `relay-${agentRuntimeId}`),
+            sessionId: String(
+              endpoint.sessionId
+              ?? endpoint.metadata?.runtimeInstanceId
+              ?? endpoint.metadata?.runtimeSessionId
+              ?? `relay-${agentRuntimeId}`,
+            ),
             transport: normalizeLocalAgentTransport(
               typeof endpoint.transport === "string" ? endpoint.transport : undefined,
               normalizeLocalAgentHarness(typeof endpoint.harness === "string" ? endpoint.harness : undefined),
@@ -2113,7 +2363,7 @@ export async function invokeLocalAgentEndpoint(
           { transport: "codex_app_server" },
         ),
       ),
-      prompt: buildLocalAgentDirectInvocationPrompt(definitionId, invocation),
+      prompt,
       timeoutMs: invocation.timeoutMs,
     });
 
@@ -2133,7 +2383,7 @@ export async function invokeLocalAgentEndpoint(
           { transport: "claude_stream_json" },
         ),
       ),
-      prompt: buildLocalAgentDirectInvocationPrompt(definitionId, invocation),
+      prompt,
       timeoutMs: invocation.timeoutMs,
     });
 

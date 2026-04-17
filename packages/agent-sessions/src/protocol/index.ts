@@ -1,2 +1,2 @@
-export * from "./primitives.ts";
-export * from "./adapter.ts";
+export * from "./primitives";
+export * from "./adapter";

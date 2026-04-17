@@ -6,6 +6,33 @@ export type BrokerEvent = {
   [key: string]: unknown;
 };
 
+const BROKER_EVENT_NAMES = [
+  "hello",
+  "node.upserted",
+  "actor.registered",
+  "agent.registered",
+  "agent.endpoint.upserted",
+  "conversation.upserted",
+  "binding.upserted",
+  "message.posted",
+  "invocation.requested",
+  "flight.updated",
+  "delivery.planned",
+  "delivery.attempted",
+  "delivery.state.changed",
+  "collaboration.upserted",
+  "collaboration.event.appended",
+  "scout.dispatched",
+] as const;
+
+function parseBrokerEvent(data: string): BrokerEvent {
+  try {
+    return JSON.parse(data) as BrokerEvent;
+  } catch {
+    return { kind: "unknown" };
+  }
+}
+
 /**
  * Subscribe to the broker SSE event stream.
  * Calls `onEvent` with the parsed event whenever the broker emits one.
@@ -21,15 +48,16 @@ export function useBrokerEvents(onEvent: (event: BrokerEvent) => void) {
 
     function connect() {
       es = new EventSource("/api/events");
-      es.onmessage = (e) => {
-        try {
-          const parsed = JSON.parse(e.data) as BrokerEvent;
-          cbRef.current(parsed);
-        } catch {
-          // Non-JSON event (keepalive, etc.) — still trigger a generic refresh
-          cbRef.current({ kind: "unknown" });
-        }
+
+      const forward = (event: MessageEvent<string>) => {
+        cbRef.current(parseBrokerEvent(event.data));
       };
+
+      es.onmessage = forward;
+      for (const eventName of BROKER_EVENT_NAMES) {
+        es.addEventListener(eventName, forward as EventListener);
+      }
+
       es.onerror = () => {
         es?.close();
         retryTimeout = setTimeout(connect, 3000);

@@ -90,8 +90,10 @@ struct ScoutBottomBar: View {
     // MARK: - Composer Mode
 
     private func composerMode(sessionId: String) -> some View {
-        let session = store.sessions[sessionId]?.session
-        let isStreaming = store.sessions[sessionId]?.currentTurnId != nil
+        let sessionState = store.sessions[sessionId]
+        let session = sessionState?.session
+        let isStreaming = sessionState?.currentTurnId != nil
+            || sessionState?.turns.last?.status == .streaming
         let isSessionConnected = isConnected && !store.cachedOnlySessionIds.contains(sessionId)
 
         return ComposerView(
@@ -111,7 +113,11 @@ struct ScoutBottomBar: View {
             },
             onInterrupt: {
                 Task {
-                    try? await connection.interruptTurn(sessionId)
+                    if let agentId = session?.agentId {
+                        try? await connection.interruptAgent(agentId)
+                    } else {
+                        try? await connection.interruptTurn(sessionId)
+                    }
                 }
             },
             navigationLeftButton: AnyView(

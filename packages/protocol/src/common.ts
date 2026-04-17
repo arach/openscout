@@ -53,6 +53,7 @@ export type DeliveryTargetKind =
 export type DeliveryTransport =
   | "local_socket"
   | "websocket"
+  | "pairing_bridge"
   | "peer_broker"
   | "http"
   | "webhook"

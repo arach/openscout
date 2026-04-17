@@ -880,3 +880,293 @@
 .scout-window-bar select {
   -webkit-app-region: no-drag;
 }
+
+.os-agent-session-trace[data-trace-empty] {
+  border: 1px dashed var(--os-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--os-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 18px 20px;
+}
+
+.os-agent-session-trace[data-trace-timeline] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.os-agent-session-trace .os-trace-turn {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.os-agent-session-trace .os-trace-turn.is-current {
+  border-color: var(--os-accent-border);
+  box-shadow:
+    0 0 0 1px rgba(79, 70, 229, 0.08),
+    0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.os-agent-session-trace .os-trace-turn > header,
+.os-agent-session-trace .os-trace-action-block > header,
+.os-agent-session-trace .os-trace-reasoning-block > header,
+.os-agent-session-trace .os-trace-question-block > header,
+.os-agent-session-trace .os-trace-text-block > header,
+.os-agent-session-trace .os-trace-file-block > header,
+.os-agent-session-trace .os-trace-error-block > header,
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-meta] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.os-agent-session-trace .os-trace-turn > header {
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.os-agent-session-trace .os-trace-turn > header strong,
+.os-agent-session-trace .os-trace-action-block > header strong,
+.os-agent-session-trace .os-trace-reasoning-block > header strong,
+.os-agent-session-trace .os-trace-question-block > header strong,
+.os-agent-session-trace .os-trace-text-block > header strong,
+.os-agent-session-trace .os-trace-file-block > header strong,
+.os-agent-session-trace .os-trace-error-block > header strong,
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-meta] strong {
+  color: var(--os-ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: var(--os-tracking-tight);
+}
+
+.os-agent-session-trace .os-trace-turn > header span,
+.os-agent-session-trace .os-trace-turn > header time,
+.os-agent-session-trace .os-trace-action-block > header span,
+.os-agent-session-trace .os-trace-reasoning-block > header button,
+.os-agent-session-trace .os-trace-question-block > header span,
+.os-agent-session-trace .os-trace-text-block > header span,
+.os-agent-session-trace .os-trace-file-block > header span,
+.os-agent-session-trace .os-trace-error-block > header span,
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-meta] span,
+.os-agent-session-trace .os-trace-question-block > small {
+  color: var(--os-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.os-agent-session-trace .os-trace-turn > div[data-trace-blocks] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.os-agent-session-trace .os-trace-action-block,
+.os-agent-session-trace .os-trace-reasoning-block,
+.os-agent-session-trace .os-trace-question-block,
+.os-agent-session-trace .os-trace-text-block,
+.os-agent-session-trace .os-trace-file-block,
+.os-agent-session-trace .os-trace-error-block,
+.os-agent-session-trace .os-trace-approval-card {
+  display: block;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+}
+
+.os-agent-session-trace .os-trace-question-block,
+.os-agent-session-trace .os-trace-reasoning-block {
+  background: #fbfbfd;
+}
+
+.os-agent-session-trace .os-trace-error-block {
+  border-color: rgba(248, 113, 113, 0.22);
+  background: rgba(254, 242, 242, 0.92);
+}
+
+.os-agent-session-trace .os-trace-action-block > p,
+.os-agent-session-trace .os-trace-reasoning-block > p,
+.os-agent-session-trace .os-trace-question-block > p,
+.os-agent-session-trace .os-trace-text-block > p,
+.os-agent-session-trace .os-trace-file-block > p,
+.os-agent-session-trace .os-trace-error-block > p,
+.os-agent-session-trace .os-trace-approval-card > p {
+  margin-top: 8px;
+  color: var(--os-ink);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.os-agent-session-trace .os-trace-action-block > pre {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--os-border);
+  background: #fafafa;
+  color: var(--os-ink);
+  font-family: var(--os-font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.os-agent-session-trace .os-trace-question-block > div[data-trace-options],
+.os-agent-session-trace .os-trace-action-block > div[data-trace-actions],
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-actions] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.os-agent-session-trace .os-trace-question-block > button,
+.os-agent-session-trace .os-trace-question-block > div[data-trace-options] button,
+.os-agent-session-trace .os-trace-action-block > div[data-trace-actions] button,
+.os-agent-session-trace .os-trace-reasoning-block > header button,
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-actions] button {
+  border: 1px solid var(--os-border);
+  border-radius: 9999px;
+  background: #fff;
+  color: var(--os-ink);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 7px 10px;
+  transition:
+    background-color var(--os-duration-fast) ease,
+    border-color var(--os-duration-fast) ease,
+    color var(--os-duration-fast) ease,
+    transform var(--os-duration-fast) ease;
+}
+
+.os-agent-session-trace .os-trace-question-block > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+  transform: none;
+}
+
+.os-agent-session-trace .os-trace-question-block > button:hover:not(:disabled),
+.os-agent-session-trace .os-trace-question-block > button:focus-visible,
+.os-agent-session-trace .os-trace-question-block > div[data-trace-options] button:hover,
+.os-agent-session-trace .os-trace-question-block > div[data-trace-options] button:focus-visible,
+.os-agent-session-trace .os-trace-action-block > div[data-trace-actions] button:hover,
+.os-agent-session-trace .os-trace-action-block > div[data-trace-actions] button:focus-visible,
+.os-agent-session-trace .os-trace-reasoning-block > header button:hover,
+.os-agent-session-trace .os-trace-reasoning-block > header button:focus-visible,
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-actions] button:hover,
+.os-agent-session-trace .os-trace-approval-card > div[data-trace-actions] button:focus-visible {
+  background: var(--os-accent-soft);
+  border-color: var(--os-accent-border);
+  color: var(--os-accent);
+  transform: translateY(-1px);
+}
+
+.os-agent-session-trace .os-trace-question-block > div[data-trace-options] button[aria-pressed="true"] {
+  background: var(--os-accent-soft);
+  border-color: var(--os-accent-border);
+  color: var(--os-accent);
+}
+
+.pairing-trace-approval-card[data-busy="true"] {
+  opacity: 0.72;
+}
+
+.pairing-trace-approval-card .os-trace-action-block,
+.pairing-trace-approval-card .os-trace-approval-card {
+  display: block;
+  border-radius: 14px;
+}
+
+.pairing-trace-approval-card .os-trace-action-block {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 12px;
+  background: rgba(250, 250, 250, 0.92);
+}
+
+.pairing-trace-approval-card .os-trace-action-block > header,
+.pairing-trace-approval-card .os-trace-approval-card > header,
+.pairing-trace-approval-card .os-trace-approval-card > div[data-trace-meta] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pairing-trace-approval-card .os-trace-action-block > header strong,
+.pairing-trace-approval-card .os-trace-approval-card > div[data-trace-meta] strong {
+  color: var(--os-ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: var(--os-tracking-tight);
+}
+
+.pairing-trace-approval-card .os-trace-action-block > header span,
+.pairing-trace-approval-card .os-trace-approval-card > div[data-trace-meta] span,
+.pairing-trace-approval-card .os-trace-action-block > p,
+.pairing-trace-approval-card .os-trace-approval-card > p {
+  color: var(--os-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.pairing-trace-approval-card .os-trace-action-block > p,
+.pairing-trace-approval-card .os-trace-approval-card > p {
+  margin-top: 8px;
+  color: var(--os-ink);
+}
+
+.pairing-trace-approval-card .os-trace-action-block > pre {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--os-border);
+  background: #fff;
+  color: var(--os-ink);
+  font-family: var(--os-font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pairing-trace-approval-card [data-trace-actions] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pairing-trace-approval-card [data-trace-actions] button {
+  border: 1px solid var(--os-border);
+  border-radius: 9999px;
+  background: #fff;
+  color: var(--os-ink);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 7px 10px;
+  transition:
+    background-color var(--os-duration-fast) ease,
+    border-color var(--os-duration-fast) ease,
+    color var(--os-duration-fast) ease,
+    transform var(--os-duration-fast) ease;
+}
+
+.pairing-trace-approval-card [data-trace-actions] button:hover,
+.pairing-trace-approval-card [data-trace-actions] button:focus-visible {
+  background: var(--os-accent-soft);
+  border-color: var(--os-accent-border);
+  color: var(--os-accent);
+  transform: translateY(-1px);
+}

@@ -1,8 +1,68 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
-import type { MeshStatus, Route } from "../lib/types.ts";
+import type { MeshIssue, MeshStatus, Route } from "../lib/types.ts";
 import { MeshTopologyView } from "./MeshTopologyView.tsx";
+
+function issueTone(issue: MeshIssue): "notice" | "warning" | "error" {
+  if (issue.code === "local_only") {
+    return "notice";
+  }
+  return issue.severity === "error" ? "error" : "warning";
+}
+
+function issueLabel(issue: MeshIssue): string {
+  switch (issue.code) {
+    case "local_only":
+      return "Visibility";
+    case "mesh_loopback":
+      return "Reachability";
+    case "discovery_unconfigured":
+      return "Discovery";
+    default:
+      return "Broker";
+  }
+}
+
+function issueBadge(issue: MeshIssue): string {
+  switch (issue.code) {
+    case "local_only":
+      return "Local only";
+    case "mesh_loopback":
+      return "Unreachable";
+    case "discovery_unconfigured":
+      return "Needs setup";
+    default:
+      return "Offline";
+  }
+}
+
+function MeshIssueCard({ issue }: { issue: MeshIssue }) {
+  const tone = issueTone(issue);
+  return (
+    <div className={`s-mesh-issue s-mesh-issue-${tone}`}>
+      <div className={`s-mesh-issue-rail s-mesh-issue-rail-${tone}`} />
+      <div className="s-mesh-issue-body">
+        <div className="s-mesh-issue-header">
+          <span className="s-mesh-issue-kicker">{issueLabel(issue)}</span>
+          <span className={`s-mesh-issue-badge s-mesh-issue-badge-${tone}`}>{issueBadge(issue)}</span>
+        </div>
+        <h3 className="s-mesh-issue-title">{issue.title}</h3>
+        <p className="s-mesh-issue-summary">{issue.summary}</p>
+        {(issue.action || issue.actionCommand) && (
+          <div className="s-mesh-issue-action">
+            {issue.actionCommand && (
+              <code className="s-mesh-issue-command">{issue.actionCommand}</code>
+            )}
+            {issue.action && (
+              <span className="s-mesh-issue-action-text">{issue.action}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
@@ -61,6 +121,17 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     if (localHostName && (host === localHostName || host.startsWith(`${localHostName.split(".")[0]}.`))) return false;
     return true;
   });
+  const issues = mesh.issues?.length > 0
+    ? mesh.issues
+    : mesh.warnings.map((warning, index) => ({
+      code: `fallback-${index}` as MeshIssue["code"],
+      severity: "warning" as const,
+      title: "Mesh notice",
+      summary: warning,
+      action: null,
+      actionCommand: null,
+    }));
+  const advertiseScopeLabel = mesh.localNode?.advertiseScope === "mesh" ? "mesh visible" : "local only";
 
   return (
     <div className="s-mesh-screen">
@@ -79,7 +150,7 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
             <span className="s-dot" style={{ background: mesh.health.reachable ? "var(--green)" : "var(--red)" }} />
             <span className="s-mesh-hero-title">{mesh.localNode.name}</span>
             <span className={`s-badge s-badge-${mesh.localNode.advertiseScope === "mesh" ? "ok" : "warn"}`}>
-              {mesh.localNode.advertiseScope ?? "unknown"}
+              {advertiseScopeLabel}
             </span>
           </div>
           <div className="s-mesh-hero-grid">
@@ -105,17 +176,17 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         </div>
       )}
 
-      {/* Topology */}
-      <MeshTopologyView mesh={mesh} />
-
-      {/* Warnings */}
-      {mesh.warnings.length > 0 && (
-        <div className="s-mesh-warnings">
-          {mesh.warnings.map((w, i) => (
-            <div key={i} className="s-mesh-warning">{w}</div>
+      {/* Status issues */}
+      {issues.length > 0 && (
+        <div className="s-mesh-issues">
+          {issues.map((issue, index) => (
+            <MeshIssueCard key={`${issue.code}-${index}`} issue={issue} />
           ))}
         </div>
       )}
+
+      {/* Topology */}
+      <MeshTopologyView mesh={mesh} />
 
       {/* Remote peers in this mesh */}
       <div className="s-mesh-section">

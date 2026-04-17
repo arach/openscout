@@ -3,12 +3,21 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 
+import type { SessionState } from "@openscout/agent-sessions";
+import type { AgentEndpoint } from "@openscout/protocol";
 import { loadScoutBrokerContext } from "../../core/broker/service.ts";
-import { getLocalAgentConfig } from "@openscout/runtime/local-agents";
+import {
+  answerLocalAgentSessionQuestion,
+  getLocalAgentConfig,
+  getLocalAgentEndpointSessionSnapshot,
+  getLocalAgentSessionSnapshot,
+} from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { relayAgentLogsDirectory } from "@openscout/runtime/support-paths";
+import { getScoutDesktopPairingSessionSnapshot } from "./pairing.ts";
 
-export type ScoutDesktopAgentSessionMode = "tmux" | "logs" | "none";
+export type ScoutDesktopAgentSessionMode = "trace" | "debug" | "unavailable";
+export type ScoutDesktopAgentSessionDebugMode = "tmux" | "logs";
 
 export type ScoutDesktopAgentSessionInspector = {
   agentId: string;
@@ -18,6 +27,9 @@ export type ScoutDesktopAgentSessionInspector = {
   harness: string | null;
   transport: string | null;
   sessionId: string | null;
+  trace: SessionState | null;
+  traceSource: "pairing_bridge" | "local_runtime" | null;
+  debugMode: ScoutDesktopAgentSessionDebugMode | null;
   commandLabel: string | null;
   pathLabel: string | null;
   directoryPath: string | null;
@@ -26,6 +38,14 @@ export type ScoutDesktopAgentSessionInspector = {
   lineCount: number;
   truncated: boolean;
   missing: boolean;
+};
+
+export type AnswerScoutDesktopAgentSessionQuestionInput = {
+  agentId: string;
+  sessionId: string;
+  turnId: string;
+  blockId: string;
+  answer: string[];
 };
 
 export type ScoutDesktopAgentSessionHost = {
@@ -294,12 +314,15 @@ function buildTmuxInspector(input: {
     agentId: input.agentId,
     title: input.title,
     subtitle: input.cwdLabel
-      ? `Live tmux pane capture · ${input.cwdLabel}`
-      : "Live tmux pane capture",
-    mode: "tmux",
+      ? `Debug tmux tail · ${input.cwdLabel}`
+      : "Debug tmux tail",
+    mode: "debug",
     harness: input.harness,
     transport: input.transport,
     sessionId: input.sessionId,
+    trace: null,
+    traceSource: null,
+    debugMode: "tmux",
     commandLabel: `tmux attach -t ${input.sessionId}`,
     pathLabel: input.cwdLabel ? `${input.cwdLabel} · tmux:${input.sessionId}` : `tmux:${input.sessionId}`,
     directoryPath: input.directoryPath,
@@ -307,6 +330,57 @@ function buildTmuxInspector(input: {
     updatedAtLabel: null,
     lineCount: tmuxCapture.lineCount,
     truncated: tmuxCapture.truncated,
+    missing: false,
+  };
+}
+
+function latestSessionActivity(snapshot: SessionState): number | null {
+  const lastTurn = snapshot.turns.at(-1) ?? null;
+  if (!lastTurn) {
+    return null;
+  }
+  if (
+    snapshot.currentTurnId === lastTurn.id
+    || lastTurn.status === "streaming"
+    || snapshot.session.status === "active"
+  ) {
+    return Date.now();
+  }
+  return lastTurn.endedAt ?? lastTurn.startedAt ?? null;
+}
+
+function buildTraceInspector(input: {
+  agentId: string;
+  title: string;
+  harness: string | null;
+  transport: string | null;
+  sessionId: string;
+  directoryPath: string | null;
+  cwdLabel: string | null;
+  snapshot: SessionState;
+  traceSource: "pairing_bridge" | "local_runtime";
+}): ScoutDesktopAgentSessionInspector {
+  const lastActivity = latestSessionActivity(input.snapshot);
+  return {
+    agentId: input.agentId,
+    title: input.title,
+    subtitle: input.cwdLabel
+      ? `Live session trace · ${input.cwdLabel}`
+      : "Live session trace",
+    mode: "trace",
+    harness: input.harness,
+    transport: input.transport,
+    sessionId: input.sessionId,
+    trace: input.snapshot,
+    traceSource: input.traceSource,
+    debugMode: null,
+    commandLabel: null,
+    pathLabel: input.cwdLabel,
+    directoryPath: input.directoryPath,
+    body: "",
+    updatedAtLabel: lastActivity ? formatRelativeTime(lastActivity) : null,
+    lineCount: 0,
+    truncated: false,
     missing: false,
   };
 }
@@ -322,27 +396,6 @@ export async function getScoutDesktopAgentSession(agentId: string): Promise<Scou
   const configuredTransport = agentConfig?.runtime.transport ?? null;
   const configuredSessionId = agentConfig?.runtime.sessionId ?? null;
   const configuredDirectoryPath = agentConfig?.runtime.cwd ?? null;
-  const configuredCwd = compactHomePath(configuredDirectoryPath ?? "") || null;
-
-  // Most relay agents are local tmux-backed sessions. Check the canonical local config first
-  // so the UI can render immediately instead of waiting on broker status and snapshot fetches.
-  if (configuredTransport === "tmux" && configuredSessionId) {
-    const inspector = buildTmuxInspector({
-      agentId,
-      title: configuredTitle,
-      harness: configuredHarness,
-      transport: configuredTransport,
-      sessionId: configuredSessionId,
-      directoryPath: configuredDirectoryPath,
-      cwdLabel: configuredCwd,
-      tailLines: DEFAULT_AGENT_SESSION_TAIL_LINES,
-    });
-    if (inspector) {
-      return inspector;
-    }
-  }
-
-  const logCapture = await readAgentSessionLogs(agentId, DEFAULT_AGENT_SESSION_TAIL_LINES);
 
   const snapshot = broker?.snapshot;
   const agent = snapshot?.agents?.[agentId] as { displayName?: string } | undefined;
@@ -355,12 +408,73 @@ export async function getScoutDesktopAgentSession(agentId: string): Promise<Scou
   const directoryPath = endpoint?.cwd ?? configuredDirectoryPath;
   const cwd = compactHomePath(directoryPath ?? "") || null;
 
-  if (transport === "tmux" && sessionId) {
+  if (transport === "pairing_bridge" && sessionId) {
+    const snapshot = await getScoutDesktopPairingSessionSnapshot(sessionId);
+    if (snapshot) {
+      return buildTraceInspector({
+        agentId,
+        title,
+        harness,
+        transport,
+        sessionId,
+        directoryPath,
+        cwdLabel: cwd,
+        snapshot,
+        traceSource: "pairing_bridge",
+      });
+    }
+  }
+
+  if (transport === "claude_stream_json" || transport === "codex_app_server") {
+    const snapshot = agentConfig
+      ? await getLocalAgentSessionSnapshot(agentId)
+      : endpoint
+        ? await getLocalAgentEndpointSessionSnapshot(endpoint as AgentEndpoint)
+        : null;
+    if (snapshot) {
+      return buildTraceInspector({
+        agentId,
+        title,
+        harness,
+        transport,
+        sessionId: snapshot.session.id,
+        directoryPath,
+        cwdLabel: cwd,
+        snapshot,
+        traceSource: "local_runtime",
+      });
+    }
+
+    return {
+      agentId,
+      title,
+      subtitle: "No live session trace is available yet.",
+      mode: "unavailable",
+      harness,
+      transport,
+      sessionId,
+      trace: null,
+      traceSource: null,
+      debugMode: null,
+      commandLabel: null,
+      pathLabel: cwd,
+      directoryPath,
+      body: "",
+      updatedAtLabel: null,
+      lineCount: 0,
+      truncated: false,
+      missing: true,
+    };
+  }
+
+  const logCapture = await readAgentSessionLogs(agentId, DEFAULT_AGENT_SESSION_TAIL_LINES);
+
+  if ((transport ?? configuredTransport) === "tmux" && sessionId) {
     const inspector = buildTmuxInspector({
       agentId,
       title,
       harness,
-      transport,
+      transport: transport ?? configuredTransport,
       sessionId,
       directoryPath,
       cwdLabel: cwd,
@@ -376,12 +490,15 @@ export async function getScoutDesktopAgentSession(agentId: string): Promise<Scou
       agentId,
       title,
       subtitle: transport && transport !== "tmux"
-        ? `${transport} session logs`
-        : "Runtime session logs",
-      mode: "logs",
+        ? `Debug ${transport} logs`
+        : "Debug runtime logs",
+      mode: "debug",
       harness,
       transport,
       sessionId,
+      trace: null,
+      traceSource: null,
+      debugMode: "logs",
       commandLabel: null,
       pathLabel: logCapture.pathLabel,
       directoryPath: logCapture.targetPath ?? relayAgentLogsDirectory(agentId),
@@ -396,11 +513,16 @@ export async function getScoutDesktopAgentSession(agentId: string): Promise<Scou
   return {
     agentId,
     title,
-    subtitle: "No live tmux pane or session logs available yet.",
-    mode: "none",
+    subtitle: transport === "pairing_bridge"
+      ? "No live session trace is available right now."
+      : "No live session trace or debug output is available yet.",
+    mode: "unavailable",
     harness,
     transport,
     sessionId,
+    trace: null,
+    traceSource: null,
+    debugMode: null,
     commandLabel: sessionId && transport === "tmux" ? `tmux attach -t ${sessionId}` : null,
     pathLabel: cwd,
     directoryPath,
@@ -412,6 +534,15 @@ export async function getScoutDesktopAgentSession(agentId: string): Promise<Scou
   };
 }
 
+export async function answerScoutDesktopAgentSessionQuestion(
+  input: AnswerScoutDesktopAgentSessionQuestionInput,
+): Promise<void> {
+  await answerLocalAgentSessionQuestion(input.agentId, {
+    blockId: input.blockId,
+    answer: input.answer,
+  });
+}
+
 export async function openScoutDesktopAgentSession(
   agentId: string,
   host: ScoutDesktopAgentSessionHost = {},
@@ -419,7 +550,15 @@ export async function openScoutDesktopAgentSession(
   const session = await getScoutDesktopAgentSession(agentId);
   const platform = host.platform ?? process.platform;
 
-  if (session.mode === "tmux" && session.commandLabel) {
+  if (session.mode === "trace") {
+    throw new Error("Trace-backed sessions open directly inside Scout.");
+  }
+
+  if (session.transport === "claude_stream_json" || session.transport === "codex_app_server") {
+    throw new Error("Managed local sessions are trace-backed inside Scout and do not open through tmux or raw log views.");
+  }
+
+  if (session.debugMode === "tmux" && session.commandLabel) {
     if (platform !== "darwin") {
       throw new Error("Direct tmux attach is only wired for macOS right now.");
     }
@@ -449,5 +588,5 @@ export async function openScoutDesktopAgentSession(
     return true;
   }
 
-  throw new Error("No live tmux pane or session logs are available for this agent yet.");
+  throw new Error("No live session debug output is available for this agent yet.");
 }

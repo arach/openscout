@@ -1,0 +1,2 @@
+var e=new class{messageHandler=null;setMessageHandler(e){return this.messageHandler=e,()=>{this.messageHandler===e&&(this.messageHandler=null)}}sendRequest=(e,t)=>{if(this.messageHandler==null)throw Error(`Missing AppServer request message handler`);return this.messageHandler(e,t)}};function t(t,n){return e.sendRequest(t,n)}export{e as n,t};
+//# sourceMappingURL=send-app-server-request-CSV2uZeE.js.map

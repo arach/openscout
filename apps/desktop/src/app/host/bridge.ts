@@ -26,6 +26,7 @@ import type {
   ScoutKeepAliveState,
 } from "./keep-alive.ts";
 import type {
+  AnswerScoutPairingQuestionInput,
   DecideScoutPairingApprovalInput,
   ScoutPairingControlAction,
   ScoutPairingState,
@@ -46,7 +47,10 @@ import type {
   ScoutDesktopLogCatalog,
   ScoutDesktopLogContent,
 } from "./diagnostics.ts";
-import type { ScoutDesktopAgentSessionInspector } from "./agent-session.ts";
+import type {
+  AnswerScoutDesktopAgentSessionQuestionInput,
+  ScoutDesktopAgentSessionInspector,
+} from "./agent-session.ts";
 import { SCOUT_DESKTOP_CHANNELS } from "./channels.ts";
 
 export type ScoutDesktopInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
@@ -83,6 +87,7 @@ export type ScoutDesktopBridge = {
   controlPairingService: (action: ScoutPairingControlAction) => Promise<ScoutPairingState>;
   updatePairingConfig: (input: UpdateScoutPairingConfigInput) => Promise<ScoutPairingState>;
   decidePairingApproval: (input: DecideScoutPairingApprovalInput) => Promise<ScoutPairingState>;
+  answerPairingQuestion: (input: AnswerScoutPairingQuestionInput) => Promise<ScoutPairingState>;
   restartAgent: (input: ScoutDesktopRestartAgentInput) => Promise<ScoutDesktopShellState>;
   sendRelayMessage: (input: ScoutDesktopSendRelayMessageInput) => Promise<ScoutDesktopShellPatch>;
   controlBroker: (action: ScoutDesktopBrokerControlAction) => Promise<ScoutDesktopShellState>;
@@ -90,6 +95,7 @@ export type ScoutDesktopBridge = {
   acquireKeepAliveLease: (input: AcquireScoutKeepAliveLeaseInput) => Promise<ScoutKeepAliveLease>;
   releaseKeepAliveLease: (input: ReleaseScoutKeepAliveLeaseInput) => Promise<boolean>;
   getAgentSession: (agentId: string) => Promise<ScoutDesktopAgentSessionInspector>;
+  answerAgentSessionQuestion: (input: AnswerScoutDesktopAgentSessionQuestionInput) => Promise<boolean>;
   openAgentSession: (agentId: string) => Promise<boolean>;
   toggleVoiceCapture: () => Promise<ScoutDesktopShellState>;
   setVoiceRepliesEnabled: (enabled: boolean) => Promise<ScoutDesktopShellState>;
@@ -178,6 +184,10 @@ export function createScoutDesktopBridge(invoke: ScoutDesktopInvoke): ScoutDeskt
       SCOUT_DESKTOP_CHANNELS.decidePairingApproval,
       input,
     ) as Promise<ScoutPairingState>,
+    answerPairingQuestion: (input) => invoke(
+      SCOUT_DESKTOP_CHANNELS.answerPairingQuestion,
+      input,
+    ) as Promise<ScoutPairingState>,
     restartAgent: (input) => invoke(
       SCOUT_DESKTOP_CHANNELS.restartAgent,
       input,
@@ -205,6 +215,10 @@ export function createScoutDesktopBridge(invoke: ScoutDesktopInvoke): ScoutDeskt
       SCOUT_DESKTOP_CHANNELS.getAgentSession,
       agentId,
     ) as Promise<ScoutDesktopAgentSessionInspector>,
+    answerAgentSessionQuestion: (input) => invoke(
+      SCOUT_DESKTOP_CHANNELS.answerAgentSessionQuestion,
+      input,
+    ) as Promise<boolean>,
     openAgentSession: (agentId) => invoke(
       SCOUT_DESKTOP_CHANNELS.openAgentSession,
       agentId,

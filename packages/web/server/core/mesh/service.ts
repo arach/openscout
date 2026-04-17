@@ -24,6 +24,21 @@ export type TailscaleStatus = {
   onlineCount: number;
 };
 
+export type MeshIssueCode =
+  | "broker_unreachable"
+  | "local_only"
+  | "mesh_loopback"
+  | "discovery_unconfigured";
+
+export type MeshIssue = {
+  code: MeshIssueCode;
+  severity: "warning" | "error";
+  title: string;
+  summary: string;
+  action: string | null;
+  actionCommand: string | null;
+};
+
 export type MeshStatusReport = {
   brokerUrl: string;
   health: ScoutBrokerHealthState;
@@ -31,6 +46,7 @@ export type MeshStatusReport = {
   meshId: string | null;
   nodes: Record<string, NodeDefinition>;
   tailscale: TailscaleStatus;
+  issues: MeshIssue[];
   warnings: string[];
 };
 
@@ -54,41 +70,66 @@ async function readTailscaleStatus(): Promise<TailscaleStatus> {
   };
 }
 
-function computeWarnings(
+function formatIssueWarning(issue: MeshIssue): string {
+  return issue.action
+    ? `${issue.title} — ${issue.summary} ${issue.action}`
+    : `${issue.title} — ${issue.summary}`;
+}
+
+function computeIssues(
   health: ScoutBrokerHealthState,
   localNode: ScoutBrokerNodeRecord | null,
   nodes: Record<string, NodeDefinition>,
   tailscale: TailscaleStatus,
-): string[] {
-  const warnings: string[] = [];
+): MeshIssue[] {
+  const issues: MeshIssue[] = [];
 
   if (!health.reachable) {
-    warnings.push("Broker is not reachable. Run `scout setup` to start it.");
-    return warnings;
+    issues.push({
+      code: "broker_unreachable",
+      severity: "error",
+      title: "Broker not reachable",
+      summary: "The mesh page cannot reach the local broker yet, so peer status is incomplete.",
+      action: "Start the broker, then reload this page.",
+      actionCommand: "scout setup",
+    });
+    return issues;
   }
 
   if (localNode?.advertiseScope === "local") {
-    warnings.push(
-      "Node advertise scope is `local` — peers will not discover this broker. " +
-      "Set OPENSCOUT_ADVERTISE_SCOPE=mesh and restart the broker.",
-    );
+    issues.push({
+      code: "local_only",
+      severity: "warning",
+      title: "Local-only visibility",
+      summary: "This broker is healthy on this machine, but peer brokers will not discover it while advertise scope stays local.",
+      action: "Switch to mesh visibility and restart the broker if this machine should participate in peer discovery.",
+      actionCommand: "OPENSCOUT_ADVERTISE_SCOPE=mesh",
+    });
   } else if (localNode?.advertiseScope === "mesh" && localNode.brokerUrl && isLoopbackBrokerUrl(localNode.brokerUrl)) {
-    warnings.push(
-      "Broker advertises mesh scope but is bound to loopback — peers cannot reach it. " +
-      "Unset OPENSCOUT_BROKER_HOST (mesh default is 0.0.0.0) or use your Tailscale IP.",
-    );
+    issues.push({
+      code: "mesh_loopback",
+      severity: "warning",
+      title: "Mesh visibility is not reachable",
+      summary: "This broker advertises mesh visibility, but it is still bound to a loopback address, so peers cannot connect to it.",
+      action: "Unset the explicit broker host or point it at a reachable interface.",
+      actionCommand: "OPENSCOUT_BROKER_HOST=0.0.0.0",
+    });
   }
 
   const remoteNodes = Object.values(nodes).filter((n) => n.id !== localNode?.id);
 
   if (!tailscale.available && remoteNodes.length === 0) {
-    warnings.push(
-      "No Tailscale peers found and no mesh seeds configured. " +
-      "Install Tailscale or set OPENSCOUT_MESH_SEEDS.",
-    );
+    issues.push({
+      code: "discovery_unconfigured",
+      severity: "warning",
+      title: "No discovery path configured",
+      summary: "No Tailscale peers are available and no mesh seeds are configured, so this broker has nowhere to look for peers.",
+      action: "Join the machine to Tailscale or configure an explicit seed broker.",
+      actionCommand: "OPENSCOUT_MESH_SEEDS=http://peer-host:65535",
+    });
   }
 
-  return warnings;
+  return issues;
 }
 
 /* ── Public API ── */
@@ -127,7 +168,8 @@ export async function loadMeshStatus(): Promise<MeshStatusReport> {
   const allNodes = context?.snapshot.nodes ?? {};
   const meshId = health.meshId ?? localNode?.meshId ?? null;
   const nodes = filterCurrentMeshNodes(allNodes, meshId, localNode?.id, Date.now());
-  const warnings = computeWarnings(health, localNode, nodes, tailscale);
+  const issues = computeIssues(health, localNode, nodes, tailscale);
+  const warnings = issues.map(formatIssueWarning);
 
-  return { brokerUrl, health, localNode, meshId, nodes, tailscale, warnings };
+  return { brokerUrl, health, localNode, meshId, nodes, tailscale, issues, warnings };
 }

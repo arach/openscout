@@ -1,5 +1,5 @@
-import type { ActionBlock, Session } from "./primitives.ts";
-import type { SessionState } from "../state.ts";
+import type { ActionBlock, Session } from "./primitives";
+import type { SessionState } from "../state";
 
 export type NormalizedApprovalRisk = "low" | "medium" | "high";
 

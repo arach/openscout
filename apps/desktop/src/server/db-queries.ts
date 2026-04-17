@@ -267,6 +267,7 @@ export function queryAgents(limit = 50): WebAgent[] {
        FROM agents a
        JOIN actors ac ON ac.id = a.id
        LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
+       WHERE COALESCE(json_extract(a.metadata_json, '$.retiredFromFleet'), 0) != 1
        ORDER BY ep.updated_at DESC NULLS LAST
        LIMIT ?`,
     )
@@ -404,6 +405,125 @@ export type WebFlight = {
   completedAt: number | null;
 };
 
+export type WebFleetObservableKind = "agent" | "session" | "actor";
+
+export type WebFleetActivity = WebActivityItem & {
+  actorId: string | null;
+  agentId: string | null;
+  flightId: string | null;
+  invocationId: string | null;
+  messageId: string | null;
+  recordId: string | null;
+  sessionId: string | null;
+};
+
+export type WebFleetObservable = {
+  id: string;
+  kind: WebFleetObservableKind;
+  actorId: string | null;
+  agentId: string | null;
+  name: string;
+  handle: string | null;
+  agentClass: string | null;
+  role: string | null;
+  harness: string | null;
+  transport: string | null;
+  state: string | null;
+  attention: WorkAttention;
+  conversationId: string | null;
+  sessionId: string | null;
+  projectRoot: string | null;
+  cwd: string | null;
+  project: string | null;
+  branch: string | null;
+  selector: string | null;
+  wakePolicy: string | null;
+  capabilities: string[];
+  messageCount: number;
+  activeFlightCount: number;
+  activeWorkCount: number;
+  lastActiveAt: number | null;
+  lastActivity: WebFleetActivity | null;
+  activeFlights: WebFlight[];
+  recentActivity: WebFleetActivity[];
+};
+
+export type WebFleetState = {
+  generatedAt: number;
+  totals: {
+    observables: number;
+    activity: number;
+    activeFlights: number;
+    activeWork: number;
+    messages: number;
+    silent: number;
+    badge: number;
+    interrupt: number;
+  };
+  observables: WebFleetObservable[];
+  activity: WebFleetActivity[];
+};
+
+type FleetAgentRow = {
+  id: string;
+  name: string;
+  handle: string | null;
+  agent_class: string;
+  default_selector: string | null;
+  wake_policy: string | null;
+  capabilities_json: string | null;
+  metadata_json: string | null;
+  harness: string | null;
+  transport: string | null;
+  state: string | null;
+  project_root: string | null;
+  cwd: string | null;
+  session_id: string | null;
+  updated_at: number | null;
+};
+
+type FleetActivityRow = {
+  id: string;
+  kind: string;
+  ts: number;
+  actor_name: string | null;
+  title: string | null;
+  summary: string | null;
+  conversation_id: string | null;
+  workspace_root: string | null;
+  actor_id: string | null;
+  agent_id: string | null;
+  message_id: string | null;
+  invocation_id: string | null;
+  flight_id: string | null;
+  record_id: string | null;
+  session_id: string | null;
+};
+
+type FleetFlightRow = {
+  id: string;
+  invocation_id: string;
+  target_agent_id: string;
+  agent_name: string | null;
+  conversation_id: string | null;
+  collaboration_record_id: string | null;
+  state: string;
+  summary: string | null;
+  started_at: number | null;
+  completed_at: number | null;
+};
+
+type FleetWorkStatsRow = {
+  active_work_count: number;
+  attention_work_count: number;
+  last_work_at: number | null;
+};
+
+type FleetMessageStatsRow = {
+  message_count: number;
+  last_message_at: number | null;
+};
+
 export type WebWorkTimelineKind =
   | "collaboration_event"
   | "flight_started"
@@ -433,6 +553,320 @@ export type WebWorkDetail = WebWorkItem & {
   activeFlights: WebFlight[];
   timeline: WebWorkTimelineItem[];
 };
+
+function parseFleetCapabilities(value: string | null): string[] {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseFleetMetadata(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function fleetAttentionRank(attention: WorkAttention): number {
+  switch (attention) {
+    case "interrupt":
+      return 2;
+    case "badge":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function projectFleetActivity(row: FleetActivityRow): WebFleetActivity {
+  return {
+    id: row.id,
+    kind: row.kind,
+    ts: row.ts,
+    actorName: row.actor_name,
+    title: row.title,
+    summary: row.summary,
+    conversationId: row.conversation_id,
+    workspaceRoot: compact(row.workspace_root),
+    actorId: row.actor_id,
+    agentId: row.agent_id,
+    flightId: row.flight_id,
+    invocationId: row.invocation_id,
+    messageId: row.message_id,
+    recordId: row.record_id,
+    sessionId: row.session_id,
+  };
+}
+
+function queryFleetActivity(opts?: {
+  limit?: number;
+  agentId?: string | null;
+  sessionId?: string | null;
+  conversationId?: string | null;
+}): WebFleetActivity[] {
+  const filters: string[] = [];
+  const params: Array<string | number> = [];
+
+  if (opts?.agentId) {
+    filters.push(`(
+      ai.agent_id = ?
+      OR ai.actor_id = ?
+      OR ai.record_id IN (
+        SELECT cr.id
+        FROM collaboration_records cr
+        WHERE cr.owner_id = ?
+          OR cr.next_move_owner_id = ?
+      )
+    )`);
+    params.push(opts.agentId, opts.agentId, opts.agentId, opts.agentId);
+  }
+  if (opts?.sessionId) {
+    filters.push("ai.session_id = ?");
+    params.push(opts.sessionId);
+  }
+  if (opts?.conversationId) {
+    filters.push("ai.conversation_id = ?");
+    params.push(opts.conversationId);
+  }
+
+  const sql = `SELECT
+    ai.id,
+    ai.kind,
+    ai.ts,
+    ac.display_name AS actor_name,
+    ai.title,
+    ai.summary,
+    ai.conversation_id,
+    ai.workspace_root,
+    ai.actor_id,
+    ai.agent_id,
+    ai.message_id,
+    ai.invocation_id,
+    ai.flight_id,
+    ai.record_id,
+    ai.session_id
+  FROM activity_items ai
+  LEFT JOIN actors ac ON ac.id = ai.actor_id
+  ${filters.length ? `WHERE ${filters.join(" OR ")}` : ""}
+  ORDER BY ai.ts DESC
+  LIMIT ?`;
+
+  const rows = db().prepare(sql).all(...params, opts?.limit ?? 80) as Array<FleetActivityRow>;
+  return rows.map(projectFleetActivity);
+}
+
+function queryFleetFlightRows(agentId: string): FleetFlightRow[] {
+  return db().prepare(
+    `SELECT
+       f.id,
+       f.invocation_id,
+       f.target_agent_id,
+       ac.display_name AS agent_name,
+       inv.conversation_id,
+       inv.collaboration_record_id,
+       f.state,
+       f.summary,
+       f.started_at,
+       f.completed_at
+     FROM flights f
+     JOIN invocations inv ON inv.id = f.invocation_id
+     LEFT JOIN actors ac ON ac.id = f.target_agent_id
+     WHERE f.target_agent_id = ?
+     ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+     LIMIT 100`,
+  ).all(agentId) as Array<FleetFlightRow>;
+}
+
+function queryFleetObservable(agentRow: FleetAgentRow): WebFleetObservable {
+  const metadata = parseFleetMetadata(agentRow.metadata_json);
+  const capabilities = parseFleetCapabilities(agentRow.capabilities_json);
+  const conversationId = conversationIdForAgent(agentRow.id);
+
+  const activeFlights = queryFlights({
+    agentId: agentRow.id,
+    activeOnly: true,
+  });
+  const flightRows = queryFleetFlightRows(agentRow.id);
+  const latestFlight = flightRows[0] ?? null;
+
+  const workStats = db().prepare(
+    `SELECT
+       COUNT(*) AS active_work_count,
+       MAX(CASE WHEN state IN ('waiting','review') OR acceptance_state = 'pending' THEN 1 ELSE 0 END) AS attention_work_count,
+       MAX(updated_at) AS last_work_at
+     FROM collaboration_records
+     WHERE kind = 'work_item'
+       AND (owner_id = ? OR next_move_owner_id = ?)
+       AND state IN ('open','working','waiting','review')`,
+  ).get(agentRow.id, agentRow.id) as FleetWorkStatsRow | null;
+
+  const messageStats = db().prepare(
+    `SELECT COUNT(*) AS message_count, MAX(created_at) AS last_message_at
+     FROM messages m
+     WHERE m.actor_id = ?
+        OR m.conversation_id IN (
+          SELECT cm.conversation_id
+          FROM conversation_members cm
+          WHERE cm.actor_id = ?
+        )`,
+  ).get(agentRow.id, agentRow.id) as FleetMessageStatsRow | null;
+
+  const recentActivity = queryFleetActivity({
+    agentId: agentRow.id,
+    sessionId: agentRow.session_id,
+    conversationId,
+    limit: 5,
+  });
+
+  const activityTimestamps = [
+    recentActivity[0]?.ts ?? null,
+    latestFlight ? coerceNumber(latestFlight.completed_at ?? latestFlight.started_at) : null,
+    coerceNumber(workStats?.last_work_at ?? null),
+    coerceNumber(messageStats?.last_message_at ?? null),
+    coerceNumber(agentRow.updated_at),
+  ].filter((value): value is number => typeof value === "number");
+
+  const lastActiveAt = activityTimestamps.length > 0
+    ? Math.max(...activityTimestamps)
+    : null;
+
+  const attention: WorkAttention = latestFlight?.state === "failed"
+    ? "interrupt"
+    : (Number(workStats?.attention_work_count ?? 0) > 0 ? "badge" : "silent");
+
+  const lastActivity = recentActivity[0] ?? null;
+  const project = (metadata.project as string) ?? null;
+  const branch = (metadata.branch as string) ?? null;
+  const role = (metadata.role as string) ?? null;
+  const selector = (metadata.selector as string) ?? agentRow.default_selector;
+
+  return {
+    id: agentRow.id,
+    kind: "agent",
+    actorId: agentRow.id,
+    agentId: agentRow.id,
+    name: agentRow.name,
+    handle: agentRow.handle,
+    agentClass: agentRow.agent_class,
+    role,
+    harness: agentRow.harness,
+    transport: agentRow.transport,
+    state: agentRow.state,
+    attention,
+    conversationId,
+    sessionId: agentRow.session_id,
+    projectRoot: compact(agentRow.project_root),
+    cwd: compact(agentRow.cwd),
+    project,
+    branch,
+    selector,
+    wakePolicy: agentRow.wake_policy,
+    capabilities,
+    messageCount: messageStats?.message_count ?? 0,
+    activeFlightCount: activeFlights.length,
+    activeWorkCount: workStats?.active_work_count ?? 0,
+    lastActiveAt,
+    lastActivity,
+    activeFlights,
+    recentActivity,
+  };
+}
+
+export function queryFleet(opts?: {
+  limit?: number;
+  activityLimit?: number;
+}): WebFleetState {
+  const limit = opts?.limit ?? 100;
+  const activityLimit = opts?.activityLimit ?? 80;
+
+  const rows = db().prepare(
+    `SELECT
+       a.id,
+       ac.display_name AS name,
+       ac.handle,
+       a.agent_class,
+       a.default_selector,
+       a.wake_policy,
+       a.capabilities_json,
+       a.metadata_json,
+       ep.harness,
+       ep.transport,
+       ep.state,
+       ep.project_root,
+       ep.cwd,
+       ep.session_id,
+       ep.updated_at
+     FROM agents a
+     JOIN actors ac ON ac.id = a.id
+     LEFT JOIN agent_endpoints ep ON ep.id = (
+       SELECT ep2.id
+       FROM agent_endpoints ep2
+       WHERE ep2.agent_id = a.id
+       ORDER BY ep2.updated_at DESC
+       LIMIT 1
+     )
+     WHERE COALESCE(json_extract(a.metadata_json, '$.retiredFromFleet'), 0) != 1
+     ORDER BY COALESCE(ep.updated_at, 0) DESC, ac.display_name ASC
+     LIMIT ?`,
+  ).all(limit) as Array<FleetAgentRow>;
+
+  const observables = rows.map(queryFleetObservable).sort((left, right) => {
+    const attentionDelta = fleetAttentionRank(right.attention) - fleetAttentionRank(left.attention);
+    if (attentionDelta !== 0) return attentionDelta;
+
+    const leftAt = left.lastActiveAt ?? 0;
+    const rightAt = right.lastActiveAt ?? 0;
+    if (rightAt !== leftAt) return rightAt - leftAt;
+
+    return left.name.localeCompare(right.name);
+  });
+
+  const activity = queryFleetActivity({ limit: activityLimit });
+
+  const totals = observables.reduce<WebFleetState["totals"]>((acc, observable) => {
+    acc.observables += 1;
+    acc.activeFlights += observable.activeFlightCount;
+    acc.activeWork += observable.activeWorkCount;
+    acc.messages += observable.messageCount;
+    switch (observable.attention) {
+      case "interrupt":
+        acc.interrupt += 1;
+        break;
+      case "badge":
+        acc.badge += 1;
+        break;
+      default:
+        acc.silent += 1;
+        break;
+    }
+    return acc;
+  }, {
+    observables: 0,
+    activity: activity.length,
+    activeFlights: 0,
+    activeWork: 0,
+    messages: 0,
+    silent: 0,
+    badge: 0,
+    interrupt: 0,
+  });
+
+  return {
+    generatedAt: Date.now(),
+    totals,
+    observables,
+    activity,
+  };
+}
 
 export function queryFlights(opts?: {
   agentId?: string;

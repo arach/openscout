@@ -76,18 +76,20 @@
     "README.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && node_modules/.bin/tsc -p tsconfig.json",
+    "build": "npm --prefix ../agent-sessions run build && rm -rf dist && node_modules/.bin/tsc -p tsconfig.json",
     "broker": "node ./bin/openscout-runtime.mjs broker",
     "service": "node ./bin/openscout-runtime.mjs service",
     "discover": "node ./bin/openscout-runtime.mjs discover",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "bun ./src/drizzle-migrate.ts",
-    "check": "tsc --noEmit -p tsconfig.json",
+    "check": "npm --prefix ../agent-sessions run build && tsc --noEmit -p tsconfig.json",
     "test": "bun test src/*.test.ts",
+    "test:live:codex-app-server": "bun test src/codex-app-server-live.test.ts",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
+    "@openscout/agent-sessions": "workspace:*",
     "@openscout/protocol": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1"

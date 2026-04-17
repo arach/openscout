@@ -74,7 +74,7 @@ export interface AgentEndpoint {
   agentId: ScoutId;
   nodeId: ScoutId;
   harness: AgentHarness;
-  transport: "local_socket" | "http" | "websocket" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "tmux";
+  transport: "local_socket" | "http" | "websocket" | "pairing_bridge" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "tmux";
   state: AgentState;
   address?: string;
   sessionId?: string;

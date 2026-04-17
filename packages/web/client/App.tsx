@@ -7,6 +7,7 @@ import { SettingsScreen } from "./screens/SettingsScreen.tsx";
 import { ActivityScreen } from "./screens/ActivityScreen.tsx";
 import { AgentInfoScreen } from "./screens/AgentInfoScreen.tsx";
 import { AgentsScreen } from "./screens/AgentsScreen.tsx";
+import { FleetScreen } from "./screens/FleetScreen.tsx";
 import { SessionsScreen } from "./screens/SessionsScreen.tsx";
 import { MeshScreen } from "./screens/MeshScreen.tsx";
 import { HomeScreen } from "./screens/HomeScreen.tsx";
@@ -31,6 +32,22 @@ function AgentsIcon() {
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function FleetIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="12" cy="4" r="2" />
+      <circle cx="4" cy="12" r="2" />
+      <circle cx="20" cy="12" r="2" />
+      <circle cx="12" cy="20" r="2" />
+      <path d="M12 6v3" />
+      <path d="M6 12h3" />
+      <path d="M15 12h3" />
+      <path d="M12 15v3" />
     </svg>
   );
 }
@@ -92,6 +109,8 @@ function MainPanel({
       return <SettingsScreen navigate={navigate} />;
     case "agents":
       return <AgentsScreen navigate={navigate} selectedAgentId={route.agentId} />;
+    case "fleet":
+      return <FleetScreen navigate={navigate} />;
     case "sessions":
       if (route.sessionId) {
         return <ConversationScreen conversationId={route.sessionId} navigate={navigate} />;
@@ -117,15 +136,16 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([]);
 
   const load = useCallback(async () => {
-    try {
-      const [a, m] = await Promise.all([
-        api<Agent[]>("/api/agents"),
-        api<Message[]>("/api/messages"),
-      ]);
-      setAgents(a);
-      setMessages(m);
-    } catch {
-      // stay empty on error
+    const [agentsResult, messagesResult] = await Promise.allSettled([
+      api<Agent[]>("/api/agents"),
+      api<Message[]>("/api/messages"),
+    ]);
+
+    if (agentsResult.status === "fulfilled") {
+      setAgents(agentsResult.value);
+    }
+    if (messagesResult.status === "fulfilled") {
+      setMessages(messagesResult.value);
     }
   }, []);
 
@@ -161,6 +181,14 @@ export function App() {
           >
             <AgentsIcon />
             <span>Agents</span>
+          </button>
+          <button
+            type="button"
+            className={`s-nav-item${route.view === "fleet" ? " s-nav-item-active" : ""}`}
+            onClick={() => navigate({ view: "fleet" })}
+          >
+            <FleetIcon />
+            <span>Fleet</span>
           </button>
           <button
             type="button"

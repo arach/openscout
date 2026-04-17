@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { closeDb, queryFlights, queryWorkItemById, queryWorkItems } from "./db-queries.ts";
+import { closeDb, queryFleet, queryFlights, queryWorkItemById, queryWorkItems } from "./db-queries.ts";
 import { SQLiteControlPlaneStore } from "../../../../packages/runtime/src/sqlite-store.ts";
 
 const tempRoots = new Set<string>();
@@ -57,6 +57,17 @@ function createSeededStore(): SQLiteControlPlaneStore {
     homeNodeId: "node-1",
     authorityNodeId: "node-1",
     advertiseScope: "local",
+  });
+  store.upsertEndpoint({
+    id: "endpoint-1",
+    agentId: "agent-1",
+    nodeId: "node-1",
+    harness: "claude",
+    transport: "claude_stream_json",
+    state: "active",
+    sessionId: "session-1",
+    cwd: join(tmpdir(), "openscout-agent-1", "cwd"),
+    projectRoot: join(tmpdir(), "openscout-agent-1"),
   });
   store.upsertConversation({
     id: "conv-1",
@@ -256,6 +267,233 @@ describe("desktop db query work item by id", () => {
     const store = createSeededStore();
     try {
       expect(queryWorkItemById("does-not-exist")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("desktop db query fleet", () => {
+  test("surfaces activity, work, flights, and attention across observables", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordMessage({
+        id: "msg-1",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Please finish the work.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 111,
+      });
+      store.recordCollaborationEvent({
+        id: "event-2",
+        recordId: "work-1",
+        recordKind: "work_item",
+        kind: "progressed",
+        actorId: "agent-1",
+        summary: "Moved to the next step",
+        at: 120,
+      });
+      store.recordInvocation({
+        id: "inv-2",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Keep going",
+        collaborationRecordId: "work-1",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 130,
+      });
+      store.recordFlight({
+        id: "flight-2",
+        invocationId: "inv-2",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Build failed",
+        startedAt: 131,
+        completedAt: 132,
+      });
+
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "endpoint-2",
+        agentId: "agent-2",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "claude_stream_json",
+        state: "active",
+        sessionId: "session-2",
+        cwd: join(tmpdir(), "openscout-agent-2", "cwd"),
+        projectRoot: join(tmpdir(), "openscout-agent-2"),
+      });
+      store.upsertConversation({
+        id: "conv-2",
+        kind: "direct",
+        title: "Direct Two",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-2", "operator"],
+      });
+      store.recordMessage({
+        id: "msg-2",
+        conversationId: "conv-2",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Please review this branch.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 140,
+      });
+      store.recordCollaborationRecord({
+        id: "work-2",
+        kind: "work_item",
+        title: "Review required",
+        createdById: "operator",
+        ownerId: "agent-2",
+        nextMoveOwnerId: "agent-2",
+        conversationId: "conv-2",
+        state: "review",
+        acceptanceState: "pending",
+        requestedById: "operator",
+        createdAt: 141,
+        updatedAt: 141,
+      });
+      store.recordCollaborationEvent({
+        id: "event-3",
+        recordId: "work-2",
+        recordKind: "work_item",
+        kind: "review_requested",
+        actorId: "operator",
+        summary: "Needs review",
+        at: 142,
+      });
+
+      store.upsertActor({
+        id: "agent-3",
+        kind: "agent",
+        displayName: "Agent Three",
+      });
+      store.upsertAgent({
+        id: "agent-3",
+        kind: "agent",
+        definitionId: "agent-3",
+        displayName: "Agent Three",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "endpoint-3",
+        agentId: "agent-3",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "claude_stream_json",
+        state: "active",
+        sessionId: "session-3",
+        cwd: join(tmpdir(), "openscout-agent-3", "cwd"),
+        projectRoot: join(tmpdir(), "openscout-agent-3"),
+      });
+
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+
+      expect(fleet.totals).toMatchObject({
+        observables: 3,
+        interrupt: 1,
+        badge: 1,
+        silent: 1,
+      });
+      expect(fleet.observables.map((observable) => [observable.id, observable.attention])).toEqual([
+        ["agent-1", "interrupt"],
+        ["agent-2", "badge"],
+        ["agent-3", "silent"],
+      ]);
+
+      const agent1 = fleet.observables.find((observable) => observable.id === "agent-1");
+      expect(agent1).not.toBeNull();
+      expect(agent1).toMatchObject({
+        kind: "agent",
+        actorId: "agent-1",
+        agentId: "agent-1",
+        conversationId: "dm.operator.agent-1",
+        activeFlightCount: 1,
+        activeWorkCount: 2,
+        messageCount: 1,
+        attention: "interrupt",
+      });
+      expect(agent1?.activeFlights.map((flight) => flight.id)).toEqual(["flight-1"]);
+      expect(agent1?.recentActivity.map((item) => item.kind)).toEqual([
+        "flight_updated",
+        "invocation_recorded",
+        "collaboration_event",
+        "ask_opened",
+        "collaboration_event",
+      ]);
+      expect(agent1?.lastActivity?.kind).toBe("flight_updated");
+
+      const agent2 = fleet.observables.find((observable) => observable.id === "agent-2");
+      expect(agent2).not.toBeNull();
+      expect(agent2).toMatchObject({
+        kind: "agent",
+        actorId: "agent-2",
+        agentId: "agent-2",
+        conversationId: "dm.operator.agent-2",
+        activeFlightCount: 0,
+        activeWorkCount: 1,
+        messageCount: 1,
+        attention: "badge",
+      });
+      expect(agent2?.recentActivity.map((item) => item.kind)).toContain("collaboration_event");
+      expect(agent2?.recentActivity.map((item) => item.kind)).toContain("ask_opened");
+
+      const agent3 = fleet.observables.find((observable) => observable.id === "agent-3");
+      expect(agent3).not.toBeNull();
+      expect(agent3).toMatchObject({
+        kind: "agent",
+        actorId: "agent-3",
+        agentId: "agent-3",
+        activeFlightCount: 0,
+        activeWorkCount: 0,
+        messageCount: 0,
+        attention: "silent",
+      });
+      expect(agent3?.recentActivity).toEqual([]);
+
+      expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
+      expect(fleet.activity.map((item) => item.kind)).toEqual(expect.arrayContaining([
+        "invocation_recorded",
+        "flight_updated",
+        "collaboration_event",
+        "ask_opened",
+      ]));
     } finally {
       store.close();
     }

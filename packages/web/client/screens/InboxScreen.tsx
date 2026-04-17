@@ -3,40 +3,34 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
-import { conversationForAgent } from "../lib/router.ts";
-import type { Agent, Message, InboxEntry, Route } from "../lib/types.ts";
+import { isAgentOnline } from "../lib/agent-state.ts";
+import type { Agent, InboxEntry, Route, SessionEntry } from "../lib/types.ts";
 
-function deriveInbox(agents: Agent[], messages: Message[]): InboxEntry[] {
-  const byConv = new Map<string, Message[]>();
-  for (const m of messages) {
-    let arr = byConv.get(m.conversationId);
-    if (!arr) { arr = []; byConv.set(m.conversationId, arr); }
-    arr.push(m);
+function deriveInbox(agents: Agent[], sessions: SessionEntry[]): InboxEntry[] {
+  const entries: InboxEntry[] = [];
+  for (const session of sessions) {
+    if (session.kind !== "direct" || !session.agentId) {
+      continue;
+    }
+    const agent = agents.find((candidate) => candidate.id === session.agentId);
+    if (!agent) {
+      continue;
+    }
+    entries.push({
+      agent,
+      conversationId: session.id,
+      preview: session.preview,
+      previewActor: null,
+      messageCount: session.messageCount,
+      lastMessageAt: session.lastMessageAt,
+    });
   }
 
-  return agents.map((agent) => {
-    const cid = conversationForAgent(agent.id);
-    const msgs = byConv.get(cid);
-    let preview: string | null = null;
-    let previewActor: string | null = null;
-    let lastMessageAt: number | null = null;
-    let messageCount = 0;
-
-    if (msgs && msgs.length > 0) {
-      msgs.sort((a, b) => b.createdAt - a.createdAt);
-      preview = msgs[0].body.slice(0, 120);
-      previewActor = msgs[0].actorName;
-      lastMessageAt = msgs[0].createdAt;
-      messageCount = msgs.length;
-    }
-
-    return { agent, conversationId: cid, preview, previewActor, messageCount, lastMessageAt };
-  }).sort((a, b) => {
-    // Active agents first
-    const aActive = a.agent.state === "active" ? 0 : 1;
-    const bActive = b.agent.state === "active" ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    // Then by last message time
+  return entries
+    .sort((a, b) => {
+    const aOnline = isAgentOnline(a.agent.state) ? 0 : 1;
+    const bOnline = isAgentOnline(b.agent.state) ? 0 : 1;
+    if (aOnline !== bOnline) return aOnline - bOnline;
     const aT = a.lastMessageAt ?? 0;
     const bT = b.lastMessageAt ?? 0;
     return bT - aT;
@@ -50,11 +44,11 @@ export function InboxScreen({ navigate }: { navigate: (r: Route) => void }) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [agents, messages] = await Promise.all([
+      const [agents, sessions] = await Promise.all([
         api<Agent[]>("/api/agents"),
-        api<Message[]>("/api/messages"),
+        api<SessionEntry[]>("/api/sessions"),
       ]);
-      setEntries(deriveInbox(agents, messages));
+      setEntries(deriveInbox(agents, sessions));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

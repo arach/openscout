@@ -12,7 +12,7 @@ import type {
   QuestionAnswer,
   Session,
   SessionStatus,
-} from "./primitives.ts";
+} from "./primitives";
 
 // ---------------------------------------------------------------------------
 // Adapter configuration — passed by the bridge when instantiating

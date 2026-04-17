@@ -130,6 +130,25 @@ const DEFAULT_DESKTOP_FEATURES: DesktopFeatureFlags = {
 
 const AVAILABLE_AGENT_HARNESSES = ['claude', 'codex'] as const;
 const HOME_CACHE_KEY = 'scout.desktop.home-cache.v1';
+const LIVE_REFRESH_DEBOUNCE_MS = 250;
+const BROKER_EVENT_NAMES = [
+  "hello",
+  "node.upserted",
+  "actor.registered",
+  "agent.registered",
+  "agent.endpoint.upserted",
+  "conversation.upserted",
+  "binding.upserted",
+  "message.posted",
+  "invocation.requested",
+  "flight.updated",
+  "delivery.planned",
+  "delivery.attempted",
+  "delivery.state.changed",
+  "collaboration.upserted",
+  "collaboration.event.appended",
+  "scout.dispatched",
+] as const;
 
 type CachedHomeSnapshot = {
   savedAt: number;
@@ -862,6 +881,7 @@ export default function App() {
     handlePeekAgentSessionScroll,
     handleOpenAgentSession,
     handleCopyAgentSessionCommand,
+    handleAgentSessionTraceIntent,
     handlePeekAgentSession,
     refreshAgentSession,
   } = agentController;
@@ -917,6 +937,71 @@ export default function App() {
     || activeView === 'search'
   );
 
+  const refreshLiveSurface = React.useCallback(async () => {
+    if (startupOnboardingBlocking) {
+      return;
+    }
+
+    try {
+      if (
+        productSurface === 'pairing'
+        && desktopFeatures.pairing
+        && (scoutDesktop?.refreshPairingState || scoutDesktop?.getPairingState)
+      ) {
+        await refreshPairingState();
+        return;
+      }
+
+      if (activeView === 'overview') {
+        await Promise.allSettled([
+          loadServicesState(),
+          loadHomeState(false),
+        ]);
+        return;
+      }
+
+      if (relayPatchRefreshRequired && scoutDesktop?.refreshRelayShellPatch) {
+        const nextState = await scoutDesktop.refreshRelayShellPatch();
+        applyRelayWorkspacePatch(nextState);
+        setShellError(null);
+        return;
+      }
+
+      if (messagesWorkspaceRequired) {
+        await loadMessagesWorkspaceState(false);
+        return;
+      }
+
+      if (relayWorkspaceRequired && scoutDesktop?.refreshShellState) {
+        const nextState = await scoutDesktop.refreshShellState();
+        setShellState(nextState);
+        setShellError(null);
+        return;
+      }
+
+      if (relayWorkspaceRequired) {
+        await loadShellState(false);
+      }
+    } catch {
+      // Foreground actions surface their own errors; event-driven refreshes stay quiet.
+    }
+  }, [
+    activeView,
+    applyRelayWorkspacePatch,
+    desktopFeatures.pairing,
+    loadHomeState,
+    loadMessagesWorkspaceState,
+    loadServicesState,
+    loadShellState,
+    messagesWorkspaceRequired,
+    productSurface,
+    refreshPairingState,
+    relayPatchRefreshRequired,
+    relayWorkspaceRequired,
+    scoutDesktop,
+    startupOnboardingBlocking,
+  ]);
+
   useEffect(() => {
     if (homeBootstrappedRef.current || !scoutDesktop) {
       return;
@@ -962,6 +1047,58 @@ export default function App() {
 
     void loadShellState(true);
   }, [loadShellState, relayWorkspaceRequired, shellState, startupOnboardingBlocking]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof EventSource === "undefined" || !scoutDesktop) {
+      return;
+    }
+
+    let refreshTimeoutId: number | null = null;
+    const source = new EventSource("/api/events");
+
+    const scheduleRefresh = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      if (refreshTimeoutId !== null) {
+        return;
+      }
+
+      refreshTimeoutId = window.setTimeout(() => {
+        refreshTimeoutId = null;
+        void refreshLiveSurface();
+      }, LIVE_REFRESH_DEBOUNCE_MS);
+    };
+
+    const listeners = BROKER_EVENT_NAMES.map((eventName) => {
+      const handler = () => scheduleRefresh();
+      source.addEventListener(eventName, handler);
+      return { eventName, handler };
+    });
+
+    const handleFocus = () => scheduleRefresh();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scheduleRefresh();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (refreshTimeoutId !== null) {
+        window.clearTimeout(refreshTimeoutId);
+      }
+      for (const listener of listeners) {
+        source.removeEventListener(listener.eventName, listener.handler);
+      }
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      source.close();
+    };
+  }, [refreshLiveSurface, scoutDesktop]);
 
   useEffect(() => {
     const threads = messagesState?.threads ?? [];
@@ -2144,6 +2281,7 @@ export default function App() {
         closeAgentSessionPeek={closeAgentSessionPeek}
         handleCopyAgentSessionCommand={() => void handleCopyAgentSessionCommand()}
         handleOpenAgentSession={() => void handleOpenAgentSession()}
+        handleAgentSessionTraceIntent={(intent) => void handleAgentSessionTraceIntent(intent)}
         renderLocalPathValue={renderLocalPathValue}
         isCreateAgentDialogOpen={isCreateAgentDialogOpen}
         setIsCreateAgentDialogOpen={setIsCreateAgentDialogOpen}

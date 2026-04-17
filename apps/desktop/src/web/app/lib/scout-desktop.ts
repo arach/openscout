@@ -46,6 +46,7 @@ import type {
   UpdateScoutPhonePreparationInput,
 } from "../../../app/desktop/state.ts";
 import type {
+  AnswerScoutPairingQuestionInput,
   DecideScoutPairingApprovalInput,
   ScoutPairingApprovalRequest,
   ScoutPairingSnapshot,
@@ -148,6 +149,7 @@ export type SendRelayMessageInput = ScoutDesktopSendRelayMessageInput;
 export type BrokerControlAction = ScoutDesktopBrokerControlAction;
 export type UpdatePairingConfigInput = UpdateScoutPairingConfigInput;
 export type DecidePairingApprovalInput = DecideScoutPairingApprovalInput;
+export type AnswerPairingQuestionInput = AnswerScoutPairingQuestionInput;
 
 export type DesktopLogGroup = ScoutDesktopLogGroup;
 export type DesktopLogSource = ScoutDesktopLogSource;

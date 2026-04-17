@@ -1102,6 +1102,7 @@ export async function sendScoutMessage(input: {
   senderId: string;
   body: string;
   channel?: string;
+  explicitTargetAgentIds?: string[];
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
@@ -1138,9 +1139,31 @@ export async function sendScoutMessage(input: {
     )
   ).filter((target): target is ScoutMentionTarget => Boolean(target));
 
+  const explicitTargetCandidates = [...new Set(
+    (input.explicitTargetAgentIds ?? [])
+      .map((targetId) => targetId.trim())
+      .filter((targetId) => targetId.length > 0),
+  )];
+  const explicitTargets = (
+    await Promise.all(
+      explicitTargetCandidates.map(async (targetId) => (
+        await ensureTargetRelayAgentRegistered(
+          broker.baseUrl,
+          broker.snapshot,
+          broker.node.id,
+          targetId,
+          currentDirectory,
+        )
+          ? targetId
+          : null
+      )),
+    )
+  ).filter((targetId): targetId is string => Boolean(targetId));
+
   const validTargets = [...new Set(
     availableTargets
       .map((target) => target.agentId)
+      .concat(explicitTargets)
       .filter((target) => target !== senderId && Boolean(broker.snapshot.agents[target])),
   )].sort();
 
@@ -1163,7 +1186,8 @@ export async function sendScoutMessage(input: {
     .filter((target) => !validTargets.includes(target.agentId))
     .map((target) => target.label)
     .concat(mentionResolution.unresolved)
-    .concat(mentionResolution.ambiguous.map((entry) => entry.label));
+    .concat(mentionResolution.ambiguous.map((entry) => entry.label))
+    .concat(explicitTargetCandidates.filter((targetId) => !validTargets.includes(targetId)));
   const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const speechText = input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : "";
   const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {

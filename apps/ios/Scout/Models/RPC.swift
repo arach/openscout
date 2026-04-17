@@ -43,8 +43,11 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "session/resume":           TRPCRoute(path: "session.resume",         method: .mutation),
 
     // Prompt / turn
-    "turn/interrupt":           TRPCRoute(path: "prompt.interrupt",       method: .mutation),
+    "turn/interrupt":           TRPCRoute(path: "turnInterrupt",          method: .mutation),
     "action/decide":            TRPCRoute(path: "actionDecide",           method: .mutation),
+
+    // Agent lifecycle (mobile)
+    "mobile/agent/interrupt":   TRPCRoute(path: "mobile.agentInterrupt",  method: .mutation),
 
     // Sync
     "sync/status":              TRPCRoute(path: "sync.status",            method: .query),

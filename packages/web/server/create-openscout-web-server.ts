@@ -20,6 +20,7 @@ import {
 import {
   queryAgents,
   queryActivity,
+  queryFleet,
   queryFlights,
   queryRecentMessages,
   queryWorkItems,
@@ -46,6 +47,60 @@ export type OpenScoutWebServer = {
   app: Hono;
   warmupCaches: () => Promise<void>;
 };
+
+function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function inferDirectTargetAgentId(
+  conversationId: string | undefined,
+  session: { kind: string; agentId: string | null; participantIds: string[] } | null,
+  senderId: string,
+): string | null {
+  if (session?.kind === "direct") {
+    if (session.agentId) {
+      return session.agentId;
+    }
+
+    const participants = session.participantIds.filter((participantId) => participantId.trim().length > 0);
+    if (participants.length === 2) {
+      const operatorCandidates = new Set([senderId.trim(), "operator"]);
+      const nonOperatorParticipants = participants.filter((participantId) => !operatorCandidates.has(participantId));
+      if (nonOperatorParticipants.length === 1) {
+        return nonOperatorParticipants[0] ?? null;
+      }
+
+      const localSessionParticipant = nonOperatorParticipants.find((participantId) => participantId.startsWith("local-session-agent-"))
+        ?? participants.find((participantId) => participantId.startsWith("local-session-agent-"));
+      if (localSessionParticipant) {
+        return localSessionParticipant;
+      }
+
+      return participants[0] ?? null;
+    }
+  }
+
+  if (conversationId?.startsWith("dm.operator.")) {
+    const legacyAgentId = conversationId.slice("dm.operator.".length);
+    return legacyAgentId || null;
+  }
+
+  return null;
+}
+
+function inferDirectSenderId(
+  _session: { kind: string; participantIds: string[] } | null,
+  _fallbackSenderId: string,
+  _directTargetAgentId: string | null,
+): string {
+  // Web-originated sends must use the canonical operator actor id so direct
+  // chats stay on one deterministic thread id.
+  return "operator";
+}
 
 function resolveBundledStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "client");
@@ -99,7 +154,18 @@ export function createOpenScoutWebServer(
 
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
-  app.get("/api/messages", (c) => c.json(queryRecentMessages()));
+  app.get("/api/fleet", (c) =>
+    c.json(queryFleet({
+      limit: parseOptionalPositiveInt(c.req.query("limit")),
+      activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+    })));
+  app.get("/api/messages", (c) =>
+    c.json(
+      queryRecentMessages(
+        parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80,
+        { conversationId: c.req.query("conversationId") || undefined },
+      ),
+    ));
   app.get("/api/work", (c) => {
     const agentId = c.req.query("agentId");
     const activeOnly = c.req.query("active") !== "false";
@@ -161,19 +227,15 @@ export function createOpenScoutWebServer(
       return c.json({ error: "body is required" }, 400);
     }
 
-    // If sending from a DM conversation, extract the agent and ensure @mention
-    // so sendScoutMessage routes to the DM instead of channel.shared
-    let finalBody = body.trim();
-    if (conversationId?.startsWith("dm.operator.")) {
-      const agentId = conversationId.slice("dm.operator.".length);
-      if (agentId && !finalBody.includes(`@${agentId}`)) {
-        finalBody = `@${agentId} ${finalBody}`;
-      }
-    }
+    const fallbackSenderId = "operator";
+    const session = conversationId ? querySessionById(conversationId) : null;
+    const directAgentId = inferDirectTargetAgentId(conversationId, session, fallbackSenderId);
+    const senderId = inferDirectSenderId(session, fallbackSenderId, directAgentId);
 
     const result = await sendScoutMessage({
-      senderId: resolveOperatorName(),
-      body: finalBody,
+      senderId,
+      body: body.trim(),
+      explicitTargetAgentIds: directAgentId ? [directAgentId] : undefined,
       currentDirectory,
     });
 

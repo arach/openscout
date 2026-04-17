@@ -4,8 +4,9 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { isAgentOnline } from "../lib/agent-state.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
-import { agentIdFromConversation } from "../lib/router.ts";
+import { agentIdFromConversation, conversationForAgent } from "../lib/router.ts";
 import type { Agent, Flight, Message, Route, SessionEntry } from "../lib/types.ts";
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
@@ -180,17 +181,7 @@ function describePresence(input: {
     }
   }
 
-  if (agentState === "active") {
-    return {
-      label: "Online",
-      detail: `${agentName} is connected and ready.`,
-      tone: "idle",
-      showStrip: false,
-      showTyping: false,
-    };
-  }
-
-  if (agentState === "waiting" || agentState === "idle") {
+  if (isAgentOnline(agentState)) {
     return {
       label: "Available",
       detail: `${agentName} is connected.`,
@@ -241,6 +232,15 @@ function SendIcon() {
   );
 }
 
+function ConversationMetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="s-conv-meta-row">
+      <span className="s-conv-meta-label">{label}</span>
+      <span className="s-conv-meta-value">{value}</span>
+    </div>
+  );
+}
+
 export function ConversationScreen({
   conversationId,
   navigate,
@@ -258,41 +258,63 @@ export function ConversationScreen({
   const trackedInvocationIdsRef = useRef<Set<string>>(new Set());
   const currentFlightRef = useRef<Flight | null>(null);
 
-  const agentId = agentIdFromConversation(conversationId);
-  const isDm = agentId !== null;
+  const legacyAgentId = agentIdFromConversation(conversationId);
+  const agentId = sessionMeta?.agentId ?? legacyAgentId;
+  const isDm = sessionMeta?.kind === "direct" || legacyAgentId !== null;
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [agents, allMessages, activeFlights] = await Promise.all([
+      const [agents, meta] = await Promise.all([
         api<Agent[]>("/api/agents"),
-        api<Message[]>("/api/messages"),
-        api<Flight[]>(`/api/flights?conversationId=${encodeURIComponent(conversationId)}`),
+        api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`).catch(() => null),
       ]);
-      setAgent(agentId ? agents.find((item) => item.id === agentId) ?? null : null);
 
-      // For non-DM conversations, fetch session metadata for title/participants
-      if (!agentId) {
-        try {
-          const meta = await api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`);
-          setSessionMeta(meta);
-        } catch {
-          // session lookup is best-effort
-        }
+      setSessionMeta(meta);
+      const resolvedAgentId = meta?.agentId ?? legacyAgentId;
+      setAgent(resolvedAgentId ? agents.find((item) => item.id === resolvedAgentId) ?? null : null);
+
+      const canonicalConversationId = (
+        meta?.kind === "direct"
+        && resolvedAgentId
+        && resolvedAgentId.startsWith("local-session-agent-")
+      )
+        ? conversationForAgent(resolvedAgentId)
+        : conversationId;
+
+      if (canonicalConversationId !== conversationId) {
+        navigate({ view: "conversation", conversationId: canonicalConversationId });
+        return;
       }
 
-      setMessages(
-        sortMessages(allMessages.filter((message) => message.conversationId === conversationId)),
-      );
+      const [conversationMessages, activeFlights] = await Promise.all([
+        api<Message[]>(
+          `/api/messages?conversationId=${encodeURIComponent(canonicalConversationId)}&limit=300`,
+        ),
+        api<Flight[]>(
+          `/api/flights?conversationId=${encodeURIComponent(canonicalConversationId)}`,
+        ),
+      ]);
+
+      setMessages(sortMessages(conversationMessages));
       trackedInvocationIdsRef.current = new Set(activeFlights.map((flight) => flight.invocationId));
       setCurrentFlight(selectCurrentFlight(activeFlights));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [agentId, conversationId]);
+  }, [conversationId, legacyAgentId, navigate]);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // SSE is primary, but keep a light polling fallback so DM replies surface
+  // even when the browser temporarily drops EventSource updates.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void load();
+    }, 5000);
+    return () => clearInterval(timer);
   }, [load]);
 
   useEffect(() => {
@@ -337,7 +359,7 @@ export function ConversationScreen({
     return flightStartedAt >= (lastAgentReplyAt ?? 0);
   }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
 
-  const agentName = agent?.name ?? sessionMeta?.title ?? agentId ?? "Conversation";
+  const agentName = agent?.name ?? sessionMeta?.agentName ?? sessionMeta?.title ?? agentId ?? "Conversation";
   const presence = useMemo(
     () => describePresence({
       agentName,
@@ -550,7 +572,7 @@ export function ConversationScreen({
         <span className="s-spacer" />
         {agent?.harness && <span className="s-badge">{agent.harness}</span>}
         {!isDm && sessionMeta?.kind && <span className="s-badge">{sessionMeta.kind}</span>}
-        {isDm && <span className="s-chevron" />}
+        {isDm && agentId && <span className="s-chevron" />}
       </div>
 
       {presence.showStrip && (
@@ -560,6 +582,17 @@ export function ConversationScreen({
             <span className="s-conv-status-label">{presence.label}</span>
             <span className="s-conv-status-detail">{presence.detail}</span>
           </div>
+        </div>
+      )}
+
+      {isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
+        <div className="s-conv-meta" aria-label="Agent session metadata">
+          {agent.harnessSessionId && (
+            <ConversationMetaRow label="Harness Session" value={agent.harnessSessionId} />
+          )}
+          {agent.harnessLogPath && (
+            <ConversationMetaRow label="Harness Log" value={agent.harnessLogPath} />
+          )}
         </div>
       )}
 

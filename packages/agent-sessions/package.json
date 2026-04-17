@@ -5,17 +5,17 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "bun": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./client": {
-      "types": "./src/client.ts",
+      "types": "./dist/client.d.ts",
       "bun": "./src/client.ts",
       "default": "./dist/client.js"
     }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "files": [
     "src",
     "dist",
@@ -24,7 +24,9 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test src/*.test.ts src/protocol/*.test.ts",
+    "test": "bun test src/*.test.ts src/protocol/*.test.ts src/adapters/**/*.test.ts",
+    "adapter:validate-specs": "node ./src/adapters/spec/tools/validate-adapter-specs.mjs",
+    "codex:extract-protocol": "node ./src/adapters/codex/tools/extract-rust-protocol-spec.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },

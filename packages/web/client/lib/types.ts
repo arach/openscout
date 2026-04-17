@@ -17,6 +17,9 @@ export type Agent = {
   project: string | null;
   branch: string | null;
   role: string | null;
+  harnessSessionId: string | null;
+  harnessLogPath: string | null;
+  conversationId: string;
 };
 
 export type Message = {
@@ -38,6 +41,63 @@ export type ActivityItem = {
   summary: string | null;
   conversationId: string | null;
   workspaceRoot: string | null;
+};
+
+export type FleetActivity = ActivityItem & {
+  actorId: string | null;
+  agentId: string | null;
+  flightId: string | null;
+  invocationId: string | null;
+  messageId: string | null;
+  recordId: string | null;
+  sessionId: string | null;
+};
+
+export type FleetAsk = {
+  invocationId: string;
+  flightId: string | null;
+  agentId: string;
+  agentName: string | null;
+  conversationId: string | null;
+  collaborationRecordId: string | null;
+  task: string;
+  status: "queued" | "working" | "needs_attention" | "completed" | "failed";
+  statusLabel: string;
+  attention: "silent" | "badge" | "interrupt";
+  agentState: "offline" | "available" | "working";
+  harness: string | null;
+  transport: string | null;
+  summary: string | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  updatedAt: number;
+};
+
+export type FleetAttentionItem = {
+  kind: "question" | "work_item";
+  recordId: string;
+  title: string;
+  summary: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  conversationId: string | null;
+  state: string;
+  acceptanceState: string;
+  updatedAt: number;
+};
+
+export type FleetState = {
+  generatedAt: number;
+  totals: {
+    active: number;
+    recentCompleted: number;
+    needsAttention: number;
+    activity: number;
+  };
+  activeAsks: FleetAsk[];
+  recentCompleted: FleetAsk[];
+  needsAttention: FleetAttentionItem[];
+  activity: FleetActivity[];
 };
 
 export type PairingSnapshot = {
@@ -129,6 +189,15 @@ export type SessionEntry = {
 };
 
 /** Mesh status report from the broker. */
+export type MeshIssue = {
+  code: "broker_unreachable" | "local_only" | "mesh_loopback" | "discovery_unconfigured";
+  severity: "warning" | "error";
+  title: string;
+  summary: string;
+  action: string | null;
+  actionCommand: string | null;
+};
+
 export type MeshStatus = {
   brokerUrl: string;
   health: {
@@ -155,12 +224,14 @@ export type MeshStatus = {
     advertiseScope?: string;
     brokerUrl?: string;
     registeredAt?: number;
+    lastSeenAt?: number;
   }>;
   tailscale: {
     available: boolean;
     onlineCount: number;
     peers: Array<{ id: string; name: string; hostName?: string; addresses: string[]; online: boolean; os?: string }>;
   };
+  issues: MeshIssue[];
   warnings: string[];
 };
 
@@ -199,6 +270,7 @@ export type Route =
   | { view: "conversation"; conversationId: string }
   | { view: "agent-info"; conversationId: string }
   | { view: "agents"; agentId?: string }
+  | { view: "fleet" }
   | { view: "sessions"; sessionId?: string }
   | { view: "mesh" }
   | { view: "activity" }

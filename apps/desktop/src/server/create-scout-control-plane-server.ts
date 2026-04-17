@@ -22,6 +22,7 @@ import {
 import {
   queryAgents,
   queryActivity,
+  queryFleet,
   queryRecentMessages,
   queryFlights,
   queryWorkItemById,
@@ -43,6 +44,14 @@ export type ScoutControlPlaneServer = {
   app: Hono;
   warmupCaches: () => Promise<void>;
 };
+
+function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function defaultMonorepoControlPlaneStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "../../../../packages/web/dist/client");
@@ -100,6 +109,11 @@ export function createScoutControlPlaneServer(
   // Direct SQLite reads — no shell calls, no snapshot rebuilds
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
+  app.get("/api/fleet", (c) =>
+    c.json(queryFleet({
+      limit: parseOptionalPositiveInt(c.req.query("limit")),
+      activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+    })));
   app.get("/api/messages", (c) => c.json(queryRecentMessages()));
   app.get("/api/work", (c) => {
     const agentId = c.req.query("agentId");

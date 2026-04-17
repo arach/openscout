@@ -38,6 +38,8 @@ struct AddressBarPill: View {
             return "Activity"
         case .newSession:
             return "New Session"
+        case .agentDetail:
+            return "Agent"
         case .settings:
             return "Settings"
         }

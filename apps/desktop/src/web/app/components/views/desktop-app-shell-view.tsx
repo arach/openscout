@@ -1,4 +1,5 @@
 import React from 'react';
+import type { TraceIntent } from '@openscout/session-trace';
 import {
   Bot,
   BookOpen,
@@ -18,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { AgentSessionTraceSurface } from '@/components/agent-session-trace-surface';
 import { ProductSurfaceLogo, PairingSurfacePlaceholder, describePairingSurfaceBadge } from '@/components/pairing-surface-placeholder';
 import { Button } from '@/components/primitives/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/primitives/dialog';
@@ -65,6 +67,7 @@ interface AgentSessionPeekDialogProps {
   handlePeekAgentSessionScroll: React.UIEventHandler<HTMLElement>;
   handleCopyAgentSessionCommand: () => void;
   handleOpenAgentSession: () => void;
+  handleAgentSessionTraceIntent: (intent: TraceIntent) => void;
   closeAgentSessionPeek: () => void;
   renderLocalPathValue: RenderLocalPathValue;
   s: ShellStyles;
@@ -143,6 +146,7 @@ export interface DesktopAppShellViewProps {
   closeAgentSessionPeek: () => void;
   handleCopyAgentSessionCommand: () => void;
   handleOpenAgentSession: () => void;
+  handleAgentSessionTraceIntent: (intent: TraceIntent) => void;
   renderLocalPathValue: RenderLocalPathValue;
   isCreateAgentDialogOpen: boolean;
   setIsCreateAgentDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -189,6 +193,7 @@ function AgentSessionPeekDialog({
   handlePeekAgentSessionScroll,
   handleCopyAgentSessionCommand,
   handleOpenAgentSession,
+  handleAgentSessionTraceIntent,
   closeAgentSessionPeek,
   renderLocalPathValue,
   s,
@@ -219,7 +224,7 @@ function AgentSessionPeekDialog({
             </div>
             <div className="text-[11px] truncate mt-0.5" style={s.mutedText}>
               {agentSessionPending
-                ? 'Checking tmux pane and runtime logs for the selected agent.'
+                ? 'Loading live session state for the selected agent.'
                 : visibleAgentSession?.subtitle ?? 'No live session output available yet.'}
             </div>
           </div>
@@ -233,13 +238,13 @@ function AgentSessionPeekDialog({
                 {agentSessionCopied ? 'Copied' : 'Copy Attach'}
               </button>
             ) : null}
-            {visibleAgentSession && visibleAgentSession.mode !== 'none' ? (
+            {visibleAgentSession?.mode === 'debug' ? (
               <button
                 className="os-toolbar-button flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded"
                 style={{ color: C.ink }}
                 onClick={handleOpenAgentSession}
               >
-                {visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                {visibleAgentSession.debugMode === 'tmux' ? 'Open TMUX' : 'Open Debug'}
               </button>
             ) : null}
             <button
@@ -254,9 +259,22 @@ function AgentSessionPeekDialog({
         </div>
 
         <div className="px-4 py-2 border-b flex items-center gap-2 flex-wrap text-[10px] shrink-0" style={{ borderBottomColor: C.border, color: C.muted }}>
-          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'tmux' ? s.activePill : s.tagBadge}>
-            {agentSessionPending ? 'Loading' : visibleAgentSession?.mode === 'tmux' ? 'TMUX' : visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={visibleAgentSession?.mode === 'trace' ? s.activePill : s.tagBadge}>
+            {agentSessionPending
+              ? 'Loading'
+              : visibleAgentSession?.mode === 'trace'
+                ? 'Trace'
+                : visibleAgentSession?.debugMode === 'tmux'
+                  ? 'TMUX'
+                  : visibleAgentSession?.debugMode === 'logs'
+                    ? 'Debug'
+                    : 'Unavailable'}
           </span>
+          {visibleAgentSession?.trace?.session.adapterType ? (
+            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
+              {visibleAgentSession.trace.session.adapterType}
+            </span>
+          ) : null}
           {(visibleAgentSession?.harness ?? selectedInterAgent.harness) ? (
             <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={s.tagBadge}>
               {visibleAgentSession?.harness ?? selectedInterAgent.harness}
@@ -273,6 +291,7 @@ function AgentSessionPeekDialog({
             </span>
           ) : null}
           {visibleAgentSession?.updatedAtLabel ? <span>Updated {visibleAgentSession.updatedAtLabel}</span> : null}
+          {visibleAgentSession?.trace ? <span>{visibleAgentSession.trace.turns.length} turns</span> : null}
           {typeof visibleAgentSession?.lineCount === 'number' && visibleAgentSession.lineCount > 0 ? <span>{visibleAgentSession.lineCount} lines</span> : null}
           {visibleAgentSession?.truncated ? <span>Tail only</span> : null}
           <span>Refreshing live while open</span>
@@ -282,6 +301,19 @@ function AgentSessionPeekDialog({
           {agentSessionLoading && !visibleAgentSession ? (
             <div className="px-4 py-8 text-[12px]" style={s.mutedText}>
               Loading live session…
+            </div>
+          ) : visibleAgentSession?.mode === 'trace' && visibleAgentSession.trace ? (
+            <div
+              ref={(element) => {
+                agentSessionPeekViewportRef.current = element;
+              }}
+              onScroll={handlePeekAgentSessionScroll}
+              className="h-full overflow-y-auto px-4 py-4"
+            >
+              <AgentSessionTraceSurface
+                snapshot={visibleAgentSession.trace}
+                onIntent={handleAgentSessionTraceIntent}
+              />
             </div>
           ) : visibleAgentSession?.body ? (
             <pre
@@ -297,7 +329,7 @@ function AgentSessionPeekDialog({
           ) : (
             <div className="px-4 py-8 text-[12px] leading-[1.65]" style={s.mutedText}>
               {agentSessionPending
-                ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                ? 'Loading live session state.'
                 : visibleAgentSession?.subtitle ?? 'No session output available yet.'}
             </div>
           )}
@@ -676,6 +708,7 @@ export function DesktopAppShellView({
   closeAgentSessionPeek,
   handleCopyAgentSessionCommand,
   handleOpenAgentSession,
+  handleAgentSessionTraceIntent,
   renderLocalPathValue,
   isCreateAgentDialogOpen,
   setIsCreateAgentDialogOpen,
@@ -879,6 +912,7 @@ export function DesktopAppShellView({
             handlePeekAgentSessionScroll={handlePeekAgentSessionScroll}
             handleCopyAgentSessionCommand={handleCopyAgentSessionCommand}
             handleOpenAgentSession={handleOpenAgentSession}
+            handleAgentSessionTraceIntent={handleAgentSessionTraceIntent}
             closeAgentSessionPeek={closeAgentSessionPeek}
             renderLocalPathValue={renderLocalPathValue}
             s={s}

@@ -2,6 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 
+import type {
+  ActionBlock,
+  BlockState,
+  ReasoningBlock,
+  SessionState,
+  TextBlock,
+  TurnState,
+} from "@openscout/agent-sessions";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 
 type CodexRequest = {
@@ -31,6 +39,12 @@ type CodexServerRequest = {
   params?: Record<string, unknown>;
 };
 
+type CodexErrorResponse = {
+  code: number;
+  message: string;
+  data?: unknown;
+};
+
 type SessionRequestOptions = {
   agentName: string;
   sessionId: string;
@@ -39,6 +53,8 @@ type SessionRequestOptions = {
   runtimeDirectory: string;
   logsDirectory: string;
   launchArgs?: string[];
+  threadId?: string;
+  requireExistingThread?: boolean;
 };
 
 type InvocationOptions = SessionRequestOptions & {
@@ -87,7 +103,23 @@ type ActiveTurn = {
   messageByItemId: Map<string, string>;
   resolve: (output: string) => void;
   reject: (error: Error) => void;
+  watchers: Array<{
+    resolve: (output: string) => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout | null;
+  }>;
 };
+
+export type CodexSessionSnapshotOptions = Pick<
+  SessionRequestOptions,
+  "agentName" | "sessionId" | "cwd"
+>;
+
+function isCodexThreadGlobalMessage(message: Record<string, unknown>): boolean {
+  const result = message.result as Record<string, unknown> | undefined;
+  const thread = result?.thread as Record<string, unknown> | undefined;
+  return typeof thread?.id === "string";
+}
 
 function sessionKey(options: SessionRequestOptions): string {
   return `${options.agentName}:${options.sessionId}`;
@@ -96,6 +128,14 @@ function sessionKey(options: SessionRequestOptions): string {
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function metadataRecord(metadata: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  const value = metadata?.[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 async function isExecutable(filePath: string | undefined): Promise<boolean> {
@@ -118,6 +158,17 @@ async function resolveCodexExecutable(): Promise<string> {
   ].filter(Boolean) as string[];
 
   for (const candidate of explicitCandidates) {
+    if (await isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  const bundledCandidates = [
+    "/Applications/Codex.app/Contents/Resources/codex",
+    join(process.env.HOME ?? "", "Applications", "Codex.app", "Contents", "Resources", "codex"),
+  ].filter(Boolean);
+
+  for (const candidate of bundledCandidates) {
     if (await isExecutable(candidate)) {
       return candidate;
     }
@@ -151,12 +202,39 @@ function parseJsonLine(line: string): CodexResponse | CodexNotification | CodexS
   }
 }
 
+function parseJsonRecord(line: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(line) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
 
   return String(error);
+}
+
+function buildUnsupportedServerRequestError(message: CodexServerRequest): CodexErrorResponse {
+  if (message.method === "item/tool/call") {
+    const tool = typeof message.params?.tool === "string" ? message.params.tool : null;
+    const toolLabel = tool ? `dynamic tool call \`${tool}\`` : "dynamic tool call";
+    return {
+      code: -32000,
+      message: `${toolLabel} is not supported by openscout-runtime`,
+    };
+  }
+
+  return {
+    code: -32000,
+    message: `Unsupported server request: ${message.method}`,
+  };
 }
 
 function isResponse(message: unknown): message is CodexResponse {
@@ -196,6 +274,841 @@ async function readOptionalFile(filePath: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function readOptionalJsonRecord(filePath: string): Promise<Record<string, unknown> | null> {
+  const raw = await readOptionalFile(filePath);
+  return raw ? parseJsonRecord(raw) : null;
+}
+
+function codexThreadStatusToSessionStatus(status: string | undefined): SessionState["session"]["status"] {
+  switch (status) {
+    case "active":
+      return "active";
+    case "idle":
+      return "idle";
+    case "error":
+      return "error";
+    default:
+      return "connecting";
+  }
+}
+
+function codexTurnStatusToTurnStatus(status: string | undefined): TurnState["status"] {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "interrupted":
+      return "interrupted";
+    case "failed":
+      return "error";
+    default:
+      return "streaming";
+  }
+}
+
+function stringifyCodexItem(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function parseCodexTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function parseCodexMaybeJson(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function extractCodexReasoningText(item: Record<string, unknown>): string {
+  const summary = Array.isArray(item.summary) ? item.summary : [];
+  const content = Array.isArray(item.content) ? item.content : [];
+
+  const summaryText = summary
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+
+      const record = entry as Record<string, unknown>;
+      if (typeof record.text === "string") {
+        return record.text;
+      }
+      if (typeof record.summary === "string") {
+        return record.summary;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const contentText = content
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+
+      const record = entry as Record<string, unknown>;
+      return typeof record.text === "string" ? record.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return [summaryText, contentText].filter(Boolean).join("\n\n").trim();
+}
+
+function extractCodexMessageText(item: Record<string, unknown>): string {
+  const content = Array.isArray(item.content) ? item.content : [];
+  return content
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry;
+      }
+
+      const record = entry as Record<string, unknown>;
+      return typeof record.text === "string" ? record.text : "";
+    })
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function extractCodexUserMessageText(item: Record<string, unknown>): string {
+  const text = extractCodexMessageText(item);
+  if (text) {
+    return text;
+  }
+  return typeof item.text === "string" ? item.text.trim() : "";
+}
+
+function renderCodexActionOutput(item: Record<string, unknown>): string {
+  if (typeof item.text === "string" && item.text.trim()) {
+    return item.text;
+  }
+
+  if (item.action !== undefined) {
+    return stringifyCodexItem(item.action);
+  }
+
+  return stringifyCodexItem(item);
+}
+
+function buildCodexActionBlock(
+  item: Record<string, unknown>,
+  turnId: string,
+  index: number,
+): ActionBlock {
+  return {
+    id: typeof item.id === "string" ? item.id : `${turnId}:action:${index}`,
+    turnId,
+    index,
+    type: "action",
+    status: "streaming",
+    action: {
+      kind: "tool_call",
+      toolName: typeof item.type === "string" ? item.type : "unknown",
+      toolCallId: typeof item.id === "string" ? item.id : `${turnId}:action:${index}`,
+      input: item,
+      output: "",
+      status: "running",
+    },
+  };
+}
+
+function buildCodexRolloutActionBlock(
+  item: Record<string, unknown>,
+  turnId: string,
+  index: number,
+): ActionBlock {
+  const itemType = typeof item.type === "string" ? item.type : "tool_call";
+  const toolCallId = typeof item.call_id === "string"
+    ? item.call_id
+    : `${turnId}:action:${index}`;
+  const toolName = typeof item.name === "string"
+    ? item.name
+    : itemType === "web_search_call"
+      ? "web_search"
+      : itemType;
+  const input = itemType === "function_call"
+    ? parseCodexMaybeJson(item.arguments)
+    : itemType === "custom_tool_call"
+      ? item.input
+      : item;
+
+  return {
+    id: toolCallId,
+    turnId,
+    index,
+    type: "action",
+    status: "streaming",
+    action: {
+      kind: "tool_call",
+      toolName,
+      toolCallId,
+      input,
+      output: "",
+      status: "running",
+    },
+  };
+}
+
+function finalizeCodexTurnBlocks(
+  turn: TurnState & { nextBlockIndex: number },
+  status: "completed" | "interrupted" | "error",
+): void {
+  for (const blockState of turn.blocks) {
+    if (blockState.status === "completed") {
+      continue;
+    }
+
+    blockState.status = "completed";
+    blockState.block.status = "completed";
+    if (blockState.block.type === "action") {
+      blockState.block.action.status = status === "completed" ? "completed" : "failed";
+    }
+  }
+}
+
+function setCodexProviderMeta(
+  snapshot: SessionState,
+  threadId: string | null,
+  threadPath: string | null,
+): void {
+  if (!threadId && !threadPath) {
+    return;
+  }
+
+  snapshot.session.providerMeta = {
+    ...(snapshot.session.providerMeta ?? {}),
+    ...(threadId ? { threadId } : {}),
+    ...(threadPath ? { threadPath } : {}),
+  };
+}
+
+export function buildCodexAppServerSessionSnapshot(
+  raw: string,
+  options: CodexSessionSnapshotOptions,
+  targetThreadId?: string | null,
+): SessionState | null {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let resolvedThreadId = targetThreadId?.trim() || null;
+  if (!resolvedThreadId) {
+    for (const line of lines) {
+      try {
+        const message = JSON.parse(line) as Record<string, unknown>;
+        const resultThread = (message.result as Record<string, unknown> | undefined)?.thread as Record<string, unknown> | undefined;
+        const paramsThread = (message.params as Record<string, unknown> | undefined)?.thread as Record<string, unknown> | undefined;
+        const params = message.params as Record<string, unknown> | undefined;
+        const nextThreadId = typeof resultThread?.id === "string"
+          ? resultThread.id
+          : typeof paramsThread?.id === "string"
+            ? paramsThread.id
+            : typeof params?.threadId === "string"
+              ? params.threadId
+            : null;
+        if (nextThreadId) {
+          resolvedThreadId = nextThreadId;
+        }
+      } catch {
+        // Ignore malformed lines in snapshot mode.
+      }
+    }
+  }
+
+  const snapshot: SessionState = {
+    session: {
+      id: options.sessionId,
+      name: options.agentName,
+      adapterType: "codex_app_server",
+      status: resolvedThreadId ? "idle" : "connecting",
+      cwd: options.cwd,
+      providerMeta: resolvedThreadId ? { threadId: resolvedThreadId } : undefined,
+    },
+    turns: [],
+  };
+
+  const turnsById = new Map<string, TurnState & { nextBlockIndex: number }>();
+  const blocksById = new Map<string, BlockState>();
+
+  const ensureTurn = (turnId: string) => {
+    const existing = turnsById.get(turnId);
+    if (existing) {
+      return existing;
+    }
+
+    const turn: TurnState & { nextBlockIndex: number } = {
+      id: turnId,
+      status: "streaming",
+      blocks: [],
+      startedAt: Date.now(),
+      nextBlockIndex: 0,
+    };
+    turnsById.set(turnId, turn);
+    snapshot.turns.push(turn);
+    snapshot.currentTurnId = turnId;
+    snapshot.session.status = "active";
+    return turn;
+  };
+
+  const completeBlock = (blockState: BlockState | undefined) => {
+    if (!blockState) {
+      return;
+    }
+
+    blockState.status = "completed";
+    blockState.block.status = "completed";
+  };
+
+  for (const line of lines) {
+    let message: Record<string, unknown>;
+    try {
+      message = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const params = message.params as Record<string, unknown> | undefined;
+    const result = message.result as Record<string, unknown> | undefined;
+    const paramsThread = params?.thread as Record<string, unknown> | undefined;
+    const resultThread = result?.thread as Record<string, unknown> | undefined;
+    const lineThreadId = typeof params?.threadId === "string"
+      ? params.threadId
+      : typeof paramsThread?.id === "string"
+        ? paramsThread.id
+        : typeof resultThread?.id === "string"
+          ? resultThread.id
+          : null;
+    if (resolvedThreadId) {
+      if (lineThreadId && lineThreadId !== resolvedThreadId) {
+        continue;
+      }
+      if (!lineThreadId && !isCodexThreadGlobalMessage(message)) {
+        continue;
+      }
+    }
+
+    const resultModel = typeof result?.model === "string" ? result.model : null;
+    if (resultThread && resultModel) {
+      snapshot.session.model = resultModel;
+    }
+    if (typeof resultThread?.path === "string") {
+      snapshot.session.providerMeta = {
+        ...(snapshot.session.providerMeta ?? {}),
+        threadId: resolvedThreadId ?? resultThread.id,
+        threadPath: resultThread.path,
+      };
+    }
+    if (typeof resultThread?.cwd === "string") {
+      snapshot.session.cwd = resultThread.cwd;
+    }
+
+    if (message.method === "thread/started" || message.method === "thread/name/updated") {
+      if (typeof paramsThread?.path === "string") {
+        snapshot.session.providerMeta = {
+          ...(snapshot.session.providerMeta ?? {}),
+          threadId: resolvedThreadId ?? paramsThread.id,
+          threadPath: paramsThread.path,
+        };
+      }
+      if (typeof paramsThread?.cwd === "string") {
+        snapshot.session.cwd = paramsThread.cwd;
+      }
+      if (typeof paramsThread?.name === "string" && paramsThread.name.trim()) {
+        snapshot.session.name = paramsThread.name;
+      }
+      continue;
+    }
+
+    if (message.method === "thread/status/changed") {
+      const status = (params?.status as Record<string, unknown> | undefined)?.type;
+      snapshot.session.status = codexThreadStatusToSessionStatus(typeof status === "string" ? status : undefined);
+      continue;
+    }
+
+    if (message.method === "turn/started") {
+      const turn = params?.turn as Record<string, unknown> | undefined;
+      if (typeof turn?.id === "string") {
+        ensureTurn(turn.id);
+      }
+      continue;
+    }
+
+    if (message.method === "item/started") {
+      const item = params?.item as Record<string, unknown> | undefined;
+      const turnId = typeof params?.turnId === "string" ? params.turnId : null;
+      const itemType = typeof item?.type === "string" ? item.type : "";
+      const itemId = typeof item?.id === "string" ? item.id : null;
+      if (!turnId || !item || !itemId || !itemType) {
+        continue;
+      }
+
+      const turn = ensureTurn(turnId);
+      if (itemType === "userMessage") {
+        const block: TextBlock = {
+          id: itemId,
+          turnId,
+          index: turn.nextBlockIndex++,
+          type: "text",
+          text: extractCodexUserMessageText(item),
+          status: "streaming",
+        };
+        const blockState: BlockState = { block, status: "streaming" };
+        turn.blocks.push(blockState);
+        blocksById.set(itemId, blockState);
+        continue;
+      }
+
+      if (itemType === "agentMessage") {
+        const block: TextBlock = {
+          id: itemId,
+          turnId,
+          index: turn.nextBlockIndex++,
+          type: "text",
+          text: typeof item.text === "string" ? item.text : "",
+          status: "streaming",
+        };
+        const blockState: BlockState = { block, status: "streaming" };
+        turn.blocks.push(blockState);
+        blocksById.set(itemId, blockState);
+        continue;
+      }
+
+      if (itemType === "reasoning") {
+        const text = extractCodexReasoningText(item);
+        if (!text) {
+          continue;
+        }
+
+        const block: ReasoningBlock = {
+          id: itemId,
+          turnId,
+          index: turn.nextBlockIndex++,
+          type: "reasoning",
+          text,
+          status: "streaming",
+        };
+        const blockState: BlockState = { block, status: "streaming" };
+        turn.blocks.push(blockState);
+        blocksById.set(itemId, blockState);
+        continue;
+      }
+
+      const block = buildCodexActionBlock(item, turnId, turn.nextBlockIndex++);
+      const blockState: BlockState = { block, status: "streaming" };
+      turn.blocks.push(blockState);
+      blocksById.set(block.id, blockState);
+      continue;
+    }
+
+    if (message.method === "item/agentMessage/delta") {
+      const itemId = typeof params?.itemId === "string" ? params.itemId : null;
+      const delta = typeof params?.delta === "string" ? params.delta : "";
+      const blockState = itemId ? blocksById.get(itemId) : undefined;
+      if (blockState?.block.type === "text") {
+        (blockState.block as TextBlock).text += delta;
+      }
+      continue;
+    }
+
+    if (message.method === "item/completed") {
+      const item = params?.item as Record<string, unknown> | undefined;
+      const turnId = typeof params?.turnId === "string" ? params.turnId : null;
+      const itemType = typeof item?.type === "string" ? item.type : "";
+      const itemId = typeof item?.id === "string" ? item.id : null;
+      if (!turnId || !item || !itemId || !itemType) {
+        continue;
+      }
+
+      if (itemType === "userMessage") {
+        const turn = ensureTurn(turnId);
+        let blockState = blocksById.get(itemId);
+        if (!blockState) {
+          const block: TextBlock = {
+            id: itemId,
+            turnId,
+            index: turn.nextBlockIndex++,
+            type: "text",
+            text: "",
+            status: "streaming",
+          };
+          blockState = { block, status: "streaming" };
+          turn.blocks.push(blockState);
+          blocksById.set(itemId, blockState);
+        }
+        if (blockState.block.type === "text") {
+          (blockState.block as TextBlock).text = extractCodexUserMessageText(item);
+        }
+        completeBlock(blockState);
+        continue;
+      }
+
+      if (itemType === "agentMessage") {
+        const turn = ensureTurn(turnId);
+        let blockState = blocksById.get(itemId);
+        if (!blockState) {
+          const block: TextBlock = {
+            id: itemId,
+            turnId,
+            index: turn.nextBlockIndex++,
+            type: "text",
+            text: "",
+            status: "streaming",
+          };
+          blockState = { block, status: "streaming" };
+          turn.blocks.push(blockState);
+          blocksById.set(itemId, blockState);
+        }
+        if (blockState.block.type === "text" && typeof item.text === "string" && item.text.length > 0) {
+          (blockState.block as TextBlock).text = item.text;
+        }
+        completeBlock(blockState);
+        continue;
+      }
+
+      if (itemType === "reasoning") {
+        const text = extractCodexReasoningText(item);
+        if (!text) {
+          continue;
+        }
+
+        const turn = ensureTurn(turnId);
+        let blockState = blocksById.get(itemId);
+        if (!blockState) {
+          const block: ReasoningBlock = {
+            id: itemId,
+            turnId,
+            index: turn.nextBlockIndex++,
+            type: "reasoning",
+            text,
+            status: "streaming",
+          };
+          blockState = { block, status: "streaming" };
+          turn.blocks.push(blockState);
+          blocksById.set(itemId, blockState);
+        }
+        if (blockState.block.type === "reasoning" && text) {
+          (blockState.block as ReasoningBlock).text = text;
+        }
+        completeBlock(blockState);
+        continue;
+      }
+
+      const turn = ensureTurn(turnId);
+      let blockState = blocksById.get(itemId);
+      if (!blockState) {
+        const block = buildCodexActionBlock(item, turnId, turn.nextBlockIndex++);
+        blockState = { block, status: "streaming" };
+        turn.blocks.push(blockState);
+        blocksById.set(itemId, blockState);
+      }
+      if (blockState.block.type === "action") {
+        blockState.block.action.output = renderCodexActionOutput(item);
+        blockState.block.action.status = "completed";
+      }
+      completeBlock(blockState);
+      continue;
+    }
+
+    if (message.method === "turn/completed") {
+      const turn = params?.turn as Record<string, unknown> | undefined;
+      if (!turn || typeof turn.id !== "string") {
+        continue;
+      }
+
+      const turnState = ensureTurn(turn.id);
+      turnState.status = codexTurnStatusToTurnStatus(typeof turn.status === "string" ? turn.status : undefined);
+      turnState.endedAt = Date.now();
+      if (snapshot.currentTurnId === turn.id) {
+        snapshot.currentTurnId = undefined;
+      }
+      snapshot.session.status = turnState.status === "error" ? "error" : "idle";
+      continue;
+    }
+
+    if (message.method === "error") {
+      snapshot.session.status = "error";
+    }
+  }
+
+  if (!resolvedThreadId && snapshot.turns.length === 0) {
+    return null;
+  }
+
+  return snapshot;
+}
+
+export function buildCodexRolloutSessionSnapshot(
+  raw: string,
+  options: CodexSessionSnapshotOptions,
+  targetThreadId?: string | null,
+  rolloutPath?: string | null,
+): SessionState | null {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let resolvedThreadId = targetThreadId?.trim() || null;
+  const snapshot: SessionState = {
+    session: {
+      id: options.sessionId,
+      name: options.agentName,
+      adapterType: "codex_app_server",
+      status: resolvedThreadId ? "idle" : "connecting",
+      cwd: options.cwd,
+    },
+    turns: [],
+  };
+  setCodexProviderMeta(snapshot, resolvedThreadId, rolloutPath ?? null);
+
+  const turnsById = new Map<string, TurnState & { nextBlockIndex: number }>();
+  const blocksByCallId = new Map<string, BlockState>();
+  let currentTurnId: string | null = null;
+
+  const ensureTurn = (turnId: string, startedAt?: number) => {
+    const existing = turnsById.get(turnId);
+    if (existing) {
+      if (startedAt && !existing.startedAt) {
+        existing.startedAt = startedAt;
+      }
+      return existing;
+    }
+
+    const turn: TurnState & { nextBlockIndex: number } = {
+      id: turnId,
+      status: "streaming",
+      blocks: [],
+      startedAt: startedAt ?? Date.now(),
+      nextBlockIndex: 0,
+    };
+    turnsById.set(turnId, turn);
+    snapshot.turns.push(turn);
+    snapshot.currentTurnId = turnId;
+    snapshot.session.status = "active";
+    return turn;
+  };
+
+  for (const line of lines) {
+    const message = parseJsonRecord(line);
+    if (!message) {
+      continue;
+    }
+
+    const timestamp = parseCodexTimestamp(message.timestamp) ?? Date.now();
+    const entryType = typeof message.type === "string" ? message.type : "";
+    const payload = message.payload && typeof message.payload === "object" && !Array.isArray(message.payload)
+      ? message.payload as Record<string, unknown>
+      : undefined;
+    if (!payload) {
+      continue;
+    }
+
+    if (entryType === "session_meta") {
+      const sessionThreadId = typeof payload.id === "string" ? payload.id : null;
+      if (sessionThreadId) {
+        if (resolvedThreadId && sessionThreadId !== resolvedThreadId) {
+          return null;
+        }
+        resolvedThreadId = sessionThreadId;
+      }
+      if (typeof payload.cwd === "string" && payload.cwd.trim()) {
+        snapshot.session.cwd = payload.cwd;
+      }
+      setCodexProviderMeta(snapshot, resolvedThreadId, rolloutPath ?? null);
+      snapshot.session.status = resolvedThreadId ? "idle" : snapshot.session.status;
+      continue;
+    }
+
+    if (entryType === "turn_context") {
+      if (typeof payload.cwd === "string" && payload.cwd.trim()) {
+        snapshot.session.cwd = payload.cwd;
+      }
+      if (typeof payload.model === "string" && payload.model.trim()) {
+        snapshot.session.model = payload.model;
+      }
+      continue;
+    }
+
+    if (entryType === "event_msg") {
+      const payloadType = typeof payload.type === "string" ? payload.type : "";
+      if (payloadType === "task_started") {
+        const turnId = typeof payload.turn_id === "string" ? payload.turn_id : null;
+        if (!turnId) {
+          continue;
+        }
+        currentTurnId = turnId;
+        ensureTurn(turnId, parseCodexTimestamp(payload.started_at) ?? timestamp);
+        snapshot.currentTurnId = turnId;
+        snapshot.session.status = "active";
+        continue;
+      }
+
+      if (payloadType === "task_complete" || payloadType === "turn_aborted") {
+        const turnId: string | null = typeof payload.turn_id === "string" ? payload.turn_id : currentTurnId;
+        if (!turnId) {
+          continue;
+        }
+
+        const turn = ensureTurn(turnId);
+        turn.status = payloadType === "task_complete"
+          ? "completed"
+          : payload.reason === "interrupted"
+            ? "interrupted"
+            : "error";
+        turn.endedAt = parseCodexTimestamp(payload.completed_at) ?? timestamp;
+        finalizeCodexTurnBlocks(turn, turn.status);
+
+        if (snapshot.currentTurnId === turnId) {
+          snapshot.currentTurnId = undefined;
+        }
+        currentTurnId = currentTurnId === turnId ? null : currentTurnId;
+        snapshot.session.status = turn.status === "error" ? "error" : "idle";
+      }
+      continue;
+    }
+
+    if (entryType !== "response_item" || !currentTurnId) {
+      continue;
+    }
+
+    const turn = ensureTurn(currentTurnId);
+    const payloadType = typeof payload.type === "string" ? payload.type : "";
+
+    if (payloadType === "message" && payload.role === "user") {
+      const text = extractCodexMessageText(payload);
+      if (!text) {
+        continue;
+      }
+
+      const block: TextBlock = {
+        id: `${turn.id}:text:${turn.nextBlockIndex}`,
+        turnId: turn.id,
+        index: turn.nextBlockIndex++,
+        type: "text",
+        text,
+        status: "completed",
+      };
+      turn.blocks.push({ block, status: "completed" });
+      continue;
+    }
+
+    if (payloadType === "message" && payload.role === "assistant") {
+      const text = extractCodexMessageText(payload);
+      if (!text) {
+        continue;
+      }
+
+      const block: TextBlock = {
+        id: `${turn.id}:text:${turn.nextBlockIndex}`,
+        turnId: turn.id,
+        index: turn.nextBlockIndex++,
+        type: "text",
+        text,
+        status: "completed",
+      };
+      turn.blocks.push({ block, status: "completed" });
+      continue;
+    }
+
+    if (payloadType === "reasoning") {
+      const text = extractCodexReasoningText(payload);
+      if (!text) {
+        continue;
+      }
+
+      const block: ReasoningBlock = {
+        id: `${turn.id}:reasoning:${turn.nextBlockIndex}`,
+        turnId: turn.id,
+        index: turn.nextBlockIndex++,
+        type: "reasoning",
+        text,
+        status: "completed",
+      };
+      turn.blocks.push({ block, status: "completed" });
+      continue;
+    }
+
+    if (payloadType === "function_call" || payloadType === "custom_tool_call" || payloadType === "web_search_call") {
+      const block = buildCodexRolloutActionBlock(payload, turn.id, turn.nextBlockIndex++);
+      const blockState: BlockState = { block, status: "streaming" };
+      turn.blocks.push(blockState);
+      blocksByCallId.set(block.id, blockState);
+      continue;
+    }
+
+    if (payloadType === "function_call_output" || payloadType === "custom_tool_call_output") {
+      const callId = typeof payload.call_id === "string" ? payload.call_id : null;
+      if (!callId) {
+        continue;
+      }
+
+      let blockState = blocksByCallId.get(callId);
+      if (!blockState) {
+        const block = buildCodexRolloutActionBlock({
+          type: "tool_call",
+          call_id: callId,
+          name: "unknown",
+        }, turn.id, turn.nextBlockIndex++);
+        blockState = { block, status: "streaming" };
+        turn.blocks.push(blockState);
+        blocksByCallId.set(callId, blockState);
+      }
+
+      if (blockState.block.type === "action") {
+        blockState.block.action.output = stringifyCodexItem(payload.output);
+        blockState.block.action.status = "completed";
+      }
+      blockState.status = "completed";
+      blockState.block.status = "completed";
+    }
+  }
+
+  if (!resolvedThreadId && snapshot.turns.length === 0) {
+    return null;
+  }
+
+  setCodexProviderMeta(snapshot, resolvedThreadId, rolloutPath ?? null);
+  snapshot.session.status = snapshot.currentTurnId ? "active" : snapshot.session.status;
+  return snapshot;
 }
 
 function isMissingCodexRolloutError(error: unknown): boolean {
@@ -307,6 +1220,47 @@ class CodexAppServerSession {
     });
   }
 
+  hasActiveTurn(): boolean {
+    return Boolean(this.activeTurn);
+  }
+
+  async steerAndWait(prompt: string, timeoutMs = 5 * 60_000): Promise<{ output: string; threadId: string }> {
+    await this.ensureStarted();
+    if (!this.threadId) {
+      throw new Error(`Codex app-server session for ${this.options.agentName} has no active thread.`);
+    }
+
+    const activeTurn = this.activeTurn;
+    if (!activeTurn?.turnId) {
+      return this.invoke(prompt, timeoutMs);
+    }
+
+    const output = await new Promise<string>(async (resolve, reject) => {
+      const watcher = this.addTurnWatcher(activeTurn, resolve, reject, timeoutMs);
+      try {
+        await this.request("turn/steer", {
+          threadId: this.threadId,
+          expectedTurnId: activeTurn.turnId,
+          input: [
+            {
+              type: "text",
+              text: prompt,
+              text_elements: [],
+            },
+          ],
+        });
+      } catch (error) {
+        this.removeTurnWatcher(activeTurn, watcher);
+        reject(error instanceof Error ? error : new Error(errorMessage(error)));
+      }
+    });
+
+    return {
+      output,
+      threadId: this.threadId,
+    };
+  }
+
   async steer(prompt: string): Promise<void> {
     await this.ensureStarted();
     if (!this.threadId || !this.activeTurn?.turnId) {
@@ -386,6 +1340,8 @@ class CodexAppServerSession {
       cwd: options.cwd,
       sessionId: options.sessionId,
       systemPrompt: options.systemPrompt,
+      threadId: options.threadId ?? null,
+      requireExistingThread: options.requireExistingThread === true,
       launchArgs: Array.isArray(options.launchArgs) ? options.launchArgs : [],
     });
   }
@@ -466,7 +1422,8 @@ class CodexAppServerSession {
   }
 
   private async resumeOrStartThread(): Promise<void> {
-    const storedThreadId = await readOptionalFile(this.threadIdPath);
+    const requestedThreadId = this.options.threadId?.trim() || null;
+    const storedThreadId = requestedThreadId ?? await readOptionalFile(this.threadIdPath);
     if (storedThreadId) {
       try {
         const resumed = await this.request<ThreadResumeResult>("thread/resume", {
@@ -486,10 +1443,20 @@ class CodexAppServerSession {
           this.stderrLogPath,
           `[openscout] failed to resume stored Codex thread ${storedThreadId}: ${errorMessage(error)}\n`,
         ).catch(() => undefined);
-        if (isMissingCodexRolloutError(error)) {
+        if (!requestedThreadId && isMissingCodexRolloutError(error)) {
           await rm(this.threadIdPath, { force: true }).catch(() => undefined);
         }
+        if (requestedThreadId || this.options.requireExistingThread) {
+          throw new Error(`Failed to resume requested Codex thread ${storedThreadId}: ${errorMessage(error)}`);
+        }
       }
+    }
+
+    if (this.options.requireExistingThread) {
+      const detail = requestedThreadId
+        ? ` for requested thread ${requestedThreadId}`
+        : "";
+      throw new Error(`Codex app-server session for ${this.options.agentName} requires an existing thread${detail}.`);
     }
 
     const started = await this.request<ThreadStartResult>("thread/start", {
@@ -523,17 +1490,58 @@ class CodexAppServerSession {
       messageByItemId: new Map<string, string>(),
       resolve,
       reject,
+      watchers: [],
     };
     turn.timer = setTimeout(() => {
       void this.interrupt().catch(() => undefined);
       if (this.activeTurn === turn) {
         this.activeTurn = null;
       }
+      for (const watcher of this.drainTurnWatchers(turn)) {
+        watcher.reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
+      }
       reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
     }, timeoutMs);
 
     this.activeTurn = turn;
     return turn;
+  }
+
+  private addTurnWatcher(
+    turn: ActiveTurn,
+    resolve: (output: string) => void,
+    reject: (error: Error) => void,
+    timeoutMs: number,
+  ): ActiveTurn["watchers"][number] {
+    const watcher: ActiveTurn["watchers"][number] = {
+      resolve,
+      reject,
+      timer: null,
+    };
+    watcher.timer = setTimeout(() => {
+      this.removeTurnWatcher(turn, watcher);
+      reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
+    }, timeoutMs);
+    turn.watchers.push(watcher);
+    return watcher;
+  }
+
+  private removeTurnWatcher(turn: ActiveTurn, watcher: ActiveTurn["watchers"][number]): void {
+    if (watcher.timer) {
+      clearTimeout(watcher.timer);
+    }
+    turn.watchers = turn.watchers.filter((candidate) => candidate !== watcher);
+  }
+
+  private drainTurnWatchers(turn: ActiveTurn): ActiveTurn["watchers"] {
+    const watchers = turn.watchers;
+    turn.watchers = [];
+    for (const watcher of watchers) {
+      if (watcher.timer) {
+        clearTimeout(watcher.timer);
+      }
+    }
+    return watchers;
   }
 
   private clearActiveTurn(turn: ActiveTurn): void {
@@ -599,9 +1607,7 @@ class CodexAppServerSession {
   private handleServerRequest(message: CodexServerRequest): void {
     this.writeMessage({
       id: message.id,
-      error: {
-        message: `Unsupported server request: ${message.method}`,
-      },
+      error: buildUnsupportedServerRequestError(message),
     });
   }
 
@@ -669,7 +1675,22 @@ class CodexAppServerSession {
     }
 
     if (method === "error") {
-      const error = metadataString(params, "message") ?? "Codex app-server reported an error.";
+      const willRetry = params.willRetry === true;
+      if (willRetry) {
+        return;
+      }
+      const errorPayload = metadataRecord(params, "error");
+      const message = metadataString(errorPayload, "message")
+        ?? metadataString(params, "message")
+        ?? "Codex app-server reported an error.";
+      const codexErrorInfo = metadataString(errorPayload, "codexErrorInfo")
+        ?? metadataString(params, "codexErrorInfo");
+      const additionalDetails = metadataString(errorPayload, "additionalDetails")
+        ?? metadataString(params, "additionalDetails");
+      const detail = [codexErrorInfo, additionalDetails]
+        .filter((value): value is string => Boolean(value && value.trim().length > 0))
+        .join("; ");
+      const error = detail.length > 0 ? `${message} (${detail})` : message;
       if (this.activeTurn) {
         const activeTurn = this.activeTurn;
         this.clearActiveTurn(activeTurn);
@@ -692,11 +1713,17 @@ class CodexAppServerSession {
 
     if (params.turn.status === "failed") {
       const message = params.turn.error?.message || params.turn.error?.additionalDetails || `Turn failed for ${this.options.agentName}.`;
+      for (const watcher of this.drainTurnWatchers(activeTurn)) {
+        watcher.reject(new Error(message));
+      }
       activeTurn.reject(new Error(message));
       return;
     }
 
     if (params.turn.status === "interrupted") {
+      for (const watcher of this.drainTurnWatchers(activeTurn)) {
+        watcher.reject(new Error(`Turn interrupted for ${this.options.agentName}.`));
+      }
       activeTurn.reject(new Error(`Turn interrupted for ${this.options.agentName}.`));
       return;
     }
@@ -707,10 +1734,16 @@ class CodexAppServerSession {
       .trim();
 
     if (!output) {
+      for (const watcher of this.drainTurnWatchers(activeTurn)) {
+        watcher.reject(new Error(`Codex completed without producing a final response for ${this.options.agentName}.`));
+      }
       activeTurn.reject(new Error(`Codex completed without producing a final response for ${this.options.agentName}.`));
       return;
     }
 
+    for (const watcher of this.drainTurnWatchers(activeTurn)) {
+      watcher.resolve(output);
+    }
     activeTurn.resolve(output);
   }
 
@@ -728,6 +1761,9 @@ class CodexAppServerSession {
     if (activeTurn) {
       if (activeTurn.timer) {
         clearTimeout(activeTurn.timer);
+      }
+      for (const watcher of this.drainTurnWatchers(activeTurn)) {
+        watcher.reject(error);
       }
       activeTurn.reject(error);
     }
@@ -762,6 +1798,8 @@ class CodexAppServerSession {
         cwd: this.options.cwd,
         threadId: this.threadId,
         threadPath: this.threadPath,
+        requestedThreadId: this.options.threadId ?? null,
+        requireExistingThread: this.options.requireExistingThread === true,
         pid: this.process?.pid ?? null,
         stdoutLogFile: this.stdoutLogPath,
         stderrLogFile: this.stderrLogPath,
@@ -837,6 +1875,15 @@ export async function invokeCodexAppServerAgent(options: InvocationOptions): Pro
   return session.invoke(options.prompt, options.timeoutMs);
 }
 
+export async function sendCodexAppServerAgent(options: InvocationOptions): Promise<{ output: string; threadId: string }> {
+  const session = getOrCreateSession(options);
+  session.update(options);
+  if (session.hasActiveTurn()) {
+    return session.steerAndWait(options.prompt, options.timeoutMs);
+  }
+  return session.invoke(options.prompt, options.timeoutMs);
+}
+
 export async function steerCodexAppServerAgent(options: SteerOptions): Promise<void> {
   const session = getOrCreateSession(options);
   session.update(options);
@@ -857,6 +1904,45 @@ export async function interruptCodexAppServerAgent(options: InterruptOptions): P
 export function isCodexAppServerAgentAlive(options: SessionRequestOptions): boolean {
   const session = sessions.get(sessionKey(options));
   return Boolean(session?.isAlive());
+}
+
+export async function getCodexAppServerAgentSnapshot(
+  options: SessionRequestOptions,
+): Promise<SessionState | null> {
+  const stdoutLogPath = join(options.logsDirectory, "stdout.log");
+  const threadIdPath = join(options.runtimeDirectory, "codex-thread-id.txt");
+  const statePath = join(options.runtimeDirectory, "state.json");
+  const [rawLog, persistedThreadId, persistedState] = await Promise.all([
+    readOptionalFile(stdoutLogPath),
+    readOptionalFile(threadIdPath),
+    readOptionalJsonRecord(statePath),
+  ]);
+  const resolvedThreadId = options.threadId
+    ?? persistedThreadId
+    ?? metadataString(persistedState ?? undefined, "threadId")
+    ?? undefined;
+  const persistedThreadPath = metadataString(persistedState ?? undefined, "threadPath");
+
+  if (persistedThreadPath) {
+    const rawRollout = await readOptionalFile(persistedThreadPath);
+    if (rawRollout) {
+      const rolloutSnapshot = buildCodexRolloutSessionSnapshot(
+        rawRollout,
+        options,
+        resolvedThreadId,
+        persistedThreadPath,
+      );
+      if (rolloutSnapshot) {
+        return rolloutSnapshot;
+      }
+    }
+  }
+
+  if (!rawLog) {
+    return null;
+  }
+
+  return buildCodexAppServerSessionSnapshot(rawLog, options, resolvedThreadId);
 }
 
 export async function shutdownCodexAppServerAgent(

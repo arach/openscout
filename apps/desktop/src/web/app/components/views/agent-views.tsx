@@ -1,4 +1,5 @@
 import React from 'react';
+import type { TraceIntent } from '@openscout/session-trace';
 import {
   ArrowUpDown,
   Bot,
@@ -18,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { AgentSessionTraceSurface } from '@/components/agent-session-trace-surface';
 import { LogPanel } from '@/components/log-panel';
 import {
   AgentActionButton,
@@ -105,6 +107,7 @@ interface AgentsViewModel {
   agentSessionCopied: boolean;
   onCopyAgentSessionCommand: () => void;
   onOpenAgentSession: () => void;
+  onAgentSessionTraceIntent: (intent: TraceIntent) => void;
   agentSessionLogsExpanded: boolean;
   setAgentSessionLogsExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   agentSessionInlineViewportRef: React.MutableRefObject<HTMLElement | null>;
@@ -470,9 +473,14 @@ export function AgentViews({
                           {agents.agentSessionCopied ? 'Copied' : 'Copy'}
                         </AgentActionButton>
                       ) : null}
-                      {agents.visibleAgentSession && agents.visibleAgentSession.mode !== 'none' ? (
+                      {agents.visibleAgentSession?.mode === 'trace' ? (
+                        <AgentActionButton icon={<Eye size={13} />} onClick={agents.onPeekAgentSession}>
+                          Open Trace
+                        </AgentActionButton>
+                      ) : null}
+                      {agents.visibleAgentSession?.mode === 'debug' ? (
                         <AgentActionButton icon={<FolderOpen size={13} />} onClick={agents.onOpenAgentSession}>
-                          {agents.visibleAgentSession.mode === 'tmux' ? 'Open TMUX' : 'Open Logs'}
+                          {agents.visibleAgentSession.debugMode === 'tmux' ? 'Open TMUX' : 'Open Debug'}
                         </AgentActionButton>
                       ) : null}
                     </div>
@@ -509,19 +517,42 @@ export function AgentViews({
                       >
                         <div className="flex items-center gap-2">
                           <ChevronRight size={10} className="transition-transform duration-150" style={{ transform: agents.agentSessionLogsExpanded ? 'rotate(90deg)' : undefined }} />
-                          <span className="font-mono uppercase tracking-wider">Logs</span>
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={agents.visibleAgentSession?.mode === 'tmux' ? layout.styles.activePill : layout.styles.tagBadge}>
-                            {agents.agentSessionPending ? 'Loading' : agents.visibleAgentSession?.mode === 'tmux' ? 'TMUX' : agents.visibleAgentSession?.mode === 'logs' ? 'Logs' : 'Unavailable'}
+                          <span className="font-mono uppercase tracking-wider">
+                            {agents.visibleAgentSession?.mode === 'trace' ? 'Trace' : 'Session'}
+                          </span>
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={agents.visibleAgentSession?.mode === 'trace' ? layout.styles.activePill : layout.styles.tagBadge}>
+                            {agents.agentSessionPending
+                              ? 'Loading'
+                              : agents.visibleAgentSession?.mode === 'trace'
+                                ? 'Trace'
+                                : agents.visibleAgentSession?.debugMode === 'tmux'
+                                  ? 'TMUX'
+                                  : agents.visibleAgentSession?.debugMode === 'logs'
+                                    ? 'Debug'
+                                    : 'Unavailable'}
                           </span>
                           {agents.visibleAgentSession?.updatedAtLabel ? <span>Updated {agents.visibleAgentSession.updatedAtLabel}</span> : null}
                         </div>
                       </button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <div style={{ backgroundColor: C.termBg }}>
+                      <div style={{ backgroundColor: agents.visibleAgentSession?.mode === 'trace' ? C.bg : C.termBg }}>
                         {agents.agentSessionLoading && !agents.visibleAgentSession ? (
                           <div className="px-4 py-8 text-[11px] font-mono" style={{ color: C.termFg }}>
                             Loading live session…
+                          </div>
+                        ) : agents.visibleAgentSession?.mode === 'trace' && agents.visibleAgentSession.trace ? (
+                          <div
+                            ref={(element) => {
+                              agents.agentSessionInlineViewportRef.current = element;
+                            }}
+                            onScroll={agents.onInlineAgentSessionScroll}
+                            className="max-h-[400px] overflow-y-auto px-4 py-4"
+                          >
+                            <AgentSessionTraceSurface
+                              snapshot={agents.visibleAgentSession.trace}
+                              onIntent={agents.onAgentSessionTraceIntent}
+                            />
                           </div>
                         ) : agents.visibleAgentSession?.body ? (
                           <pre
@@ -537,7 +568,7 @@ export function AgentViews({
                         ) : (
                           <div className="px-4 py-8 text-[11px] leading-[1.65] font-mono" style={{ color: C.termFg }}>
                             {agents.agentSessionPending
-                              ? 'Checking for a live tmux pane first, then falling back to canonical runtime logs.'
+                              ? 'Loading live session state.'
                               : agents.visibleAgentSession?.subtitle ?? 'No session output available yet.'}
                           </div>
                         )}

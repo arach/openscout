@@ -95,6 +95,7 @@ export interface MessagesRelayAgentSessionProps extends Pick<
   | 'agentSessionCopied'
   | 'onCopyAgentSessionCommand'
   | 'onOpenAgentSession'
+  | 'onAgentSessionTraceIntent'
   | 'onPeekAgentSession'
   | 'onOpenAgentSettings'
   | 'desktopVoiceEnabled'

@@ -13,12 +13,10 @@ function routeFromPath(): Route {
     return { view: "agents", agentId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "agents") return { view: "agents" };
-  // /c/{conversationId} → operator DMs go to agents, everything else to sessions
+  if (parts[0] === "fleet") return { view: "fleet" };
+  // /c/{conversationId} always opens the conversation surface directly.
   if (parts[0] === "c" && parts[1]) {
-    const cid = decodeURIComponent(parts[1]);
-    const agentId = agentIdFromConversation(cid);
-    if (agentId) return { view: "agents", agentId };
-    return { view: "sessions", sessionId: cid };
+    return { view: "conversation", conversationId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "sessions" && parts[1]) {
     return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
@@ -39,6 +37,7 @@ function routePath(r: Route): string {
     case "conversation": return `/c/${encodeURIComponent(r.conversationId)}`;
     case "agent-info": return `/agent/${encodeURIComponent(r.conversationId)}`;
     case "agents": return r.agentId ? `/agents/${encodeURIComponent(r.agentId)}` : "/agents";
+    case "fleet": return "/fleet";
     case "sessions": return r.sessionId ? `/sessions/${encodeURIComponent(r.sessionId)}` : "/sessions";
     case "mesh": return "/mesh";
     case "activity": return "/activity";

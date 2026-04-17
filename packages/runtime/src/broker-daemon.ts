@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import {
   assertValidCollaborationEvent,
@@ -26,6 +26,7 @@ import {
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
   SCOUT_DISPATCHER_AGENT_ID,
+  normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
 
 import { createInMemoryControlRuntime } from "./broker.js";
@@ -53,13 +54,25 @@ import {
 } from "./mesh-forwarding.js";
 import { createPeerDeliveryWorker, type PeerDeliveryWorker } from "./peer-delivery.js";
 import {
+  ensureLocalSessionEndpointOnline,
   ensureLocalAgentBindingOnline,
   isLocalAgentEndpointAlive,
   isLocalAgentSessionAlive,
   invokeLocalAgentEndpoint,
   loadRegisteredLocalAgentBindings,
+  shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
 } from "./local-agents.js";
+import {
+  buildManagedPairingEndpointBinding,
+  buildPairingSessionCandidate,
+  ensurePairingSessionForCodexThread,
+  findPairingSession,
+  getPairingSessionSnapshot,
+  invokePairingSessionEndpoint,
+  listPairingSessions,
+  type PairingSession,
+} from "./pairing-session-agents.js";
 import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
@@ -279,6 +292,8 @@ async function migrateUnqualifiedRelayAgentKeys(): Promise<void> {
 async function bootstrapRegisteredLocalAgents(): Promise<void> {
   await migrateUnqualifiedRelayAgentKeys();
   await syncRegisteredLocalAgents();
+  await retireLegacyPairingSessionAgents();
+  await reconcileManagedPairingEndpoints();
   await ensureCoreLocalAgentsOnline();
 }
 
@@ -881,7 +896,8 @@ function latestEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, a
 }
 
 function isStaleLocalAgent(agent: AgentDefinition | undefined): boolean {
-  return agent?.metadata?.staleLocalRegistration === true;
+  return agent?.metadata?.staleLocalRegistration === true
+    || agent?.metadata?.retiredFromFleet === true;
 }
 
 function isStaleLocalEndpoint(snapshot: ReturnType<typeof runtime.snapshot>, endpoint: AgentEndpoint | null): boolean {
@@ -1141,9 +1157,406 @@ function localAgentMetadataSource(metadata: Record<string, unknown> | undefined)
   return typeof source === "string" && source.trim().length > 0 ? source : null;
 }
 
+function localAgentMetadataFlag(metadata: Record<string, unknown> | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
 function isGeneratedLocalAgentMetadata(metadata: Record<string, unknown> | undefined): boolean {
   const source = localAgentMetadataSource(metadata);
   return source === "relay-agent-registry" || source === "project-inferred";
+}
+
+function isPairingSessionMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  return localAgentMetadataSource(metadata) === "pairing-session";
+}
+
+function isManagedPairingSessionMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  return isPairingSessionMetadata(metadata) && localAgentMetadataFlag(metadata, "managedByScout");
+}
+
+function isLegacyPairingSessionMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  return isPairingSessionMetadata(metadata) && !localAgentMetadataFlag(metadata, "managedByScout");
+}
+
+function isLocalSessionMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  return localAgentMetadataSource(metadata) === "local-session";
+}
+
+function isManagedLocalSessionMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  return isLocalSessionMetadata(metadata) && localAgentMetadataFlag(metadata, "managedByScout");
+}
+
+function pairingExternalSessionId(endpoint: AgentEndpoint): string | null {
+  const direct = endpoint.sessionId?.trim();
+  if (direct) {
+    return direct;
+  }
+
+  const external = endpoint.metadata?.externalSessionId;
+  return typeof external === "string" && external.trim().length > 0 ? external.trim() : null;
+}
+
+function normalizeManagedAgentSelector(value: string): string {
+  const normalized = normalizeAgentSelectorSegment(value.trim().replace(/^@+/, ""));
+  if (!normalized) {
+    throw new Error("Alias must contain at least one alphanumeric character.");
+  }
+  return `@${normalized}`;
+}
+
+function selectorHandle(selector: string): string {
+  return selector.replace(/^@+/, "");
+}
+
+function uniqueManagedAgentSelector(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  requestedSelector: string,
+  currentAgentId?: string,
+): string {
+  const normalized = normalizeManagedAgentSelector(requestedSelector);
+  const base = selectorHandle(normalized);
+  let candidate = normalized;
+
+  for (let counter = 2; counter <= 101; counter += 1) {
+    const resolution = resolveAgentLabel(snapshot, candidate, {
+      preferLocalNodeId: nodeId,
+      helpers: { isStale: isStaleLocalAgent },
+    });
+
+    if (resolution.kind === "unknown") {
+      return candidate;
+    }
+
+    if (resolution.kind === "resolved" && resolution.agent.id === currentAgentId) {
+      return candidate;
+    }
+
+    candidate = `@${base}-${counter}`;
+  }
+
+  throw new Error(`Unable to allocate a unique Scout alias for ${normalized}.`);
+}
+
+function pairingAgentDisplayName(session: PairingSession): string {
+  return buildPairingSessionCandidate(session).name;
+}
+
+function buildManagedPairingAgent(input: {
+  session: PairingSession;
+  selector: string;
+  displayName?: string;
+}): AgentDefinition {
+  const id = createRuntimeId("pairing-agent");
+  const displayName = input.displayName?.trim() || pairingAgentDisplayName(input.session);
+  const handle = selectorHandle(input.selector);
+  return {
+    id,
+    kind: "agent",
+    definitionId: id,
+    displayName,
+    handle,
+    labels: ["pairing", "managed", input.session.adapterType],
+    metadata: {
+      source: "scout-managed",
+      managedByScout: true,
+      identityKind: "scout_managed_pairing_agent",
+      externalSource: "pairing-session",
+      selector: input.selector,
+      defaultSelector: input.selector,
+      sessionBacked: true,
+    },
+    selector: input.selector,
+    defaultSelector: input.selector,
+    agentClass: "general",
+    capabilities: ["chat", "invoke", "deliver"],
+    wakePolicy: "manual",
+    homeNodeId: nodeId,
+    authorityNodeId: nodeId,
+    advertiseScope: "local",
+  };
+}
+
+function updateManagedSessionAgent(
+  agent: AgentDefinition,
+  input: {
+    selector?: string;
+    displayName?: string;
+  },
+): AgentDefinition {
+  const nextSelector = input.selector ?? agent.selector ?? agent.defaultSelector
+    ?? (typeof agent.metadata?.selector === "string" ? String(agent.metadata.selector) : undefined);
+  const nextDisplayName = input.displayName?.trim() || agent.displayName;
+  const nextMetadata = {
+    ...(agent.metadata ?? {}),
+    managedByScout: true,
+    sessionBacked: true,
+    ...(nextSelector ? { selector: nextSelector, defaultSelector: nextSelector } : {}),
+  };
+
+  return {
+    ...agent,
+    displayName: nextDisplayName,
+    handle: nextSelector ? selectorHandle(nextSelector) : agent.handle,
+    selector: nextSelector,
+    defaultSelector: nextSelector ?? agent.defaultSelector,
+    metadata: nextMetadata,
+  };
+}
+
+type ManagedLocalSessionTransport = "codex_app_server" | "claude_stream_json";
+
+function managedLocalSessionDefaultDisplayName(input: {
+  transport: ManagedLocalSessionTransport;
+  projectRoot?: string;
+  cwd: string;
+}): string {
+  const projectName = basename(input.projectRoot ?? input.cwd) || input.cwd;
+  return input.transport === "codex_app_server"
+    ? `Codex (${projectName})`
+    : `Claude (${projectName})`;
+}
+
+function suggestedManagedLocalSessionSelector(input: {
+  transport: ManagedLocalSessionTransport;
+  projectRoot?: string;
+  cwd: string;
+}): string {
+  const projectName = normalizeAgentSelectorSegment(basename(input.projectRoot ?? input.cwd) || "session") || "session";
+  const prefix = input.transport === "codex_app_server" ? "codex" : "claude";
+  return `@${prefix}-${projectName}`;
+}
+
+function buildManagedLocalSessionAgent(input: {
+  transport: ManagedLocalSessionTransport;
+  selector: string;
+  cwd: string;
+  projectRoot?: string;
+  displayName?: string;
+}): AgentDefinition {
+  const id = createRuntimeId("local-session-agent");
+  const displayName = input.displayName?.trim() || managedLocalSessionDefaultDisplayName(input);
+  const handle = selectorHandle(input.selector);
+  return {
+    id,
+    kind: "agent",
+    definitionId: id,
+    displayName,
+    handle,
+    labels: ["local-session", "managed", input.transport],
+    metadata: {
+      source: "scout-managed",
+      managedByScout: true,
+      identityKind: "scout_managed_local_session_agent",
+      externalSource: "local-session",
+      selector: input.selector,
+      defaultSelector: input.selector,
+      sessionBacked: true,
+      attachedTransport: input.transport,
+    },
+    selector: input.selector,
+    defaultSelector: input.selector,
+    agentClass: "general",
+    capabilities: ["chat", "invoke", "deliver"],
+    wakePolicy: "manual",
+    homeNodeId: nodeId,
+    authorityNodeId: nodeId,
+    advertiseScope: "local",
+  };
+}
+
+function buildManagedLocalSessionEndpointBinding(input: {
+  agentId: string;
+  transport: ManagedLocalSessionTransport;
+  harness: "codex" | "claude";
+  sessionId: string;
+  cwd: string;
+  projectRoot?: string;
+  existingEndpoint?: AgentEndpoint | null;
+  selector?: string | null;
+  definitionId?: string | null;
+}): AgentEndpoint {
+  const runtimeInstanceId = typeof input.existingEndpoint?.metadata?.runtimeInstanceId === "string"
+    && input.existingEndpoint.metadata.runtimeInstanceId.trim().length > 0
+    ? input.existingEndpoint.metadata.runtimeInstanceId.trim()
+    : typeof input.existingEndpoint?.metadata?.runtimeSessionId === "string"
+      && input.existingEndpoint.metadata.runtimeSessionId.trim().length > 0
+      ? input.existingEndpoint.metadata.runtimeSessionId.trim()
+      : `attached-${input.agentId}`;
+  const projectRoot = resolve(input.projectRoot ?? input.cwd);
+  const cwd = resolve(input.cwd);
+  const projectName = basename(projectRoot) || projectRoot;
+  const definitionId = input.definitionId?.trim() || selectorHandle(input.selector ?? input.agentId);
+
+  return {
+    id: input.existingEndpoint?.id ?? `endpoint.${input.agentId}.${nodeId}.${input.transport}`,
+    agentId: input.agentId,
+    nodeId,
+    harness: input.harness,
+    transport: input.transport,
+    state: "idle",
+    cwd,
+    projectRoot,
+    sessionId: input.sessionId,
+    metadata: {
+      ...(input.existingEndpoint?.metadata ?? {}),
+      source: "local-session",
+      managedByScout: true,
+      sessionBacked: true,
+      externalSource: "local-session",
+      agentName: input.agentId,
+      definitionId,
+      runtimeSessionId: undefined,
+      runtimeInstanceId,
+      transport: input.transport,
+      project: projectName,
+      projectRoot,
+      threadId: input.transport === "codex_app_server" ? input.sessionId : undefined,
+      externalSessionId: input.sessionId,
+      startedAt: String(Date.now()),
+    },
+  };
+}
+
+function buildManagedLocalSessionPairingEndpointBinding(input: {
+  agentId: string;
+  transport: ManagedLocalSessionTransport;
+  threadId: string;
+  session: PairingSession;
+  cwd: string;
+  projectRoot?: string;
+  existingEndpoint?: AgentEndpoint | null;
+  selector?: string | null;
+  definitionId?: string | null;
+}): AgentEndpoint {
+  const projectRoot = resolve(input.projectRoot ?? input.cwd);
+  const cwd = resolve(input.cwd);
+  const projectName = basename(projectRoot) || projectRoot;
+  const definitionId = input.definitionId?.trim() || selectorHandle(input.selector ?? input.agentId);
+  const base = buildManagedPairingEndpointBinding({
+    agentId: input.agentId,
+    nodeId,
+    session: input.session,
+    existingEndpoint: input.existingEndpoint ?? null,
+    agentName: input.agentId,
+  });
+
+  return {
+    ...base,
+    cwd,
+    projectRoot,
+    metadata: {
+      ...(base.metadata ?? {}),
+      source: "local-session",
+      externalSource: "local-session",
+      attachedTransport: input.transport,
+      definitionId,
+      agentName: input.agentId,
+      project: projectName,
+      projectRoot,
+      threadId: input.threadId,
+      externalSessionId: input.threadId,
+      pairingSessionId: input.session.id,
+      pairingAdapterType: input.session.adapterType,
+      startedAt: String(Date.now()),
+    },
+  };
+}
+
+function managedPairingEndpointForAgent(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  agentId: string,
+): AgentEndpoint | null {
+  return Object.values(snapshot.endpoints).find((endpoint) => (
+    endpoint.agentId === agentId
+    && endpoint.transport === "pairing_bridge"
+    && isManagedPairingSessionMetadata(endpoint.metadata)
+  )) ?? null;
+}
+
+function managedPairingEndpoints(snapshot: ReturnType<typeof runtime.snapshot>): AgentEndpoint[] {
+  return Object.values(snapshot.endpoints).filter((endpoint) => (
+    endpoint.transport === "pairing_bridge"
+    && endpoint.nodeId === nodeId
+    && isManagedPairingSessionMetadata(endpoint.metadata)
+  ));
+}
+
+function legacyPairingEndpoints(snapshot: ReturnType<typeof runtime.snapshot>): AgentEndpoint[] {
+  return Object.values(snapshot.endpoints).filter((endpoint) => (
+    endpoint.transport === "pairing_bridge"
+    && endpoint.nodeId === nodeId
+    && isLegacyPairingSessionMetadata(endpoint.metadata)
+  ));
+}
+
+function managedLocalSessionEndpointForAgent(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  agentId: string,
+): AgentEndpoint | null {
+  return Object.values(snapshot.endpoints).find((endpoint) => (
+    endpoint.agentId === agentId
+    && endpoint.nodeId === nodeId
+    && (
+      endpoint.transport === "codex_app_server"
+      || endpoint.transport === "claude_stream_json"
+      || endpoint.transport === "pairing_bridge"
+    )
+    && isManagedLocalSessionMetadata(endpoint.metadata)
+  )) ?? null;
+}
+
+function resolveManagedSessionAttachTarget(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  input: { agentId?: string; selector?: string },
+): AgentDefinition | null {
+  let target: AgentDefinition | null = null;
+
+  const directAgentId = input.agentId?.trim();
+  if (directAgentId) {
+    const agent = snapshot.agents[directAgentId];
+    if (!agent || isStaleLocalAgent(agent)) {
+      throw new Error(`unknown Scout agent ${directAgentId}`);
+    }
+    if (agent.authorityNodeId !== nodeId) {
+      throw new Error(`agent ${directAgentId} is owned by ${agent.authorityNodeId}, not ${nodeId}`);
+    }
+    target = agent;
+  }
+
+  const selector = input.selector?.trim();
+  if (!selector) {
+    return target;
+  }
+
+  const resolution = resolveAgentLabel(snapshot, selector, {
+    preferLocalNodeId: nodeId,
+    helpers: { isStale: isStaleLocalAgent },
+  });
+
+  switch (resolution.kind) {
+    case "resolved":
+      if (resolution.agent.authorityNodeId !== nodeId) {
+        throw new Error(`alias ${selector} is owned by ${resolution.agent.authorityNodeId}, not ${nodeId}`);
+      }
+      if (target && target.id !== resolution.agent.id) {
+        throw new Error(`alias ${selector} already resolves to ${resolution.agent.id}`);
+      }
+      return resolution.agent;
+    case "ambiguous":
+      throw new Error(`alias ${selector} is ambiguous across ${resolution.candidates.length} agents`);
+    case "unparseable":
+      throw new Error(`could not parse alias ${selector}`);
+    case "unknown":
+      return target;
+  }
+}
+
+function sameSerializedRecord<T>(left: T | undefined, right: T): boolean {
+  if (!left) {
+    return false;
+  }
+
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function staleLocalAgentReplacementId(
@@ -1297,6 +1710,363 @@ async function syncRegisteredLocalAgents(): Promise<void> {
     });
     console.log(`[openscout-runtime] disabled synthetic endpoint ${endpoint.id}`);
   }
+}
+
+async function retireLegacyPairingSessionAgents(): Promise<void> {
+  const snapshot = runtime.snapshot();
+  const retiredAt = Date.now();
+
+  for (const endpoint of legacyPairingEndpoints(snapshot)) {
+    const nextEndpoint = {
+      ...endpoint,
+      state: "offline" as const,
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        legacyAutoSync: true,
+        retiredFromFleet: true,
+        stalePairingSession: true,
+        retiredAt,
+        lastError: "legacy pairing auto-sync retired; re-attach through Scout to manage this session",
+        lastFailedAt: retiredAt,
+      },
+    };
+    if (!sameSerializedRecord(endpoint, nextEndpoint)) {
+      await persistEndpoint(nextEndpoint);
+      console.log(`[openscout-runtime] retired legacy pairing endpoint ${endpoint.id}`);
+    }
+  }
+
+  for (const agent of Object.values(snapshot.agents)) {
+    if (!isLegacyPairingSessionMetadata(agent.metadata)) {
+      continue;
+    }
+    if (agent.authorityNodeId && agent.authorityNodeId !== nodeId) {
+      continue;
+    }
+
+    const nextAgent = {
+      ...agent,
+      metadata: {
+        ...(agent.metadata ?? {}),
+        legacyAutoSync: true,
+        retiredFromFleet: true,
+        stalePairingSession: true,
+        retiredAt,
+      },
+    };
+    if (!sameSerializedRecord(agent, nextAgent)) {
+      await upsertAgentDurably(nextAgent);
+      console.log(`[openscout-runtime] retired legacy pairing agent ${agent.id}`);
+    }
+  }
+}
+
+async function reconcileManagedPairingEndpoints(): Promise<void> {
+  const snapshot = runtime.snapshot();
+
+  for (const endpoint of managedPairingEndpoints(snapshot)) {
+    const externalSessionId = pairingExternalSessionId(endpoint);
+    if (!externalSessionId) {
+      if (endpoint.state !== "offline") {
+        await persistEndpoint({
+          ...endpoint,
+          state: "offline",
+          metadata: {
+            ...(endpoint.metadata ?? {}),
+            stalePairingSession: true,
+            lastError: "pairing binding has no active external session id",
+            lastFailedAt: Date.now(),
+          },
+        });
+      }
+      continue;
+    }
+
+    const sessionSnapshot = await getPairingSessionSnapshot(externalSessionId);
+    if (!sessionSnapshot) {
+      const nextEndpoint = {
+        ...endpoint,
+        state: "offline" as const,
+        metadata: {
+          ...(endpoint.metadata ?? {}),
+          stalePairingSession: true,
+          lastError: `pairing session ${externalSessionId} is offline or unreachable`,
+          lastFailedAt: Date.now(),
+        },
+      };
+      if (!sameSerializedRecord(endpoint, nextEndpoint)) {
+        await persistEndpoint(nextEndpoint);
+        console.log(`[openscout-runtime] reconciled offline pairing binding ${endpoint.id}`);
+      }
+      continue;
+    }
+
+    const agent = snapshot.agents[endpoint.agentId];
+    const nextEndpoint = buildManagedPairingEndpointBinding({
+      agentId: endpoint.agentId,
+      nodeId,
+      session: sessionSnapshot.session,
+      existingEndpoint: endpoint,
+      agentName: agent?.handle ?? agent?.displayName ?? endpoint.agentId,
+    });
+    if (!sameSerializedRecord(endpoint, nextEndpoint)) {
+      await persistEndpoint(nextEndpoint);
+      console.log(`[openscout-runtime] reconciled pairing binding ${endpoint.id} -> ${externalSessionId}`);
+    }
+  }
+}
+
+async function attachManagedPairingSession(input: {
+  externalSessionId: string;
+  agentId?: string;
+  alias?: string;
+  displayName?: string;
+}): Promise<{ agentId: string; selector: string | null; endpointId: string }> {
+  const externalSessionId = input.externalSessionId.trim();
+  if (!externalSessionId) {
+    throw new Error("externalSessionId is required");
+  }
+
+  const session = await findPairingSession(externalSessionId);
+  if (!session) {
+    throw new Error(`pairing session ${externalSessionId} is not available`);
+  }
+
+  const requestedSelector = input.alias?.trim()
+    ? normalizeManagedAgentSelector(input.alias)
+    : undefined;
+  const snapshot = runtime.snapshot();
+  const existingAgent = resolveManagedSessionAttachTarget(snapshot, {
+    agentId: input.agentId,
+    selector: requestedSelector,
+  });
+
+  const targetSelector = existingAgent
+    ? (
+      requestedSelector
+      ?? existingAgent.selector
+      ?? existingAgent.defaultSelector
+      ?? (typeof existingAgent.metadata?.selector === "string" ? String(existingAgent.metadata.selector) : null)
+      ?? uniqueManagedAgentSelector(snapshot, buildPairingSessionCandidate(session).suggestedSelector, existingAgent.id)
+    )
+    : uniqueManagedAgentSelector(
+      snapshot,
+      requestedSelector ?? buildPairingSessionCandidate(session).suggestedSelector,
+    );
+
+  const agent = existingAgent
+    ? updateManagedSessionAgent(existingAgent, {
+      selector: targetSelector ?? undefined,
+      displayName: input.displayName,
+    })
+    : buildManagedPairingAgent({
+      session,
+      selector: targetSelector ?? uniqueManagedAgentSelector(snapshot, buildPairingSessionCandidate(session).suggestedSelector),
+      displayName: input.displayName,
+    });
+
+  await upsertAgentDurably(agent);
+
+  const existingEndpoint = managedPairingEndpointForAgent(runtime.snapshot(), agent.id);
+  const endpoint = buildManagedPairingEndpointBinding({
+    agentId: agent.id,
+    nodeId,
+    session,
+    existingEndpoint,
+    agentName: agent.handle ?? agent.displayName,
+  });
+  await persistEndpoint(endpoint);
+
+  return {
+    agentId: agent.id,
+    selector: agent.selector ?? agent.defaultSelector ?? null,
+    endpointId: endpoint.id,
+  };
+}
+
+async function detachManagedPairingSession(input: {
+  agentId?: string;
+  alias?: string;
+}): Promise<{ agentId: string; endpointId: string | null; detached: boolean }> {
+  const requestedSelector = input.alias?.trim()
+    ? normalizeManagedAgentSelector(input.alias)
+    : undefined;
+  const snapshot = runtime.snapshot();
+  const agent = resolveManagedSessionAttachTarget(snapshot, {
+    agentId: input.agentId,
+    selector: requestedSelector,
+  });
+
+  if (!agent) {
+    throw new Error("Detach requires an existing Scout-managed agent id or alias.");
+  }
+
+  const endpoint = managedPairingEndpointForAgent(snapshot, agent.id);
+  if (!endpoint) {
+    return { agentId: agent.id, endpointId: null, detached: false };
+  }
+
+  const detachedAt = Date.now();
+  const nextEndpoint = {
+    ...endpoint,
+    state: "offline" as const,
+    sessionId: undefined,
+    metadata: {
+      ...(endpoint.metadata ?? {}),
+      detachedAt,
+      stalePairingSession: false,
+      externalSessionId: undefined,
+      pairingSessionId: undefined,
+      lastError: "pairing session detached",
+      lastFailedAt: detachedAt,
+    },
+  };
+  await persistEndpoint(nextEndpoint);
+  return {
+    agentId: agent.id,
+    endpointId: nextEndpoint.id,
+    detached: true,
+  };
+}
+
+async function attachManagedLocalSession(input: {
+  externalSessionId: string;
+  transport: ManagedLocalSessionTransport;
+  cwd: string;
+  projectRoot?: string;
+  agentId?: string;
+  alias?: string;
+  displayName?: string;
+}): Promise<{ agentId: string; selector: string | null; endpointId: string; sessionId: string }> {
+  const externalSessionId = input.externalSessionId.trim();
+  if (!externalSessionId) {
+    throw new Error("externalSessionId is required");
+  }
+
+  if (input.transport !== "codex_app_server" && input.transport !== "claude_stream_json") {
+    throw new Error(`unsupported local session transport ${input.transport}`);
+  }
+
+  if (input.transport !== "codex_app_server") {
+    throw new Error("local session attach currently supports codex_app_server only");
+  }
+
+  const cwd = resolve(input.cwd.trim() || process.cwd());
+  const projectRoot = resolve(input.projectRoot?.trim() || cwd);
+  const requestedSelector = input.alias?.trim()
+    ? normalizeManagedAgentSelector(input.alias)
+    : undefined;
+  const snapshot = runtime.snapshot();
+  const existingAgent = resolveManagedSessionAttachTarget(snapshot, {
+    agentId: input.agentId,
+    selector: requestedSelector,
+  });
+
+  const targetSelector = existingAgent
+    ? (
+      requestedSelector
+      ?? existingAgent.selector
+      ?? existingAgent.defaultSelector
+      ?? (typeof existingAgent.metadata?.selector === "string" ? String(existingAgent.metadata.selector) : null)
+      ?? uniqueManagedAgentSelector(
+        snapshot,
+        suggestedManagedLocalSessionSelector({ transport: input.transport, cwd, projectRoot }),
+        existingAgent.id,
+      )
+    )
+    : uniqueManagedAgentSelector(
+      snapshot,
+      requestedSelector ?? suggestedManagedLocalSessionSelector({ transport: input.transport, cwd, projectRoot }),
+    );
+
+  const agent = existingAgent
+    ? updateManagedSessionAgent(existingAgent, {
+      selector: targetSelector ?? undefined,
+      displayName: input.displayName,
+    })
+    : buildManagedLocalSessionAgent({
+      transport: input.transport,
+      selector: targetSelector ?? uniqueManagedAgentSelector(snapshot, suggestedManagedLocalSessionSelector({ transport: input.transport, cwd, projectRoot })),
+      cwd,
+      projectRoot,
+      displayName: input.displayName,
+    });
+
+  const existingEndpoint = managedLocalSessionEndpointForAgent(runtime.snapshot(), agent.id);
+  const session = await ensurePairingSessionForCodexThread({
+    threadId: externalSessionId,
+    cwd,
+    name: input.displayName?.trim() || managedLocalSessionDefaultDisplayName({ transport: input.transport, cwd, projectRoot }),
+    systemPrompt: "Resume the existing session without changing its identity or prior context.",
+  });
+  const endpoint = buildManagedLocalSessionPairingEndpointBinding({
+    agentId: agent.id,
+    transport: input.transport,
+    threadId: externalSessionId,
+    session,
+    cwd,
+    projectRoot,
+    existingEndpoint,
+    selector: agent.selector ?? agent.defaultSelector ?? null,
+    definitionId: agent.handle ?? agent.displayName,
+  });
+
+  if (existingEndpoint && existingEndpoint.transport !== "pairing_bridge") {
+    await shutdownLocalSessionEndpoint(existingEndpoint).catch(() => undefined);
+  }
+  await upsertAgentDurably(agent);
+  await persistEndpoint(endpoint);
+
+  return {
+    agentId: agent.id,
+    selector: agent.selector ?? agent.defaultSelector ?? null,
+    endpointId: endpoint.id,
+    sessionId: endpoint.sessionId ?? session.id,
+  };
+}
+
+async function detachManagedLocalSession(input: {
+  agentId?: string;
+  alias?: string;
+}): Promise<{ agentId: string; endpointId: string | null; detached: boolean }> {
+  const requestedSelector = input.alias?.trim()
+    ? normalizeManagedAgentSelector(input.alias)
+    : undefined;
+  const snapshot = runtime.snapshot();
+  const agent = resolveManagedSessionAttachTarget(snapshot, {
+    agentId: input.agentId,
+    selector: requestedSelector,
+  });
+
+  if (!agent) {
+    throw new Error("Detach requires an existing Scout-managed agent id or alias.");
+  }
+
+  const endpoint = managedLocalSessionEndpointForAgent(snapshot, agent.id);
+  if (!endpoint) {
+    return { agentId: agent.id, endpointId: null, detached: false };
+  }
+
+  if (endpoint.transport !== "pairing_bridge") {
+    await shutdownLocalSessionEndpoint(endpoint).catch(() => undefined);
+  }
+  const detachedAt = Date.now();
+  const nextEndpoint = {
+    ...endpoint,
+    state: "offline" as const,
+    metadata: {
+      ...(endpoint.metadata ?? {}),
+      detachedAt,
+      lastError: "local session detached",
+      lastFailedAt: detachedAt,
+    },
+  };
+  await persistEndpoint(nextEndpoint);
+  return {
+    agentId: agent.id,
+    endpointId: nextEndpoint.id,
+    detached: true,
+  };
 }
 
 async function ensureCoreLocalAgentsOnline(): Promise<void> {
@@ -1505,7 +2275,11 @@ function activeLocalEndpointForAgent(agentId: string, harness?: AgentEndpoint["h
     nodeId,
     harness,
   });
-  return candidates.find((endpoint) => isLocalAgentEndpointAlive(endpoint));
+  return candidates.find((endpoint) => (
+    endpoint.transport === "pairing_bridge"
+      ? endpoint.state !== "offline"
+      : isLocalAgentEndpointAlive(endpoint)
+  ));
 }
 
 async function resolveLocalEndpointForInvocation(invocation: InvocationRequest): Promise<AgentEndpoint | undefined> {
@@ -1536,6 +2310,36 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
 
   if (!invocation.ensureAwake) {
     return undefined;
+  }
+
+  for (const endpoint of staleEndpoints) {
+    if (!isManagedLocalSessionMetadata(endpoint.metadata)) {
+      continue;
+    }
+
+    try {
+      await ensureLocalSessionEndpointOnline(endpoint);
+      const revivedEndpoint: AgentEndpoint = {
+        ...endpoint,
+        state: "idle",
+        metadata: {
+          ...(endpoint.metadata ?? {}),
+          lastResumedAt: Date.now(),
+        },
+      };
+      await persistEndpoint(revivedEndpoint);
+      return revivedEndpoint;
+    } catch (error) {
+      await persistEndpoint({
+        ...endpoint,
+        state: "offline",
+        metadata: {
+          ...(endpoint.metadata ?? {}),
+          lastError: error instanceof Error ? error.message : String(error),
+          lastFailedAt: Date.now(),
+        },
+      });
+    }
   }
 
   const binding = await ensureLocalAgentBindingOnline(invocation.targetAgentId, nodeId, {
@@ -1572,7 +2376,8 @@ async function executeLocalInvocation(
   }
 
   if (
-    endpoint.transport !== "tmux"
+    endpoint.transport !== "pairing_bridge"
+    && endpoint.transport !== "tmux"
     && endpoint.transport !== "codex_app_server"
     && endpoint.transport !== "claude_stream_json"
   ) {
@@ -1607,10 +2412,11 @@ async function executeLocalInvocation(
     completedAt: undefined,
   };
   await persistFlight(runningFlight);
-  await postInvocationStatusMessage(invocation, runningFlight);
 
   try {
-    const result = await invokeLocalAgentEndpoint(runningEndpoint, invocation);
+    const result = endpoint.transport === "pairing_bridge"
+      ? await invokePairingSessionEndpoint(runningEndpoint, invocation)
+      : await invokeLocalAgentEndpoint(runningEndpoint, invocation);
 
     const completedFlight = {
       ...runningFlight,
@@ -2284,6 +3090,16 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "GET" && url.pathname === "/v1/pairing/sessions") {
+    try {
+      const sessions = await listPairingSessions();
+      json(response, 200, sessions.map((session) => buildPairingSessionCandidate(session)));
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
   // Per-invocation snapshot — current state of the invocation, its flight,
   // its deliveries, and any scout dispatch that fired for it. Callers use
   // this to seed UI state before subscribing to the stream.
@@ -2630,6 +3446,82 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       }));
       await applyProjectedEntries(entries);
       json(response, 200, { ok: true });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/pairing/attach") {
+    try {
+      const input = await readRequestBody<{
+        externalSessionId?: string;
+        agentId?: string;
+        alias?: string;
+        displayName?: string;
+      }>(request);
+      const result = await attachManagedPairingSession({
+        externalSessionId: String(input.externalSessionId ?? ""),
+        agentId: input.agentId,
+        alias: input.alias,
+        displayName: input.displayName,
+      });
+      json(response, 200, { ok: true, ...result });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/pairing/detach") {
+    try {
+      const input = await readRequestBody<{
+        agentId?: string;
+        alias?: string;
+      }>(request);
+      const result = await detachManagedPairingSession(input);
+      json(response, 200, { ok: true, ...result });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/local-sessions/attach") {
+    try {
+      const input = await readRequestBody<{
+        externalSessionId?: string;
+        transport?: ManagedLocalSessionTransport;
+        cwd?: string;
+        projectRoot?: string;
+        agentId?: string;
+        alias?: string;
+        displayName?: string;
+      }>(request);
+      const result = await attachManagedLocalSession({
+        externalSessionId: String(input.externalSessionId ?? ""),
+        transport: input.transport ?? "codex_app_server",
+        cwd: String(input.cwd ?? process.cwd()),
+        projectRoot: input.projectRoot,
+        agentId: input.agentId,
+        alias: input.alias,
+        displayName: input.displayName,
+      });
+      json(response, 200, { ok: true, ...result });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/local-sessions/detach") {
+    try {
+      const input = await readRequestBody<{
+        agentId?: string;
+        alias?: string;
+      }>(request);
+      const result = await detachManagedLocalSession(input);
+      json(response, 200, { ok: true, ...result });
     } catch (error) {
       badRequest(response, error);
     }

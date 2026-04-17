@@ -32,7 +32,7 @@ import {
   queryMobileSessions,
   queryMobileWorkspaces,
 } from "../../../../server/db-queries.ts";
-import { restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
+import { interruptLocalAgent, restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
 
 import { readFileSync, readdirSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
@@ -641,6 +641,12 @@ const mobileRouter = t.router({
     .mutation(async ({ input }) => {
       const result = await stopLocalAgent(input.agentId);
       return { ok: result !== null, agentId: input.agentId };
+    }),
+
+  agentInterrupt: procedure
+    .input(z.object({ agentId: z.string() }))
+    .mutation(async ({ input }) => {
+      return interruptLocalAgent(input.agentId);
     }),
 });
 

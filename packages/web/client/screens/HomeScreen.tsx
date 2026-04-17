@@ -3,6 +3,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { isAgentOnline } from "../lib/agent-state.ts";
 import { WorkList } from "../components/WorkList.tsx";
 import type { Agent, ActivityItem, Route, WorkItem } from "../lib/types.ts";
 
@@ -65,7 +66,7 @@ export function HomeScreen({
 
   const rt = shell?.runtime;
   const brokerRunning = rt?.brokerReachable ?? false;
-  const activeAgents = agents.filter((a) => a.state === "active");
+  const onlineAgents = agents.filter((a) => isAgentOnline(a.state));
   const hasAgents = agents.length > 0;
 
   return (
@@ -74,7 +75,7 @@ export function HomeScreen({
         <h2>Home</h2>
         <p>
           {hasAgents
-            ? `${activeAgents.length} active, ${agents.length - activeAgents.length} offline`
+            ? `${onlineAgents.length} online, ${agents.length - onlineAgents.length} offline`
             : "No agents connected yet"}
         </p>
       </div>
@@ -102,11 +103,11 @@ export function HomeScreen({
       </div>
 
       {/* Active agents */}
-      {activeAgents.length > 0 && (
+      {onlineAgents.length > 0 && (
         <div className="s-home-section">
-          <div className="s-home-section-title">Active</div>
+          <div className="s-home-section-title">Online</div>
           <div className="s-home-card">
-            {activeAgents.map((agent) => (
+            {onlineAgents.map((agent) => (
               <div
                 key={agent.id}
                 className="s-home-card-row s-home-card-row-clickable"
