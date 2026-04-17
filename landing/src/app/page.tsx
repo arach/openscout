@@ -75,25 +75,25 @@ type ProblemVariant = {
 const problemContent: ProblemVariant = {
   meshTitle: "Your agents are siloed.",
   meshDescription:
-    "You have agents in different projects, different tools, different terminals. None of them know the others exist. When you need them to work together, you're the one doing the connecting — copying outputs, explaining context, bridging the gap by hand.",
+    "You have agents in different projects, different tools, different terminals. Each one works fine on its own — but there's no single place to see all of them, message any of them, or let them work together.",
   cards: [
     {
       icon: Network,
-      title: "They can't find each other",
+      title: "One agent per window",
       description:
-        "An agent in one project has no idea another agent exists in the next tab. You're the only one who knows the full picture.",
+        "Each agent lives in its own tab, its own tool, its own context. You can talk to any one of them — but you have to go find it first. There's no single place to see them all.",
     },
     {
       icon: Layers,
-      title: "You're the messenger",
+      title: "Stuck at your desk",
       description:
-        "Want one agent to pick up where another left off? You'll be the one copying context between them. There's no way for them to just talk.",
+        "Step away from your machine and your agents go dark. There's no way to check in, reply, or hand off work from your phone.",
     },
     {
       icon: Shield,
-      title: "Nothing is visible",
+      title: "They don't know each other",
       description:
-        "An agent running in the next terminal might as well not exist. Nothing announces itself. Nothing is findable unless you go looking.",
+        "Want one agent to continue what another started? You'll copy the context yourself. They have no way to find each other, let alone collaborate.",
     },
   ],
 };
@@ -121,46 +121,46 @@ const technicalMeshPrinciples: IconCard[] = [
 
 const generalCapabilities: CapabilityCard[] = [
   {
-    icon: MessageSquare,
-    label: "Conversations",
-    title: "Every thread in one place",
-    description:
-      "All your agent conversations — sessions, messages, search — live in one app instead of scattered across terminal tabs.",
-  },
-  {
     icon: Send,
-    label: "Phone",
-    title: "Take it with you",
+    label: "iPhone",
+    title: "Message any agent from your pocket",
     description:
-      "Pair your iPhone and pick up the conversation from wherever you are. Same thread, different screen.",
+      "Pair your iPhone once. After that, every agent you have is one message away — check in, reply, hand off work, all from your phone.",
   },
   {
     icon: Monitor,
     label: "Desktop",
-    title: "See everything at a glance",
+    title: "One app for every agent",
     description:
-      "One desktop app for all your agents, projects, and machines. No more switching between terminals to check status.",
+      "See all your agents, conversations, and projects in one desktop surface. No more hunting through terminals to find the right one.",
   },
   {
     icon: Bot,
-    label: "Agents",
-    title: "They find each other",
+    label: "Agent mesh",
+    title: "Agents that talk to each other",
     description:
-      "Your agents discover each other automatically. Ask one to hand work to another — no copy-pasting required.",
+      "Your agents discover each other and coordinate directly. Ask one to hand work to another — they figure out the rest without you in the middle.",
+  },
+  {
+    icon: MessageSquare,
+    label: "Conversations",
+    title: "Every thread survives",
+    description:
+      "Messages persist across restarts, crashes, and handoffs. Pick up any conversation where you left off — on desktop or phone.",
   },
   {
     icon: Workflow,
     label: "Bridges",
-    title: "Connect anything",
+    title: "Reach them from anywhere",
     description:
-      "Telegram, voice, webhooks — new ways to reach your agents plug in without starting from scratch.",
+      "Telegram, voice, webhooks — new ways to reach your agents plug in as transports without changing anything underneath.",
   },
   {
     icon: Activity,
     label: "History",
     title: "Nothing disappears",
     description:
-      "Messages, tasks, and agent activity stay visible after restarts, crashes, and handoffs. Scroll back anytime.",
+      "Every message, task, and agent interaction stays visible and searchable. Scroll back anytime, from any surface.",
   },
 ];
 
@@ -217,22 +217,22 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
     },
     {
       command: "bun add -g @openscout/scout",
-      label: "Install the public Scout package with Bun.",
+      label: "Install the Scout package globally.",
     },
     {
       command: "scout setup",
       label:
-        "Bootstrap local settings, discover projects, register agents, and bring the broker online.",
+        "Discover your projects, register your agents, and bring the local broker online.",
     },
     {
       command: "scout pair",
       label:
-        "Pair a companion device into Scout when you want the mobile and host surface in the loop.",
+        "Pair your iPhone so you can message any agent from your pocket.",
     },
     {
       command: "scout watch --as myagent",
       label:
-        "Drop into Relay when you want the broker-native operator surface and direct agent traffic.",
+        "Open the desktop surface to see all your agents and conversations in one place.",
     },
   ],
   technical: [
@@ -359,54 +359,54 @@ const audienceContent: Record<
   }
 > = {
   general: {
-    heroEyebrow: "OpenScout",
-    heroTitleTop: "The missing layer",
-    heroTitleBottom: "between your agents.",
+    heroEyebrow: "Scout",
+    heroTitleTop: "All your agents,",
+    heroTitleBottom: "one message away.",
     heroDescription:
-      "You have agents across projects, tools, and environments — Claude in one repo, Cursor in another, Codex somewhere else. None of them know the others exist. OpenScout is how they find each other, hand off work, and keep you in the loop from your desktop or your phone.",
+      "You have agents across projects, tools, and environments — Claude in one repo, Cursor in another, Codex somewhere else. Scout gives you one place to talk to any of them from your desktop or your iPhone, and lets them talk to each other.",
     heroCommand: "bun add -g @openscout/scout",
     heroFootnote: "Runs locally on your machine. One install, nothing to configure.",
     meshEyebrow: "The Problem",
-    meshTitle: "You're the router, and you shouldn't have to be.",
+    meshTitle: "Every agent in its own silo.",
     meshDescription:
-      "You have agents everywhere — Claude Code, Cursor, Codex, maybe more. But none of them know the others exist. You end up being the one who connects them, and that means you're always in the middle.",
-    capabilitiesTitle: "Your agents coordinate. You just read the result.",
+      "Claude Code in one terminal, Cursor in another tab, Codex running somewhere else. Each one works fine — but there's no single place to see them all, message any of them, or let them work together. And when you leave your desk, they're gone.",
+    capabilitiesTitle: "You talk to them. They talk to each other.",
     capabilitiesDescription:
-      "Everything runs on one local system, so your desktop app, your phone, and your agents all stay on the same page.",
-    surfacesTitle: "One inbox on desktop and iPhone.",
+      "One local system that connects you to every agent from your phone or desktop — and connects your agents to each other through a shared mesh.",
+    surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "Relay is where you see what your agents are doing. Scout iOS is how you check in and reply from anywhere. Same conversation, wherever you are.",
-    surfacesNoteTitle: "Why This Matters",
+      "Relay is your desktop command center for all your agents. Scout iOS is how you check in and reply from anywhere. Same thread, different screen.",
+    surfacesNoteTitle: "Desktop + iPhone",
     surfacesNoteDescription:
-      "Relay handles live agent work and search from your desktop. Scout iOS handles check-ins, replies, and handoffs when you're away from the desk. Both read the same thread.",
-    getStartedTitle: "Install once. Your agents are already waiting.",
+      "Relay handles live agent sessions and full-text search from your desktop. Scout iOS lets you message, check in, and hand off work when you're away from the desk. Both read the same thread.",
+    getStartedTitle: "Install once. Pair your phone. That's it.",
     getStartedDescription:
-      "Install OpenScout, let it find your projects and agents, then pair your phone when you want to take the conversation with you.",
+      "Install Scout, let it find your projects and agents, then pair your iPhone to take the conversation with you.",
   },
   technical: {
-    heroEyebrow: "Local Runtime",
-    heroTitleTop: "The coordination layer",
-    heroTitleBottom: "for your AI agents.",
+    heroEyebrow: "Scout Runtime",
+    heroTitleTop: "All your agents,",
+    heroTitleBottom: "one local runtime.",
     heroDescription:
-      "A local broker that gives every agent an address, durable conversations, and tracked work. Claude, Codex, tmux, bridges — they all route through one system. You get observable state instead of terminal scrollback.",
+      "A local broker that gives every agent an address, durable conversations, and tracked work. Claude, Codex, tmux, bridges — they all route through one mesh. You reach any of them from the terminal, desktop, or your phone. They reach each other directly.",
     heroCommand: "scout tui",
     heroFootnote: "Local-first. Durable state. No cloud dependency.",
     meshEyebrow: "The Mesh",
     meshTitle: "A mesh of peers, not a rigid hierarchy.",
     meshDescription:
-      "OpenScout connects agents through a local broker so any agent can talk to any other agent. Conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
-    capabilitiesTitle: "One broker, one state model, every view.",
+      "Scout connects you and your agents through a local broker. Any agent can talk to you, and any agent can talk to any other agent. Conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
+    capabilitiesTitle: "One broker, one state model, every surface.",
     capabilitiesDescription:
-      "Typed records, operator views, and bridge transports all project the same durable state from the same local store.",
-    surfacesTitle: "Start in the TUI, then move outward.",
+      "Typed records, operator views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
+    surfacesTitle: "Terminal, desktop, iPhone — same broker state.",
     surfacesDescription:
-      "The terminal view gives you fast reads on sessions and active agents. Relay and Scout iOS sit on the same broker model when you need richer views.",
+      "The terminal view gives you fast reads on sessions and active agents. Relay desktop and Scout iOS sit on the same broker model when you need richer views or mobile access.",
     surfacesNoteTitle: "Operator Path",
     surfacesNoteDescription:
       "Start in the Relay TUI for the quickest read on sessions and agents. Move into Relay desktop and Scout iOS pairing without losing the underlying broker context.",
     getStartedTitle: "Install once. Start with the terminal.",
     getStartedDescription:
-      "Install OpenScout, bootstrap the local mesh, open the Relay TUI, and keep a watcher running when you want direct agent traffic.",
+      "Install Scout, bootstrap the local mesh, open the Relay TUI, and pair your phone when you want to take the conversation with you.",
   },
 };
 
