@@ -44,8 +44,10 @@ export type ScoutEnrollCommandOptions = ContextRootOptions & {
 export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   projectPath: string;
   agentName?: string;
+  displayName?: string;
   harness?: string;
   requesterId: string | null;
+  noInput?: boolean;
 };
 
 export type ScoutTuiCommandOptions = ContextRootOptions & {
@@ -444,14 +446,22 @@ export function parseCardCreateCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let projectPath: string | null = null;
   let agentName: string | undefined;
+  let displayName: string | undefined;
   let harness: string | undefined;
   let requesterId: string | null = null;
+  let noInput = false;
 
   for (let index = 0; index < parsed.args.length; index += 1) {
     const current = parsed.args[index] ?? "";
     if (current === "--name" || current.startsWith("--name=")) {
       const value = parseFlagValue(parsed.args, index, "--name");
       agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--display-name" || current.startsWith("--display-name=")) {
+      const value = parseFlagValue(parsed.args, index, "--display-name");
+      displayName = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -476,6 +486,10 @@ export function parseCardCreateCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    if (current === "--no-input") {
+      noInput = true;
+      continue;
+    }
     if (current.startsWith("--")) {
       unexpectedArgs("card create", args);
     }
@@ -490,8 +504,10 @@ export function parseCardCreateCommandOptions(
     args: parsed.args,
     projectPath: projectPath ?? parsed.currentDirectory,
     agentName,
+    displayName,
     harness,
     requesterId,
+    noInput,
   };
 }
 

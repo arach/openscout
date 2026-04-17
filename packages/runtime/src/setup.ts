@@ -1903,6 +1903,7 @@ async function removeLegacyRelayLink(projectRoot: string): Promise<void> {
 export async function ensureProjectConfigForDirectory(currentDirectory: string, settings?: OpenScoutSettings): Promise<{
   projectRoot: string | null;
   projectConfigPath: string | null;
+  config: OpenScoutProjectConfig | null;
   created: boolean;
 }> {
   const projectRoot = await findNearestProjectRoot(currentDirectory) ?? normalizePath(currentDirectory);
@@ -1917,6 +1918,7 @@ export async function ensureProjectConfigForDirectory(currentDirectory: string, 
     return {
       projectRoot,
       projectConfigPath: projectConfigPath(projectRoot),
+      config: synced.changed ? synced.config : existing,
       created: false,
     };
   }
@@ -1933,6 +1935,7 @@ export async function ensureProjectConfigForDirectory(currentDirectory: string, 
   return {
     projectRoot,
     projectConfigPath: projectConfigPath(projectRoot),
+    config: synced.config,
     created: true,
   };
 }
@@ -2456,9 +2459,14 @@ export async function loadResolvedRelayAgents(options: {
   await ensureHarnessCatalogOverrideFile(supportPaths.harnessCatalogPath);
 
   const { settings, overrides } = await importLegacyState(options.currentDirectory);
-  let currentProjectConfig = {
-    projectRoot: null as string | null,
-    projectConfigPath: null as string | null,
+  let currentProjectConfig: {
+    projectRoot: string | null;
+    projectConfigPath: string | null;
+    config?: OpenScoutProjectConfig | null;
+    created: boolean;
+  } = {
+    projectRoot: null,
+    projectConfigPath: null,
     created: false,
   };
 

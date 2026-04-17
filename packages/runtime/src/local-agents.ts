@@ -43,6 +43,8 @@ import {
   findNearestProjectRoot,
   loadResolvedRelayAgents,
   type ManagedAgentHarness,
+  type OpenScoutProjectConfig,
+  readProjectConfig,
   readRelayAgentOverrides,
   type RelayHarnessProfile,
   type RelayHarnessProfileInput,
@@ -123,6 +125,7 @@ export type ScoutLocalAgentStatus = {
 export type StartLocalAgentInput = {
   projectPath: string;
   agentName?: string;
+  displayName?: string;
   harness?: AgentHarness;
   currentDirectory?: string;
   model?: string;
@@ -1762,6 +1765,115 @@ export async function listLocalAgents(options: {
     .sort((lhs, rhs) => lhs.projectName.localeCompare(rhs.projectName) || lhs.agentId.localeCompare(rhs.agentId));
 }
 
+export type ResolvedAgentIdentity = {
+  definitionId: string;
+  displayName: string;
+  instanceId: string;
+  branch: string | null;
+  nodeQualifier: string;
+  harness: ManagedAgentHarness;
+  projectRoot: string;
+  projectName: string;
+  source: "existing" | "new" | "config";
+};
+
+export async function resolveLocalAgentIdentity(input: StartLocalAgentInput): Promise<ResolvedAgentIdentity> {
+  const projectPath = normalizeProjectPath(input.projectPath);
+  const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
+  const requestedDefinitionId = input.agentName?.trim()
+    ? normalizeAgentSelectorSegment(input.agentName.trim())
+    : "";
+
+  if (input.agentName?.trim() && !requestedDefinitionId) {
+    throw new Error(`Invalid agent name "${input.agentName}".`);
+  }
+
+  const overrides = await readRelayAgentOverrides();
+
+  const findMatchForRoot = (root: string): { agentId: string; override: RelayAgentOverride } | null => {
+    let fallback: { agentId: string; override: RelayAgentOverride } | null = null;
+    for (const [id, override] of Object.entries(overrides)) {
+      if (BUILT_IN_AGENT_DEFINITION_IDS.has(id)) continue;
+      if (!override.projectRoot) continue;
+      if (normalizeProjectPath(override.projectRoot) !== root) continue;
+      if (requestedDefinitionId && override.definitionId === requestedDefinitionId) {
+        return { agentId: id, override };
+      }
+      if (!fallback) fallback = { agentId: id, override };
+    }
+    return fallback;
+  };
+
+  let matched = findMatchForRoot(projectPath);
+  let projectRoot = projectPath;
+
+  if (!matched) {
+    const resolved = await findNearestProjectRoot(projectPath);
+    if (resolved && resolved !== projectPath) {
+      projectRoot = normalizeProjectPath(resolved);
+      matched = findMatchForRoot(projectRoot);
+    }
+  }
+
+  if (matched) {
+    const override = matched.override;
+    const instance = buildRelayAgentInstance(override.definitionId ?? matched.agentId, normalizeProjectPath(override.projectRoot));
+    return {
+      definitionId: override.definitionId ?? matched.agentId,
+      displayName: input.displayName || override.displayName || titleCaseLocalAgentName(override.definitionId ?? matched.agentId),
+      instanceId: instance.id,
+      branch: instance.branch,
+      nodeQualifier: instance.nodeQualifier,
+      harness: normalizeManagedHarness(preferredHarness ?? override.defaultHarness, "claude"),
+      projectRoot: normalizeProjectPath(override.projectRoot),
+      projectName: override.projectName ?? basename(override.projectRoot),
+      source: "existing",
+    };
+  }
+
+  const ensuredProject = await ensureProjectConfigForDirectory(projectPath);
+  projectRoot = ensuredProject.projectRoot ?? projectPath;
+  const config = ensuredProject.config;
+
+  matched = findMatchForRoot(projectRoot);
+  if (matched) {
+    const override = matched.override;
+    const instance = buildRelayAgentInstance(override.definitionId ?? matched.agentId, normalizeProjectPath(override.projectRoot));
+    return {
+      definitionId: override.definitionId ?? matched.agentId,
+      displayName: input.displayName || override.displayName || titleCaseLocalAgentName(override.definitionId ?? matched.agentId),
+      instanceId: instance.id,
+      branch: instance.branch,
+      nodeQualifier: instance.nodeQualifier,
+      harness: normalizeManagedHarness(preferredHarness ?? override.defaultHarness, "claude"),
+      projectRoot: normalizeProjectPath(override.projectRoot),
+      projectName: override.projectName ?? basename(override.projectRoot),
+      source: "existing",
+    };
+  }
+
+  const configDefinitionId = config?.agent?.id?.trim()
+    ? normalizeAgentSelectorSegment(config.agent.id.trim())
+    : "";
+  const definitionId = requestedDefinitionId || configDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+  const configDisplayName = config?.agent?.displayName?.trim() || "";
+  const displayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
+  const instance = buildRelayAgentInstance(definitionId, projectRoot);
+  const effectiveHarness = normalizeManagedHarness(preferredHarness, "claude");
+
+  return {
+    definitionId,
+    displayName,
+    instanceId: instance.id,
+    branch: instance.branch,
+    nodeQualifier: instance.nodeQualifier,
+    harness: effectiveHarness,
+    projectRoot,
+    projectName: basename(projectRoot),
+    source: configDefinitionId || configDisplayName ? "config" : "new",
+  };
+}
+
 export async function startLocalAgent(input: StartLocalAgentInput): Promise<ScoutLocalAgentStatus> {
   const projectPath = normalizeProjectPath(input.projectPath);
   const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
@@ -1815,12 +1927,15 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
 
   let targetAgentId: string;
 
+  let coldProjectConfig: OpenScoutProjectConfig | null = null;
+
   if (!matchingOverride) {
     // Cold path only: hit the config-ensure helper (and its ~/.claude scan) to seed a
     // first-time agent override. Warm mobile createSession never lands here.
     const ensuredProject = await ensureProjectConfigForDirectory(projectPath);
     projectRoot = ensuredProject.projectRoot ?? projectPath;
     coldProjectConfigPath = ensuredProject.projectConfigPath ?? null;
+    coldProjectConfig = ensuredProject.config ?? null;
     // Recheck overrides in case ensureProjectConfigForDirectory canonicalized the root
     // to something we already have a match for.
     matched = findMatchForRoot(projectRoot);
@@ -1830,7 +1945,13 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
 
   if (!matchingOverride) {
     // Dynamic agent creation: build an override from workspace defaults.
-    const definitionId = requestedDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+    // Use project config's agent.id as a fallback for the definition ID.
+    const configDefinitionId = coldProjectConfig?.agent?.id?.trim()
+      ? normalizeAgentSelectorSegment(coldProjectConfig.agent.id.trim())
+      : "";
+    const definitionId = requestedDefinitionId || configDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+    const configDisplayName = coldProjectConfig?.agent?.displayName?.trim() || "";
+    const effectiveDisplayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
     const instance = buildRelayAgentInstance(definitionId, projectRoot);
     const effectiveHarness = normalizeManagedHarness(preferredHarness, "claude");
     const transport = normalizeLocalAgentTransport(undefined, effectiveHarness);
@@ -1848,7 +1969,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId,
-      displayName: titleCaseLocalAgentName(definitionId),
+      displayName: effectiveDisplayName,
       projectName: basename(projectRoot),
       projectRoot,
       projectConfigPath: coldProjectConfigPath,
@@ -1892,7 +2013,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,
-      displayName: titleCaseLocalAgentName(requestedDefinitionId),
+      displayName: input.displayName || titleCaseLocalAgentName(requestedDefinitionId),
       projectName: matchingOverride.projectName ?? basename(matchingProjectRoot),
       projectRoot: matchingProjectRoot,
       projectConfigPath: matchingOverride.projectConfigPath ?? null,

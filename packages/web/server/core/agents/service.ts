@@ -21,6 +21,7 @@ export type ScoutAgentStatus = ScoutLocalAgentStatus;
 export type CreateScoutAgentCardInput = {
   projectPath: string;
   agentName?: string;
+  displayName?: string;
   harness?: AgentHarness;
   currentDirectory?: string;
   createdById?: string;

@@ -21,6 +21,7 @@ export type ScoutAgentStatus = ScoutLocalAgentStatus;
 export type CreateScoutAgentCardInput = {
   projectPath: string;
   agentName?: string;
+  displayName?: string;
   harness?: AgentHarness;
   currentDirectory?: string;
   createdById?: string;
@@ -67,7 +68,13 @@ export async function restartScoutAgents(input: {
 }
 
 export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Promise<RelayAgentCard> {
-  const status = await startLocalAgent(input);
+  const status = await startLocalAgent({
+    projectPath: input.projectPath,
+    agentName: input.agentName,
+    displayName: input.displayName,
+    harness: input.harness,
+    currentDirectory: input.currentDirectory,
+  });
   const currentDirectory = input.currentDirectory ?? input.projectPath;
   const broker = await loadScoutBrokerContext();
   const syncResult = await registerScoutLocalAgentBinding({
