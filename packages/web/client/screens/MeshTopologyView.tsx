@@ -63,7 +63,7 @@ function buildMeshDiagram(mesh: MeshStatus): ArcData | null {
   const remotePeers = Object.values(mesh.nodes).filter((n) => n.id !== localId);
 
   const width = 800;
-  const height = 440;
+  const height = 300;
   const cx = width / 2;
   const cy = height / 2;
 

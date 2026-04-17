@@ -10,6 +10,12 @@ import { agentIdFromConversation, conversationForAgent } from "../lib/router.ts"
 import type { Agent, Flight, Message, Route, SessionEntry } from "../lib/types.ts";
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
+const KIND_LABELS: Record<string, string> = {
+  direct: "Direct message",
+  channel: "Channel",
+  group_direct: "Group",
+  thread: "Thread",
+};
 
 type EventMessageRecord = {
   id: string;
@@ -59,6 +65,73 @@ function normalizeTimestampMs(value: number | null | undefined): number | null {
   return value < 1e12 ? value * 1000 : value;
 }
 
+function pathLeaf(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const normalized = path.replace(/[\\/]+$/, "");
+  if (!normalized) return null;
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) ?? normalized;
+}
+
+function deriveDisplayTitle(session: SessionEntry): string {
+  if (session.kind === "direct" && session.agentName) return session.agentName;
+  return session.title.replace(/\s*<>\s*/g, " · ");
+}
+
+function formatAbsoluteTimestamp(value: number | null | undefined): string {
+  const normalized = normalizeTimestampMs(value);
+  if (normalized === null) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(normalized);
+}
+
+function isSameCalendarDay(left: number | null | undefined, right: number | null | undefined): boolean {
+  const leftValue = normalizeTimestampMs(left);
+  const rightValue = normalizeTimestampMs(right);
+  if (leftValue === null || rightValue === null) return false;
+
+  const leftDate = new Date(leftValue);
+  const rightDate = new Date(rightValue);
+  return leftDate.getFullYear() === rightDate.getFullYear()
+    && leftDate.getMonth() === rightDate.getMonth()
+    && leftDate.getDate() === rightDate.getDate();
+}
+
+function formatThreadDayLabel(value: number | null | undefined): string {
+  const normalized = normalizeTimestampMs(value);
+  if (normalized === null) return "";
+
+  const date = new Date(normalized);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTarget = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  if (startOfTarget === startOfToday) return "Today";
+  if (startOfTarget === startOfToday - oneDay) return "Yesterday";
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(normalized);
+}
+
+function messageClassLabel(kind: string): string | null {
+  switch (kind) {
+    case "status":
+      return "Status";
+    case "system":
+      return "System";
+    case "scout.dispatch":
+      return "Dispatch";
+    default:
+      return null;
+  }
+}
+
 function sortMessages(messages: Message[]): Message[] {
   return [...messages].sort(
     (left, right) => (normalizeTimestampMs(left.createdAt) ?? 0) - (normalizeTimestampMs(right.createdAt) ?? 0),
@@ -95,9 +168,11 @@ function readScoutDispatch(message: Message): ScoutDispatchRecord | null {
 }
 
 function isOperatorMessage(message: Message, operatorName: string): boolean {
-  return message.class === "operator"
-    || message.actorName === operatorName
-    || message.actorName === "operator";
+  if (message.class === "operator") return true;
+  const actor = message.actorName?.toLowerCase() ?? "";
+  return actor === operatorName.toLowerCase()
+    || actor === "operator"
+    || actor === "you";
 }
 
 function latestAgentMessageAt(messages: Message[], operatorName: string): number | null {
@@ -241,6 +316,13 @@ function ConversationMetaRow({ label, value }: { label: string; value: string })
   );
 }
 
+function participantListLabel(session: SessionEntry | null): string | null {
+  if (!session) return null;
+  const participants = session.participantIds.filter((participant) => participant !== "operator");
+  if (participants.length === 0) return null;
+  return participants.join(", ");
+}
+
 export function ConversationScreen({
   conversationId,
   navigate,
@@ -370,6 +452,18 @@ export function ConversationScreen({
     }),
     [agent?.state, agentName, currentFlight, sending, showWorkingTurn],
   );
+  const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
+  const kindLabel = sessionMeta?.kind ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind) : "Conversation";
+  const participantLabel = participantListLabel(sessionMeta) ?? conversationId;
+  const workspaceName = pathLeaf(sessionMeta?.workspaceRoot);
+  const threadUpdatedAt = sessionMeta?.lastMessageAt ?? messages[messages.length - 1]?.createdAt ?? null;
+  const threadChips = [
+    workspaceName ? { label: workspaceName, title: sessionMeta?.workspaceRoot ?? undefined } : null,
+    sessionMeta?.currentBranch ? { label: sessionMeta.currentBranch, title: sessionMeta.currentBranch } : null,
+    (agent?.harness ?? sessionMeta?.harness)
+      ? { label: agent?.harness ?? sessionMeta?.harness ?? "", title: undefined }
+      : null,
+  ].filter((value): value is { label: string; title: string | undefined } => Boolean(value));
 
   useBrokerEvents(useCallback((event) => {
     if (event.kind === "message.posted") {
@@ -540,7 +634,7 @@ export function ConversationScreen({
   };
 
   return (
-    <div className="s-conversation">
+    <div className="s-conversation s-inbox-thread-redesign">
       <div
         className="s-conv-header"
         onClick={() => isDm ? navigate({ view: "agent-info", conversationId }) : undefined}
@@ -556,22 +650,48 @@ export function ConversationScreen({
         >
           &larr;
         </button>
-        <div
-          className="s-avatar s-avatar-sm"
-          style={{ background: actorColor(agentName) }}
-        >
-          {agentName[0].toUpperCase()}
+        <div className="s-thread-header-copy">
+          <div className="s-thread-header-main">
+            <div
+              className="s-avatar s-avatar-sm"
+              style={{ background: actorColor(agentName) }}
+            >
+              {agentName[0]?.toUpperCase() ?? "?"}
+            </div>
+            <div className="s-conv-header-info">
+              <span className="s-conv-header-name">{threadTitle}</span>
+              <span
+                className="s-conv-header-state"
+                title={isDm ? presence.detail : participantLabel}
+              >
+                <span className="s-dot s-dot-sm" style={{ background: presenceColor(presence, agent?.state ?? null) }} />
+                {isDm ? presence.label : participantLabel}
+              </span>
+            </div>
+          </div>
+          <div className="s-thread-header-meta">
+            <span className="s-thread-kicker">{kindLabel}</span>
+            {threadUpdatedAt && (
+              <span
+                className="s-thread-header-updated s-tabular"
+                title={formatAbsoluteTimestamp(threadUpdatedAt)}
+              >
+                {timeAgo(threadUpdatedAt)}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="s-conv-header-info">
-          <span className="s-conv-header-name">{agentName}</span>
-          <span className="s-conv-header-state">
-            <span className="s-dot s-dot-sm" style={{ background: presenceColor(presence, agent?.state ?? null) }} />
-            {isDm ? presence.label : (sessionMeta?.participantIds.filter((p) => p !== "operator").join(", ") ?? conversationId)}
-          </span>
-        </div>
-        <span className="s-spacer" />
-        {agent?.harness && <span className="s-badge">{agent.harness}</span>}
-        {!isDm && sessionMeta?.kind && <span className="s-badge">{sessionMeta.kind}</span>}
+
+        {threadChips.length > 0 && (
+          <div className="s-thread-header-chips" aria-label="Thread details">
+            {threadChips.map((chip, index) => (
+              <span key={`${chip.label}-${index}`} className="s-thread-chip" title={chip.title}>
+                {chip.label}
+              </span>
+            ))}
+          </div>
+        )}
+
         {isDm && agentId && <span className="s-chevron" />}
       </div>
 
@@ -586,80 +706,117 @@ export function ConversationScreen({
       )}
 
       {isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
-        <div className="s-conv-meta" aria-label="Agent session metadata">
-          {agent.harnessSessionId && (
-            <ConversationMetaRow label="Harness Session" value={agent.harnessSessionId} />
-          )}
-          {agent.harnessLogPath && (
-            <ConversationMetaRow label="Harness Log" value={agent.harnessLogPath} />
-          )}
-        </div>
+        <details className="s-conv-meta-disclosure">
+          <summary className="s-conv-meta-toggle">Session details</summary>
+          <div className="s-conv-meta" aria-label="Agent session metadata">
+            {agent.harnessSessionId && (
+              <ConversationMetaRow label="Harness Session" value={agent.harnessSessionId} />
+            )}
+            {agent.harnessLogPath && (
+              <ConversationMetaRow label="Harness Log" value={agent.harnessLogPath} />
+            )}
+          </div>
+        </details>
       )}
 
       {error && <p className="s-error">{error}</p>}
 
       <div className="s-messages">
         {messages.length === 0 ? (
-          <div className="s-empty">
+          <div className="s-empty s-thread-empty">
             <p>No messages yet</p>
-            <p>Start a conversation with this agent</p>
+            <p>{isDm ? `Start a conversation with ${agentName}.` : "Start the thread below."}</p>
           </div>
         ) : (
-          messages.map((message) => {
+          messages.map((message, index) => {
             const isYou = isOperatorMessage(message, operatorName);
             const dispatch = readScoutDispatch(message);
             const rowClass = dispatch ? "scout.dispatch" : message.class;
+            const badgeLabel = messageClassLabel(rowClass);
+            const showDayDivider = index === 0 || !isSameCalendarDay(messages[index - 1]?.createdAt, message.createdAt);
+            const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
             return (
               <div
                 key={message.id}
-                className={`s-msg s-row-message${isYou ? " s-msg-you" : ""}`}
-                data-class={rowClass}
+                className="s-thread-message-block"
               >
-                <div className="s-msg-header">
-                  <span className="s-msg-actor">{isYou ? "You" : message.actorName}</span>
-                  <span className="s-msg-time">{timeAgo(message.createdAt)}</span>
-                </div>
-                <p className="s-msg-body">{renderWithMentions(message.body)}</p>
-                {dispatch && dispatch.candidates.length > 0 && (
-                  <div className="s-scout-dispatch">
-                    {dispatch.candidates.map((candidate) => (
-                      <button
-                        key={candidate.agentId}
-                        type="button"
-                        className="s-scout-tile"
-                        onClick={() => void dispatchToCandidate(dispatch, candidate)}
-                      >
-                        <span className="s-scout-tile-id">@{candidate.agentId}</span>
-                        <span className="s-scout-tile-state">{candidate.endpointState}</span>
-                        <span className="s-scout-tile-meta">
-                          {[candidate.workspace, candidate.node, candidate.projectRoot]
-                            .filter(Boolean)
-                            .join(" · ") || candidate.displayName}
-                        </span>
-                      </button>
-                    ))}
+                {showDayDivider && (
+                  <div className="s-thread-day-divider" aria-label={formatThreadDayLabel(message.createdAt)}>
+                    <span className="s-thread-day-line" aria-hidden="true" />
+                    <span className="s-thread-day-label">{formatThreadDayLabel(message.createdAt)}</span>
+                    <span className="s-thread-day-line" aria-hidden="true" />
                   </div>
                 )}
+
+                <article
+                  className={`s-msg s-row-message${isYou ? " s-msg-you" : ""}`}
+                  data-class={rowClass}
+                >
+                  <div className="s-msg-card">
+                    <div className="s-msg-header">
+                      <div className="s-msg-meta">
+                        <span className="s-msg-actor">{isYou ? "You" : message.actorName}</span>
+                        {badgeLabel && <span className="s-msg-kind">{badgeLabel}</span>}
+                      </div>
+                      <span className="s-msg-time" title={absoluteTime}>{timeAgo(message.createdAt)}</span>
+                    </div>
+
+                    <div className="s-msg-body" title={absoluteTime}>
+                      {renderWithMentions(message.body)}
+                    </div>
+
+                    {dispatch && dispatch.candidates.length > 0 && (
+                      <div className="s-scout-dispatch">
+                        {dispatch.candidates.map((candidate) => (
+                          <button
+                            key={candidate.agentId}
+                            type="button"
+                            className="s-scout-tile"
+                            onClick={() => void dispatchToCandidate(dispatch, candidate)}
+                          >
+                            <span className="s-scout-tile-id">@{candidate.agentId}</span>
+                            <span className="s-scout-tile-state">{candidate.endpointState}</span>
+                            <span className="s-scout-tile-meta">
+                              {[candidate.workspace, candidate.node, candidate.projectRoot]
+                                .filter(Boolean)
+                                .join(" · ") || candidate.displayName}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </article>
               </div>
             );
           })
         )}
 
         {presence.showTyping && (
-          <div className="s-msg s-msg-working" aria-live="polite">
-            <div className="s-msg-header">
-              <span className="s-msg-actor">{agentName}</span>
-              <span className="s-msg-time">
-                {currentFlight?.startedAt ? timeAgo(currentFlight.startedAt) : "now"}
-              </span>
-            </div>
-            <div className="s-msg-working-body">
-              <span className="s-typing-indicator" aria-hidden="true">
-                <span className="s-typing-dot" />
-                <span className="s-typing-dot" />
-                <span className="s-typing-dot" />
-              </span>
-              <span className="s-msg-working-copy">{presence.detail}</span>
+          <div className="s-thread-message-block">
+            <div className="s-msg s-msg-working" aria-live="polite">
+              <div className="s-msg-card s-msg-working-card">
+                <div className="s-msg-header">
+                  <div className="s-msg-meta">
+                    <span className="s-msg-actor">{agentName}</span>
+                    <span className="s-msg-kind">Live</span>
+                  </div>
+                  <span
+                    className="s-msg-time"
+                    title={currentFlight?.startedAt ? formatAbsoluteTimestamp(currentFlight.startedAt) : "now"}
+                  >
+                    {currentFlight?.startedAt ? timeAgo(currentFlight.startedAt) : "now"}
+                  </span>
+                </div>
+                <div className="s-msg-working-body">
+                  <span className="s-typing-indicator" aria-hidden="true">
+                    <span className="s-typing-dot" />
+                    <span className="s-typing-dot" />
+                    <span className="s-typing-dot" />
+                  </span>
+                  <span className="s-msg-working-copy">{presence.detail}</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -674,30 +831,38 @@ export function ConversationScreen({
           void send();
         }}
       >
-        <textarea
-          ref={composeRef}
-          className="s-compose-input"
-          placeholder={`Message ${agentName}...`}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            if (!sending && draft.trim()) {
-              void send();
-            }
-          }}
-          disabled={sending}
-          rows={1}
-        />
-        <button
-          type="submit"
-          className="s-compose-send"
-          disabled={sending || !draft.trim()}
-          aria-label="Send message"
-        >
-          <SendIcon />
-        </button>
+        <div className="s-thread-compose-shell">
+          <textarea
+            ref={composeRef}
+            className="s-compose-input"
+            placeholder={`Message ${agentName}...`}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              if (!sending && draft.trim()) {
+                void send();
+              }
+            }}
+            disabled={sending}
+            rows={1}
+          />
+
+          <div className="s-thread-compose-footer">
+            <span className="s-thread-compose-hint">
+              {sending ? `Sending to ${agentName}…` : "Enter to send · Shift+Enter for newline"}
+            </span>
+            <button
+              type="submit"
+              className="s-compose-send"
+              disabled={sending || !draft.trim()}
+              aria-label="Send message"
+            >
+              <SendIcon />
+            </button>
+          </div>
+        </div>
       </form>
     </div>
   );

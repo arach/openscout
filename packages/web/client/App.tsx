@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "./lib/router.ts";
 import { api } from "./lib/api.ts";
 import { useBrokerEvents } from "./lib/sse.ts";
+import { isAgentOnline } from "./lib/agent-state.ts";
 import { ConversationScreen } from "./screens/ConversationScreen.tsx";
 import { SettingsScreen } from "./screens/SettingsScreen.tsx";
 import { ActivityScreen } from "./screens/ActivityScreen.tsx";
@@ -108,7 +109,7 @@ function MainPanel({
     case "settings":
       return <SettingsScreen navigate={navigate} />;
     case "agents":
-      return <AgentsScreen navigate={navigate} selectedAgentId={route.agentId} />;
+      return <AgentsScreen navigate={navigate} selectedAgentId={route.agentId} conversationId={route.conversationId} />;
     case "fleet":
       return <FleetScreen navigate={navigate} />;
     case "sessions":
@@ -129,8 +130,55 @@ function MainPanel({
 
 /* ── App ── */
 
+const SIDEBAR_MIN = 140;
+const SIDEBAR_MAX = 400;
+const SIDEBAR_STORAGE_KEY = "scout-sidebar-w";
+
+function readStoredWidth(): number {
+  try {
+    const v = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (v) {
+      const n = Number(v);
+      if (n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) return n;
+    }
+  } catch { /* ignore */ }
+  return 280;
+}
+
 export function App() {
   const { route, navigate } = useRouter();
+
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredWidth);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--sidebar-w", `${sidebarWidth}px`);
+    try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarWidth)); } catch { /* ignore */ }
+  }, [sidebarWidth]);
+
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX));
+      setSidebarWidth(clamped);
+    };
+
+    const onUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
 
   const [agents, setAgents] = useState<Agent[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -152,88 +200,127 @@ export function App() {
   useEffect(() => { void load(); }, [load]);
   useBrokerEvents(load);
 
-  // On mobile, sidebar hides when a content view is open
+  const onlineCount = agents.filter((a) => isAgentOnline(a.state)).length;
   const showingContent = route.view !== "inbox" && route.view !== "sessions" && route.view !== "mesh";
 
   return (
     <div className={`s-app${showingContent ? " s-app-content-open" : ""}`}>
-      {/* ── Sidebar ── */}
-      <aside className="s-sidebar">
-        <div className="s-sidebar-header">
-          <h1 className="s-logo" onClick={() => navigate({ view: "inbox" })}>
-            Scout
-          </h1>
+      {/* ── Full-width topbar ── */}
+      <header className="s-topbar">
+        <div className="s-topbar-left">
+          <h1 className="s-logo" onClick={() => navigate({ view: "inbox" })}>Scout</h1>
         </div>
-
-        <nav className="s-sidebar-nav">
+        <div className="s-topbar-center">
+          <span className="s-topbar-status">
+            <span className="s-dot" style={{ background: agents.length > 0 ? "var(--green)" : "var(--dim)" }} />
+            {agents.length > 0 ? "Online" : "No agents"}
+          </span>
+          {agents.length > 0 && (
+            <span className="s-topbar-detail">{onlineCount}/{agents.length} agents</span>
+          )}
+        </div>
+        <div className="s-topbar-right">
           <button
             type="button"
-            className={`s-nav-item${route.view === "inbox" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "inbox" })}
-          >
-            <HomeIcon />
-            <span>Home</span>
-          </button>
-          <button
-            type="button"
-            className={`s-nav-item${route.view === "agents" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "agents" })}
-          >
-            <AgentsIcon />
-            <span>Agents</span>
-          </button>
-          <button
-            type="button"
-            className={`s-nav-item${route.view === "fleet" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "fleet" })}
-          >
-            <FleetIcon />
-            <span>Fleet</span>
-          </button>
-          <button
-            type="button"
-            className={`s-nav-item${route.view === "sessions" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "sessions" })}
-          >
-            <SessionsIcon />
-            <span>Sessions</span>
-          </button>
-          <button
-            type="button"
-            className={`s-nav-item${route.view === "activity" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "activity" })}
-          >
-            <ActivityIcon />
-            <span>Activity</span>
-          </button>
-          <button
-            type="button"
-            className={`s-nav-item${route.view === "mesh" ? " s-nav-item-active" : ""}`}
-            onClick={() => navigate({ view: "mesh" })}
-          >
-            <MeshIcon />
-            <span>Mesh</span>
-          </button>
-        </nav>
-
-        <div className="s-spacer" />
-
-        <nav className="s-sidebar-footer">
-          <button
-            type="button"
-            className={`s-nav-item${route.view === "settings" ? " s-nav-item-active" : ""}`}
+            className="s-topbar-btn"
             onClick={() => navigate({ view: "settings" })}
           >
-            <GearIcon />
-            <span>Settings</span>
+            Pair device
           </button>
-        </nav>
-      </aside>
+          <button
+            type="button"
+            className="s-topbar-btn"
+            onClick={() => navigate({ view: "fleet" })}
+          >
+            Fleet
+          </button>
+        </div>
+      </header>
 
-      {/* ── Main content ── */}
-      <main className="s-content">
-        <MainPanel route={route} navigate={navigate} agents={agents} messages={messages} />
-      </main>
+      {/* ── Sidebar + content ── */}
+      <div className="s-app-body">
+        <aside className="s-sidebar">
+          <nav className="s-sidebar-nav">
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "inbox" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "inbox" })}
+            >
+              <HomeIcon />
+              <span>Home</span>
+            </button>
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "agents" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "agents" })}
+            >
+              <AgentsIcon />
+              <span>Agents</span>
+            </button>
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "fleet" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "fleet" })}
+            >
+              <FleetIcon />
+              <span>Fleet</span>
+            </button>
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "sessions" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "sessions" })}
+            >
+              <SessionsIcon />
+              <span>Sessions</span>
+            </button>
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "activity" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "activity" })}
+            >
+              <ActivityIcon />
+              <span>Activity</span>
+            </button>
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "mesh" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "mesh" })}
+            >
+              <MeshIcon />
+              <span>Mesh</span>
+            </button>
+          </nav>
+
+          <div className="s-spacer" />
+
+          <nav className="s-sidebar-footer">
+            <button
+              type="button"
+              className={`s-nav-item${route.view === "settings" ? " s-nav-item-active" : ""}`}
+              onClick={() => navigate({ view: "settings" })}
+            >
+              <GearIcon />
+              <span>Settings</span>
+            </button>
+          </nav>
+        </aside>
+
+        {/* ── Resize handle ── */}
+        <div
+          className="s-sidebar-resize"
+          onMouseDown={onResizeStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={SIDEBAR_MIN}
+          aria-valuemax={SIDEBAR_MAX}
+        />
+
+        {/* ── Main content ── */}
+        <main className="s-content">
+          <MainPanel route={route} navigate={navigate} agents={agents} messages={messages} />
+        </main>
+      </div>
     </div>
   );
 }

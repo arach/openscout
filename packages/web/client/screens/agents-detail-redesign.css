@@ -1,0 +1,1116 @@
+.s-content > .s-agent-profile-page,
+.s-content > .s-work-casefile {
+  max-width: 1240px;
+  width: 100%;
+  padding: 24px 28px 40px;
+}
+
+.s-agents-browser {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  height: 100vh;
+  background: var(--bg);
+}
+
+.s-agents-browser .s-agents-list-panel,
+.s-agents-browser .s-agents-detail-panel {
+  height: 100vh;
+  min-height: 0;
+}
+
+.s-agents-browser .s-agents-list-panel {
+  width: auto;
+  flex-shrink: 1;
+}
+
+.s-agents-browser-list {
+  border-right: 1px solid var(--border);
+  padding: 0;
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.s-agents-browser-detail {
+  padding: 28px 32px 40px;
+  background: rgba(249, 249, 248, 0.84);
+  overflow-y: auto;
+}
+
+.s-agents-browser-detail:has(.s-conversation) {
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.s-agent-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 6px 22px 14px;
+}
+
+.s-agent-roster-header {
+  position: sticky;
+  top: -16px;
+  z-index: 2;
+  margin: -16px -6px 0 -14px;
+  padding: 16px 16px 12px 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(255, 255, 255, 0.96) 80%, rgba(255, 255, 255, 0) 100%);
+  backdrop-filter: blur(10px);
+}
+
+.s-agent-roster-kicker,
+.s-agent-casefile-kicker,
+.s-agent-section-kicker {
+  display: none;
+}
+
+.s-agent-roster-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.s-agent-roster-copy {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: none;
+}
+
+.s-agent-roster-summary-card,
+.s-agent-highlight-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: none;
+}
+
+.s-agent-roster-summary-value,
+.s-agent-highlight-metric-value {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.s-agent-roster-summary-label,
+.s-agent-highlight-metric-label {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.s-agent-highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.s-agent-highlight-metric-accent {
+  border-color: rgba(0, 102, 255, 0.14);
+}
+
+.s-agent-highlight-metric-alert {
+  border-color: rgba(220, 38, 38, 0.14);
+}
+
+.s-agent-roster-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-agent-roster-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px 2px;
+}
+
+.s-agent-roster-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+}
+
+.s-agent-roster-section-description {
+  display: none;
+}
+
+.s-agent-roster-section-count {
+  min-width: 20px;
+  padding: 0;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  text-align: right;
+}
+
+.s-agent-roster-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-agent-roster-row {
+  position: relative;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  transition:
+    background 120ms ease;
+}
+
+.s-agent-roster-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.s-agent-roster-row.s-agent-list-row-active {
+  background: rgba(0, 102, 255, 0.08);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.s-agent-roster-row.s-agent-list-row-active .s-agent-list-name {
+  color: var(--accent);
+}
+
+.s-agent-roster-avatar-wrap {
+  position: relative;
+  margin-top: 1px;
+}
+
+.s-agent-roster-avatar-status {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 0 1px rgba(24, 24, 22, 0.04);
+}
+
+.s-agent-list-row-active .s-agent-roster-avatar-status {
+  border-color: color-mix(in srgb, var(--accent) 8%, white);
+}
+
+.s-agent-roster-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.s-agent-roster-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.s-agent-roster-row-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  flex-shrink: 0;
+  letter-spacing: 0.01em;
+}
+
+.s-agent-roster-row-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.s-agent-roster-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.s-agent-roster-row-preview {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.s-agent-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.s-agent-state-chip-working {
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.16);
+}
+
+.s-agent-state-chip-available {
+  color: var(--accent);
+  background: rgba(0, 102, 255, 0.08);
+  border-color: rgba(0, 102, 255, 0.14);
+}
+
+.s-agent-state-chip-offline {
+  color: var(--muted);
+  background: rgba(138, 138, 134, 0.12);
+  border-color: rgba(138, 138, 134, 0.16);
+}
+
+.s-agent-casefile,
+.s-agent-profile-page,
+.s-work-casefile {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.s-agent-casefile-hero,
+.s-agent-profile-hero,
+.s-work-casefile-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0));
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+}
+
+.s-agent-casefile-hero-main,
+.s-agent-profile-hero-main,
+.s-work-casefile-hero-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.s-agent-casefile-title-row,
+.s-agent-profile-hero-title-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.s-agent-casefile-avatar,
+.s-agent-profile-hero-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 18px;
+  box-shadow: inset 0 -6px 14px rgba(0, 0, 0, 0.08);
+}
+
+.s-agent-casefile-title-copy,
+.s-agent-profile-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.s-agent-casefile-title-meta,
+.s-work-casefile-topbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.s-agent-casefile-record,
+.s-work-casefile-record {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(28, 28, 26, 0.05);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.s-agent-casefile-title,
+.s-agent-profile-hero-title,
+.s-work-casefile-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.s-agent-casefile-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.s-agent-casefile-title-qualifier {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.s-agent-casefile-copy,
+.s-agent-profile-hero-copyline,
+.s-agent-profile-hero-context,
+.s-work-casefile-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.s-agent-profile-hero-context {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.s-agent-casefile-actions,
+.s-agent-profile-hero-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.s-agent-spotlight-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(249, 249, 248, 0.92);
+  border: 1px solid color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0));
+}
+
+.s-agent-spotlight-header,
+.s-agent-message-card-header,
+.s-work-flight-card-header,
+.s-work-related-card-header,
+.s-work-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.s-agent-spotlight-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.s-agent-spotlight-title,
+.s-work-flight-card-title,
+.s-work-related-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.s-agent-spotlight-meta,
+.s-work-flight-card-meta,
+.s-work-related-card-meta,
+.s-work-casefile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.s-agent-spotlight-copy,
+.s-work-flight-card-copy,
+.s-work-related-card-copy {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.s-agent-casefile-body,
+.s-work-casefile-layout,
+.s-agent-profile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.95fr);
+  gap: 16px;
+}
+
+.s-agent-casefile-body-overview {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.s-agent-casefile-main,
+.s-agent-casefile-side,
+.s-work-casefile-main,
+.s-work-casefile-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.s-agent-casefile-section,
+.s-work-casefile-section,
+.s-agent-profile-card,
+.s-agent-meta-card,
+.s-work-fact-card {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0));
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+}
+
+.s-agent-section-heading,
+.s-agent-profile-card-header,
+.s-work-fact-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.s-agent-section-title,
+.s-agent-profile-card-title,
+.s-work-fact-card-title {
+  margin-top: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.s-agent-profile-card-subtitle,
+.s-work-fact-card-subtitle {
+  display: none;
+}
+
+.s-agent-meta-card-title {
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.s-agent-meta-card-body,
+.s-work-fact-card-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.s-agent-meta-row,
+.s-work-fact-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+}
+
+.s-agent-meta-row + .s-agent-meta-row,
+.s-work-fact-row + .s-work-fact-row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.s-agent-meta-label,
+.s-work-fact-label,
+.s-work-action-row-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.s-agent-meta-value,
+.s-work-fact-value,
+.s-work-action-row-value {
+  min-width: 0;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.s-agent-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.s-agent-token {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(28, 28, 26, 0.05);
+  border: 1px solid rgba(28, 28, 26, 0.08);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink);
+}
+
+.s-agent-message-list,
+.s-agent-focus-list,
+.s-work-flight-list,
+.s-work-related-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.s-agent-message-card,
+.s-agent-focus-card,
+.s-work-flight-card,
+.s-work-related-card,
+.s-work-timeline-entry,
+.s-work-action-row {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  text-align: left;
+  padding: 12px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.s-agent-message-card:hover,
+.s-agent-focus-card:hover,
+.s-work-related-card:hover,
+.s-work-action-row:hover,
+.s-work-timeline-entry-clickable:hover,
+.s-work-flight-card:not(:disabled):hover {
+  background: rgba(255, 255, 255, 1);
+  border-color: rgba(0, 102, 255, 0.16);
+}
+
+.s-work-flight-card:disabled,
+.s-work-timeline-entry:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.s-agent-focus-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-agent-focus-card-title,
+.s-agent-message-card-actor,
+.s-work-timeline-actor {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-agent-focus-card-meta,
+.s-agent-focus-card-time,
+.s-work-action-list-empty {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.s-agent-message-card-body {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.s-agent-profile-page-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.s-agent-profile-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.s-work-casefile-topbar {
+  justify-content: space-between;
+}
+
+.s-work-casefile-title-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.s-work-casefile-summary {
+  max-width: 70ch;
+  color: var(--ink);
+}
+
+.s-work-fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.s-work-related-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.s-work-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.s-work-timeline-entry {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.s-work-timeline-marker {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--dim);
+  box-shadow: 0 0 0 3px rgba(138, 138, 134, 0.06);
+}
+
+.s-work-timeline-marker-message {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.07);
+}
+
+.s-work-timeline-marker-flight {
+  background: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.08);
+}
+
+.s-work-timeline-marker-done {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.08);
+}
+
+.s-work-timeline-marker-alert {
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+}
+
+.s-work-timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.s-work-timeline-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.s-work-timeline-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(138, 138, 134, 0.1);
+  color: var(--muted);
+}
+
+.s-work-timeline-kind-message {
+  background: rgba(0, 102, 255, 0.08);
+  color: var(--accent);
+}
+
+.s-work-timeline-kind-flight {
+  background: rgba(14, 165, 233, 0.08);
+  color: #0284c7;
+}
+
+.s-work-timeline-kind-done {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--green);
+}
+
+.s-work-timeline-kind-alert {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--red);
+}
+
+.s-work-timeline-title,
+.s-work-timeline-summary {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.s-work-timeline-summary {
+  color: var(--muted);
+}
+
+.s-work-timeline-stamp {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.s-work-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-work-action-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.s-work-action-list-empty {
+  padding: 4px 0;
+}
+
+.s-agent-mobile-back {
+  display: none;
+}
+
+.s-agent-roster-empty {
+  padding-left: 6px;
+}
+
+.s-agent-casefile .s-work-list {
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--border) 92%, rgba(0, 0, 0, 0));
+  box-shadow: none;
+}
+
+.s-agent-casefile .s-work-row {
+  padding: 12px 14px;
+}
+
+.s-agent-casefile .s-work-row-clickable:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+/* ── Overview empty state (no agent selected) ── */
+
+.s-agent-overview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.s-agent-overview-empty-title {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+.s-agent-overview-empty-copy {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 260px;
+  line-height: 1.55;
+}
+
+/* ── Agent detail: identity card ── */
+
+.s-agent-detail-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.s-agent-detail-identity-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.s-agent-detail-identity-name {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.s-agent-detail-identity-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.s-agent-detail-handle {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.s-agent-detail-updated {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.s-agent-detail-identity-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.s-agent-detail-identity-desc:empty {
+  display: none;
+}
+
+/* ── Agent detail: actions ── */
+
+.s-agent-detail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.s-agent-detail-actions .s-btn-primary {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+  font-size: 12px;
+  padding: 6px 16px;
+  border-radius: 8px;
+}
+
+/* ── Agent detail: capabilities ── */
+
+.s-agent-detail-capabilities {
+  padding: 0;
+}
+
+.s-agent-detail-capabilities .s-agent-token-list {
+  justify-content: flex-start;
+}
+
+/* ── Agent detail: context metadata ── */
+
+.s-agent-detail-context {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-agent-detail-context .s-agent-meta-card-body {
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+/* ── Agent detail: work section ── */
+
+.s-agent-detail-work {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-agent-detail-section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+
+/* ── Agent detail: casefile layout override ── */
+
+.s-agent-casefile {
+  max-width: 640px;
+}
+
+@media (max-width: 1080px) {
+  .s-content > .s-agent-profile-page,
+  .s-content > .s-work-casefile {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .s-agent-casefile-body,
+  .s-work-casefile-layout,
+  .s-agent-profile-grid,
+  .s-work-fact-grid,
+  .s-agent-casefile-body-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-agent-casefile-actions,
+  .s-agent-profile-hero-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 959px) {
+  .s-agents-browser {
+    display: block;
+    height: auto;
+    background: var(--bg);
+  }
+
+  .s-agents-browser .s-agents-list-panel,
+  .s-agents-browser .s-agents-detail-panel {
+    height: auto;
+    width: 100%;
+  }
+
+  .s-agents-browser:not(.s-agents-browser-selected) .s-agents-browser-detail {
+    display: none;
+  }
+
+  .s-agents-browser-selected .s-agents-browser-list {
+    display: none;
+  }
+
+  .s-agents-browser-detail {
+    padding: 20px;
+  }
+
+  .s-agent-mobile-back {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 720px) {
+  .s-content > .s-agent-profile-page,
+  .s-content > .s-work-casefile {
+    padding: 20px 18px 32px;
+  }
+
+  .s-agent-roster {
+    padding: 16px 12px 20px;
+  }
+
+  .s-agent-roster-header {
+    margin: -16px -12px 0 -12px;
+    padding: 16px 12px 12px 22px;
+  }
+
+  .s-agent-highlight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .s-agent-casefile-hero,
+  .s-agent-profile-hero,
+  .s-work-casefile-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+
+  .s-agent-casefile-title,
+  .s-agent-profile-hero-title,
+  .s-work-casefile-title {
+    font-size: 24px;
+  }
+
+  .s-agent-profile-page-topbar,
+  .s-work-casefile-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .s-work-action-row,
+  .s-agent-meta-row,
+  .s-work-fact-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .s-agent-meta-value,
+  .s-work-fact-value,
+  .s-work-action-row-value,
+  .s-agent-token-list {
+    text-align: left;
+    justify-content: flex-start;
+  }
+}

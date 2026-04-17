@@ -1,11 +1,13 @@
+import "./dashboard-redesign.css";
+
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
-import { isAgentOnline } from "../lib/agent-state.ts";
-import { WorkList } from "../components/WorkList.tsx";
-import type { Agent, ActivityItem, Route, WorkItem } from "../lib/types.ts";
+import { agentStateLabel, isAgentOnline } from "../lib/agent-state.ts";
+import { renderWithMentions } from "../lib/mentions.tsx";
+import type { Agent, ActivityItem, Route } from "../lib/types.ts";
 
 type ShellState = {
   runtime?: {
@@ -34,6 +36,65 @@ function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind.replace(/[._]/g, " ");
 }
 
+function HomeAgentRow({
+  agent,
+  navigate,
+}: {
+  agent: Agent;
+  navigate: (route: Route) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="s-dashboard-agent-row"
+      onClick={() => navigate({ view: "agents", agentId: agent.id })}
+    >
+      <div className="s-avatar s-avatar-xs" style={{ background: actorColor(agent.name) }}>
+        {agent.name[0]?.toUpperCase() ?? "?"}
+      </div>
+      <div className="s-dashboard-agent-copy">
+        <span className="s-dashboard-agent-name">{agent.name}</span>
+        <span className="s-dashboard-agent-meta">
+          <span className="s-dot" style={{ background: stateColor(agent.state) }} />
+          {agentStateLabel(agent.state)}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function HomeActivityRow({
+  item,
+  navigate,
+}: {
+  item: ActivityItem;
+  navigate: (route: Route) => void;
+}) {
+  const nextRoute: Route | null = item.conversationId
+    ? { view: "conversation", conversationId: item.conversationId }
+    : null;
+
+  return (
+    <div
+      className={`s-dashboard-activity-row${nextRoute ? " s-dashboard-activity-row-clickable" : ""}`}
+      onClick={nextRoute ? () => navigate(nextRoute) : undefined}
+    >
+      <div className="s-dashboard-activity-time">{timeAgo(item.ts)}</div>
+      <div className="s-dashboard-activity-body">
+        <div className="s-dashboard-activity-header">
+          <span className="s-dashboard-activity-actor">{item.actorName ?? "system"}</span>
+          <span className="s-dashboard-activity-kind">{kindLabel(item.kind)}</span>
+        </div>
+        {(item.title || item.summary) && (
+          <p className="s-dashboard-activity-summary">
+            {renderWithMentions(item.title ?? item.summary ?? "")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function HomeScreen({
   agents,
   navigate,
@@ -44,18 +105,15 @@ export function HomeScreen({
 }) {
   const [shell, setShell] = useState<ShellState | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [work, setWork] = useState<WorkItem[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [nextShell, nextActivity, nextWork] = await Promise.all([
+      const [nextShell, nextActivity] = await Promise.all([
         api<ShellState>("/api/shell-state"),
         api<ActivityItem[]>("/api/activity"),
-        api<WorkItem[]>("/api/work"),
       ]);
       setShell(nextShell);
       setActivity(nextActivity);
-      setWork(nextWork);
     } catch {
       // stay empty on error
     }
@@ -67,111 +125,109 @@ export function HomeScreen({
   const rt = shell?.runtime;
   const brokerRunning = rt?.brokerReachable ?? false;
   const onlineAgents = agents.filter((a) => isAgentOnline(a.state));
+  const offlineAgents = agents.filter((a) => !isAgentOnline(a.state));
   const hasAgents = agents.length > 0;
+  const activityPreview = activity.slice(0, 20);
 
   return (
-    <div className="s-home">
-      <div className="s-home-header">
-        <h2>Home</h2>
-        <p>
-          {hasAgents
-            ? `${onlineAgents.length} online, ${agents.length - onlineAgents.length} offline`
-            : "No agents connected yet"}
-        </p>
-      </div>
-
-      {/* Status card */}
-      <div className="s-home-section">
-        <div className="s-home-section-title">Status</div>
-        <div className="s-home-card">
-          <div className="s-home-card-row">
-            <span className="s-home-card-row-label">Broker</span>
-            <span className="s-dot" style={{ background: brokerRunning ? "var(--green)" : "var(--red)" }} />
-            <span className="s-home-card-row-value">{rt?.brokerLabel ?? (brokerRunning ? "Running" : "Stopped")}</span>
+    <div className="s-home s-dashboard-screen">
+      <div className="s-dashboard-body">
+        <main className="s-dashboard-main">
+          <div className="s-dashboard-section-head">
+            <h3>Activity</h3>
+            {activity.length > 0 && (
+              <span className="s-dashboard-count">{activity.length}</span>
+            )}
           </div>
-          {rt?.nodeId && (
-            <div className="s-home-card-row">
-              <span className="s-home-card-row-label">Node</span>
-              <span className="s-home-card-row-value">{rt.nodeId}</span>
+          {activityPreview.length === 0 ? (
+            <div className="s-empty">
+              <p>No activity yet</p>
+              <p>Events appear here as agents connect and work.</p>
+            </div>
+          ) : (
+            <div className="s-dashboard-activity-feed">
+              {activityPreview.map((item) => (
+                <HomeActivityRow key={item.id} item={item} navigate={navigate} />
+              ))}
             </div>
           )}
-          <div className="s-home-card-row">
-            <span className="s-home-card-row-label">Agents</span>
-            <span className="s-home-card-row-value">{rt?.agentCount ?? agents.length}</span>
+          {activity.length > 20 && (
+            <button
+              type="button"
+              className="s-dashboard-see-all"
+              onClick={() => navigate({ view: "activity" })}
+            >
+              See all activity
+            </button>
+          )}
+        </main>
+
+        <aside className="s-dashboard-rail">
+          <div className="s-dashboard-section-head">
+            <h3>Agents</h3>
+            {agents.length > 0 && (
+              <span className="s-dashboard-count">{agents.length}</span>
+            )}
           </div>
-        </div>
+          {onlineAgents.length > 0 ? (
+            <div className="s-dashboard-roster-block">
+              <div className="s-dashboard-roster-label">Online</div>
+              <div className="s-dashboard-agent-list">
+                {onlineAgents.map((agent) => (
+                  <HomeAgentRow key={agent.id} agent={agent} navigate={navigate} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="s-empty">
+              <p>{hasAgents ? "All agents offline" : "No agents connected"}</p>
+              <p>
+                {hasAgents
+                  ? "Agents appear here when they reconnect."
+                  : "Connect an agent to see your roster."}
+              </p>
+            </div>
+          )}
+          {offlineAgents.length > 0 && (
+            <div className="s-dashboard-roster-block">
+              <div className="s-dashboard-roster-label">Standby</div>
+              <div className="s-dashboard-chip-row">
+                {offlineAgents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    className="s-dashboard-chip"
+                    onClick={() => navigate({ view: "agents", agentId: agent.id })}
+                  >
+                    {agent.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
       </div>
 
-      {/* Active agents */}
-      {onlineAgents.length > 0 && (
-        <div className="s-home-section">
-          <div className="s-home-section-title">Online</div>
-          <div className="s-home-card">
-            {onlineAgents.map((agent) => (
-              <div
-                key={agent.id}
-                className="s-home-card-row s-home-card-row-clickable"
-                onClick={() => navigate({ view: "agents", agentId: agent.id })}
-              >
-                <div className="s-avatar s-avatar-sm" style={{ background: actorColor(agent.name) }}>
-                  {agent.name[0].toUpperCase()}
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink)", flex: 1 }}>
-                  {agent.name}
-                </span>
-                <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-                {agent.harness && <span className="s-badge">{agent.harness}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="s-home-section">
-        <div className="s-home-section-title">Active work</div>
-        <WorkList
-          items={work}
-          navigate={navigate}
-          emptyTitle="No active work"
-          emptyDetail={hasAgents ? "Open work items will appear here as agents pick them up." : undefined}
-        />
-      </div>
-
-      {/* Activity stream */}
-      <div className="s-home-section">
-        <div className="s-home-section-title">Activity</div>
-        {activity.length === 0 ? (
-          <p style={{ fontSize: 12, color: "var(--muted)" }}>No activity yet</p>
-        ) : (
-          <div className="s-activity-stream">
-            {activity.slice(0, 30).map((item) => (
-              <div
-                key={item.id}
-                className={`s-activity-row${item.conversationId ? " s-activity-row-clickable" : ""}`}
-                onClick={item.conversationId ? () => navigate({ view: "conversation", conversationId: item.conversationId! }) : undefined}
-              >
-                <span className="s-activity-time">{timeAgo(item.ts)}</span>
-                <span className="s-activity-actor">{item.actorName ?? "system"}</span>
-                <span className="s-activity-kind">{kindLabel(item.kind)}</span>
-                {item.title && <span className="s-activity-title">{item.title}</span>}
-              </div>
-            ))}
-          </div>
+      <footer className="s-dashboard-statusbar">
+        <span className="s-dashboard-statusbar-item">
+          <span
+            className="s-dot"
+            style={{ background: brokerRunning ? "var(--green)" : "var(--red)" }}
+          />
+          {rt?.brokerLabel ?? (brokerRunning ? "Broker healthy" : "Broker offline")}
+        </span>
+        {rt?.nodeId && (
+          <span className="s-dashboard-statusbar-item s-dashboard-statusbar-mono">
+            {rt.nodeId.length > 14 ? `${rt.nodeId.slice(0, 10)}…` : rt.nodeId}
+          </span>
         )}
-      </div>
-
-      {/* Getting started — only when no agents */}
-      {!hasAgents && (
-        <div className="s-home-section">
-          <div className="s-home-section-title">Getting started</div>
-          <ol className="s-home-steps">
-            <li data-step="1">Install the CLI: <code>bun install -g @openscout/scout</code></li>
-            <li data-step="2">Start the broker: <code>scout broker</code></li>
-            <li data-step="3">Link a project: <code>scout setup</code></li>
-            <li data-step="4">Agents appear here as they connect</li>
-          </ol>
-        </div>
-      )}
+        <span className="s-dashboard-statusbar-item">
+          {rt?.agentCount ?? agents.length} agent{(rt?.agentCount ?? agents.length) === 1 ? "" : "s"}
+        </span>
+        <span className="s-dashboard-statusbar-item">
+          {rt?.messageCount ?? 0} msg{(rt?.messageCount ?? 0) === 1 ? "" : "s"}
+        </span>
+      </footer>
     </div>
   );
 }

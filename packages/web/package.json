@@ -16,7 +16,7 @@
     "build": "node ./scripts/build.mjs",
     "build:client": "vite build",
     "build:server": "bun build ./server/index.ts --target=bun --format=esm --outfile ./dist/openscout-web-server.mjs && bun build ./server/pair-supervisor.ts --target=bun --format=esm --outfile ./dist/pair-supervisor.mjs",
-    "dev": "bun run --hot server/index.ts",
+    "dev": "OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun run --hot server/index.ts & vite & wait",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs .",
     "test:happy": "node --test test/*.test.mjs"

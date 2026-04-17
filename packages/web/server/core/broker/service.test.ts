@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { writeOpenScoutSettings } from "@openscout/runtime/setup";
 
-import { askScoutQuestion } from "./service.ts";
+import { askScoutQuestion, openScoutPeerSession } from "./service.ts";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -156,5 +156,90 @@ describe("askScoutQuestion", () => {
     expect(requests.some((request) => request.path === "/v1/messages")).toBe(true);
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(true);
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(false);
+  }, 15000);
+});
+
+describe("openScoutPeerSession", () => {
+  test("auto-registers a configured local agent and creates a direct conversation", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const talkieRoot = join(workspaceRoot, "talkie");
+
+    mkdirSync(join(talkieRoot, ".git"), { recursive: true });
+    writeFileSync(join(talkieRoot, "AGENTS.md"), "# talkie\n", "utf8");
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [workspaceRoot],
+        includeCurrentRepo: false,
+      },
+    });
+
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/agents") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/endpoints") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/conversations") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await openScoutPeerSession({
+      sourceId: "operator",
+      targetId: "talkie",
+      currentDirectory: talkieRoot,
+      sourceName: "Operator",
+    });
+
+    expect(result.sourceId).toBe("operator");
+    expect(result.targetId).toContain("talkie");
+    expect(result.conversation.participantIds).toEqual(["operator", result.targetId]);
+    expect(result.conversation.kind).toBe("direct");
+    expect(result.existed).toBe(false);
+
+    const actorPosts = requests.filter((request) => request.path === "/v1/actors");
+    const agentPosts = requests.filter((request) => request.path === "/v1/agents");
+    const endpointPosts = requests.filter((request) => request.path === "/v1/endpoints");
+    const conversationPost = requests.find((request) => request.path === "/v1/conversations");
+
+    expect(actorPosts.some((request) => request.body?.id === "operator")).toBe(true);
+    expect(actorPosts.some((request) => request.body?.id === result.targetId)).toBe(true);
+    expect(agentPosts.some((request) => request.body?.id === result.targetId)).toBe(true);
+    expect(endpointPosts.some((request) => request.body?.agentId === result.targetId)).toBe(true);
+    expect(conversationPost?.body).toEqual(expect.objectContaining({
+      kind: "direct",
+      participantIds: ["operator", result.targetId],
+      visibility: "private",
+    }));
   }, 15000);
 });

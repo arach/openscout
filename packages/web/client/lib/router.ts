@@ -8,6 +8,10 @@ function routeFromPath(): Route {
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
+  // /agents/{agentId}/c/{conversationId} → agents view with inline conversation
+  if (parts[0] === "agents" && parts[1] && parts[2] === "c" && parts[3]) {
+    return { view: "agents", agentId: decodeURIComponent(parts[1]), conversationId: decodeURIComponent(parts[3]) };
+  }
   // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
     return { view: "agents", agentId: decodeURIComponent(parts[1]) };
@@ -36,7 +40,11 @@ function routePath(r: Route): string {
     case "inbox": return "/";
     case "conversation": return `/c/${encodeURIComponent(r.conversationId)}`;
     case "agent-info": return `/agent/${encodeURIComponent(r.conversationId)}`;
-    case "agents": return r.agentId ? `/agents/${encodeURIComponent(r.agentId)}` : "/agents";
+    case "agents": return r.agentId
+      ? r.conversationId
+        ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
+        : `/agents/${encodeURIComponent(r.agentId)}`
+      : "/agents";
     case "fleet": return "/fleet";
     case "sessions": return r.sessionId ? `/sessions/${encodeURIComponent(r.sessionId)}` : "/sessions";
     case "mesh": return "/mesh";
@@ -50,7 +58,7 @@ function routeKey(r: Route): string {
   switch (r.view) {
     case "conversation": return `conv:${r.conversationId}`;
     case "agent-info": return `agent-info:${r.conversationId}`;
-    case "agents": return r.agentId ? `agent:${r.agentId}` : "agents";
+    case "agents": return r.conversationId ? `agent-conv:${r.conversationId}` : r.agentId ? `agent:${r.agentId}` : "agents";
     case "sessions": return r.sessionId ? `session:${r.sessionId}` : "sessions";
     case "work": return `work:${r.workId}`;
     default: return r.view;

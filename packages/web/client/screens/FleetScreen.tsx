@@ -1,3 +1,5 @@
+import "./dashboard-redesign.css";
+
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
@@ -60,10 +62,50 @@ function routeForActivity(item: FleetActivity): Route | null {
   return null;
 }
 
-function AskRow({ ask, navigate }: { ask: FleetAsk; navigate: (r: Route) => void }) {
-  const nextRoute = routeForAsk(ask);
+function FleetSectionHeader({
+  title,
+  detail,
+  count,
+}: {
+  title: string;
+  detail: string;
+  count: number;
+}) {
   return (
-    <div className="s-work-row s-work-row-clickable" onClick={() => navigate(nextRoute)}>
+    <>
+      <div className="s-dashboard-panel-header">
+        <div>
+          <h3>{title}</h3>
+        </div>
+        <span className="s-dashboard-count" style={count === 0 ? { opacity: 0.4 } : undefined}>{count}</span>
+      </div>
+      <p className="s-dashboard-panel-copy">{detail}</p>
+    </>
+  );
+}
+
+function AskRow({
+  ask,
+  navigate,
+  section,
+}: {
+  ask: FleetAsk;
+  navigate: (r: Route) => void;
+  section: "active" | "finished";
+}) {
+  const nextRoute = routeForAsk(ask);
+  const timingLabel = ask.completedAt
+    ? `finished ${timeAgo(ask.completedAt)}`
+    : ask.startedAt
+      ? `started ${timeAgo(ask.startedAt)}`
+      : `updated ${timeAgo(ask.updatedAt)}`;
+
+  return (
+    <div
+      className={`s-work-row s-work-row-clickable s-dashboard-fleet-row s-dashboard-fleet-row-${section}`}
+      data-status={ask.status}
+      onClick={() => navigate(nextRoute)}
+    >
       <div className="s-work-row-header">
         <div className="s-fleet-row-title-wrap">
           <div className="s-avatar s-avatar-sm" style={{ background: actorColor(ask.agentName ?? ask.agentId) }}>
@@ -73,12 +115,11 @@ function AskRow({ ask, navigate }: { ask: FleetAsk; navigate: (r: Route) => void
             <div className="s-work-row-title-wrap">
               <span className="s-work-row-title">{ask.agentName ?? ask.agentId}</span>
               {ask.harness && <span className="s-badge">{ask.harness}</span>}
-              {ask.transport && <span className="s-badge">{ask.transport.replace(/_/g, " ")}</span>}
             </div>
             <div className="s-work-row-meta" style={{ marginTop: 2 }}>
               <span className="s-dot" style={{ background: stateColor(ask.agentState) }} />
               <span>{agentStateLabel(ask.agentState)}</span>
-              <span>{ask.completedAt ? `finished ${timeAgo(ask.completedAt)}` : `updated ${timeAgo(ask.updatedAt)}`}</span>
+              <span>{timingLabel}</span>
             </div>
           </div>
         </div>
@@ -102,17 +143,18 @@ function AttentionRow({ item, navigate }: { item: FleetAttentionItem; navigate: 
       : "your move";
   return (
     <div
-      className={`s-work-row${nextRoute ? " s-work-row-clickable" : ""}`}
+      className={`s-work-row s-dashboard-fleet-row s-dashboard-fleet-attention-row${nextRoute ? " s-work-row-clickable" : ""}`}
       onClick={nextRoute ? () => navigate(nextRoute) : undefined}
     >
       <div className="s-work-row-header">
         <div className="s-work-row-title-wrap">
           <span className="s-work-row-title">{item.title}</span>
-          {item.agentName && <span className="s-badge">{item.agentName}</span>}
         </div>
         <span className="s-pill s-pill-updated">Needs your input</span>
       </div>
       <div className="s-work-row-meta">
+        <span>{item.kind === "question" ? "question" : "work item"}</span>
+        {item.agentName && <span>{item.agentName}</span>}
         <span>{stateLabel}</span>
         <span>{responseLabel}</span>
         <span>{timeAgo(item.updatedAt)}</span>
@@ -120,6 +162,45 @@ function AttentionRow({ item, navigate }: { item: FleetAttentionItem; navigate: 
       {item.summary && (
         <p className="s-work-row-summary">{renderWithMentions(item.summary)}</p>
       )}
+    </div>
+  );
+}
+
+function FleetActivityRow({
+  item,
+  navigate,
+}: {
+  item: FleetActivity;
+  navigate: (r: Route) => void;
+}) {
+  const nextRoute = routeForActivity(item);
+
+  return (
+    <div
+      className={`s-dashboard-activity-row${nextRoute ? " s-dashboard-activity-row-clickable" : ""}`}
+      onClick={nextRoute ? () => navigate(nextRoute) : undefined}
+    >
+      <div
+        className="s-avatar s-avatar-sm"
+        style={{ background: actorColor(item.actorName ?? item.agentId ?? "system") }}
+      >
+        {(item.actorName ?? item.agentId ?? "S")[0]?.toUpperCase() ?? "S"}
+      </div>
+      <div className="s-dashboard-activity-body">
+        <div className="s-dashboard-activity-header">
+          <span className="s-dashboard-activity-actor">{item.actorName ?? "system"}</span>
+          <span className="s-dashboard-activity-kind">{kindLabel(item.kind)}</span>
+          <span className="s-time">{timeAgo(item.ts)}</span>
+        </div>
+        {(item.title || item.summary) && (
+          <p className="s-dashboard-activity-summary">
+            {renderWithMentions(item.title ?? item.summary ?? "")}
+          </p>
+        )}
+        {item.title && item.summary && (
+          <p className="s-dashboard-activity-note">{renderWithMentions(item.summary)}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -142,124 +223,130 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
   const recentCompleted = fleet?.recentCompleted ?? [];
   const needsAttention = fleet?.needsAttention ?? [];
   const activity = fleet?.activity ?? [];
+  const queueMessage = needsAttention.length > 0
+    ? `${needsAttention.length} item${needsAttention.length === 1 ? " is" : "s are"} waiting on you. Clear ${needsAttention.length === 1 ? "it" : "those"} first, then monitor the rest of the queue.`
+    : activeAsks.length > 0
+      ? `${activeAsks.length} ask${activeAsks.length === 1 ? " is" : "s are"} currently in flight. The queue is clear of interruptions.`
+      : recentCompleted.length > 0
+        ? "Nothing is actively running right now. Recent finishes are ready for review."
+        : "No asks have moved through the fleet yet. Start work and this becomes the operations board.";
 
   return (
-    <div>
-      <div className="s-home-header">
-        <h2>Fleet</h2>
-        <p>Track what you started first, then what needs your input, then what just finished, then the broader activity.</p>
-      </div>
-
-      {fleet && (
-        <div className="s-fleet-summary-grid">
-          <div className="s-fleet-summary-card">
-            <div className="s-fleet-summary-label">Active asks</div>
-            <div className="s-fleet-summary-value">{fleet.totals.active}</div>
-            <div className="s-fleet-summary-meta">Currently in flight</div>
+    <div className="s-home s-dashboard-screen s-dashboard-fleet">
+      <div className="s-dashboard-hero s-dashboard-hero-fleet">
+        <div className="s-dashboard-hero-copy">
+          <div className="s-dashboard-hero-head">
+            <h2>Fleet</h2>
+            {fleet && <span className="s-time">Updated {timeAgo(fleet.generatedAt)}</span>}
           </div>
-          <div className="s-fleet-summary-card">
-            <div className="s-fleet-summary-label">Needs your input</div>
-            <div className="s-fleet-summary-value">{fleet.totals.needsAttention}</div>
-            <div className="s-fleet-summary-meta">Awaiting an answer, review, or decision</div>
-          </div>
-          <div className="s-fleet-summary-card">
-            <div className="s-fleet-summary-label">Recently finished</div>
-            <div className="s-fleet-summary-value">{fleet.totals.recentCompleted}</div>
-            <div className="s-fleet-summary-meta">Recent completed or failed asks</div>
-          </div>
-          <div className="s-fleet-summary-card">
-            <div className="s-fleet-summary-label">Activity</div>
-            <div className="s-fleet-summary-value">{fleet.totals.activity}</div>
-            <div className="s-fleet-summary-meta">Updated {timeAgo(fleet.generatedAt)}</div>
-          </div>
-        </div>
-      )}
-
-      <div className="s-home-section">
-        <div className="s-home-section-title">Active asks</div>
-        {activeAsks.length === 0 ? (
-          <div className="s-empty">
-            <p>No active asks</p>
-            <p>New agent work will appear here while it is still in progress.</p>
-          </div>
-        ) : (
-          <div className="s-work-list">
-            {activeAsks.map((ask) => (
-              <AskRow key={ask.invocationId} ask={ask} navigate={navigate} />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {needsAttention.length > 0 && (
-        <div className="s-home-section">
-          <div className="s-home-section-title">Needs Your Input</div>
-          <div className="s-work-list">
-            {needsAttention.map((item) => (
-              <AttentionRow key={item.recordId} item={item} navigate={navigate} />
-            ))}
+          <p>{queueMessage}</p>
+          <div className="s-dashboard-summary-grid">
+            <div className={`s-dashboard-summary-card${(fleet?.totals.needsAttention ?? 0) > 0 ? " s-dashboard-summary-card-attention" : ""}`}>
+              <div className="s-dashboard-summary-label">Needs input</div>
+              <div className="s-dashboard-summary-value">{fleet?.totals.needsAttention ?? 0}</div>
+              <div className="s-dashboard-summary-meta">Questions, reviews, or decisions waiting on you</div>
+            </div>
+            <div className="s-dashboard-summary-card">
+              <div className="s-dashboard-summary-label">Active asks</div>
+              <div className="s-dashboard-summary-value">{fleet?.totals.active ?? 0}</div>
+              <div className="s-dashboard-summary-meta">Currently in flight across the fleet</div>
+            </div>
+            <div className={`s-dashboard-summary-card${(fleet?.totals.recentCompleted ?? 0) > 0 ? " s-dashboard-summary-card-finished" : ""}`}>
+              <div className="s-dashboard-summary-label">Finished</div>
+              <div className="s-dashboard-summary-value">{fleet?.totals.recentCompleted ?? 0}</div>
+              <div className="s-dashboard-summary-meta">Recent completions and failures to review</div>
+            </div>
+            <div className="s-dashboard-summary-card">
+              <div className="s-dashboard-summary-label">Activity</div>
+              <div className="s-dashboard-summary-value">{fleet?.totals.activity ?? 0}</div>
+              <div className="s-dashboard-summary-meta">Recent events across the fleet</div>
+            </div>
           </div>
         </div>
-      )}
-
-      <div className="s-home-section">
-        <div className="s-home-section-title">Recently Finished</div>
-        {recentCompleted.length === 0 ? (
-          <div className="s-empty">
-            <p>No recent finishes</p>
-            <p>Completed asks and failures will show up here once they settle.</p>
-          </div>
-        ) : (
-          <div className="s-work-list">
-            {recentCompleted.map((ask) => (
-              <AskRow key={ask.invocationId} ask={ask} navigate={navigate} />
-            ))}
-          </div>
-        )}
       </div>
 
-      <div className="s-home-section">
-        <div className="s-home-section-title">Overall Activity</div>
-        {activity.length === 0 ? (
-          <div className="s-empty">
-            <p>No recent fleet activity</p>
-            <p>Messages, asks, and other agent activity will stream here.</p>
-          </div>
-        ) : (
-          <div className="s-activity-list">
-            {activity.slice(0, 20).map((item) => {
-              const nextRoute = routeForActivity(item);
-              return (
-                <div key={item.id} className="s-activity-list-item">
-                  <div
-                    className={`s-activity-list-row${nextRoute ? " s-activity-list-row-clickable" : ""}`}
-                    onClick={nextRoute ? () => navigate(nextRoute) : undefined}
-                  >
-                    <div
-                      className="s-avatar s-avatar-sm"
-                      style={{ background: actorColor(item.actorName ?? item.agentId ?? "system") }}
-                    >
-                      {(item.actorName ?? item.agentId ?? "S")[0]?.toUpperCase() ?? "S"}
-                    </div>
-                    <div className="s-activity-list-body">
-                      <div className="s-activity-list-header">
-                        <span className="s-activity-list-actor">{item.actorName ?? "system"}</span>
-                        <span className="s-pill s-pill-updated">{kindLabel(item.kind)}</span>
-                        <span className="s-time">{timeAgo(item.ts)}</span>
-                      </div>
-                      {item.title && (
-                        <p className="s-activity-list-title">{renderWithMentions(item.title)}</p>
-                      )}
-                      {item.summary && (
-                        <p className="s-work-row-summary">{renderWithMentions(item.summary)}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div className="s-dashboard-fleet-stack">
+        <section className={`s-dashboard-panel${needsAttention.length > 0 ? " s-dashboard-panel-attention" : ""}`}>
+          <FleetSectionHeader
+            title="Needs your input"
+            detail="Handle interruptions, pending answers, and review requests first."
+            count={needsAttention.length}
+          />
+          {needsAttention.length === 0 ? (
+            <div className="s-empty">
+              <p>Nothing is waiting on you</p>
+              <p>When agents ask a question or a work item needs review, it will land here first.</p>
+            </div>
+          ) : (
+            <div className="s-work-list">
+              {needsAttention.map((item) => (
+                <AttentionRow key={item.recordId} item={item} navigate={navigate} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <div className="s-dashboard-fleet-columns">
+          <section className="s-dashboard-panel s-dashboard-panel-active">
+            <FleetSectionHeader
+              title="Active asks"
+              detail="The asks still in flight across the fleet."
+              count={activeAsks.length}
+            />
+            {activeAsks.length === 0 ? (
+              <div className="s-empty">
+                <p>No active asks</p>
+                <p>New agent work will appear here while it is still in progress.</p>
+              </div>
+            ) : (
+              <div className="s-work-list">
+                {activeAsks.map((ask) => (
+                  <AskRow key={ask.invocationId} ask={ask} navigate={navigate} section="active" />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="s-dashboard-panel s-dashboard-panel-finished">
+            <FleetSectionHeader
+              title="Recent finishes"
+              detail="Review completions and failures once the active queue is stable."
+              count={recentCompleted.length}
+            />
+            {recentCompleted.length === 0 ? (
+              <div className="s-empty">
+                <p>No recent finishes</p>
+                <p>Completed asks and failures will show up here once they settle.</p>
+              </div>
+            ) : (
+              <div className="s-work-list">
+                {recentCompleted.map((ask) => (
+                  <AskRow key={ask.invocationId} ask={ask} navigate={navigate} section="finished" />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <section className="s-dashboard-panel s-dashboard-panel-activity">
+          <FleetSectionHeader
+            title="Recent activity"
+            detail="The broader event stream behind the queue."
+            count={activity.length}
+          />
+          {activity.length === 0 ? (
+            <div className="s-empty">
+              <p>No recent fleet activity</p>
+              <p>Messages, asks, and other agent activity will stream here.</p>
+            </div>
+          ) : (
+            <div className="s-dashboard-activity-feed">
+              {activity.slice(0, 20).map((item) => (
+                <FleetActivityRow key={item.id} item={item} navigate={navigate} />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

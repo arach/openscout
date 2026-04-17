@@ -1,19 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { WorkList } from "../components/WorkList.tsx";
+import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
-import { actorColor, stateColor } from "../lib/colors.ts";
-import { agentStateLabel, isAgentOnline } from "../lib/agent-state.ts";
-import { WorkList } from "../components/WorkList.tsx";
-import type { Agent, Message, Route, SessionEntry, WorkItem } from "../lib/types.ts";
+import type { Agent, Route, SessionEntry, WorkItem } from "../lib/types.ts";
+import { ConversationScreen } from "./ConversationScreen.tsx";
+import "./agents-detail-redesign.css";
+
+type AgentField = {
+  label: string;
+  value: ReactNode;
+};
+
+type AgentSection = {
+  key: "working" | "available" | "offline";
+  title: string;
+  agents: Agent[];
+};
 
 /** Build a display label that disambiguates agents sharing the same name. */
 function agentLabel(agent: Agent, allAgents: Agent[]): { name: string; qualifier: string | null } {
-  const siblings = allAgents.filter((a) => a.name === agent.name);
+  const siblings = allAgents.filter((candidate) => candidate.name === agent.name);
   if (siblings.length <= 1) {
     return { name: agent.name, qualifier: null };
   }
-  // Use project, branch, or id suffix to disambiguate
   const qualifier =
     agent.project ??
     agent.branch ??
@@ -21,27 +33,107 @@ function agentLabel(agent: Agent, allAgents: Agent[]): { name: string; qualifier
   return { name: agent.name, qualifier };
 }
 
+function formatLabel(value: string | null | undefined): string | null {
+  return value ? value.replace(/_/g, " ") : null;
+}
+
+function formatUpdatedAt(updatedAt: number | null): string {
+  return updatedAt ? timeAgo(updatedAt) : "—";
+}
+
+function directSessionMaps(sessions: SessionEntry[]): {
+  conversationByAgentId: Map<string, string>;
+  sessionByAgentId: Map<string, SessionEntry>;
+} {
+  const directSessions = [...sessions]
+    .filter((session): session is SessionEntry & { agentId: string } => session.kind === "direct" && Boolean(session.agentId))
+    .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+
+  const conversationByAgentId = new Map<string, string>();
+  const sessionByAgentId = new Map<string, SessionEntry>();
+  for (const session of directSessions) {
+    const agentId = session.agentId;
+    if (!conversationByAgentId.has(agentId)) {
+      conversationByAgentId.set(agentId, session.id);
+      sessionByAgentId.set(agentId, session);
+    }
+  }
+
+  return { conversationByAgentId, sessionByAgentId };
+}
+
+function AgentMetadataRow({ label, value }: AgentField) {
+  return (
+    <div className="s-agent-meta-row">
+      <span className="s-agent-meta-label">{label}</span>
+      <span className="s-agent-meta-value">{value}</span>
+    </div>
+  );
+}
+
+function CapabilityTokens({ values }: { values: string[] }) {
+  return (
+    <span className="s-agent-token-list">
+      {values.map((value) => (
+        <span key={value} className="s-agent-token">
+          {value}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function AgentRosterSection({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="s-agent-roster-section">
+      <div className="s-agent-roster-section-header">
+        <div className="s-agent-roster-section-title">{title}</div>
+        <span className="s-agent-roster-section-count">{count}</span>
+      </div>
+      <div className="s-agent-roster-stack">{children}</div>
+    </section>
+  );
+}
+
+function AgentsOverviewPanel({ agents }: { agents: Agent[] }) {
+  if (agents.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="s-agent-overview-empty">
+      <h2 className="s-agent-overview-empty-title">Select an agent</h2>
+      <p className="s-agent-overview-empty-copy">
+        Pick an agent from the roster to view its profile, current work, and session context.
+      </p>
+    </div>
+  );
+}
+
 function AgentDetail({
   agent,
   allAgents,
-  messages,
+  session,
   conversationId,
   navigate,
 }: {
   agent: Agent;
   allAgents: Agent[];
-  messages: Message[];
+  session: SessionEntry | null;
   conversationId: string | null;
   navigate: (r: Route) => void;
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
-  const agentMessages = messages.filter((m) =>
-    m.actorName === agent.name ||
-    m.conversationId.includes(agent.id) ||
-    m.body.includes(`@${agent.name}`)
-  );
-  agentMessages.sort((a, b) => b.createdAt - a.createdAt);
   const [work, setWork] = useState<WorkItem[]>([]);
+  const state = normalizeAgentState(agent.state);
 
   const load = useCallback(async () => {
     try {
@@ -51,87 +143,94 @@ function AgentDetail({
     }
   }, [agent.id]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   useBrokerEvents(load);
 
+  const contextItems: AgentField[] = [
+    ...(agent.project ? [{ label: "Project", value: agent.project }] : []),
+    ...(agent.branch ? [{ label: "Branch", value: agent.branch }] : []),
+    ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
+    ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
+    ...(agent.projectRoot ? [{ label: "Path", value: agent.projectRoot }] : []),
+    ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
+    ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
+  ];
+
   return (
-    <div className="s-agent-detail">
-      <div className="s-agent-detail-header">
-        <div className="s-avatar s-avatar-lg" style={{ background: actorColor(agent.name) }}>
+    <div className="s-agent-casefile">
+      <button
+        type="button"
+        className="s-back s-agent-mobile-back"
+        onClick={() => navigate({ view: "agents" })}
+      >
+        &larr; All agents
+      </button>
+
+      {/* -- Identity card -- */}
+      <section className="s-agent-detail-identity">
+        <div className="s-avatar s-agent-casefile-avatar" style={{ background: actorColor(agent.name) }}>
           {agent.name[0].toUpperCase()}
         </div>
-        <div>
-          <div className="s-agent-detail-name">
+        <div className="s-agent-detail-identity-copy">
+          <h2 className="s-agent-detail-identity-name">
             {name}
-            {qualifier && <span className="s-agent-detail-qualifier">{qualifier}</span>}
+            {qualifier && <span className="s-agent-casefile-title-qualifier">{qualifier}</span>}
+          </h2>
+          <div className="s-agent-detail-identity-meta">
+            {agent.handle && <span className="s-agent-detail-handle">@{agent.handle}</span>}
+            <span className={`s-agent-state-chip s-agent-state-chip-${state}`}>
+              <span className="s-dot" style={{ background: stateColor(agent.state) }} />
+              {agentStateLabel(agent.state)}
+            </span>
+            {agent.updatedAt && <span className="s-agent-detail-updated">{timeAgo(agent.updatedAt)}</span>}
           </div>
-          <div className="s-agent-detail-state">
-            <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-            <span>{agentStateLabel(agent.state)}</span>
-            {agent.harness && <span className="s-badge">{agent.harness}</span>}
+          <p className="s-agent-detail-identity-desc">
+            {[formatLabel(agent.role) ?? formatLabel(agent.agentClass), agent.project]
+              .filter(Boolean)
+              .join(" \u00b7 ")}
+          </p>
+          <div className="s-agent-detail-actions">
+            <button
+              type="button"
+              className="s-btn s-btn-primary"
+              onClick={() => conversationId && navigate({ view: "agents", agentId: agent.id, conversationId })}
+              disabled={!conversationId}
+            >
+              {conversationId ? "Open conversation" : "No conversation"}
+            </button>
+            {agent.capabilities.length > 0 && (
+              <div className="s-agent-detail-capabilities">
+                <CapabilityTokens values={agent.capabilities} />
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="s-agent-detail-meta">
-        <DetailRow label="Agent ID" value={agent.id} />
-        {agent.project && <DetailRow label="Project" value={agent.project} />}
-        {agent.branch && <DetailRow label="Branch" value={agent.branch} />}
-        {agent.projectRoot && <DetailRow label="Path" value={agent.projectRoot} />}
-        {agent.transport && <DetailRow label="Transport" value={agent.transport.replace(/_/g, " ")} />}
-        {agent.harnessSessionId && <DetailRow label="Harness Session" value={agent.harnessSessionId} />}
-        {agent.harnessLogPath && <DetailRow label="Harness Log" value={agent.harnessLogPath} />}
-        {agent.role && <DetailRow label="Role" value={agent.role} />}
-        {agent.capabilities?.length > 0 && <DetailRow label="Capabilities" value={agent.capabilities.join(", ")} />}
-      </div>
+      {/* -- Context metadata -- */}
+      {contextItems.length > 0 && (
+        <section className="s-agent-detail-context">
+          <h3 className="s-agent-detail-section-title">Context</h3>
+          <div className="s-agent-meta-card-body">
+            {contextItems.map((item) => (
+              <AgentMetadataRow key={item.label} label={item.label} value={item.value} />
+            ))}
+          </div>
+        </section>
+      )}
 
-      <div className="s-agent-detail-section">
-        <div className="s-home-section-title">Current work</div>
+      {/* -- Active work -- */}
+      <section className="s-agent-detail-work">
+        <h3 className="s-agent-detail-section-title">Active work</h3>
         <WorkList
           items={work}
           navigate={navigate}
           emptyTitle="No active work"
-          emptyDetail="Owned or next-move work for this agent will show up here."
+          emptyDetail="Work items for this agent will appear here."
         />
-      </div>
-
-      {agentMessages.length > 0 && (
-        <div className="s-agent-detail-section">
-          <div className="s-home-section-title">Recent messages</div>
-          <div className="s-agent-detail-messages">
-            {agentMessages.slice(0, 10).map((msg) => (
-              <div
-                key={msg.id}
-                className="s-agent-detail-msg s-agent-detail-msg-clickable"
-                onClick={() => navigate({ view: "conversation", conversationId: msg.conversationId })}
-              >
-                <span className="s-agent-detail-msg-actor">{msg.actorName === "operator" || msg.class === "operator" ? "You" : msg.actorName}</span>
-                <span className="s-agent-detail-msg-body">{msg.body.slice(0, 200)}</span>
-                <span className="s-time">{timeAgo(msg.createdAt)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <button
-        type="button"
-        className="s-btn"
-        style={{ marginTop: 16 }}
-        onClick={() => conversationId && navigate({ view: "conversation", conversationId })}
-        disabled={!conversationId}
-      >
-        {conversationId ? "Open conversation" : "Conversation unavailable"}
-      </button>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="s-detail-row">
-      <span className="s-detail-label">{label}</span>
-      <span className="s-detail-value">{value}</span>
+      </section>
     </div>
   );
 }
@@ -139,99 +238,133 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 export function AgentsScreen({
   navigate,
   selectedAgentId,
+  conversationId: activeConversationId,
 }: {
   navigate: (r: Route) => void;
   selectedAgentId?: string;
+  conversationId?: string;
 }) {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
 
   const load = useCallback(async () => {
-    const [agentsResult, messagesResult, sessionsResult] = await Promise.allSettled([
+    const [agentsResult, sessionsResult] = await Promise.allSettled([
       api<Agent[]>("/api/agents"),
-      api<Message[]>("/api/messages"),
       api<SessionEntry[]>("/api/sessions"),
     ]);
 
     if (agentsResult.status === "fulfilled") {
       setAgents(agentsResult.value);
     }
-    if (messagesResult.status === "fulfilled") {
-      setMessages(messagesResult.value);
-    }
     if (sessionsResult.status === "fulfilled") {
       setSessions(sessionsResult.value);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   useBrokerEvents(load);
 
-  const online = agents.filter((a) => isAgentOnline(a.state));
-  const offline = agents.filter((a) => !isAgentOnline(a.state));
-  const selectedAgent = selectedAgentId ? agents.find((a) => a.id === selectedAgentId) : null;
-  const directConversationByAgentId = new Map(
-    sessions
-      .filter((session) => session.kind === "direct" && session.agentId)
-      .map((session) => [session.agentId!, session.id]),
-  );
+  const sortedAgents = [...agents].sort((a, b) => {
+    const stateOrder = { working: 0, available: 1, offline: 2 } as const;
+    const stateDelta = stateOrder[normalizeAgentState(a.state)] - stateOrder[normalizeAgentState(b.state)];
+    if (stateDelta !== 0) {
+      return stateDelta;
+    }
+    const updatedDelta = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    if (updatedDelta !== 0) {
+      return updatedDelta;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  const sections: AgentSection[] = [
+    {
+      key: "working",
+      title: "Working",
+      agents: sortedAgents.filter((agent) => normalizeAgentState(agent.state) === "working"),
+    },
+    {
+      key: "available",
+      title: "Available",
+      agents: sortedAgents.filter((agent) => normalizeAgentState(agent.state) === "available"),
+    },
+    {
+      key: "offline",
+      title: "Offline",
+      agents: sortedAgents.filter((agent) => normalizeAgentState(agent.state) === "offline"),
+    },
+  ];
+
+  const selectedAgent = selectedAgentId ? agents.find((agent) => agent.id === selectedAgentId) ?? null : null;
+  const { conversationByAgentId, sessionByAgentId } = directSessionMaps(sessions);
+  const hasDetailPane = agents.length > 0;
 
   return (
-    <div className={`s-agents-layout${selectedAgent ? " s-agents-layout-split" : ""}`}>
-      {/* Agent list panel */}
-      <div className="s-agents-list-panel">
-        <h2 className="s-section-title" style={{ padding: "0 8px" }}>Agents</h2>
-
-        {agents.length === 0 ? (
-          <div className="s-empty">
-            <p>No agents</p>
-            <p>Agents appear here when they connect to the broker</p>
+    <div
+      className={[
+        "s-agents-layout",
+        "s-agents-browser",
+        hasDetailPane ? "s-agents-layout-split" : "",
+        selectedAgent ? "s-agents-browser-selected" : "",
+      ].filter(Boolean).join(" ")}
+    >
+      <div className="s-agents-list-panel s-agents-browser-list">
+        <div className="s-agent-roster">
+          <div className="s-agent-roster-header">
+            <div>
+              <h2 className="s-section-title s-agent-roster-title">Agents</h2>
+              <p className="s-agent-roster-copy">
+                {agents.length} total · {sections[0].agents.length} working · {sections[1].agents.length} available
+              </p>
+            </div>
           </div>
-        ) : (
-          <>
-            {online.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div className="s-home-section-title" style={{ padding: "0 8px" }}>Online ({online.length})</div>
-                {online.map((agent) => (
-                  <AgentRow
-                    key={agent.id}
-                    agent={agent}
-                    allAgents={agents}
-                    selected={agent.id === selectedAgentId}
-                    onClick={() => navigate({ view: "agents", agentId: agent.id })}
-                  />
-                ))}
-              </div>
-            )}
-            {offline.length > 0 && (
-              <div>
-                <div className="s-home-section-title" style={{ padding: "0 8px" }}>Offline ({offline.length})</div>
-                {offline.map((agent) => (
-                  <AgentRow
-                    key={agent.id}
-                    agent={agent}
-                    allAgents={agents}
-                    selected={agent.id === selectedAgentId}
-                    onClick={() => navigate({ view: "agents", agentId: agent.id })}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
+
+          {agents.length === 0 ? (
+            <div className="s-empty s-agent-roster-empty">
+              <p>No agents</p>
+              <p>Agents appear here when they connect to the broker.</p>
+            </div>
+          ) : (
+            sections
+              .filter((section) => section.agents.length > 0)
+              .map((section) => (
+                <AgentRosterSection
+                  key={section.key}
+                  title={section.title}
+                  count={section.agents.length}
+                >
+                  {section.agents.map((agent) => (
+                    <AgentRow
+                      key={agent.id}
+                      agent={agent}
+                      allAgents={agents}
+                      selected={agent.id === selectedAgentId}
+                      onClick={() => navigate({ view: "agents", agentId: agent.id })}
+                    />
+                  ))}
+                </AgentRosterSection>
+              ))
+          )}
+        </div>
       </div>
 
-      {/* Detail panel */}
-      {selectedAgent && (
-        <div className="s-agents-detail-panel">
-          <AgentDetail
-            agent={selectedAgent}
-            allAgents={agents}
-            messages={messages}
-            conversationId={directConversationByAgentId.get(selectedAgent.id) ?? selectedAgent.conversationId ?? null}
-            navigate={navigate}
-          />
+      {hasDetailPane && (
+        <div className="s-agents-detail-panel s-agents-browser-detail">
+          {activeConversationId && selectedAgent ? (
+            <ConversationScreen conversationId={activeConversationId} navigate={navigate} />
+          ) : selectedAgent ? (
+            <AgentDetail
+              agent={selectedAgent}
+              allAgents={agents}
+              session={sessionByAgentId.get(selectedAgent.id) ?? null}
+              conversationId={conversationByAgentId.get(selectedAgent.id) ?? selectedAgent.conversationId ?? null}
+              navigate={navigate}
+            />
+          ) : (
+            <AgentsOverviewPanel agents={agents} />
+          )}
         </div>
       )}
     </div>
@@ -250,24 +383,30 @@ function AgentRow({
   onClick: () => void;
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
+  const state = normalizeAgentState(agent.state);
+
   return (
     <div
-      className={`s-agent-list-row${selected ? " s-agent-list-row-active" : ""}`}
+      className={`s-agent-list-row s-agent-roster-row${selected ? " s-agent-list-row-active" : ""}`}
       onClick={onClick}
     >
-      <div className="s-avatar s-avatar-sm" style={{ background: actorColor(agent.name) }}>
-        {agent.name[0].toUpperCase()}
-      </div>
-      <div className="s-agent-list-body">
-        <div className="s-agent-list-header">
-          <span className="s-agent-list-name">{name}</span>
-          {qualifier && <span className="s-agent-list-qualifier">{qualifier}</span>}
-          <span className="s-dot" style={{ background: stateColor(agent.state) }} />
+      <div className="s-agent-roster-avatar-wrap">
+        <div className="s-avatar s-avatar-sm" style={{ background: actorColor(agent.name) }}>
+          {agent.name[0].toUpperCase()}
         </div>
-        <div className="s-agent-list-meta">
-          <span>{agentStateLabel(agent.state)}</span>
-          {agent.harness && <span>{agent.harness}</span>}
-          {agent.updatedAt && <span>{timeAgo(agent.updatedAt)}</span>}
+        <span
+          className={`s-agent-roster-avatar-status s-agent-roster-avatar-status-${state}`}
+          style={{ background: stateColor(agent.state) }}
+        />
+      </div>
+
+      <div className="s-agent-list-body s-agent-roster-row-body">
+        <div className="s-agent-roster-row-top">
+          <div className="s-agent-list-header">
+            <span className="s-agent-list-name">{name}</span>
+            {qualifier && <span className="s-agent-list-qualifier">{qualifier}</span>}
+          </div>
+          <span className="s-agent-roster-row-time">{formatUpdatedAt(agent.updatedAt)}</span>
         </div>
       </div>
     </div>

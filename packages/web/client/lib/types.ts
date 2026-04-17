@@ -269,7 +269,7 @@ export type Route =
   | { view: "inbox" }
   | { view: "conversation"; conversationId: string }
   | { view: "agent-info"; conversationId: string }
-  | { view: "agents"; agentId?: string }
+  | { view: "agents"; agentId?: string; conversationId?: string }
   | { view: "fleet" }
   | { view: "sessions"; sessionId?: string }
   | { view: "mesh" }

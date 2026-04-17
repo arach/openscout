@@ -1,17 +1,63 @@
-import { useCallback, useEffect, useState } from "react";
-import { api } from "../lib/api.ts";
-import { useBrokerEvents } from "../lib/sse.ts";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
-import { agentStateLabel } from "../lib/agent-state.ts";
+import { api } from "../lib/api.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
+import { useBrokerEvents } from "../lib/sse.ts";
+import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import type { Agent, Route, SessionEntry } from "../lib/types.ts";
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+type ProfileField = {
+  label: string;
+  value: ReactNode;
+};
+
+function compactId(id: string): string {
+  const parts = id.split(".");
+  return parts[parts.length - 1] || id;
+}
+
+function formatLabel(value: string | null | undefined): string | null {
+  return value ? value.replace(/_/g, " ") : null;
+}
+
+function CapabilityTokens({ values }: { values: string[] }) {
   return (
-    <div className="s-detail-row">
-      <span className="s-detail-label">{label}</span>
-      <span className="s-detail-value">{value}</span>
-    </div>
+    <span className="s-agent-token-list">
+      {values.map((value) => (
+        <span key={value} className="s-agent-token">
+          {value}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ProfileCard({
+  title,
+  items,
+}: {
+  title: string;
+  items: ProfileField[];
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="s-agent-profile-card">
+      <div className="s-agent-profile-card-header">
+        <div className="s-agent-profile-card-title">{title}</div>
+      </div>
+      <div className="s-agent-meta-card-body">
+        {items.map((item) => (
+          <div key={item.label} className="s-agent-meta-row">
+            <span className="s-agent-meta-label">{item.label}</span>
+            <span className="s-agent-meta-value">{item.value}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -23,6 +69,7 @@ export function AgentInfoScreen({
   navigate: (r: Route) => void;
 }) {
   const [agent, setAgent] = useState<Agent | null>(null);
+  const [session, setSession] = useState<SessionEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const legacyAgentId = agentIdFromConversation(conversationId);
@@ -30,18 +77,22 @@ export function AgentInfoScreen({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [agents, session] = await Promise.all([
+      const [agents, sessionEntry] = await Promise.all([
         api<Agent[]>("/api/agents"),
         api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`).catch(() => null),
       ]);
-      const resolvedAgentId = session?.agentId ?? legacyAgentId;
-      setAgent(agents.find((a) => a.id === resolvedAgentId) ?? null);
+      const resolvedAgentId = sessionEntry?.agentId ?? legacyAgentId;
+      setAgent(agents.find((candidate) => candidate.id === resolvedAgentId) ?? null);
+      setSession(sessionEntry);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setSession(null);
     }
   }, [conversationId, legacyAgentId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   useBrokerEvents(load);
 
   if (!agent) {
@@ -60,50 +111,118 @@ export function AgentInfoScreen({
     );
   }
 
+  const identityItems: ProfileField[] = [
+    { label: "Agent ID", value: agent.id },
+    ...(agent.handle ? [{ label: "Handle", value: `@${agent.handle}` }] : []),
+    { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
+    ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
+    ...(agent.selector ? [{ label: "Selector", value: agent.selector }] : []),
+  ];
+  const workspaceItems: ProfileField[] = [
+    ...(agent.project ? [{ label: "Project", value: agent.project }] : []),
+    ...(agent.branch ? [{ label: "Branch", value: agent.branch }] : []),
+    ...(agent.projectRoot ? [{ label: "Path", value: agent.projectRoot }] : []),
+    ...(agent.cwd ? [{ label: "Working dir", value: agent.cwd }] : []),
+  ];
+  const runtimeItems: ProfileField[] = [
+    { label: "State", value: agentStateLabel(agent.state) },
+    ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
+    ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
+    ...(agent.wakePolicy ? [{ label: "Wake policy", value: formatLabel(agent.wakePolicy) ?? agent.wakePolicy }] : []),
+    ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
+  ];
+  const conversationItems: ProfileField[] = [
+    { label: "Conversation ID", value: conversationId },
+    ...(session?.title ? [{ label: "Title", value: session.title }] : []),
+    ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
+    ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
+    ...(session?.messageCount != null ? [{ label: "Messages", value: String(session.messageCount) }] : []),
+    ...(session?.lastMessageAt ? [{ label: "Last message", value: fullTimestamp(session.lastMessageAt) }] : []),
+    ...(agent.harnessSessionId ? [{ label: "Harness session", value: agent.harnessSessionId }] : []),
+    ...(agent.harnessLogPath ? [{ label: "Harness log", value: agent.harnessLogPath }] : []),
+  ];
+
   return (
-    <div>
-      <button
-        type="button"
-        className="s-back"
-        onClick={() => navigate({ view: "conversation", conversationId })}
-      >
-        &larr; Back
-      </button>
+    <div className="s-agent-profile-page">
+      <div className="s-agent-profile-page-topbar">
+        <button
+          type="button"
+          className="s-back"
+          onClick={() => navigate({ view: "conversation", conversationId })}
+        >
+          &larr; Conversation
+        </button>
+        <button
+          type="button"
+          className="s-btn"
+          onClick={() => navigate({ view: "agents", agentId: agent.id })}
+        >
+          Open in Agents
+        </button>
+      </div>
 
       {error && <p className="s-error">{error}</p>}
 
-      <div className="s-agent-profile">
-        <div
-          className="s-avatar s-avatar-lg"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0].toUpperCase()}
+      <section className="s-agent-profile-hero">
+        <div className="s-agent-profile-hero-main">
+          <div className="s-agent-profile-hero-title-row">
+            <div
+              className="s-avatar s-agent-profile-hero-avatar"
+              style={{ background: actorColor(agent.name) }}
+            >
+              {agent.name[0].toUpperCase()}
+            </div>
+            <div className="s-agent-profile-hero-copy">
+              <div className="s-agent-casefile-title-meta">
+                <span className="s-agent-casefile-record">{compactId(agent.id)}</span>
+                <span className={`s-agent-state-chip s-agent-state-chip-${normalizeAgentState(agent.state)}`}>
+                  <span className="s-dot" style={{ background: stateColor(agent.state) }} />
+                  {agentStateLabel(agent.state)}
+                </span>
+              </div>
+              <h1 className="s-agent-profile-hero-title">{agent.name}</h1>
+              <p className="s-agent-profile-hero-copyline">
+                {[agent.handle ? `@${agent.handle}` : null, agent.project, agent.branch, formatLabel(agent.role) ?? formatLabel(agent.agentClass)]
+                  .filter(Boolean)
+                  .join(" • ")}
+              </p>
+              <p className="s-agent-profile-hero-context">
+                {session?.title
+                  ? `Conversation: ${session.title}.`
+                  : "Attached to the current conversation."}
+                {agent.updatedAt ? ` Updated ${timeAgo(agent.updatedAt)}.` : ""}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="s-agent-profile-name">{agent.name}</div>
-        {agent.handle && (
-          <div className="s-agent-profile-handle">@{agent.handle}</div>
-        )}
-        <div className="s-agent-profile-state">
-          <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-          <span>{agentStateLabel(agent.state)}</span>
+        <div className="s-agent-profile-hero-actions">
+          <button
+            type="button"
+            className="s-btn s-btn-primary"
+            onClick={() => navigate({ view: "conversation", conversationId })}
+          >
+            Open conversation
+          </button>
         </div>
-      </div>
+      </section>
 
-      <div className="s-agent-details">
-        {agent.project && <DetailRow label="Project" value={agent.project} />}
-        {agent.branch && <DetailRow label="Branch" value={agent.branch} />}
-        {agent.projectRoot && <DetailRow label="Path" value={agent.projectRoot} />}
-        {agent.harness && <DetailRow label="Harness" value={agent.harness} />}
-        {agent.transport && <DetailRow label="Transport" value={agent.transport.replace(/_/g, " ")} />}
-        {agent.harnessSessionId && <DetailRow label="Harness Session" value={agent.harnessSessionId} />}
-        {agent.harnessLogPath && <DetailRow label="Harness Log" value={agent.harnessLogPath} />}
-        {agent.agentClass && <DetailRow label="Class" value={agent.agentClass} />}
-        {agent.wakePolicy && <DetailRow label="Wake" value={agent.wakePolicy.replace(/_/g, " ")} />}
-        {agent.capabilities?.length > 0 && (
-          <DetailRow label="Capabilities" value={agent.capabilities.join(", ")} />
-        )}
-        {agent.role && <DetailRow label="Role" value={agent.role} />}
-        {agent.selector && <DetailRow label="Selector" value={agent.selector} />}
+      <div className="s-agent-profile-grid">
+        <ProfileCard
+          title="Identity"
+          items={identityItems}
+        />
+        <ProfileCard
+          title="Workspace"
+          items={workspaceItems}
+        />
+        <ProfileCard
+          title="Runtime"
+          items={runtimeItems}
+        />
+        <ProfileCard
+          title="Conversation context"
+          items={conversationItems}
+        />
       </div>
     </div>
   );

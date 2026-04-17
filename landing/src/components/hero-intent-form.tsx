@@ -132,9 +132,9 @@ export function HeroIntentForm() {
 
   function openModal() {
     trackCtaClick({
-      ctaType: "download",
+      ctaType: "early_access",
       destination: "intent_form",
-      label: "Download for macOS",
+      label: "Request early access",
       location: "hero",
     });
     trackIntentModalOpen("hero");
@@ -160,7 +160,7 @@ export function HeroIntentForm() {
         }`}
       >
         {status === "success" ? <Check className="h-4 w-4" /> : <Download className="h-4 w-4" />}
-        <span>{status === "success" ? "You’re on the list" : "Download for macOS"}</span>
+        <span>{status === "success" ? "You’re on the list" : "Request early access"}</span>
       </button>
 
       {open ? createPortal(

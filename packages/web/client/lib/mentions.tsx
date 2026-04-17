@@ -39,14 +39,33 @@ function segmentize(text: string, identities: AgentIdentity[]): Segment[] {
   return out;
 }
 
+function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const pattern = /\*\*(.+?)\*\*/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let sub = 0;
+  while ((match = pattern.exec(value)) !== null) {
+    if (match.index > cursor) {
+      parts.push(<span key={`${keyBase}-${sub++}`}>{value.slice(cursor, match.index)}</span>);
+    }
+    parts.push(<strong key={`${keyBase}-${sub++}`}>{match[1]}</strong>);
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < value.length) {
+    parts.push(<span key={`${keyBase}-${sub++}`}>{value.slice(cursor)}</span>);
+  }
+  return parts.length > 0 ? parts : [<span key={keyBase}>{value}</span>];
+}
+
 export function renderWithMentions(text: string | null | undefined): ReactNode {
   if (!text) return text ?? "";
   const identities = extractAgentIdentities(text);
   const segments = segmentize(text, identities);
 
-  return segments.map((segment, index) => {
+  return segments.flatMap((segment, index) => {
     if (segment.kind === "text") {
-      return <span key={index}>{segment.value}</span>;
+      return renderInlineMarkdown(segment.value, index * 100);
     }
     const { identity } = segment;
     const isScout = identity.definitionId === SCOUT_DISPATCHER_AGENT_ID;

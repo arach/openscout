@@ -352,7 +352,8 @@ describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
     expect(agents).toHaveLength(1);
     const [agent] = agents;
     expect(agent.instance.workspaceQualifier).toBe("master");
-    expect(agent.agentId.endsWith(".master")).toBe(true);
+    expect(agent.agentId).toContain(".master.");
+    expect(agent.agentId.endsWith(".test-node")).toBe(true);
     expect(agent.runtime.cwd).toBe(agent.projectRoot);
     expect([alpha, beta]).toContain(agent.projectRoot);
   });

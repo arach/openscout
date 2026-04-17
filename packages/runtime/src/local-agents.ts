@@ -1859,7 +1859,8 @@ export async function resolveLocalAgentIdentity(input: StartLocalAgentInput): Pr
   const configDisplayName = config?.agent?.displayName?.trim() || "";
   const displayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
   const instance = buildRelayAgentInstance(definitionId, projectRoot);
-  const effectiveHarness = normalizeManagedHarness(preferredHarness, "claude");
+  const configDefaultHarness = config?.agent?.runtime?.defaultHarness;
+  const effectiveHarness = normalizeManagedHarness(preferredHarness ?? configDefaultHarness, "claude");
 
   return {
     definitionId,
@@ -1953,7 +1954,8 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const configDisplayName = coldProjectConfig?.agent?.displayName?.trim() || "";
     const effectiveDisplayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
     const instance = buildRelayAgentInstance(definitionId, projectRoot);
-    const effectiveHarness = normalizeManagedHarness(preferredHarness, "claude");
+    const configDefaultHarness = coldProjectConfig?.agent?.runtime?.defaultHarness;
+    const effectiveHarness = normalizeManagedHarness(preferredHarness ?? configDefaultHarness, "claude");
     const transport = normalizeLocalAgentTransport(undefined, effectiveHarness);
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
 
