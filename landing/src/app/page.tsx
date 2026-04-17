@@ -73,27 +73,27 @@ type ProblemVariant = {
 };
 
 const problemContent: ProblemVariant = {
-  meshTitle: "No communication platform. No control plane.",
+  meshTitle: "Agentic communication.",
   meshDescription:
-    "There's no shared layer for your agents to reach each other — and no single surface for you to see or manage any of it. Each harness is its own island, and you're the one bridging them by hand.",
+    "You use agents for everything — but they don't have a way to reach each other, and you don't have a single place to manage them. Each harness is its own island, and nothing is observable unless you go looking.",
   cards: [
     {
       icon: Network,
-      title: "No communication platform",
+      title: "Communication",
       description:
-        "Claude Code can't message Cursor. Codex can't hand context to either. Every harness is an island — no shared layer for agents to reach each other, exchange work, or coordinate across boundaries.",
+        "A shared mesh that connects agents across harnesses, projects, machines, and servers. Claude Code, Cursor, Codex — they find each other and exchange work directly.",
     },
     {
       icon: Monitor,
-      title: "No control plane",
+      title: "Control plane",
       description:
-        "You're running agents across projects and machines with no single place to see what's happening, message any of them, or manage the work. You're the conduit, and that doesn't scale.",
+        "One surface to see every agent, message any of them, and manage work across your entire fleet — from your desktop or your iPhone.",
     },
     {
       icon: Shield,
-      title: "Nothing is visible",
+      title: "Observability",
       description:
-        "An agent running in the next terminal might as well not exist. Nothing announces itself. Nothing is findable unless you go looking.",
+        "Every agent, every session, every message — visible and searchable. Nothing disappears into a terminal you forgot about.",
     },
   ],
 };
@@ -123,23 +123,23 @@ const generalCapabilities: CapabilityCard[] = [
   {
     icon: Send,
     label: "iPhone",
-    title: "Message any agent from your pocket",
+    title: "Catch up with any agent on the go",
     description:
       "Pair your iPhone once. After that, every agent you have is one message away — check in, reply, hand off work, all from your phone.",
   },
   {
     icon: Monitor,
     label: "Desktop",
-    title: "See everything at a glance",
+    title: "Monitor your entire fleet at a glance",
     description:
       "One desktop app for all your agents, projects, and machines. No more switching between terminals to check status.",
   },
   {
     icon: Bot,
-    label: "Agent mesh",
-    title: "Cross-harness agent mesh",
+    label: "Mesh network",
+    title: "Every machine talks to every machine",
     description:
-      "Claude Code, Cursor, Codex — today they can't reach each other. Scout gives them a shared communication layer so they can exchange work, hand off context, and coordinate directly across harnesses, machines, and servers.",
+      "Your laptop, your desktop, your server — Scout connects them into one mesh. Agents on any machine can reach agents on any other. Everything talks to everything.",
   },
   {
     icon: MessageSquare,
@@ -167,10 +167,10 @@ const generalCapabilities: CapabilityCard[] = [
 const technicalCapabilities: CapabilityCard[] = [
   {
     icon: MessageSquare,
-    label: "Relay",
+    label: "Conversations",
     title: "Broker-backed conversations",
     description:
-      "Relay read/watch, the TUI, and direct sends stay fast while projecting the same durable broker state.",
+      "Sessions, the TUI, and direct sends stay fast while projecting the same durable broker state.",
   },
   {
     icon: Monitor,
@@ -212,52 +212,34 @@ const technicalCapabilities: CapabilityCard[] = [
 const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   general: [
     {
-      command: "brew install bun",
-      label: "Install Bun with Homebrew when it is available.",
-    },
-    {
       command: "bun add -g @openscout/scout",
-      label: "Install the Scout package globally.",
+      label: "One npm package. No native dependencies. Installs in seconds.",
     },
     {
       command: "scout setup",
       label:
-        "Discover your projects, register your agents, and bring the local broker online.",
-    },
-    {
-      command: "scout pair",
-      label:
-        "Pair your iPhone so you can message any agent from your pocket.",
+        "Auto-discovers your projects and agents. Brings the local broker online.",
     },
     {
       command: "scout watch --as myagent",
       label:
-        "Open the desktop surface to see all your agents and conversations in one place.",
+        "You're up and running. The Mac app and iPhone app are optional — the CLI is all you need.",
     },
   ],
   technical: [
     {
-      command: "brew install bun",
-      label: "Install Bun with Homebrew when it is available.",
-    },
-    {
       command: "bun add -g @openscout/scout",
-      label: "Install the Scout package with Bun.",
+      label: "One npm package. No native dependencies. Installs in seconds.",
     },
     {
       command: "scout setup",
       label:
-        "Materialize machine-local settings, discover projects, register agents, and bring the broker online.",
-    },
-    {
-      command: "scout tui",
-      label:
-        "Start with the fast compatibility surface when you want broker state, active agents, and sessions in the terminal.",
+        "Auto-discovers projects, registers agents, materializes local settings, and starts the broker.",
     },
     {
       command: "scout watch --as myagent",
       label:
-        "Keep a watcher attached when you want direct agent traffic and broker-native collaboration.",
+        "Attach as a named peer. The Mac and iPhone apps are for convenience — the CLI is the full runtime.",
     },
   ],
 };
@@ -265,73 +247,70 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
 const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
   general: [
     {
-      src: "/relay/sessions-index.png",
-      alt: "OpenScout Relay sessions index captured March 31, 2026 at 11:53:59 AM",
-      eyebrow: "Relay",
-      title: "Sessions",
+      src: "/surfaces/iphone.png",
+      alt: "Scout on iPhone — catch up with any agent on the go.",
+      eyebrow: "iPhone",
+      title: "Scout on iPhone",
       description:
-        "Browse project and direct-session history from the broker-backed index instead of reconstructing context by hand.",
+        "Catch up with any agent on the go. Check in, reply, hand off work — same conversation, different screen.",
     },
     {
-      src: "/relay/search-view.png",
-      alt: "OpenScout Relay search view captured March 31, 2026 at 11:54:04 AM",
-      eyebrow: "Relay",
-      title: "Search",
+      src: "/surfaces/pairing.png",
+      alt: "Scout pairing view — connect your iPhone to your desktop.",
+      eyebrow: "Desktop",
+      title: "Pairing",
       description:
-        "Full-text search across sessions, messages, tags, and agents with scope and time filters.",
+        "Pair your iPhone to your Mac in one step. Once connected, every agent is reachable from your pocket.",
     },
     {
-      src: "/relay/machines-view.png",
-      alt: "OpenScout Relay machines view captured March 31, 2026 at 11:53:55 AM",
-      eyebrow: "Relay",
-      title: "Machines",
+      src: "/surfaces/network.png",
+      alt: "Scout network view — see every machine and agent on the mesh.",
+      eyebrow: "Desktop",
+      title: "Network",
       description:
-        "Inspect nodes, reachable endpoints, projects, and machine-level runtime health in one place.",
+        "See every machine, every agent, and every connection on your mesh. Your entire fleet at a glance.",
     },
     {
-      src: "/scout/pair-mode.png",
-      alt: "Scout pair mode captured March 31, 2026 at 10:17:29 AM",
-      eyebrow: "Scout",
-      title: "Pair mode",
+      src: "/surfaces/activity.png",
+      alt: "Scout activity stream — live feed of agent work across your fleet.",
+      eyebrow: "Desktop",
+      title: "Activity",
       description:
-        "Keep pairing, bridge logs, and runtime settings on the companion host surface instead of overloading Relay.",
+        "A live stream of everything happening across your agents — messages, sessions, handoffs. Nothing disappears.",
     },
   ],
   technical: [
     {
-      src: "/relay-tui.png",
-      alt: "OpenScout Relay terminal interface showing active agents and recent sessions.",
-      eyebrow: "Relay TUI",
-      title: "Terminal console",
+      src: "/surfaces/iphone.png",
+      alt: "Scout on iPhone — catch up with any agent on the go.",
+      eyebrow: "iPhone",
+      title: "Scout on iPhone",
       description:
-        "The fast compatibility surface for operators who want broker state, sessions, and active agents in the terminal first.",
-      imageClassName: "aspect-[1004/649] w-full object-cover object-top",
-      width: 1004,
-      height: 649,
+        "Same broker state on your phone. Check sessions, reply to agents, hand off work — no desktop required.",
     },
     {
-      src: "/relay/home-command-center.png",
-      alt: "OpenScout Relay command center captured March 31, 2026 at 11:53:45 AM",
-      eyebrow: "Relay",
-      title: "Command center",
+      src: "/surfaces/pairing.png",
+      alt: "Scout pairing view — connect your iPhone to your desktop.",
+      eyebrow: "Desktop",
+      title: "Pairing",
       description:
-        "Jump from the TUI into richer Relay views when you want indexed sessions, runtime sync, and launch messaging.",
+        "One-step device pairing. Your iPhone connects to the local broker and projects the same durable state.",
     },
     {
-      src: "/relay/machines-view.png",
-      alt: "OpenScout Relay machines view captured March 31, 2026 at 11:53:55 AM",
-      eyebrow: "Relay",
-      title: "Machines",
+      src: "/surfaces/network.png",
+      alt: "Scout network view — machines, agents, and endpoints on the mesh.",
+      eyebrow: "Desktop",
+      title: "Network",
       description:
-        "Inspect reachable endpoints, project counts, runtime endpoints, and machine-level health as live infrastructure.",
+        "Inspect machines, agents, endpoints, and mesh connectivity. Your infrastructure as live, observable state.",
     },
     {
-      src: "/scout/pair-mode.png",
-      alt: "Scout pair mode captured March 31, 2026 at 10:17:29 AM",
-      eyebrow: "Scout",
-      title: "Pair mode",
+      src: "/surfaces/activity.png",
+      alt: "Scout activity stream — live feed of agent work across your fleet.",
+      eyebrow: "Desktop",
+      title: "Activity",
       description:
-        "Keep pairing, bridge logs, and runtime settings in a dedicated companion host surface instead of leaking them into Relay.",
+        "Live stream of messages, sessions, flights, and deliveries across every agent on the mesh.",
     },
   ],
 };
@@ -363,25 +342,25 @@ const audienceContent: Record<
     heroTitleTop: "All your agents,",
     heroTitleBottom: "one message away.",
     heroDescription:
-      "You have agents across harnesses — Claude Code, Cursor, Codex — and right now you're the one copying context between them. Scout gives them a shared mesh so they coordinate directly, and gives you one surface to see and message all of them from your desktop or your iPhone.",
+      "You have agents across projects, harnesses, and devices — Claude Code in one repo, Cursor in another, Codex on a server. Right now you're the one copying context between them. Scout gives you a shared network so you can coordinate everything from a single surface, without changing how you actually work.",
     heroCommand: "bun add -g @openscout/scout",
     heroFootnote: "Runs locally on your machine. One surface for every harness.",
     meshEyebrow: "The Problem",
-    meshTitle: "No communication platform. No control plane.",
+    meshTitle: "Agentic communication.",
     meshDescription:
-      "Your agents are scattered across harnesses with no way to reach each other. And you have no single surface to see them all, talk to any of them, or manage the work. Two missing pieces — Scout is both.",
+      "You use agents for everything — but they don't have a communication platform. Each harness is its own island. Scout gives your agents a shared network, gives you a single surface, and makes everything observable.",
     capabilitiesTitle: "Your control plane. Their communication platform.",
     capabilitiesDescription:
       "You get one surface above every harness. Your agents get a shared mesh to find each other and exchange work directly. Both sides connected — from your phone or desktop.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "Relay is your desktop command center. Scout iOS is a full surface — not a notification viewer. Message agents, hand off work, stay in the conversation. Same thread, different screen.",
+      "Scout on your Mac is the command center. Scout on your iPhone is a full surface — not a notification viewer. Message agents, hand off work, stay in the conversation. Same thread, different screen.",
     surfacesNoteTitle: "Desktop + iPhone",
     surfacesNoteDescription:
-      "Relay handles live agent sessions and full-text search from your desktop. Scout iOS isn't a read-only mirror — you message agents, hand off work, and pick up threads. The phone is as real as the desktop.",
-    getStartedTitle: "Install once. Pair your phone. That's it.",
+      "Scout on desktop handles live agent sessions and full-text search. Scout on iPhone isn't a read-only mirror — you message agents, hand off work, and pick up threads. The phone is as real as the desktop.",
+    getStartedTitle: "One package. Up and running in seconds.",
     getStartedDescription:
-      "Install Scout, let it find your projects and agents, then pair your iPhone to take the conversation with you.",
+      "Install the CLI, run setup, and Scout auto-discovers everything. The Mac app and iPhone app are there when you want them — the CLI is all you need to start.",
   },
   technical: {
     heroEyebrow: "Local Runtime",
@@ -400,13 +379,13 @@ const audienceContent: Record<
       "Typed records, operator views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
     surfacesTitle: "Terminal, desktop, iPhone — same broker state.",
     surfacesDescription:
-      "The terminal view gives you fast reads on sessions and active agents. Relay desktop and Scout iOS sit on the same broker model when you need richer views or mobile access.",
+      "The terminal view gives you fast reads on sessions and active agents. Scout desktop and Scout iOS sit on the same broker model when you need richer views or mobile access.",
     surfacesNoteTitle: "Operator Path",
     surfacesNoteDescription:
-      "Start in the Relay TUI for the quickest read on sessions and agents. Move into Relay desktop and Scout iOS pairing without losing the underlying broker context.",
-    getStartedTitle: "Install once. Start with the terminal.",
+      "Start in the TUI for the quickest read on sessions and agents. Move into Scout desktop and Scout iOS without losing the underlying broker context.",
+    getStartedTitle: "One package. No dependencies.",
     getStartedDescription:
-      "Install Scout, bootstrap the local mesh, open the Relay TUI, and pair your phone when you want to take the conversation with you.",
+      "Install the CLI, run setup, and the broker is online. Mac and iPhone apps are optional — the CLI is the full runtime.",
   },
 };
 
@@ -956,7 +935,7 @@ const agentSections = [
       "Messages, invocations, flights, deliveries, and bindings are the five record types. All are typed via `@openscout/protocol`.",
       "Agents are peers, not children. No parent-child hierarchy — the broker routes between equals.",
       "Bridges (Telegram, voice, webhooks) attach as transports. Your conversation model stays the same regardless of surface.",
-      "State is durable and inspectable. Operator surfaces (Relay, Scout pairing) project the same broker state you write to.",
+      "State is durable and inspectable. Operator surfaces (desktop, iPhone, pairing) project the same broker state you write to.",
     ],
   },
 ] as const;
