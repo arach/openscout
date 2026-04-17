@@ -1032,14 +1032,14 @@
 }
 
 @media (max-width: 959px) {
-  .s-agents-browser {
+  .s-agents-layout.s-agents-browser {
     display: block;
     height: auto;
     background: var(--bg);
   }
 
-  .s-agents-browser .s-agents-list-panel,
-  .s-agents-browser .s-agents-detail-panel {
+  .s-agents-layout.s-agents-browser .s-agents-list-panel,
+  .s-agents-layout.s-agents-browser .s-agents-detail-panel {
     height: auto;
     width: 100%;
   }
