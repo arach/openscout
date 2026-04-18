@@ -1,4 +1,8 @@
-import type { ScoutBrokerMessageRecord, ScoutWhoEntry } from "../../core/broker/service.ts";
+import type {
+  ScoutActivityItem,
+  ScoutBrokerMessageRecord,
+  ScoutWhoEntry,
+} from "../../core/broker/service.ts";
 import { formatScoutTimestamp, normalizeUnixTimestamp } from "../../core/broker/view.ts";
 
 export function renderScoutMessage(message: ScoutBrokerMessageRecord): string {
@@ -58,4 +62,66 @@ export function renderScoutBroadcastResult(result: {
     lines.push(`Unresolved: ${result.unresolvedTargets.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+function renderScoutActivityKind(kind: ScoutActivityItem["kind"]): string {
+  switch (kind) {
+    case "ask_opened":
+      return "asked";
+    case "ask_working":
+      return "working";
+    case "ask_replied":
+      return "replied";
+    case "ask_failed":
+      return "failed";
+    case "handoff_sent":
+      return "handoff";
+    case "agent_message":
+      return "agent";
+    case "status_message":
+      return "status";
+    case "invocation_recorded":
+      return "invoke";
+    case "flight_updated":
+      return "flight";
+    case "collaboration_event":
+      return "collab";
+    case "message_posted":
+    default:
+      return "message";
+  }
+}
+
+function renderScoutActivityParticipants(item: ScoutActivityItem): string | null {
+  const actor = item.actorId?.trim();
+  const counterpart = item.counterpartId?.trim();
+
+  if (actor && counterpart && actor !== counterpart) {
+    return `${actor} -> ${counterpart}`;
+  }
+  return actor || counterpart || item.agentId?.trim() || null;
+}
+
+export function renderScoutActivityItem(item: ScoutActivityItem): string {
+  const timestamp = normalizeUnixTimestamp(item.ts) ?? Math.floor(Date.now() / 1000);
+  const label = renderScoutActivityKind(item.kind).padEnd(7, " ");
+  const participants = renderScoutActivityParticipants(item);
+  const title = item.title?.trim() || item.summary?.trim() || item.kind;
+  const summary = item.summary?.trim();
+  const detail = summary && summary !== title ? summary : null;
+
+  return [
+    formatScoutTimestamp(timestamp),
+    label,
+    participants,
+    title,
+    detail ? `(${detail})` : null,
+  ].filter(Boolean).join("  ");
+}
+
+export function renderScoutActivityList(items: ScoutActivityItem[]): string {
+  if (items.length === 0) {
+    return "No Scout activity yet.";
+  }
+  return items.map(renderScoutActivityItem).join("\n");
 }

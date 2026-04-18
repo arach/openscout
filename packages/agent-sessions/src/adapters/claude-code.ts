@@ -19,8 +19,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { BaseAdapter } from "../protocol/adapter.ts";
-import type { AdapterConfig } from "../protocol/adapter.ts";
+import { BaseAdapter } from "../protocol/adapter.js";
+import type { AdapterConfig } from "../protocol/adapter.js";
 import type {
   Action,
   Block,
@@ -29,7 +29,7 @@ import type {
   QuestionAnswer,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.ts";
+} from "../protocol/primitives.js";
 import type { Subprocess } from "bun";
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;

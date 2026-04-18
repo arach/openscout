@@ -36,6 +36,13 @@ export type ScoutWatchCommandOptions = ContextRootOptions & {
   channel?: string;
 };
 
+export type ScoutLatestCommandOptions = ContextRootOptions & {
+  agentId?: string;
+  actorId?: string;
+  conversationId?: string;
+  limit: number;
+};
+
 export type ScoutEnrollCommandOptions = ContextRootOptions & {
   agentName: string | null;
   task?: string;
@@ -401,6 +408,59 @@ export function parseWatchCommandOptions(
     args: parsed.args,
     agentName,
     channel,
+  };
+}
+
+export function parseLatestCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutLatestCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let agentId: string | undefined;
+  let actorId: string | undefined;
+  let conversationId: string | undefined;
+  let limit = 12;
+
+  for (let index = 0; index < parsed.args.length; index += 1) {
+    const current = parsed.args[index] ?? "";
+    if (current === "--agent" || current.startsWith("--agent=")) {
+      const value = parseFlagValue(parsed.args, index, "--agent");
+      agentId = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--actor" || current.startsWith("--actor=")) {
+      const value = parseFlagValue(parsed.args, index, "--actor");
+      actorId = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--conversation" || current.startsWith("--conversation=")) {
+      const value = parseFlagValue(parsed.args, index, "--conversation");
+      conversationId = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--limit" || current.startsWith("--limit=")) {
+      const value = parseFlagValue(parsed.args, index, "--limit");
+      const parsedLimit = Number.parseInt(value.value, 10);
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        throw new ScoutCliError(`invalid limit: ${value.value}`);
+      }
+      limit = parsedLimit;
+      index = value.nextIndex;
+      continue;
+    }
+    unexpectedArgs("latest", args);
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    agentId,
+    actorId,
+    conversationId,
+    limit,
   };
 }
 

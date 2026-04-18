@@ -133,3 +133,86 @@ export function registerScoutWebAssets(
     path: "index.html",
   }));
 }
+
+export async function relayEventStream(
+  url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const requestHeaders = new Headers(init?.headers);
+  if (!requestHeaders.has("accept")) {
+    requestHeaders.set("accept", "text/event-stream");
+  }
+
+  const upstream = await fetch(url, {
+    ...init,
+    headers: requestHeaders,
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    const contentType = upstream.headers.get("content-type") ?? "text/plain; charset=utf-8";
+    const message = await upstream.text().catch(() => "Event stream unavailable");
+    return new Response(message || "Event stream unavailable", {
+      status: upstream.status || 502,
+      statusText: upstream.statusText,
+      headers: {
+        "content-type": contentType,
+        "cache-control": "no-cache, no-transform",
+      },
+    });
+  }
+
+  const responseHeaders = new Headers();
+  responseHeaders.set("content-type", upstream.headers.get("content-type") ?? "text/event-stream");
+  responseHeaders.set("cache-control", upstream.headers.get("cache-control") ?? "no-cache, no-transform");
+  responseHeaders.set("connection", "keep-alive");
+  responseHeaders.set("x-accel-buffering", "no");
+
+  const reader = upstream.body.getReader();
+  const clientSignal = init?.signal;
+  const abortUpstream = () => {
+    void reader.cancel().catch(() => {});
+  };
+  clientSignal?.addEventListener("abort", abortUpstream, { once: true });
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const pump = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              controller.enqueue(value);
+            }
+          }
+          controller.close();
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") {
+            controller.close();
+            return;
+          }
+          controller.error(error);
+        } finally {
+          clientSignal?.removeEventListener("abort", abortUpstream);
+          try {
+            reader.releaseLock();
+          } catch {
+            // Reader may already be released after cancellation.
+          }
+        }
+      };
+
+      void pump();
+    },
+    cancel(reason) {
+      clientSignal?.removeEventListener("abort", abortUpstream);
+      return reader.cancel(reason).catch(() => {});
+    },
+  });
+
+  return new Response(stream, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: responseHeaders,
+  });
+}

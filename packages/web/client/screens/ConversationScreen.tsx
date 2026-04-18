@@ -339,6 +339,7 @@ export function ConversationScreen({
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const trackedInvocationIdsRef = useRef<Set<string>>(new Set());
   const currentFlightRef = useRef<Flight | null>(null);
+  const lastForegroundRefreshAtRef = useRef(0);
 
   const legacyAgentId = agentIdFromConversation(conversationId);
   const agentId = sessionMeta?.agentId ?? legacyAgentId;
@@ -390,15 +391,6 @@ export function ConversationScreen({
     void load();
   }, [load]);
 
-  // SSE is primary, but keep a light polling fallback so DM replies surface
-  // even when the browser temporarily drops EventSource updates.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      void load();
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [load]);
-
   useEffect(() => {
     currentFlightRef.current = currentFlight;
   }, [currentFlight]);
@@ -440,6 +432,9 @@ export function ConversationScreen({
     const flightStartedAt = normalizeTimestampMs(currentFlight.startedAt) ?? awaitingResponseSince ?? Date.now();
     return flightStartedAt >= (lastAgentReplyAt ?? 0);
   }, [awaitingResponseSince, currentFlight, lastAgentReplyAt]);
+  const hasOutstandingReply = sending
+    || awaitingResponseSince !== null
+    || showWorkingTurn;
 
   const agentName = agent?.name ?? sessionMeta?.agentName ?? sessionMeta?.title ?? agentId ?? "Conversation";
   const presence = useMemo(
@@ -560,6 +555,41 @@ export function ConversationScreen({
       void load();
     }
   }, [agentId, agentName, conversationId, load, operatorName]));
+
+  // SSE is primary. Only poll while we are actively waiting on a reply, and
+  // otherwise resync when the tab comes back into view after sleep/backgrounding.
+  useEffect(() => {
+    if (!hasOutstandingReply) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      void load();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [hasOutstandingReply, load]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastForegroundRefreshAtRef.current < 1000) {
+        return;
+      }
+      lastForegroundRefreshAtRef.current = now;
+      void load();
+    };
+
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [load]);
 
   const visualRowCount = messages.length + (presence.showTyping ? 1 : 0);
   const previousVisualRowCount = useRef(0);

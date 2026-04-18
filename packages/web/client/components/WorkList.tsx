@@ -49,10 +49,42 @@ export function WorkList({
   emptyDetail,
 }: WorkListProps) {
   if (items.length === 0) {
+    const placeholderRows = [
+      {
+        titleWidth: "56%",
+        metaWidths: ["18%", "14%", "16%"],
+        summaryWidth: "74%",
+      },
+      {
+        titleWidth: "48%",
+        metaWidths: ["16%", "20%", "12%"],
+        summaryWidth: "62%",
+      },
+    ];
+
     return (
-      <div className="s-empty">
-        <p>{emptyTitle}</p>
-        {emptyDetail && <p>{emptyDetail}</p>}
+      <div className="s-work-empty-state">
+        <div className="s-work-empty-copy">
+          <p className="s-work-empty-kicker">Quiet for now</p>
+          <p className="s-work-empty-title">{emptyTitle}</p>
+          {emptyDetail && <p className="s-work-empty-detail">{emptyDetail}</p>}
+        </div>
+        <div className="s-work-empty-skeleton" aria-hidden="true">
+          {placeholderRows.map((row, index) => (
+            <div key={index} className="s-work-empty-row">
+              <div className="s-work-empty-row-header">
+                <span className="s-work-empty-line s-work-empty-line-title" style={{ width: row.titleWidth }} />
+                <span className="s-work-empty-pill" />
+              </div>
+              <div className="s-work-empty-row-meta">
+                {row.metaWidths.map((width) => (
+                  <span key={width} className="s-work-empty-line s-work-empty-line-meta" style={{ width }} />
+                ))}
+              </div>
+              <span className="s-work-empty-line s-work-empty-line-summary" style={{ width: row.summaryWidth }} />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

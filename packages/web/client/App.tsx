@@ -208,16 +208,10 @@ export function App() {
       {/* ── Full-width topbar ── */}
       <header className="s-topbar">
         <div className="s-topbar-left">
-          <h1 className="s-logo" onClick={() => navigate({ view: "inbox" })}>Scout</h1>
-        </div>
-        <div className="s-topbar-center">
-          <span className="s-topbar-status">
-            <span className="s-dot" style={{ background: agents.length > 0 ? "var(--green)" : "var(--dim)" }} />
-            {agents.length > 0 ? "Online" : "No agents"}
-          </span>
-          {agents.length > 0 && (
-            <span className="s-topbar-detail">{onlineCount}/{agents.length} agents</span>
-          )}
+          <h1 className="s-logo" onClick={() => navigate({ view: "inbox" })}>
+            <img src="/openscout-icon.png" alt="" className="s-logo-mark" />
+            Scout
+          </h1>
         </div>
         <div className="s-topbar-right">
           <button
@@ -226,13 +220,6 @@ export function App() {
             onClick={() => navigate({ view: "settings" })}
           >
             Pair device
-          </button>
-          <button
-            type="button"
-            className="s-topbar-btn"
-            onClick={() => navigate({ view: "fleet" })}
-          >
-            Fleet
           </button>
         </div>
       </header>
@@ -321,6 +308,21 @@ export function App() {
           <MainPanel route={route} navigate={navigate} agents={agents} messages={messages} />
         </main>
       </div>
+
+      {/* ── Status bar ── */}
+      <footer className="s-statusbar">
+        <div className="s-statusbar-left">
+          <span className="s-statusbar-item">
+            <span className="s-dot" style={{ background: agents.length > 0 ? "var(--green)" : "var(--dim)" }} />
+            {agents.length > 0 ? "Online" : "Offline"}
+          </span>
+        </div>
+        <div className="s-statusbar-right">
+          <span className="s-statusbar-item">{onlineCount}/{agents.length} agents</span>
+          <span className="s-statusbar-item s-statusbar-time">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          <button type="button" className="s-statusbar-link" onClick={() => navigate({ view: "activity" })}>Logs</button>
+        </div>
+      </footer>
     </div>
   );
 }

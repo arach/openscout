@@ -8,7 +8,9 @@ import UIKit
 
 struct ScoutTextField: UIViewRepresentable {
     @Binding var text: String
+    @Binding var measuredHeight: CGFloat
     var placeholder: String = ""
+    var minHeight: CGFloat = 32
     var maxHeight: CGFloat = 70
     var useNativeKeyboard: Bool = false
 
@@ -17,7 +19,7 @@ struct ScoutTextField: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> AutoSizingTextView {
-        let textView = AutoSizingTextView(maxHeight: maxHeight)
+        let textView = AutoSizingTextView(minHeight: minHeight, maxHeight: maxHeight)
         textView.delegate = context.coordinator
         textView.font = UIFont.systemFont(ofSize: 15)
         textView.backgroundColor = .clear
@@ -27,6 +29,9 @@ struct ScoutTextField: UIViewRepresentable {
         textView.textContainer.lineBreakMode = .byWordWrapping
         textView.setContentCompressionResistancePriority(.required, for: .vertical)
         textView.setContentHuggingPriority(.required, for: .vertical)
+        textView.onHeightChange = { height in
+            context.coordinator.updateMeasuredHeight(height)
+        }
 
         if !useNativeKeyboard {
             textView.inputView = UIView()
@@ -48,12 +53,16 @@ struct ScoutTextField: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: AutoSizingTextView, context: Context) {
+        context.coordinator.parent = self
+        textView.minAllowedHeight = minHeight
+        textView.maxAllowedHeight = maxHeight
         if textView.text != text {
             textView.text = text
             textView.invalidateIntrinsicContentSize()
         }
         context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
         updateColors(textView)
+        textView.reportHeightIfNeeded()
     }
 
     private func updateColors(_ textView: UITextView) {
@@ -72,7 +81,7 @@ struct ScoutTextField: UIViewRepresentable {
     }
 
     class Coordinator: NSObject, UITextViewDelegate {
-        let parent: ScoutTextField
+        var parent: ScoutTextField
         var placeholderLabel: UILabel?
 
         init(parent: ScoutTextField) {
@@ -83,6 +92,16 @@ struct ScoutTextField: UIViewRepresentable {
             parent.text = textView.text
             placeholderLabel?.isHidden = !textView.text.isEmpty
             textView.invalidateIntrinsicContentSize()
+            if let autoSizingTextView = textView as? AutoSizingTextView {
+                autoSizingTextView.reportHeightIfNeeded()
+            }
+        }
+
+        func updateMeasuredHeight(_ height: CGFloat) {
+            guard abs(parent.measuredHeight - height) > 0.5 else { return }
+            DispatchQueue.main.async {
+                self.parent.measuredHeight = height
+            }
         }
     }
 }
@@ -92,9 +111,13 @@ struct ScoutTextField: UIViewRepresentable {
 /// UITextView that reports intrinsicContentSize based on text content,
 /// capped at maxHeight. Switches to scrolling when content exceeds max.
 class AutoSizingTextView: UITextView {
-    private let maxAllowedHeight: CGFloat
+    var minAllowedHeight: CGFloat
+    var maxAllowedHeight: CGFloat
+    var onHeightChange: ((CGFloat) -> Void)?
+    private var lastReportedHeight: CGFloat = .zero
 
-    init(maxHeight: CGFloat) {
+    init(minHeight: CGFloat, maxHeight: CGFloat) {
+        self.minAllowedHeight = minHeight
         self.maxAllowedHeight = maxHeight
         super.init(frame: .zero, textContainer: nil)
     }
@@ -102,15 +125,33 @@ class AutoSizingTextView: UITextView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var intrinsicContentSize: CGSize {
+        let clampedHeight = measuredHeight()
+        return CGSize(width: UIView.noIntrinsicMetric, height: clampedHeight)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        reportHeightIfNeeded()
+    }
+
+    func reportHeightIfNeeded() {
+        let clampedHeight = measuredHeight()
+        guard abs(lastReportedHeight - clampedHeight) > 0.5 else { return }
+        lastReportedHeight = clampedHeight
+        onHeightChange?(clampedHeight)
+    }
+
+    private func measuredHeight() -> CGFloat {
         let fallbackWidth = window?.windowScene?.screen.bounds.width ?? 375
-        let fittingSize = sizeThatFits(CGSize(width: bounds.width > 0 ? bounds.width : fallbackWidth - 80, height: .greatestFiniteMagnitude))
-        let clampedHeight = min(fittingSize.height, maxAllowedHeight)
+        let fittingWidth = bounds.width > 0 ? bounds.width : fallbackWidth - 80
+        let fittingSize = sizeThatFits(CGSize(width: fittingWidth, height: .greatestFiniteMagnitude))
+        let clampedHeight = max(minAllowedHeight, min(fittingSize.height, maxAllowedHeight))
 
         let shouldScroll = fittingSize.height > maxAllowedHeight
         if isScrollEnabled != shouldScroll {
             isScrollEnabled = shouldScroll
         }
 
-        return CGSize(width: UIView.noIntrinsicMetric, height: clampedHeight)
+        return clampedHeight
     }
 }

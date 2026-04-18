@@ -65,11 +65,13 @@ scout version
 scout doctor
 scout setup
 scout runtimes
+scout whoami
 scout send
 scout speak
 scout ask
 scout watch
 scout who
+scout latest
 scout enroll
 scout broadcast
 scout up
@@ -78,20 +80,26 @@ scout ps
 scout restart
 scout pair
 scout server start
+scout server open
 scout tui
 ```
 
-### Web UI (`scout server start`)
+### Web UI (`scout server start`, `scout server open`)
 
 Runs the same Scout desktop web stack as the repo’s `bun run web` entry (Hono + shared IPC services). **Bun must be on your PATH.** Publish builds ship `dist/scout-web-server.mjs` and `dist/client/` (Vite build); when `dist/client/index.html` is present, **`scout server start` defaults to static assets** unless you pass `--vite-url` to proxy a dev server.
 
 ```bash
+scout whoami
+scout who
+scout latest
+scout server open
 scout server start
 scout server start --port 3200
+scout server open --path /agents/arc-codex-2.master.mini
 scout server start --vite-url http://127.0.0.1:43173   # SPA dev server
 scout server start --static --static-root /custom/client
 ```
 
-Use `scout server` or `scout server help` for full flags.
+`scout server open` reuses an already-running matching Scout server on that port, or starts one in the background and opens the browser for you. Use `scout server` or `scout server help` for full flags.
 
 For a standalone **lightweight** web UI, see **`@openscout/web`** (`openscout-web`): it ships its own `dist/client`, bundled Bun server, and pairing supervisor. The full desktop UI remains vendored with the CLI build; the lightweight web package no longer boots through `scout server control-plane start`.

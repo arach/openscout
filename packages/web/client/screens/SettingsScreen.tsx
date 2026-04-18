@@ -23,39 +23,39 @@ function pairingTone(pairing: PairingState | null): "success" | "warning" | "dan
   return "warning";
 }
 
-function pairingSnapshotTitle(pairing: PairingState | null, hasQr: boolean, connectedPeerName: string | null): string {
-  if (!pairing) return "Loading pairing state";
-  if (hasQr) return "Scan to pair";
-  if (connectedPeerName) return "Device connected";
-  if (pairing.isRunning) return "Pairing relay is running";
-  if (pairing.status === "unconfigured") return "Pairing is not configured";
-  return "Pairing is stopped";
-}
-
-function pairingSnapshotBody(pairing: PairingState | null, hasQr: boolean, connectedPeerName: string | null): string {
-  if (!pairing) {
-    return "Fetching the latest pairing status and trusted peer information.";
-  }
-  if (hasQr) {
-    return "Use the QR code below to link a phone or another client to this broker.";
-  }
-  if (connectedPeerName) {
-    return `${connectedPeerName} is currently linked to this broker. Trusted peer details are listed alongside the live relay status.`;
-  }
-  return pairing.statusDetail
-    ?? (pairing.isRunning
-      ? "The relay is up. A QR code should appear when a fresh pairing payload is available."
-      : "Start pairing to launch the relay and issue a fresh QR code.");
-}
-
 function formatExpiresIn(expiresAt: number | undefined, now: number): string | null {
   if (!expiresAt) return null;
   const diffSeconds = Math.max(0, Math.floor((expiresAt - now) / 1000));
-  if (diffSeconds === 0) return "expired";
+  if (diffSeconds === 0) return null;
   if (diffSeconds < 60) return `${diffSeconds}s`;
   const minutes = Math.floor(diffSeconds / 60);
   const seconds = diffSeconds % 60;
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = useCallback(() => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [value]);
+
+  return (
+    <button type="button" className="sys-copy-btn" onClick={onClick} title="Copy">
+      {copied ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
@@ -70,6 +70,7 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [removingPeer, setRemovingPeer] = useState<string | null>(null);
 
   const pairingRef = useRef<PairingState | null>(null);
   const pairingRequestIdRef = useRef(0);
@@ -188,6 +189,18 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
     }
   }, []);
 
+  const removePeer = useCallback(async (fingerprint: string) => {
+    setRemovingPeer(fingerprint);
+    try {
+      await api(`/api/pairing/peers/${encodeURIComponent(fingerprint)}`, { method: "DELETE" });
+      void loadPairing("manual");
+    } catch {
+      // silently fail — next refresh will show truth
+    } finally {
+      setRemovingPeer(null);
+    }
+  }, [loadPairing]);
+
   const qrSvg = useMemo(() => {
     const value = pairing?.pairing?.qrValue?.trim();
     if (!value) return null;
@@ -201,48 +214,27 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
   const tone = pairingTone(pairing);
   const nameDirty = userName.trim() !== savedName;
 
-  const summaryCards = useMemo(() => {
-    if (!pairing) return [];
-    return [
-      {
-        label: "Status",
-        value: pairing.statusLabel,
-        detail: pairing.isRunning ? "Relay process is running" : "Relay process is stopped",
-      },
-      {
-        label: "Relay",
-        value: relayHost ?? "Not configured",
-        detail: pairing.pairing?.relay ? "Active QR relay" : "Configured endpoint",
-      },
-      {
-        label: "Trusted peers",
-        value: `${pairing.trustedPeerCount}`,
-        detail: connectedPeerName ? `${connectedPeerName} is connected` : "Saved trust relationships",
-      },
-    ];
-  }, [connectedPeerName, pairing, relayHost]);
-
   const showInitialError = !loading && !pairing && Boolean(pairingError);
 
   return (
-    <div className="sys-surface-page">
+    <div className="sys-surface-page sys-settings-page">
       <div className="sys-page-head">
         <div className="sys-page-title-group">
           <h2 className="sys-page-title">Settings</h2>
           <p className="sys-page-subtitle">
-            Operator identity, pairing controls, and trusted device state.
+            Identity, pairing, and trusted devices.
           </p>
         </div>
         <div className="sys-page-actions">
           {pairing && <span className={`sys-chip sys-chip-${tone}`}>{pairing.statusLabel}</span>}
           <div className="sys-sync-note">
             {loading
-              ? "Loading pairing status..."
+              ? "Loading..."
               : pairingError && pairing
-                ? `Showing last confirmed snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
+                ? `Snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
                 : lastLoadedAt
                   ? `Updated ${timeAgo(lastLoadedAt)}`
-                  : "Waiting for first snapshot"}
+                  : ""}
           </div>
           <button
             type="button"
@@ -250,21 +242,21 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
             disabled={loading || refreshing || Boolean(controlBusy)}
             onClick={() => void loadPairing("manual")}
           >
-            {refreshing ? "Refreshing..." : "Refresh status"}
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </div>
 
       {pairingError && pairing && (
         <div className="sys-banner sys-banner-warning">
-          <strong>Status refresh failed.</strong>
+          <strong>Refresh failed.</strong>
           <span>{pairingError}</span>
         </div>
       )}
 
       {identityError && (
         <div className="sys-banner sys-banner-warning">
-          <strong>Identity update failed.</strong>
+          <strong>Identity error.</strong>
           <span>{identityError}</span>
         </div>
       )}
@@ -273,14 +265,14 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
         <div className="sys-panel sys-state-card">
           <h3 className="sys-state-title">Loading settings</h3>
           <p className="sys-state-body">
-            Checking relay status, QR availability, and trusted peers.
+            Checking relay status and trusted peers.
           </p>
         </div>
       )}
 
       {showInitialError && (
         <div className="sys-panel sys-state-card sys-state-card-error">
-          <h3 className="sys-state-title">Pairing status is unavailable</h3>
+          <h3 className="sys-state-title">Pairing unavailable</h3>
           <p className="sys-state-body">{pairingError}</p>
           <div className="sys-inline-actions">
             <button type="button" className="s-btn" onClick={() => void loadPairing("manual")}>
@@ -290,17 +282,27 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
         </div>
       )}
 
-      <div className="sys-settings-grid">
-        <section className="sys-panel">
-          <div className="sys-section-head">
-            <div>
-              <h3 className="sys-section-title">Identity</h3>
-              <p className="sys-section-subtitle">
-                Used for operator-authored activity and message records.
-              </p>
+      {/* ── Top row: QR + Identity/Status ── */}
+      <div className="sys-settings-hero">
+        {/* QR block */}
+        <div className="sys-settings-qr-col">
+          {qrSvg ? (
+            <div className="sys-settings-qr-frame">
+              <div className="s-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+              {expiresIn && <span className="sys-settings-qr-expires">Expires in {expiresIn}</span>}
             </div>
-          </div>
+          ) : (
+            <div className="sys-settings-qr-empty">
+              <span className="sys-settings-qr-empty-label">
+                {pairing?.isRunning ? "Waiting for QR..." : "Start pairing to generate QR"}
+              </span>
+            </div>
+          )}
+        </div>
 
+        {/* Identity + relay + controls */}
+        <div className="sys-settings-info-col">
+          {/* Name input */}
           <div className="sys-input-row">
             <input
               className="sys-input"
@@ -324,49 +326,51 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
             </button>
           </div>
 
-          <div className="sys-detail-grid">
-            <div className="sys-detail-card">
-              <span className="sys-detail-label">Current name</span>
-              <span className="sys-detail-value">{savedName || "Not set"}</span>
-            </div>
-            <div className="sys-detail-card">
-              <span className="sys-detail-label">Identity fingerprint</span>
-              <code className="sys-detail-value">{pairing?.identityFingerprint ?? "Unavailable"}</code>
-            </div>
+          {/* Key details — single-line each */}
+          <div className="sys-settings-kv-list">
+            {pairing?.identityFingerprint && (
+              <div className="sys-settings-kv">
+                <span className="sys-settings-kv-label">Fingerprint</span>
+                <span className="sys-settings-kv-value">
+                  <code>{pairing.identityFingerprint}</code>
+                  <CopyButton value={pairing.identityFingerprint} />
+                </span>
+              </div>
+            )}
+            {relayHost && (
+              <div className="sys-settings-kv">
+                <span className="sys-settings-kv-label">Relay</span>
+                <span className="sys-settings-kv-value">
+                  <code>{relayHost}</code>
+                  <CopyButton value={relayHost} />
+                </span>
+              </div>
+            )}
+            {pairing?.statusDetail && (
+              <div className="sys-settings-kv">
+                <span className="sys-settings-kv-label">Status</span>
+                <span className="sys-settings-kv-value sys-settings-kv-nowrap">{pairing.statusDetail}</span>
+              </div>
+            )}
+            {connectedPeerName && (
+              <div className="sys-settings-kv">
+                <span className="sys-settings-kv-label">Connected</span>
+                <span className="sys-settings-kv-value">{connectedPeerName}</span>
+              </div>
+            )}
+            {pairing?.secure && (
+              <div className="sys-settings-kv">
+                <span className="sys-settings-kv-label">Security</span>
+                <span className="sys-settings-kv-value">
+                  <span className="sys-chip sys-chip-success" style={{ margin: 0 }}>Noise XX</span>
+                </span>
+              </div>
+            )}
           </div>
-        </section>
 
-        <section className="sys-panel">
-          <div className="sys-section-head">
-            <div>
-              <h3 className="sys-section-title">Pairing control</h3>
-              <p className="sys-section-subtitle">
-                Relay lifecycle and current linked device state.
-              </p>
-            </div>
-          </div>
-
+          {/* Pairing controls */}
           {pairing && (
-            <div className="sys-stat-grid">
-              {summaryCards.map((card) => (
-                <div key={card.label} className="sys-stat-card">
-                  <span className="sys-stat-label">{card.label}</span>
-                  <strong className="sys-stat-value">{card.value}</strong>
-                  <span className="sys-stat-detail">{card.detail}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {pairing?.statusDetail && (
-            <div className="sys-banner sys-banner-muted">
-              <strong>Status detail.</strong>
-              <span>{pairing.statusDetail}</span>
-            </div>
-          )}
-
-          {pairing && (
-            <div className="sys-inline-actions">
+            <div className="sys-inline-actions sys-settings-controls">
               {pairing.isRunning ? (
                 <>
                   <button
@@ -398,104 +402,71 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
               )}
             </div>
           )}
-        </section>
+        </div>
       </div>
 
+      {/* ── Trusted peers table ── */}
       {pairing && (
-        <div className="sys-settings-grid">
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Pairing snapshot</h3>
-                <p className="sys-section-subtitle">
-                  QR issuance and live relay details for device linking.
-                </p>
-              </div>
+        <section className="sys-settings-peers">
+          <div className="sys-section-head">
+            <div>
+              <h3 className="sys-section-title">Trusted peers</h3>
+              <p className="sys-section-subtitle">
+                {pairing.trustedPeers.length} device{pairing.trustedPeers.length !== 1 ? "s" : ""} paired with this broker.
+              </p>
             </div>
+          </div>
 
-            <div className="sys-qr-stage">
-              {qrSvg ? (
-                <div className="sys-qr-block">
-                  <div className="s-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} />
-                  <div className="sys-qr-meta">
-                    <h4>{pairingSnapshotTitle(pairing, Boolean(qrSvg), connectedPeerName)}</h4>
-                    <p>{pairingSnapshotBody(pairing, Boolean(qrSvg), connectedPeerName)}</p>
-                    <div className="sys-chip-row">
-                      {expiresIn && <span className="sys-chip sys-chip-warning">Expires {expiresIn}</span>}
-                      {relayHost && <span className="sys-chip sys-chip-neutral">{relayHost}</span>}
-                      {pairing.secure && <span className="sys-chip sys-chip-success">Noise XX</span>}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="sys-list-empty">
-                  <h3>{pairingSnapshotTitle(pairing, false, connectedPeerName)}</h3>
-                  <p>{pairingSnapshotBody(pairing, false, connectedPeerName)}</p>
-                </div>
-              )}
+          {pairing.trustedPeers.length === 0 ? (
+            <div className="sys-list-empty">
+              <h3>No trusted peers</h3>
+              <p>Devices appear here after completing pairing.</p>
             </div>
-
-            <div className="sys-detail-grid">
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Relay</span>
-                <span className="sys-detail-value">{relayHost ?? "Not configured"}</span>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Connected peer</span>
-                <span className="sys-detail-value">{connectedPeerName ?? "None connected"}</span>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Last updated</span>
-                <span className="sys-detail-value">{pairing.lastUpdatedLabel ?? "Unavailable"}</span>
-              </div>
-              <div className="sys-detail-card">
-                <span className="sys-detail-label">Trust store</span>
-                <span className="sys-detail-value">
-                  {pairing.trustedPeerCount} peer{pairing.trustedPeerCount !== 1 ? "s" : ""}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <section className="sys-panel">
-            <div className="sys-section-head">
-              <div>
-                <h3 className="sys-section-title">Trusted peers</h3>
-                <p className="sys-section-subtitle">
-                  Devices that have already completed pairing with this broker.
-                </p>
-              </div>
-            </div>
-
-            {pairing.trustedPeers.length === 0 ? (
-              <div className="sys-list-empty">
-                <h3>No trusted peers yet</h3>
-                <p>Once a device completes pairing it will appear here with last-seen details.</p>
-              </div>
-            ) : (
-              <div className="sys-trust-list">
+          ) : (
+            <table className="sys-peers-table">
+              <thead>
+                <tr>
+                  <th>Device</th>
+                  <th>Fingerprint</th>
+                  <th>Paired</th>
+                  <th>Last seen</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
                 {pairing.trustedPeers.map((peer) => {
                   const isConnected = peer.fingerprint === pairing.connectedPeerFingerprint;
                   return (
-                    <article key={peer.fingerprint} className="sys-trust-row">
-                      <div className="sys-trust-main">
-                        <div className="sys-list-card-head">
-                          <h3 className="sys-list-card-title">{peer.name ?? shortFingerprint(peer.fingerprint) ?? "Trusted peer"}</h3>
-                          {isConnected && <span className="sys-chip sys-chip-success">Connected</span>}
-                        </div>
-                        <code className="sys-detail-value">{peer.fingerprint}</code>
-                      </div>
-                      <div className="sys-trust-meta">
-                        <span>Paired {peer.pairedAtLabel}</span>
-                        <span>Seen {peer.lastSeenLabel}</span>
-                      </div>
-                    </article>
+                    <tr key={peer.fingerprint} className={isConnected ? "sys-peers-row-connected" : ""}>
+                      <td>
+                        <span className="sys-peers-name">
+                          {peer.name ?? shortFingerprint(peer.fingerprint) ?? "Peer"}
+                          {isConnected && <span className="sys-chip sys-chip-success sys-peers-badge">Connected</span>}
+                        </span>
+                      </td>
+                      <td>
+                        <code className="sys-peers-fp">{peer.fingerprint}</code>
+                      </td>
+                      <td>{peer.pairedAtLabel ?? "—"}</td>
+                      <td>{peer.lastSeenLabel ?? "—"}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="sys-peers-remove"
+                          disabled={removingPeer === peer.fingerprint}
+                          onClick={() => void removePeer(peer.fingerprint)}
+                          title="Remove peer"
+                        >
+                          {removingPeer === peer.fingerprint ? "..." : "Remove"}
+                        </button>
+                      </td>
+                    </tr>
                   );
                 })}
-              </div>
-            )}
-          </section>
-        </div>
+              </tbody>
+            </table>
+          )}
+        </section>
       )}
     </div>
   );

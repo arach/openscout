@@ -24,6 +24,7 @@ import {
   coalesce,
   createCachedSnapshot,
   installScoutApiMiddleware,
+  relayEventStream,
   registerScoutWebAssets,
   type ScoutWebAssetMode,
 } from "./server-core.ts";
@@ -149,6 +150,11 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
 
   installScoutApiMiddleware(app, "api");
 
+  app.get("/api/health", (c) => c.json({
+    ok: true,
+    surface: "full",
+    currentDirectory,
+  }));
   app.get("/api/app", async (c) => c.json(await services.getAppInfo()));
   app.get("/api/app-info", async (c) => c.json(await services.getAppInfo()));
   app.get("/api/services", async (c) => c.json(await getServicesStateCached()));
@@ -366,16 +372,8 @@ export function createScoutWebServer(options: CreateScoutWebServerOptions): Scou
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
     const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
     try {
-      const upstream = await fetch(`${brokerUrl}/v1/events/stream`);
-      if (!upstream.ok || !upstream.body) {
-        return c.text("Broker event stream unavailable", 502);
-      }
-      return new Response(upstream.body, {
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        },
+      return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
+        signal: c.req.raw.signal,
       });
     } catch {
       return c.text("Broker unreachable", 502);

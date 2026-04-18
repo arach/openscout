@@ -1,6 +1,5 @@
 import {
   createOpenScoutWebServer,
-  type ScoutWebAssetMode,
 } from "./create-openscout-web-server.ts";
 
 const port = Number(
@@ -10,20 +9,17 @@ const port = Number(
 );
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
-const viteDevUrl = process.env.OPENSCOUT_WEB_VITE_URL?.trim() || undefined;
 const staticRoot = process.env.OPENSCOUT_WEB_STATIC_ROOT?.trim() || undefined;
-const assetMode: ScoutWebAssetMode = viteDevUrl ? "vite-proxy" : "static";
-const defaultIdleTimeoutSeconds = assetMode === "static" ? "30" : "180";
+const dev = process.env.NODE_ENV !== "production" && !staticRoot;
 const idleTimeoutSeconds = Number.parseInt(
-  process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim() || defaultIdleTimeoutSeconds,
+  process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim() || (dev ? "180" : "30"),
   10,
 );
 
-const { app, warmupCaches } = createOpenScoutWebServer({
+const { app, warmupCaches } = await createOpenScoutWebServer({
   currentDirectory,
   shellStateCacheTtlMs,
-  assetMode,
-  viteDevUrl,
+  assetMode: dev ? "vite-dev" : "static",
   staticRoot,
 });
 

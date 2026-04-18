@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { WorkList } from "../components/WorkList.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -227,8 +227,8 @@ function AgentDetail({
         <WorkList
           items={work}
           navigate={navigate}
-          emptyTitle="No active work"
-          emptyDetail="Work items for this agent will appear here."
+          emptyTitle="Nothing in flight"
+          emptyDetail="New asks, handoffs, and follow-ups will stack here once this agent picks up work."
         />
       </section>
     </div>
@@ -301,6 +301,44 @@ export function AgentsScreen({
   const { conversationByAgentId, sessionByAgentId } = directSessionMaps(sessions);
   const hasDetailPane = agents.length > 0;
 
+  const ROSTER_MIN = 200;
+  const ROSTER_MAX = 440;
+  const ROSTER_KEY = "scout-agents-roster-w";
+  const [rosterWidth, setRosterWidth] = useState(() => {
+    try {
+      const v = localStorage.getItem(ROSTER_KEY);
+      if (v) { const n = Number(v); if (n >= ROSTER_MIN && n <= ROSTER_MAX) return n; }
+    } catch { /* ignore */ }
+    return 280;
+  });
+  const rosterDragging = useRef(false);
+  const rosterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(ROSTER_KEY, String(rosterWidth)); } catch { /* ignore */ }
+  }, [rosterWidth]);
+
+  const onRosterResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    rosterDragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const panelLeft = rosterRef.current?.getBoundingClientRect().left ?? 0;
+    const onMove = (ev: MouseEvent) => {
+      if (!rosterDragging.current) return;
+      setRosterWidth(Math.min(ROSTER_MAX, Math.max(ROSTER_MIN, ev.clientX - panelLeft)));
+    };
+    const onUp = () => {
+      rosterDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
+
   return (
     <div
       className={[
@@ -309,8 +347,9 @@ export function AgentsScreen({
         hasDetailPane ? "s-agents-layout-split" : "",
         selectedAgent ? "s-agents-browser-selected" : "",
       ].filter(Boolean).join(" ")}
+      style={{ "--agents-roster-w": `${rosterWidth}px` } as React.CSSProperties}
     >
-      <div className="s-agents-list-panel s-agents-browser-list">
+      <div ref={rosterRef} className="s-agents-list-panel s-agents-browser-list">
         <div className="s-agent-roster">
           <div className="s-agent-roster-header">
             <div>
@@ -351,6 +390,13 @@ export function AgentsScreen({
       </div>
 
       {hasDetailPane && (
+        <>
+        <div
+          className="s-agents-roster-resize"
+          onMouseDown={onRosterResizeStart}
+          role="separator"
+          aria-orientation="vertical"
+        />
         <div className="s-agents-detail-panel s-agents-browser-detail">
           {activeConversationId && selectedAgent ? (
             <ConversationScreen conversationId={activeConversationId} navigate={navigate} />
@@ -366,6 +412,7 @@ export function AgentsScreen({
             <AgentsOverviewPanel agents={agents} />
           )}
         </div>
+        </>
       )}
     </div>
   );

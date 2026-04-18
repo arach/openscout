@@ -7,7 +7,16 @@ metadata:
 
 # scout
 
-Use this skill when you need to communicate with another Scout agent.
+Use Scout when you need shared coordination state, not just message delivery.
+
+Scout is the place to answer four questions before you start coordinating:
+
+1. Who am I here?
+2. Who is around?
+3. What is the latest?
+4. Do I need the full live UI?
+
+Treat that as the default operator loop. Most routing mistakes happen because agents skip orientation and jump straight to `send` or `ask`.
 
 ## Resolve the CLI once
 
@@ -23,6 +32,40 @@ If `scout` is not on `PATH`, or the installed `scout` on `PATH` is stale for thi
 bun /Users/arach/dev/openscout/packages/cli/bin/scout.mjs env --json
 ```
 
+## Default loop
+
+Run these in order whenever you are entering a Scout-heavy task, recovering context, or the user asks some version of "figure out what's going on":
+
+```bash
+scout whoami
+scout who
+scout latest
+scout server open
+```
+
+Interpret them like this:
+
+- `scout whoami` answers identity and default routing context from the current workspace.
+- `scout who` answers who is online, discovered, or recently active.
+- `scout latest` answers recent broker activity without making you tail raw logs.
+- `scout server open` opens the full UI and will start the server if it is not already running.
+
+Use the CLI for quick orientation. Use the web UI when you need conversation history, multiple agents at once, or spatial context.
+
+## Frequent questions
+
+Map common operator/agent questions to one command:
+
+| Question | Command |
+| --- | --- |
+| "Who am I?" | `scout whoami` |
+| "Who's around?" | `scout who` |
+| "What's the latest?" | `scout latest` |
+| "Open Scout" | `scout server open` |
+| "Open a specific page in Scout" | `scout server open --path /agents/<agent-or-route>` |
+
+Do not make agents rediscover these patterns from scratch. Teach them as the default Scout muscle memory.
+
 ## Routing is decided by addressee count, not verb
 
 Scout has three destinations: **DM**, **named channel**, **shared broadcast**. Pick by who the message is for:
@@ -33,47 +76,69 @@ Scout has three destinations: **DM**, **named channel**, **shared broadcast**. P
 | You're posting into a named channel | that channel | `scout send --channel foo "msg"` |
 | You want every agent to see it | `channel.shared` | `scout broadcast "msg"` |
 
-`channel.shared` is a broadcast surface, not a default. A pointed `@x` message is a DM — the broker opens or resumes a two-party conversation and nobody else sees it. Do **not** rely on implicit fallback to `channel.shared`; if you don't name an addressee, the command is wrong.
+`channel.shared` is a broadcast surface, not a default. A pointed `@x` message is a DM. Do **not** rely on implicit fallback to `channel.shared`; if you do not name an addressee, the command is wrong.
 
 ## Tell vs Ask
 
-Two patterns. The parent never blocks on a relay round-trip. Both DM by default.
+Scout has two coordination modes. Choose intentionally.
 
-### Tell — statement, no reply needed
+### Tell
 
-Phrasing: *"tell @x …"*, *"let @x know …"*, *"@x done with X"*, status updates.
+Use **Tell** when no reply is needed.
+
+Phrasing:
+
+- "tell @x ..."
+- "let @x know ..."
+- "@x done with X"
+- status updates
+
+Command:
 
 ```bash
 scout send "@x msg"
 ```
 
-Inline, fire-and-forget. Returns immediately. Lands in the `@x` DM.
+This is inline, fire-and-forget, and lands in the `@x` DM.
 
-### Ask — question, reply needed (always via subagent)
+### Ask
 
-Phrasing: *"ask @x …"*, *"@x can you check …?"*, anything ending in `?`, slow targets, multi-turn.
+Use **Ask** when a reply, judgment, or investigation is needed.
 
-**Always invoke a background subagent. Never call `scout ask` inline from the parent** — inline blocks the parent context and dies on timeout the moment a target is slow.
+Phrasing:
 
+- "ask @x ..."
+- "@x can you check ...?"
+- anything ending in `?`
+- slow targets
+- multi-turn follow-up
+
+Command:
+
+```bash
+scout ask --to x "msg"
 ```
-Agent({
-  description: "Ask hudson via scout",
-  subagent_type: "general-purpose",
-  model: "haiku",
-  run_in_background: true,
-  prompt: "Run: scout ask --to hudson \"<your question>\"\nReturn the reply text only. No editorializing."
-})
+
+If your host has a background worker or subagent primitive, **run Ask there instead of blocking the parent**. The parent should keep working and surface the reply when the background task completes.
+
+Prompt shape for the background worker:
+
+```text
+Run: scout ask --to hudson "<your question>"
+Return the reply text only.
 ```
 
-`scout ask --to <agent>` lands in the DM with that agent. The parent keeps working. You'll be notified when the subagent finishes; surface the reply then.
+Inline `scout ask` is acceptable only when your host cannot delegate background work.
 
-### Fan-out — multiple `@`s in one message
+## Fan-out and broadcast
 
-If the user's message contains N `@name` mentions, spawn N subagents in parallel (one per target) in the same parent message. Same Agent shape as above, one call per target. Each subagent's `scout send "@x ..."` / `scout ask --to x` lands in its own DM — they don't see each other's conversations.
+### Fan-out
 
-### Broadcast — every agent should see it
+If the user's message contains multiple `@name` mentions, fan out one Scout action per target. Keep those conversations separate unless the user explicitly asked for a shared channel.
 
-For true broadcasts (release notes, cross-cutting announcements) use `scout broadcast`. It resolves `@all`, posts once to `channel.shared`, and fans notifications to every registered agent.
+### Broadcast
+
+For true broadcasts use `scout broadcast`:
 
 ```bash
 scout broadcast "shipping 0.3.0 in 15min, pause long flights"
@@ -89,36 +154,44 @@ Agent identity has five dimensions: `definitionId`, `workspaceQualifier`, `profi
 @<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
 ```
 
-When a short `@name` could match multiple live agents (same name, different harness or profile), pin the dimension you care about with a **typed qualifier**:
+When a short `@name` could match multiple live agents, pin the dimension you care about with a typed qualifier:
 
 - `@vox.harness:codex` — the Codex-backed Vox
 - `@vox.harness:claude` — the Claude-backed Vox
 - `@arc.profile:reviewer` — the reviewer profile of Arc
 - `@vox.harness:codex.node:mini` — fully qualified across machines
 
-Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier.
+Aliases:
 
-Use typed qualifiers any time the user's message implies a specific harness or profile ("via Codex", "on Claude", "the reviewer one") — don't rely on short-name resolution to guess right.
+- `runtime:` = `harness:`
+- `persona:` = `profile:`
+- `branch:` / `worktree:` = workspace qualifier
+
+Use typed qualifiers any time the user's request implies a specific harness or profile. Do not rely on short-name resolution to guess right.
 
 ## Resolution rule
 
-Short `@name` only resolves when **exactly one matching agent is currently routable**. If `scout send "@x ..."` returns `unresolvedTargets: ["@x"]`, the agent isn't online. If the CLI reports multiple candidates, re-run with a typed qualifier. Options:
+Short `@name` only resolves when **exactly one matching agent is currently routable**.
 
-- Bring it up: `scout up <name>`
+If `scout send "@x ..."` returns `unresolvedTargets: ["@x"]`, the agent is not online.
+
+If the CLI reports multiple candidates, re-run with a typed qualifier. Options:
+
+- Bring it up: `scout up <name-or-path>`
 - Disambiguate with a typed qualifier: `@x.harness:codex`
 - Use the full FQN: `@x.host.x-main-abc123`
 - Tell the user the target is offline before silently moving on
 
 ## Decision rule
 
-Use **Ask** (subagent) by default when the next sentence is effectively:
+Use **Ask** by default when the next sentence is effectively:
 
 - "Do this and get back to me."
 - "Investigate this and tell me what you found."
 - "Take ownership of the next step."
 - "Review this and return a judgment."
 
-Use **Tell** (`scout send`) only when the next sentence is effectively:
+Use **Tell** when the next sentence is effectively:
 
 - "Heads up."
 - "I am working on this now."
@@ -129,34 +202,31 @@ When in doubt, use Ask.
 
 ## Dedicated agent cards
 
-Use `scout card create` when you need a project-scoped relay identity with its own inbox and return address. Right move when:
+Use `scout card create` when you need a project-scoped relay identity with its own inbox and return address.
 
-- you're in a worktree and want the agent bound to that exact path and branch
+Use it when:
+
+- you are in a worktree and want the agent bound to that exact path and branch
 - you need a dedicated alias instead of reusing a shared project agent
 - you want to hand another agent a clean reply target immediately
 
-Create a card for the current context:
+Examples:
 
 ```bash
 scout card create
-```
-
-Create a named card for another path or worktree:
-
-```bash
 scout card create ~/dev/openscout-worktrees/shell-fix --name shellfix --harness claude
 ```
 
-After creating the card, prefer the friendly handle (like `@shellfix`) in subsequent `scout` calls.
+After creating the card, prefer the friendly handle such as `@shellfix`.
 
 ## Compatibility notes
 
-- `scout relay ask` and `scout relay send` are accepted as namespace aliases. Don't use them in new prompts.
-- `scout` is the canonical CLI binary. Don't use `openscout` in new prompts or examples.
+- `scout relay ask` and `scout relay send` are accepted as namespace aliases. Do not use them in new prompts.
+- `scout` is the canonical CLI binary. Do not use `openscout` in new prompts or examples.
 - Use `--as <agent>` when you need the broker to record a specific sending agent identity instead of the default operator/current-project inference.
 
 ## When not to use Scout
 
-- Don't use Scout for work inside the same agent when no cross-agent communication is needed.
-- Don't invent ad hoc retry loops in prompts when the subagent already gives you a tracked wait.
-- Don't read the broker's internal storage directly. Always go through the `scout` CLI.
+- Do not use Scout for work inside the same agent when no cross-agent communication is needed.
+- Do not invent ad hoc retry loops in prompts when the background worker already gives you tracked waiting.
+- Do not read the broker's internal storage directly. Go through the `scout` CLI or Scout web UI.

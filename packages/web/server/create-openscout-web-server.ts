@@ -8,12 +8,14 @@ import {
   controlScoutWebPairingService,
   getScoutWebPairingState,
   refreshScoutWebPairingState,
+  removeScoutPairingTrustedPeer,
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "./pairing.ts";
 import {
   createCachedSnapshot,
   installScoutApiMiddleware,
+  relayEventStream,
   registerScoutWebAssets,
   type ScoutWebAssetMode,
 } from "./server-core.ts";
@@ -39,7 +41,6 @@ export type CreateOpenScoutWebServerOptions = {
   currentDirectory: string;
   shellStateCacheTtlMs?: number;
   assetMode: ScoutWebAssetMode;
-  viteDevUrl?: string;
   staticRoot?: string;
 };
 
@@ -130,9 +131,9 @@ async function loadPairingState(currentDirectory: string, refresh: boolean): Pro
     : getScoutWebPairingState(currentDirectory);
 }
 
-export function createOpenScoutWebServer(
+export async function createOpenScoutWebServer(
   options: CreateOpenScoutWebServerOptions,
-): OpenScoutWebServer {
+): Promise<OpenScoutWebServer> {
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
   const app = new Hono();
@@ -140,6 +141,11 @@ export function createOpenScoutWebServer(
 
   installScoutApiMiddleware(app, "openscout-web api");
 
+  app.get("/api/health", (c) => c.json({
+    ok: true,
+    surface: "openscout-web",
+    currentDirectory,
+  }));
   app.get("/api/pairing-state", async (c) => c.json(await loadPairingState(currentDirectory, false)));
   app.get("/api/pairing-state/refresh", async (c) => c.json(await loadPairingState(currentDirectory, true)));
   app.post("/api/pairing/control", async (c) => {
@@ -147,6 +153,14 @@ export function createOpenScoutWebServer(
     const result = await controlScoutWebPairingService(action, currentDirectory);
     shellStateCache.invalidate();
     return c.json(result);
+  });
+  app.delete("/api/pairing/peers/:fingerprint", async (c) => {
+    const fingerprint = c.req.param("fingerprint");
+    const removed = removeScoutPairingTrustedPeer(fingerprint);
+    if (!removed) {
+      return c.json({ error: "Peer not found" }, 404);
+    }
+    return c.json({ ok: true });
   });
 
   app.get("/api/shell-state", async (c) => c.json(await shellStateCache.get()));
@@ -251,27 +265,18 @@ export function createOpenScoutWebServer(
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
     const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
     try {
-      const upstream = await fetch(`${brokerUrl}/v1/events/stream`);
-      if (!upstream.ok || !upstream.body) {
-        return c.text("Broker event stream unavailable", 502);
-      }
-      return new Response(upstream.body, {
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        },
+      return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
+        signal: c.req.raw.signal,
       });
     } catch {
       return c.text("Broker unreachable", 502);
     }
   });
 
-  registerScoutWebAssets(app, {
+  await registerScoutWebAssets(app, {
     assetMode: options.assetMode,
     staticRoot: resolveStaticRoot(options.staticRoot),
-    viteDevUrl: options.viteDevUrl,
-    defaultViteUrl: "http://127.0.0.1:5180",
+    viteConfigPath: resolve(dirname(fileURLToPath(import.meta.url)), "../vite.config.ts"),
   });
 
   const warmupCaches = () =>

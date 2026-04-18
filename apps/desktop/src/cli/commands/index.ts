@@ -11,6 +11,7 @@ export type ScoutCommandName =
   | "doctor"
   | "enroll"
   | "env"
+  | "latest"
   | "mesh"
   | "pair"
   | "ps"
@@ -23,7 +24,8 @@ export type ScoutCommandName =
   | "tui"
   | "up"
   | "watch"
-  | "who";
+  | "who"
+  | "whoami";
 
 export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<ScoutCommandHandler> {
   switch (name) {
@@ -43,6 +45,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./enroll.ts")).runEnrollCommand;
     case "env":
       return (await import("./env.ts")).runEnvCommand;
+    case "latest":
+      return (await import("./latest.ts")).runLatestCommand;
     case "mesh":
       return (await import("./mesh.ts")).runMeshCommand;
     case "pair":
@@ -69,5 +73,7 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./watch.ts")).runWatchCommand;
     case "who":
       return (await import("./who.ts")).runWhoCommand;
+    case "whoami":
+      return (await import("./whoami.ts")).runWhoAmICommand;
   }
 }

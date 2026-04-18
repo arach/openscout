@@ -617,6 +617,34 @@ function readScoutPairingTrustedPeers(trustedPeersPath: string): ScoutPairingTru
   }
 }
 
+export function removeScoutPairingTrustedPeer(fingerprint: string): boolean {
+  const paths = resolveScoutPairingPaths();
+  if (!existsSync(paths.trustedPeersPath)) {
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(paths.trustedPeersPath, "utf8")) as ScoutPairingTrustedPeerRecord[];
+    if (!Array.isArray(payload)) {
+      return false;
+    }
+
+    const before = payload.length;
+    const filtered = payload.filter(
+      (entry) => typeof entry?.publicKey === "string" && entry.publicKey.slice(0, 16) !== fingerprint,
+    );
+
+    if (filtered.length === before) {
+      return false;
+    }
+
+    writeFileSync(paths.trustedPeersPath, JSON.stringify(filtered, null, 2), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readScoutPairingLogTail(logPath: string): ScoutPairingLogTail {
   if (!existsSync(logPath)) {
     return {

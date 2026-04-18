@@ -16,6 +16,7 @@ import type { ScoutDesktopShellPatch } from "../app/desktop/index.ts";
 import {
   createCachedSnapshot,
   installScoutApiMiddleware,
+  relayEventStream,
   registerScoutWebAssets,
   type ScoutWebAssetMode,
 } from "./server-core.ts";
@@ -95,6 +96,11 @@ export function createScoutControlPlaneServer(
 
   installScoutApiMiddleware(app, "control-plane api");
 
+  app.get("/api/health", (c) => c.json({
+    ok: true,
+    surface: "control-plane",
+    currentDirectory,
+  }));
   app.get("/api/pairing-state", async (c) => c.json(await loadPairingState(currentDirectory, false)));
   app.get("/api/pairing-state/refresh", async (c) => c.json(await loadPairingState(currentDirectory, true)));
   app.post("/api/pairing/control", async (c) => {
@@ -159,16 +165,8 @@ export function createScoutControlPlaneServer(
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
     const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
     try {
-      const upstream = await fetch(`${brokerUrl}/v1/events/stream`);
-      if (!upstream.ok || !upstream.body) {
-        return c.text("Broker event stream unavailable", 502);
-      }
-      return new Response(upstream.body, {
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-        },
+      return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
+        signal: c.req.raw.signal,
       });
     } catch {
       return c.text("Broker unreachable", 502);

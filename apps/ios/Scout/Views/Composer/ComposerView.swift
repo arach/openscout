@@ -77,6 +77,7 @@ struct ComposerView: View {
     @State private var micState: MicButtonState = .idle
     @State private var lastError: String?
     @State private var justSent = false
+    @State private var measuredTextHeight: CGFloat = Self.messageCompactTextHeight
 
     private var isRecording: Bool { micState == .recording }
     private var isTranscribing: Bool { micState == .transcribing }
@@ -91,6 +92,9 @@ struct ComposerView: View {
     private static let keepAliveTrigger = "extra keep alive please"
     private static let keepAliveReplacement = "use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online"
     private static let keepAliveAppendix = "If this may run a while, use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online."
+    private static let messageCompactTextHeight: CGFloat = 32
+    private static let messageExpandedMinTextHeight: CGFloat = 84
+    private static let messageExpandedMaxTextHeight: CGFloat = 168
 
     init(
         sessionId: String,
@@ -268,20 +272,38 @@ struct ComposerView: View {
 
     // MARK: - Message Field (stacked card above action tray)
 
-    private let messageExpandedHeight: CGFloat = 100
-    private let messageCompactHeight: CGFloat = 48
+    private var messageTextMinHeight: CGFloat {
+        hasText || showKeyboard
+            ? Self.messageExpandedMinTextHeight
+            : Self.messageCompactTextHeight
+    }
+
+    private var messageTextMaxHeight: CGFloat {
+        hasText || showKeyboard
+            ? Self.messageExpandedMaxTextHeight
+            : Self.messageCompactTextHeight
+    }
 
     private var messageFieldHeight: CGFloat {
-        hasText || showKeyboard ? messageExpandedHeight : messageCompactHeight
+        min(
+            messageTextMaxHeight,
+            max(messageTextMinHeight, measuredTextHeight)
+        )
     }
 
     private var messageField: some View {
         HStack(alignment: .bottom, spacing: 0) {
-            ScoutTextField(text: $text, placeholder: "Ask anything...", maxHeight: messageFieldHeight - 16)
+            ScoutTextField(
+                text: $text,
+                measuredHeight: $measuredTextHeight,
+                placeholder: "Ask anything...",
+                minHeight: messageTextMinHeight,
+                maxHeight: messageTextMaxHeight
+            )
                 .frame(
                     maxWidth: .infinity,
-                    minHeight: messageFieldHeight - 16,
-                    maxHeight: messageFieldHeight - 16,
+                    minHeight: messageFieldHeight,
+                    maxHeight: messageFieldHeight,
                     alignment: .topLeading
                 )
                 .padding(.leading, 16)
