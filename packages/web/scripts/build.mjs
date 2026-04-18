@@ -34,7 +34,7 @@ const entries = [
 for (const entry of entries) {
   const result = spawnSync(
     "bun",
-    ["build", entry.input, "--target=bun", "--format=esm", "--outfile", entry.output],
+    ["build", entry.input, "--target=bun", "--format=esm", "--outfile", entry.output, "--external", "vite"],
     {
       cwd: packageDirectory,
       stdio: "inherit",

@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.46",
+  "version": "0.2.47",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -90,7 +90,7 @@
   },
   "dependencies": {
     "@openscout/agent-sessions": "0.2.45",
-    "@openscout/protocol": "0.2.46",
+    "@openscout/protocol": "0.2.47",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1"
   },
