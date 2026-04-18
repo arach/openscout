@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
 import { ActivityScreen } from "../../screens/ActivityScreen.tsx";
 import { AgentInfoScreen } from "../../screens/AgentInfoScreen.tsx";
@@ -12,7 +13,31 @@ import { WorkDetailScreen } from "../../screens/WorkDetailScreen.tsx";
 
 export function ScoutContent() {
   const { route, navigate, agents, messages } = useScout();
+  return <ScoutSurface>{renderScreen(route, navigate, agents, messages)}</ScoutSurface>;
+}
 
+/** Paints the Scout content area background (since Hudson's Frame renders
+ *  black chrome behind everything and doesn't read our theme tokens). */
+function ScoutSurface({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="min-h-full"
+      style={{
+        background: "var(--bg)",
+        color: "var(--ink)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function renderScreen(
+  route: ReturnType<typeof useScout>["route"],
+  navigate: ReturnType<typeof useScout>["navigate"],
+  agents: ReturnType<typeof useScout>["agents"],
+  messages: ReturnType<typeof useScout>["messages"],
+) {
   switch (route.view) {
     case "conversation":
       return <ConversationScreen conversationId={route.conversationId} navigate={navigate} />;

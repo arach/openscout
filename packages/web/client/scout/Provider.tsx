@@ -61,5 +61,27 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     [route, navigate, agents, messages, onlineCount, reload],
   );
 
-  return <ScoutContext.Provider value={value}>{children}</ScoutContext.Provider>;
+  return (
+    <ScoutContext.Provider value={value}>
+      <div
+        data-scout-theme
+        style={{
+          /* Light overrides for Scout's content area. Chrome stays dark
+           * because Hudson chrome uses hardcoded Tailwind utilities, not
+           * these CSS vars. */
+          "--hud-bg": "#F9F9F8",
+          "--hud-surface": "#FFFFFF",
+          "--hud-ink": "#1C1C1A",
+          "--hud-muted": "#737370",
+          "--hud-dim": "#9A9A96",
+          "--hud-border": "#E4E4E2",
+          "--hud-accent": "#0066FF",
+          "--hud-accent-soft": "rgba(0, 102, 255, 0.08)",
+          "--hud-shadow-soft": "rgba(24, 24, 22, 0.06)",
+        } as React.CSSProperties}
+      >
+        {children}
+      </div>
+    </ScoutContext.Provider>
+  );
 }
