@@ -114,30 +114,30 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.45",
+      "version": "0.2.47",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
       "dependencies": {
-        "@openscout/runtime": "workspace:*",
+        "@openscout/runtime": "0.2.47",
       },
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.2.45",
+      "version": "0.2.47",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.2.45",
+      "version": "0.2.47",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
       "dependencies": {
-        "@openscout/agent-sessions": "workspace:*",
-        "@openscout/protocol": "workspace:*",
+        "@openscout/agent-sessions": "0.2.45",
+        "@openscout/protocol": "0.2.47",
         "drizzle-orm": "^0.45.2",
         "smol-toml": "^1.6.1",
       },
@@ -173,7 +173,7 @@
     },
     "packages/web": {
       "name": "@openscout/web",
-      "version": "0.2.45",
+      "version": "0.2.47",
       "bin": {
         "openscout-web": "./bin/openscout-web.mjs",
       },
@@ -189,9 +189,9 @@
         "@noble/ciphers": "^2.1.1",
         "@noble/curves": "^2.0.1",
         "@noble/hashes": "^2.0.1",
-        "@openscout/agent-sessions": "workspace:*",
-        "@openscout/protocol": "workspace:*",
-        "@openscout/runtime": "workspace:*",
+        "@openscout/agent-sessions": "0.2.45",
+        "@openscout/protocol": "0.2.47",
+        "@openscout/runtime": "0.2.47",
         "@tailwindcss/vite": "^4.1.18",
         "@trpc/server": "^11.16.0",
         "@types/react": "^19",

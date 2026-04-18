@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { AppShell } from "@hudson/sdk/app-shell";
 
-import { App } from "./App";
+import { scoutApp } from "./scout";
 import "./arc-tailwind.css";
 import "./app.css";
 
@@ -12,6 +13,6 @@ if (!el) {
 
 createRoot(el).render(
   <StrictMode>
-    <App />
+    <AppShell app={scoutApp} />
   </StrictMode>,
 );
