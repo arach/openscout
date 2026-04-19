@@ -50,6 +50,9 @@ packages/*/package/
 .DS_Store
 *.pem
 
+# stray editor/extension build artifacts in repo root
+/*.js
+
 # debug
 npm-debug.log*
 yarn-debug.log*
