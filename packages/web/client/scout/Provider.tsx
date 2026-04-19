@@ -64,11 +64,19 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   return (
     <ScoutContext.Provider value={value}>
       {/* data-scout-theme is the scope where Scout's --bg/--ink/--accent/etc.
-       * aliases resolve (see app.css). No overrides right now — content
-       * inherits Hudson's dark --hud-* defaults to align with chrome. Proper
-       * per-app theming comes later; this block is where overrides will go
-       * (e.g. --hud-accent for Scout blue) when we're ready. */}
-      <div data-scout-theme>{children}</div>
+       * aliases resolve (see app.css). Content inherits Hudson's dark --hud-*
+       * defaults to align with chrome; we override only the font stacks to
+       * match the web fonts Scout loads in index.html. */}
+      <div
+        data-scout-theme
+        style={{
+          "--hud-font-sans": "'Inter', ui-sans-serif, system-ui, sans-serif",
+          "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
+          "--hud-font-serif": "'Spectral', Georgia, serif",
+        } as React.CSSProperties}
+      >
+        {children}
+      </div>
     </ScoutContext.Provider>
   );
 }
