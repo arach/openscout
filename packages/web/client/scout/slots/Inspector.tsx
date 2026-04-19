@@ -1,5 +1,9 @@
 import { useScout } from "../Provider.tsx";
+import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
+import { FleetInspector } from "../inspector/FleetInspector.tsx";
 import { HomeAgentsInspector } from "../inspector/HomeAgentsInspector.tsx";
+import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
+import { WorkInspector } from "../inspector/WorkInspector.tsx";
 
 export function ScoutInspector() {
   const { route } = useScout();
@@ -7,12 +11,16 @@ export function ScoutInspector() {
   switch (route.view) {
     case "inbox":
       return <HomeAgentsInspector />;
-    // More inspector panels wire in here as we port each screen:
-    //   "agents"   → selected agent info
-    //   "sessions" → selected session metadata
-    //   "fleet"    → 4-metric summary
-    //   "work"     → work item meta
-    //   …
+    case "agents":
+    case "agent-info":
+      return <AgentsInspector />;
+    case "fleet":
+      return <FleetInspector />;
+    case "sessions":
+    case "conversation":
+      return <SessionsInspector />;
+    case "work":
+      return <WorkInspector />;
     default:
       return null;
   }
