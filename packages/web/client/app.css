@@ -2491,7 +2491,7 @@ details[open] > .s-conv-meta-toggle::before {
   padding: 0 10px;
   border-radius: 999px;
   border: 1px solid rgba(28, 28, 26, 0.08);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--surface);
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--ink);

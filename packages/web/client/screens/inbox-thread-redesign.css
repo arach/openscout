@@ -295,7 +295,7 @@
   padding: 0 7px;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, white);
-  background: rgba(249, 249, 248, 0.7);
+  background: var(--bg);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -313,13 +313,13 @@
   gap: 12px;
   padding: 14px 24px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, white);
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface);
   box-shadow: none;
   overflow: hidden;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-conv-header:hover {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface);
 }
 
 .s-inbox-thread-redesign.s-conversation .s-conv-header .s-back {
@@ -328,7 +328,7 @@
   margin-right: 0;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 92%, white);
-  background: rgba(249, 249, 248, 0.92);
+  background: var(--bg);
   box-shadow: none;
 }
 
@@ -426,7 +426,7 @@
 .s-inbox-thread-redesign.s-conversation .s-conv-meta {
   gap: 8px;
   padding: 12px 14px;
-  background: rgba(249, 249, 248, 0.6);
+  background: var(--bg);
 }
 
 .s-inbox-thread-redesign.s-conversation .s-conv-meta-disclosure {
@@ -497,7 +497,7 @@
   padding: 10px 14px;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--border) 80%, white);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface);
   box-shadow: none;
 }
 
@@ -546,7 +546,7 @@
 }
 
 .s-inbox-thread-redesign.s-conversation .s-msg[data-class="system"] .s-msg-card {
-  background: rgba(249, 249, 248, 0.92);
+  background: var(--bg);
 }
 
 .s-inbox-thread-redesign.s-conversation .s-msg-working-card {
@@ -572,7 +572,7 @@
   gap: 6px 10px;
   border-radius: 12px;
   border-color: color-mix(in srgb, var(--border) 92%, white);
-  background: rgba(249, 249, 248, 0.94);
+  background: var(--bg);
 }
 
 .s-inbox-thread-redesign.s-conversation .s-scout-tile:hover {
@@ -586,7 +586,7 @@
   padding: 40px 24px;
   border: 1px dashed color-mix(in srgb, var(--border) 84%, white);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--surface);
   text-align: center;
 }
 
@@ -602,7 +602,7 @@
   align-self: flex-start;
   border: 1px solid color-mix(in srgb, var(--border) 80%, white);
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.02);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }

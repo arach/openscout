@@ -63,25 +63,12 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   return (
     <ScoutContext.Provider value={value}>
-      <div
-        data-scout-theme
-        style={{
-          /* Light overrides for Scout's content area. Chrome stays dark
-           * because Hudson chrome uses hardcoded Tailwind utilities, not
-           * these CSS vars. */
-          "--hud-bg": "#F9F9F8",
-          "--hud-surface": "#FFFFFF",
-          "--hud-ink": "#1C1C1A",
-          "--hud-muted": "#737370",
-          "--hud-dim": "#9A9A96",
-          "--hud-border": "#E4E4E2",
-          "--hud-accent": "#0066FF",
-          "--hud-accent-soft": "rgba(0, 102, 255, 0.08)",
-          "--hud-shadow-soft": "rgba(24, 24, 22, 0.06)",
-        } as React.CSSProperties}
-      >
-        {children}
-      </div>
+      {/* data-scout-theme is the scope where Scout's --bg/--ink/--accent/etc.
+       * aliases resolve (see app.css). No overrides right now — content
+       * inherits Hudson's dark --hud-* defaults to align with chrome. Proper
+       * per-app theming comes later; this block is where overrides will go
+       * (e.g. --hud-accent for Scout blue) when we're ready. */}
+      <div data-scout-theme>{children}</div>
     </ScoutContext.Provider>
   );
 }

@@ -863,7 +863,7 @@
   height: 38px;
   border-radius: 12px;
   border: 1px solid rgba(28, 28, 26, 0.1);
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface);
   padding: 0 12px;
   font-family: var(--font-sans);
   font-size: 13px;
@@ -888,7 +888,7 @@
   min-width: 0;
   border-radius: 12px;
   border: 1px solid rgba(28, 28, 26, 0.08);
-  background: rgba(249, 249, 248, 0.92);
+  background: var(--bg);
   padding: 16px;
   text-align: center;
 }
