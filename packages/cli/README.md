@@ -78,11 +78,27 @@ scout up
 scout down
 scout ps
 scout restart
+scout menu
 scout pair
 scout server start
 scout server open
 scout tui
 ```
+
+### Menu Bar App (`scout menu`)
+
+On macOS, `scout menu` is the quick launcher for the native menu bar app.
+
+```bash
+scout menu
+scout menu status
+scout menu restart
+scout menu quit
+```
+
+If you run it from an OpenScout repo checkout, Scout prefers the repo helper at
+`apps/macos/bin/openscout-menu.ts`, so it can auto-build and launch the app bundle for you.
+Outside the repo, it opens an installed `OpenScout Menu` app when available.
 
 ### Web UI (`scout server start`, `scout server open`)
 

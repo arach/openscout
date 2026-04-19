@@ -37,6 +37,7 @@ export function renderScoutHelp(version = "0.2.18"): string {
     "  scout whoami",
     "  scout who",
     "  scout latest",
+    "  scout menu",
     "  scout server open",
     "",
     "Addressing:",

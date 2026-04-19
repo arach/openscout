@@ -12,6 +12,7 @@ export type ScoutCommandName =
   | "enroll"
   | "env"
   | "latest"
+  | "menu"
   | "mesh"
   | "pair"
   | "ps"
@@ -47,6 +48,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./env.ts")).runEnvCommand;
     case "latest":
       return (await import("./latest.ts")).runLatestCommand;
+    case "menu":
+      return (await import("./menu.ts")).runMenuCommand;
     case "mesh":
       return (await import("./mesh.ts")).runMeshCommand;
     case "pair":

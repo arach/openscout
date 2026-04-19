@@ -21,6 +21,20 @@ swift build
 
 You can also open `Package.swift` directly in Xcode.
 
+## Quick Launch
+
+From the repo root:
+
+```bash
+bun run menu
+```
+
+From the Scout CLI on macOS:
+
+```bash
+scout menu
+```
+
 ## App Bundle
 
 ```bash

@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "bun run --cwd packages/web dev",
+    "menu": "bun ./apps/macos/bin/openscout-menu.ts launch",
     "build": "npm run cli:build && npm run web:build",
     "check": "npm run protocol:check && bun run --cwd apps/desktop check && npm run runtime:check && bun run cloud:check",
     "test:happy": "cd apps/desktop && bun run test:happy && cd ../../packages/cli && bun run test:happy",
