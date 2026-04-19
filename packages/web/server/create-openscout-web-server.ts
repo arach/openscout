@@ -235,6 +235,14 @@ export async function createOpenScoutWebServer(
     return c.json({ name: resolveOperatorName() });
   });
 
+  app.post("/api/agents/:agentId/interrupt", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { interruptLocalAgent } = await import("@openscout/runtime/local-agents");
+    const result = await interruptLocalAgent(agentId);
+    if (!result.ok) return c.json({ error: "Agent not found or not interruptible" }, 404);
+    return c.json({ ok: true });
+  });
+
   app.post("/api/send", async (c) => {
     const { body, conversationId } = await c.req.json() as { body: string; conversationId?: string };
     if (!body?.trim()) {

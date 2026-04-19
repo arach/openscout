@@ -307,6 +307,14 @@ function SendIcon() {
   );
 }
 
+function StopIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+    </svg>
+  );
+}
+
 function ConversationMetaRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="s-conv-meta-row">
@@ -650,6 +658,21 @@ export function ConversationScreen({
     await sendText(text);
   };
 
+  const interrupt = async () => {
+    if (!agentId) return;
+    try {
+      await api("/api/agents/" + encodeURIComponent(agentId) + "/interrupt", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch {
+      // Best-effort interrupt — swallow errors silently
+    }
+  };
+
+  const isAgentBusy = presence.tone === "working" || presence.tone === "pending";
+  const isStopMode = !draft.trim() && isAgentBusy;
+
   const dispatchToCandidate = async (record: ScoutDispatchRecord, candidate: ScoutDispatchCandidate) => {
     const prefix = `@${candidate.agentId} `;
     const leftover = draft.trim();
@@ -875,22 +898,35 @@ export function ConversationScreen({
                 void send();
               }
             }}
-            disabled={sending}
             rows={1}
           />
 
           <div className="s-thread-compose-footer">
             <span className="s-thread-compose-hint">
-              {sending ? `Sending to ${agentName}…` : "Enter to send · Shift+Enter for newline"}
+              {sending ? (
+                `Sending…`
+              ) : isStopMode ? (
+                "Stop"
+              ) : isAgentBusy ? (
+                <>
+                  <kbd className="s-kbd">↵</kbd> steer
+                </>
+              ) : (
+                <>
+                  <kbd className="s-kbd">↵</kbd> send
+                  <kbd className="s-kbd">⇧↵</kbd> newline
+                </>
+              )}
             </span>
-            <button
-              type="submit"
-              className="s-compose-send"
-              disabled={sending || !draft.trim()}
-              aria-label="Send message"
-            >
-              <SendIcon />
-            </button>
+            {isStopMode ? (
+              <button type="button" className="s-compose-send s-compose-stop" onClick={() => void interrupt()} aria-label="Stop agent">
+                <StopIcon />
+              </button>
+            ) : (
+              <button type="submit" className="s-compose-send" disabled={sending || !draft.trim()} aria-label="Send message">
+                <SendIcon />
+              </button>
+            )}
           </div>
         </div>
       </form>

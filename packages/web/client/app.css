@@ -2,10 +2,10 @@
 
 :root {
   /* Scout-specific pill tints — stay direct (tied to semantic status colors) */
-  --pill-updated-bg: rgba(138, 138, 134, 0.12);
+  --pill-updated-bg: color-mix(in srgb, var(--muted) 12%, transparent);
   --pill-working-bg: var(--accent-soft);
-  --pill-completed-bg: rgba(34, 197, 94, 0.14);
-  --pill-failed-bg: rgba(220, 38, 38, 0.14);
+  --pill-completed-bg: color-mix(in srgb, var(--green) 14%, transparent);
+  --pill-failed-bg: color-mix(in srgb, var(--red) 14%, transparent);
 
   --sidebar-w: 280px;
   font-family: var(--hud-font-sans);
@@ -238,7 +238,7 @@ body { margin: 0; }
 }
 
 .s-nav-item-active {
-  background: rgba(0, 102, 255, 0.1);
+  background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
 }
@@ -692,8 +692,8 @@ body { margin: 0; }
   color: var(--red);
   font-size: 12px;
   padding: 8px 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: color-mix(in srgb, var(--red) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--red) 18%, transparent);
   border-radius: var(--radius);
   margin: 12px;
 }
@@ -801,7 +801,7 @@ body { margin: 0; }
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  color: white;
+  color: #fff;
 }
 
 .s-avatar-sm {
@@ -877,18 +877,18 @@ body { margin: 0; }
 }
 
 .s-conv-status-pending {
-  background: rgba(0, 102, 255, 0.06);
-  border-bottom-color: rgba(0, 102, 255, 0.12);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .s-conv-status-working {
-  background: rgba(34, 197, 94, 0.06);
-  border-bottom-color: rgba(34, 197, 94, 0.14);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--green) 14%, transparent);
 }
 
 .s-conv-status-offline {
-  background: rgba(17, 24, 39, 0.04);
-  border-bottom-color: rgba(17, 24, 39, 0.08);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .s-conv-status-dot {
@@ -976,7 +976,7 @@ details[open] > .s-conv-meta-toggle::before {
   flex-direction: column;
   gap: 8px;
   padding: 8px 20px 10px;
-  background: rgba(17, 24, 39, 0.02);
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
   flex-shrink: 0;
 }
 
@@ -1057,7 +1057,7 @@ details[open] > .s-conv-meta-toggle::before {
 .s-msg-you .s-msg-body {
   border-radius: 14px 14px 4px 14px;
   background: var(--accent-soft);
-  border-color: rgba(0, 102, 255, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .s-msg-you .s-msg-header {
@@ -1075,8 +1075,8 @@ details[open] > .s-conv-meta-toggle::before {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 14px 14px 14px 4px;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.04));
-  border: 1px solid rgba(34, 197, 94, 0.14);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--green) 8%, transparent), color-mix(in srgb, var(--green) 4%, transparent));
+  border: 1px solid color-mix(in srgb, var(--green) 14%, transparent);
 }
 
 .s-msg-working-copy {
@@ -1166,7 +1166,7 @@ details[open] > .s-conv-meta-toggle::before {
   border-radius: 50%;
   border: none;
   background: var(--ink);
-  color: white;
+  color: var(--bg);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -1297,7 +1297,7 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-btn-primary:hover {
-  background: #2a2a28;
+  background: color-mix(in srgb, var(--ink) 90%, var(--bg));
   box-shadow: 0 2px 6px var(--shadow-soft);
 }
 
@@ -1370,7 +1370,7 @@ details[open] > .s-conv-meta-toggle::before {
   font-size: 10px;
   font-weight: 600;
   font-family: var(--font-mono);
-  color: white;
+  color: #fff;
   background: var(--green);
   border-radius: 10px;
   padding: 0 6px;
@@ -1399,7 +1399,7 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-sidebar-row-active .s-task-indicator {
-  border-color: rgba(0, 102, 255, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* ── Flight banner in conversation ── */
@@ -1409,8 +1409,8 @@ details[open] > .s-conv-meta-toggle::before {
   align-items: center;
   gap: 6px;
   padding: 6px 20px;
-  background: rgba(34, 197, 94, 0.06);
-  border-bottom: 1px solid rgba(34, 197, 94, 0.12);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--green) 12%, transparent);
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -1943,7 +1943,7 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-sessions-screen .s-inbox-row:hover {
-  background: rgba(28, 28, 26, 0.03);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
 
 .s-sessions-screen .s-inbox-row[data-selected="true"] {
@@ -2075,7 +2075,7 @@ details[open] > .s-conv-meta-toggle::before {
 .s-seg-standalone.is-on {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: rgba(0, 102, 255, 0.28);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .s-seg-standalone.is-on .s-dot {
@@ -2164,7 +2164,7 @@ details[open] > .s-conv-meta-toggle::before {
 
 .s-filter-chip-active {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg);
   border-color: var(--accent);
 }
 
@@ -2185,7 +2185,7 @@ details[open] > .s-conv-meta-toggle::before {
 .s-mesh-hero {
   position: relative;
   background:
-    linear-gradient(135deg, rgba(0, 102, 255, 0.04) 0%, rgba(0, 102, 255, 0) 40%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 4%, transparent) 0%, transparent 40%),
     var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2200,7 +2200,7 @@ details[open] > .s-conv-meta-toggle::before {
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: linear-gradient(180deg, var(--accent) 0%, rgba(0, 102, 255, 0.3) 100%);
+  background: linear-gradient(180deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 30%, transparent) 100%);
 }
 
 .s-mesh-hero-head {
@@ -2220,7 +2220,7 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-mesh-hero-head .s-dot {
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
 }
 
 .s-mesh-hero-grid {
@@ -2256,17 +2256,17 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-badge-ok {
-  background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
   font-variant: small-caps;
   letter-spacing: 0.04em;
 }
 
 .s-badge-warn {
-  background: rgba(245, 158, 11, 0.12);
-  color: #a16207;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent);
   font-variant: small-caps;
   letter-spacing: 0.04em;
 }
@@ -2356,7 +2356,7 @@ details[open] > .s-conv-meta-toggle::before {
 .s-mesh-topology-fallback {
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, rgba(0,0,0,0.02), rgba(0,0,0,0.04));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ink) 2%, transparent), color-mix(in srgb, var(--ink) 4%, transparent));
   animation: s-pulse 1.6s ease-in-out infinite;
 }
 
@@ -2377,23 +2377,23 @@ details[open] > .s-conv-meta-toggle::before {
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(249, 249, 248, 0.98));
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
 }
 
 .s-mesh-issue-notice {
-  border-color: rgba(0, 102, 255, 0.16);
-  background: linear-gradient(135deg, rgba(0, 102, 255, 0.08), rgba(255, 255, 255, 0.98) 48%);
+  border-color: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, transparent), var(--surface) 48%);
 }
 
 .s-mesh-issue-warning {
-  border-color: rgba(245, 158, 11, 0.22);
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.09), rgba(255, 255, 255, 0.98) 48%);
+  border-color: color-mix(in srgb, var(--amber) 22%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--amber) 9%, transparent), var(--surface) 48%);
 }
 
 .s-mesh-issue-error {
-  border-color: rgba(220, 38, 38, 0.22);
-  background: linear-gradient(135deg, rgba(220, 38, 38, 0.09), rgba(255, 255, 255, 0.98) 48%);
+  border-color: color-mix(in srgb, var(--red) 22%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--red) 9%, transparent), var(--surface) 48%);
 }
 
 .s-mesh-issue-rail {
@@ -2401,15 +2401,15 @@ details[open] > .s-conv-meta-toggle::before {
 }
 
 .s-mesh-issue-rail-notice {
-  background: linear-gradient(180deg, rgba(0, 102, 255, 0.95), rgba(0, 102, 255, 0.45));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 95%, transparent), color-mix(in srgb, var(--accent) 45%, transparent));
 }
 
 .s-mesh-issue-rail-warning {
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.95), rgba(245, 158, 11, 0.5));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--amber) 95%, transparent), color-mix(in srgb, var(--amber) 50%, transparent));
 }
 
 .s-mesh-issue-rail-error {
-  background: linear-gradient(180deg, rgba(220, 38, 38, 0.95), rgba(220, 38, 38, 0.5));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--red) 95%, transparent), color-mix(in srgb, var(--red) 50%, transparent));
 }
 
 .s-mesh-issue-body {
@@ -2446,20 +2446,20 @@ details[open] > .s-conv-meta-toggle::before {
 
 .s-mesh-issue-badge-notice {
   color: var(--accent);
-  background: rgba(0, 102, 255, 0.1);
-  border: 1px solid rgba(0, 102, 255, 0.16);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .s-mesh-issue-badge-warning {
-  color: #a16207;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
 }
 
 .s-mesh-issue-badge-error {
-  color: #b91c1c;
-  background: rgba(220, 38, 38, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.18);
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 18%, transparent);
 }
 
 .s-mesh-issue-title {
@@ -2473,7 +2473,7 @@ details[open] > .s-conv-meta-toggle::before {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.6;
-  color: #5f5f5b;
+  color: var(--muted);
 }
 
 .s-mesh-issue-action {
@@ -2490,7 +2490,7 @@ details[open] > .s-conv-meta-toggle::before {
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
-  border: 1px solid rgba(28, 28, 26, 0.08);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
   background: var(--surface);
   font-family: var(--font-mono);
   font-size: 11px;

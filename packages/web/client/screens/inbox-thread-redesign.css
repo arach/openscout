@@ -1,7 +1,7 @@
 .s-inbox-thread-redesign {
-  --thread-panel-bg: rgba(255, 255, 255, 0.94);
-  --thread-panel-border: color-mix(in srgb, var(--border) 92%, white);
-  --thread-panel-soft: rgba(249, 249, 248, 0.9);
+  --thread-panel-bg: color-mix(in srgb, var(--surface) 94%, transparent);
+  --thread-panel-border: color-mix(in srgb, var(--border) 92%, var(--surface));
+  --thread-panel-soft: color-mix(in srgb, var(--surface) 90%, var(--bg));
 }
 
 .s-inbox-thread-redesign.s-sessions-screen {
@@ -203,7 +203,7 @@
   height: 36px;
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.96);
+  color: #fff;
   filter: saturate(0.72) brightness(0.96);
 }
 
@@ -294,7 +294,7 @@
   min-height: 20px;
   padding: 0 7px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, white);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--surface));
   background: var(--bg);
   font-size: 10px;
   font-weight: 500;
@@ -307,12 +307,14 @@
 .s-inbox-thread-redesign.s-conversation {
   position: relative;
   background: var(--bg);
+  flex: 1;
+  min-height: 0;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-conv-header {
   gap: 12px;
   padding: 14px 24px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, white);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, var(--surface));
   background: var(--surface);
   box-shadow: none;
   overflow: hidden;
@@ -327,7 +329,7 @@
   height: 36px;
   margin-right: 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--border) 92%, var(--surface));
   background: var(--bg);
   box-shadow: none;
 }
@@ -414,7 +416,7 @@
 .s-inbox-thread-redesign.s-conversation .s-conv-status,
 .s-inbox-thread-redesign.s-conversation .s-conv-meta {
   margin: 8px 24px 0;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, white);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
   border-radius: 12px;
   box-shadow: none;
 }
@@ -451,23 +453,39 @@
 .s-inbox-thread-redesign.s-conversation .s-messages {
   gap: 6px;
   padding: 20px 24px 16px;
-  align-items: flex-start;
+  align-items: stretch;
+  justify-content: flex-end;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-message-block {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(100%, 780px);
-  align-self: flex-start;
+  max-width: min(85%, 780px);
+}
+
+.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-msg-you) {
+  align-self: flex-end;
+}
+
+.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-msg-you) .s-msg-header {
+  flex-direction: row-reverse;
+}
+
+.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-msg-you) .s-msg-meta {
+  flex-direction: row-reverse;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-day-divider {
   display: flex;
   align-items: center;
   gap: 14px;
-  width: 100%;
   margin: 6px 0;
+}
+
+.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-thread-day-divider) {
+  max-width: 100%;
+  align-self: stretch;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-day-line {
@@ -496,14 +514,14 @@
   gap: 4px;
   padding: 10px 14px;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, white);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
   background: var(--surface);
   box-shadow: none;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-msg-you .s-msg-card {
   border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
-  background: color-mix(in srgb, var(--accent) 4%, rgba(255, 255, 255, 0.98));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
 }
 
 .s-inbox-thread-redesign.s-conversation .s-msg-header {
@@ -551,7 +569,7 @@
 
 .s-inbox-thread-redesign.s-conversation .s-msg-working-card {
   border-color: color-mix(in srgb, var(--green) 12%, var(--border));
-  background: color-mix(in srgb, var(--green) 2%, rgba(255, 255, 255, 0.96));
+  background: color-mix(in srgb, var(--green) 2%, var(--surface));
 }
 
 .s-inbox-thread-redesign.s-conversation .s-msg-working-body {
@@ -571,20 +589,20 @@
 .s-inbox-thread-redesign.s-conversation .s-scout-tile {
   gap: 6px 10px;
   border-radius: 12px;
-  border-color: color-mix(in srgb, var(--border) 92%, white);
+  border-color: color-mix(in srgb, var(--border) 92%, var(--surface));
   background: var(--bg);
 }
 
 .s-inbox-thread-redesign.s-conversation .s-scout-tile:hover {
   border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
-  background: color-mix(in srgb, var(--accent) 4%, white);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-empty {
-  align-self: flex-start;
+  align-self: center;
   width: min(100%, 540px);
   padding: 40px 24px;
-  border: 1px dashed color-mix(in srgb, var(--border) 84%, white);
+  border: 1px dashed color-mix(in srgb, var(--border) 84%, var(--surface));
   border-radius: 16px;
   background: var(--surface);
   text-align: center;
@@ -594,22 +612,24 @@
   padding: 10px 24px 18px;
   border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
   background: transparent;
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-compose-shell {
-  width: min(100%, 780px);
+  width: 100%;
   margin: 0;
   align-self: flex-start;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, white);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
   border-radius: 20px;
   background: var(--surface);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 2%, transparent);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-compose-shell:focus-within {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.06);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .s-inbox-thread-redesign.s-conversation .s-compose-input {
@@ -632,9 +652,29 @@
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-compose-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
   color: var(--dim);
   letter-spacing: 0.01em;
+}
+
+.s-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--dim);
+  line-height: 1;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-compose-send {
@@ -653,6 +693,10 @@
 .s-inbox-thread-redesign.s-conversation .s-compose-send:disabled {
   box-shadow: none;
   opacity: 0.25;
+}
+
+.s-inbox-thread-redesign.s-conversation .s-compose-send.s-compose-stop {
+  background: var(--red);
 }
 
 @media (max-width: 960px) {

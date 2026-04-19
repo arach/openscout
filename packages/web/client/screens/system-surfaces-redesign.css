@@ -142,36 +142,36 @@
 }
 
 .sys-chip-neutral {
-  color: #4b5563;
-  background: rgba(107, 114, 128, 0.12);
-  border-color: rgba(107, 114, 128, 0.18);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  border-color: color-mix(in srgb, var(--muted) 18%, transparent);
 }
 
 .sys-chip-notice,
 .sys-chip-warning {
-  color: #9a6700;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.22);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 22%, transparent);
 }
 
 .sys-chip-working {
-  color: #0f5ed7;
-  background: rgba(0, 102, 255, 0.1);
-  border-color: rgba(0, 102, 255, 0.18);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .sys-chip-success,
 .sys-chip-completed {
-  color: #0f7a35;
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.2);
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  border-color: color-mix(in srgb, var(--green) 20%, transparent);
 }
 
 .sys-chip-danger,
 .sys-chip-failed {
-  color: #b42318;
-  background: rgba(220, 38, 38, 0.11);
-  border-color: rgba(220, 38, 38, 0.18);
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 11%, transparent);
+  border-color: color-mix(in srgb, var(--red) 18%, transparent);
 }
 
 .sys-banner {
@@ -189,21 +189,21 @@
 }
 
 .sys-banner-warning {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.22);
-  color: #7c5400;
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 22%, transparent);
+  color: var(--amber);
 }
 
 .sys-banner-success {
-  background: rgba(34, 197, 94, 0.08);
-  border-color: rgba(34, 197, 94, 0.2);
-  color: #166534;
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  border-color: color-mix(in srgb, var(--green) 20%, transparent);
+  color: var(--green);
 }
 
 .sys-banner-muted {
-  background: rgba(0, 102, 255, 0.05);
-  border-color: rgba(0, 102, 255, 0.12);
-  color: #2859a6;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
 }
 
 .sys-state-card {
@@ -214,10 +214,8 @@
 }
 
 .sys-state-card-error {
-  background:
-    linear-gradient(180deg, rgba(255, 247, 247, 0.98), rgba(255, 247, 247, 0.95)),
-    #fff;
-  border-color: rgba(220, 38, 38, 0.16);
+  background: color-mix(in srgb, var(--red) 4%, var(--surface));
+  border-color: color-mix(in srgb, var(--red) 16%, transparent);
 }
 
 .sys-state-title {
@@ -432,19 +430,19 @@
 }
 
 .sys-audit-marker-notice span {
-  background: #f59e0b;
+  background: var(--amber);
 }
 
 .sys-audit-marker-working span {
-  background: #0066ff;
+  background: var(--accent);
 }
 
 .sys-audit-marker-completed span {
-  background: #22c55e;
+  background: var(--green);
 }
 
 .sys-audit-marker-failed span {
-  background: #dc2626;
+  background: var(--red);
 }
 
 .sys-audit-body {
@@ -531,7 +529,7 @@
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  color: #fff;
+  color: var(--bg);
   font-size: 9px;
   font-weight: 700;
 }
@@ -575,13 +573,13 @@
 }
 
 .sys-issue-card-notice {
-  border-color: color-mix(in srgb, #f59e0b 16%, transparent);
-  background: color-mix(in srgb, #f59e0b 4%, var(--surface));
+  border-color: color-mix(in srgb, var(--amber) 16%, transparent);
+  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
 }
 
 .sys-issue-card-warning {
-  border-color: color-mix(in srgb, #f59e0b 16%, transparent);
-  background: color-mix(in srgb, #f59e0b 5%, var(--surface));
+  border-color: color-mix(in srgb, var(--amber) 16%, transparent);
+  background: color-mix(in srgb, var(--amber) 5%, var(--surface));
 }
 
 .sys-issue-card-error {
@@ -862,7 +860,7 @@
   min-width: 0;
   height: 38px;
   border-radius: 12px;
-  border: 1px solid rgba(28, 28, 26, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   background: var(--surface);
   padding: 0 12px;
   font-family: var(--font-sans);
@@ -872,8 +870,8 @@
 
 .sys-input:focus {
   outline: none;
-  border-color: rgba(0, 102, 255, 0.32);
-  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .sys-qr-stage {
@@ -887,7 +885,7 @@
   align-items: center;
   min-width: 0;
   border-radius: 12px;
-  border: 1px solid rgba(28, 28, 26, 0.08);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
   background: var(--bg);
   padding: 16px;
   text-align: center;

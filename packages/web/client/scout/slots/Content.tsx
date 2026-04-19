@@ -21,10 +21,13 @@ export function ScoutContent() {
 function ScoutSurface({ children }: { children: ReactNode }) {
   return (
     <div
-      className="min-h-full"
       style={{
         background: "var(--bg)",
         color: "var(--ink)",
+        minHeight: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       {children}
