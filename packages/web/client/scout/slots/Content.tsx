@@ -12,8 +12,8 @@ import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
 import { WorkDetailScreen } from "../../screens/WorkDetailScreen.tsx";
 
 export function ScoutContent() {
-  const { route, navigate, agents, messages } = useScout();
-  return <ScoutSurface>{renderScreen(route, navigate, agents, messages)}</ScoutSurface>;
+  const { route, navigate } = useScout();
+  return <ScoutSurface>{renderScreen(route, navigate)}</ScoutSurface>;
 }
 
 /** Paints the Scout content area background (since Hudson's Frame renders
@@ -35,8 +35,6 @@ function ScoutSurface({ children }: { children: ReactNode }) {
 function renderScreen(
   route: ReturnType<typeof useScout>["route"],
   navigate: ReturnType<typeof useScout>["navigate"],
-  agents: ReturnType<typeof useScout>["agents"],
-  messages: ReturnType<typeof useScout>["messages"],
 ) {
   switch (route.view) {
     case "conversation":
@@ -67,6 +65,6 @@ function renderScreen(
     case "work":
       return <WorkDetailScreen workId={route.workId} navigate={navigate} />;
     default:
-      return <HomeScreen agents={agents} messages={messages} navigate={navigate} />;
+      return <HomeScreen navigate={navigate} />;
   }
 }

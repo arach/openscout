@@ -5,7 +5,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
-import type { Agent, ActivityItem, Route } from "../lib/types.ts";
+import type { ActivityItem, Route } from "../lib/types.ts";
 
 const KIND_LABELS: Record<string, string> = {
   "agent.registered": "registered",
@@ -58,8 +58,6 @@ function HomeActivityRow({
 export function HomeScreen({
   navigate,
 }: {
-  agents: Agent[];
-  messages: unknown[];
   navigate: (r: Route) => void;
 }) {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
