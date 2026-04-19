@@ -3,6 +3,7 @@ import { Radio } from "lucide-react";
 import type { HudsonApp } from "@hudson/sdk";
 import { ScoutProvider } from "./Provider.tsx";
 import { ScoutContent } from "./slots/Content.tsx";
+import { ScoutInspector } from "./slots/Inspector.tsx";
 import { ScoutLeftPanel } from "./slots/LeftPanel.tsx";
 import {
   useScoutCommands,
@@ -28,6 +29,7 @@ export const scoutApp: HudsonApp = {
   slots: {
     Content: ScoutContent,
     LeftPanel: ScoutLeftPanel,
+    Inspector: ScoutInspector,
   },
 
   hooks: {
