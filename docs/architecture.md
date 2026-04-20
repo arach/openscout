@@ -54,7 +54,7 @@ codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask "@codex review the auth module"` sends an ask-style request to the broker. The broker resolves `@codex` to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves `@codex` to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
 
 ## Core Moving Parts
 
@@ -122,7 +122,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 ```bash
 scout up hudson          # register + start
 scout send "@hudson hi"  # route + deliver
-scout ask "@hudson ..."  # route + invoke (tracks flight)
+scout ask --to hudson "..."  # route + invoke (tracks flight)
 scout down hudson        # stop
 ```
 

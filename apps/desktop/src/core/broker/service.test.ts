@@ -3,9 +3,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { writeOpenScoutSettings } from "@openscout/runtime/setup";
+import { writeOpenScoutSettings, writeProjectConfig } from "@openscout/runtime/setup";
 
-import { askScoutQuestion } from "./service.ts";
+import { askScoutQuestion, resolveScoutSenderId, sendScoutMessage, watchScoutMessages } from "./service.ts";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -13,6 +13,8 @@ const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalBrokerUrl = process.env.OPENSCOUT_BROKER_URL;
 const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
+const originalOpenScoutAgent = process.env.OPENSCOUT_AGENT;
+const originalOpenScoutOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
 const originalFetch = globalThis.fetch;
 const testDirectories = new Set<string>();
 
@@ -42,6 +44,16 @@ afterEach(() => {
     delete process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
   } else {
     process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = originalSkipUserProjectHints;
+  }
+  if (originalOpenScoutAgent === undefined) {
+    delete process.env.OPENSCOUT_AGENT;
+  } else {
+    process.env.OPENSCOUT_AGENT = originalOpenScoutAgent;
+  }
+  if (originalOpenScoutOperatorName === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_NAME;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_NAME = originalOpenScoutOperatorName;
   }
   globalThis.fetch = originalFetch;
   for (const directory of testDirectories) {
@@ -261,4 +273,257 @@ describe("askScoutQuestion", () => {
       expect(labels).toEqual(["@vox.harness:claude", "@vox.harness:codex"]);
     }
   }, 15000);
+});
+
+describe("resolveScoutSenderId", () => {
+  test("falls back to the operator name outside a project", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const scratch = join(home, "scratch");
+    mkdirSync(scratch, { recursive: true });
+    process.env.OPENSCOUT_OPERATOR_NAME = "arach";
+
+    const senderId = await resolveScoutSenderId(null, scratch);
+
+    expect(senderId).toBe("arach");
+  });
+
+  test("prefers OPENSCOUT_AGENT when present", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const scratch = join(home, "scratch");
+    mkdirSync(scratch, { recursive: true });
+    process.env.OPENSCOUT_AGENT = "vox.main.mini";
+    process.env.OPENSCOUT_OPERATOR_NAME = "arach";
+
+    const senderId = await resolveScoutSenderId(null, scratch);
+
+    expect(senderId).toBe("vox.main.mini");
+  });
+
+  test("uses the current project root instead of a duplicate basename", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceA = join(home, "workspace-a");
+    const workspaceB = join(home, "workspace-b");
+    const repoA = join(workspaceA, "shared");
+    const repoB = join(workspaceB, "shared");
+    const nestedRepoB = join(repoB, "src", "feature");
+
+    mkdirSync(join(repoA, ".git"), { recursive: true });
+    mkdirSync(join(repoB, ".git"), { recursive: true });
+    mkdirSync(nestedRepoB, { recursive: true });
+
+    await writeProjectConfig(repoA, {
+      agent: {
+        id: "alpha",
+      },
+    });
+    await writeProjectConfig(repoB, {
+      agent: {
+        id: "beta",
+      },
+    });
+
+    const senderA = await resolveScoutSenderId(null, repoA);
+    const senderB = await resolveScoutSenderId(null, nestedRepoB);
+
+    expect(senderA).toMatch(/^alpha\./);
+    expect(senderB).toMatch(/^beta\./);
+    expect(senderA).not.toBe(senderB);
+  });
+});
+
+describe("sendScoutMessage", () => {
+  test("posts a durable message without creating an invocation", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const talkieRoot = join(workspaceRoot, "talkie");
+
+    mkdirSync(join(talkieRoot, ".git"), { recursive: true });
+    writeFileSync(join(talkieRoot, "AGENTS.md"), "# talkie\n", "utf8");
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [workspaceRoot],
+        includeCurrentRepo: false,
+      },
+    });
+
+    const requests: Array<{ method: string; path: string }> = [];
+    const snapshot = {
+      actors: {} as Record<string, unknown>,
+      agents: {} as Record<string, unknown>,
+      endpoints: {} as Record<string, unknown>,
+      conversations: {} as Record<string, unknown>,
+      messages: {} as Record<string, unknown>,
+      flights: {} as Record<string, unknown>,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      requests.push({ method: request.method, path: url.pathname });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse(snapshot);
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        const body = await request.json() as { id: string };
+        snapshot.actors[body.id] = body;
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/agents") {
+        const body = await request.json() as { id: string };
+        snapshot.agents[body.id] = body;
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/conversations") {
+        const body = await request.json() as { id: string };
+        snapshot.conversations[body.id] = body;
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        const body = await request.json() as { id: string };
+        snapshot.messages[body.id] = body;
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: "@talkie hello",
+      currentDirectory: workspaceRoot,
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.unresolvedTargets).toEqual([]);
+    expect(result.invokedTargets).toHaveLength(1);
+    expect(requests.some((request) => request.path === "/v1/messages")).toBe(true);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+  }, 15000);
+
+  test("fails closed when a mention target is unresolved", async () => {
+    useIsolatedOpenScoutHome();
+
+    const requests: Array<{ method: string; path: string }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      requests.push({ method: request.method, path: url.pathname });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ ok: true });
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: "@missing hello",
+      currentDirectory: process.cwd(),
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.invokedTargets).toEqual([]);
+    expect(result.unresolvedTargets).toEqual(["@missing"]);
+    expect(requests.some((request) => request.path === "/v1/messages")).toBe(false);
+    expect(requests.some((request) => request.path === "/v1/conversations")).toBe(false);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+  }, 15000);
+});
+
+describe("watchScoutMessages", () => {
+  test("does not suppress messages from the same actor id", async () => {
+    useIsolatedOpenScoutHome();
+
+    const encoder = new TextEncoder();
+    const received: Array<{ actorId: string; body: string }> = [];
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/events/stream") {
+        const payload = JSON.stringify({
+          kind: "message.posted",
+          payload: {
+            message: {
+              id: "m-1",
+              conversationId: "channel.shared",
+              actorId: "scout.main.mini",
+              body: "hello from a sibling session",
+              class: "agent",
+              createdAt: Date.now(),
+            },
+          },
+        });
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(`event: message.posted\ndata: ${payload}\n\n`));
+            controller.close();
+          },
+        }), {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    await watchScoutMessages({
+      channel: "shared",
+      onMessage(message) {
+        received.push({ actorId: message.actorId, body: message.body });
+      },
+    });
+
+    expect(received).toEqual([
+      {
+        actorId: "scout.main.mini",
+        body: "hello from a sibling session",
+      },
+    ]);
+  });
 });

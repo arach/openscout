@@ -4,8 +4,8 @@ import { parseAskCommandOptions, type ScoutAskCommandOptions } from "../options.
 import {
   askScoutQuestion,
   parseScoutHarness,
-  resolveScoutAgentName,
   resolveScoutBrokerUrl,
+  resolveScoutSenderId,
   type ScoutAskResult,
   waitForScoutFlight,
 } from "../../core/broker/service.ts";
@@ -68,13 +68,15 @@ export async function runAskWithOptions(
   context: ScoutCommandContext,
   options: ScoutAskCommandOptions,
 ): Promise<void> {
+  const currentDirectory = options.currentDirectory ?? defaultScoutContextDirectory(context);
+  const senderId = await resolveScoutSenderId(options.agentName, currentDirectory, context.env);
   const result = await askScoutQuestion({
-    senderId: resolveScoutAgentName(options.agentName),
+    senderId,
     targetLabel: options.targetLabel,
     body: options.message,
     channel: options.channel,
     executionHarness: parseScoutHarness(options.harness),
-    currentDirectory: options.currentDirectory,
+    currentDirectory,
   });
 
   if (!result.usedBroker) {

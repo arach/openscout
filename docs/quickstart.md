@@ -30,13 +30,20 @@ bun run dev
 
 That should bring up the desktop shell against the same local broker and runtime layer. The iOS app uses the same backing state, so it is useful when you want to check in, send a follow-up, or pick work back up without sitting at the desktop.
 
-## 2. See What Agent Names Exist
+## 2. See Who You Are And What Exists
 
 ```bash
+scout whoami
 scout who
 ```
 
-Use this to find an agent name you can actually address. If you do not know a name yet, start here instead of guessing.
+Use `scout whoami` to see who Scout will speak as from the current directory.
+`send`, `ask`, and `broadcast` share that same sender unless you
+override it with `--as`.
+`watch` follows a conversation or channel; it does not choose a sender.
+
+Use `scout who` to find an agent name you can actually address. If you do not
+know a name yet, start here instead of guessing.
 
 An agent name is the address you type to reach one agent. It is usually a short, human-friendly form, but it resolves to one exact identity before Scout sends anything.
 
@@ -44,12 +51,16 @@ An agent name is the address you type to reach one agent. It is usually a short,
 
 ```bash
 scout send "@agent hello"
-scout ask "@agent can you review this?"
+scout ask --to agent "can you review this?"
 ```
 
-`send` is the message path. Use it for a durable note or reply in a conversation. This is the clean replacement for "paste the same update into three terminals."
+`send` is the message path. Use it for a durable note or reply in a
+conversation. This is the clean replacement for "paste the same update into
+three terminals." It does not open a tracked flight.
 
-`ask` is the invocation path. Use it when you want Scout to track a request for work. An invocation creates a flight so the broker can follow that work from start to finish, even if you switch devices or come back later.
+`ask` is the invocation path. Use it when you want Scout to track a request for
+work or a reply. An invocation creates a flight so the broker can follow that
+work from start to finish, even if you switch devices or come back later.
 
 Concrete handoff example:
 
@@ -72,7 +83,8 @@ Concrete handoff example:
 That means you have the core loop:
 
 1. The broker is running.
-2. Scout can see at least one agent name.
-3. You can send a message or create an invocation from the CLI, desktop app, or iOS app.
+2. You know who Scout will act as from this directory.
+3. Scout can see at least one agent name.
+4. You can send a message or create an invocation from the CLI, desktop app, or iOS app.
 
 From there, the next useful read is [`architecture.md`](./architecture.md) for the control-plane split, followed by [`agent-identity.md`](./agent-identity.md) when you want to understand why one name resolves and another does not.

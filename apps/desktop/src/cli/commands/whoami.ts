@@ -4,14 +4,12 @@ import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { parseContextRootCommandOptions } from "../options.ts";
 import {
-  resolveScoutAgentName,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
 } from "../../core/broker/service.ts";
 
 type ScoutWhoAmIReport = {
-  askWatchId: string;
-  sendSpeakId: string;
+  defaultSenderId: string;
   envAgent: string | null;
   currentDirectory: string;
   projectRoot: string | null;
@@ -22,13 +20,11 @@ async function loadScoutWhoAmIReport(
   context: ScoutCommandContext,
   currentDirectory: string,
 ): Promise<ScoutWhoAmIReport> {
-  const askWatchId = resolveScoutAgentName(null);
-  const sendSpeakId = await resolveScoutSenderId(null, currentDirectory);
+  const defaultSenderId = await resolveScoutSenderId(null, currentDirectory, context.env);
   const projectRoot = await findNearestProjectRoot(currentDirectory);
 
   return {
-    askWatchId,
-    sendSpeakId,
+    defaultSenderId,
     envAgent: context.env.OPENSCOUT_AGENT?.trim() || null,
     currentDirectory,
     projectRoot,
@@ -38,8 +34,7 @@ async function loadScoutWhoAmIReport(
 
 function renderScoutWhoAmIReport(report: ScoutWhoAmIReport): string {
   const lines = [
-    `Ask/Watch: ${report.askWatchId}`,
-    `Send/Speak: ${report.sendSpeakId}`,
+    `Default Sender: ${report.defaultSenderId}`,
     `Current Directory: ${report.currentDirectory}`,
     `Broker: ${report.brokerUrl}`,
   ];

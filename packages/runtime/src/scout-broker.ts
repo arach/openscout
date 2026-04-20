@@ -23,6 +23,7 @@ import {
   ensureRelayAgentConfigured,
   loadResolvedRelayAgents,
   resolveRelayAgentConfig,
+  SCOUT_AGENT_ID,
   type ResolvedRelayAgentConfig,
 } from "./setup.js";
 import {
@@ -154,7 +155,6 @@ export type ScoutAskAmbiguousCandidate = {
 };
 
 export type ScoutWatchOptions = {
-  agentId?: string;
   channel?: string;
   signal?: AbortSignal;
   onMessage: (message: ScoutBrokerMessageRecord) => void;
@@ -871,6 +871,78 @@ async function ensureBrokerConversation(
   return existing;
 }
 
+function displayNameForBrokerActor(snapshot: ScoutBrokerSnapshot, actorId: string): string {
+  return snapshot.agents[actorId]?.displayName
+    ?? snapshot.actors[actorId]?.displayName
+    ?? titleCaseName(actorId);
+}
+
+function directConversationIdForActors(sourceId: string, targetId: string): string {
+  if (sourceId === targetId) return `dm.${sourceId}.${targetId}`;
+  if (sourceId === OPERATOR_ID || targetId === OPERATOR_ID) {
+    const peerId = sourceId === OPERATOR_ID ? targetId : sourceId;
+    return `dm.${OPERATOR_ID}.${peerId}`;
+  }
+  return `dm.${[sourceId, targetId].sort().join(".")}`;
+}
+
+async function ensureBrokerDirectConversationBetween(
+  baseUrl: string,
+  snapshot: ScoutBrokerSnapshot,
+  nodeId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<{ agent: ScoutBrokerAgentRecord | undefined; conversation: ScoutBrokerConversationRecord; existed: boolean }> {
+  const conversationId = targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID
+    ? BROKER_SHARED_CHANNEL_ID
+    : directConversationIdForActors(sourceId, targetId);
+  const participantIds = [...new Set([sourceId, targetId])].sort();
+  const nextShareMode = resolveConversationShareMode(snapshot, nodeId, participantIds, "local");
+  const existing = snapshot.conversations[conversationId];
+  const alreadyMatches = existing
+    && existing.kind === "direct"
+    && existing.shareMode === nextShareMode
+    && existing.visibility === "private"
+    && existing.participantIds.join("\u0000") === participantIds.join("\u0000");
+
+  if (alreadyMatches) {
+    const preferredTargetId = targetId === OPERATOR_ID ? sourceId : targetId;
+    return {
+      agent: snapshot.agents[preferredTargetId] ?? snapshot.agents[sourceId],
+      conversation: existing,
+      existed: true,
+    };
+  }
+
+  const nonOperatorParticipants = participantIds.filter((id) => id !== OPERATOR_ID);
+  const conversationTitle = sourceId === OPERATOR_ID || targetId === OPERATOR_ID
+    ? displayNameForBrokerActor(snapshot, nonOperatorParticipants[0] ?? targetId)
+    : `${displayNameForBrokerActor(snapshot, sourceId)} <> ${displayNameForBrokerActor(snapshot, targetId)}`;
+
+  const definition: ScoutBrokerConversationRecord = {
+    id: conversationId,
+    kind: "direct",
+    title: targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID ? "Scout" : conversationTitle,
+    visibility: "private",
+    shareMode: nextShareMode,
+    authorityNodeId: nodeId,
+    participantIds,
+    metadata: {
+      surface: "scout",
+      ...(targetId === SCOUT_AGENT_ID && sourceId === OPERATOR_ID ? { role: "partner" } : {}),
+    },
+  };
+
+  await brokerPostJson(baseUrl, "/v1/conversations", definition);
+  snapshot.conversations[definition.id] = definition;
+
+  return {
+    agent: snapshot.agents[targetId] ?? snapshot.agents[sourceId],
+    conversation: definition,
+    existed: Boolean(existing),
+  };
+}
+
 export async function sendScoutMessage(input: {
   senderId: string;
   body: string;
@@ -910,15 +982,6 @@ export async function sendScoutMessage(input: {
       )),
     )
   ).filter((target): target is ScoutMentionTarget => Boolean(target));
-  const conversation = await ensureBrokerConversation(
-    broker.baseUrl,
-    broker.snapshot,
-    broker.node.id,
-    input.channel,
-    input.senderId,
-    availableTargets.map((target) => target.agentId),
-  );
-
   const validTargets = unique(
     availableTargets
       .map((target) => target.agentId)
@@ -929,6 +992,30 @@ export async function sendScoutMessage(input: {
     .map((target) => target.label)
     .concat(mentionResolution.unresolved)
     .concat(mentionResolution.ambiguous.map((entry) => entry.label));
+  if (unresolvedTargets.length > 0) {
+    return {
+      usedBroker: true,
+      invokedTargets: [],
+      unresolvedTargets,
+    };
+  }
+
+  const conversation = validTargets.length === 1 && !input.channel
+    ? (await ensureBrokerDirectConversationBetween(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      input.senderId,
+      validTargets[0]!,
+    )).conversation
+    : await ensureBrokerConversation(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      input.channel,
+      input.senderId,
+      validTargets,
+    );
   const messageId = generateMessageId();
   const speechText = input.shouldSpeak
     ? stripScoutAgentSelectorLabels(input.body)
@@ -960,31 +1047,6 @@ export async function sendScoutMessage(input: {
       relayMessageId: messageId,
     },
   });
-
-  for (const targetAgentId of validTargets) {
-    await brokerPostJson(broker.baseUrl, "/v1/invocations", {
-      id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      requesterId: input.senderId,
-      requesterNodeId: broker.node.id,
-      targetAgentId,
-      action: "consult",
-      task: input.body,
-      conversationId: conversation.id,
-      messageId,
-      execution: input.executionHarness
-        ? {
-            harness: input.executionHarness,
-          }
-        : undefined,
-      ensureAwake: true,
-      stream: false,
-      createdAt: Date.now(),
-      metadata: {
-        source: "scout-cli",
-        relayChannel: input.channel ?? "shared",
-      },
-    });
-  }
 
   return {
     usedBroker: true,
@@ -1260,7 +1322,7 @@ export async function watchScoutMessages(options: ScoutWatchOptions): Promise<vo
       }
 
       const message = (event as Extract<ControlEvent, { kind: "message.posted" }>).payload?.message as ScoutBrokerMessageRecord | undefined;
-      if (!message || message.conversationId !== conversationId || message.actorId === options.agentId) {
+      if (!message || message.conversationId !== conversationId) {
         return;
       }
 

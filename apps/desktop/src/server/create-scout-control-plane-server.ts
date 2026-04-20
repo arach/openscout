@@ -156,6 +156,9 @@ export function createScoutControlPlaneServer(
       currentDirectory,
     });
     if (!result.usedBroker) return c.json({ error: "broker unreachable" }, 502);
+    if (result.unresolvedTargets.length > 0) {
+      return c.json({ error: `unresolved targets: ${result.unresolvedTargets.join(", ")}` }, 409);
+    }
     return c.json(result);
   });
 

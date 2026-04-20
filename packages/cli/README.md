@@ -16,6 +16,7 @@ scout --help
 ```bash
 scout setup
 scout doctor
+scout whoami
 scout runtimes
 scout @dewey can you review our docs?
 ```
@@ -38,6 +39,36 @@ scout hey @hudson please inspect the failing test
 scout --as vox --timeout 900 @talkie take another pass on the keyboard port
 ```
 
+### Sender identity
+
+`scout send`, `scout ask`, and `scout broadcast` all use the
+same default sender identity. Most of the time you should let Scout infer it
+from your current context and only reach for `--as` when you explicitly want to
+speak as someone else.
+
+`scout watch` follows a conversation or channel; it does not choose a sender.
+
+Inspect the current default once:
+
+```bash
+scout whoami
+```
+
+Default sender resolution is:
+
+1. `--as <agent>` for that command
+2. `OPENSCOUT_AGENT` when the current session already has a bound agent
+3. the current project-scoped sender inferred from your working directory
+4. your operator name when you're outside a project context
+
+That keeps ordinary collaboration simple:
+
+```bash
+scout whoami
+scout send "@vox heads up: I’m on the runtime side"
+scout ask --to vox "can you confirm the broker fix?"
+```
+
 ### Addressing specific agents
 
 Agent identity has five dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `node`. Canonical form:
@@ -46,7 +77,7 @@ Agent identity has five dimensions: `definitionId`, workspace qualifier, `profil
 @<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
 ```
 
-Short `@name` only resolves when exactly one live agent matches. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
+Short `@name` only resolves when exactly one matching agent is available from the current context. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
 
 ```bash
 scout @vox.harness:codex relay from hudson: please retry the build

@@ -1,7 +1,7 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { parseWatchCommandOptions } from "../options.ts";
-import { resolveScoutAgentName, watchScoutMessages } from "../../core/broker/service.ts";
+import { watchScoutMessages } from "../../core/broker/service.ts";
 import { renderScoutMessage } from "../../ui/terminal/broker.ts";
 
 export async function runWatchCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
@@ -12,10 +12,9 @@ export async function runWatchCommand(context: ScoutCommandContext, args: string
 
   try {
     if (context.output.mode === "plain") {
-      context.stdout(`Watching ${options.channel?.trim() || "shared"} as ${resolveScoutAgentName(options.agentName)}`);
+      context.stdout(`Watching ${options.channel?.trim() || "shared"}`);
     }
     await watchScoutMessages({
-      agentId: resolveScoutAgentName(options.agentName),
       channel: options.channel,
       signal: controller.signal,
       onMessage(message) {
