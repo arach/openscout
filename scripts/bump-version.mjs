@@ -20,6 +20,7 @@ const REPO_ROOT = path.resolve(new URL(".", import.meta.url).pathname, "..");
 
 const PACKAGES = [
   "packages/protocol",
+  "packages/agent-sessions",
   "packages/runtime",
   "packages/cli",
   "packages/web",

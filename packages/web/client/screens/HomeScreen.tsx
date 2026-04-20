@@ -5,6 +5,8 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
+import { navigateUnlessSelected } from "../lib/selection.ts";
+import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type { ActivityItem, Route } from "../lib/types.ts";
 
 const KIND_LABELS: Record<string, string> = {
@@ -34,10 +36,36 @@ function HomeActivityRow({
     ? { view: "conversation", conversationId: item.conversationId }
     : null;
 
+  const showContextMenu = useContextMenu();
+  const onContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      const text = item.title ?? item.summary ?? "";
+      const sel = window.getSelection()?.toString().trim();
+      const items: MenuItem[] = [];
+      if (sel) {
+        items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+        items.push({ kind: "separator" });
+      }
+      if (text) {
+        items.push({ kind: "action", label: "Copy Details", onSelect: () => navigator.clipboard.writeText(text) });
+      }
+      if (item.actorName) {
+        items.push({ kind: "action", label: "Copy Actor Name", onSelect: () => navigator.clipboard.writeText(item.actorName!) });
+      }
+      if (nextRoute) {
+        items.push({ kind: "separator" });
+        items.push({ kind: "action", label: "Open Conversation", onSelect: () => navigate(nextRoute) });
+      }
+      if (items.length > 0) showContextMenu(event, items);
+    },
+    [item, nextRoute, navigate, showContextMenu],
+  );
+
   return (
     <div
       className={`s-dashboard-activity-row${nextRoute ? " s-dashboard-activity-row-clickable" : ""}`}
-      onClick={nextRoute ? () => navigate(nextRoute) : undefined}
+      onClick={nextRoute ? () => navigateUnlessSelected(() => navigate(nextRoute)) : undefined}
+      onContextMenu={onContextMenu}
     >
       <div className="s-dashboard-activity-time">{timeAgo(item.ts)}</div>
       <div className="s-dashboard-activity-body">

@@ -1,6 +1,12 @@
 import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
+import {
+  relayWebSocket,
+  handleRelayUpload,
+  destroyAllRelaySessions,
+  type RelayWSData,
+} from "./relay.ts";
 
 const port = Number(
   process.env.OPENSCOUT_WEB_PORT
@@ -23,11 +29,48 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
   staticRoot,
 });
 
-export default {
+const honoFetch = app.fetch;
+
+const server = Bun.serve<RelayWSData>({
   port,
   idleTimeout: idleTimeoutSeconds,
-  fetch: app.fetch,
-};
 
-console.log(`OpenScout Web -> http://localhost:${port}`);
+  fetch(req, server) {
+    const url = new URL(req.url);
+
+    // WebSocket upgrade — relay protocol
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      const ok = server.upgrade(req, { data: { sessionId: null } });
+      return ok
+        ? (undefined as unknown as Response)
+        : new Response("WebSocket upgrade failed", { status: 500 });
+    }
+
+    // Relay HTTP routes
+    if (req.method === "GET" && url.pathname === "/health") {
+      return Response.json({ ok: true });
+    }
+    if (req.method === "POST" && (url.pathname === "/api/upload" || url.pathname === "/api/relay/upload")) {
+      return handleRelayUpload(req);
+    }
+
+    // Everything else → Hono
+    return honoFetch(req, server);
+  },
+
+  websocket: relayWebSocket,
+});
+
+// Graceful shutdown
+const shutdown = () => {
+  console.log("\n[scout] Shutting down relay sessions...");
+  destroyAllRelaySessions();
+  server.stop();
+  process.exit(0);
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+console.log(`OpenScout Web -> http://localhost:${server.port}`);
+console.log(`Relay WebSocket -> ws://localhost:${server.port}`);
 void warmupCaches();

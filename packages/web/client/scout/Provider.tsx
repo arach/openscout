@@ -11,6 +11,7 @@ import { useRouter } from "../lib/router.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
+import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import type { Agent, Message, Route } from "../lib/types.ts";
 
 export interface OnboardingState {
@@ -119,7 +120,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
           "--hud-font-serif": "'Spectral', Georgia, serif",
         } as React.CSSProperties}
       >
-        {children}
+        <ContextMenuProvider>
+          {children}
+        </ContextMenuProvider>
       </div>
     </ScoutContext.Provider>
   );

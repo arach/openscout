@@ -216,6 +216,15 @@ export type MeshStatus = {
     brokerUrl?: string;
   } | null;
   meshId: string | null;
+  identity: {
+    name: string | null;
+    nodeId: string | null;
+    meshId: string | null;
+    modeLabel: string;
+    discoverable: boolean;
+    announceUrl: string | null;
+    discoveryDetail: string;
+  };
   nodes: Record<string, {
     id: string;
     name: string;
@@ -229,7 +238,15 @@ export type MeshStatus = {
   tailscale: {
     available: boolean;
     onlineCount: number;
-    peers: Array<{ id: string; name: string; hostName?: string; addresses: string[]; online: boolean; os?: string }>;
+    peers: Array<{
+      id: string;
+      name: string;
+      dnsName?: string;
+      hostName?: string;
+      addresses: string[];
+      online: boolean;
+      os?: string;
+    }>;
   };
   issues: MeshIssue[];
   warnings: string[];

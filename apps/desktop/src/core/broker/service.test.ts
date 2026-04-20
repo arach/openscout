@@ -312,11 +312,21 @@ describe("resolveScoutSenderId", () => {
     mkdirSync(nestedRepoB, { recursive: true });
 
     await writeProjectConfig(repoA, {
+      version: 1,
+      project: {
+        id: "alpha-project",
+        name: "Alpha Project",
+      },
       agent: {
         id: "alpha",
       },
     });
     await writeProjectConfig(repoB, {
+      version: 1,
+      project: {
+        id: "beta-project",
+        name: "Beta Project",
+      },
       agent: {
         id: "beta",
       },

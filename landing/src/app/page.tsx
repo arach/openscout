@@ -468,13 +468,15 @@ export default function Home() {
     });
   };
   return (
-    <div className="min-h-screen bg-[#f5f4ef] text-[#111110]">
+    <div className="relative isolate min-h-screen overflow-x-clip bg-[#f5f4ef] text-[#111110]">
       {/* ── hero background layers ── */}
-      <div className="hero-glow pointer-events-none fixed inset-x-0 top-0 z-0 h-[40rem]" />
-      <div className="dot-grid pointer-events-none fixed inset-x-0 top-0 z-0 h-[40rem]" />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[40rem] overflow-hidden">
+        <div className="hero-glow absolute inset-0" />
+        <div className="dot-grid absolute inset-0" />
+      </div>
 
       {/* ── nav ── */}
-      <nav className="fixed inset-x-0 top-0 z-50 border-b border-[#ded9cf]/60 bg-[#f5f4ef]/80 backdrop-blur-xl backdrop-saturate-150">
+      <nav className="sticky top-0 z-50 border-b border-[#ded9cf] bg-[#f5f4ef]/95">
         <div className="mx-auto flex h-16 max-w-[90rem] items-center justify-between px-6">
           <Link
             href="/"
@@ -531,7 +533,7 @@ export default function Home() {
         <>
           <main ref={scrollRef} className="relative z-10">
             {/* ── Hero ── */}
-            <section className="overflow-hidden pt-32 pb-28">
+            <section className="overflow-hidden pb-28 pt-16 md:pt-20">
               <div className="mx-auto grid max-w-[90rem] gap-16 px-6 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] lg:items-start">
                 <div className="max-w-xl">
                   <div
@@ -712,7 +714,7 @@ export default function Home() {
                     {copy.surfacesDescription}
                   </p>
 
-                  <div className="mt-8 rounded-xl border border-[#eae6dd] bg-white/90 p-5 backdrop-blur-sm">
+                  <div className="mt-8 rounded-xl border border-[#eae6dd] bg-white p-5">
                     <div className="landing-label text-[#9a978f]">
                       {copy.surfacesNoteTitle}
                     </div>
@@ -871,8 +873,8 @@ export default function Home() {
         </>
 
       {/* ── Floating bottom nav ── */}
-      <nav className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 animate-in hidden md:flex" style={{ animationDelay: "0.4s" }}>
-        <div className="flex items-center gap-0.5 rounded-full border border-[#2a2a28] bg-[#111110]/92 p-1 shadow-lg backdrop-blur-xl">
+      <nav className="fixed bottom-5 left-1/2 z-[60] hidden -translate-x-1/2 animate-in md:flex" style={{ animationDelay: "0.4s" }}>
+        <div className="flex items-center gap-0.5 rounded-full border border-[#2a2a28] bg-[#111110]/96 p-1 shadow-lg">
           {[
             ["How it works", "#mesh"],
             ["Features", "#capabilities"],

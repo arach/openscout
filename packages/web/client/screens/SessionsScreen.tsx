@@ -10,6 +10,8 @@ import {
   isUnread,
   type LastViewedMap,
 } from "../lib/sessionRead.ts";
+import { navigateUnlessSelected } from "../lib/selection.ts";
+import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type { SessionEntry, Route } from "../lib/types.ts";
 import "./inbox-thread-redesign.css";
 
@@ -77,6 +79,7 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const showContextMenu = useContextMenu();
 
   const load = useCallback(async () => {
     setError(null);
@@ -317,10 +320,26 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
                   aria-selected={selected}
                   tabIndex={selected ? 0 : -1}
                   onClick={() => {
-                    setSelectedIdx(idx);
-                    openSession(session);
+                    navigateUnlessSelected(() => {
+                      setSelectedIdx(idx);
+                      openSession(session);
+                    });
                   }}
                   onMouseEnter={() => setSelectedIdx(idx)}
+                  onContextMenu={(e) => {
+                    const sel = window.getSelection()?.toString().trim();
+                    const items: MenuItem[] = [];
+                    if (sel) {
+                      items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+                      items.push({ kind: "separator" });
+                    }
+                    items.push({ kind: "action", label: "Open Conversation", onSelect: () => openSession(session) });
+                    items.push({ kind: "action", label: "Copy Title", onSelect: () => navigator.clipboard.writeText(displayTitle) });
+                    if (session.id) {
+                      items.push({ kind: "action", label: "Copy Conversation ID", onSelect: () => navigator.clipboard.writeText(session.id) });
+                    }
+                    showContextMenu(e, items);
+                  }}
                 >
                   <div className="s-session-avatar-wrap">
                     <div

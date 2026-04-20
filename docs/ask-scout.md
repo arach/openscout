@@ -14,6 +14,11 @@ Scout finds the right project, starts or reuses the right agent session, and kee
 
 That is the point: one place to dispatch work, review progress, and keep track of what each agent is doing.
 
+Most of the time, you should not need to micromanage sender IDs, harnesses, or
+fully qualified agent handles. Scout should infer the current sender from your
+working context, resolve the obvious target, and only interrupt you when the
+remaining ambiguity would materially change the outcome.
+
 ## A Simple Handoff
 
 You have one agent investigating a bug and another agent ready to implement the fix.
@@ -57,6 +62,7 @@ Long-press the mic to talk to Scout directly, even while you're in the middle of
 
 ## What Scout Handles For You
 
+- **Which sender** - reuses the current agent or project context when it can, and lets you override it when you need to
 - **Which project** - matches your description to your workspaces
 - **Which agent runtime** - picks Claude Code, Codex, or whatever fits
 - **Which branch** - creates a new one if needed, reuses existing if it makes sense

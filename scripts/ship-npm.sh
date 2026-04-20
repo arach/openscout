@@ -50,6 +50,9 @@ echo "Building packages…"
 echo "  protocol…"
 (cd packages/protocol && npm run build)
 
+echo "  agent-sessions…"
+(cd packages/agent-sessions && npm run build)
+
 echo "  runtime…"
 (cd packages/runtime && npm run build)
 
@@ -65,6 +68,7 @@ node scripts/check-packed-manifests.mjs
 # ── Publish in dependency order ────────────────────────────────────────────────
 
 publish protocol
+publish agent-sessions
 publish runtime
 publish cli
 publish web

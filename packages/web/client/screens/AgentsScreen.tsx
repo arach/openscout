@@ -6,6 +6,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type { Agent, Route, SessionEntry, WorkItem } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./agents-detail-redesign.css";
@@ -135,6 +136,7 @@ function AgentDetail({
   const { name, qualifier } = agentLabel(agent, allAgents);
   const [work, setWork] = useState<WorkItem[]>([]);
   const state = normalizeAgentState(agent.state);
+  const showContextMenu = useContextMenu();
 
   const load = useCallback(async () => {
     try {
@@ -170,7 +172,23 @@ function AgentDetail({
       </button>
 
       {/* -- Identity card -- */}
-      <section className="s-agent-detail-identity">
+      <section
+        className="s-agent-detail-identity"
+        onContextMenu={(e) => {
+          const sel = window.getSelection()?.toString().trim();
+          const items: MenuItem[] = [];
+          if (sel) {
+            items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+            items.push({ kind: "separator" });
+          }
+          items.push({ kind: "action", label: "Copy Agent Name", onSelect: () => navigator.clipboard.writeText(name) });
+          items.push({ kind: "action", label: "Copy Agent ID", onSelect: () => navigator.clipboard.writeText(agent.id) });
+          if (agent.handle) {
+            items.push({ kind: "action", label: `Copy @${agent.handle}`, onSelect: () => navigator.clipboard.writeText(`@${agent.handle}`) });
+          }
+          showContextMenu(e, items);
+        }}
+      >
         <div className="s-avatar s-agent-casefile-avatar" style={{ background: actorColor(agent.name) }}>
           {agent.name[0].toUpperCase()}
         </div>
@@ -425,11 +443,22 @@ function AgentRow({
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
   const state = normalizeAgentState(agent.state);
+  const showContextMenu = useContextMenu();
 
   return (
     <div
       className={`s-agent-list-row s-agent-roster-row${selected ? " s-agent-list-row-active" : ""}`}
       onClick={onClick}
+      onContextMenu={(e) => {
+        const items: MenuItem[] = [
+          { kind: "action", label: "Copy Agent Name", onSelect: () => navigator.clipboard.writeText(name) },
+          { kind: "action", label: "Copy Agent ID", onSelect: () => navigator.clipboard.writeText(agent.id) },
+        ];
+        if (agent.handle) {
+          items.push({ kind: "action", label: `Copy @${agent.handle}`, onSelect: () => navigator.clipboard.writeText(`@${agent.handle}`) });
+        }
+        showContextMenu(e, items);
+      }}
     >
       <div className="s-agent-roster-avatar-wrap">
         <div className="s-avatar s-avatar-sm" style={{ background: actorColor(agent.name) }}>

@@ -1,0 +1,20 @@
+{
+  "name": "openscout",
+  "interface": {
+    "displayName": "OpenScout"
+  },
+  "plugins": [
+    {
+      "name": "scout",
+      "source": {
+        "source": "local",
+        "path": "./plugins/scout"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

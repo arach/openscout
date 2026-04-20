@@ -13,6 +13,7 @@ export type ScoutCommandName =
   | "env"
   | "init"
   | "latest"
+  | "mcp"
   | "menu"
   | "mesh"
   | "pair"
@@ -51,6 +52,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./init.ts")).runInitCommand;
     case "latest":
       return (await import("./latest.ts")).runLatestCommand;
+    case "mcp":
+      return (await import("./mcp.ts")).runMcpCommand;
     case "menu":
       return (await import("./menu.ts")).runMenuCommand;
     case "mesh":

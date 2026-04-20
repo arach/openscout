@@ -4,6 +4,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor } from "../lib/colors.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
+import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type { ActivityItem, Route } from "../lib/types.ts";
 import "./system-surfaces-redesign.css";
 
@@ -92,6 +93,7 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
   const activityRef = useRef<ActivityItem[]>([]);
   const requestIdRef = useRef(0);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showContextMenu = useContextMenu();
 
   useEffect(() => {
     activityRef.current = activity;
@@ -259,7 +261,27 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
               : fallbackSummary(item);
 
             return (
-              <article key={item.id} className={`sys-audit-entry${isExpanded ? " sys-audit-entry-expanded" : ""}`}>
+              <article
+                key={item.id}
+                className={`sys-audit-entry${isExpanded ? " sys-audit-entry-expanded" : ""}`}
+                onContextMenu={(e) => {
+                  const sel = window.getSelection()?.toString().trim();
+                  const items: MenuItem[] = [];
+                  if (sel) {
+                    items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+                    items.push({ kind: "separator" });
+                  }
+                  const text = item.title ?? item.summary ?? "";
+                  if (text) items.push({ kind: "action", label: "Copy Details", onSelect: () => navigator.clipboard.writeText(text) });
+                  if (item.actorName) items.push({ kind: "action", label: "Copy Actor", onSelect: () => navigator.clipboard.writeText(item.actorName!) });
+                  items.push({ kind: "action", label: "Copy Event ID", onSelect: () => navigator.clipboard.writeText(item.id) });
+                  if (item.conversationId) {
+                    items.push({ kind: "separator" });
+                    items.push({ kind: "action", label: "Open Thread", onSelect: () => navigate({ view: "conversation", conversationId: item.conversationId! }) });
+                  }
+                  showContextMenu(e, items);
+                }}
+              >
                 <button
                   type="button"
                   className="sys-audit-toggle"

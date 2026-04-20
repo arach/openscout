@@ -6,7 +6,19 @@
  */
 
 import type { NodeDefinition } from "@openscout/protocol";
-import { readTailscalePeers, type TailscalePeerCandidate } from "@openscout/runtime/mesh/tailscale";
+import {
+  buildDefaultBrokerUrl,
+  DEFAULT_BROKER_HOST,
+  DEFAULT_BROKER_HOST_MESH,
+  resolveBrokerServiceConfig,
+  restartBrokerService,
+} from "@openscout/runtime/broker-service";
+import {
+  readTailscalePeers,
+  readTailscaleSelf,
+  type TailscalePeerCandidate,
+  type TailscaleSelfCandidate,
+} from "@openscout/runtime/mesh/tailscale";
 
 import {
   readScoutBrokerHealth,
@@ -39,11 +51,22 @@ export type MeshIssue = {
   actionCommand: string | null;
 };
 
+export type MeshIdentitySummary = {
+  name: string | null;
+  nodeId: string | null;
+  meshId: string | null;
+  modeLabel: string;
+  discoverable: boolean;
+  announceUrl: string | null;
+  discoveryDetail: string;
+};
+
 export type MeshStatusReport = {
   brokerUrl: string;
   health: ScoutBrokerHealthState;
   localNode: ScoutBrokerNodeRecord | null;
   meshId: string | null;
+  identity: MeshIdentitySummary;
   nodes: Record<string, NodeDefinition>;
   tailscale: TailscaleStatus;
   issues: MeshIssue[];
@@ -52,13 +75,39 @@ export type MeshStatusReport = {
 
 /* ── Helpers ── */
 
-function isLoopbackBrokerUrl(url: string): boolean {
+function normalizeHost(host: string): string {
+  return host.trim().replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = normalizeHost(host);
+  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
+}
+
+function isWildcardHost(host: string): boolean {
+  const normalized = normalizeHost(host);
+  return normalized === "0.0.0.0" || normalized === "::";
+}
+
+function isPeerReachableBrokerUrl(url: string | null | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+
   try {
     const hostname = new URL(url).hostname;
-    return hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost";
+    return !isLoopbackHost(hostname) && !isWildcardHost(hostname);
   } catch {
     return false;
   }
+}
+
+function stripTrailingDot(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.replace(/\.$/, "");
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus> {
@@ -91,7 +140,7 @@ function computeIssues(
       title: "Broker not reachable",
       summary: "The mesh page cannot reach the local broker yet, so peer status is incomplete.",
       action: "Start the broker, then reload this page.",
-      actionCommand: "scout setup",
+      actionCommand: null,
     });
     return issues;
   }
@@ -100,19 +149,19 @@ function computeIssues(
     issues.push({
       code: "local_only",
       severity: "warning",
-      title: "Local-only visibility",
-      summary: "This broker is healthy on this machine, but peer brokers will not discover it while advertise scope stays local.",
-      action: "Switch to mesh visibility and restart the broker if this machine should participate in peer discovery.",
-      actionCommand: "OPENSCOUT_ADVERTISE_SCOPE=mesh",
+      title: "Not announced to peers",
+      summary: "This broker is healthy on this machine, but it is still local-only, so peer brokers will not discover it.",
+      action: "Use Announce on mesh if this machine should participate in peer discovery.",
+      actionCommand: null,
     });
-  } else if (localNode?.advertiseScope === "mesh" && localNode.brokerUrl && isLoopbackBrokerUrl(localNode.brokerUrl)) {
+  } else if (localNode?.advertiseScope === "mesh" && !isPeerReachableBrokerUrl(localNode.brokerUrl)) {
     issues.push({
       code: "mesh_loopback",
       severity: "warning",
-      title: "Mesh visibility is not reachable",
-      summary: "This broker advertises mesh visibility, but it is still bound to a loopback address, so peers cannot connect to it.",
-      action: "Unset the explicit broker host or point it at a reachable interface.",
-      actionCommand: "OPENSCOUT_BROKER_HOST=0.0.0.0",
+      title: "Announced with the wrong address",
+      summary: "This broker is in mesh mode, but the address it announces is not peer-reachable, so other brokers still cannot connect to it.",
+      action: "Announce it again with a peer-reachable address.",
+      actionCommand: null,
     });
   }
 
@@ -125,11 +174,84 @@ function computeIssues(
       title: "No discovery path configured",
       summary: "No Tailscale peers are available and no mesh seeds are configured, so this broker has nowhere to look for peers.",
       action: "Join the machine to Tailscale or configure an explicit seed broker.",
-      actionCommand: "OPENSCOUT_MESH_SEEDS=http://peer-host:65535",
+      actionCommand: null,
     });
   }
 
   return issues;
+}
+
+function computeIdentitySummary(
+  health: ScoutBrokerHealthState,
+  localNode: ScoutBrokerNodeRecord | null,
+  meshId: string | null,
+): MeshIdentitySummary {
+  const announceUrl = localNode?.brokerUrl ?? null;
+  const name = localNode?.name ?? null;
+  const nodeId = localNode?.id ?? health.nodeId ?? null;
+
+  if (!health.reachable) {
+    return {
+      name,
+      nodeId,
+      meshId,
+      modeLabel: "Broker offline",
+      discoverable: false,
+      announceUrl,
+      discoveryDetail:
+        "This broker is not running, so peers cannot discover it yet. Other brokers only learn a mesh ID after they reach a broker address and read /v1/node.",
+    };
+  }
+
+  if (!localNode) {
+    return {
+      name,
+      nodeId,
+      meshId,
+      modeLabel: "Not registered",
+      discoverable: false,
+      announceUrl,
+      discoveryDetail:
+        "This broker is up, but it has not published a local node record yet. Peers only learn a mesh ID after they reach a broker address and read /v1/node.",
+    };
+  }
+
+  if (localNode.advertiseScope !== "mesh") {
+    return {
+      name: localNode.name,
+      nodeId: localNode.id,
+      meshId,
+      modeLabel: "Local only",
+      discoverable: false,
+      announceUrl,
+      discoveryDetail:
+        "Peers discover candidate broker addresses through Tailscale or manual seed URLs. They only learn a mesh ID after they connect and read /v1/node. Right now this broker is local-only, so peers never reach that step.",
+    };
+  }
+
+  if (!isPeerReachableBrokerUrl(announceUrl)) {
+    return {
+      name: localNode.name,
+      nodeId: localNode.id,
+      meshId,
+      modeLabel: "Mesh mode, wrong address",
+      discoverable: false,
+      announceUrl,
+      discoveryDetail:
+        `This broker is in mesh mode, but it announces ${announceUrl ?? "an unreachable address"}. Peers only learn the mesh ID after they reach a broker address and read /v1/node.`,
+    };
+  }
+
+  return {
+    name: localNode.name,
+    nodeId: localNode.id,
+    meshId,
+    modeLabel: "Announced to mesh",
+    discoverable: true,
+    announceUrl,
+    discoveryDetail:
+      `Peers can probe ${announceUrl} through Tailscale or a manual seed URL. Once they connect, /v1/node tells them this broker belongs to mesh ${meshId ?? "this mesh"}.`,
+  };
 }
 
 /* ── Public API ── */
@@ -167,9 +289,68 @@ export async function loadMeshStatus(): Promise<MeshStatusReport> {
   const localNode = context?.node ?? null;
   const allNodes = context?.snapshot.nodes ?? {};
   const meshId = health.meshId ?? localNode?.meshId ?? null;
+  const identity = computeIdentitySummary(health, localNode, meshId);
   const nodes = filterCurrentMeshNodes(allNodes, meshId, localNode?.id, Date.now());
   const issues = computeIssues(health, localNode, nodes, tailscale);
   const warnings = issues.map(formatIssueWarning);
 
-  return { brokerUrl, health, localNode, meshId, nodes, tailscale, issues, warnings };
+  return { brokerUrl, health, localNode, meshId, identity, nodes, tailscale, issues, warnings };
+}
+
+function preferredAnnounceHost(self: TailscaleSelfCandidate | null, currentBrokerUrl: string): string | null {
+  const dnsName = stripTrailingDot(self?.dnsName);
+  if (dnsName) {
+    return dnsName;
+  }
+
+  const address = self?.addresses.find((value) => value.trim().length > 0);
+  if (address) {
+    return address;
+  }
+
+  if (isPeerReachableBrokerUrl(currentBrokerUrl)) {
+    try {
+      return new URL(currentBrokerUrl).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+export async function announceMeshVisibility(): Promise<MeshStatusReport> {
+  const current = resolveBrokerServiceConfig();
+  const self = await readTailscaleSelf();
+  const announceHost = preferredAnnounceHost(self, current.brokerUrl);
+
+  if (!announceHost) {
+    throw new Error(
+      "No peer-reachable address is available for this machine yet. Join Tailscale here, or configure a broker URL that peers can dial.",
+    );
+  }
+
+  const nextConfig = {
+    ...current,
+    advertiseScope: "mesh" as const,
+    brokerHost: DEFAULT_BROKER_HOST_MESH,
+    brokerUrl: buildDefaultBrokerUrl(announceHost, current.brokerPort),
+  };
+
+  await restartBrokerService(nextConfig);
+
+  try {
+    await fetch(new URL("/v1/mesh/discover", buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, current.brokerPort)), {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch {
+    // Best-effort: the broker may still be warming up.
+  }
+
+  return loadMeshStatus();
 }

@@ -8,6 +8,7 @@ import { isAgentOnline } from "../lib/agent-state.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { agentIdFromConversation, conversationForAgent } from "../lib/router.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type { Agent, Flight, Message, Route, SessionEntry } from "../lib/types.ts";
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
@@ -661,6 +662,26 @@ export function ConversationScreen({
   const isAgentBusy = presence.tone === "working" || presence.tone === "pending";
   const isStopMode = !draft.trim() && isAgentBusy;
 
+  const showContextMenu = useContextMenu();
+  const onMessageContextMenu = useCallback(
+    (event: React.MouseEvent, message: Message) => {
+      const sel = window.getSelection()?.toString().trim();
+      const items: MenuItem[] = [];
+      if (sel) {
+        items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
+        items.push({ kind: "separator" });
+      }
+      items.push({ kind: "action", label: "Copy Message", onSelect: () => navigator.clipboard.writeText(message.body) });
+      if (message.actorName && !isOperatorMessage(message, operatorName)) {
+        items.push({ kind: "action", label: `Copy Agent ID`, onSelect: () => navigator.clipboard.writeText(message.actorName ?? "") });
+      }
+      items.push({ kind: "separator" });
+      items.push({ kind: "action", label: "Copy Message ID", onSelect: () => navigator.clipboard.writeText(message.id) });
+      showContextMenu(event, items);
+    },
+    [operatorName, showContextMenu],
+  );
+
   const dispatchToCandidate = async (record: ScoutDispatchRecord, candidate: ScoutDispatchCandidate) => {
     const prefix = `@${candidate.agentId} `;
     const leftover = draft.trim();
@@ -680,6 +701,16 @@ export function ConversationScreen({
         className="s-conv-header"
         onClick={() => isDm ? navigate({ view: "agent-info", conversationId }) : undefined}
         style={isDm ? undefined : { cursor: "default" }}
+        onContextMenu={(e) => {
+          const items: MenuItem[] = [
+            { kind: "action", label: "Copy Title", onSelect: () => navigator.clipboard.writeText(threadTitle) },
+          ];
+          if (agentId) {
+            items.push({ kind: "action", label: "Copy Agent ID", onSelect: () => navigator.clipboard.writeText(agentId) });
+          }
+          items.push({ kind: "action", label: "Copy Conversation ID", onSelect: () => navigator.clipboard.writeText(conversationId) });
+          showContextMenu(e, items);
+        }}
       >
         <button
           type="button"
@@ -792,6 +823,7 @@ export function ConversationScreen({
                 <article
                   className={`s-msg s-row-message${isYou ? " s-msg-you" : ""}`}
                   data-class={rowClass}
+                  onContextMenu={(e) => onMessageContextMenu(e, message)}
                 >
                   <div className="s-msg-card">
                     <div className="s-msg-header">

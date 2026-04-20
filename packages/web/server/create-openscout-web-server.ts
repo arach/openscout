@@ -31,7 +31,7 @@ import {
   querySessionById,
 } from "./db-queries.ts";
 import { sendScoutMessage } from "./core/broker/service.ts";
-import { loadMeshStatus } from "./core/mesh/service.ts";
+import { announceMeshVisibility, loadMeshStatus } from "./core/mesh/service.ts";
 import { loadOpenScoutWebShellState, type OpenScoutWebShellState } from "./runtime-summary.ts";
 import { loadUserConfig, saveUserConfig, resolveOperatorName } from "@openscout/runtime/user-config";
 import {
@@ -225,6 +225,14 @@ export async function createOpenScoutWebServer(
   app.get("/api/mesh", async (c) => {
     try {
       return c.json(await loadMeshStatus());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+  app.post("/api/mesh/announce", async (c) => {
+    try {
+      return c.json(await announceMeshVisibility());
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ error: message }, 500);

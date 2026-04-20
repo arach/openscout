@@ -21,6 +21,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "watch", summary: "Stream broker messages" },
   { name: "who", summary: "List agents and last activity" },
   { name: "latest", summary: "Show the latest Scout activity" },
+  { name: "mcp", summary: "Run a Scout MCP server over stdio" },
   { name: "enroll", summary: "Generate enrollment prompt" },
   { name: "broadcast", summary: "Send to all routable agents" },
   { name: "up", summary: "Spawn a local agent for a project" },

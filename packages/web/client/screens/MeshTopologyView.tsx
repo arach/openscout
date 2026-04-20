@@ -36,6 +36,33 @@ function shortHost(input?: string | null): string {
   return name.split(".")[0];
 }
 
+function peerDisplayName(peer: MeshStatus["tailscale"]["peers"][number]): string {
+  const hostName = peer.hostName?.trim();
+  if (hostName && hostName.toLowerCase() !== "localhost") {
+    return shortHost(hostName) || hostName;
+  }
+
+  const dnsName = peer.dnsName?.trim().replace(/\.$/, "");
+  if (dnsName) {
+    return shortHost(dnsName) || dnsName;
+  }
+
+  return shortHost(peer.name) || peer.name;
+}
+
+function fullHost(input?: string | null): string {
+  if (!input) return "";
+  const host = input.replace(/^https?:\/\//, "").split("/")[0];
+  const [name] = host.split(":");
+  return name.replace(/\.$/, "").toLowerCase();
+}
+
+function baseHost(input?: string | null): string {
+  const host = fullHost(input);
+  if (!host) return "";
+  return host.split(".")[0] ?? host;
+}
+
 function subtitleFor(node: {
   hostName?: string;
   brokerUrl?: string;
@@ -56,11 +83,55 @@ function anchorsFor(dx: number, dy: number): [
   return dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
 }
 
+function isLocalTailnetPeer(mesh: MeshStatus, peer: MeshStatus["tailscale"]["peers"][number]): boolean {
+  const peerBase = baseHost(peer.hostName || peer.name);
+  const localBase = baseHost(mesh.localNode?.hostName || mesh.localNode?.name);
+  return Boolean(localBase) && peerBase === localBase;
+}
+
+function peerMatchesMeshNode(
+  peer: MeshStatus["tailscale"]["peers"][number],
+  node: NonNullable<MeshStatus["localNode"]> | MeshStatus["nodes"][string],
+): boolean {
+  const peerAliases = new Set(
+    [
+      baseHost(peer.hostName),
+      baseHost(peer.name),
+      ...peer.addresses.map((address) => fullHost(address)),
+      ...peer.addresses.map((address) => baseHost(address)),
+    ].filter(Boolean),
+  );
+
+  const nodeAliases = new Set(
+    [
+      baseHost(node.hostName),
+      baseHost(node.name),
+      fullHost(node.brokerUrl),
+      baseHost(node.brokerUrl),
+    ].filter(Boolean),
+  );
+
+  for (const alias of peerAliases) {
+    if (nodeAliases.has(alias)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function buildMeshDiagram(mesh: MeshStatus): ArcData | null {
   if (!mesh.localNode) return null;
 
   const localId = mesh.localNode.id;
-  const remotePeers = Object.values(mesh.nodes).filter((n) => n.id !== localId);
+  const remoteMeshPeers = Object.values(mesh.nodes).filter((n) => n.id !== localId);
+  const tailnetPeers = mesh.tailscale.peers
+    .filter((peer) => !isLocalTailnetPeer(mesh, peer))
+    .filter((peer) => !remoteMeshPeers.some((node) => peerMatchesMeshNode(peer, node)));
+  const renderedPeers = [
+    ...remoteMeshPeers.map((peer) => ({ kind: "mesh" as const, peer })),
+    ...tailnetPeers.map((peer) => ({ kind: "tailnet" as const, peer })),
+  ];
 
   const width = 800;
   const height = 300;
@@ -80,7 +151,7 @@ function buildMeshDiagram(mesh: MeshStatus): ArcData | null {
   };
   const connectors: ArcData["connectors"] = [];
 
-  if (remotePeers.length === 0) {
+  if (renderedPeers.length === 0) {
     nodes["__placeholder"] = { x: cx + 220, y: cy, size: "m" };
     nodeData["__placeholder"] = {
       icon: "CircleDashed",
@@ -96,26 +167,40 @@ function buildMeshDiagram(mesh: MeshStatus): ArcData | null {
       style: "pending",
     });
   } else {
-    const count = remotePeers.length;
+    const count = renderedPeers.length;
     const radius = Math.min(170, 100 + count * 10);
-    remotePeers.forEach((peer, i) => {
+    renderedPeers.forEach(({ kind, peer }, i) => {
       const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
       const x = Math.round(cx + radius * Math.cos(angle));
       const y = Math.round(cy + radius * Math.sin(angle));
-      nodes[peer.id] = { x, y, size: "m" };
-      nodeData[peer.id] = {
-        icon: "Database",
-        name: shortHost(peer.hostName) || peer.name || "peer",
-        subtitle: subtitleFor(peer),
-        color: peer.advertiseScope === "mesh" ? "emerald" : "zinc",
+      const peerId = kind === "mesh" ? peer.id : `tailnet:${peer.id}`;
+      const peerName = kind === "mesh"
+        ? (shortHost(peer.hostName) || peer.name || "peer")
+        : (peerDisplayName(peer) || "tailnet");
+      const peerSubtitle = kind === "mesh"
+        ? subtitleFor(peer)
+        : (peer.online
+          ? (peer.addresses[0] ?? "tailnet only")
+          : "tailnet offline");
+
+      nodes[peerId] = { x, y, size: kind === "mesh" ? "m" : "s" };
+      nodeData[peerId] = {
+        icon: kind === "mesh" ? "Database" : "CircleDashed",
+        name: peerName,
+        subtitle: peerSubtitle,
+        color: kind === "mesh"
+          ? (peer.advertiseScope === "mesh" ? "emerald" : "zinc")
+          : (peer.online ? "sky" : "zinc"),
       };
       const [fromAnchor, toAnchor] = anchorsFor(x - cx, y - cy);
       connectors.push({
         from: localId,
-        to: peer.id,
+        to: peerId,
         fromAnchor,
         toAnchor,
-        style: peer.advertiseScope === "mesh" ? "mesh" : "local",
+        style: kind === "mesh"
+          ? (peer.advertiseScope === "mesh" ? "mesh" : "local")
+          : (peer.online ? "tailnet" : "tailnet-offline"),
       });
     });
   }
@@ -128,6 +213,8 @@ function buildMeshDiagram(mesh: MeshStatus): ArcData | null {
     connectorStyles: {
       mesh: { color: "emerald", strokeWidth: 2, label: "mesh" },
       local: { color: "zinc", strokeWidth: 1.5 },
+      tailnet: { color: "sky", strokeWidth: 1.5, dashed: true, label: "tailnet" },
+      "tailnet-offline": { color: "zinc", strokeWidth: 1.25, dashed: true, label: "tailnet" },
       pending: { color: "zinc", strokeWidth: 1.5, dashed: true },
     },
   };

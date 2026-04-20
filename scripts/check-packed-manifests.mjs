@@ -22,7 +22,7 @@ function npmTarballName(name, version) {
 }
 
 function findWorkspaceDirs() {
-  return ["packages/protocol", "packages/runtime", "packages/cli", "packages/web"]
+  return ["packages/protocol", "packages/agent-sessions", "packages/runtime", "packages/cli", "packages/web"]
     .map((relativePath) => path.join(repoRoot, relativePath))
     .filter((dir) => existsSync(path.join(dir, "package.json")));
 }

@@ -1568,7 +1568,15 @@ function staleLocalAgentReplacementId(
   }
 
   const matches = activeAgentIdsByDefinition.get(definitionId) ?? [];
-  return matches.length === 1 ? matches[0] ?? null : null;
+  if (matches.length === 1) {
+    return matches[0] ?? null;
+  }
+  if (matches.length > 1) {
+    // Prefer the agent on "main" or "master" branch when multiple share a definitionId.
+    const mainCandidate = matches.find((id) => /\.(main|master)\./.test(id));
+    return mainCandidate ?? matches[0] ?? null;
+  }
+  return null;
 }
 
 async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<typeof loadRegisteredLocalAgentBindings>>): Promise<void> {
@@ -1601,7 +1609,7 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       activeAgentIdsByDefinition,
     );
 
-    if (endpoint.state === "offline" && endpoint.metadata?.staleLocalRegistration === true) {
+    if (endpoint.state === "offline" && endpoint.metadata?.staleLocalRegistration === true && replacementAgentId && endpoint.metadata?.replacedByAgentId === replacementAgentId) {
       continue;
     }
 

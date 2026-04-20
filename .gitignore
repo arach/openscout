@@ -84,6 +84,9 @@ apps/ios/build/
 # hidden files / directories
 /.*
 **/.*
+!.agents/
+!.agents/plugins/
+!.agents/plugins/marketplace.json
 
 # tracked env examples
 !landing/.env.example

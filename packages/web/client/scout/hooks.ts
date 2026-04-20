@@ -1,12 +1,22 @@
-import { createElement, useMemo, type ReactNode } from "react";
+import { createElement, useCallback, useMemo, type ReactNode } from "react";
 import type { CommandOption, StatusColor, TakeoverState } from "@hudson/sdk";
+import { api } from "../lib/api.ts";
 import { useScout } from "./Provider.tsx";
+import { conversationForAgent } from "../lib/router.ts";
 
-/* ── useCommands — nav shortcuts ───────────────────────────────────────── */
+/* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate } = useScout();
-  return useMemo<CommandOption[]>(
-    () => [
+  const { navigate, agents, reload } = useScout();
+
+  const interruptAgent = useCallback(async (agentId: string) => {
+    await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }, []);
+
+  return useMemo<CommandOption[]>(() => {
+    const commands: CommandOption[] = [
       { id: "nav:home", label: "Go to Home", action: () => navigate({ view: "inbox" }), shortcut: "Cmd+1" },
       { id: "nav:agents", label: "Go to Agents", action: () => navigate({ view: "agents" }), shortcut: "Cmd+2" },
       { id: "nav:fleet", label: "Go to Fleet", action: () => navigate({ view: "fleet" }), shortcut: "Cmd+3" },
@@ -15,9 +25,29 @@ export function useScoutCommands(): CommandOption[] {
       { id: "nav:mesh", label: "Go to Mesh", action: () => navigate({ view: "mesh" }), shortcut: "Cmd+6" },
       { id: "nav:settings", label: "Open Settings", action: () => navigate({ view: "settings" }), shortcut: "Cmd+," },
       { id: "nav:pair", label: "Pair Device", action: () => navigate({ view: "settings" }) },
-    ],
-    [navigate],
-  );
+      { id: "scout:reload", label: "Reload Agents", action: () => void reload() },
+    ];
+
+    for (const agent of agents) {
+      commands.push({
+        id: `scout:open:${agent.id}`,
+        label: `Open ${agent.name}`,
+        action: () => navigate({ view: "conversation", conversationId: conversationForAgent(agent.id) }),
+      });
+      commands.push({
+        id: `scout:send:${agent.id}`,
+        label: `Send message to ${agent.name}`,
+        action: () => navigate({ view: "conversation", conversationId: conversationForAgent(agent.id) }),
+      });
+      commands.push({
+        id: `scout:interrupt:${agent.id}`,
+        label: `Interrupt ${agent.name}`,
+        action: () => void interruptAgent(agent.id),
+      });
+    }
+
+    return commands;
+  }, [agents, interruptAgent, navigate, reload]);
 }
 
 /* ── useStatus — online indicator ──────────────────────────────────────── */

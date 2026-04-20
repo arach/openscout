@@ -4,12 +4,17 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 const hudsonSdk = resolve(__dirname, "../../..", "hudson/packages/hudson-sdk");
+const webNodeModules = resolve(__dirname, "node_modules");
 
 export default defineConfig({
   root: resolve(__dirname, "client"),
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
+      "react": resolve(webNodeModules, "react"),
+      "react-dom": resolve(webNodeModules, "react-dom"),
+      "@ai-sdk/react": resolve(webNodeModules, "@ai-sdk/react"),
+      "ai": resolve(webNodeModules, "ai"),
       "@hudson/sdk/app-shell": resolve(hudsonSdk, "src/app-shell.ts"),
       "@hudson/sdk/shell": resolve(hudsonSdk, "src/shell.ts"),
       "@hudson/sdk/controls": resolve(hudsonSdk, "src/controls.ts"),

@@ -25,6 +25,7 @@ implementation specs.
 - [sco-004-addressable-identities-and-session-bindings-proposal.md](./sco-004-addressable-identities-and-session-bindings-proposal.md)
 - [sco-005-trace-first-session-observability-proposal.md](./sco-005-trace-first-session-observability-proposal.md)
 - [sco-006-integration-layer-and-boundary-proposal.md](./sco-006-integration-layer-and-boundary-proposal.md)
+- [sco-007-concierge-routing-and-delegation-proposal.md](./sco-007-concierge-routing-and-delegation-proposal.md)
 
 ## Operations
 

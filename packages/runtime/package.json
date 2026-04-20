@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.47",
+  "version": "0.2.48",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -89,13 +89,14 @@
     "db:migrate": "bun ./src/drizzle-migrate.ts",
     "check": "npm --prefix ../agent-sessions run build && tsc --noEmit -p tsconfig.json",
     "test": "bun test src/*.test.ts",
+    "test:scenarios": "bun test src/scenario-suite.test.ts",
     "test:live:codex-app-server": "bun test src/codex-app-server-live.test.ts",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
-    "@openscout/agent-sessions": "0.2.45",
-    "@openscout/protocol": "0.2.47",
+    "@openscout/agent-sessions": "0.2.48",
+    "@openscout/protocol": "0.2.48",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1"
   },
