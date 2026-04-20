@@ -1,5 +1,5 @@
 import { createElement, useMemo, type ReactNode } from "react";
-import type { CommandOption, StatusColor } from "@hudson/sdk";
+import type { CommandOption, StatusColor, TakeoverState } from "@hudson/sdk";
 import { useScout } from "./Provider.tsx";
 
 /* ── useCommands — nav shortcuts ───────────────────────────────────────── */
@@ -69,4 +69,23 @@ export function useScoutNavActions(): ReactNode | null {
 /* ── useLayoutMode ─────────────────────────────────────────────────────── */
 export function useScoutLayoutMode(): "canvas" | "panel" {
   return "panel";
+}
+
+/* ── useTakeover — gate chrome on first-run onboarding ─────────────────── */
+export function useScoutTakeover(): TakeoverState | null {
+  const { onboarding, onboardingSkipped, skipOnboarding } = useScout();
+  // Until the first fetch resolves we pass through; false negatives would
+  // block the app on reloads and true would flash a takeover for returning
+  // users. Waiting one RTT is cheap and correct.
+  if (!onboarding) return null;
+  if (onboardingSkipped) return { active: false, dismissible: true };
+  const needsLocal = !onboarding.hasLocalConfig;
+  const needsProject = !onboarding.hasProjectConfig;
+  const needsName = !onboarding.hasOperatorName;
+  const active = needsLocal || needsName || needsProject;
+  return {
+    active,
+    dismissible: true,
+    onDismiss: skipOnboarding,
+  };
 }

@@ -5,12 +5,14 @@ import { ScoutProvider } from "./Provider.tsx";
 import { ScoutContent } from "./slots/Content.tsx";
 import { ScoutInspector } from "./slots/Inspector.tsx";
 import { ScoutLeftPanel } from "./slots/LeftPanel.tsx";
+import { OnboardingTakeover } from "./takeover/OnboardingTakeover.tsx";
 import {
   useScoutCommands,
   useScoutStatus,
   useScoutNavCenter,
   useScoutNavActions,
   useScoutLayoutMode,
+  useScoutTakeover,
 } from "./hooks.ts";
 
 export const scoutApp: HudsonApp = {
@@ -30,6 +32,7 @@ export const scoutApp: HudsonApp = {
     Content: ScoutContent,
     LeftPanel: ScoutLeftPanel,
     Inspector: ScoutInspector,
+    Takeover: OnboardingTakeover,
   },
 
   hooks: {
@@ -38,5 +41,6 @@ export const scoutApp: HudsonApp = {
     useNavCenter: useScoutNavCenter,
     useNavActions: useScoutNavActions,
     useLayoutMode: useScoutLayoutMode,
+    useTakeover: useScoutTakeover,
   },
 };

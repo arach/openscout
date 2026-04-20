@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +34,18 @@ import { sendScoutMessage } from "./core/broker/service.ts";
 import { loadMeshStatus } from "./core/mesh/service.ts";
 import { loadOpenScoutWebShellState, type OpenScoutWebShellState } from "./runtime-summary.ts";
 import { loadUserConfig, saveUserConfig, resolveOperatorName } from "@openscout/runtime/user-config";
+import {
+  DEFAULT_LOCAL_CONFIG,
+  loadLocalConfig,
+  localConfigExists,
+  localConfigPath,
+  writeLocalConfig,
+} from "@openscout/runtime/local-config";
+import {
+  findNearestProjectRoot,
+  initializeOpenScoutSetup,
+  writeOpenScoutSettings,
+} from "@openscout/runtime/setup";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -221,6 +233,77 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/user", (c) => {
     return c.json({ name: resolveOperatorName() });
+  });
+
+  app.get("/api/onboarding/state", async (c) => {
+    const hasLocalConfig = localConfigExists();
+    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null);
+    const hasProjectConfig = projectRoot !== null;
+    const userName = loadUserConfig().name?.trim() ?? "";
+    return c.json({
+      hasLocalConfig,
+      hasProjectConfig,
+      hasOperatorName: userName.length > 0,
+      localConfigPath: localConfigPath(),
+      localConfig: hasLocalConfig ? loadLocalConfig() : null,
+      projectRoot,
+      currentDirectory,
+      operatorName: userName || null,
+      operatorNameSuggestion: resolveOperatorName(),
+    });
+  });
+
+  app.delete("/api/onboarding/state", (c) => {
+    try {
+      rmSync(localConfigPath(), { force: true });
+    } catch {
+      /* already absent */
+    }
+    return c.json({ ok: true, localConfigPath: localConfigPath() });
+  });
+
+  app.post("/api/onboarding/project", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      contextRoot?: string;
+      sourceRoots?: string[];
+      defaultHarness?: "claude" | "codex";
+    };
+    const contextRoot = body.contextRoot?.trim();
+    if (!contextRoot) {
+      return c.json({ error: "contextRoot is required" }, 400);
+    }
+    const sourceRoots = (body.sourceRoots ?? [])
+      .map((entry) => entry?.trim())
+      .filter((entry): entry is string => Boolean(entry && entry.length > 0));
+    const harness = body.defaultHarness === "codex" ? "codex" : "claude";
+
+    await writeOpenScoutSettings({
+      discovery: {
+        contextRoot,
+        workspaceRoots: sourceRoots,
+      },
+      agents: { defaultHarness: harness },
+    });
+
+    const result = await initializeOpenScoutSetup({ currentDirectory: contextRoot });
+    return c.json({ ok: true, projectConfigPath: result.currentProjectConfigPath });
+  });
+
+  app.post("/api/onboarding/init", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      host?: string;
+      ports?: { broker?: number; web?: number; pairing?: number };
+    };
+    writeLocalConfig({
+      version: 1,
+      host: body.host ?? DEFAULT_LOCAL_CONFIG.host,
+      ports: {
+        broker: body.ports?.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker,
+        web: body.ports?.web ?? DEFAULT_LOCAL_CONFIG.ports.web,
+        pairing: body.ports?.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing,
+      },
+    });
+    return c.json({ ok: true, localConfig: loadLocalConfig(), localConfigPath: localConfigPath() });
   });
 
   app.post("/api/user", async (c) => {

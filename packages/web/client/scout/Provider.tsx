@@ -13,6 +13,17 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import type { Agent, Message, Route } from "../lib/types.ts";
 
+export interface OnboardingState {
+  hasLocalConfig: boolean;
+  hasProjectConfig: boolean;
+  hasOperatorName: boolean;
+  localConfigPath: string | null;
+  projectRoot: string | null;
+  currentDirectory: string | null;
+  operatorName: string | null;
+  operatorNameSuggestion: string | null;
+}
+
 export interface ScoutContextValue {
   route: Route;
   navigate: (r: Route) => void;
@@ -22,6 +33,11 @@ export interface ScoutContextValue {
   onlineCount: number;
 
   reload: () => Promise<void>;
+
+  onboarding: OnboardingState | null;
+  refreshOnboarding: () => Promise<void>;
+  onboardingSkipped: boolean;
+  skipOnboarding: () => void;
 }
 
 const ScoutContext = createContext<ScoutContextValue | null>(null);
@@ -36,6 +52,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   const { route, navigate } = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
+  const [onboardingSkipped, setOnboardingSkipped] = useState(false);
+  const skipOnboarding = useCallback(() => setOnboardingSkipped(true), []);
 
   const reload = useCallback(async () => {
     const [agentsResult, messagesResult] = await Promise.allSettled([
@@ -46,9 +65,28 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (messagesResult.status === "fulfilled") setMessages(messagesResult.value);
   }, []);
 
+  const refreshOnboarding = useCallback(async () => {
+    try {
+      const state = await api<OnboardingState>("/api/onboarding/state");
+      setOnboarding(state);
+    } catch {
+      setOnboarding({
+        hasLocalConfig: true,
+        hasProjectConfig: true,
+        hasOperatorName: true,
+        localConfigPath: null,
+        projectRoot: null,
+        currentDirectory: null,
+        operatorName: null,
+        operatorNameSuggestion: null,
+      });
+    }
+  }, []);
+
   useEffect(() => {
     void reload();
-  }, [reload]);
+    void refreshOnboarding();
+  }, [reload, refreshOnboarding]);
   useBrokerEvents(reload);
 
   const onlineCount = useMemo(
@@ -57,8 +95,14 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<ScoutContextValue>(
-    () => ({ route, navigate, agents, messages, onlineCount, reload }),
-    [route, navigate, agents, messages, onlineCount, reload],
+    () => ({
+      route, navigate, agents, messages, onlineCount, reload,
+      onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
+    }),
+    [
+      route, navigate, agents, messages, onlineCount, reload,
+      onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
+    ],
   );
 
   return (
