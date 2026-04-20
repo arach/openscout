@@ -20,6 +20,7 @@ import {
   type SessionSummary,
 } from "@openscout/agent-sessions";
 import { findNearestProjectRoot } from "@openscout/runtime/setup";
+import { loadLocalConfig } from "@openscout/runtime/local-config";
 
 export const SCOUT_PAIRING_HOME_DIRECTORY = ".scout/pairing";
 export const SCOUT_PAIRING_CONFIG_FILE = "config.json";
@@ -420,12 +421,16 @@ function saveScoutPairingConfig(config: ScoutPairingConfig): void {
 
 function resolveScoutPairingConfig(): ScoutPairingResolvedConfig {
   const config = loadScoutPairingConfig();
+  const portFromLocalConfig = loadLocalConfig().ports?.pairing;
+  const portFromPairingFile = Number.isFinite(config.port) && (config.port ?? 0) > 0
+    ? Number(config.port)
+    : null;
   return {
     relay: typeof config.relay === "string" && config.relay.trim().length > 0
       ? config.relay.trim()
       : null,
     secure: config.secure !== false,
-    port: Number.isFinite(config.port) && (config.port ?? 0) > 0 ? Number(config.port) : SCOUT_PAIRING_DEFAULT_PORT,
+    port: portFromLocalConfig ?? portFromPairingFile ?? SCOUT_PAIRING_DEFAULT_PORT,
     workspaceRoot: typeof config.workspace?.root === "string" && config.workspace.root.trim().length > 0
       ? config.workspace.root.trim()
       : null,

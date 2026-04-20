@@ -28,7 +28,7 @@ scout @dewey can you review our docs?
 
 It also discovers relay agents from your configured workspace roots, installs the broker service, and attempts to start it.
 
-`scout init` is still accepted as a deprecated compatibility alias for `scout setup`.
+`scout init` writes `~/.openscout/config.json` with the broker, web, and pairing ports that every Scout component reads. Run it once after install, or with `--force` to overwrite.
 
 When the input is not a known subcommand and includes exactly one `@agent` mention, Scout treats it as an implicit `ask` and waits for the reply. For example:
 

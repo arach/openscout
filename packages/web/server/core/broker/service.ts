@@ -38,6 +38,7 @@ import {
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
+import { loadLocalConfig } from "@openscout/runtime/local-config";
 
 import {
   openAiAudioSpeechUrl,
@@ -217,12 +218,14 @@ const DEFAULT_BROKER_HOST = "127.0.0.1";
 const DEFAULT_BROKER_PORT = 65535;
 
 function buildScoutBrokerUrlFromEnv(): string {
-  const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
-  const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
   const fromEnv = process.env.OPENSCOUT_BROKER_URL?.trim();
   if (fromEnv) {
     return fromEnv;
   }
+  const local = loadLocalConfig();
+  const host = process.env.OPENSCOUT_BROKER_HOST ?? local.host ?? DEFAULT_BROKER_HOST;
+  const portStr = process.env.OPENSCOUT_BROKER_PORT ?? String(local.ports?.broker ?? DEFAULT_BROKER_PORT);
+  const port = Number.parseInt(portStr, 10);
   return `http://${host}:${port}`;
 }
 

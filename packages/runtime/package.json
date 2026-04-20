@@ -66,6 +66,11 @@
       "types": "./src/user-config.ts",
       "bun": "./src/user-config.ts",
       "default": "./dist/user-config.js"
+    },
+    "./local-config": {
+      "types": "./src/local-config.ts",
+      "bun": "./src/local-config.ts",
+      "default": "./dist/local-config.js"
     }
   },
   "types": "./src/index.ts",

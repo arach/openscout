@@ -33,13 +33,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "pair", summary: "Pair a companion device via QR" },
   { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start / control-plane start)" },
   { name: "tui", summary: "Terminal monitor dashboard" },
-  {
-    name: "init",
-    summary: "Deprecated alias for setup",
-    status: "deprecated",
-    canonicalName: "setup",
-    deprecationMessage: "scout init is deprecated; use scout setup.",
-  },
+  { name: "init", summary: "Write ~/.openscout/config.json with broker/web/pairing ports" },
 ];
 
 export function listScoutPrimaryCommands(): ScoutCommandRegistration[] {

@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadLocalConfig } from "@openscout/runtime/local-config";
+
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 
@@ -232,12 +234,17 @@ export function normalizeServerOpenPath(value: string): string {
 }
 
 function resolveServerPort(env: NodeJS.ProcessEnv): number {
-  const raw = env.SCOUT_WEB_PORT?.trim() || "3200";
-  const port = Number.parseInt(raw, 10);
-  if (!Number.isFinite(port) || port <= 0) {
-    throw new ScoutCliError(`invalid port: ${raw}`);
+  const envValue = env.SCOUT_WEB_PORT?.trim();
+  if (envValue) {
+    const port = Number.parseInt(envValue, 10);
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new ScoutCliError(`invalid port: ${envValue}`);
+    }
+    return port;
   }
-  return port;
+  const fromFile = loadLocalConfig().ports?.web;
+  if (fromFile) return fromFile;
+  return 3200;
 }
 
 function resolveExpectedCurrentDirectory(env: NodeJS.ProcessEnv): string {
