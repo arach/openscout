@@ -950,6 +950,17 @@ async function ensureScoutPairingRuntimeStarted(): Promise<void> {
   await startScoutPairingRuntime();
 }
 
+// Serializes all mutations to the pairing supervisor process (start/stop/restart)
+// so that concurrent /api/pairing/control requests cannot race on the check-then-spawn
+// in ensureScoutPairingRuntimeStarted.
+let pairingMutationChain: Promise<unknown> = Promise.resolve();
+
+function serializePairingMutation<T>(fn: () => Promise<T>): Promise<T> {
+  const next = pairingMutationChain.then(fn);
+  pairingMutationChain = next.catch(() => undefined);
+  return next;
+}
+
 export async function getScoutWebPairingState(currentDirectory?: string): Promise<ScoutPairingState> {
   return readScoutPairingState(currentDirectory);
 }
@@ -962,21 +973,23 @@ export async function controlScoutWebPairingService(
   action: ScoutPairingControlAction,
   currentDirectory?: string,
 ): Promise<ScoutPairingState> {
-  switch (action) {
-    case "start":
-      await ensureDefaultScoutPairingWorkspaceConfig(currentDirectory);
-      await ensureScoutPairingRuntimeStarted();
-      break;
-    case "stop":
-      await stopScoutPairingRuntime();
-      break;
-    case "restart":
-      await ensureDefaultScoutPairingWorkspaceConfig(currentDirectory);
-      await restartScoutPairingRuntime();
-      break;
-  }
+  return serializePairingMutation(async () => {
+    switch (action) {
+      case "start":
+        await ensureDefaultScoutPairingWorkspaceConfig(currentDirectory);
+        await ensureScoutPairingRuntimeStarted();
+        break;
+      case "stop":
+        await stopScoutPairingRuntime();
+        break;
+      case "restart":
+        await ensureDefaultScoutPairingWorkspaceConfig(currentDirectory);
+        await restartScoutPairingRuntime();
+        break;
+    }
 
-  return readScoutPairingState(currentDirectory);
+    return readScoutPairingState(currentDirectory);
+  });
 }
 
 export async function updateScoutWebPairingConfig(
@@ -984,10 +997,12 @@ export async function updateScoutWebPairingConfig(
   currentDirectory?: string,
 ): Promise<ScoutPairingState> {
   await updateScoutPairingConfig(input, currentDirectory);
-  if (isScoutPairingRuntimeRunning()) {
-    await restartScoutPairingRuntime();
-  }
-  return readScoutPairingState(currentDirectory);
+  return serializePairingMutation(async () => {
+    if (isScoutPairingRuntimeRunning()) {
+      await restartScoutPairingRuntime();
+    }
+    return readScoutPairingState(currentDirectory);
+  });
 }
 
 export async function decideScoutWebPairingApproval(

@@ -7,6 +7,7 @@ import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import { agentIdFromConversation, conversationForAgent } from "../lib/router.ts";
+import { useScout } from "../scout/Provider.tsx";
 import type { Agent, Flight, Message, Route, SessionEntry } from "../lib/types.ts";
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
@@ -40,12 +41,6 @@ type EventInvocationRecord = {
   id: string;
   targetAgentId: string;
   conversationId?: string | null;
-};
-
-type EventEndpointRecord = {
-  agentId: string;
-  harness?: string | null;
-  state: string;
 };
 
 type SendResult = {
@@ -338,7 +333,7 @@ export function ConversationScreen({
   conversationId: string;
   navigate: (r: Route) => void;
 }) {
-  const [agent, setAgent] = useState<Agent | null>(null);
+  const { agents } = useScout();
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
@@ -352,18 +347,20 @@ export function ConversationScreen({
   const legacyAgentId = agentIdFromConversation(conversationId);
   const agentId = sessionMeta?.agentId ?? legacyAgentId;
   const isDm = sessionMeta?.kind === "direct" || legacyAgentId !== null;
+  const agent = useMemo<Agent | null>(
+    () => (agentId ? agents.find((item) => item.id === agentId) ?? null : null),
+    [agents, agentId],
+  );
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [agents, meta] = await Promise.all([
-        api<Agent[]>("/api/agents"),
-        api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`).catch(() => null),
-      ]);
+      const meta = await api<SessionEntry>(
+        `/api/session/${encodeURIComponent(conversationId)}`,
+      ).catch(() => null);
 
       setSessionMeta(meta);
       const resolvedAgentId = meta?.agentId ?? legacyAgentId;
-      setAgent(resolvedAgentId ? agents.find((item) => item.id === resolvedAgentId) ?? null : null);
 
       const canonicalConversationId = (
         meta?.kind === "direct"
@@ -545,17 +542,8 @@ export function ConversationScreen({
     }
 
     if (event.kind === "agent.endpoint.upserted") {
-      const endpoint = (event.payload as { endpoint?: EventEndpointRecord } | undefined)?.endpoint;
-      if (!endpoint || endpoint.agentId !== agentId) return;
-      setAgent((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          harness: endpoint.harness ?? current.harness,
-          state: endpoint.state,
-          updatedAt: Date.now(),
-        };
-      });
+      // ScoutProvider refetches agents on broker events, so the context-derived
+      // `agent` updates automatically. Nothing to do locally.
       return;
     }
 

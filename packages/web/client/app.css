@@ -32,10 +32,25 @@
   --red: var(--hud-status-error);
   --radius: var(--hud-radius);
   --shadow-soft: var(--hud-shadow-soft);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
   --font-sans: var(--hud-font-sans);
   --font-mono: var(--hud-font-mono);
   --font-serif: var(--hud-font-serif);
   color: var(--ink);
+}
+
+/* Keyboard focus affordance for interactive elements. :focus-visible only
+ * fires for keyboard navigation, so mouse clicks stay clean. Components that
+ * need a different treatment override this with higher specificity. */
+[data-scout-theme] button:focus-visible,
+[data-scout-theme] a:focus-visible,
+[data-scout-theme] [role="button"]:focus-visible,
+[data-scout-theme] [tabindex]:focus-visible,
+[data-scout-theme] input:focus-visible,
+[data-scout-theme] textarea:focus-visible,
+[data-scout-theme] select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 * { box-sizing: border-box; margin: 0; }

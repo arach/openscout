@@ -5,6 +5,7 @@ import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { useScout } from "../scout/Provider.tsx";
 import type { Agent, Route, SessionEntry, WorkItem } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./agents-detail-redesign.css";
@@ -244,20 +245,13 @@ export function AgentsScreen({
   selectedAgentId?: string;
   conversationId?: string;
 }) {
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const { agents } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
 
   const load = useCallback(async () => {
-    const [agentsResult, sessionsResult] = await Promise.allSettled([
-      api<Agent[]>("/api/agents"),
-      api<SessionEntry[]>("/api/sessions"),
-    ]);
-
-    if (agentsResult.status === "fulfilled") {
-      setAgents(agentsResult.value);
-    }
-    if (sessionsResult.status === "fulfilled") {
-      setSessions(sessionsResult.value);
+    const sessionsResult = await api<SessionEntry[]>("/api/sessions").catch(() => null);
+    if (sessionsResult) {
+      setSessions(sessionsResult);
     }
   }, []);
 

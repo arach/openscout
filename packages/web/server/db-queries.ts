@@ -2068,46 +2068,10 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
        f.summary AS flight_summary,
        f.started_at,
        f.completed_at,
-       (
-         SELECT ai.kind
-         FROM activity_items ai
-         WHERE ai.conversation_id = inv.conversation_id
-           AND ai.agent_id = inv.target_agent_id
-           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
-           AND ai.ts >= inv.created_at
-         ORDER BY ai.ts DESC
-         LIMIT 1
-       ) AS status_kind,
-       (
-         SELECT ai.title
-         FROM activity_items ai
-         WHERE ai.conversation_id = inv.conversation_id
-           AND ai.agent_id = inv.target_agent_id
-           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
-           AND ai.ts >= inv.created_at
-         ORDER BY ai.ts DESC
-         LIMIT 1
-       ) AS status_title,
-       (
-         SELECT ai.summary
-         FROM activity_items ai
-         WHERE ai.conversation_id = inv.conversation_id
-           AND ai.agent_id = inv.target_agent_id
-           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
-           AND ai.ts >= inv.created_at
-         ORDER BY ai.ts DESC
-         LIMIT 1
-       ) AS status_summary,
-       (
-         SELECT ai.ts
-         FROM activity_items ai
-         WHERE ai.conversation_id = inv.conversation_id
-           AND ai.agent_id = inv.target_agent_id
-           AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
-           AND ai.ts >= inv.created_at
-         ORDER BY ai.ts DESC
-         LIMIT 1
-       ) AS status_ts,
+       latest_ai.kind AS status_kind,
+       latest_ai.title AS status_title,
+       latest_ai.summary AS status_summary,
+       latest_ai.ts AS status_ts,
        ep.harness,
        ep.transport,
        ep.state AS endpoint_state,
@@ -2124,6 +2088,16 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
        FROM flights f2
        WHERE f2.invocation_id = inv.id
        ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC
+       LIMIT 1
+     )
+     LEFT JOIN activity_items latest_ai ON latest_ai.id = (
+       SELECT ai.id
+       FROM activity_items ai
+       WHERE ai.conversation_id = inv.conversation_id
+         AND ai.agent_id = inv.target_agent_id
+         AND ai.kind IN ('ask_replied', 'ask_failed', 'ask_working', 'status_message')
+         AND ai.ts >= inv.created_at
+       ORDER BY ai.ts DESC
        LIMIT 1
      )
      LEFT JOIN agent_endpoints ep ON ep.id = (

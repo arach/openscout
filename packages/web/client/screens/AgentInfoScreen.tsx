@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
-import type { Agent, Route, SessionEntry } from "../lib/types.ts";
+import { useScout } from "../scout/Provider.tsx";
+import type { Route, SessionEntry } from "../lib/types.ts";
 
 type ProfileField = {
   label: string;
@@ -68,7 +69,7 @@ export function AgentInfoScreen({
   conversationId: string;
   navigate: (r: Route) => void;
 }) {
-  const [agent, setAgent] = useState<Agent | null>(null);
+  const { agents } = useScout();
   const [session, setSession] = useState<SessionEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,23 +78,26 @@ export function AgentInfoScreen({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [agents, sessionEntry] = await Promise.all([
-        api<Agent[]>("/api/agents"),
-        api<SessionEntry>(`/api/session/${encodeURIComponent(conversationId)}`).catch(() => null),
-      ]);
-      const resolvedAgentId = sessionEntry?.agentId ?? legacyAgentId;
-      setAgent(agents.find((candidate) => candidate.id === resolvedAgentId) ?? null);
+      const sessionEntry = await api<SessionEntry>(
+        `/api/session/${encodeURIComponent(conversationId)}`,
+      ).catch(() => null);
       setSession(sessionEntry);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSession(null);
     }
-  }, [conversationId, legacyAgentId]);
+  }, [conversationId]);
 
   useEffect(() => {
     void load();
   }, [load]);
   useBrokerEvents(load);
+
+  const resolvedAgentId = session?.agentId ?? legacyAgentId;
+  const agent = useMemo(
+    () => (resolvedAgentId ? agents.find((candidate) => candidate.id === resolvedAgentId) ?? null : null),
+    [agents, resolvedAgentId],
+  );
 
   if (!agent) {
     return (
