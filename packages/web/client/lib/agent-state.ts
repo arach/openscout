@@ -1,7 +1,7 @@
 export type AgentDisplayState = "offline" | "available" | "working";
 
 export function normalizeAgentState(state: string | null): AgentDisplayState {
-  if (state === "working" || state === "active" || state === "waiting") {
+  if (state === "working") {
     return "working";
   }
   if (!state || state === "offline") {

@@ -213,17 +213,21 @@ const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
   LIMIT 1
 )`;
 
-function queryWorkingAgentIds(): Set<string> {
+function isExecutingFlightState(state: string | null): boolean {
+  return state === "running";
+}
+
+function queryExecutingAgentIds(): Set<string> {
   return new Set(
     (db().prepare(
       `SELECT DISTINCT target_agent_id FROM flights
-       WHERE state NOT IN ('completed','failed','cancelled')`,
+       WHERE state = 'running'`,
     ).all() as Array<{ target_agent_id: string }>).map((row) => row.target_agent_id),
   );
 }
 
 function summarizeAgentState(rawState: string | null, isWorking: boolean): AgentSummaryState {
-  if (isWorking || rawState === "active" || rawState === "waiting" || rawState === "working") {
+  if (isWorking) {
     return "working";
   }
   return rawState && rawState !== "offline" ? "available" : "offline";
@@ -246,6 +250,17 @@ function normalizeTimestampMs(value: number | string | null): number | null {
     return null;
   }
   return numeric < 1e12 ? numeric * 1000 : numeric;
+}
+
+function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: WebActivityItem): boolean {
+  if (!previous) {
+    return false;
+  }
+  return previous.kind === next.kind
+    && previous.title === next.title
+    && previous.summary === next.summary
+    && previous.conversationId === next.conversationId
+    && Math.abs(previous.ts - next.ts) <= 5_000;
 }
 
 function transientBrokerWorkingStatusPredicate(alias: string): string {
@@ -382,7 +397,7 @@ function projectWorkItemRow(row: {
 /* ── Queries ── */
 
 export function queryAgents(limit = 50): WebAgent[] {
-  const workingAgentIds = queryWorkingAgentIds();
+  const executingAgentIds = queryExecutingAgentIds();
   const rows = db()
     .prepare(
       `SELECT
@@ -444,7 +459,7 @@ export function queryAgents(limit = 50): WebAgent[] {
       handle: r.handle,
       agentClass: r.agent_class,
       harness: r.harness,
-      state: summarizeAgentState(r.state, workingAgentIds.has(r.id)),
+      state: summarizeAgentState(r.state, executingAgentIds.has(r.id)),
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
       updatedAt: r.updated_at,
@@ -476,6 +491,11 @@ export function queryActivity(limit = 60): WebActivityItem[] {
          ai.workspace_root
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
+       WHERE ai.kind != 'ask_replied'
+         AND NOT (
+           ai.kind = 'flight_updated'
+           AND COALESCE(ai.summary, '') LIKE 'Stale running flight reconciled:%'
+         )
        ORDER BY ai.ts DESC
        LIMIT ?`,
     )
@@ -490,7 +510,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
     workspace_root: string | null;
   }>;
 
-  return rows.map((r) => ({
+  const items = rows.map((r) => ({
     id: r.id,
     kind: r.kind,
     ts: r.ts,
@@ -500,6 +520,8 @@ export function queryActivity(limit = 60): WebActivityItem[] {
     conversationId: r.conversation_id,
     workspaceRoot: compact(r.workspace_root),
   }));
+
+  return items.filter((item, index) => !isDuplicateActivityFeedItem(items[index - 1] ?? null, item));
 }
 
 export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
@@ -1436,7 +1458,7 @@ export type MobileAgentSummary = {
 };
 
 export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
-  const workingAgentIds = queryWorkingAgentIds();
+  const executingAgentIds = queryExecutingAgentIds();
 
   // Latest message timestamp per actor (for lastActiveAt)
   const lastMessageAt = new Map(
@@ -1479,7 +1501,7 @@ export function queryMobileAgents(limit = 50): MobileAgentSummary[] {
     let meta: Record<string, unknown> = {};
     try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : {}; } catch {}
 
-    const isWorking = workingAgentIds.has(r.id);
+    const isWorking = executingAgentIds.has(r.id);
     const state = summarizeAgentState(r.state, isWorking);
     const statusLabel = summarizeAgentStatusLabel(r.state, isWorking);
 
@@ -1749,7 +1771,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   let capabilities: string[] = [];
   try { capabilities = row.capabilities_json ? JSON.parse(row.capabilities_json) : []; } catch {}
 
-  const workingAgentIds = queryWorkingAgentIds();
+  const executingAgentIds = queryExecutingAgentIds();
 
   const activeFlights = (db().prepare(
     `SELECT id, state, summary, started_at
@@ -1797,7 +1819,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     `SELECT MAX(created_at) AS last_at FROM messages WHERE actor_id = ?`,
   ).get(agentId) as { last_at: number | null } | null)?.last_at ?? null;
 
-  const isWorking = workingAgentIds.has(row.id);
+  const isWorking = executingAgentIds.has(row.id);
   const state = summarizeAgentState(row.state, isWorking);
   const statusLabel = summarizeAgentStatusLabel(row.state, isWorking);
 
@@ -2150,7 +2172,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     status,
     statusLabel: fleetStatusLabel(status),
     attention: status === "needs_attention" ? "badge" : status === "failed" ? "interrupt" : "silent",
-    agentState: summarizeAgentState(row.endpoint_state, isActiveFlight),
+    agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,
     summary: row.status_summary ?? row.status_title ?? row.flight_summary ?? row.work_summary ?? row.work_title ?? null,

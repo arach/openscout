@@ -275,7 +275,7 @@ function buildMobileAgentSummary(
 ): ScoutMobileAgentSummary {
   const endpoint = endpointForAgent(snapshot, agent.id);
   const flights = Object.values(snapshot.flights as Record<string, FlightRecord>).filter((flight) => flight.targetAgentId === agent.id);
-  const hasWorkingFlight = flights.some((flight) => !["completed", "failed", "cancelled"].includes(flight.state));
+  const hasWorkingFlight = flights.some((flight) => flight.state === "running");
   const lastAuthoredMessageAt = Object.values(snapshot.messages)
     .filter((message) => message.actorId === agent.id)
     .reduce<number | null>((latest, message) => {

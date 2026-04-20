@@ -6,9 +6,11 @@ import { join } from "node:path";
 
 import {
   closeDb,
+  queryActivity,
   queryAgents,
   queryFleet,
   queryFlights,
+  queryMobileAgentDetail,
   queryRecentMessages,
   querySessions,
   querySessionById,
@@ -519,6 +521,173 @@ describe("web db query agents", () => {
       expect(agent?.harnessLogPath).toBe(
         join(homedir(), ".scout", "pairing", "codex", "pairing-019d9762", "logs", "stdout.log"),
       );
+    } finally {
+      store.close();
+    }
+  });
+
+  test("does not mark queued backlog as working when nothing is executing", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({
+        id: "agent-2",
+        kind: "agent",
+        displayName: "Agent Two",
+      });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertEndpoint({
+        id: "endpoint-2",
+        agentId: "agent-2",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        projectRoot: "/tmp/agent-2",
+      });
+      store.upsertConversation({
+        id: "conv-2",
+        kind: "direct",
+        title: "Direct Two",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-2", "operator"],
+      });
+      store.recordInvocation({
+        id: "inv-2",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-2",
+        action: "consult",
+        task: "Check later",
+        conversationId: "conv-2",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 200,
+      });
+      store.recordFlight({
+        id: "flight-2",
+        invocationId: "inv-2",
+        requesterId: "operator",
+        targetAgentId: "agent-2",
+        state: "queued",
+        summary: "Queued for later delivery",
+        startedAt: 201,
+      });
+
+      const listEntry = queryAgents(10).find((entry) => entry.id === "agent-2");
+      const detail = queryMobileAgentDetail("agent-2");
+
+      expect(listEntry?.state).toBe("available");
+      expect(detail?.state).toBe("available");
+      expect(detail?.activeFlights.map((flight) => flight.state)).toEqual(["queued"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("filters duplicate replies and stale-flight reconciliation from top activity", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordMessage({
+        id: "msg-operator",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Please check this",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 150,
+      });
+      store.recordMessage({
+        id: "msg-reply",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Done.",
+        replyToMessageId: "msg-operator",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 160,
+      });
+      store.recordFlight({
+        id: "flight-stale",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        summary: "Agent One did not finish cleanly.",
+        error: "Stale running flight reconciled: endpoint endpoint-1 moved to offline",
+        startedAt: 155,
+        completedAt: 170,
+      });
+      store.recordInvocation({
+        id: "inv-dup-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Reply once",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 171,
+      });
+      store.recordFlight({
+        id: "flight-dup-1",
+        invocationId: "inv-dup-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Agent One replied.",
+        startedAt: 172,
+        completedAt: 180,
+      });
+      store.recordInvocation({
+        id: "inv-dup-2",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Reply twice",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 173,
+      });
+      store.recordFlight({
+        id: "flight-dup-2",
+        invocationId: "inv-dup-2",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Agent One replied.",
+        startedAt: 174,
+        completedAt: 181,
+      });
+
+      const activity = queryActivity(20);
+
+      expect(activity.some((item) => item.id === "activity:message:msg-reply")).toBe(false);
+      expect(activity.some((item) => item.id === "activity:flight:flight-stale")).toBe(false);
+      expect(activity.some((item) => item.id === "activity:message:msg-operator")).toBe(true);
+      expect(activity.some((item) => item.id === "activity:flight:flight-1")).toBe(true);
+      expect(activity.filter((item) => item.title === "Agent One replied." && item.kind === "flight_updated")).toHaveLength(1);
     } finally {
       store.close();
     }
