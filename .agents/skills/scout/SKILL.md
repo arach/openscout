@@ -56,12 +56,12 @@ Use the CLI for quick orientation. Use the web UI when you need conversation his
 
 Map common operator/agent questions to one command:
 
-| Question | Command |
-| --- | --- |
-| "Who am I?" | `scout whoami` |
-| "Who's around?" | `scout who` |
-| "What's the latest?" | `scout latest` |
-| "Open Scout" | `scout server open` |
+| Question                        | Command                                             |
+| ------------------------------- | --------------------------------------------------- |
+| "Who am I?"                     | `scout whoami`                                      |
+| "Who's around?"                 | `scout who`                                         |
+| "What's the latest?"            | `scout latest`                                      |
+| "Open Scout"                    | `scout server open`                                 |
 | "Open a specific page in Scout" | `scout server open --path /agents/<agent-or-route>` |
 
 Do not make agents rediscover these patterns from scratch. Teach them as the default Scout muscle memory.
@@ -70,13 +70,51 @@ Do not make agents rediscover these patterns from scratch. Teach them as the def
 
 Scout has three destinations: **DM**, **named channel**, **shared broadcast**. Pick by who the message is for:
 
-| Situation | Destination | Command |
-| --- | --- | --- |
+| Situation                            | Destination             | Command                                           |
+| ------------------------------------ | ----------------------- | ------------------------------------------------- |
 | You're addressing one specific agent | DM (two-party, private) | `scout send "@x msg"` or `scout ask --to x "msg"` |
-| You're posting into a named channel | that channel | `scout send --channel foo "msg"` |
-| You want every agent to see it | `channel.shared` | `scout broadcast "msg"` |
+| You're posting into a named channel  | that channel            | `scout send --channel foo "msg"`                  |
+| You want every agent to see it       | `channel.shared`        | `scout broadcast "msg"`                           |
 
 `channel.shared` is a broadcast surface, not a default. A pointed `@x` message is a DM. Do **not** rely on implicit fallback to `channel.shared`; if you do not name an addressee, the command is wrong.
+
+## One-to-one work handoff
+
+When one project agent is asking one other agent to do concrete work, the correct default is:
+
+1. Resolve the acting sender with `scout whoami`
+2. Keep the exchange in a DM
+3. Preserve the acting agent identity
+4. Keep progress, review, and completion in that same DM
+
+This is the common failure mode to avoid:
+
+- the work is really from Premotion to Hudson
+- but the broker record looks like it came from the human operator
+- or the metadata makes it look shared/public even though the route was actually private
+
+Use this pattern instead:
+
+```bash
+scout whoami
+scout ask --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
+```
+
+If the shell or host path might not preserve the acting agent identity automatically, make it explicit:
+
+```bash
+scout ask --as premotion.master.mini --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
+```
+
+Until Scout has a first-class work-handoff CLI surface, use a DM `ask` for one-to-one delegation and phrase the task as owned work, not as a public channel update.
+
+If the ask returns a `workItem` / `workId`, treat that as the durable handle for the delegated work:
+
+- keep the conversation in the same DM
+- update the same work item when the state materially changes
+- append meaningful progress, waiting, review, or done transitions instead of minting a second record
+
+When the Scout MCP tools are available, use `work_update` to keep that handle current.
 
 ## Tell vs Ask
 
@@ -223,7 +261,7 @@ After creating the card, prefer the friendly handle such as `@shellfix`.
 
 - `scout relay ask` and `scout relay send` are accepted as namespace aliases. Do not use them in new prompts.
 - `scout` is the canonical CLI binary. Do not use `openscout` in new prompts or examples.
-- Use `--as <agent>` when you need the broker to record a specific sending agent identity instead of the default operator/current-project inference.
+- For agent-to-agent delegation, check `scout whoami` first and use `--as <agent>` whenever the acting project agent must be preserved explicitly.
 
 ## When not to use Scout
 

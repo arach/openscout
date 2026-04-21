@@ -3,12 +3,17 @@ import type {
   ScoutBrokerMessageRecord,
   ScoutWhoEntry,
 } from "../../core/broker/service.ts";
-import { formatScoutTimestamp, normalizeUnixTimestamp } from "../../core/broker/view.ts";
+import {
+  formatScoutTimestamp,
+  normalizeUnixTimestamp,
+} from "../../core/broker/view.ts";
 
 export function renderScoutMessage(message: ScoutBrokerMessageRecord): string {
-  const timestamp = normalizeUnixTimestamp(message.createdAt) ?? Math.floor(Date.now() / 1000);
+  const timestamp =
+    normalizeUnixTimestamp(message.createdAt) ?? Math.floor(Date.now() / 1000);
   const body = message.body;
-  const type = message.class === "system" || message.class === "status" ? "SYS" : "MSG";
+  const type =
+    message.class === "system" || message.class === "status" ? "SYS" : "MSG";
   if (type === "SYS") {
     return `${formatScoutTimestamp(timestamp)} · ${body}`;
   }
@@ -20,26 +25,45 @@ export function renderScoutAgentList(entries: ScoutWhoEntry[]): string {
     return "No agents are known to the broker yet.";
   }
 
-  return entries.map((entry) => {
-    const messageLabel = entry.messages === 1 ? "1 message" : `${entry.messages} messages`;
-    const lastSeenLabel = entry.lastSeen ? `last seen ${formatScoutTimestamp(entry.lastSeen)}` : "not seen yet";
-    const registrationLabel = entry.registrationKind === "discovered" ? "auto-discovered" : null;
-    return [
-      entry.agentId,
-      entry.state,
-      messageLabel,
-      lastSeenLabel,
-      registrationLabel,
-    ].filter(Boolean).join(" · ");
-  }).join("\n");
+  return entries
+    .map((entry) => {
+      const messageLabel =
+        entry.messages === 1 ? "1 message" : `${entry.messages} messages`;
+      const lastSeenLabel = entry.lastSeen
+        ? `last seen ${formatScoutTimestamp(entry.lastSeen)}`
+        : "not seen yet";
+      const registrationLabel =
+        entry.registrationKind === "discovered" ? "auto-discovered" : null;
+      return [
+        entry.agentId,
+        entry.state,
+        messageLabel,
+        lastSeenLabel,
+        registrationLabel,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    })
+    .join("\n");
 }
 
 export function renderScoutMessagePostResult(result: {
   message: string;
+  senderId?: string;
+  conversationId?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
 }): string {
   const lines = [result.message];
+  if (result.senderId) {
+    lines.push(`From: ${result.senderId}`);
+  }
+  if (result.conversationId) {
+    const route = result.conversationId.startsWith("dm.")
+      ? "DM"
+      : "Conversation";
+    lines.push(`${route}: ${result.conversationId}`);
+  }
   if (result.invokedTargets.length > 0) {
     lines.push(`Routed to: ${result.invokedTargets.join(", ")}`);
   }
@@ -92,7 +116,9 @@ function renderScoutActivityKind(kind: ScoutActivityItem["kind"]): string {
   }
 }
 
-function renderScoutActivityParticipants(item: ScoutActivityItem): string | null {
+function renderScoutActivityParticipants(
+  item: ScoutActivityItem,
+): string | null {
   const actor = item.actorId?.trim();
   const counterpart = item.counterpartId?.trim();
 
@@ -103,7 +129,8 @@ function renderScoutActivityParticipants(item: ScoutActivityItem): string | null
 }
 
 export function renderScoutActivityItem(item: ScoutActivityItem): string {
-  const timestamp = normalizeUnixTimestamp(item.ts) ?? Math.floor(Date.now() / 1000);
+  const timestamp =
+    normalizeUnixTimestamp(item.ts) ?? Math.floor(Date.now() / 1000);
   const label = renderScoutActivityKind(item.kind).padEnd(7, " ");
   const participants = renderScoutActivityParticipants(item);
   const title = item.title?.trim() || item.summary?.trim() || item.kind;
@@ -116,7 +143,9 @@ export function renderScoutActivityItem(item: ScoutActivityItem): string {
     participants,
     title,
     detail ? `(${detail})` : null,
-  ].filter(Boolean).join("  ");
+  ]
+    .filter(Boolean)
+    .join("  ");
 }
 
 export function renderScoutActivityList(items: ScoutActivityItem[]): string {

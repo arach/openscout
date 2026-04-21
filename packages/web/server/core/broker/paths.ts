@@ -14,6 +14,8 @@ export const scoutBrokerPaths = {
     conversations: "/v1/conversations",
     invocations: "/v1/invocations",
     activity: "/v1/activity",
+    collaborationRecords: "/v1/collaboration/records",
+    collaborationEvents: "/v1/collaboration/events",
   },
 } as const;
 

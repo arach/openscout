@@ -2,7 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 
 import {
   controlScoutWebPairingService,
@@ -32,8 +32,15 @@ import {
 } from "./db-queries.ts";
 import { sendScoutMessage } from "./core/broker/service.ts";
 import { announceMeshVisibility, loadMeshStatus } from "./core/mesh/service.ts";
-import { loadOpenScoutWebShellState, type OpenScoutWebShellState } from "./runtime-summary.ts";
-import { loadUserConfig, saveUserConfig, resolveOperatorName } from "@openscout/runtime/user-config";
+import {
+  loadOpenScoutWebShellState,
+  type OpenScoutWebShellState,
+} from "./runtime-summary.ts";
+import {
+  loadUserConfig,
+  saveUserConfig,
+  resolveOperatorName,
+} from "@openscout/runtime/user-config";
 import {
   DEFAULT_LOCAL_CONFIG,
   loadLocalConfig,
@@ -61,7 +68,10 @@ export type OpenScoutWebServer = {
   warmupCaches: () => Promise<void>;
 };
 
-function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
+function parseOptionalPositiveInt(
+  value: string | undefined,
+  fallback?: number,
+): number | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
     return fallback;
   }
@@ -71,7 +81,11 @@ function parseOptionalPositiveInt(value: string | undefined, fallback?: number):
 
 function inferDirectTargetAgentId(
   conversationId: string | undefined,
-  session: { kind: string; agentId: string | null; participantIds: string[] } | null,
+  session: {
+    kind: string;
+    agentId: string | null;
+    participantIds: string[];
+  } | null,
   senderId: string,
 ): string | null {
   if (session?.kind === "direct") {
@@ -79,16 +93,25 @@ function inferDirectTargetAgentId(
       return session.agentId;
     }
 
-    const participants = session.participantIds.filter((participantId) => participantId.trim().length > 0);
+    const participants = session.participantIds.filter(
+      (participantId) => participantId.trim().length > 0,
+    );
     if (participants.length === 2) {
       const operatorCandidates = new Set([senderId.trim(), "operator"]);
-      const nonOperatorParticipants = participants.filter((participantId) => !operatorCandidates.has(participantId));
+      const nonOperatorParticipants = participants.filter(
+        (participantId) => !operatorCandidates.has(participantId),
+      );
       if (nonOperatorParticipants.length === 1) {
         return nonOperatorParticipants[0] ?? null;
       }
 
-      const localSessionParticipant = nonOperatorParticipants.find((participantId) => participantId.startsWith("local-session-agent-"))
-        ?? participants.find((participantId) => participantId.startsWith("local-session-agent-"));
+      const localSessionParticipant =
+        nonOperatorParticipants.find((participantId) =>
+          participantId.startsWith("local-session-agent-"),
+        ) ??
+        participants.find((participantId) =>
+          participantId.startsWith("local-session-agent-"),
+        );
       if (localSessionParticipant) {
         return localSessionParticipant;
       }
@@ -115,11 +138,15 @@ function inferDirectSenderId(
   return "operator";
 }
 
-function resolveBundledStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
+function resolveBundledStaticClientRoot(
+  moduleUrl: string | URL = import.meta.url,
+): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "client");
 }
 
-function resolveSourceStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
+function resolveSourceStaticClientRoot(
+  moduleUrl: string | URL = import.meta.url,
+): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "../dist/client");
 }
 
@@ -137,7 +164,10 @@ function resolveStaticRoot(staticRoot: string | undefined): string {
   return resolveSourceStaticClientRoot(import.meta.url);
 }
 
-async function loadPairingState(currentDirectory: string, refresh: boolean): Promise<ScoutPairingState> {
+async function loadPairingState(
+  currentDirectory: string,
+  refresh: boolean,
+): Promise<ScoutPairingState> {
   return refresh
     ? refreshScoutWebPairingState(currentDirectory)
     : getScoutWebPairingState(currentDirectory);
@@ -149,20 +179,34 @@ export async function createOpenScoutWebServer(
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
   const app = new Hono();
-  const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(loadOpenScoutWebShellState, shellTtl);
+  const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
+    loadOpenScoutWebShellState,
+    shellTtl,
+  );
 
   installScoutApiMiddleware(app, "openscout-web api");
 
-  app.get("/api/health", (c) => c.json({
-    ok: true,
-    surface: "openscout-web",
-    currentDirectory,
-  }));
-  app.get("/api/pairing-state", async (c) => c.json(await loadPairingState(currentDirectory, false)));
-  app.get("/api/pairing-state/refresh", async (c) => c.json(await loadPairingState(currentDirectory, true)));
+  app.get("/api/health", (c) =>
+    c.json({
+      ok: true,
+      surface: "openscout-web",
+      currentDirectory,
+    }),
+  );
+  app.get("/api/pairing-state", async (c) =>
+    c.json(await loadPairingState(currentDirectory, false)),
+  );
+  app.get("/api/pairing-state/refresh", async (c) =>
+    c.json(await loadPairingState(currentDirectory, true)),
+  );
   app.post("/api/pairing/control", async (c) => {
-    const { action } = await c.req.json() as { action: ScoutPairingControlAction };
-    const result = await controlScoutWebPairingService(action, currentDirectory);
+    const { action } = (await c.req.json()) as {
+      action: ScoutPairingControlAction;
+    };
+    const result = await controlScoutWebPairingService(
+      action,
+      currentDirectory,
+    );
     shellStateCache.invalidate();
     return c.json(result);
   });
@@ -176,45 +220,59 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/shell-state", async (c) => c.json(await shellStateCache.get()));
-  app.get("/api/shell-state/refresh", async (c) => c.json(await shellStateCache.refresh()));
+  app.get("/api/shell-state/refresh", async (c) =>
+    c.json(await shellStateCache.refresh()),
+  );
 
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/fleet", (c) =>
-    c.json(queryFleet({
-      limit: parseOptionalPositiveInt(c.req.query("limit")),
-      activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
-    })));
+    c.json(
+      queryFleet({
+        limit: parseOptionalPositiveInt(c.req.query("limit")),
+        activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+      }),
+    ),
+  );
   app.get("/api/messages", (c) =>
     c.json(
       queryRecentMessages(
         parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80,
         { conversationId: c.req.query("conversationId") || undefined },
       ),
-    ));
-  app.get("/api/work", (c) => {
+    ),
+  );
+  const handleListWork = (c: Context) => {
     const agentId = c.req.query("agentId");
     const activeOnly = c.req.query("active") !== "false";
-    return c.json(queryWorkItems({
-      agentId: agentId || undefined,
-      activeOnly,
-    }));
-  });
-  app.get("/api/work/:id", (c) => {
+    return c.json(
+      queryWorkItems({
+        agentId: agentId || undefined,
+        activeOnly,
+      }),
+    );
+  };
+  const handleWorkDetail = (c: Context) => {
     const detail = queryWorkItemById(c.req.param("id"));
     return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
-  });
+  };
+  app.get("/api/work", handleListWork);
+  app.get("/api/tasks", handleListWork);
+  app.get("/api/work/:id", handleWorkDetail);
+  app.get("/api/tasks/:id", handleWorkDetail);
   app.get("/api/flights", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
     const collaborationRecordId = c.req.query("collaborationRecordId");
     const activeOnly = c.req.query("active") !== "false";
-    return c.json(queryFlights({
-      agentId: agentId || undefined,
-      conversationId: conversationId || undefined,
-      collaborationRecordId: collaborationRecordId || undefined,
-      activeOnly,
-    }));
+    return c.json(
+      queryFlights({
+        agentId: agentId || undefined,
+        conversationId: conversationId || undefined,
+        collaborationRecordId: collaborationRecordId || undefined,
+        activeOnly,
+      }),
+    );
   });
 
   app.get("/api/sessions", (c) => c.json(querySessions()));
@@ -245,7 +303,9 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/onboarding/state", async (c) => {
     const hasLocalConfig = localConfigExists();
-    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null);
+    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(
+      () => null,
+    );
     const hasProjectConfig = projectRoot !== null;
     const userName = loadUserConfig().name?.trim() ?? "";
     return c.json({
@@ -271,7 +331,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/onboarding/project", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       contextRoot?: string;
       sourceRoots?: string[];
       defaultHarness?: "claude" | "codex";
@@ -293,12 +353,17 @@ export async function createOpenScoutWebServer(
       agents: { defaultHarness: harness },
     });
 
-    const result = await initializeOpenScoutSetup({ currentDirectory: contextRoot });
-    return c.json({ ok: true, projectConfigPath: result.currentProjectConfigPath });
+    const result = await initializeOpenScoutSetup({
+      currentDirectory: contextRoot,
+    });
+    return c.json({
+      ok: true,
+      projectConfigPath: result.currentProjectConfigPath,
+    });
   });
 
   app.post("/api/onboarding/init", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       host?: string;
       ports?: { broker?: number; web?: number; pairing?: number };
     };
@@ -311,11 +376,15 @@ export async function createOpenScoutWebServer(
         pairing: body.ports?.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing,
       },
     });
-    return c.json({ ok: true, localConfig: loadLocalConfig(), localConfigPath: localConfigPath() });
+    return c.json({
+      ok: true,
+      localConfig: loadLocalConfig(),
+      localConfigPath: localConfigPath(),
+    });
   });
 
   app.post("/api/user", async (c) => {
-    const { name } = await c.req.json() as { name?: string };
+    const { name } = (await c.req.json()) as { name?: string };
     const config = loadUserConfig();
     if (name?.trim()) {
       config.name = name.trim();
@@ -328,22 +397,35 @@ export async function createOpenScoutWebServer(
 
   app.post("/api/agents/:agentId/interrupt", async (c) => {
     const agentId = c.req.param("agentId");
-    const { interruptLocalAgent } = await import("@openscout/runtime/local-agents");
+    const { interruptLocalAgent } =
+      await import("@openscout/runtime/local-agents");
     const result = await interruptLocalAgent(agentId);
-    if (!result.ok) return c.json({ error: "Agent not found or not interruptible" }, 404);
+    if (!result.ok)
+      return c.json({ error: "Agent not found or not interruptible" }, 404);
     return c.json({ ok: true });
   });
 
   app.post("/api/send", async (c) => {
-    const { body, conversationId } = await c.req.json() as { body: string; conversationId?: string };
+    const { body, conversationId } = (await c.req.json()) as {
+      body: string;
+      conversationId?: string;
+    };
     if (!body?.trim()) {
       return c.json({ error: "body is required" }, 400);
     }
 
     const fallbackSenderId = "operator";
     const session = conversationId ? querySessionById(conversationId) : null;
-    const directAgentId = inferDirectTargetAgentId(conversationId, session, fallbackSenderId);
-    const senderId = inferDirectSenderId(session, fallbackSenderId, directAgentId);
+    const directAgentId = inferDirectTargetAgentId(
+      conversationId,
+      session,
+      fallbackSenderId,
+    );
+    const senderId = inferDirectSenderId(
+      session,
+      fallbackSenderId,
+      directAgentId,
+    );
 
     const result = await sendScoutMessage({
       senderId,
@@ -362,7 +444,8 @@ export async function createOpenScoutWebServer(
   app.get("/api/events", async (c) => {
     const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
-    const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+    const brokerUrl =
+      process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
     try {
       return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
         signal: c.req.raw.signal,
@@ -375,7 +458,10 @@ export async function createOpenScoutWebServer(
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,
     staticRoot: resolveStaticRoot(options.staticRoot),
-    viteConfigPath: resolve(dirname(fileURLToPath(import.meta.url)), "../vite.config.ts"),
+    viteConfigPath: resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../vite.config.ts",
+    ),
   });
 
   const warmupCaches = () =>
@@ -385,8 +471,14 @@ export async function createOpenScoutWebServer(
     ]).then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {
-          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          console.error("[openscout-web api] initial cache warmup failed:", message);
+          const message =
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason);
+          console.error(
+            "[openscout-web api] initial cache warmup failed:",
+            message,
+          );
         }
       }
     });

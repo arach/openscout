@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { LocalAgentBinding } from "./local-agents";
-import { buildRelayAgentCard } from "./relay-agent-cards";
+import { buildRelayAgentCard } from "./scout-agent-cards";
 
 describe("buildRelayAgentCard", () => {
   test("builds a usable card from a local agent binding", () => {

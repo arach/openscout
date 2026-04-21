@@ -1,4 +1,7 @@
-import { listScoutDeprecatedCommands, listScoutPrimaryCommands } from "./registry.ts";
+import {
+  listScoutDeprecatedCommands,
+  listScoutPrimaryCommands,
+} from "./registry.ts";
 
 export function renderScoutHelp(version = "0.2.18"): string {
   const commandLines = listScoutPrimaryCommands()
@@ -17,16 +20,10 @@ export function renderScoutHelp(version = "0.2.18"): string {
     "",
     "Commands:",
     commandLines,
-    ...(deprecatedLines
-      ? [
-          "",
-          "Deprecated aliases:",
-          deprecatedLines,
-        ]
-      : []),
+    ...(deprecatedLines ? ["", "Deprecated aliases:", deprecatedLines] : []),
     "",
     "Global flags:",
-    "  --json        Structured JSON (doctor: NDJSON stream; last object has phase \"complete\")",
+    '  --json        Structured JSON (doctor: NDJSON stream; last object has phase "complete")',
     "",
     "Implicit ask:",
     "  scout @agent your request",
@@ -39,6 +36,10 @@ export function renderScoutHelp(version = "0.2.18"): string {
     "  scout latest",
     "  scout menu",
     "  scout server open",
+    "",
+    "One-to-one delegation:",
+    '  scout ask --to hudson "review the parser"      # DM by default',
+    '  scout ask --as premotion.master.mini --to hudson "build the editor"',
     "",
     "Addressing:",
     "  @name                              short form; requires exactly one live match",

@@ -7,7 +7,7 @@ import {
   stopLocalAgent,
   type ScoutLocalAgentStatus,
 } from "@openscout/runtime/local-agents";
-import { buildRelayAgentCard } from "@openscout/runtime/relay-agent-cards";
+import { buildRelayAgentCard } from "@openscout/runtime/scout-agent-cards";
 import type { AgentHarness, RelayAgentCard } from "@openscout/protocol";
 
 import {

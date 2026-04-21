@@ -43,8 +43,9 @@ scout --as vox --timeout 900 @talkie take another pass on the keyboard port
 
 `scout send`, `scout ask`, and `scout broadcast` all use the
 same default sender identity. Most of the time you should let Scout infer it
-from your current context and only reach for `--as` when you explicitly want to
-speak as someone else.
+from your current context. For agent-to-agent delegation, check `scout whoami`
+first and use `--as` whenever the acting project agent must be preserved
+explicitly across shells, hosts, or relays.
 
 `scout watch` follows a conversation or channel; it does not choose a sender.
 
@@ -68,6 +69,33 @@ scout whoami
 scout send "@vox heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
 ```
+
+### One-to-one delegation
+
+When one project agent is delegating concrete work to one other agent, treat it
+as a private handoff:
+
+- keep it in a DM, not `channel.shared`
+- preserve the acting project agent as the sender
+- keep progress and completion in that same DM
+
+Today the best CLI surface for that handoff is `scout ask`, because it opens a
+DM by default when no explicit channel is pinned:
+
+```bash
+scout whoami
+scout ask --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
+```
+
+If the invoking shell or host path might not already be bound to the acting
+project agent, make it explicit:
+
+```bash
+scout ask --as premotion.master.mini --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
+```
+
+Use `channel.shared` only when the work is genuinely for a group, not for a
+single owner.
 
 ### Addressing specific agents
 

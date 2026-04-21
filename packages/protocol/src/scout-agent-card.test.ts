@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildRelayReturnAddress } from "./relay-agent-card";
+import { buildRelayReturnAddress } from "./scout-agent-card";
 
 describe("buildRelayReturnAddress", () => {
   test("keeps only meaningful optional fields", () => {

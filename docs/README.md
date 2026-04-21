@@ -12,6 +12,7 @@ If you want the shortest path to understanding the project:
 4. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
 5. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
 6. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
+7. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
 
 ## Current Orientation Docs
 
@@ -22,6 +23,7 @@ If you want the shortest path to understanding the project:
 - [`agent-identity.md`](./agent-identity.md) explains canonical and minimal agent addresses
 - [`ask-scout.md`](./ask-scout.md) explains how a human reaches their agents through Scout
 - [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) explains the question vs work-item model
+- [`scout-agent-delegation.md`](./scout-agent-delegation.md) explains the correct one-to-one agent delegation workflow
 - [`user-config.md`](./user-config.md) covers operator identity and local config
 
 ## Deeper Product Docs

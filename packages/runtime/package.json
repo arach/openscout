@@ -52,6 +52,11 @@
       "bun": "./src/codex-app-server.ts",
       "default": "./dist/codex-app-server.js"
     },
+    "./scout-agent-cards": {
+      "types": "./src/scout-agent-cards.ts",
+      "bun": "./src/scout-agent-cards.ts",
+      "default": "./dist/scout-agent-cards.js"
+    },
     "./relay-agent-cards": {
       "types": "./src/relay-agent-cards.ts",
       "bun": "./src/relay-agent-cards.ts",

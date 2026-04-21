@@ -15,7 +15,7 @@ export * from "./scout-broker.js";
 export * from "./codex-app-server.js";
 export * from "./setup.js";
 export * from "./support-paths.js";
-export * from "./relay-agent-cards.js";
+export * from "./scout-agent-cards.js";
 export * from "./user-config.js";
 export * from "./local-config.js";
 export * from "./thread-events.js";

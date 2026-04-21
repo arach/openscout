@@ -1,6 +1,9 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
-import { parseAskCommandOptions, type ScoutAskCommandOptions } from "../options.ts";
+import {
+  parseAskCommandOptions,
+  type ScoutAskCommandOptions,
+} from "../options.ts";
 import {
   askScoutQuestion,
   parseScoutHarness,
@@ -25,6 +28,15 @@ function renderAmbiguousCandidate(label: string): string {
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 
+function renderConversationRoute(conversationId?: string): string {
+  if (!conversationId) {
+    return "conversation";
+  }
+  return conversationId.startsWith("dm.")
+    ? `DM ${conversationId}`
+    : `conversation ${conversationId}`;
+}
+
 export function formatScoutAskRoutingError(
   result: Pick<ScoutAskResult, "targetDiagnostic">,
   targetLabel: string,
@@ -34,7 +46,9 @@ export function formatScoutAskRoutingError(
 
   if (diagnostic?.state === "ambiguous") {
     const rendered = diagnostic.candidates
-      .map((candidate) => renderAmbiguousCandidate(candidate.label || candidate.agentId))
+      .map((candidate) =>
+        renderAmbiguousCandidate(candidate.label || candidate.agentId),
+      )
       .filter((label) => label.length > 0);
     if (rendered.length > 0) {
       return `target ${renderedTarget} matches multiple agents: ${rendered.join(", ")}. Re-run with the fully qualified form (e.g. \`scout ask --to ${rendered[0].replace(/^@/, "")} ...\`).`;
@@ -59,8 +73,14 @@ export function formatScoutAskRoutingError(
   return `target ${renderedTarget} is not currently routable; nothing was sent.`;
 }
 
-export async function runAskCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
-  const options = parseAskCommandOptions(args, defaultScoutContextDirectory(context));
+export async function runAskCommand(
+  context: ScoutCommandContext,
+  args: string[],
+): Promise<void> {
+  const options = parseAskCommandOptions(
+    args,
+    defaultScoutContextDirectory(context),
+  );
   await runAskWithOptions(context, options);
 }
 
@@ -68,8 +88,13 @@ export async function runAskWithOptions(
   context: ScoutCommandContext,
   options: ScoutAskCommandOptions,
 ): Promise<void> {
-  const currentDirectory = options.currentDirectory ?? defaultScoutContextDirectory(context);
-  const senderId = await resolveScoutSenderId(options.agentName, currentDirectory, context.env);
+  const currentDirectory =
+    options.currentDirectory ?? defaultScoutContextDirectory(context);
+  const senderId = await resolveScoutSenderId(
+    options.agentName,
+    currentDirectory,
+    context.env,
+  );
   const result = await askScoutQuestion({
     senderId,
     targetLabel: options.targetLabel,
@@ -86,7 +111,9 @@ export async function runAskWithOptions(
     throw new Error(formatScoutAskRoutingError(result, options.targetLabel));
   }
 
-  context.stderr(`asking ${result.flight.targetAgentId}... (flight ${result.flight.id})`);
+  context.stderr(
+    `asking ${result.flight.targetAgentId} as ${senderId} via ${renderConversationRoute(result.conversationId)}... (flight ${result.flight.id})`,
+  );
   const completed = await waitForScoutFlight(
     resolveScoutBrokerUrl(),
     result.flight.id,
@@ -98,6 +125,9 @@ export async function runAskWithOptions(
 
   context.output.writeValue(
     {
+      senderId,
+      conversationId: result.conversationId ?? null,
+      messageId: result.messageId ?? null,
       flight: completed,
       output: completed.output ?? completed.summary ?? "",
     },

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 
 import {
   controlScoutDesktopPairingService,
@@ -29,7 +29,12 @@ import {
   queryWorkItemById,
   queryWorkItems,
 } from "./db-queries.ts";
-import { sendScoutMessage } from "../core/broker/service.ts";
+import {
+  askScoutAgentById,
+  askScoutQuestion,
+  resolveScoutSenderId,
+  sendScoutMessage,
+} from "../core/broker/service.ts";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -46,7 +51,10 @@ export type ScoutControlPlaneServer = {
   warmupCaches: () => Promise<void>;
 };
 
-function parseOptionalPositiveInt(value: string | undefined, fallback?: number): number | undefined {
+function parseOptionalPositiveInt(
+  value: string | undefined,
+  fallback?: number,
+): number | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
     return fallback;
   }
@@ -54,11 +62,18 @@ function parseOptionalPositiveInt(value: string | undefined, fallback?: number):
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function defaultMonorepoControlPlaneStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
-  return resolve(dirname(fileURLToPath(moduleUrl)), "../../../../packages/web/dist/client");
+function defaultMonorepoControlPlaneStaticClientRoot(
+  moduleUrl: string | URL = import.meta.url,
+): string {
+  return resolve(
+    dirname(fileURLToPath(moduleUrl)),
+    "../../../../packages/web/dist/client",
+  );
 }
 
-function resolveBundledControlPlaneStaticClientRoot(moduleUrl: string | URL = import.meta.url): string {
+function resolveBundledControlPlaneStaticClientRoot(
+  moduleUrl: string | URL = import.meta.url,
+): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), "control-plane-client");
 }
 
@@ -76,11 +91,16 @@ function resolveStaticRoot(staticRoot: string | undefined): string {
   return defaultMonorepoControlPlaneStaticClientRoot(import.meta.url);
 }
 
-async function loadControlPlaneShellState(currentDirectory: string): Promise<ScoutDesktopShellPatch> {
+async function loadControlPlaneShellState(
+  currentDirectory: string,
+): Promise<ScoutDesktopShellPatch> {
   return composeScoutDesktopRelayShellPatch({ currentDirectory });
 }
 
-async function loadPairingState(currentDirectory: string, refresh: boolean): Promise<ScoutPairingState> {
+async function loadPairingState(
+  currentDirectory: string,
+  refresh: boolean,
+): Promise<ScoutPairingState> {
   return refresh
     ? refreshScoutDesktopPairingState(currentDirectory)
     : getScoutDesktopPairingState(currentDirectory);
@@ -92,63 +112,181 @@ export function createScoutControlPlaneServer(
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
   const app = new Hono();
-  const shellStateCache = createCachedSnapshot(() => loadControlPlaneShellState(currentDirectory), shellTtl);
+  const shellStateCache = createCachedSnapshot(
+    () => loadControlPlaneShellState(currentDirectory),
+    shellTtl,
+  );
 
   installScoutApiMiddleware(app, "control-plane api");
 
-  app.get("/api/health", (c) => c.json({
-    ok: true,
-    surface: "control-plane",
-    currentDirectory,
-  }));
-  app.get("/api/pairing-state", async (c) => c.json(await loadPairingState(currentDirectory, false)));
-  app.get("/api/pairing-state/refresh", async (c) => c.json(await loadPairingState(currentDirectory, true)));
+  app.get("/api/health", (c) =>
+    c.json({
+      ok: true,
+      surface: "control-plane",
+      currentDirectory,
+    }),
+  );
+  app.get("/api/pairing-state", async (c) =>
+    c.json(await loadPairingState(currentDirectory, false)),
+  );
+  app.get("/api/pairing-state/refresh", async (c) =>
+    c.json(await loadPairingState(currentDirectory, true)),
+  );
   app.post("/api/pairing/control", async (c) => {
-    const { action } = await c.req.json() as { action: ScoutPairingControlAction };
-    const result = await controlScoutDesktopPairingService(action, currentDirectory);
+    const { action } = (await c.req.json()) as {
+      action: ScoutPairingControlAction;
+    };
+    const result = await controlScoutDesktopPairingService(
+      action,
+      currentDirectory,
+    );
     shellStateCache.invalidate();
     return c.json(result);
   });
   app.get("/api/shell-state", async (c) => c.json(await shellStateCache.get()));
-  app.get("/api/shell-state/refresh", async (c) => c.json(await shellStateCache.refresh()));
+  app.get("/api/shell-state/refresh", async (c) =>
+    c.json(await shellStateCache.refresh()),
+  );
 
   // Direct SQLite reads — no shell calls, no snapshot rebuilds
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/fleet", (c) =>
-    c.json(queryFleet({
-      limit: parseOptionalPositiveInt(c.req.query("limit")),
-      activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
-    })));
+    c.json(
+      queryFleet({
+        limit: parseOptionalPositiveInt(c.req.query("limit")),
+        activityLimit: parseOptionalPositiveInt(c.req.query("activityLimit")),
+      }),
+    ),
+  );
   app.get("/api/messages", (c) => c.json(queryRecentMessages()));
-  app.get("/api/work", (c) => {
+  const handleListTasks = (c: Context) => {
     const agentId = c.req.query("agentId");
     const activeOnly = c.req.query("active") !== "false";
-    return c.json(queryWorkItems({
-      agentId: agentId || undefined,
-      activeOnly,
-    }));
-  });
-  app.get("/api/work/:id", (c) => {
+    return c.json(
+      queryWorkItems({
+        agentId: agentId || undefined,
+        activeOnly,
+      }),
+    );
+  };
+  const handleTaskDetail = (c: Context) => {
     const detail = queryWorkItemById(c.req.param("id"));
     return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
-  });
+  };
+  const handleCreateWork = async (c: Context) => {
+    const body = (await c.req.json()) as {
+      senderId?: string;
+      body: string;
+      targetAgentId?: string;
+      targetLabel?: string;
+      channel?: string;
+      shouldSpeak?: boolean;
+      workItem?: {
+        title: string;
+        summary?: string;
+        priority?: "low" | "normal" | "high" | "urgent";
+        labels?: string[];
+        parentId?: string;
+        acceptanceState?: "none" | "pending" | "accepted" | "reopened";
+        metadata?: Record<string, unknown>;
+      };
+      task?: {
+        title: string;
+        summary?: string;
+        priority?: "low" | "normal" | "high" | "urgent";
+        labels?: string[];
+        parentId?: string;
+        acceptanceState?: "none" | "pending" | "accepted" | "reopened";
+        metadata?: Record<string, unknown>;
+      };
+    };
+    const { senderId, targetAgentId, targetLabel, channel, shouldSpeak } = body;
+    const messageBody = body.body;
+    const workItem = body.workItem ?? body.task;
+
+    if (!messageBody?.trim()) {
+      return c.json({ error: "body is required" }, 400);
+    }
+    if (!workItem?.title?.trim()) {
+      return c.json({ error: "workItem.title is required" }, 400);
+    }
+    if (!targetAgentId?.trim() && !targetLabel?.trim()) {
+      return c.json({ error: "targetAgentId or targetLabel is required" }, 400);
+    }
+
+    const resolvedSenderId = await resolveScoutSenderId(
+      senderId,
+      currentDirectory,
+    );
+
+    const result = targetAgentId?.trim()
+      ? await askScoutAgentById({
+          senderId: resolvedSenderId,
+          targetAgentId: targetAgentId.trim(),
+          body: messageBody.trim(),
+          workItem,
+          channel,
+          shouldSpeak,
+          currentDirectory,
+          source: "scout-control-plane",
+        })
+      : await askScoutQuestion({
+          senderId: resolvedSenderId,
+          targetLabel: targetLabel!.trim(),
+          body: messageBody.trim(),
+          workItem,
+          channel,
+          shouldSpeak,
+          currentDirectory,
+        });
+
+    if (!result.usedBroker) {
+      return c.json({ error: "broker unreachable" }, 502);
+    }
+    if ("unresolvedTargetId" in result && result.unresolvedTargetId) {
+      return c.json(result, 409);
+    }
+    if ("unresolvedTarget" in result && result.unresolvedTarget) {
+      return c.json(result, 409);
+    }
+
+    return c.json({
+      ...result,
+      senderId: resolvedSenderId,
+      workItem: result.workItem ?? null,
+      workId: result.workItem?.id ?? null,
+      workUrl: result.workItem
+        ? `/api/work/${encodeURIComponent(result.workItem.id)}`
+        : null,
+      flightId: result.flight?.id ?? null,
+    });
+  };
+
+  app.get("/api/work", handleListTasks);
+  app.get("/api/tasks", handleListTasks);
+  app.get("/api/work/:id", handleTaskDetail);
+  app.get("/api/tasks/:id", handleTaskDetail);
+  app.post("/api/work", handleCreateWork);
+  app.post("/api/tasks", handleCreateWork);
   app.get("/api/flights", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
     const collaborationRecordId = c.req.query("collaborationRecordId");
     const activeOnly = c.req.query("active") !== "false";
-    return c.json(queryFlights({
-      agentId: agentId || undefined,
-      conversationId: conversationId || undefined,
-      collaborationRecordId: collaborationRecordId || undefined,
-      activeOnly,
-    }));
+    return c.json(
+      queryFlights({
+        agentId: agentId || undefined,
+        conversationId: conversationId || undefined,
+        collaborationRecordId: collaborationRecordId || undefined,
+        activeOnly,
+      }),
+    );
   });
 
   // Send a message to an agent via the broker
   app.post("/api/send", async (c) => {
-    const { body } = await c.req.json() as { body: string };
+    const { body } = (await c.req.json()) as { body: string };
     if (!body?.trim()) return c.json({ error: "body is required" }, 400);
     const result = await sendScoutMessage({
       senderId: "operator",
@@ -157,7 +295,10 @@ export function createScoutControlPlaneServer(
     });
     if (!result.usedBroker) return c.json({ error: "broker unreachable" }, 502);
     if (result.unresolvedTargets.length > 0) {
-      return c.json({ error: `unresolved targets: ${result.unresolvedTargets.join(", ")}` }, 409);
+      return c.json(
+        { error: `unresolved targets: ${result.unresolvedTargets.join(", ")}` },
+        409,
+      );
     }
     return c.json(result);
   });
@@ -166,7 +307,8 @@ export function createScoutControlPlaneServer(
   app.get("/api/events", async (c) => {
     const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
-    const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+    const brokerUrl =
+      process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
     try {
       return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
         signal: c.req.raw.signal,
@@ -190,8 +332,14 @@ export function createScoutControlPlaneServer(
     ]).then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {
-          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          console.error("[control-plane api] initial cache warmup failed:", message);
+          const message =
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason);
+          console.error(
+            "[control-plane api] initial cache warmup failed:",
+            message,
+          );
         }
       }
     });
