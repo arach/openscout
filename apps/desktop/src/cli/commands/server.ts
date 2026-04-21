@@ -29,52 +29,34 @@ const SERVER_HEALTH_TIMEOUT_MS = 1_500;
 
 export function renderServerCommandHelp(): string {
   return [
-    "scout server — desktop web UI (Bun runtime)",
+    "scout server — Scout web UI (Bun runtime)",
     "",
     "Usage:",
     "  scout server start [options]",
     "  scout server open [options]",
-    "  scout server control-plane start [options]",
-    "  scout server control-plane open [options]",
     "",
     "Subcommands:",
-    "  start              Full desktop web API + UI assets (default stack).",
-    "  open               Open the full web UI and start it on demand if needed.",
-    "  control-plane start Pairing + relay/shell activity only (`@openscout/web` surface).",
-    "  control-plane open  Open the control-plane UI and start it on demand if needed.",
+    "  start              Start the Scout web UI server.",
+    "  open               Open the Scout web UI (starts server on demand if needed).",
     "",
     "Options:",
-    "  --port <n>        Listen port (default 3200; env SCOUT_WEB_PORT)",
-    "  --static          Serve built UI from disk (sets SCOUT_STATIC=1)",
-    "  --static-root DIR Static client root (env SCOUT_STATIC_ROOT)",
-    "  --vite-url URL    Dev proxy target for non-API routes (env SCOUT_VITE_URL)",
+    "  --port <n>        Listen port (default 3200; env OPENSCOUT_WEB_PORT)",
+    "  --static          Serve built UI from disk",
+    "  --static-root DIR Static client root (env OPENSCOUT_WEB_STATIC_ROOT)",
+    "  --vite-url URL    Dev proxy target for non-API routes (env OPENSCOUT_WEB_VITE_URL)",
     "  --cwd DIR         Workspace / setup root (env OPENSCOUT_SETUP_CWD)",
     "  --path PATH       Browser path for `open` (default /)",
     "",
     "Requires `bun` on PATH.",
-    "Published installs include dist/client for the full web UI and dist/control-plane-client",
-    "for the minimal control-plane UI; if present and you do not pass --vite-url, the matching",
-    "static assets are used by default.",
   ].join("\n");
 }
 
 /**
- * Resolved against `import.meta.url`: published CLI has `scout-web-server.mjs` beside `main.mjs`;
- * in-repo dev uses `apps/desktop/src/server/index.ts`.
+ * Resolved against `import.meta.url`: published CLI has `scout-control-plane-web.mjs` beside `main.mjs`;
+ * in-repo dev uses `packages/web/server/index.ts`.
  */
 export function resolveScoutWebServerEntry(): string {
-  const mainDir = dirname(fileURLToPath(import.meta.url));
-  const bundled = join(mainDir, "scout-web-server.mjs");
-  if (existsSync(bundled)) {
-    return bundled;
-  }
-  const source = fileURLToPath(new URL("../../server/index.ts", import.meta.url));
-  if (existsSync(source)) {
-    return source;
-  }
-  throw new ScoutCliError(
-    "Could not find Scout web server entry. Rebuild @openscout/scout or run from the OpenScout repository.",
-  );
+  return resolveScoutControlPlaneWebServerEntry();
 }
 
 export function resolveScoutControlPlaneWebServerEntry(): string {
@@ -104,23 +86,23 @@ function parseServerFlags(args: string[]): {
     if (a === "--port") {
       const v = args[++i];
       if (!v) throw new ScoutCliError("--port requires a value");
-      env.SCOUT_WEB_PORT = v;
+      env.OPENSCOUT_WEB_PORT = v;
       continue;
     }
     if (a === "--static") {
-      env.SCOUT_STATIC = "1";
+      env.NODE_ENV = "production";
       continue;
     }
     if (a === "--static-root") {
       const v = args[++i];
       if (!v) throw new ScoutCliError("--static-root requires a value");
-      env.SCOUT_STATIC_ROOT = v;
+      env.OPENSCOUT_WEB_STATIC_ROOT = v;
       continue;
     }
     if (a === "--vite-url") {
       const v = args[++i];
       if (!v) throw new ScoutCliError("--vite-url requires a value");
-      env.SCOUT_VITE_URL = v;
+      env.OPENSCOUT_WEB_VITE_URL = v;
       continue;
     }
     if (a === "--cwd") {
@@ -136,15 +118,15 @@ function parseServerFlags(args: string[]): {
       continue;
     }
     if (a.startsWith("--port=")) {
-      env.SCOUT_WEB_PORT = a.slice("--port=".length);
+      env.OPENSCOUT_WEB_PORT = a.slice("--port=".length);
       continue;
     }
     if (a.startsWith("--static-root=")) {
-      env.SCOUT_STATIC_ROOT = a.slice("--static-root=".length);
+      env.OPENSCOUT_WEB_STATIC_ROOT = a.slice("--static-root=".length);
       continue;
     }
     if (a.startsWith("--vite-url=")) {
-      env.SCOUT_VITE_URL = a.slice("--vite-url=".length);
+      env.OPENSCOUT_WEB_VITE_URL = a.slice("--vite-url=".length);
       continue;
     }
     if (a.startsWith("--cwd=")) {
@@ -161,11 +143,9 @@ function parseServerFlags(args: string[]): {
   return { env, openPath };
 }
 
-function resolveBundledStaticClientRoot(entry: string, mode: ScoutServerMode): string | null {
+function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): string | null {
   const entryDir = dirname(entry);
-  const clientDirectory = mode === "control-plane"
-    ? join(entryDir, "control-plane-client")
-    : join(entryDir, "client");
+  const clientDirectory = join(entryDir, "client");
   const indexPath = join(clientDirectory, "index.html");
   return existsSync(indexPath) ? clientDirectory : null;
 }
@@ -174,11 +154,17 @@ function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Rec
   const bundledStaticClientRoot = resolveBundledStaticClientRoot(entry, mode);
   const autoEnv: Record<string, string> = {};
   if (bundledStaticClientRoot) {
-    const wantsVite = Boolean(flagEnv.SCOUT_VITE_URL ?? process.env.SCOUT_VITE_URL);
+    const wantsVite = Boolean(flagEnv.OPENSCOUT_WEB_VITE_URL ?? process.env.OPENSCOUT_WEB_VITE_URL);
     if (!wantsVite) {
-      autoEnv.SCOUT_STATIC = "1";
-      autoEnv.SCOUT_STATIC_ROOT = bundledStaticClientRoot;
+      autoEnv.NODE_ENV = "production";
+      autoEnv.OPENSCOUT_WEB_STATIC_ROOT = bundledStaticClientRoot;
     }
+  }
+  if (flagEnv.SCOUT_WEB_PORT) {
+    autoEnv.OPENSCOUT_WEB_PORT = flagEnv.SCOUT_WEB_PORT;
+  }
+  if (flagEnv.OPENSCOUT_SETUP_CWD) {
+    autoEnv.OPENSCOUT_SETUP_CWD = flagEnv.OPENSCOUT_SETUP_CWD;
   }
   return { ...process.env, ...autoEnv, ...flagEnv } as NodeJS.ProcessEnv;
 }
@@ -193,7 +179,7 @@ function parseServerSelection(args: string[]): {
     return {
       action: "start",
       flagArgs: args.slice(1),
-      entry: resolveScoutWebServerEntry(),
+      entry: resolveScoutControlPlaneWebServerEntry(),
       mode: "full",
     };
   }
@@ -201,16 +187,14 @@ function parseServerSelection(args: string[]): {
     return {
       action: "open",
       flagArgs: args.slice(1),
-      entry: resolveScoutWebServerEntry(),
+      entry: resolveScoutControlPlaneWebServerEntry(),
       mode: "full",
     };
   }
   if (args[0] === "control-plane") {
-    if (args[1] !== "start" && args[1] !== "open") {
-      throw new ScoutCliError("expected: scout server control-plane <start|open>");
-    }
+    const sub = args[1] === "start" || args[1] === "open" ? args[1] : "start";
     return {
-      action: args[1],
+      action: sub,
       flagArgs: args.slice(2),
       entry: resolveScoutControlPlaneWebServerEntry(),
       mode: "control-plane",
@@ -234,7 +218,7 @@ export function normalizeServerOpenPath(value: string): string {
 }
 
 function resolveServerPort(env: NodeJS.ProcessEnv): number {
-  const envValue = env.SCOUT_WEB_PORT?.trim();
+  const envValue = (env.OPENSCOUT_WEB_PORT ?? env.SCOUT_WEB_PORT)?.trim();
   if (envValue) {
     const port = Number.parseInt(envValue, 10);
     if (!Number.isFinite(port) || port <= 0) {

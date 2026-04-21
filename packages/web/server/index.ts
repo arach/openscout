@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
@@ -15,7 +18,20 @@ const port = Number(
 );
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
-const staticRoot = process.env.OPENSCOUT_WEB_STATIC_ROOT?.trim() || undefined;
+
+function resolveStaticRoot(): string | undefined {
+  if (process.env.OPENSCOUT_WEB_STATIC_ROOT?.trim()) {
+    return process.env.OPENSCOUT_WEB_STATIC_ROOT.trim();
+  }
+  const selfDir = dirname(fileURLToPath(import.meta.url));
+  const siblingClient = join(selfDir, "client", "index.html");
+  if (existsSync(siblingClient)) {
+    return join(selfDir, "client");
+  }
+  return undefined;
+}
+
+const staticRoot = resolveStaticRoot();
 const dev = process.env.NODE_ENV !== "production" && !staticRoot;
 const idleTimeoutSeconds = Number.parseInt(
   process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim() || (dev ? "180" : "30"),

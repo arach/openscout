@@ -29,7 +29,7 @@ export function bundleScoutWebServerBun(repoRoot, outfile) {
 }
 
 /**
- * Pairing + relay activity HTTP surface for `@openscout/web` (no full desktop web API).
+ * Bundle the @openscout/web server for the published CLI.
  *
  * @param {string} repoRoot
  * @param {string} outfile Absolute path to scout-control-plane-web.mjs
@@ -37,10 +37,10 @@ export function bundleScoutWebServerBun(repoRoot, outfile) {
  */
 export function bundleScoutControlPlaneWebServerBun(repoRoot, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
-  const entry = resolve(repoRoot, "apps/desktop/src/server/control-plane-index.ts");
+  const entry = resolve(repoRoot, "packages/web/server/index.ts");
   const result = spawnSync(
     "bun",
-    ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile],
+    ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile, "--external", "vite"],
     { cwd: repoRoot, stdio: "inherit" },
   );
   return (result.status ?? 1) === 0;

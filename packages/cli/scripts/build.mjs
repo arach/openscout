@@ -7,9 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildControlPlaneClientAndCopy,
-  buildDesktopClientAndCopy,
   bundleScoutControlPlaneWebServerBun,
-  bundleScoutWebServerBun,
   getOpenScoutRepoRoot,
 } from "../../../scripts/bundle-scout-web.mjs";
 
@@ -19,11 +17,9 @@ const repoRoot = getOpenScoutRepoRoot();
 const entryFile = resolve(packageDirectory, "src/main.ts");
 const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
-const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
 const pairSupervisorOutput = resolve(outputDirectory, "pair-supervisor.mjs");
-const vendoredClientDir = resolve(outputDirectory, "client");
-const controlPlaneClientDir = resolve(outputDirectory, "control-plane-client");
+const clientDir = resolve(outputDirectory, "client");
 
 mkdirSync(outputDirectory, { recursive: true });
 
@@ -36,10 +32,6 @@ const result = spawnSync(
 
 if ((result.status ?? 1) !== 0) {
   process.exit(result.status ?? 1);
-}
-
-if (!bundleScoutWebServerBun(repoRoot, webServerOutput)) {
-  process.exit(1);
 }
 
 if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
@@ -57,11 +49,7 @@ if ((pairSupervisorResult.status ?? 1) !== 0) {
   process.exit(pairSupervisorResult.status ?? 1);
 }
 
-if (!buildDesktopClientAndCopy(repoRoot, vendoredClientDir)) {
-  process.exit(1);
-}
-
-if (!buildControlPlaneClientAndCopy(repoRoot, controlPlaneClientDir)) {
+if (!buildControlPlaneClientAndCopy(repoRoot, clientDir)) {
   process.exit(1);
 }
 
