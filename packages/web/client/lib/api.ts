@@ -9,7 +9,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+    let message = text || `HTTP ${res.status}`;
+    try {
+      const body = JSON.parse(text);
+      if (body?.error) message = body.error;
+    } catch { /* plain text */ }
+    throw new Error(message);
   }
   const text = await res.text();
   if (!text) return undefined as T;

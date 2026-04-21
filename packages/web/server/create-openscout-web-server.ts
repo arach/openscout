@@ -345,21 +345,27 @@ export async function createOpenScoutWebServer(
       .filter((entry): entry is string => Boolean(entry && entry.length > 0));
     const harness = body.defaultHarness === "codex" ? "codex" : "claude";
 
-    await writeOpenScoutSettings({
-      discovery: {
-        contextRoot,
-        workspaceRoots: sourceRoots,
-      },
-      agents: { defaultHarness: harness },
-    });
+    try {
+      await writeOpenScoutSettings({
+        discovery: {
+          contextRoot,
+          workspaceRoots: sourceRoots,
+        },
+        agents: { defaultHarness: harness },
+      });
 
-    const result = await initializeOpenScoutSetup({
-      currentDirectory: contextRoot,
-    });
-    return c.json({
-      ok: true,
-      projectConfigPath: result.currentProjectConfigPath,
-    });
+      const result = await initializeOpenScoutSetup({
+        currentDirectory: contextRoot,
+      });
+      return c.json({
+        ok: true,
+        projectConfigPath: result.currentProjectConfigPath,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[onboarding/project]", message);
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.post("/api/onboarding/init", async (c) => {

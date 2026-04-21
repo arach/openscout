@@ -45,6 +45,7 @@ export function useBrokerEvents(onEvent: (event: BrokerEvent) => void) {
   useEffect(() => {
     let es: EventSource | null = null;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
 
     function connect() {
       es = new EventSource("/api/events");
@@ -53,6 +54,7 @@ export function useBrokerEvents(onEvent: (event: BrokerEvent) => void) {
         cbRef.current(parseBrokerEvent(event.data));
       };
 
+      es.onopen = () => { failures = 0; };
       es.onmessage = forward;
       for (const eventName of BROKER_EVENT_NAMES) {
         es.addEventListener(eventName, forward as EventListener);
@@ -60,7 +62,9 @@ export function useBrokerEvents(onEvent: (event: BrokerEvent) => void) {
 
       es.onerror = () => {
         es?.close();
-        retryTimeout = setTimeout(connect, 3000);
+        failures++;
+        const delay = Math.min(3000 * 2 ** (failures - 1), 60_000);
+        retryTimeout = setTimeout(connect, delay);
       };
     }
 
