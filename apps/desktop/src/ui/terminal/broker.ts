@@ -53,10 +53,14 @@ export function renderScoutMessagePostResult(result: {
   conversationId?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
+  routeKind?: "dm" | "channel" | "broadcast";
 }): string {
   const lines = [result.message];
   if (result.senderId) {
     lines.push(`From: ${result.senderId}`);
+  }
+  if (result.routeKind) {
+    lines.push(`Route: ${result.routeKind}`);
   }
   if (result.conversationId) {
     const route = result.conversationId.startsWith("dm.")
@@ -77,8 +81,12 @@ export function renderScoutBroadcastResult(result: {
   message: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
+  routeKind?: "dm" | "channel" | "broadcast";
 }): string {
   const lines = [`Broadcast: ${result.message}`];
+  if (result.routeKind) {
+    lines.push(`Route: ${result.routeKind}`);
+  }
   if (result.invokedTargets.length > 0) {
     lines.push(`Routed to ${result.invokedTargets.length} agents`);
   }

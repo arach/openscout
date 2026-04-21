@@ -28,6 +28,17 @@ export function formatScoutSendRoutingError(
   return `targets ${rendered.join(", ")} are not uniquely routable; nothing was sent.`;
 }
 
+function formatScoutRouteChoiceError(
+  routingError:
+    | "missing_destination"
+    | "multi_target_requires_explicit_channel",
+): string {
+  if (routingError === "missing_destination") {
+    return "message has no explicit destination; use @agent for a DM, --channel <name> for a group thread, or scout broadcast for channel.shared.";
+  }
+  return "message targets multiple agents without an explicit channel; send separate DMs, use --channel <name> for a group thread, or use scout broadcast for channel.shared.";
+}
+
 export async function runSendCommand(
   context: ScoutCommandContext,
   args: string[],
@@ -58,6 +69,9 @@ export async function runSendCommand(
   if (result.unresolvedTargets.length > 0) {
     throw new Error(formatScoutSendRoutingError(result.unresolvedTargets));
   }
+  if (result.routingError) {
+    throw new Error(formatScoutRouteChoiceError(result.routingError));
+  }
 
   context.output.writeValue(
     {
@@ -66,6 +80,7 @@ export async function runSendCommand(
       message: options.message,
       invokedTargets: result.invokedTargets,
       unresolvedTargets: result.unresolvedTargets,
+      routeKind: result.routeKind,
     },
     renderScoutMessagePostResult,
   );

@@ -113,6 +113,10 @@ export type ScoutMessagePostResult = {
   usedBroker: boolean;
   invokedTargets: string[];
   unresolvedTargets: string[];
+  routeKind?: "dm" | "channel" | "broadcast";
+  routingError?:
+    | "missing_destination"
+    | "multi_target_requires_explicit_channel";
 };
 
 export type ScoutFlightRecord = {
@@ -388,6 +392,15 @@ export function scoutConversationIdForChannel(channel?: string): string {
     return BROKER_SHARED_CHANNEL_ID;
   }
   return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
+}
+
+function relayRouteKind(
+  conversation: { id: string; kind: string },
+): "dm" | "channel" | "broadcast" {
+  if (conversation.kind === "direct") {
+    return "dm";
+  }
+  return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
 }
 
 function buildMentionCandidate(
@@ -1165,6 +1178,23 @@ export async function sendScoutMessage(input: {
     };
   }
 
+  if (validTargets.length === 0 && !input.channel) {
+    return {
+      usedBroker: true,
+      invokedTargets: [],
+      unresolvedTargets: [],
+      routingError: "missing_destination",
+    };
+  }
+  if (validTargets.length > 1 && !input.channel) {
+    return {
+      usedBroker: true,
+      invokedTargets: [],
+      unresolvedTargets: [],
+      routingError: "multi_target_requires_explicit_channel",
+    };
+  }
+
   const conversation = validTargets.length === 1 && !input.channel
     ? (await ensureBrokerDirectConversationBetween(
       broker.baseUrl,
@@ -1217,6 +1247,7 @@ export async function sendScoutMessage(input: {
     usedBroker: true,
     invokedTargets: validTargets,
     unresolvedTargets,
+    routeKind: relayRouteKind(conversation),
   };
 }
 

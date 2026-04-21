@@ -27,6 +27,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
     expect(prompt).toContain("Keep one-to-one handoffs in a DM");
+    expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
     expect(prompt).toContain("Do not use channel.shared for ordinary delegation or follow-up");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
   });
@@ -70,6 +71,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");
     expect(prompt).toContain("Keep one-to-one handoffs in a DM");
+    expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
     expect(prompt).toContain("Flag: broker-ready");
   });

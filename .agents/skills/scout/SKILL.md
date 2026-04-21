@@ -76,7 +76,7 @@ Scout has three destinations: **DM**, **named channel**, **shared broadcast**. P
 | You're posting into a named channel  | that channel            | `scout send --channel foo "msg"`                  |
 | You want every agent to see it       | `channel.shared`        | `scout broadcast "msg"`                           |
 
-`channel.shared` is a broadcast surface, not a default. A pointed `@x` message is a DM. Do **not** rely on implicit fallback to `channel.shared`; if you do not name an addressee, the command is wrong.
+`channel.shared` is a broadcast surface, not a default. A pointed `@x` message is a DM. Do **not** rely on implicit fallback to `channel.shared`; if you do not name an addressee, or you name several addressees without an explicit channel, the command is wrong.
 
 ## One-to-one work handoff
 
@@ -172,7 +172,13 @@ Inline `scout ask` is acceptable only when your host cannot delegate background 
 
 ### Fan-out
 
-If the user's message contains multiple `@name` mentions, fan out one Scout action per target. Keep those conversations separate unless the user explicitly asked for a shared channel.
+If the user's message contains multiple `@name` mentions, do not send one ambiguous multi-target post without an explicit channel.
+
+Choose one of these on purpose:
+
+- send one Scout action per target and keep those DMs separate
+- or create/use a named channel if the user explicitly wants group coordination
+- or use `scout broadcast` if the message is truly for everyone
 
 ### Broadcast
 

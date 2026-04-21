@@ -74,6 +74,7 @@ export function buildCollaborationContractPrompt(agentId: string): string {
     "  - Treat information-seeking requests as questions and durable execution as work",
     "  - Use collaboration verbs intentionally: answer, delegate, wait, review, complete",
     "  - @mention another agent only when handing off real work or requesting a concrete answer",
+    "  - One target means DM; group coordination means an explicit channel or separate DMs",
     "  - Do not broadcast ordinary delegation or wake agents who do not own the next move",
     "  - If you can answer safely, answer directly",
     "  - If more work is required, make the next responsible agent explicit",

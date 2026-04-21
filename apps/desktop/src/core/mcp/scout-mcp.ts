@@ -8,6 +8,7 @@ import {
   parseAgentIdentity,
   type AgentIdentityCandidate,
   type AgentState,
+  type ScoutAgentCard,
 } from "@openscout/protocol";
 import {
   findNearestProjectRoot,
@@ -16,6 +17,7 @@ import {
 } from "@openscout/runtime/setup";
 import * as z from "zod/v4";
 
+import { createScoutAgentCard } from "../agents/service.ts";
 import {
   askScoutAgentById,
   askScoutQuestion,
@@ -52,6 +54,12 @@ const REGISTRATION_KIND_VALUES = [
   "discovered",
 ] as const;
 const RESOLVE_KIND_VALUES = ["resolved", "ambiguous", "unresolved"] as const;
+const MESSAGE_ROUTE_KIND_VALUES = ["dm", "channel", "broadcast"] as const;
+const MESSAGE_ROUTING_ERROR_VALUES = [
+  "missing_destination",
+  "multi_target_requires_explicit_channel",
+] as const;
+const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex"] as const;
 
 type SearchableAgentState = (typeof AGENT_STATE_VALUES)[number];
 type SearchRegistrationKind = (typeof REGISTRATION_KIND_VALUES)[number];
@@ -113,6 +121,14 @@ type ScoutMcpDependencies = {
     label: string;
     currentDirectory: string;
   }) => Promise<ScoutMcpResolveResult>;
+  createAgentCard: (input: {
+    projectPath: string;
+    agentName?: string;
+    displayName?: string;
+    harness?: (typeof LOCAL_AGENT_HARNESS_VALUES)[number];
+    currentDirectory: string;
+    createdById?: string;
+  }) => Promise<ScoutAgentCard>;
   sendMessage: (input: {
     senderId: string;
     body: string;
@@ -259,6 +275,43 @@ const agentCandidateSchema = z.object({
   transport: z.string().nullable(),
 });
 
+const scoutReturnAddressSchema = z.object({
+  actorId: z.string(),
+  handle: z.string(),
+  displayName: z.string().optional(),
+  selector: z.string().optional(),
+  defaultSelector: z.string().optional(),
+  conversationId: z.string().optional(),
+  replyToMessageId: z.string().optional(),
+  nodeId: z.string().optional(),
+  projectRoot: z.string().optional(),
+  sessionId: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const scoutAgentCardSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  definitionId: z.string(),
+  displayName: z.string(),
+  handle: z.string(),
+  selector: z.string().optional(),
+  defaultSelector: z.string().optional(),
+  projectName: z.string().optional(),
+  projectRoot: z.string(),
+  currentDirectory: z.string(),
+  harness: z.enum(LOCAL_AGENT_HARNESS_VALUES),
+  transport: z.string(),
+  sessionId: z.string().optional(),
+  branch: z.string().optional(),
+  createdAt: z.number(),
+  createdById: z.string().optional(),
+  brokerRegistered: z.boolean(),
+  inboxConversationId: z.string().optional(),
+  returnAddress: scoutReturnAddressSchema,
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 const whoAmISchema = z.object({
   currentDirectory: z.string(),
   brokerUrl: z.string(),
@@ -288,6 +341,14 @@ const sendResultSchema = z.object({
   messageId: z.string().nullable(),
   invokedTargetIds: z.array(z.string()),
   unresolvedTargetIds: z.array(z.string()),
+  routeKind: z.enum(MESSAGE_ROUTE_KIND_VALUES).nullable(),
+  routingError: z.enum(MESSAGE_ROUTING_ERROR_VALUES).nullable(),
+});
+
+const cardCreateResultSchema = z.object({
+  currentDirectory: z.string(),
+  senderId: z.string(),
+  card: scoutAgentCardSchema,
 });
 
 const askResultSchema = z.object({
@@ -840,6 +901,22 @@ function defaultScoutMcpDependencies(
       searchScoutAgentsForMcp({ query, currentDirectory, limit }),
     resolveAgent: ({ label, currentDirectory }) =>
       resolveScoutAgentForMcp({ label, currentDirectory }),
+    createAgentCard: ({
+      projectPath,
+      agentName,
+      displayName,
+      harness,
+      currentDirectory,
+      createdById,
+    }) =>
+      createScoutAgentCard({
+        projectPath,
+        agentName,
+        displayName,
+        harness,
+        currentDirectory,
+        createdById,
+      }),
     sendMessage: ({ senderId, body, channel, shouldSpeak, currentDirectory }) =>
       sendScoutMessage({
         senderId,
@@ -975,6 +1052,65 @@ export function createScoutMcpServer(options: {
   );
 
   server.registerTool(
+    "card_create",
+    {
+      title: "Create Scout Agent Card",
+      description:
+        "Create a dedicated Scout agent card with a reply-ready return address. Use this when another agent should get back to you on a fresh project-scoped inbox. One target stays private by default; group coordination still requires an explicit channel elsewhere.",
+      inputSchema: z.object({
+        projectPath: z.string().optional(),
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+        agentName: z.string().optional(),
+        displayName: z.string().optional(),
+        harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
+      }),
+      outputSchema: cardCreateResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({
+      projectPath,
+      currentDirectory,
+      senderId,
+      agentName,
+      displayName,
+      harness,
+    }) => {
+      const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+        currentDirectory,
+        options.defaultCurrentDirectory,
+      );
+      const resolvedSenderId = await deps.resolveSenderId(
+        senderId,
+        resolvedCurrentDirectory,
+        env,
+      );
+      const card = await deps.createAgentCard({
+        projectPath: resolve(projectPath?.trim() || resolvedCurrentDirectory),
+        agentName: agentName?.trim() || undefined,
+        displayName: displayName?.trim() || undefined,
+        harness,
+        currentDirectory: resolvedCurrentDirectory,
+        createdById: resolvedSenderId,
+      });
+      const structuredContent = {
+        currentDirectory: resolvedCurrentDirectory,
+        senderId: resolvedSenderId,
+        card,
+      };
+      return {
+        content: createTextContent(structuredContent),
+        structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "agents_search",
     {
       title: "Search Scout Agents",
@@ -1061,7 +1197,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout message. Prefer mentionAgentIds for first-class @targeting.",
+        "Post a broker-backed Scout tell/update. One explicit target without a channel becomes a DM. Group delivery requires an explicit channel. Use broadcast or channel='shared' for shared updates. Prefer mentionAgentIds for first-class targeting.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -1120,6 +1256,8 @@ export function createScoutMcpServer(options: {
           messageId: result.messageId ?? null,
           invokedTargetIds: result.invokedTargetIds,
           unresolvedTargetIds: result.unresolvedTargetIds,
+          routeKind: result.routeKind ?? null,
+          routingError: result.routingError ?? null,
         };
         return {
           content: createTextContent(structuredContent),
@@ -1143,6 +1281,8 @@ export function createScoutMcpServer(options: {
         messageId: result.messageId ?? null,
         invokedTargetIds: result.invokedTargets,
         unresolvedTargetIds: result.unresolvedTargets,
+        routeKind: result.routeKind ?? null,
+        routingError: result.routingError ?? null,
       };
       return {
         content: createTextContent(structuredContent),
@@ -1156,7 +1296,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask Scout Agent",
       description:
-        "Create a broker-backed Scout invocation. Provide workItem to mint a durable workId beyond the message and flight ids.",
+        "Create a broker-backed Scout ask/work handoff. One target without a channel becomes a DM. Provide workItem to mint a durable workId beyond the message and flight ids.",
       inputSchema: z
         .object({
           body: z.string().min(1),

@@ -12,6 +12,7 @@ export async function runBroadcastCommand(context: ScoutCommandContext, args: st
   const result = await sendScoutMessage({
     senderId,
     body: `@all ${options.message}`,
+    channel: "shared",
     executionHarness: parseScoutHarness(options.harness),
     currentDirectory,
   });
@@ -28,6 +29,7 @@ export async function runBroadcastCommand(context: ScoutCommandContext, args: st
       message: options.message,
       invokedTargets: result.invokedTargets,
       unresolvedTargets: result.unresolvedTargets,
+      routeKind: result.routeKind,
     },
     renderScoutBroadcastResult,
   );

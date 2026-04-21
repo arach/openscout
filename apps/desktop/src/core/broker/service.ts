@@ -137,6 +137,10 @@ export type ScoutMessagePostResult = {
   messageId?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
+  routeKind?: "dm" | "channel" | "broadcast";
+  routingError?:
+    | "missing_destination"
+    | "multi_target_requires_explicit_channel";
 };
 
 export type ScoutStructuredMessagePostResult = {
@@ -145,6 +149,10 @@ export type ScoutStructuredMessagePostResult = {
   messageId?: string;
   invokedTargetIds: string[];
   unresolvedTargetIds: string[];
+  routeKind?: "dm" | "channel" | "broadcast";
+  routingError?:
+    | "missing_destination"
+    | "multi_target_requires_explicit_channel";
 };
 
 export type ScoutFlightRecord = {
@@ -1479,6 +1487,15 @@ function relayAudienceReason(
   return conversation.kind === "direct" ? "direct_message" : "mention";
 }
 
+function relayRouteKind(
+  conversation: Pick<ScoutBrokerConversationRecord, "id" | "kind">,
+): "dm" | "channel" | "broadcast" {
+  if (conversation.kind === "direct") {
+    return "dm";
+  }
+  return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
+}
+
 function buildScoutEntityId(prefix: string, createdAtMs: number): string {
   return `${prefix}-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1933,7 +1950,25 @@ export async function sendScoutMessage(input: {
     return { usedBroker: true, invokedTargets: [], unresolvedTargets };
   }
 
-  // Route to DM when there's a single mention target, otherwise use the channel.
+  if (validTargets.length === 0 && !input.channel) {
+    return {
+      usedBroker: true,
+      invokedTargets: [],
+      unresolvedTargets: [],
+      routingError: "missing_destination",
+    };
+  }
+  if (validTargets.length > 1 && !input.channel) {
+    return {
+      usedBroker: true,
+      invokedTargets: [],
+      unresolvedTargets: [],
+      routingError: "multi_target_requires_explicit_channel",
+    };
+  }
+
+  // Route to DM when there's a single mention target. Group delivery must pin
+  // a channel explicitly instead of silently drifting into shared.
   let conversation: ScoutBrokerConversationRecord;
   if (validTargets.length === 1 && !input.channel) {
     const dm = await ensureBrokerDirectConversationBetween(
@@ -1996,6 +2031,7 @@ export async function sendScoutMessage(input: {
     messageId,
     invokedTargets: validTargets,
     unresolvedTargets,
+    routeKind: relayRouteKind(conversation),
   };
 }
 
@@ -2066,6 +2102,23 @@ export async function sendScoutMessageToAgentIds(input: {
     };
   }
 
+  if (availableTargets.length === 0 && !input.channel) {
+    return {
+      usedBroker: true,
+      invokedTargetIds: [],
+      unresolvedTargetIds: [],
+      routingError: "missing_destination",
+    };
+  }
+  if (availableTargets.length > 1 && !input.channel) {
+    return {
+      usedBroker: true,
+      invokedTargetIds: [],
+      unresolvedTargetIds: [],
+      routingError: "multi_target_requires_explicit_channel",
+    };
+  }
+
   let conversation: ScoutBrokerConversationRecord;
   if (availableTargets.length === 1 && !input.channel) {
     const dm = await ensureBrokerDirectConversationBetween(
@@ -2131,6 +2184,7 @@ export async function sendScoutMessageToAgentIds(input: {
     messageId,
     invokedTargetIds: availableTargets,
     unresolvedTargetIds,
+    routeKind: relayRouteKind(conversation),
   };
 }
 

@@ -86,6 +86,7 @@ describe("createScoutMcpServer", () => {
     const result = await client.listTools();
     expect(result.tools.map((tool) => tool.name)).toEqual([
       "whoami",
+      "card_create",
       "agents_search",
       "agents_resolve",
       "messages_send",
@@ -168,6 +169,95 @@ describe("createScoutMcpServer", () => {
       (result.structuredContent as { candidates: Array<{ agentId: string }> })
         .candidates[0]?.agentId,
     ).toBe("hudson.main");
+  });
+
+  test("creates a reply-ready card from the current sender and directory", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "scout.main.mini",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      createAgentCard: async ({
+        projectPath,
+        currentDirectory,
+        createdById,
+        agentName,
+      }) => ({
+        id: "scout-codex-reply.main.mini",
+        agentId: "scout-codex-reply.main.mini",
+        definitionId: agentName ?? "scout-codex-reply",
+        displayName: "Scout Codex Reply",
+        handle: "scout-codex-reply",
+        defaultSelector: "@scout-codex-reply",
+        projectRoot: projectPath,
+        currentDirectory,
+        harness: "codex",
+        transport: "codex_app_server",
+        createdAt: 123,
+        createdById,
+        brokerRegistered: true,
+        inboxConversationId: "dm.scout-codex-reply.main.mini.scout.main.mini",
+        returnAddress: {
+          actorId: "scout-codex-reply.main.mini",
+          handle: "scout-codex-reply",
+          defaultSelector: "@scout-codex-reply",
+          conversationId: "dm.scout-codex-reply.main.mini.scout.main.mini",
+        },
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "card_create",
+      arguments: {
+        agentName: "scout-codex-reply",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      senderId: string;
+      currentDirectory: string;
+      card: {
+        agentId: string;
+        projectRoot: string;
+        createdById?: string;
+        inboxConversationId?: string;
+        returnAddress: { conversationId?: string };
+      };
+    };
+
+    expect(structured.senderId).toBe("scout.main.mini");
+    expect(structured.currentDirectory).toBe("/tmp/openscout-test");
+    expect(structured.card.agentId).toBe("scout-codex-reply.main.mini");
+    expect(structured.card.projectRoot).toBe("/tmp/openscout-test");
+    expect(structured.card.createdById).toBe("scout.main.mini");
+    expect(structured.card.inboxConversationId).toBe(
+      "dm.scout-codex-reply.main.mini.scout.main.mini",
+    );
+    expect(structured.card.returnAddress.conversationId).toBe(
+      "dm.scout-codex-reply.main.mini.scout.main.mini",
+    );
   });
 
   test("awaits explicit ask-by-id flights when requested", async () => {

@@ -991,6 +991,128 @@ describe("sendScoutMessage", () => {
       false,
     );
   }, 15000);
+
+  test("fails closed when send has no explicit destination", async () => {
+    useIsolatedOpenScoutHome();
+
+    const requests: Array<{ method: string; path: string }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      requests.push({ method: request.method, path: url.pathname });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ ok: true });
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: "hello without an addressee",
+      currentDirectory: process.cwd(),
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.routingError).toBe("missing_destination");
+    expect(result.invokedTargets).toEqual([]);
+    expect(result.unresolvedTargets).toEqual([]);
+    expect(requests.some((request) => request.path === "/v1/messages")).toBe(
+      false,
+    );
+    expect(
+      requests.some((request) => request.path === "/v1/conversations"),
+    ).toBe(false);
+  }, 15000);
+
+  test("fails closed when send mentions multiple agents without an explicit channel", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const talkieRoot = join(workspaceRoot, "talkie");
+    const hudsonRoot = join(workspaceRoot, "hudson");
+
+    mkdirSync(join(talkieRoot, ".git"), { recursive: true });
+    writeFileSync(join(talkieRoot, "AGENTS.md"), "# talkie\n", "utf8");
+    mkdirSync(join(hudsonRoot, ".git"), { recursive: true });
+    writeFileSync(join(hudsonRoot, "AGENTS.md"), "# hudson\n", "utf8");
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [workspaceRoot],
+        includeCurrentRepo: false,
+      },
+    });
+
+    const requests: Array<{ method: string; path: string }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      requests.push({ method: request.method, path: url.pathname });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/agents") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ ok: true });
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      body: "@talkie @hudson please review this",
+      currentDirectory: workspaceRoot,
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.routingError).toBe(
+      "multi_target_requires_explicit_channel",
+    );
+    expect(result.invokedTargets).toEqual([]);
+    expect(result.unresolvedTargets).toEqual([]);
+    expect(requests.some((request) => request.path === "/v1/messages")).toBe(
+      false,
+    );
+    expect(
+      requests.some((request) => request.path === "/v1/conversations"),
+    ).toBe(false);
+  }, 15000);
 });
 
 describe("watchScoutMessages", () => {
