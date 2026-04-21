@@ -171,7 +171,11 @@ export function createScoutControlPlaneServer(
     );
   };
   const handleTaskDetail = (c: Context) => {
-    const detail = queryWorkItemById(c.req.param("id"));
+    const id = c.req.param("id");
+    if (!id) {
+      return c.json({ error: "missing id" }, 400);
+    }
+    const detail = queryWorkItemById(id);
     return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
   };
   const handleCreateWork = async (c: Context) => {

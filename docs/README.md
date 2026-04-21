@@ -9,10 +9,12 @@ If you want the shortest path to understanding the project:
 1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
 2. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
 3. [`architecture.md`](./architecture.md) for the system-level control-plane model
-4. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
-5. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
-6. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
-7. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
+4. [`glossary.md`](./glossary.md) for the definitive Scout vocabulary
+5. [`a2a-alignment.md`](./a2a-alignment.md) for Scout's A2A positioning and term mapping
+6. [`agent-identity.md`](./agent-identity.md) for how agent names stay unambiguous
+7. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
+8. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
+9. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
 
 ## Current Orientation Docs
 
@@ -20,6 +22,8 @@ If you want the shortest path to understanding the project:
 
 - [`quickstart.md`](./quickstart.md) gives the first-success path and defines the main operator-facing terms
 - [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
+- [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
+- [`a2a-alignment.md`](./a2a-alignment.md) explains where Scout intentionally aligns with A2A and where it does not
 - [`agent-identity.md`](./agent-identity.md) explains canonical and minimal agent addresses
 - [`ask-scout.md`](./ask-scout.md) explains how a human reaches their agents through Scout
 - [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) explains the question vs work-item model
@@ -39,6 +43,8 @@ If you want the shortest path to understanding the project:
 ## Reading By Question
 
 - "What is OpenScout trying to be?" Start with [`../README.md`](../README.md) and [`architecture.md`](./architecture.md).
+- "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
+- "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
 - "How do I get to a first healthy run?" Start with [`quickstart.md`](./quickstart.md).
 - "How do I address or route to an agent?" Read [`agent-identity.md`](./agent-identity.md).
 - "How does work differ from conversation?" Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).

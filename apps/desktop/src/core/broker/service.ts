@@ -2,7 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import {
-  buildRelayReturnAddress,
+  buildScoutReturnAddress as buildScoutReturnAddressRecord,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -31,7 +31,7 @@ import {
   type WorkItemRecord,
   type WorkItemState,
   normalizeAgentSelectorSegment,
-  type RelayReturnAddress,
+  type ScoutReturnAddress,
 } from "@openscout/protocol";
 import {
   buildRelayAgentInstance,
@@ -459,7 +459,7 @@ function buildScoutReturnAddress(
     conversationId?: string;
     replyToMessageId?: string;
   } = {},
-): RelayReturnAddress {
+): ScoutReturnAddress {
   const agent = snapshot.agents[actorId];
   const actor = snapshot.actors[actorId];
   const endpoint = firstEndpointForActor(snapshot, actorId);
@@ -477,7 +477,7 @@ function buildScoutReturnAddress(
     metadataString(agent?.metadata, "projectRoot") ??
     metadataString(actor?.metadata, "projectRoot");
 
-  return buildRelayReturnAddress({
+  return buildScoutReturnAddressRecord({
     actorId,
     handle: agent?.handle?.trim() || actor?.handle?.trim() || actorId,
     displayName: agent?.displayName || actor?.displayName,

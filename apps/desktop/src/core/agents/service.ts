@@ -7,8 +7,8 @@ import {
   stopLocalAgent,
   type ScoutLocalAgentStatus,
 } from "@openscout/runtime/local-agents";
-import { buildRelayAgentCard } from "@openscout/runtime/scout-agent-cards";
-import type { AgentHarness, RelayAgentCard } from "@openscout/protocol";
+import { buildScoutAgentCard } from "@openscout/runtime/scout-agent-cards";
+import type { AgentHarness, ScoutAgentCard } from "@openscout/protocol";
 
 import {
   loadScoutBrokerContext,
@@ -67,7 +67,7 @@ export async function restartScoutAgents(input: {
   return restartAllLocalAgents(input);
 }
 
-export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Promise<RelayAgentCard> {
+export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Promise<ScoutAgentCard> {
   const status = await startLocalAgent({
     projectPath: input.projectPath,
     agentName: input.agentName,
@@ -100,7 +100,7 @@ export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Pr
     createdById = session.sourceId;
   }
 
-  return buildRelayAgentCard(binding, {
+  return buildScoutAgentCard(binding, {
     currentDirectory,
     createdById,
     brokerRegistered: syncResult?.brokerRegistered ?? false,

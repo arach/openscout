@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 import {
   assertValidCollaborationEvent,
   assertValidCollaborationRecord,
-  buildRelayReturnAddress,
+  buildScoutReturnAddress,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -2465,7 +2465,7 @@ async function executeLocalInvocation(
             invocationId: invocation.id,
             flightId: completedFlight.id,
             source: "broker",
-            returnAddress: buildRelayReturnAddress({
+            returnAddress: buildScoutReturnAddress({
               actorId: agent.id,
               handle: agent.handle?.trim() || agent.definitionId,
               displayName: agent.displayName,

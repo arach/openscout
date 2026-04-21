@@ -1,7 +1,37 @@
 import type { AgentEndpoint, AgentHarness } from "./actors.js";
 import type { MetadataMap, ScoutId } from "./common.js";
 
-export interface RelayReturnAddress {
+export interface ScoutAgentProvider {
+  organization?: string;
+  url?: string;
+}
+
+export interface ScoutAgentSkill {
+  id?: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  examples?: string[];
+}
+
+export interface ScoutSupportedInterface {
+  protocol: string;
+  transport?: string;
+  url?: string;
+  description?: string;
+}
+
+export interface ScoutSecurityScheme {
+  type: string;
+  description?: string;
+  name?: string;
+  in?: string;
+  scheme?: string;
+  bearerFormat?: string;
+  openIdConnectUrl?: string;
+}
+
+export interface ScoutReturnAddress {
   actorId: ScoutId;
   handle: string;
   displayName?: string;
@@ -15,11 +45,28 @@ export interface RelayReturnAddress {
   metadata?: MetadataMap;
 }
 
-export interface RelayAgentCard {
+/**
+ * Scout's local discovery and routing card for one addressable agent target.
+ *
+ * This is intentionally not the A2A wire-level `AgentCard`, but it overlaps
+ * with A2A on discovery-oriented fields such as provider, skills, interfaces,
+ * and security hints so Scout can project cleanly to adjacent protocols later.
+ */
+export interface ScoutAgentCard {
   id: ScoutId;
   agentId: ScoutId;
   definitionId: ScoutId;
   displayName: string;
+  description?: string;
+  provider?: ScoutAgentProvider;
+  version?: string;
+  documentationUrl?: string;
+  skills?: ScoutAgentSkill[];
+  defaultInputModes?: string[];
+  defaultOutputModes?: string[];
+  supportedInterfaces?: ScoutSupportedInterface[];
+  securitySchemes?: Record<string, ScoutSecurityScheme>;
+  securityRequirements?: string[][];
   handle: string;
   selector?: string;
   defaultSelector?: string;
@@ -34,12 +81,12 @@ export interface RelayAgentCard {
   createdById?: ScoutId;
   brokerRegistered: boolean;
   inboxConversationId?: ScoutId;
-  returnAddress: RelayReturnAddress;
+  returnAddress: ScoutReturnAddress;
   metadata?: MetadataMap;
 }
 
-export function buildRelayReturnAddress(input: RelayReturnAddress): RelayReturnAddress {
-  const next: RelayReturnAddress = {
+export function buildScoutReturnAddress(input: ScoutReturnAddress): ScoutReturnAddress {
+  const next: ScoutReturnAddress = {
     actorId: input.actorId,
     handle: input.handle.trim(),
   };

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildRelayReturnAddress } from "./scout-agent-card";
+import { buildScoutReturnAddress } from "./scout-agent-card";
 
-describe("buildRelayReturnAddress", () => {
+describe("buildScoutReturnAddress", () => {
   test("keeps only meaningful optional fields", () => {
-    const address = buildRelayReturnAddress({
+    const address = buildScoutReturnAddress({
       actorId: "dewey.node.workspace",
       handle: "dewey",
       displayName: "Dewey",
@@ -38,7 +38,7 @@ describe("buildRelayReturnAddress", () => {
   });
 
   test("drops empty optional fields", () => {
-    const address = buildRelayReturnAddress({
+    const address = buildScoutReturnAddress({
       actorId: "arc",
       handle: "arc",
       displayName: "  ",

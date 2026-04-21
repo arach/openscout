@@ -120,16 +120,19 @@ describe("askScoutQuestion", () => {
     });
 
     const requests: Array<{ method: string; path: string }> = [];
-    let postedMessage: {
-      conversationId: string;
-      audience?: { notify: string[]; reason: string };
-      metadata?: { relayChannel?: string; relayTarget?: string };
-    } | null = null;
-    let postedInvocation: {
-      requesterId: string;
-      conversationId: string;
-      metadata?: { relayChannel?: string; relayTarget?: string };
-    } | null = null;
+    const captured = {
+      postedMessage: null as {
+        conversationId: string;
+        audience?: { notify: string[]; reason: string };
+        metadata?: { relayChannel?: string; relayTarget?: string };
+      } | null,
+      postedInvocation: null as {
+        id: string;
+        requesterId: string;
+        conversationId: string;
+        metadata?: { relayChannel?: string; relayTarget?: string };
+      } | null,
+    };
     globalThis.fetch = (async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input, init);
@@ -159,8 +162,8 @@ describe("askScoutQuestion", () => {
         return jsonResponse({ ok: true });
       }
       if (request.method === "POST" && url.pathname === "/v1/messages") {
-        postedMessage = (await request.json()) as NonNullable<
-          typeof postedMessage
+        captured.postedMessage = (await request.json()) as NonNullable<
+          typeof captured.postedMessage
         >;
         return jsonResponse({ ok: true });
       }
@@ -172,8 +175,10 @@ describe("askScoutQuestion", () => {
           id: string;
           requesterId: string;
           targetAgentId: string;
+          conversationId: string;
+          metadata?: { relayChannel?: string; relayTarget?: string };
         };
-        postedInvocation = body as NonNullable<typeof postedInvocation>;
+        captured.postedInvocation = body as NonNullable<typeof captured.postedInvocation>;
         return jsonResponse({
           ok: true,
           flight: {
@@ -205,12 +210,12 @@ describe("askScoutQuestion", () => {
     expect(result.flight?.state).toBe("waking");
     expect(result.unresolvedTarget).toBeUndefined();
     expect(result.targetDiagnostic).toBeUndefined();
-    expect(postedMessage?.conversationId).toBe(result.conversationId);
-    expect(postedMessage?.audience?.reason).toBe("direct_message");
-    expect(postedMessage?.metadata?.relayChannel).toBe("dm");
-    expect(postedInvocation?.requesterId).toBe("operator");
-    expect(postedInvocation?.conversationId).toBe(result.conversationId);
-    expect(postedInvocation?.metadata?.relayChannel).toBe("dm");
+    expect(captured.postedMessage?.conversationId).toBe(result.conversationId);
+    expect(captured.postedMessage?.audience?.reason).toBe("direct_message");
+    expect(captured.postedMessage?.metadata?.relayChannel).toBe("dm");
+    expect(captured.postedInvocation?.requesterId).toBe("operator");
+    expect(captured.postedInvocation?.conversationId).toBe(result.conversationId);
+    expect(captured.postedInvocation?.metadata?.relayChannel).toBe("dm");
     expect(requests.some((request) => request.path === "/v1/agents")).toBe(
       true,
     );
@@ -349,25 +354,30 @@ describe("askScoutQuestion", () => {
       },
     });
 
-    let postedRecord: {
-      id: string;
-      kind: string;
-      title: string;
-      ownerId?: string;
-    } | null = null;
-    let postedEvent: {
-      recordId: string;
-      kind: string;
-      actorId: string;
-      summary?: string;
-    } | null = null;
-    let postedMessage: {
-      metadata?: { collaborationRecordId?: string };
-    } | null = null;
-    let postedInvocation: {
-      collaborationRecordId?: string;
-      metadata?: { collaborationRecordId?: string };
-    } | null = null;
+    const captured = {
+      postedRecord: null as {
+        id: string;
+        kind: string;
+        title: string;
+        ownerId?: string;
+      } | null,
+      postedEvent: null as {
+        recordId: string;
+        kind: string;
+        actorId: string;
+        summary?: string;
+      } | null,
+      postedMessage: null as {
+        metadata?: { collaborationRecordId?: string };
+      } | null,
+      postedInvocation: null as {
+        id: string;
+        requesterId: string;
+        targetAgentId: string;
+        collaborationRecordId?: string;
+        metadata?: { collaborationRecordId?: string };
+      } | null,
+    };
 
     globalThis.fetch = (async (input, init) => {
       const request =
@@ -404,21 +414,21 @@ describe("askScoutQuestion", () => {
         request.method === "POST" &&
         url.pathname === "/v1/collaboration/records"
       ) {
-        postedRecord = (await request.json()) as NonNullable<
-          typeof postedRecord
+        captured.postedRecord = (await request.json()) as NonNullable<
+          typeof captured.postedRecord
         >;
-        return jsonResponse({ ok: true, recordId: postedRecord.id });
+        return jsonResponse({ ok: true, recordId: captured.postedRecord.id });
       }
       if (
         request.method === "POST" &&
         url.pathname === "/v1/collaboration/events"
       ) {
-        postedEvent = (await request.json()) as NonNullable<typeof postedEvent>;
-        return jsonResponse({ ok: true, eventId: postedEvent.recordId });
+        captured.postedEvent = (await request.json()) as NonNullable<typeof captured.postedEvent>;
+        return jsonResponse({ ok: true, eventId: captured.postedEvent.recordId });
       }
       if (request.method === "POST" && url.pathname === "/v1/messages") {
-        postedMessage = (await request.json()) as NonNullable<
-          typeof postedMessage
+        captured.postedMessage = (await request.json()) as NonNullable<
+          typeof captured.postedMessage
         >;
         return jsonResponse({ ok: true });
       }
@@ -430,7 +440,7 @@ describe("askScoutQuestion", () => {
           collaborationRecordId?: string;
           metadata?: { collaborationRecordId?: string };
         };
-        postedInvocation = body as NonNullable<typeof postedInvocation>;
+        captured.postedInvocation = body as NonNullable<typeof captured.postedInvocation>;
         return jsonResponse({
           ok: true,
           flight: {
@@ -460,15 +470,15 @@ describe("askScoutQuestion", () => {
     expect(result.usedBroker).toBe(true);
     expect(result.workItem?.id.startsWith("work-")).toBe(true);
     expect(result.workItem?.title).toBe("Build the talkie feature");
-    expect(postedRecord?.kind).toBe("work_item");
-    expect(postedRecord?.ownerId?.startsWith("talkie")).toBe(true);
-    expect(postedEvent?.recordId).toBe(result.workItem?.id);
-    expect(postedEvent?.kind).toBe("created");
-    expect(postedMessage?.metadata?.collaborationRecordId).toBe(
+    expect(captured.postedRecord?.kind).toBe("work_item");
+    expect(captured.postedRecord?.ownerId?.startsWith("talkie")).toBe(true);
+    expect(captured.postedEvent?.recordId).toBe(result.workItem?.id);
+    expect(captured.postedEvent?.kind).toBe("created");
+    expect(captured.postedMessage?.metadata?.collaborationRecordId).toBe(
       result.workItem?.id,
     );
-    expect(postedInvocation?.collaborationRecordId).toBe(result.workItem?.id);
-    expect(postedInvocation?.metadata?.collaborationRecordId).toBe(
+    expect(captured.postedInvocation?.collaborationRecordId).toBe(result.workItem?.id);
+    expect(captured.postedInvocation?.metadata?.collaborationRecordId).toBe(
       result.workItem?.id,
     );
   }, 15000);
@@ -478,7 +488,30 @@ describe("updateScoutWorkItem", () => {
   test("updates an existing work item and appends a collaboration event", async () => {
     useIsolatedOpenScoutHome();
 
-    const snapshot = {
+    const snapshot: {
+      actors: Record<string, unknown>;
+      agents: Record<string, unknown>;
+      endpoints: Record<string, unknown>;
+      conversations: Record<string, unknown>;
+      messages: Record<string, unknown>;
+      flights: Record<string, unknown>;
+      collaborationRecords: Record<string, {
+        id: string;
+        kind: string;
+        title: string;
+        summary?: string;
+        state: string;
+        acceptanceState: string;
+        createdById?: string;
+        ownerId?: string;
+        nextMoveOwnerId?: string;
+        requestedById?: string;
+        conversationId?: string;
+        createdAt: number;
+        updatedAt: number;
+        reviewRequestedAt?: number;
+      }>;
+    } = {
       actors: {},
       agents: {},
       endpoints: {},
@@ -503,12 +536,25 @@ describe("updateScoutWorkItem", () => {
         },
       },
     };
-    let postedRecord: {
-      state: string;
-      summary?: string;
-      reviewRequestedAt?: number;
-    } | null = null;
-    let postedEvent: { kind: string; summary?: string } | null = null;
+    const captured = {
+      postedRecord: null as {
+        id: string;
+        kind: string;
+        title: string;
+        summary?: string;
+        state: string;
+        acceptanceState: string;
+        createdById?: string;
+        ownerId?: string;
+        nextMoveOwnerId?: string;
+        requestedById?: string;
+        conversationId?: string;
+        createdAt: number;
+        updatedAt: number;
+        reviewRequestedAt?: number;
+      } | null,
+      postedEvent: null as { kind: string; summary?: string } | null,
+    };
 
     globalThis.fetch = (async (input, init) => {
       const request =
@@ -528,9 +574,8 @@ describe("updateScoutWorkItem", () => {
         request.method === "POST" &&
         url.pathname === "/v1/collaboration/records"
       ) {
-        const body =
-          (await request.json()) as (typeof snapshot.collaborationRecords)["work-1"];
-        postedRecord = body;
+        const body = (await request.json()) as NonNullable<typeof captured.postedRecord>;
+        captured.postedRecord = body;
         snapshot.collaborationRecords["work-1"] = body;
         return jsonResponse({ ok: true, recordId: body.id });
       }
@@ -538,7 +583,7 @@ describe("updateScoutWorkItem", () => {
         request.method === "POST" &&
         url.pathname === "/v1/collaboration/events"
       ) {
-        postedEvent = (await request.json()) as NonNullable<typeof postedEvent>;
+        captured.postedEvent = (await request.json()) as NonNullable<typeof captured.postedEvent>;
         return jsonResponse({ ok: true, eventId: "evt-1" });
       }
 
@@ -555,11 +600,11 @@ describe("updateScoutWorkItem", () => {
     expect(updated?.id).toBe("work-1");
     expect(updated?.state).toBe("review");
     expect(updated?.summary).toBe("Ready for operator review");
-    expect(postedRecord?.state).toBe("review");
-    expect(postedRecord?.summary).toBe("Ready for operator review");
-    expect(typeof postedRecord?.reviewRequestedAt).toBe("number");
-    expect(postedEvent?.kind).toBe("review_requested");
-    expect(postedEvent?.summary).toBe("Ready for operator review");
+    expect(captured.postedRecord?.state).toBe("review");
+    expect(captured.postedRecord?.summary).toBe("Ready for operator review");
+    expect(typeof captured.postedRecord?.reviewRequestedAt).toBe("number");
+    expect(captured.postedEvent?.kind).toBe("review_requested");
+    expect(captured.postedEvent?.summary).toBe("Ready for operator review");
   });
 });
 
@@ -646,11 +691,14 @@ describe("sendScoutMessage", () => {
     });
 
     const requests: Array<{ method: string; path: string }> = [];
-    let postedMessage: {
-      conversationId: string;
-      audience?: { notify: string[]; reason: string };
-      metadata?: { relayChannel?: string };
-    } | null = null;
+    const captured = {
+      postedMessage: null as {
+        id: string;
+        conversationId: string;
+        audience?: { notify: string[]; reason: string };
+        metadata?: { relayChannel?: string };
+      } | null,
+    };
     const snapshot = {
       actors: {} as Record<string, unknown>,
       agents: {} as Record<string, unknown>,
@@ -691,8 +739,8 @@ describe("sendScoutMessage", () => {
         return jsonResponse({ ok: true });
       }
       if (request.method === "POST" && url.pathname === "/v1/messages") {
-        const body = (await request.json()) as { id: string };
-        postedMessage = body as NonNullable<typeof postedMessage>;
+        const body = (await request.json()) as NonNullable<typeof captured.postedMessage>;
+        captured.postedMessage = body as NonNullable<typeof captured.postedMessage>;
         snapshot.messages[body.id] = body;
         return jsonResponse({ ok: true });
       }
@@ -711,9 +759,9 @@ describe("sendScoutMessage", () => {
     expect(result.messageId).toBeTruthy();
     expect(result.unresolvedTargets).toEqual([]);
     expect(result.invokedTargets).toHaveLength(1);
-    expect(postedMessage?.conversationId).toBe(result.conversationId);
-    expect(postedMessage?.audience?.reason).toBe("direct_message");
-    expect(postedMessage?.metadata?.relayChannel).toBe("dm");
+    expect(captured.postedMessage?.conversationId).toBe(result.conversationId);
+    expect(captured.postedMessage?.audience?.reason).toBe("direct_message");
+    expect(captured.postedMessage?.metadata?.relayChannel).toBe("dm");
     expect(requests.some((request) => request.path === "/v1/messages")).toBe(
       true,
     );

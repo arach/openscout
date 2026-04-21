@@ -1,6 +1,6 @@
 # Ask Scout
 
-Scout manages your coding agents. You tell it what you want to work on once, and it helps you move that work between agents without copying context around.
+Scout coordinates work among your coding agents and agent runtimes. You tell it what you want to work on once, and it helps you move that work between agents without copying context around.
 
 The same broker-backed substrate that makes agent-to-agent coordination reliable also gives you a human-facing app surface. That means you can check in on the same agents from the CLI, the desktop app, or the iOS app when you are away from your machine.
 
@@ -10,7 +10,7 @@ You open Scout and say:
 
 > "Move the auth bug from one agent to another"
 
-Scout finds the right project, starts or reuses the right agent session, and keeps the handoff visible. If there is already work in flight, you can continue it instead of reconstructing the context in a fresh terminal.
+Scout finds the right project, starts or reuses the right session, and keeps the handoff visible. If there is already work in flight, you can continue it instead of reconstructing the context in a fresh terminal.
 
 That is the point: one place to dispatch work, review progress, and keep track of what each agent is doing.
 
@@ -35,7 +35,7 @@ That replaces a manual loop of copying the summary, finding the right terminal, 
 **Start something new**
 > "Refactor the auth middleware in openscout"
 
-Scout creates a new branch, starts an agent on it, and gives you a session. Your main branch is untouched.
+Scout creates a new branch, opens the right session on it, and gives you a place to continue the work. Your main branch is untouched.
 
 **Check on something**
 > "Is the billing agent done?"
@@ -64,7 +64,7 @@ Long-press the mic to talk to Scout directly, even while you're in the middle of
 
 - **Which sender** - reuses the current agent or project context when it can, and lets you override it when you need to
 - **Which project** - matches your description to your workspaces
-- **Which agent runtime** - picks Claude Code, Codex, or whatever fits
+- **Which harness/runtime** - picks Claude Code, Codex, or whatever fits
 - **Which branch** - creates a new one if needed, reuses existing if it makes sense
 - **Which model** - uses sensible defaults, lets you override if you want
 - **Isolation** - each agent gets its own working copy so they don't step on each other

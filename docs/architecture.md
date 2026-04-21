@@ -8,13 +8,15 @@ Read this after the repo [`README.md`](../README.md) if you are orienting to the
 
 Scout is a local-first control plane for orchestrating AI agents across harnesses, machines, and interfaces.
 
+For the exact meanings of Scout's core nouns, read [`glossary.md`](./glossary.md). For the current relationship between Scout and A2A, read [`a2a-alignment.md`](./a2a-alignment.md).
+
 Remember these three things:
 
 - **Broker**: the local daemon that stores state, routes messages, and acts as the source of truth.
 - **Protocol**: the shared language for agent identities, records, and requests.
 - **Runtime**: the part that starts, stops, and health-checks agent sessions on a given harness.
 
-It does not replace Claude Code, Codex, or any other agent tool. It is the substrate: the layer where agents get registered, addressed, observed, and composed, regardless of which harness runs them or which machine they live on. A harness is just the agent runner and transport wrapper for a specific tool.
+It does not replace Claude Code, Codex, or any other agent tool. It is the substrate: the layer where agents get discovered, addressed, observed, and composed, regardless of which harness runs them or which machine they live on. A harness is just the agent runner and transport wrapper for a specific tool. The agent itself may live outside Scout; what Scout owns is the local routing, binding, session, and durable coordination state around that agent.
 
 In practice, the architecture is aiming for three stable outcomes:
 
@@ -62,7 +64,7 @@ One concrete example: `scout ask --to codex "review the auth module"` sends an a
 |-------|------|------------|
 | **Protocol** | Shared type system and address grammar | Defines the agent identity grammar, message records, invocation requests, flight records, collaboration contracts, and bindings |
 | **Broker** | Local message bus and state store | SQLite-backed daemon that owns registration, routing, threading, dispatch, HTTP reads/writes, and SSE updates |
-| **Runtime** | Agent lifecycle management | Starts, stops, and health-checks agents across harnesses. Manages tmux sessions, system prompts, and transport adapters |
+| **Runtime** | Session and runtime lifecycle management | Starts, resumes, stops, and health-checks sessions across harnesses. Manages tmux sessions, system prompts, and transport adapters |
 | **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` -- resolves short names, infers sender identity, and handles mention routing |
 | **Surfaces** | Views into broker state | Desktop, web, iOS, and terminal views. They read from the broker; none of them own agent state |
 
@@ -105,22 +107,22 @@ The broker owns all expensive reads — runtime health, agent liveness, tmux ses
 
 Every surface reads these snapshots first, using stale-while-revalidate where appropriate. Direct filesystem or subprocess probing is limited to bootstrap and recovery paths when the broker is unavailable.
 
-## Agent Lifecycle
+## Addressing And Session Lifecycle
 
 ![Agent lifecycle](arc:agent-lifecycle)
 
-1. **Register.** Create an override entry in the relay-agents file, binding a project path and branch to an agent identity.
+1. **Bind.** Create or refresh a Scout-local binding from a project path and branch to an addressable agent target.
 
-2. **Start.** `scout up` launches the harness session with a generated system prompt that includes the collaboration contract.
+2. **Start or attach.** `scout up` launches or resumes the harness session Scout should use for that target, with a generated system prompt that includes the collaboration contract when Scout owns the launch path.
 
 3. **Route.** Messages mentioning `@agent` hit the broker, which resolves the name, finds the endpoint, and dispatches.
 
 4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with timeout and retry semantics.
 
-5. **Stop.** `scout down` terminates the session and marks the agent offline.
+5. **Stop.** `scout down` terminates the local session and marks the endpoint offline.
 
 ```bash
-scout up hudson          # register + start
+scout up hudson          # bind + start
 scout send "@hudson hi"  # route + deliver
 scout ask --to hudson "..."  # route + invoke (tracks flight)
 scout down hudson        # stop
@@ -163,4 +165,4 @@ scout pair --relay url  # use an external relay
 
 ## What Scout Is Not
 
-Scout is not a framework for building agents. Agents are just Claude Code or Codex sessions with a system prompt. It's not a cloud service — everything runs locally. And it's not a replacement for any single agent tool. It's the connective tissue between them.
+Scout is not a framework for building agents. It is not a cloud service. And it is not a replacement for any single agent tool. It is the connective tissue between agent runtimes, harnesses, and operator surfaces.

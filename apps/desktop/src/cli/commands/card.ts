@@ -8,7 +8,7 @@ import { ScoutCliError } from "../errors.ts";
 import { parseCardCreateCommandOptions } from "../options.ts";
 import { createScoutAgentCard } from "../../core/agents/service.ts";
 import { parseScoutHarness, resolveScoutAgentName } from "../../core/broker/service.ts";
-import { renderRelayAgentCard } from "../../ui/terminal/cards.ts";
+import { renderScoutAgentCard } from "../../ui/terminal/cards.ts";
 
 function promptWithDefault(question: string, defaultValue: string): Promise<string> {
   return new Promise((resolve) => {
@@ -77,5 +77,5 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     createdById: resolveScoutAgentName(options.requesterId),
   });
 
-  context.output.writeValue(card, renderRelayAgentCard);
+  context.output.writeValue(card, renderScoutAgentCard);
 }

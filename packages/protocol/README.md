@@ -4,6 +4,10 @@
 
 This package is intentionally not named `relay`. Relay is now a surface and compatibility layer. The control protocol is the canonical model underneath it.
 
+For the definitive Scout glossary, see [docs/glossary.md](../../docs/glossary.md). For Scout's current A2A posture and vocabulary mapping, see [docs/a2a-alignment.md](../../docs/a2a-alignment.md).
+
+Scout is aware of adjacent standards such as A2A, but this package is not trying to become an A2A clone. The goal is clean correspondence without giving up Scout-specific mechanics such as broker-owned routing, `invocation` plus `flight`, or the `question` / `work_item` collaboration model.
+
 ## What Makes This A Good Local Communication Protocol
 
 The target is a protocol that is:
@@ -31,6 +35,8 @@ The protocol keeps a small set of nouns and gives each one a single job:
 - `delivery`: a transport-specific fan-out intent for a message or invocation
 - `binding`: a mapping from an OpenScout conversation to an external thread or channel
 - `event`: an append-only fact emitted whenever one of the durable records changes
+
+For discovery, Scout also uses a `ScoutAgentCard`: a local discovery and routing card that overlaps intentionally with A2A-style discovery fields such as provider, skills, supported interfaces, and security hints without claiming to be the A2A wire-level `AgentCard`.
 
 ## Emerging Collaboration Model
 

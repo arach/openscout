@@ -1,6 +1,6 @@
-import type { RelayAgentCard } from "@openscout/protocol";
+import type { ScoutAgentCard } from "@openscout/protocol";
 
-export function renderRelayAgentCard(card: RelayAgentCard): string {
+export function renderScoutAgentCard(card: ScoutAgentCard): string {
   const lines = [
     `${card.displayName} [@${card.handle}]`,
     `Agent: ${card.agentId}`,
@@ -8,6 +8,9 @@ export function renderRelayAgentCard(card: RelayAgentCard): string {
     `Runtime: ${card.harness} via ${card.transport}${card.sessionId ? ` (${card.sessionId})` : ""}`,
   ];
 
+  if (card.description) {
+    lines.push(`About: ${card.description}`);
+  }
   if (card.selector) {
     lines.push(`Selector: ${card.selector}`);
   }
@@ -23,6 +26,12 @@ export function renderRelayAgentCard(card: RelayAgentCard): string {
   }
   if (card.returnAddress.conversationId) {
     lines.push(`Reply-To: ${card.returnAddress.conversationId}`);
+  }
+  if (card.skills && card.skills.length > 0) {
+    lines.push(`Skills: ${card.skills.map((skill) => skill.name).join(", ")}`);
+  }
+  if (card.documentationUrl) {
+    lines.push(`Docs: ${card.documentationUrl}`);
   }
 
   return lines.join("\n");

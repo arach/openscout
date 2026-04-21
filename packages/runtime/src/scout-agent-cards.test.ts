@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { LocalAgentBinding } from "./local-agents";
-import { buildRelayAgentCard } from "./scout-agent-cards";
+import { buildScoutAgentCard } from "./scout-agent-cards";
 
-describe("buildRelayAgentCard", () => {
+describe("buildScoutAgentCard", () => {
   test("builds a usable card from a local agent binding", () => {
     const binding: LocalAgentBinding = {
       actor: {
@@ -33,6 +33,17 @@ describe("buildRelayAgentCard", () => {
           project: "Dewey",
           projectRoot: "/Users/arach/dev/dewey",
           branch: "main",
+          description: "General coding assistant for the Dewey workspace.",
+          version: "2026.04",
+          documentationUrl: "https://example.com/dewey",
+          skills: [
+            {
+              name: "review",
+              description: "Reviews patches in the Dewey workspace.",
+            },
+          ],
+          defaultInputModes: ["text"],
+          defaultOutputModes: ["text"],
         },
       },
       endpoint: {
@@ -48,7 +59,7 @@ describe("buildRelayAgentCard", () => {
       },
     };
 
-    const card = buildRelayAgentCard(binding, {
+    const card = buildScoutAgentCard(binding, {
       currentDirectory: "/Users/arach/dev/dewey/worktrees/feature-x",
       createdById: "arc.node.workspace",
       brokerRegistered: true,
@@ -62,5 +73,8 @@ describe("buildRelayAgentCard", () => {
     expect(card.returnAddress.selector).toBe("@dewey.node.workspace");
     expect(card.returnAddress.conversationId).toBe("dm.arc.node.workspace.dewey.node.workspace");
     expect(card.brokerRegistered).toBe(true);
+    expect(card.description).toBe("General coding assistant for the Dewey workspace.");
+    expect(card.skills?.[0]?.name).toBe("review");
+    expect(card.defaultInputModes).toEqual(["text"]);
   });
 });
