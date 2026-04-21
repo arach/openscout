@@ -95,6 +95,9 @@ The support directory is now organized as:
     └── agents/
 ```
 
+`relay-agents.json` remains the compatibility filename for machine-local agent
+registry entries.
+
 ## Read Next
 
 - [`docs/README.md`](./docs/README.md) for the docs map and reading order

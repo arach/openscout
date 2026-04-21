@@ -17,7 +17,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "send", summary: "Post a broker-backed message" },
   { name: "speak", summary: "Send and speak aloud via TTS" },
   { name: "ask", summary: "Ask an agent and wait for the answer" },
-  { name: "card", summary: "Create a dedicated relay agent card" },
+  { name: "card", summary: "Create a dedicated Scout agent card" },
   { name: "watch", summary: "Stream broker messages" },
   { name: "who", summary: "List agents and last activity" },
   { name: "latest", summary: "Show the latest Scout activity" },

@@ -30,7 +30,7 @@ scout doctor
 `scout setup` is expected to:
 
 - create `~/Library/Application Support/OpenScout/settings.json`
-- create `~/Library/Application Support/OpenScout/relay-agents.json`
+- create `~/Library/Application Support/OpenScout/relay-agents.json` for compatibility with the existing machine-local agent registry
 - create `.openscout/project.json` for the current repo when needed
 - discover workspace roots and infer project-backed agents
 - install the broker launch agent
@@ -57,7 +57,7 @@ The runtime already has a layered discovery model:
 
 - machine-local settings declare workspace roots
 - repo-local `.openscout/project.json` manifests provide explicit project-backed agent definitions
-- machine-local `relay-agents.json` can override or add manual agents
+- machine-local `relay-agents.json` remains the compatibility registry and can override or add manual agents
 - nearby repo markers such as `AGENTS.md`, `CLAUDE.md`, `.agents`, and `.claude` help infer the preferred harness
 
 That gives OpenScout a way to map "which agents exist on this machine?" without making every repo hand-configure everything from scratch.

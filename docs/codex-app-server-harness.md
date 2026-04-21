@@ -1,12 +1,12 @@
-# Codex App-Server Harness For Relay
+# Codex App-Server Harness For Scout
 
 ## Thesis
 
-Relay should keep its current broker semantics as the canonical model.
+Scout should keep its current broker semantics as the canonical model.
 
 The improvement is lower in the stack: add a harness-session plane for long-running agent runtimes, then map those sessions back into the existing `message`, `invocation`, and `flight` model.
 
-This lets OpenScout reuse the strongest part of the pairing runtime without replacing Relay's richer collaboration semantics.
+This lets OpenScout reuse the strongest part of the pairing runtime without replacing Scout's richer collaboration semantics.
 
 ## What We Are Borrowing
 
@@ -49,7 +49,7 @@ This transport means:
 
 ### Session Model
 
-For each Codex-backed relay agent:
+For each Codex-backed Scout agent:
 
 1. Start or reuse one `codex app-server` child process.
 2. Initialize the JSON-RPC connection once.
@@ -62,15 +62,15 @@ The runtime should persist the Codex thread id in the agent runtime directory so
 
 ### Prompting
 
-Codex app-server agents should no longer be told to send their final reply through relay shell commands.
+Codex app-server agents should no longer be told to send their final reply through Scout shell commands.
 
 They should instead be told:
 
 - they are invoked directly by the OpenScout broker
 - their final assistant message becomes the broker-visible reply
-- they may still inspect broker context with relay commands if they need surrounding history
+- they may still inspect broker context with Scout commands if they need surrounding history
 
-That preserves current Relay semantics while removing the brittle `[ask:<id>]` tagging loop.
+That preserves current Scout semantics while removing the brittle `[ask:<id>]` tagging loop.
 
 ## Why This Is Better
 
@@ -81,7 +81,7 @@ Compared with the current Codex path:
 - no broker polling for tagged replies
 - no fake tmux transport for a non-tmux runtime
 
-Compared with replacing Relay semantics wholesale:
+Compared with replacing Scout semantics wholesale:
 
 - no downgrade in collaboration richness
 - no duplicate source of truth
@@ -90,7 +90,7 @@ Compared with replacing Relay semantics wholesale:
 ## First Implementation Slice
 
 1. Add `codex_app_server` to protocol and runtime endpoint transport unions.
-2. Derive Codex relay agents to that transport instead of `tmux`.
+2. Derive Codex-backed Scout agents to that transport instead of `tmux`.
 3. Add a persistent `CodexAppServerSessionManager` in `@openscout/runtime`.
 4. Resume or create a Codex thread per agent and persist its thread id locally.
 5. Route broker invocations for Codex agents through `turn/start`.

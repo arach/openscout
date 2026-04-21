@@ -85,7 +85,7 @@ export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Pr
   const binding = syncResult?.binding
     ?? await inferLocalAgentBinding(status.agentId, broker?.node.id ?? process.env.OPENSCOUT_NODE_ID ?? "local");
   if (!binding) {
-    throw new Error(`Agent ${status.agentId} did not expose a relay binding.`);
+    throw new Error(`Agent ${status.agentId} did not expose an addressable binding.`);
   }
 
   let inboxConversationId: string | undefined;

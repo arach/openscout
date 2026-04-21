@@ -24,10 +24,10 @@ scout @dewey can you review our docs?
 `scout setup` is the canonical onboarding entry point. It creates or updates:
 
 - `~/Library/Application Support/OpenScout/settings.json`
-- `~/Library/Application Support/OpenScout/relay-agents.json`
+- `~/Library/Application Support/OpenScout/relay-agents.json` for compatibility with the existing machine-local agent registry
 - `.openscout/project.json` for the current repo when needed
 
-It also discovers relay agents from your configured workspace roots, installs the broker service, and attempts to start it.
+It also discovers local and project-backed agents from your configured workspace roots, installs the broker service, and attempts to start it.
 
 `scout init` writes `~/.openscout/config.json` with the broker, web, and pairing ports that every Scout component reads. Run it once after install, or with `--force` to overwrite.
 
@@ -45,7 +45,7 @@ scout --as vox --timeout 900 @talkie take another pass on the keyboard port
 same default sender identity. Most of the time you should let Scout infer it
 from your current context. For agent-to-agent delegation, check `scout whoami`
 first and use `--as` whenever the acting project agent must be preserved
-explicitly across shells, hosts, or relays.
+explicitly across shells, hosts, or bridges.
 
 `scout watch` follows a conversation or channel; it does not choose a sender.
 
@@ -108,7 +108,7 @@ Agent identity has five dimensions: `definitionId`, workspace qualifier, `profil
 Short `@name` only resolves when exactly one matching agent is available from the current context. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
 
 ```bash
-scout @vox.harness:codex relay from hudson: please retry the build
+scout @vox.harness:codex message from hudson: please retry the build
 scout ask --to vox.harness:claude "what did the reviewer flag?"
 scout @arc.profile:reviewer take another pass
 scout @vox.harness:codex.node:mini run locally on mini
