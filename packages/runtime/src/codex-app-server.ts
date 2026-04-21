@@ -2,13 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 
-import type {
-  ActionBlock,
-  BlockState,
-  ReasoningBlock,
-  SessionState,
-  TextBlock,
-  TurnState,
+import {
+  buildScoutMcpCodexLaunchArgs,
+  type ActionBlock,
+  type BlockState,
+  type ReasoningBlock,
+  type SessionState,
+  type TextBlock,
+  type TurnState,
 } from "@openscout/agent-sessions";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 
@@ -1369,13 +1370,20 @@ class CodexAppServerSession {
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
 
     const codexExecutable = await resolveCodexExecutable();
-    const child = spawn(codexExecutable, ["app-server"], {
-      cwd: this.options.cwd,
-      env: buildManagedAgentEnvironment({
-        agentName: this.options.agentName,
+    const env = buildManagedAgentEnvironment({
+      agentName: this.options.agentName,
+      currentDirectory: this.options.cwd,
+      baseEnv: process.env,
+    });
+    const child = spawn(codexExecutable, [
+      "app-server",
+      ...buildScoutMcpCodexLaunchArgs({
         currentDirectory: this.options.cwd,
-        baseEnv: process.env,
+        env,
       }),
+    ], {
+      cwd: this.options.cwd,
+      env,
       stdio: ["pipe", "pipe", "pipe"],
     });
 

@@ -160,6 +160,15 @@ struct OpenScoutToolchain {
         if let workspaceRoot = workspaceContextRoot() {
             env["OPENSCOUT_SETUP_CWD"] = workspaceRoot.path
         }
+        if let scoutCLI = resolveExecutable(
+            envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"],
+            names: ["scout"]
+        ) {
+            env["OPENSCOUT_CLI_BIN"] = scoutCLI.path
+        }
+        if let bun = resolveBunExecutable() {
+            env["OPENSCOUT_BUN_BIN"] = bun.path
+        }
         return env
     }
 

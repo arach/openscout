@@ -69,12 +69,12 @@ const relayViews: RelayView[] = [
     id: "agents",
     icon: Bot,
     label: "Agents",
-    title: "Agent overview",
+    title: "Agent detail",
     description:
-      "Roster, open threads, live session output, and operational snapshot for a specific Relay agent.",
-    focus: "Shows how Relay turns agent state into an inspectable working surface.",
+      "Identity, context, capabilities, and active work for any agent on the mesh. See what's in flight and jump straight into the conversation.",
+    focus: "Shows how Scout turns agent state into an inspectable working surface.",
     src: "/relay/agents-overview.png",
-    alt: "OpenScout Relay agent overview captured March 31, 2026 at 11:07:25 AM",
+    alt: "Scout agent detail view showing Hudson with context, capabilities, and active work.",
   },
   {
     id: "sessions",

@@ -88,3 +88,7 @@ Optional overrides:
 - `OPENSCOUT_SETUP_CWD`
 
 `OPENSCOUT_PAIR_SUPERVISOR_BIN` is useful when you want native pairing control outside the repo checkout.
+
+When the menu app launches `scout server start`, it forwards `OPENSCOUT_CLI_BIN`,
+`OPENSCOUT_BUN_BIN`, and `OPENSCOUT_SETUP_CWD` so downstream pairing and Codex
+sessions can bootstrap Scout MCP without depending on the user's interactive shell.

@@ -3,6 +3,7 @@ import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "n
 import { delimiter, join } from "node:path";
 import { homedir } from "node:os";
 
+import { buildScoutMcpCodexLaunchArgs } from "../codex-launch-config";
 import { BaseAdapter } from "../protocol/adapter";
 import type { AdapterConfig } from "../protocol/adapter";
 import type {
@@ -509,12 +510,20 @@ export class CodexAdapter extends BaseAdapter {
     await writeFile(join(options.runtimeDirectory, "prompt.txt"), options.systemPrompt);
 
     const codexExecutable = await resolveCodexExecutable();
-    const child = spawn(codexExecutable, ["app-server", ...options.launchArgs], {
+    const childEnv = {
+      ...process.env,
+      ...(this.config.env ?? {}),
+    };
+    const child = spawn(codexExecutable, [
+      "app-server",
+      ...buildScoutMcpCodexLaunchArgs({
+        currentDirectory: options.cwd,
+        env: childEnv,
+      }),
+      ...options.launchArgs,
+    ], {
       cwd: options.cwd,
-      env: {
-        ...process.env,
-        ...(this.config.env ?? {}),
-      },
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
     });
 

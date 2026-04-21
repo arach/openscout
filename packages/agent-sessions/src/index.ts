@@ -21,3 +21,4 @@ export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-co
 export { createAdapter as createOpencodeAdapter } from "./adapters/opencode";
 export { createAdapter as createPiAdapter } from "./adapters/pi";
 export { createAdapter as createEchoAdapter } from "./adapters/echo";
+export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config";
