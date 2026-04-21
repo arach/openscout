@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.50",
+  "version": "0.2.51",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -57,11 +57,6 @@
       "bun": "./src/scout-agent-cards.ts",
       "default": "./dist/scout-agent-cards.js"
     },
-    "./relay-agent-cards": {
-      "types": "./src/relay-agent-cards.ts",
-      "bun": "./src/relay-agent-cards.ts",
-      "default": "./dist/relay-agent-cards.js"
-    },
     "./mesh/tailscale": {
       "types": "./src/tailscale.ts",
       "bun": "./src/tailscale.ts",
@@ -100,8 +95,8 @@
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
-    "@openscout/agent-sessions": "0.2.50",
-    "@openscout/protocol": "0.2.50",
+    "@openscout/agent-sessions": "0.2.51",
+    "@openscout/protocol": "0.2.51",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1"
   },
