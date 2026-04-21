@@ -21,11 +21,13 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
-    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper');
+    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "@<agent> your message"');
     expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read --as shaper');
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
+    expect(prompt).toContain("Keep one-to-one handoffs in a DM");
+    expect(prompt).toContain("Do not use channel.shared for ordinary delegation or follow-up");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
   });
 
@@ -64,9 +66,10 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Base path: /Users/arach/dev");
     expect(prompt).toContain("Workspace root: /Users/arach/dev/shaper");
     expect(prompt).toContain(`Broker URL: ${DEFAULT_BROKER_URL}`);
-    expect(prompt).toContain("bun relay send --as shaper");
+    expect(prompt).toContain('bun relay send --as shaper "@<agent> your message"');
     expect(prompt).toContain('bun relay ask --to <agent> --as shaper "your request"');
     expect(prompt).toContain("bun relay read --as shaper");
+    expect(prompt).toContain("Keep one-to-one handoffs in a DM");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
     expect(prompt).toContain("Flag: broker-ready");
   });

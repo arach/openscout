@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -10,6 +10,7 @@ import {
   type AgentState,
 } from "@openscout/protocol";
 import {
+  findNearestProjectRoot,
   loadResolvedRelayAgents,
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
@@ -326,6 +327,92 @@ function normalizeSearchValue(value: string | null | undefined): string {
   return value?.trim().toLowerCase().replace(/^@+/, "") ?? "";
 }
 
+function isSameProjectRoot(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  return resolve(left) === resolve(right);
+}
+
+function matchesObviousProjectLocalAlias(
+  value: string | null | undefined,
+  query: string,
+): boolean {
+  const normalized = normalizeSearchValue(value);
+  if (!normalized || !query) {
+    return false;
+  }
+  return normalized === query
+    || normalized.startsWith(`${query}-`)
+    || normalized.startsWith(`${query}.`)
+    || normalized.startsWith(`${query}_`)
+    || normalized.startsWith(`${query} `);
+}
+
+function scoreProjectLocalCandidate(
+  candidate: ScoutMcpAgentCandidate,
+  currentProjectRoot: string,
+  query: string,
+): number {
+  if (!isSameProjectRoot(candidate.projectRoot, currentProjectRoot)) {
+    return -1;
+  }
+
+  const values = [
+    candidate.defaultLabel,
+    candidate.label,
+    candidate.handle,
+    candidate.selector,
+    candidate.defaultSelector,
+    candidate.displayName,
+    candidate.agentId,
+  ];
+  const matches = values.filter((value) =>
+    matchesObviousProjectLocalAlias(value, query),
+  );
+  if (matches.length === 0) {
+    return -1;
+  }
+
+  return 1000 + rankState(candidate.state) * 20 + (candidate.routable ? 50 : 0);
+}
+
+async function findPreferredProjectLocalCandidate(
+  candidates: ScoutMcpAgentCandidate[],
+  rawLabel: string,
+  currentDirectory: string,
+): Promise<ScoutMcpAgentCandidate | null> {
+  const query = normalizeSearchValue(rawLabel);
+  if (!query) {
+    return null;
+  }
+
+  const currentProjectRoot =
+    await findNearestProjectRoot(currentDirectory) ?? currentDirectory;
+  const scored = candidates
+    .map((candidate) => ({
+      candidate,
+      score: scoreProjectLocalCandidate(candidate, currentProjectRoot, query),
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => {
+      const scoreDelta = right.score - left.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      return left.candidate.agentId.localeCompare(right.candidate.agentId);
+    });
+
+  if (scored.length === 0) {
+    return null;
+  }
+  if (scored.length > 1 && scored[0]?.score === scored[1]?.score) {
+    return null;
+  }
+  return scored[0]?.candidate ?? null;
+}
+
 function normalizedStringOrNull(
   value: string | null | undefined,
 ): string | null {
@@ -629,12 +716,19 @@ export async function searchScoutAgentsForMcp(input: {
     await loadScoutAgentDirectory(input.currentDirectory),
   );
   const normalizedQuery = normalizeSearchValue(input.query);
+  const currentProjectRoot =
+    await findNearestProjectRoot(input.currentDirectory) ?? input.currentDirectory;
   const limit = Math.max(1, Math.min(input.limit ?? 10, 50));
 
   return candidates
     .map((candidate) => ({
       candidate,
-      score: scoreAgentCandidate(candidate, normalizedQuery),
+      score:
+        scoreAgentCandidate(candidate, normalizedQuery)
+        + Math.max(
+          0,
+          scoreProjectLocalCandidate(candidate, currentProjectRoot, normalizedQuery),
+        ),
     }))
     .filter((entry) => normalizedQuery.length === 0 || entry.score >= 0)
     .sort((left, right) => {
@@ -668,6 +762,18 @@ export async function resolveScoutAgentForMcp(input: {
 
   if (exactMatches.length === 1) {
     return { kind: "resolved", candidate: exactMatches[0], candidates: [] };
+  }
+  const preferredProjectLocalCandidate = await findPreferredProjectLocalCandidate(
+    candidates,
+    rawLabel,
+    input.currentDirectory,
+  );
+  if (preferredProjectLocalCandidate) {
+    return {
+      kind: "resolved",
+      candidate: preferredProjectLocalCandidate,
+      candidates: [],
+    };
   }
   if (exactMatches.length > 1) {
     return { kind: "ambiguous", candidate: null, candidates: exactMatches };
@@ -704,6 +810,18 @@ export async function resolveScoutAgentForMcp(input: {
       .filter((candidate): candidate is ScoutMcpAgentCandidate =>
         Boolean(candidate),
       );
+    const preferredAmbiguousCandidate = await findPreferredProjectLocalCandidate(
+      ambiguous,
+      rawLabel,
+      input.currentDirectory,
+    );
+    if (preferredAmbiguousCandidate) {
+      return {
+        kind: "resolved",
+        candidate: preferredAmbiguousCandidate,
+        candidates: [],
+      };
+    }
     return { kind: "ambiguous", candidate: null, candidates: ambiguous };
   }
 

@@ -1,5 +1,5 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import {
   buildScoutReturnAddress as buildScoutReturnAddressRecord,
@@ -535,6 +535,164 @@ function buildMentionCandidate(
   };
 }
 
+function formatMentionCandidateLabel(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): string {
+  const current = snapshot.agents[agentId];
+  if (!current) {
+    return `@${agentId}`;
+  }
+  const candidates = Object.values(snapshot.agents)
+    .filter((agent) => !isSupersededBrokerAgent(snapshot, agent.id))
+    .map((agent) => buildMentionCandidate(snapshot, agent));
+  return formatMinimalAgentIdentity(
+    buildMentionCandidate(snapshot, current),
+    candidates,
+  );
+}
+
+function normalizeProjectLocalResolutionValue(
+  value: string | null | undefined,
+): string {
+  return value?.trim().toLowerCase().replace(/^@+/, "") ?? "";
+}
+
+function matchesObviousProjectLocalAlias(
+  value: string | null | undefined,
+  query: string,
+): boolean {
+  const normalized = normalizeProjectLocalResolutionValue(value);
+  if (!normalized || !query) {
+    return false;
+  }
+  return normalized === query
+    || normalized.startsWith(`${query}-`)
+    || normalized.startsWith(`${query}.`)
+    || normalized.startsWith(`${query}_`)
+    || normalized.startsWith(`${query} `);
+}
+
+function agentProjectRoot(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): string | null {
+  const endpoints = Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === agentId);
+  const preferred =
+    endpoints.find((endpoint) => endpoint.state === "active")
+    ?? endpoints.find(
+      (endpoint) => endpoint.state === "idle" || endpoint.state === "waiting",
+    )
+    ?? endpoints[0];
+  return preferred?.projectRoot
+    ?? preferred?.cwd
+    ?? metadataString(snapshot.agents[agentId]?.metadata, "projectRoot")
+    ?? null;
+}
+
+function agentPreferredState(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): AgentState | "discovered" {
+  const endpoints = Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === agentId);
+  const preferred =
+    endpoints.find((endpoint) => endpoint.state === "active")
+    ?? endpoints.find(
+      (endpoint) => endpoint.state === "idle" || endpoint.state === "waiting",
+    )
+    ?? endpoints[0];
+  return preferred?.state ?? "offline";
+}
+
+function scoreProjectLocalBrokerAgent(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+  currentProjectRoot: string,
+  query: string,
+): number {
+  const projectRoot = agentProjectRoot(snapshot, agentId);
+  if (!projectRoot || resolve(projectRoot) !== resolve(currentProjectRoot)) {
+    return -1;
+  }
+
+  const agent = snapshot.agents[agentId];
+  const formattedLabel = formatMentionCandidateLabel(snapshot, agentId);
+  const values = [
+    formattedLabel,
+    agent?.defaultSelector,
+    agent?.selector,
+    agent?.handle,
+    agent?.displayName,
+    agent?.definitionId,
+    agentId,
+  ];
+  const matches = values.filter((value) =>
+    matchesObviousProjectLocalAlias(value, query),
+  );
+  if (matches.length === 0) {
+    return -1;
+  }
+
+  return 1000 + whoStateRank(agentPreferredState(snapshot, agentId)) * 20;
+}
+
+async function findPreferredProjectLocalBrokerTarget(
+  snapshot: ScoutBrokerSnapshot,
+  label: string,
+  currentDirectory: string,
+): Promise<ScoutMentionTarget | null> {
+  const query = normalizeProjectLocalResolutionValue(label);
+  if (!query) {
+    return null;
+  }
+
+  const { findNearestProjectRoot } = await import("@openscout/runtime/setup");
+  const currentProjectRoot =
+    await findNearestProjectRoot(currentDirectory) ?? currentDirectory;
+  const scored = Object.values(snapshot.agents)
+    .filter((agent) => agent.id !== OPERATOR_ID)
+    .filter((agent) => !isSupersededBrokerAgent(snapshot, agent.id))
+    .map((agent) => ({
+      agentId: agent.id,
+      score: scoreProjectLocalBrokerAgent(
+        snapshot,
+        agent.id,
+        currentProjectRoot,
+        query,
+      ),
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => {
+      const scoreDelta = right.score - left.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      return left.agentId.localeCompare(right.agentId);
+    });
+
+  if (scored.length === 0) {
+    return null;
+  }
+  if (scored.length > 1 && scored[0]?.score === scored[1]?.score) {
+    return null;
+  }
+
+  const agentId = scored[0]?.agentId;
+  if (!agentId) {
+    return null;
+  }
+  const resolvedLabel = formatMentionCandidateLabel(snapshot, agentId);
+  const selector = extractAgentSelectors(resolvedLabel)[0];
+  if (!selector) {
+    return null;
+  }
+  return {
+    agentId,
+    label: resolvedLabel,
+    selector,
+  };
+}
+
 async function resolveMentionTargets(
   snapshot: ScoutBrokerSnapshot,
   text: string,
@@ -639,6 +797,15 @@ async function resolveSingleBrokerTarget(
     normalized.startsWith("@") ? normalized : `@${normalized}`,
     currentDirectory,
   );
+  const preferredProjectLocalTarget =
+    await findPreferredProjectLocalBrokerTarget(
+      snapshot,
+      normalized,
+      currentDirectory,
+    );
+  if (preferredProjectLocalTarget) {
+    return { kind: "resolved", target: preferredProjectLocalTarget };
+  }
   const firstAmbiguous = resolution.ambiguous[0];
   if (firstAmbiguous) {
     return { kind: "ambiguous", candidates: firstAmbiguous.candidates };

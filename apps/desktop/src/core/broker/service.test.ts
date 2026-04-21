@@ -339,6 +339,175 @@ describe("askScoutQuestion", () => {
     }
   }, 15000);
 
+  test("prefers the current project agent over a stale worktree alias", async () => {
+    useIsolatedOpenScoutHome();
+
+    const workspaceRoot = join(tmpdir(), "openscout-current-project");
+    const currentRoot = join(workspaceRoot, "openscout");
+    const staleRoot = join(workspaceRoot, "openscout-pr9-merge");
+    mkdirSync(join(currentRoot, ".git"), { recursive: true });
+    mkdirSync(join(staleRoot, ".git"), { recursive: true });
+    writeFileSync(join(currentRoot, "AGENTS.md"), "# openscout\n", "utf8");
+    writeFileSync(join(staleRoot, "AGENTS.md"), "# openscout pr9\n", "utf8");
+
+    const staleAgent = {
+      id: "openscout.codex-pr9-merge-snapshot.mini",
+      kind: "agent",
+      definitionId: "openscout",
+      displayName: "Openscout",
+      handle: "openscout",
+      defaultSelector: "@openscout",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+      metadata: {
+        definitionId: "openscout",
+        defaultSelector: "@openscout",
+        workspaceQualifier: "codex-pr9-merge-snapshot",
+        projectRoot: staleRoot,
+      },
+    };
+    const discoveredAgent = {
+      id: "openscout.codex-control-plane-foundation.mini",
+      kind: "agent",
+      definitionId: "openscout",
+      displayName: "Openscout",
+      handle: "openscout",
+      defaultSelector: "@openscout",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+      metadata: {
+        definitionId: "openscout",
+        defaultSelector: "@openscout",
+        workspaceQualifier: "codex-control-plane-foundation",
+        projectRoot: join(workspaceRoot, "other-worktree"),
+      },
+    };
+    const currentAgent = {
+      id: "openscout-4.main.mini",
+      kind: "agent",
+      definitionId: "openscout-4",
+      displayName: "Openscout 4",
+      handle: "openscout-4",
+      defaultSelector: "@openscout-4",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-1",
+      authorityNodeId: "node-1",
+      advertiseScope: "local",
+      metadata: {
+        definitionId: "openscout-4",
+        defaultSelector: "@openscout-4",
+        workspaceQualifier: "main",
+        projectRoot: currentRoot,
+      },
+    };
+    const staleEndpoint = {
+      id: "ep-openscout-stale",
+      agentId: staleAgent.id,
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "local_socket",
+      state: "idle",
+      projectRoot: staleRoot,
+    };
+    const currentEndpoint = {
+      id: "ep-openscout-current",
+      agentId: currentAgent.id,
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "local_socket",
+      state: "idle",
+      projectRoot: currentRoot,
+    };
+    const captured = {
+      postedMessage: null as {
+        mentions?: Array<{ actorId: string }>;
+      } | null,
+      postedInvocation: null as {
+        targetAgentId?: string;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {
+            [staleAgent.id]: staleAgent,
+            [discoveredAgent.id]: discoveredAgent,
+            [currentAgent.id]: currentAgent,
+          },
+          endpoints: {
+            [staleEndpoint.id]: staleEndpoint,
+            [currentEndpoint.id]: currentEndpoint,
+          },
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        captured.postedMessage = await request.json();
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/invocations") {
+        captured.postedInvocation = await request.json();
+        return jsonResponse({
+          accepted: true,
+          invocationId: "inv-current",
+          flightId: "flt-current",
+          targetAgentId: currentAgent.id,
+          state: "waking",
+          flight: {
+            id: "flt-current",
+            invocationId: "inv-current",
+            requesterId: "operator",
+            targetAgentId: currentAgent.id,
+            state: "waking",
+          },
+        });
+      }
+      if (request.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutQuestion({
+      senderId: "operator",
+      targetLabel: "openscout",
+      body: "please look at this",
+      currentDirectory: currentRoot,
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.unresolvedTarget).toBeUndefined();
+    expect(result.targetDiagnostic).toBeUndefined();
+    expect(result.flight?.targetAgentId).toBe(currentAgent.id);
+    expect(captured.postedMessage?.mentions?.map((mention) => mention.actorId)).toEqual([
+      currentAgent.id,
+    ]);
+    expect(captured.postedInvocation?.targetAgentId).toBe(currentAgent.id);
+  }, 15000);
+
   test("creates a durable work item beyond the message and flight ids", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");
