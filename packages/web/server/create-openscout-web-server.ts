@@ -51,6 +51,7 @@ import {
 import {
   findNearestProjectRoot,
   initializeOpenScoutSetup,
+  readOpenScoutSettings,
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
 
@@ -303,9 +304,10 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/onboarding/state", async (c) => {
     const hasLocalConfig = localConfigExists();
-    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(
-      () => null,
-    );
+    const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
+    const configuredContextRoot = settings?.discovery.contextRoot ?? null;
+    const discoveryStart = configuredContextRoot ?? currentDirectory;
+    const projectRoot = await findNearestProjectRoot(discoveryStart).catch(() => null);
     const hasProjectConfig = projectRoot !== null;
     const userName = loadUserConfig().name?.trim() ?? "";
     return c.json({
@@ -316,6 +318,7 @@ export async function createOpenScoutWebServer(
       localConfig: hasLocalConfig ? loadLocalConfig() : null,
       projectRoot,
       currentDirectory,
+      contextRoot: configuredContextRoot,
       operatorName: userName || null,
       operatorNameSuggestion: resolveOperatorName(),
     });
