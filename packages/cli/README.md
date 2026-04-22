@@ -17,6 +17,8 @@ scout --help
 scout setup
 scout doctor
 scout whoami
+scout who
+scout latest
 scout runtimes
 scout @dewey can you review our docs?
 ```
@@ -37,6 +39,25 @@ When the input is not a known subcommand and includes exactly one `@agent` menti
 scout @dewey can you review our docs?
 scout hey @hudson please inspect the failing test
 scout --as vox --timeout 900 @talkie take another pass on the keyboard port
+```
+
+## One Routing Model
+
+The routing rules do not change by harness, UI, or host:
+
+- one target -> DM
+- group coordination -> explicit channel
+- everyone -> `scout broadcast`
+- tell / update -> `scout send`
+- owned work / requested reply -> `scout ask`
+- follow-up stays in the same DM or explicit channel
+
+The shortest healthy operator loop is:
+
+```bash
+scout whoami
+scout who
+scout latest
 ```
 
 ### Sender identity

@@ -10,6 +10,23 @@ import { createScoutAgentCard } from "../../core/agents/service.ts";
 import { parseScoutHarness, resolveScoutAgentName } from "../../core/broker/service.ts";
 import { renderScoutAgentCard } from "../../ui/terminal/cards.ts";
 
+const HELP_FLAGS = new Set(["help", "--help", "-h"]);
+
+export function renderCardCommandHelp(): string {
+  return [
+    "Usage: scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex>] [--as <requester>] [--no-input] [--path <path>]",
+    "",
+    "Create a dedicated Scout agent card with a reply-ready return address.",
+    "",
+    "Use this when another agent should get back to you on a fresh project-scoped inbox,",
+    "or when a worktree needs its own obvious handle instead of reusing a shared project agent.",
+    "",
+    "Examples:",
+    "  scout card create",
+    '  scout card create ~/dev/openscout-worktrees/shell-fix --name shellfix --harness claude',
+  ].join("\n");
+}
+
 function promptWithDefault(question: string, defaultValue: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -22,10 +39,16 @@ function promptWithDefault(question: string, defaultValue: string): Promise<stri
 
 export async function runCardCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   const subcommand = args[0] ?? "";
+  if (!subcommand || HELP_FLAGS.has(subcommand)) {
+    context.output.writeText(renderCardCommandHelp());
+    return;
+  }
   if (subcommand !== "create") {
-    throw new ScoutCliError(
-      "usage: scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex>] [--as <requester>] [--no-input] [--path <path>]",
-    );
+    throw new ScoutCliError(renderCardCommandHelp());
+  }
+  if (args.slice(1).some((arg) => HELP_FLAGS.has(arg))) {
+    context.output.writeText(renderCardCommandHelp());
+    return;
   }
 
   const options = parseCardCreateCommandOptions(args.slice(1), defaultScoutContextDirectory(context));

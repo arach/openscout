@@ -4,13 +4,20 @@ import type { Route } from "./types.ts";
 /* ── URL ↔ Route mapping ── */
 
 function routeFromPath(): Route {
-  const parts = window.location.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+  const url = new URL(window.location.href);
+  const parts = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+  const composeMode =
+    url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
   // /agents/{agentId}/c/{conversationId} → agents view with inline conversation
   if (parts[0] === "agents" && parts[1] && parts[2] === "c" && parts[3]) {
-    return { view: "agents", agentId: decodeURIComponent(parts[1]), conversationId: decodeURIComponent(parts[3]) };
+    return {
+      view: "agents",
+      agentId: decodeURIComponent(parts[1]),
+      conversationId: decodeURIComponent(parts[3]),
+    };
   }
   // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
@@ -20,7 +27,11 @@ function routeFromPath(): Route {
   if (parts[0] === "fleet") return { view: "fleet" };
   // /c/{conversationId} always opens the conversation surface directly.
   if (parts[0] === "c" && parts[1]) {
-    return { view: "conversation", conversationId: decodeURIComponent(parts[1]) };
+    return {
+      view: "conversation",
+      conversationId: decodeURIComponent(parts[1]),
+      ...(composeMode ? { composeMode } : {}),
+    };
   }
   if (parts[0] === "sessions" && parts[1]) {
     return { view: "sessions", sessionId: decodeURIComponent(parts[1]) };
@@ -37,31 +48,59 @@ function routeFromPath(): Route {
 
 function routePath(r: Route): string {
   switch (r.view) {
-    case "inbox": return "/";
-    case "conversation": return `/c/${encodeURIComponent(r.conversationId)}`;
-    case "agent-info": return `/agent/${encodeURIComponent(r.conversationId)}`;
-    case "agents": return r.agentId
-      ? r.conversationId
-        ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
-        : `/agents/${encodeURIComponent(r.agentId)}`
-      : "/agents";
-    case "fleet": return "/fleet";
-    case "sessions": return r.sessionId ? `/sessions/${encodeURIComponent(r.sessionId)}` : "/sessions";
-    case "mesh": return "/mesh";
-    case "activity": return "/activity";
-    case "work": return `/work/${encodeURIComponent(r.workId)}`;
-    case "settings": return "/settings";
+    case "inbox":
+      return "/";
+    case "conversation": {
+      const params = new URLSearchParams();
+      if (r.composeMode === "ask") {
+        params.set("compose", "ask");
+      }
+      const search = params.toString();
+      return `/c/${encodeURIComponent(r.conversationId)}${search ? `?${search}` : ""}`;
+    }
+    case "agent-info":
+      return `/agent/${encodeURIComponent(r.conversationId)}`;
+    case "agents":
+      return r.agentId
+        ? r.conversationId
+          ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
+          : `/agents/${encodeURIComponent(r.agentId)}`
+        : "/agents";
+    case "fleet":
+      return "/fleet";
+    case "sessions":
+      return r.sessionId
+        ? `/sessions/${encodeURIComponent(r.sessionId)}`
+        : "/sessions";
+    case "mesh":
+      return "/mesh";
+    case "activity":
+      return "/activity";
+    case "work":
+      return `/work/${encodeURIComponent(r.workId)}`;
+    case "settings":
+      return "/settings";
   }
 }
 
 function routeKey(r: Route): string {
   switch (r.view) {
-    case "conversation": return `conv:${r.conversationId}`;
-    case "agent-info": return `agent-info:${r.conversationId}`;
-    case "agents": return r.conversationId ? `agent-conv:${r.conversationId}` : r.agentId ? `agent:${r.agentId}` : "agents";
-    case "sessions": return r.sessionId ? `session:${r.sessionId}` : "sessions";
-    case "work": return `work:${r.workId}`;
-    default: return r.view;
+    case "conversation":
+      return `conv:${r.conversationId}`;
+    case "agent-info":
+      return `agent-info:${r.conversationId}`;
+    case "agents":
+      return r.conversationId
+        ? `agent-conv:${r.conversationId}`
+        : r.agentId
+          ? `agent:${r.agentId}`
+          : "agents";
+    case "sessions":
+      return r.sessionId ? `session:${r.sessionId}` : "sessions";
+    case "work":
+      return `work:${r.workId}`;
+    default:
+      return r.view;
   }
 }
 

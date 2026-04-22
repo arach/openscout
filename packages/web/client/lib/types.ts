@@ -190,7 +190,11 @@ export type SessionEntry = {
 
 /** Mesh status report from the broker. */
 export type MeshIssue = {
-  code: "broker_unreachable" | "local_only" | "mesh_loopback" | "discovery_unconfigured";
+  code:
+    | "broker_unreachable"
+    | "local_only"
+    | "mesh_loopback"
+    | "discovery_unconfigured";
   severity: "warning" | "error";
   title: string;
   summary: string;
@@ -225,16 +229,19 @@ export type MeshStatus = {
     announceUrl: string | null;
     discoveryDetail: string;
   };
-  nodes: Record<string, {
-    id: string;
-    name: string;
-    meshId?: string;
-    hostName?: string;
-    advertiseScope?: string;
-    brokerUrl?: string;
-    registeredAt?: number;
-    lastSeenAt?: number;
-  }>;
+  nodes: Record<
+    string,
+    {
+      id: string;
+      name: string;
+      meshId?: string;
+      hostName?: string;
+      advertiseScope?: string;
+      brokerUrl?: string;
+      registeredAt?: number;
+      lastSeenAt?: number;
+    }
+  >;
   tailscale: {
     available: boolean;
     onlineCount: number;
@@ -284,7 +291,11 @@ export type WorkDetail = WorkItem & {
 
 export type Route =
   | { view: "inbox" }
-  | { view: "conversation"; conversationId: string }
+  | {
+      view: "conversation";
+      conversationId: string;
+      composeMode?: "tell" | "ask";
+    }
   | { view: "agent-info"; conversationId: string }
   | { view: "agents"; agentId?: string; conversationId?: string }
   | { view: "fleet" }

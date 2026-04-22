@@ -30,7 +30,11 @@ import {
   querySessions,
   querySessionById,
 } from "./db-queries.ts";
-import { sendScoutMessage } from "./core/broker/service.ts";
+import {
+  askScoutQuestion,
+  sendScoutDirectMessage,
+  sendScoutMessage,
+} from "./core/broker/service.ts";
 import { announceMeshVisibility, loadMeshStatus } from "./core/mesh/service.ts";
 import {
   loadOpenScoutWebShellState,
@@ -137,6 +141,25 @@ function inferDirectSenderId(
   // Web-originated sends must use the canonical operator actor id so direct
   // chats stay on one deterministic thread id.
   return "operator";
+}
+
+function resolveConversationRouting(conversationId: string | undefined): {
+  directAgentId: string | null;
+  senderId: string;
+} {
+  const fallbackSenderId = "operator";
+  const session = conversationId ? querySessionById(conversationId) : null;
+  const directAgentId = inferDirectTargetAgentId(
+    conversationId,
+    session,
+    fallbackSenderId,
+  );
+  const senderId = inferDirectSenderId(
+    session,
+    fallbackSenderId,
+    directAgentId,
+  );
+  return { directAgentId, senderId };
 }
 
 function resolveBundledStaticClientRoot(
@@ -254,7 +277,11 @@ export async function createOpenScoutWebServer(
     );
   };
   const handleWorkDetail = (c: Context) => {
-    const detail = queryWorkItemById(c.req.param("id"));
+    const workId = c.req.param("id");
+    if (!workId) {
+      return c.json({ error: "id is required" }, 400);
+    }
+    const detail = queryWorkItemById(workId);
     return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
   };
   app.get("/api/work", handleListWork);
@@ -423,28 +450,71 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "body is required" }, 400);
     }
 
-    const fallbackSenderId = "operator";
-    const session = conversationId ? querySessionById(conversationId) : null;
-    const directAgentId = inferDirectTargetAgentId(
-      conversationId,
-      session,
-      fallbackSenderId,
-    );
-    const senderId = inferDirectSenderId(
-      session,
-      fallbackSenderId,
-      directAgentId,
-    );
+    const { directAgentId, senderId } =
+      resolveConversationRouting(conversationId);
+
+    if (directAgentId) {
+      const result = await sendScoutDirectMessage({
+        agentId: directAgentId,
+        body: body.trim(),
+        currentDirectory,
+        source: "scout-web",
+      });
+      return c.json(result);
+    }
 
     const result = await sendScoutMessage({
       senderId,
       body: body.trim(),
-      explicitTargetAgentIds: directAgentId ? [directAgentId] : undefined,
       currentDirectory,
     });
 
     if (!result.usedBroker) {
       return c.json({ error: "broker unreachable" }, 502);
+    }
+
+    return c.json(result);
+  });
+
+  app.post("/api/ask", async (c) => {
+    const { body, conversationId } = (await c.req.json()) as {
+      body: string;
+      conversationId?: string;
+    };
+    if (!body?.trim()) {
+      return c.json({ error: "body is required" }, 400);
+    }
+
+    const { directAgentId, senderId } =
+      resolveConversationRouting(conversationId);
+    if (!directAgentId) {
+      return c.json(
+        {
+          error:
+            "ask is only available in a direct conversation with one agent",
+        },
+        400,
+      );
+    }
+
+    const result = await askScoutQuestion({
+      senderId,
+      targetLabel: directAgentId,
+      body: body.trim(),
+      currentDirectory,
+    });
+
+    if (!result.usedBroker) {
+      return c.json({ error: "broker unreachable" }, 502);
+    }
+    if (result.unresolvedTarget) {
+      return c.json(
+        {
+          error: `could not route ask to ${result.unresolvedTarget}`,
+          targetDiagnostic: result.targetDiagnostic ?? null,
+        },
+        409,
+      );
     }
 
     return c.json(result);
