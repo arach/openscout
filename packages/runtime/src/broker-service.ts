@@ -365,8 +365,10 @@ function collectOptionalEnvVars(keys: string[]): Record<string, string> {
 
 function resolveLaunchAgentPATH(): string {
   const entries = [
-    ...(process.env.PATH ?? "").split(":").filter(Boolean),
+    // Always prefer bun bin first — stale ~/.local/bin symlinks can shadow
+    // the current scout shim if bun's $PATH entry comes after.
     join(homedir(), ".bun", "bin"),
+    ...(process.env.PATH ?? "").split(":").filter(Boolean),
     "/opt/homebrew/bin",
     "/usr/local/bin",
     "/usr/bin",
