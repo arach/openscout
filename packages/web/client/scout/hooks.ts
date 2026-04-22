@@ -1,12 +1,15 @@
 import { createElement, useCallback, useMemo, type ReactNode } from "react";
 import type { CommandOption, StatusColor, TakeoverState } from "@hudson/sdk";
 import { api } from "../lib/api.ts";
+import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
+import type { Route } from "../lib/types.ts";
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
   const { navigate, agents, reload } = useScout();
+  const opsEnabled = isOpsEnabled();
 
   const interruptAgent = useCallback(async (agentId: string) => {
     await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
@@ -53,6 +56,12 @@ export function useScoutCommands(): CommandOption[] {
         action: () => navigate({ view: "mesh" }),
         shortcut: "Cmd+6",
       },
+      ...(opsEnabled ? [{
+        id: "nav:ops",
+        label: "Go to Ops",
+        action: () => navigate({ view: "ops" }),
+        shortcut: "Cmd+7",
+      }] : []),
       {
         id: "nav:settings",
         label: "Open Settings",
@@ -108,7 +117,7 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, interruptAgent, navigate, reload]);
+  }, [agents, interruptAgent, navigate, opsEnabled, reload]);
 }
 
 /* ── useStatus — online indicator ──────────────────────────────────────── */
@@ -120,7 +129,7 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
   return { label: `${onlineCount}/${agents.length} agents`, color: "emerald" };
 }
 
-/* ── useNavCenter — section label / breadcrumb ─────────────────────────── */
+/* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
 const VIEW_LABELS: Record<string, string> = {
   inbox: "Home",
   conversation: "Conversation",
@@ -132,17 +141,41 @@ const VIEW_LABELS: Record<string, string> = {
   mesh: "Mesh",
   settings: "Settings",
   work: "Work",
+  ops: "Ops",
 };
 
 export function useScoutNavCenter(): ReactNode | null {
-  const { route } = useScout();
-  const label = VIEW_LABELS[route.view] ?? route.view;
-  return createElement(
-    "span",
-    {
-      className: "text-[10px] font-mono uppercase tracking-wider text-white/40",
-    },
-    label,
+  const { route, navigate } = useScout();
+  const opsEnabled = isOpsEnabled();
+  const tabItems: { label: string; view: Route["view"] }[] = [
+    { label: "Home", view: "inbox" },
+    { label: "Agents", view: "agents" },
+    { label: "Sessions", view: "sessions" },
+    { label: "Mesh", view: "mesh" },
+    ...(opsEnabled ? [{ label: "Ops" as const, view: "ops" as Route["view"] }] : []),
+  ];
+
+  const activeView = route.view === "fleet" ? "inbox"
+    : route.view === "activity" ? "inbox"
+    : route.view === "conversation" ? "agents"
+    : route.view === "agent-info" ? "agents"
+    : route.view === "work" ? (opsEnabled ? "ops" : "inbox")
+    : route.view;
+
+  const breadcrumb = route.view === "conversation" || route.view === "agent-info" || route.view === "work"
+    ? VIEW_LABELS[route.view] ?? route.view
+    : null;
+
+  return createElement("div", { className: "scout-nav-tabs" },
+    tabItems.map(({ label, view }) =>
+      createElement("button", {
+        key: view,
+        className: `scout-nav-tab${activeView === view ? " active" : ""}`,
+        onClick: () => navigate({ view } as Route),
+      }, label),
+    ),
+    breadcrumb && createElement("span", { className: "scout-nav-slash" }, "/"),
+    breadcrumb && createElement("span", { className: "scout-nav-crumb" }, breadcrumb),
   );
 }
 

@@ -1,0 +1,423 @@
+/* ── Plan view: mission brief + tree + change feed ── */
+
+.s-plan {
+  height: 100%;
+  overflow: auto;
+}
+
+.s-plan-inner {
+  min-width: 960px;
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: 260px minmax(420px, 1fr) 300px;
+  grid-template-rows: auto 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+
+/* ── Banner ── */
+
+.s-plan-banner {
+  grid-column: 1 / -1;
+  background: var(--bg);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-plan-banner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.s-plan-banner-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.s-plan-banner-meta b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ── Columns ── */
+
+.s-plan-col {
+  background: var(--bg);
+  padding: 24px 22px;
+  overflow: auto;
+}
+
+/* ── Mission brief (left) ── */
+
+.s-plan-title {
+  font-size: 24px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+  margin: 0 0 14px;
+  color: var(--ink);
+}
+
+.s-plan-goal {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+
+.s-plan-rationale {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--dim);
+  margin: 0 0 24px;
+}
+
+.s-plan-risk {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+
+.s-plan-risk-icon {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  width: 14px;
+}
+
+.s-plan-risk-icon--high { color: var(--amber); }
+.s-plan-risk-icon--med { color: var(--muted); }
+.s-plan-risk-icon--low { color: var(--dim); }
+
+.s-plan-risk-title {
+  font-size: 12.5px;
+}
+
+.s-plan-risk-detail {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.45;
+}
+
+.s-plan-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+
+.s-plan-agent-row-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-plan-agent-row-name {
+  font-size: 12.5px;
+}
+
+.s-plan-agent-row-tasks {
+  font-size: 10.5px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+/* ── Mission tree (center) ── */
+
+.s-plan-tree-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 8px 14px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-plan-tree-stats {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.s-plan-tree-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-left: auto;
+}
+
+.s-plan-tree-toggle-btn {
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  border: 0;
+  cursor: pointer;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--dim);
+}
+
+.s-plan-tree-toggle-btn--active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* ── Tree node rows ── */
+
+.s-plan-node {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+  margin-top: 4px;
+}
+
+.s-plan-node:hover {
+  background: var(--surface);
+}
+
+.s-plan-node--task {
+  grid-template-columns: 16px 1fr auto auto;
+}
+
+.s-plan-node--phase {
+  grid-template-columns: 16px 1fr auto auto;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.s-plan-node--mission {
+  grid-template-columns: 1fr auto;
+  padding: 12px 14px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.s-plan-node--selected {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  border-color: var(--accent);
+}
+
+.s-plan-node-icon {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  width: 14px;
+  text-align: center;
+}
+
+.s-plan-node-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-plan-node-title {
+  line-height: 1.25;
+}
+
+.s-plan-node-title--mission {
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.s-plan-node-title--phase {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.s-plan-node-title--task {
+  font-size: 13px;
+}
+
+.s-plan-node-title--done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.s-plan-node-payload {
+  font-size: 11px;
+  color: var(--dim);
+  min-height: 14px;
+}
+
+.s-plan-node-payload--live {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.s-plan-node-assignee {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 100px;
+  justify-content: flex-end;
+}
+
+.s-plan-node-assignee-handle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.s-plan-node-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.s-plan-confidence-bar {
+  width: 48px;
+  height: 4px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.s-plan-confidence-bar-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.s-plan-node-children {
+  margin-left: 28px;
+  border-left: 1px solid var(--border);
+  padding-left: 14px;
+  margin-top: 4px;
+}
+
+/* ── Change cards (right) ── */
+
+.s-plan-change-card {
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  margin-bottom: 10px;
+}
+
+.s-plan-change-card--accepted {
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 5%, var(--surface));
+}
+
+.s-plan-change-card--rejected {
+  opacity: 0.4;
+}
+
+.s-plan-change-kind {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  padding: 1px 5px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  text-transform: uppercase;
+}
+
+.s-plan-change-kind--split { color: #818cf8; }
+.s-plan-change-kind--demote { color: var(--amber); }
+.s-plan-change-kind--promote { color: var(--green); }
+.s-plan-change-kind--unassign { color: #c084fc; }
+.s-plan-change-kind--add { color: #38bdf8; }
+
+.s-plan-change-summary {
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 6px 0;
+}
+
+.s-plan-change-why {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--dim);
+  font-style: italic;
+}
+
+.s-plan-change-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.s-plan-change-accepted-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--green);
+  letter-spacing: 0.1em;
+  margin-top: 6px;
+}
+
+/* ── Node detail (right) ── */
+
+.s-plan-detail {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.s-plan-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.s-plan-detail-title {
+  font-size: 17px;
+  line-height: 1.3;
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+
+.s-plan-detail-why {
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.s-plan-detail-assignee {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.s-plan-detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}

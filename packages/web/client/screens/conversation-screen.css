@@ -1,0 +1,1193 @@
+/* ── Thread screen: three-column layout ── */
+
+.s-thread-layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* ── Channel rail (left) ── */
+
+.s-thread-rail {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 70%, black);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.s-thread-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
+}
+
+.s-thread-rail-section {
+  padding: 0;
+}
+
+.s-thread-rail-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 16px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  user-select: none;
+}
+
+.s-thread-rail-section--needs-you .s-thread-rail-section-label {
+  color: #f59e0b;
+}
+
+.s-thread-rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px 7px 14px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s ease;
+  border-left: 2px solid transparent;
+}
+
+.s-thread-rail-item:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.s-thread-rail-item--active {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-left-color: var(--accent);
+}
+
+.s-thread-rail-item--needs-you {
+  background: color-mix(in srgb, #f59e0b 4%, transparent);
+}
+
+.s-thread-rail-item--needs-you:hover {
+  background: color-mix(in srgb, #f59e0b 8%, transparent);
+}
+
+.s-thread-rail-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  flex-shrink: 0;
+}
+
+.s-thread-rail-avatar--channel {
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.s-thread-rail-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-thread-rail-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+
+.s-thread-rail-item--active .s-thread-rail-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.s-thread-rail-sub {
+  display: block;
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.s-thread-rail-trailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.s-thread-rail-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-thread-rail-badge--amber {
+  background: #f59e0b;
+}
+
+.s-thread-rail-presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Thread center ── */
+
+.s-thread-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.s-thread-center-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, var(--surface));
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.s-thread-center-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-thread-center-header-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.s-thread-center-header-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.s-thread-center-header-kicker {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-thread-center-header-time {
+  font-size: 10px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-thread-center-header-time::before {
+  content: "\00b7";
+  margin-right: 4px;
+}
+
+.s-thread-center-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.s-thread-center-header-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.s-thread-center-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--surface));
+  background: var(--bg);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--dim);
+  font-family: var(--font-mono);
+}
+
+.s-thread-center-avatars {
+  display: flex;
+  align-items: center;
+}
+
+.s-thread-center-avatars .s-ops-avatar {
+  --size: 22px;
+  margin-left: -6px;
+  border: 2px solid var(--surface);
+}
+
+.s-thread-center-avatars .s-ops-avatar:first-child {
+  margin-left: 0;
+}
+
+.s-thread-center-participant-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+/* ── Pinned ask ── */
+
+.s-thread-pinned-ask {
+  margin: 12px 20px 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, #f59e0b 30%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, #f59e0b 3%, var(--surface));
+  position: relative;
+  overflow: hidden;
+}
+
+.s-thread-pinned-ask::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #f59e0b;
+  border-radius: 3px 0 0 3px;
+}
+
+.s-thread-pinned-ask-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f59e0b;
+  margin-bottom: 8px;
+}
+
+.s-thread-pinned-ask-body {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.s-thread-pinned-ask-routing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.s-thread-pinned-ask-routing-arrow {
+  color: var(--dim);
+}
+
+.s-thread-pinned-ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-thread-pinned-ask-strip {
+  height: 2px;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #f59e0b 40%,
+    #f59e0b 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: s-thread-thinking-strip 2s ease-in-out infinite;
+}
+
+@keyframes s-thread-thinking-strip {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Message feed ── */
+
+.s-thread-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px 20px 16px;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.s-thread-feed-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(85%, 720px);
+}
+
+.s-thread-feed-block--you {
+  align-self: flex-end;
+}
+
+.s-thread-feed-block--you .s-thread-msg-header {
+  flex-direction: row-reverse;
+}
+
+.s-thread-feed-block--you .s-thread-msg-meta {
+  flex-direction: row-reverse;
+}
+
+.s-thread-feed-block--full-width {
+  max-width: 100%;
+  align-self: stretch;
+}
+
+.s-thread-day-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0;
+}
+
+.s-thread-day-line {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.s-thread-day-label {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.s-thread-msg {
+  max-width: min(100%, 720px);
+}
+
+.s-thread-msg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
+  background: var(--surface);
+}
+
+.s-thread-msg-card--avatar-row {
+  flex-direction: row;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.s-thread-msg-card--avatar-row .s-thread-msg-card-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-thread-msg-avatar {
+  --size: 28px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.s-thread-msg--you .s-thread-msg-card {
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.s-thread-msg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.s-thread-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-thread-msg-actor {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+.s-thread-msg-handle {
+  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+}
+
+.s-thread-msg-kind {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--surface));
+  background: var(--bg);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--dim);
+  font-family: var(--font-mono);
+}
+
+.s-thread-msg-time {
+  font-size: 10px;
+  font-family: var(--font-sans);
+  color: var(--dim);
+  opacity: 0.7;
+  transition: opacity 0.12s ease;
+}
+
+.s-thread-msg-card:hover .s-thread-msg-time {
+  opacity: 1;
+}
+
+.s-thread-msg-body {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.s-thread-msg--tool .s-thread-msg-card {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--border) 60%, transparent);
+  background: var(--bg);
+}
+
+.s-thread-msg--tool .s-thread-msg-body::before {
+  content: "\203A_";
+  font-family: var(--font-mono);
+  color: var(--dim);
+  margin-right: 6px;
+}
+
+.s-thread-msg[data-class="status"] .s-thread-msg-card {
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+}
+
+.s-thread-msg[data-class="scout.dispatch"] .s-thread-msg-card {
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+}
+
+.s-thread-msg[data-class="system"] .s-thread-msg-card {
+  background: var(--bg);
+}
+
+/* ── Working indicator ── */
+
+.s-thread-msg-working-card {
+  border-color: color-mix(in srgb, var(--green) 12%, var(--border));
+  background: color-mix(in srgb, var(--green) 2%, var(--surface));
+}
+
+.s-thread-msg-working-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.s-thread-msg-working-copy {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.s-thread-typing-indicator {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.s-thread-typing-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: s-thread-typing-bounce 1.2s ease-in-out infinite;
+}
+
+.s-thread-typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.s-thread-typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes s-thread-typing-bounce {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ── Presence line ── */
+
+.s-thread-presence-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  flex-shrink: 0;
+}
+
+.s-thread-presence-line-avatars {
+  display: flex;
+  align-items: center;
+}
+
+.s-thread-presence-line-avatars .s-ops-avatar {
+  --size: 20px;
+  margin-left: -4px;
+  border: 2px solid var(--bg);
+}
+
+.s-thread-presence-line-avatars .s-ops-avatar:first-child {
+  margin-left: 0;
+}
+
+.s-thread-presence-line-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.s-thread-presence-strip {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--green) 40%,
+    var(--green) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: s-thread-thinking-strip 2s ease-in-out infinite;
+}
+
+/* ── Dispatch tiles ── */
+
+.s-thread-dispatch {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.s-thread-dispatch-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, var(--surface));
+  background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.s-thread-dispatch-tile:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.s-thread-dispatch-tile-id {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.s-thread-dispatch-tile-state {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.s-thread-dispatch-tile-meta {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+/* ── Composer ── */
+
+.s-thread-compose {
+  padding: 10px 20px 18px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: transparent;
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.s-thread-compose-shell {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 2%, transparent);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.s-thread-compose-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.s-thread-compose-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 0;
+}
+
+.s-thread-compose-mode {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, var(--surface));
+}
+
+.s-thread-compose-mode-btn {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.s-thread-compose-mode-btn[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.s-thread-compose-mode-detail {
+  font-size: 10px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+.s-thread-compose-input {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  max-height: 160px;
+  border: none;
+  border-radius: 20px 20px 0 0;
+  background: transparent;
+  padding: 10px 16px 6px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  color: var(--ink);
+  resize: none;
+  outline: none;
+}
+
+.s-thread-compose-input::placeholder {
+  color: var(--dim);
+}
+
+.s-thread-compose-input:focus {
+  box-shadow: none;
+}
+
+.s-thread-compose-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 10px 16px;
+  gap: 10px;
+}
+
+.s-thread-compose-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.s-thread-compose-action-btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.s-thread-compose-action-btn:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: var(--muted);
+}
+
+.s-thread-compose-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.01em;
+  margin-left: auto;
+}
+
+.s-thread-compose-send {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink);
+  color: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.s-thread-compose-send:not(:disabled):hover {
+  transform: scale(1.05);
+}
+
+.s-thread-compose-send:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.s-thread-compose-send--stop {
+  background: var(--red);
+}
+
+/* ── Presence sidebar (right) ── */
+
+.s-thread-sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.s-thread-sidebar-section {
+  padding: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.s-thread-sidebar-section:last-child {
+  border-bottom: none;
+}
+
+.s-thread-sidebar-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 12px;
+}
+
+.s-thread-sidebar-participant {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.s-thread-sidebar-participant-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-thread-sidebar-participant-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-thread-sidebar-participant-handle {
+  display: block;
+  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  margin-top: 1px;
+}
+
+.s-thread-sidebar-participant-detail {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.s-thread-sidebar-participant-activity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.s-thread-sidebar-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.s-thread-sidebar-activity-dot--pulse {
+  animation: s-thread-sidebar-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes s-thread-sidebar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.s-thread-sidebar-activity-label {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+/* ── Mini mesh SVG ── */
+
+.s-thread-mini-mesh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.s-thread-mini-mesh svg {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+}
+
+.s-thread-mini-mesh-edge {
+  stroke: color-mix(in srgb, var(--border) 80%, transparent);
+  stroke-width: 1;
+  fill: none;
+}
+
+.s-thread-mini-mesh-node {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.s-thread-mini-mesh-node--center {
+  fill: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  stroke: var(--accent);
+}
+
+.s-thread-mini-mesh-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  fill: var(--dim);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.s-thread-mini-mesh-label--center {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Session meta + disclosure ── */
+
+.s-thread-meta-disclosure {
+  margin: 0 20px;
+  padding-top: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.s-thread-meta-toggle {
+  padding: 6px 0;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--dim);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.s-thread-meta-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.s-thread-meta-toggle::before {
+  content: "\25B6";
+  font-size: 8px;
+  margin-right: 6px;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+details[open] > .s-thread-meta-toggle::before {
+  transform: rotate(90deg);
+}
+
+.s-thread-meta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
+  border-radius: 12px;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+
+.s-thread-meta-row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  font-size: 11px;
+}
+
+.s-thread-meta-row-label {
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.s-thread-meta-row-value {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+/* ── Empty / error states ── */
+
+.s-thread-empty {
+  align-self: center;
+  width: min(100%, 540px);
+  padding: 40px 24px;
+  border: 1px dashed color-mix(in srgb, var(--border) 84%, var(--surface));
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.s-thread-empty p:first-child {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.s-thread-empty p:last-child {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 4px;
+}
+
+.s-thread-error {
+  margin: 14px 20px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red, #ef4444) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--red, #ef4444) 20%, var(--border));
+  font-size: 12px;
+  color: var(--red, #ef4444);
+}
+
+/* ── Status bar ── */
+
+.s-thread-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 20px 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
+  border-radius: 12px;
+}
+
+.s-thread-status--pending {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface));
+}
+
+.s-thread-status--working {
+  border-color: color-mix(in srgb, var(--green) 20%, var(--border));
+  background: color-mix(in srgb, var(--green) 3%, var(--surface));
+}
+
+.s-thread-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: s-thread-sidebar-pulse 1.5s ease-in-out infinite;
+}
+
+.s-thread-status-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-thread-status-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-thread-status-detail {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+/* ── KBD ── */
+
+.s-thread-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--dim);
+  line-height: 1;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 1200px) {
+  .s-thread-sidebar {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .s-thread-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .s-thread-center-header {
+    padding: 12px 16px;
+  }
+
+  .s-thread-feed {
+    padding-inline: 16px;
+  }
+
+  .s-thread-compose {
+    padding-inline: 16px;
+  }
+
+  .s-thread-pinned-ask {
+    margin-inline: 16px;
+  }
+
+  .s-thread-status {
+    margin-inline: 16px;
+  }
+
+  .s-thread-meta-disclosure {
+    margin-inline: 16px;
+  }
+}

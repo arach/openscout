@@ -56,6 +56,224 @@
 * { box-sizing: border-box; margin: 0; }
 body { margin: 0; }
 
+/* ── Nav tabs (center slot in NavigationBar) ── */
+
+.scout-nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.scout-nav-tab {
+  padding: 6px 12px;
+  font-family: var(--hud-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.scout-nav-tab:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.scout-nav-tab.active {
+  color: rgba(255, 255, 255, 0.85);
+  border-bottom-color: var(--hud-accent, #22d3ee);
+}
+
+.scout-nav-slash {
+  margin: 0 6px;
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 13px;
+}
+
+.scout-nav-crumb {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+@keyframes scout-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.15); }
+}
+
+/* ── Left panel: agent roster ── */
+
+.s-left-roster {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.s-left-roster-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.s-left-roster-parent {
+  /* no extra spacing — rows handle it */
+}
+
+.s-left-roster-ct {
+  flex: none;
+  font-family: var(--hud-font-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.18);
+  min-width: 16px;
+  text-align: right;
+}
+
+.s-left-roster-instances {
+  padding-left: 20px;
+}
+
+.s-left-roster-instance {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+  box-sizing: border-box;
+}
+
+.s-left-roster-instance:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.s-left-roster-instance--active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.s-left-roster-instance-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.s-left-roster-instance-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--hud-font-mono);
+  color: rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-left-roster-instance:hover .s-left-roster-instance-label,
+.s-left-roster-instance--active .s-left-roster-instance-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.s-left-roster-row {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+  box-sizing: border-box;
+}
+
+.s-left-roster-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.s-left-roster-row--active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.s-left-roster-avatar-wrap {
+  position: relative;
+  flex: none;
+}
+
+.s-left-roster-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-family: var(--hud-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: #111;
+}
+
+.s-left-roster-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(10, 10, 10, 0.95);
+}
+
+.s-left-roster-dot--working {
+  animation: scout-pulse 1.6s ease-in-out infinite;
+}
+
+.s-left-roster-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.s-left-roster-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-left-roster-row:hover .s-left-roster-name,
+.s-left-roster-row--active .s-left-roster-name {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.s-left-roster-qual {
+  margin-left: 4px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.s-left-roster-sub {
+  font-size: 10px;
+  font-family: var(--hud-font-mono);
+  color: rgba(255, 255, 255, 0.2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-left-roster-time {
+  flex: none;
+  font-size: 10px;
+  font-family: var(--hud-font-mono);
+  color: rgba(255, 255, 255, 0.15);
+}
+
 /* ── Layout: topbar + sidebar + content ── */
 
 .s-app {

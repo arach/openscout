@@ -9,6 +9,7 @@ import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
 import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
+import { OpsScreen } from "../../screens/OpsScreen.tsx";
 import { WorkDetailScreen } from "../../screens/WorkDetailScreen.tsx";
 
 export function ScoutContent() {
@@ -81,6 +82,8 @@ function renderScreen(
       return <MeshScreen navigate={navigate} />;
     case "activity":
       return <ActivityScreen navigate={navigate} />;
+    case "ops":
+      return <OpsScreen navigate={navigate} mode={route.mode} />;
     case "work":
       return <WorkDetailScreen workId={route.workId} navigate={navigate} />;
     default:

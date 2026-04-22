@@ -19,7 +19,7 @@ const intents: AppIntent[] = [
   {
     commandId: "nav:home",
     title: "Go to Home",
-    description: "Navigate to the home screen showing the agent inbox",
+    description: "Navigate to the home overview showing queue, threads, signal, and activity",
     category: "navigation",
     keywords: ["home", "inbox", "dashboard"],
     shortcut: "Cmd+1",
@@ -167,12 +167,16 @@ export const scoutApp: HudsonApp = {
   description:
     "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
   mode: "panel",
+  icon: createElement(Radio, { size: 16, strokeWidth: 1.5 }),
 
   Provider: ScoutProvider,
 
   leftPanel: {
-    title: "Scout",
-    icon: createElement(Radio, { size: 12 }),
+    title: "Agents",
+  },
+
+  rightPanel: {
+    title: "Context",
   },
 
   slots: {

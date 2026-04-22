@@ -1,84 +1,169 @@
-import {
-  Activity,
-  Home,
-  Layers,
-  MessagesSquare,
-  Network,
-  Settings,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { useMemo, useState } from "react";
 import { useScout } from "../Provider.tsx";
-import type { Route } from "../../lib/types.ts";
+import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
+import { stateColor, actorColor } from "../../lib/colors.ts";
+import { timeAgo } from "../../lib/time.ts";
+import type { Agent } from "../../lib/types.ts";
 
-interface NavItem {
-  view: Route["view"];
+type ParentGroup = {
+  key: string;
   label: string;
-  icon: LucideIcon;
-  target: Route;
+  agents: Agent[];
+  bestState: AgentDisplayState;
+  latestUpdate: number;
+};
+
+const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
+
+function agentProject(agent: Agent): string {
+  if (agent.project) return agent.project.toLowerCase();
+  return "other";
 }
 
-const ITEMS: NavItem[] = [
-  { view: "inbox", label: "Home", icon: Home, target: { view: "inbox" } },
-  { view: "agents", label: "Agents", icon: Users, target: { view: "agents" } },
-  { view: "fleet", label: "Fleet", icon: Layers, target: { view: "fleet" } },
-  { view: "sessions", label: "Sessions", icon: MessagesSquare, target: { view: "sessions" } },
-  { view: "activity", label: "Activity", icon: Activity, target: { view: "activity" } },
-  { view: "mesh", label: "Mesh", icon: Network, target: { view: "mesh" } },
-];
+function buildGroups(agents: Agent[]): ParentGroup[] {
+  const map = new Map<string, Agent[]>();
+  for (const agent of agents) {
+    const key = agentProject(agent);
+    const list = map.get(key);
+    if (list) list.push(agent);
+    else map.set(key, [agent]);
+  }
 
-const FOOTER_ITEMS: NavItem[] = [
-  { view: "settings", label: "Settings", icon: Settings, target: { view: "settings" } },
-];
+  const groups: ParentGroup[] = [];
+  for (const [key, list] of map) {
+    list.sort((a, b) => {
+      const sd = (STATE_RANK[normalizeAgentState(a.state)] ?? 9) -
+                 (STATE_RANK[normalizeAgentState(b.state)] ?? 9);
+      if (sd !== 0) return sd;
+      return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    });
+
+    const bestState = list.reduce<AgentDisplayState>((best, a) => {
+      const s = normalizeAgentState(a.state);
+      return (STATE_RANK[s] ?? 9) < (STATE_RANK[best] ?? 9) ? s : best;
+    }, "offline");
+
+    const latestUpdate = Math.max(...list.map((a) => a.updatedAt ?? 0));
+
+    groups.push({ key, label: key, agents: list, bestState, latestUpdate });
+  }
+
+  groups.sort((a, b) => {
+    const sd = (STATE_RANK[a.bestState] ?? 9) - (STATE_RANK[b.bestState] ?? 9);
+    if (sd !== 0) return sd;
+    return b.latestUpdate - a.latestUpdate;
+  });
+
+  return groups;
+}
 
 export function ScoutLeftPanel() {
-  const { route, navigate } = useScout();
+  const { agents, route, navigate } = useScout();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  const groups = useMemo(() => buildGroups(agents), [agents]);
+
+  const selectedAgentId = route.view === "agents" ? route.agentId : undefined;
+
+  const toggle = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   return (
-    <div className="flex flex-col h-full py-2">
-      <nav className="flex flex-col">
-        {ITEMS.map((item) => (
-          <NavButton key={item.view} item={item} activeView={route.view} navigate={navigate} />
-        ))}
-      </nav>
+    <div className="s-left-roster">
+      {agents.length === 0 ? (
+        <div className="s-left-roster-empty">No agents registered</div>
+      ) : (
+        groups.map((group) => {
+          const isSingle = group.agents.length === 1;
+          const isOpen = expanded.has(group.key);
+          const only = isSingle ? group.agents[0] : null;
+          const anySelected = group.agents.some((a) => a.id === selectedAgentId);
 
-      <div className="flex-1" />
+          return (
+            <div key={group.key} className="s-left-roster-parent">
+              <button
+                className={`s-left-roster-row${anySelected && (isSingle || !isOpen) ? " s-left-roster-row--active" : ""}`}
+                onClick={() => {
+                  if (isSingle) {
+                    navigate({ view: "agents", agentId: only!.id });
+                  } else {
+                    toggle(group.key);
+                  }
+                }}
+              >
+                <span className="s-left-roster-avatar-wrap">
+                  <span
+                    className="s-left-roster-avatar"
+                    style={{ background: actorColor(group.label) }}
+                  >
+                    {group.label[0].toUpperCase()}
+                  </span>
+                  <span
+                    className={`s-left-roster-dot s-left-roster-dot--${group.bestState}`}
+                    style={{ background: stateColor(group.bestState === "working" ? "working" : group.bestState === "available" ? "available" : null) }}
+                  />
+                </span>
 
-      <nav className="flex flex-col">
-        {FOOTER_ITEMS.map((item) => (
-          <NavButton key={item.view} item={item} activeView={route.view} navigate={navigate} />
-        ))}
-      </nav>
+                <span className="s-left-roster-body">
+                  <span className="s-left-roster-name">
+                    {group.label}
+                  </span>
+                  {isSingle && (only!.project || only!.branch) && (
+                    <span className="s-left-roster-sub">
+                      {only!.name}
+                      {only!.branch ? ` · ${only!.branch}` : ""}
+                    </span>
+                  )}
+                  {!isSingle && !isOpen && (
+                    <span className="s-left-roster-sub">
+                      {group.agents.length} agents
+                    </span>
+                  )}
+                </span>
+
+                {!isSingle && (
+                  <span className="s-left-roster-ct">
+                    {isOpen ? "▾" : "▸"}
+                  </span>
+                )}
+                {isSingle && only!.updatedAt && (
+                  <span className="s-left-roster-time">{timeAgo(only!.updatedAt)}</span>
+                )}
+              </button>
+
+              {!isSingle && isOpen && (
+                <div className="s-left-roster-instances">
+                  {group.agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      className={`s-left-roster-instance${agent.id === selectedAgentId ? " s-left-roster-instance--active" : ""}`}
+                      onClick={() => navigate({ view: "agents", agentId: agent.id })}
+                    >
+                      <span
+                        className={`s-left-roster-instance-dot s-left-roster-dot--${normalizeAgentState(agent.state)}`}
+                        style={{ background: stateColor(agent.state) }}
+                      />
+                      <span className="s-left-roster-instance-label">
+                        {agent.name}
+                        {agent.branch ? ` · ${agent.branch}` : ""}
+                      </span>
+                      {agent.updatedAt && (
+                        <span className="s-left-roster-time">{timeAgo(agent.updatedAt)}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
     </div>
-  );
-}
-
-function NavButton({
-  item,
-  activeView,
-  navigate,
-}: {
-  item: NavItem;
-  activeView: Route["view"];
-  navigate: (r: Route) => void;
-}) {
-  const active = activeView === item.view;
-  const Icon = item.icon;
-  return (
-    <button
-      onClick={() => navigate(item.target)}
-      className={`group w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors border-l-2 ${
-        active
-          ? "bg-cyan-500/5 border-l-cyan-400/40 text-white/80"
-          : "border-l-transparent text-white/40 hover:bg-white/[0.02] hover:text-white/60"
-      }`}
-    >
-      <Icon
-        size={13}
-        strokeWidth={1.5}
-        className={active ? "text-cyan-400/70" : "text-white/30 group-hover:text-white/50"}
-      />
-      <span className="text-[12px]">{item.label}</span>
-    </button>
   );
 }
