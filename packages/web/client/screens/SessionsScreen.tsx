@@ -52,6 +52,34 @@ function deriveDisplayTitle(session: SessionEntry): string {
   return session.title.replace(/\s*<>\s*/g, " · ");
 }
 
+function normalizeQuery(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function sessionSearchFields(session: SessionEntry): string[] {
+  return [
+    session.id,
+    session.title,
+    session.preview ?? "",
+    session.agentName ?? "",
+    session.harness ?? "",
+    session.harnessSessionId ?? "",
+    session.harnessLogPath ?? "",
+    ...session.participantIds,
+  ];
+}
+
+function matchedHarnessSessionId(session: SessionEntry, query: string): string | null {
+  if (!query) {
+    return null;
+  }
+  const harnessSessionId = session.harnessSessionId?.trim();
+  if (!harnessSessionId) {
+    return null;
+  }
+  return harnessSessionId.toLowerCase().includes(query) ? harnessSessionId : null;
+}
+
 function pathLeaf(path: string | null | undefined): string | null {
   if (!path) return null;
   const normalized = path.replace(/[\\/]+$/, "");
@@ -119,37 +147,38 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
     return counts;
   }, [sessions]);
 
+  const normalizedQuery = useMemo(() => normalizeQuery(query), [query]);
+
   const unreadCount = useMemo(
     () => sessions.filter((s) => isUnread(s.lastMessageAt, s.id, lastViewed)).length,
     [sessions, lastViewed],
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return sessions.filter((s) => {
       if (filter !== "all" && s.kind !== filter) return false;
       if (unreadOnly && !isUnread(s.lastMessageAt, s.id, lastViewed)) return false;
-      if (q) {
-        const hay = [
-          s.title,
-          s.preview,
-          s.agentName ?? "",
-          s.harness ?? "",
-          ...s.participantIds,
-        ].join(" ").toLowerCase();
-        if (!hay.includes(q)) return false;
+      if (normalizedQuery) {
+        const matches = sessionSearchFields(s).some((field) =>
+          field.toLowerCase().includes(normalizedQuery)
+        );
+        if (!matches) return false;
       }
       return true;
     });
-  }, [sessions, filter, unreadOnly, lastViewed, query]);
+  }, [sessions, filter, unreadOnly, lastViewed, normalizedQuery]);
 
   useEffect(() => {
     if (selectedIdx >= filtered.length) setSelectedIdx(Math.max(0, filtered.length - 1));
   }, [filtered.length, selectedIdx]);
 
   const openSession = useCallback(
-    (session: SessionEntry) => {
+    (session: SessionEntry, options: { observe?: boolean } = {}) => {
       setLastViewed(saveLastViewed(session.id));
+      if (options.observe && session.agentId) {
+        navigate({ view: "agents", agentId: session.agentId, conversationId: session.id });
+        return;
+      }
       navigate({ view: "conversation", conversationId: session.id });
     },
     [navigate],
@@ -194,13 +223,15 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
         const session = filtered[selectedIdx];
         if (session) {
           e.preventDefault();
-          openSession(session);
+          openSession(session, {
+            observe: Boolean(matchedHarnessSessionId(session, normalizedQuery)),
+          });
         }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [filtered, selectedIdx, openSession]);
+  }, [filtered, selectedIdx, openSession, normalizedQuery]);
 
   useEffect(() => {
     const row = listRef.current?.querySelector<HTMLElement>(`[data-idx="${selectedIdx}"]`);
@@ -267,7 +298,7 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
               ref={searchRef}
               type="text"
               className="s-search-input"
-              placeholder="Search conversations…"
+              placeholder="Search conversations or session IDs…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -308,6 +339,7 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
               const preview = plainPreview(session.preview, 160);
               const kindLabel = KIND_LABELS[session.kind] ?? session.kind;
               const workspaceName = pathLeaf(session.workspaceRoot);
+              const sessionIdMatch = matchedHarnessSessionId(session, normalizedQuery);
 
               return (
                 <div
@@ -322,7 +354,9 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
                   onClick={() => {
                     navigateUnlessSelected(() => {
                       setSelectedIdx(idx);
-                      openSession(session);
+                      openSession(session, {
+                        observe: Boolean(sessionIdMatch),
+                      });
                     });
                   }}
                   onMouseEnter={() => setSelectedIdx(idx)}
@@ -334,9 +368,23 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
                       items.push({ kind: "separator" });
                     }
                     items.push({ kind: "action", label: "Open Conversation", onSelect: () => openSession(session) });
+                    if (session.agentId) {
+                      items.push({
+                        kind: "action",
+                        label: "Open Observe",
+                        onSelect: () => openSession(session, { observe: true }),
+                      });
+                    }
                     items.push({ kind: "action", label: "Copy Title", onSelect: () => navigator.clipboard.writeText(displayTitle) });
                     if (session.id) {
                       items.push({ kind: "action", label: "Copy Conversation ID", onSelect: () => navigator.clipboard.writeText(session.id) });
+                    }
+                    if (session.harnessSessionId) {
+                      items.push({
+                        kind: "action",
+                        label: "Copy Harness Session ID",
+                        onSelect: () => navigator.clipboard.writeText(session.harnessSessionId),
+                      });
                     }
                     showContextMenu(e, items);
                   }}
@@ -380,6 +428,14 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
 
                     <div className="s-session-meta-row" aria-label="Conversation details">
                       <span className="s-session-pill">{kindLabel}</span>
+                      {sessionIdMatch && (
+                        <span
+                          className="s-session-pill"
+                          title={sessionIdMatch}
+                        >
+                          session · {sessionIdMatch}
+                        </span>
+                      )}
                       {workspaceName && (
                         <span
                           className="s-session-pill"

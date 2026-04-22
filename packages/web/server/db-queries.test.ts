@@ -270,6 +270,8 @@ describe("web db query agents", () => {
         agentId: "agent-1",
         agentName: "Agent One",
         harness: null,
+        harnessSessionId: null,
+        harnessLogPath: null,
         currentBranch: null,
         preview: null,
         messageCount: 0,
@@ -519,6 +521,39 @@ describe("web db query agents", () => {
 
       expect(agent?.harnessSessionId).toBe("019d9762-19f7-7792-8962-90d924ce7faa");
       expect(agent?.harnessLogPath).toBe(
+        join(homedir(), ".scout", "pairing", "codex", "pairing-019d9762", "logs", "stdout.log"),
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  test("surfaces harness session ids and log paths on session summaries", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-bridge",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "pairing_bridge",
+        state: "idle",
+        sessionId: "pairing-019d9762",
+        projectRoot: "/tmp/agent-1-bridge",
+        metadata: {
+          attachedTransport: "codex_app_server",
+          pairingAdapterType: "codex",
+          pairingSessionId: "pairing-019d9762",
+          threadId: "019d9762-19f7-7792-8962-90d924ce7faa",
+          externalSessionId: "019d9762-19f7-7792-8962-90d924ce7faa",
+        },
+      });
+
+      const session = querySessions(10).find((entry) => entry.id === "conv-1");
+
+      expect(session?.harnessSessionId).toBe("019d9762-19f7-7792-8962-90d924ce7faa");
+      expect(session?.harnessLogPath).toBe(
         join(homedir(), ".scout", "pairing", "codex", "pairing-019d9762", "logs", "stdout.log"),
       );
     } finally {

@@ -1197,7 +1197,10 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
        a.id AS agent_id,
        ac.display_name,
        ep.harness,
+       ep.transport,
        ep.project_root,
+       ep.session_id,
+       ep.metadata_json AS endpoint_metadata_json,
        a.metadata_json
      FROM conversation_members cm
      JOIN agents a ON a.id = cm.actor_id
@@ -1224,7 +1227,10 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
       agent_id: string;
       display_name: string;
       harness: string | null;
+      transport: string | null;
       project_root: string | null;
+      session_id: string | null;
+      endpoint_metadata_json: string | null;
       metadata_json: string | null;
     }>;
     const primaryAgentId = r.kind === "direct"
@@ -1238,6 +1244,8 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
 
     let agentName: string | null = null;
     let harness: string | null = null;
+    let harnessSessionId: string | null = null;
+    let harnessLogPath: string | null = null;
     let branch: string | null = null;
     let workspaceRoot: string | null = null;
 
@@ -1252,6 +1260,34 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
         }
         branch = (meta.branch as string) ?? (meta.workspaceQualifier as string) ?? null;
       } catch {}
+      try {
+        const endpointMeta = primaryAgent.endpoint_metadata_json
+          ? JSON.parse(primaryAgent.endpoint_metadata_json)
+          : {};
+        harnessSessionId = resolveHarnessSessionId(
+          primaryAgent.transport,
+          primaryAgent.session_id,
+          endpointMeta,
+        );
+        harnessLogPath = resolveHarnessLogPath(
+          primaryAgent.agent_id,
+          primaryAgent.transport,
+          primaryAgent.session_id,
+          endpointMeta,
+        );
+      } catch {
+        harnessSessionId = resolveHarnessSessionId(
+          primaryAgent.transport,
+          primaryAgent.session_id,
+          undefined,
+        );
+        harnessLogPath = resolveHarnessLogPath(
+          primaryAgent.agent_id,
+          primaryAgent.transport,
+          primaryAgent.session_id,
+          undefined,
+        );
+      }
     }
 
     const preview = (previewStmt.get(r.id) as { body: string } | null)?.body ?? null;
@@ -1264,6 +1300,8 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
       agentId,
       agentName,
       harness,
+      harnessSessionId,
+      harnessLogPath,
       currentBranch: branch,
       preview: preview ? preview.slice(0, 200) : null,
       messageCount: stats?.cnt ?? 0,
@@ -1395,21 +1433,27 @@ function synthesizeDirectSession(
   operatorId: string,
 ): MobileSessionSummary | null {
   const agent = db().prepare(
-    `SELECT
-       a.id AS agent_id,
-       ac.display_name,
-       ep.harness,
-       ep.project_root,
-       a.metadata_json
-     FROM agents a
-     JOIN actors ac ON ac.id = a.id
-     ${LATEST_AGENT_ENDPOINT_JOIN}
-     WHERE a.id = ?`,
+     `SELECT
+        a.id AS agent_id,
+        ac.display_name,
+        ep.harness,
+        ep.transport,
+        ep.project_root,
+       ep.session_id,
+       ep.metadata_json AS endpoint_metadata_json,
+        a.metadata_json
+      FROM agents a
+      JOIN actors ac ON ac.id = a.id
+      ${LATEST_AGENT_ENDPOINT_JOIN}
+      WHERE a.id = ?`,
   ).get(agentId) as {
     agent_id: string;
     display_name: string;
     harness: string | null;
+    transport: string | null;
     project_root: string | null;
+    session_id: string | null;
+    endpoint_metadata_json: string | null;
     metadata_json: string | null;
   } | null;
 
@@ -1418,9 +1462,13 @@ function synthesizeDirectSession(
   }
 
   let currentBranch: string | null = null;
+  let endpointMeta: Record<string, unknown> = {};
   try {
     const metadata = agent.metadata_json ? JSON.parse(agent.metadata_json) : {};
     currentBranch = (metadata.branch as string) ?? (metadata.workspaceQualifier as string) ?? null;
+  } catch {}
+  try {
+    endpointMeta = agent.endpoint_metadata_json ? JSON.parse(agent.endpoint_metadata_json) : {};
   } catch {}
 
   return {
@@ -1431,6 +1479,13 @@ function synthesizeDirectSession(
     agentId,
     agentName: agent.display_name,
     harness: agent.harness,
+    harnessSessionId: resolveHarnessSessionId(agent.transport, agent.session_id, endpointMeta),
+    harnessLogPath: resolveHarnessLogPath(
+      agentId,
+      agent.transport,
+      agent.session_id,
+      endpointMeta,
+    ),
     currentBranch,
     preview: null,
     messageCount: 0,
@@ -1529,6 +1584,8 @@ export type MobileSessionSummary = {
   agentId: string | null;
   agentName: string | null;
   harness: string | null;
+  harnessSessionId: string | null;
+  harnessLogPath: string | null;
   currentBranch: string | null;
   preview: string | null;
   messageCount: number;
@@ -1579,20 +1636,32 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
     // Get agent details if available
     let agentName: string | null = null;
     let harness: string | null = null;
+    let harnessSessionId: string | null = null;
+    let harnessLogPath: string | null = null;
     let branch: string | null = null;
     let workspaceRoot: string | null = null;
 
     if (agentId) {
       const agentRow = db().prepare(
-        `SELECT ac.display_name, ep.harness, ep.project_root, a.metadata_json
+        `SELECT
+           ac.display_name,
+           ep.harness,
+           ep.transport,
+           ep.project_root,
+           ep.session_id,
+           ep.metadata_json AS endpoint_metadata_json,
+           a.metadata_json
          FROM agents a
          JOIN actors ac ON ac.id = a.id
-         LEFT JOIN agent_endpoints ep ON ep.agent_id = a.id
+         ${LATEST_AGENT_ENDPOINT_JOIN}
          WHERE a.id = ?`,
       ).get(agentId) as {
         display_name: string;
         harness: string | null;
+        transport: string | null;
         project_root: string | null;
+        session_id: string | null;
+        endpoint_metadata_json: string | null;
         metadata_json: string | null;
       } | null;
 
@@ -1604,6 +1673,34 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
           const meta = agentRow.metadata_json ? JSON.parse(agentRow.metadata_json) : {};
           branch = (meta.branch as string) ?? (meta.workspaceQualifier as string) ?? null;
         } catch {}
+        try {
+          const endpointMeta = agentRow.endpoint_metadata_json
+            ? JSON.parse(agentRow.endpoint_metadata_json)
+            : {};
+          harnessSessionId = resolveHarnessSessionId(
+            agentRow.transport,
+            agentRow.session_id,
+            endpointMeta,
+          );
+          harnessLogPath = resolveHarnessLogPath(
+            agentId,
+            agentRow.transport,
+            agentRow.session_id,
+            endpointMeta,
+          );
+        } catch {
+          harnessSessionId = resolveHarnessSessionId(
+            agentRow.transport,
+            agentRow.session_id,
+            undefined,
+          );
+          harnessLogPath = resolveHarnessLogPath(
+            agentId,
+            agentRow.transport,
+            agentRow.session_id,
+            undefined,
+          );
+        }
       }
     }
 
@@ -1617,6 +1714,8 @@ export function queryMobileSessions(limit = 50): MobileSessionSummary[] {
       agentId,
       agentName,
       harness,
+      harnessSessionId,
+      harnessLogPath,
       currentBranch: branch,
       preview: preview ? preview.slice(0, 200) : null,
       messageCount: stats?.cnt ?? 0,

@@ -181,6 +181,8 @@ export type SessionEntry = {
   agentId: string | null;
   agentName: string | null;
   harness: string | null;
+  harnessSessionId: string | null;
+  harnessLogPath: string | null;
   currentBranch: string | null;
   preview: string | null;
   messageCount: number;
