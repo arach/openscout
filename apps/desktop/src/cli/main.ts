@@ -64,16 +64,28 @@ async function main() {
   await handler(context, commandArgs);
 }
 
+/** Cached scout shim path — resolved once per process. */
+let _scoutBinPath: string | null = null;
+
+function getScoutBinPath(): string {
+  if (_scoutBinPath) return _scoutBinPath;
+  // Bun scripts: process.execPath is the bun binary, not the shim.
+  // The shim is always at ~/.bun/bin/scout on macOS.
+  _scoutBinPath = join(homedir(), ".bun", "bin", "scout");
+  if (!existsSync(_scoutBinPath)) {
+    // Fallback: resolve via $PATH
+    _scoutBinPath = spawnSync("which", ["scout"], { encoding: "utf8" }).stdout.trim();
+  }
+  return _scoutBinPath;
+}
+
 /**
  * Detects if the CLI binary was updated (newer mtime than our checkpoint)
  * and silently restarts the broker to pick up the fresh runtime.
  */
 async function ensureBrokerUptodate(): Promise<void> {
   try {
-    // Bun scripts: process.execPath is the bun binary, not the shim.
-    // Find the actual scout shim whose mtime updates on `bun add -g`.
-    const scoutBin = spawnSync("which", ["scout"], { encoding: "utf8" }).stdout.trim();
-    const mtime = statSync(scoutBin).mtimeMs;
+    const mtime = statSync(getScoutBinPath()).mtimeMs;
     const checkpointDir = join(homedir(), ".scout");
     const mtimePath = join(checkpointDir, "cli-mtime");
 
