@@ -10,6 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Load .env if present
+[[ -f .env.local ]] && set -a && source .env.local && set +a
 [[ -f .env ]] && set -a && source .env && set +a
 
 DRY_RUN=false
