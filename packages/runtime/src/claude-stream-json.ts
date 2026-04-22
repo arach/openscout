@@ -782,6 +782,7 @@ class ClaudeStreamJsonSession {
     this.claudeSessionId = await readOptionalFile(this.sessionStatePath);
 
     const args = [
+      "--verbose",
       "--print",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
