@@ -70,8 +70,10 @@ async function main() {
  */
 async function ensureBrokerUptodate(): Promise<void> {
   try {
-    const execPath = process.execPath;
-    const mtime = statSync(execPath).mtimeMs;
+    // Bun scripts: process.execPath is the bun binary, not the shim.
+    // Find the actual scout shim whose mtime updates on `bun add -g`.
+    const scoutBin = spawnSync("which", ["scout"], { encoding: "utf8" }).stdout.trim();
+    const mtime = statSync(scoutBin).mtimeMs;
     const checkpointDir = join(homedir(), ".scout");
     const mtimePath = join(checkpointDir, "cli-mtime");
 
