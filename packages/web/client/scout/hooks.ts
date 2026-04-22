@@ -54,6 +54,12 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+6",
       },
       {
+        id: "nav:ops",
+        label: "Go to Ops",
+        action: () => navigate({ view: "ops" }),
+        shortcut: "Cmd+7",
+      },
+      {
         id: "nav:settings",
         label: "Open Settings",
         action: () => navigate({ view: "settings" }),
@@ -132,6 +138,7 @@ const VIEW_LABELS: Record<string, string> = {
   mesh: "Mesh",
   settings: "Settings",
   work: "Work",
+  ops: "Ops",
 };
 
 export function useScoutNavCenter(): ReactNode | null {

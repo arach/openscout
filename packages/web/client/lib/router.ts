@@ -43,6 +43,13 @@ function routeFromPath(): Route {
     return { view: "work", workId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "settings") return { view: "settings" };
+  if (parts[0] === "ops") {
+    const mode = parts[1];
+    if (mode === "conductor" || mode === "warroom" || mode === "plan") {
+      return { view: "ops", mode };
+    }
+    return { view: "ops" };
+  }
   return { view: "inbox" };
 }
 
@@ -80,6 +87,8 @@ function routePath(r: Route): string {
       return `/work/${encodeURIComponent(r.workId)}`;
     case "settings":
       return "/settings";
+    case "ops":
+      return r.mode && r.mode !== "plan" ? `/ops/${r.mode}` : "/ops";
   }
 }
 
@@ -99,6 +108,8 @@ function routeKey(r: Route): string {
       return r.sessionId ? `session:${r.sessionId}` : "sessions";
     case "work":
       return `work:${r.workId}`;
+    case "ops":
+      return `ops:${r.mode ?? "plan"}`;
     default:
       return r.view;
   }

@@ -1,0 +1,326 @@
+/* ── Conductor view: canvas layout + minimap + focus overlay ── */
+
+.s-conductor {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.s-conductor-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.s-conductor-bar-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+
+.s-conductor-hotkeys {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.s-conductor-hotkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.s-conductor-hotkey kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* ── Canvas viewport ── */
+
+.s-conductor-viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+
+.s-conductor-viewport:active {
+  cursor: grabbing;
+}
+
+.s-conductor-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* ── Canvas grid background ── */
+
+.s-conductor-viewport::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, var(--border) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Group label ── */
+
+.s-conductor-group-label {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Individual tile ── */
+
+.s-conductor-tile {
+  position: absolute;
+  width: 340px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 14px 16px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.s-conductor-tile:hover {
+  border-color: var(--muted);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--muted) 20%, transparent);
+}
+
+.s-conductor-tile-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.s-conductor-tile-identity-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-conductor-tile-name {
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.s-conductor-tile-handle {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.s-conductor-tile-meta {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-conductor-tile-task {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Terminal stream ── */
+
+.s-conductor-terminal {
+  flex: 1;
+  min-height: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--bg) 70%, black);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  overflow: hidden;
+}
+
+.s-conductor-terminal-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-conductor-terminal-line--cmd {
+  color: var(--accent);
+}
+
+.s-conductor-terminal-line--result {
+  color: var(--green);
+}
+
+.s-conductor-terminal-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  background: var(--accent);
+  animation: s-ops-cursor-blink 1s steps(1) infinite;
+}
+
+/* ── Tile footer ── */
+
+.s-conductor-tile-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-conductor-tile-detail {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Minimap ── */
+
+.s-conductor-minimap {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 5;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 85%, black);
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: opacity 0.2s;
+}
+
+.s-conductor-minimap:hover {
+  opacity: 1 !important;
+}
+
+.s-conductor-minimap-viewport {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  pointer-events: none;
+}
+
+.s-conductor-minimap-tile {
+  position: absolute;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.s-conductor-minimap-group {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* ── Focus overlay ── */
+
+.s-conductor-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.s-conductor-overlay-panel {
+  width: 80%;
+  max-width: 900px;
+  height: 80%;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.s-conductor-overlay-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.s-conductor-overlay-body {
+  flex: 1;
+  padding: 24px;
+  overflow: auto;
+}
+
+.s-conductor-overlay-task {
+  font-size: 22px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin-bottom: 16px;
+  color: var(--ink);
+}
+
+.s-conductor-overlay-detail {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+
+.s-conductor-overlay-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}

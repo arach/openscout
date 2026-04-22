@@ -21,6 +21,8 @@ export function ScoutInspector() {
       return <SessionsInspector />;
     case "work":
       return <WorkInspector />;
+    case "ops":
+      return null;
     default:
       return null;
   }

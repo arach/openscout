@@ -175,6 +175,10 @@ export const scoutApp: HudsonApp = {
     icon: createElement(Radio, { size: 12 }),
   },
 
+  rightPanel: {
+    title: "Context",
+  },
+
   slots: {
     Content: ScoutContent,
     LeftPanel: ScoutLeftPanel,

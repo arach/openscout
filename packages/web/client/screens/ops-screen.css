@@ -1,0 +1,146 @@
+/* ── Ops screen: shared shell + sub-tab toggle ── */
+
+.s-ops {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.s-ops-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px;
+  height: 44px;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-ops-header-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.s-ops-tabs {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.s-ops-tab {
+  padding: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--dim);
+  transition: background 0.12s, color 0.12s;
+}
+
+.s-ops-tab:hover {
+  color: var(--ink);
+}
+
+.s-ops-tab--active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.s-ops-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Shared ops primitives ── */
+
+.s-ops-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+.s-ops-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+.s-ops-avatar {
+  width: var(--size, 24px);
+  height: var(--size, 24px);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: calc(var(--size, 24px) * 0.5);
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.s-ops-state-chip {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  min-width: 64px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.s-ops-btn {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 6px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s;
+}
+
+.s-ops-btn:hover {
+  background: var(--surface);
+}
+
+.s-ops-btn--primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.s-ops-btn--primary:hover {
+  opacity: 0.9;
+}
+
+/* ── Animations ── */
+
+@keyframes s-ops-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes s-ops-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0; transform: scale(1.5); }
+}

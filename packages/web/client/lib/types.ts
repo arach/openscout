@@ -303,4 +303,62 @@ export type Route =
   | { view: "mesh" }
   | { view: "activity" }
   | { view: "work"; workId: string }
-  | { view: "settings" };
+  | { view: "settings" }
+  | { view: "ops"; mode?: OpsMode };
+
+export type OpsMode = "plan" | "conductor" | "warroom";
+
+/* ── Ops types (Plan view) ── */
+
+export type MissionBrief = {
+  title: string;
+  goal: string;
+  rationale: string;
+  deadline: string;
+  confidence: number;
+  lastReproposedMinsAgo: number;
+};
+
+export type MissionNodeKind = "mission" | "phase" | "task";
+export type MissionNodeState =
+  | "proposed"
+  | "committed"
+  | "inflight"
+  | "done"
+  | "stuck";
+
+export type MissionTreeNode = {
+  id: string;
+  kind: MissionNodeKind;
+  title: string;
+  why?: string;
+  state: MissionNodeState;
+  assignee?: string;
+  confidence?: number;
+  progress?: number;
+  detail?: string;
+  stuckMins?: number;
+  children?: MissionTreeNode[];
+};
+
+export type PlanChange = {
+  id: string;
+  kind: "split" | "demote" | "promote" | "unassign" | "add";
+  summary: string;
+  why: string;
+  status: "pending" | "accepted";
+  minsAgo: number;
+};
+
+export type PlanRisk = {
+  id: string;
+  title: string;
+  detail: string;
+  severity: "high" | "med" | "low";
+};
+
+export type ToolTickerItem = {
+  agent: string;
+  tool: string;
+  result: string;
+};

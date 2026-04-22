@@ -1,5 +1,6 @@
 import {
   Activity,
+  Crosshair,
   Home,
   Layers,
   MessagesSquare,
@@ -25,6 +26,7 @@ const ITEMS: NavItem[] = [
   { view: "sessions", label: "Sessions", icon: MessagesSquare, target: { view: "sessions" } },
   { view: "activity", label: "Activity", icon: Activity, target: { view: "activity" } },
   { view: "mesh", label: "Mesh", icon: Network, target: { view: "mesh" } },
+  { view: "ops", label: "Ops", icon: Crosshair, target: { view: "ops" } },
 ];
 
 const FOOTER_ITEMS: NavItem[] = [

@@ -7,21 +7,30 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
-import { isAgentOnline } from "../lib/agent-state.ts";
+import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
 import {
   agentIdFromConversation,
   conversationForAgent,
 } from "../lib/router.ts";
+import {
+  loadLastViewedMap,
+  isUnread,
+  type LastViewedMap,
+} from "../lib/sessionRead.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
   Agent,
   Flight,
+  FleetState,
+  FleetAsk,
   Message,
   Route,
   SessionEntry,
 } from "../lib/types.ts";
+import "./conversation-screen.css";
+import "./ops-screen.css";
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const KIND_LABELS: Record<string, string> = {
@@ -370,21 +379,6 @@ function StopIcon() {
   );
 }
 
-function ConversationMetaRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="s-conv-meta-row">
-      <span className="s-conv-meta-label">{label}</span>
-      <span className="s-conv-meta-value">{value}</span>
-    </div>
-  );
-}
-
 function participantListLabel(session: SessionEntry | null): string | null {
   if (!session) return null;
   const participants = session.participantIds.filter(
@@ -392,6 +386,355 @@ function participantListLabel(session: SessionEntry | null): string | null {
   );
   if (participants.length === 0) return null;
   return participants.join(", ");
+}
+
+type RailWorkspaceGroup = {
+  workspace: string;
+  sessions: SessionEntry[];
+};
+
+function groupSessionsByWorkspace(
+  sessions: SessionEntry[],
+): RailWorkspaceGroup[] {
+  const groups = new Map<string, SessionEntry[]>();
+  for (const session of sessions) {
+    const key = pathLeaf(session.workspaceRoot) ?? "General";
+    const list = groups.get(key) ?? [];
+    list.push(session);
+    groups.set(key, list);
+  }
+  return Array.from(groups.entries()).map(([workspace, sessionList]) => ({
+    workspace,
+    sessions: sessionList.sort(
+      (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+    ),
+  }));
+}
+
+function deriveParticipantActivity(
+  agent: Agent | null,
+  flights: Flight[],
+  conversationId: string,
+): string | null {
+  if (!agent) return null;
+  const state = normalizeAgentState(agent.state);
+  const hasFlight = flights.some(
+    (f) =>
+      f.agentId === agent.id &&
+      f.conversationId === conversationId &&
+      !TERMINAL_FLIGHT_STATES.has(f.state),
+  );
+  if (hasFlight) {
+    const flight = flights.find(
+      (f) =>
+        f.agentId === agent.id &&
+        f.conversationId === conversationId &&
+        !TERMINAL_FLIGHT_STATES.has(f.state),
+    );
+    if (flight?.state === "running") return "running tool";
+    if (flight?.state === "waiting") return "thinking";
+    return "working";
+  }
+  if (state === "working") return "typing";
+  return null;
+}
+
+function ChannelRail({
+  sessions,
+  activeConversationId,
+  needsYouIds,
+  lastViewed,
+  navigate,
+}: {
+  sessions: SessionEntry[];
+  activeConversationId: string;
+  needsYouIds: Set<string>;
+  lastViewed: LastViewedMap;
+  navigate: (r: Route) => void;
+}) {
+  const needsYouSessions = sessions.filter(
+    (s) => needsYouIds.has(s.id) || (s.agentId && needsYouIds.has(s.agentId)),
+  );
+  const groups = useMemo(() => groupSessionsByWorkspace(sessions), [sessions]);
+
+  return (
+    <aside className="s-thread-rail">
+      <div className="s-thread-rail-scroll">
+        {needsYouSessions.length > 0 && (
+          <div className="s-thread-rail-section s-thread-rail-section--needs-you">
+            <div className="s-thread-rail-section-label">Needs you</div>
+            {needsYouSessions.map((session) => (
+              <RailItem
+                key={`needs-${session.id}`}
+                session={session}
+                active={session.id === activeConversationId}
+                unread={isUnread(session.lastMessageAt, session.id, lastViewed)}
+                needsYou
+                navigate={navigate}
+              />
+            ))}
+          </div>
+        )}
+        {groups.map((group) => (
+          <div key={group.workspace} className="s-thread-rail-section">
+            <div className="s-thread-rail-section-label">
+              {group.workspace}
+            </div>
+            {group.sessions.map((session) => (
+              <RailItem
+                key={session.id}
+                session={session}
+                active={session.id === activeConversationId}
+                unread={isUnread(session.lastMessageAt, session.id, lastViewed)}
+                needsYou={false}
+                navigate={navigate}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function RailItem({
+  session,
+  active,
+  unread,
+  needsYou,
+  navigate,
+}: {
+  session: SessionEntry;
+  active: boolean;
+  unread: boolean;
+  needsYou: boolean;
+  navigate: (r: Route) => void;
+}) {
+  const title = deriveDisplayTitle(session);
+  const initial = (session.agentName ?? title)[0]?.toUpperCase() ?? "?";
+  const isDm = session.kind === "direct";
+  const sub = pathLeaf(session.workspaceRoot) ?? session.kind;
+
+  return (
+    <button
+      type="button"
+      className={[
+        "s-thread-rail-item",
+        active && "s-thread-rail-item--active",
+        needsYou && "s-thread-rail-item--needs-you",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onClick={() =>
+        navigate({ view: "conversation", conversationId: session.id })
+      }
+    >
+      {isDm ? (
+        <div
+          className="s-thread-rail-avatar"
+          style={{ background: actorColor(session.agentName ?? title) }}
+        >
+          {initial}
+        </div>
+      ) : (
+        <div className="s-thread-rail-avatar s-thread-rail-avatar--channel">
+          #
+        </div>
+      )}
+      <div className="s-thread-rail-body">
+        <span className="s-thread-rail-name">{title}</span>
+        <span className="s-thread-rail-sub">{sub}</span>
+      </div>
+      <div className="s-thread-rail-trailing">
+        {unread && !needsYou && (
+          <span
+            className="s-thread-rail-presence-dot"
+            style={{ background: "var(--accent)" }}
+          />
+        )}
+        {needsYou && (
+          <span className="s-thread-rail-badge s-thread-rail-badge--amber">
+            !
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function PresenceSidebar({
+  sessionMeta,
+  agents,
+  flights,
+  conversationId,
+}: {
+  sessionMeta: SessionEntry | null;
+  agents: Agent[];
+  flights: Flight[];
+  conversationId: string;
+}) {
+  const participantAgents = useMemo(() => {
+    if (!sessionMeta) return [];
+    return sessionMeta.participantIds
+      .filter((id) => id !== "operator")
+      .map((id) => agents.find((a) => a.id === id) ?? null)
+      .filter((a): a is Agent => a !== null);
+  }, [sessionMeta, agents]);
+
+  const operatorEntry = {
+    id: "operator",
+    name: "You",
+    handle: "operator",
+    activity: null as string | null,
+    state: "available" as const,
+  };
+
+  const participantEntries = useMemo(() => {
+    return participantAgents.map((a) => ({
+      id: a.id,
+      name: a.name,
+      handle: a.handle ?? a.id,
+      activity: deriveParticipantActivity(a, flights, conversationId),
+      state: normalizeAgentState(a.state),
+    }));
+  }, [participantAgents, flights, conversationId]);
+
+  const allParticipants = [operatorEntry, ...participantEntries];
+
+  return (
+    <aside className="s-thread-sidebar">
+      <div className="s-thread-sidebar-section">
+        <div className="s-thread-sidebar-label">In this thread</div>
+        {allParticipants.map((p) => (
+          <div key={p.id} className="s-thread-sidebar-participant">
+            <div
+              className="s-ops-avatar"
+              style={{
+                "--size": "28px",
+                background: actorColor(p.name),
+              } as React.CSSProperties}
+            >
+              {p.name[0]?.toUpperCase() ?? "?"}
+            </div>
+            <div className="s-thread-sidebar-participant-info">
+              <span className="s-thread-sidebar-participant-name">
+                {p.name}
+              </span>
+              <span className="s-thread-sidebar-participant-handle">
+                @{p.handle}
+              </span>
+            </div>
+            <div className="s-thread-sidebar-participant-activity">
+              {p.activity ? (
+                <>
+                  <span
+                    className="s-thread-sidebar-activity-dot s-thread-sidebar-activity-dot--pulse"
+                    style={{ background: "var(--green)" }}
+                  />
+                  <span className="s-thread-sidebar-activity-label">
+                    {p.activity}
+                  </span>
+                </>
+              ) : p.state === "available" || p.id === "operator" ? (
+                <span
+                  className="s-thread-sidebar-activity-dot"
+                  style={{ background: stateColor(p.state) }}
+                />
+              ) : (
+                <span
+                  className="s-thread-sidebar-activity-dot"
+                  style={{ background: "var(--dim)" }}
+                />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {participantEntries.length > 0 && (
+        <div className="s-thread-sidebar-section">
+          <div className="s-thread-sidebar-label">Thread mesh</div>
+          <MiniMeshSvg participants={participantEntries} />
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function MiniMeshSvg({
+  participants,
+}: {
+  participants: Array<{
+    id: string;
+    name: string;
+    state: string;
+  }>;
+}) {
+  const cx = 130;
+  const cy = 80;
+  const radius = 55;
+  const nodeRadius = 16;
+
+  const nodes = participants.map((p, i) => {
+    const angle = (2 * Math.PI * i) / participants.length - Math.PI / 2;
+    return {
+      ...p,
+      x: cx + radius * Math.cos(angle),
+      y: cy + radius * Math.sin(angle),
+    };
+  });
+
+  return (
+    <div className="s-thread-mini-mesh">
+      <svg viewBox="0 0 260 160" aria-label="Thread participant mesh">
+        {nodes.map((node) => (
+          <line
+            key={`edge-${node.id}`}
+            x1={cx}
+            y1={cy}
+            x2={node.x}
+            y2={node.y}
+            className="s-thread-mini-mesh-edge"
+          />
+        ))}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={nodeRadius}
+          className="s-thread-mini-mesh-node s-thread-mini-mesh-node--center"
+        />
+        <text
+          x={cx}
+          y={cy}
+          className="s-thread-mini-mesh-label s-thread-mini-mesh-label--center"
+        >
+          OP
+        </text>
+        {nodes.map((node) => (
+          <g key={`node-${node.id}`}>
+            <circle
+              cx={node.x}
+              cy={node.y}
+              r={nodeRadius}
+              className="s-thread-mini-mesh-node"
+              style={
+                node.state === "working"
+                  ? { stroke: "var(--green)" }
+                  : undefined
+              }
+            />
+            <text
+              x={node.x}
+              y={node.y}
+              className="s-thread-mini-mesh-label"
+            >
+              {node.name.slice(0, 3).toUpperCase()}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
 }
 
 export function ConversationScreen({
@@ -407,6 +750,7 @@ export function ConversationScreen({
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
+  const [allFlights, setAllFlights] = useState<Flight[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -422,6 +766,41 @@ export function ConversationScreen({
       agentId ? (agents.find((item) => item.id === agentId) ?? null) : null,
     [agents, agentId],
   );
+
+  const [railSessions, setRailSessions] = useState<SessionEntry[]>([]);
+  const [needsYouIds, setNeedsYouIds] = useState<Set<string>>(new Set());
+  const [lastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
+
+  useEffect(() => {
+    api<SessionEntry[]>("/api/sessions")
+      .then((data) =>
+        setRailSessions(
+          data.sort(
+            (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+          ),
+        ),
+      )
+      .catch(() => {});
+
+    api<FleetState>("/api/fleet")
+      .then((fleet) => {
+        const ids = new Set<string>();
+        for (const item of fleet.needsAttention) {
+          if (item.conversationId) ids.add(item.conversationId);
+          if (item.agentId) ids.add(item.agentId);
+        }
+        for (const ask of fleet.activeAsks) {
+          if (
+            ask.status === "needs_attention" &&
+            ask.conversationId
+          ) {
+            ids.add(ask.conversationId);
+          }
+        }
+        setNeedsYouIds(ids);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -459,6 +838,7 @@ export function ConversationScreen({
       ]);
 
       setMessages(sortMessages(conversationMessages));
+      setAllFlights(activeFlights);
       trackedInvocationIdsRef.current = new Set(
         activeFlights.map((flight) => flight.invocationId),
       );
@@ -574,6 +954,18 @@ export function ConversationScreen({
     Boolean(value),
   );
 
+  const participantCount = sessionMeta
+    ? sessionMeta.participantIds.length
+    : isDm
+      ? 2
+      : 1;
+
+  const pinnedAsk = useMemo<FleetAsk | null>(() => {
+    if (!needsYouIds.has(conversationId) && !(agentId && needsYouIds.has(agentId)))
+      return null;
+    return null;
+  }, [conversationId, agentId, needsYouIds]);
+
   useBrokerEvents(
     useCallback(
       (event) => {
@@ -673,8 +1065,6 @@ export function ConversationScreen({
         }
 
         if (event.kind === "agent.endpoint.upserted") {
-          // ScoutProvider refetches agents on broker events, so the context-derived
-          // `agent` updates automatically. Nothing to do locally.
           return;
         }
 
@@ -686,8 +1076,6 @@ export function ConversationScreen({
     ),
   );
 
-  // SSE is primary. Only poll while we are actively waiting on a reply, and
-  // otherwise resync when the tab comes back into view after sleep/backgrounding.
   useEffect(() => {
     if (!hasOutstandingReply) {
       return;
@@ -804,7 +1192,7 @@ export function ConversationScreen({
         body: JSON.stringify({}),
       });
     } catch {
-      // Best-effort interrupt — swallow errors silently
+      // Best-effort
     }
   };
 
@@ -815,14 +1203,9 @@ export function ConversationScreen({
       ? "steer"
       : composeMode
     : "tell";
-  const composePlaceholder =
-    composeAction === "ask"
-      ? `Ask ${agentName} to own this and report back...`
-      : composeAction === "steer"
-        ? `Steer ${agentName} while the current turn is active...`
-        : isDm
-          ? `Tell ${agentName} what changed...`
-          : `Message ${agentName}...`;
+  const composePlaceholder = isDm
+    ? `Reply — or type / to route, @ to mention an agent, ? to ask a question`
+    : `Message ${agentName}...`;
   const composeModeDetail =
     composeAction === "ask"
       ? "Ask creates owned work in this DM and expects a reply here."
@@ -855,7 +1238,7 @@ export function ConversationScreen({
       if (message.actorName && !isOperatorMessage(message, operatorName)) {
         items.push({
           kind: "action",
-          label: `Copy Agent ID`,
+          label: "Copy Agent ID",
           onSelect: () =>
             navigator.clipboard.writeText(message.actorName ?? ""),
         });
@@ -887,381 +1270,555 @@ export function ConversationScreen({
     void record;
   };
 
+  const stackedAvatarAgents = useMemo(() => {
+    if (!sessionMeta) return [];
+    return sessionMeta.participantIds
+      .filter((id) => id !== "operator")
+      .slice(0, 4)
+      .map((id) => {
+        const a = agents.find((ag) => ag.id === id);
+        return { id, name: a?.name ?? id };
+      });
+  }, [sessionMeta, agents]);
+
   return (
-    <div className="s-conversation s-inbox-thread-redesign">
-      <div
-        className="s-conv-header"
-        onClick={() =>
-          isDm ? navigate({ view: "agent-info", conversationId }) : undefined
-        }
-        style={isDm ? undefined : { cursor: "default" }}
-        onContextMenu={(e) => {
-          const items: MenuItem[] = [
-            {
-              kind: "action",
-              label: "Copy Title",
-              onSelect: () => navigator.clipboard.writeText(threadTitle),
-            },
-          ];
-          if (agentId) {
+    <div className="s-thread-layout">
+      <ChannelRail
+        sessions={railSessions}
+        activeConversationId={conversationId}
+        needsYouIds={needsYouIds}
+        lastViewed={lastViewed}
+        navigate={navigate}
+      />
+
+      <div className="s-thread-center">
+        <div
+          className="s-thread-center-header"
+          onClick={() =>
+            isDm ? navigate({ view: "agent-info", conversationId }) : undefined
+          }
+          style={isDm ? { cursor: "pointer" } : undefined}
+          onContextMenu={(e) => {
+            const items: MenuItem[] = [
+              {
+                kind: "action",
+                label: "Copy Title",
+                onSelect: () => navigator.clipboard.writeText(threadTitle),
+              },
+            ];
+            if (agentId) {
+              items.push({
+                kind: "action",
+                label: "Copy Agent ID",
+                onSelect: () => navigator.clipboard.writeText(agentId),
+              });
+            }
             items.push({
               kind: "action",
-              label: "Copy Agent ID",
-              onSelect: () => navigator.clipboard.writeText(agentId),
+              label: "Copy Conversation ID",
+              onSelect: () => navigator.clipboard.writeText(conversationId),
             });
-          }
-          items.push({
-            kind: "action",
-            label: "Copy Conversation ID",
-            onSelect: () => navigator.clipboard.writeText(conversationId),
-          });
-          showContextMenu(e, items);
-        }}
-      >
-        <button
-          type="button"
-          className="s-back"
-          onClick={(event) => {
-            event.stopPropagation();
-            navigate(isDm ? { view: "inbox" } : { view: "sessions" });
+            showContextMenu(e, items);
           }}
         >
-          &larr;
-        </button>
-        <div className="s-thread-header-copy">
-          <div className="s-thread-header-main">
-            <div
-              className="s-avatar s-avatar-sm"
-              style={{ background: actorColor(agentName) }}
-            >
-              {agentName[0]?.toUpperCase() ?? "?"}
-            </div>
-            <div className="s-conv-header-info">
-              <span className="s-conv-header-name">{threadTitle}</span>
-              <span
-                className="s-conv-header-state"
-                title={isDm ? presence.detail : participantLabel}
-              >
+          <div className="s-thread-center-header-info">
+            <span className="s-thread-center-header-name">{threadTitle}</span>
+            <div className="s-thread-center-header-eyebrow">
+              <span className="s-thread-center-header-kicker">
+                {kindLabel}
+              </span>
+              {threadUpdatedAt && (
                 <span
-                  className="s-dot s-dot-sm"
-                  style={{
-                    background: presenceColor(presence, agent?.state ?? null),
-                  }}
-                />
-                {isDm ? presence.label : participantLabel}
-              </span>
-            </div>
-          </div>
-          <div className="s-thread-header-meta">
-            <span className="s-thread-kicker">{kindLabel}</span>
-            {threadUpdatedAt && (
-              <span
-                className="s-thread-header-updated s-tabular"
-                title={formatAbsoluteTimestamp(threadUpdatedAt)}
-              >
-                {timeAgo(threadUpdatedAt)}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {threadChips.length > 0 && (
-          <div className="s-thread-header-chips" aria-label="Thread details">
-            {threadChips.map((chip, index) => (
-              <span
-                key={`${chip.label}-${index}`}
-                className="s-thread-chip"
-                title={chip.title}
-              >
-                {chip.label}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {isDm && agentId && <span className="s-chevron" />}
-      </div>
-
-      {presence.showStrip && (
-        <div
-          className={`s-conv-status s-conv-status-${presence.tone}`}
-          aria-live="polite"
-        >
-          <span className="s-conv-status-dot" />
-          <div className="s-conv-status-copy">
-            <span className="s-conv-status-label">{presence.label}</span>
-            <span className="s-conv-status-detail">{presence.detail}</span>
-          </div>
-        </div>
-      )}
-
-      {isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
-        <details className="s-conv-meta-disclosure">
-          <summary className="s-conv-meta-toggle">Session details</summary>
-          <div className="s-conv-meta" aria-label="Agent session metadata">
-            {agent.harnessSessionId && (
-              <ConversationMetaRow
-                label="Harness Session"
-                value={agent.harnessSessionId}
-              />
-            )}
-            {agent.harnessLogPath && (
-              <ConversationMetaRow
-                label="Harness Log"
-                value={agent.harnessLogPath}
-              />
-            )}
-          </div>
-        </details>
-      )}
-
-      {error && <p className="s-error">{error}</p>}
-
-      <div className="s-messages">
-        {messages.length === 0 ? (
-          <div className="s-empty s-thread-empty">
-            <p>No messages yet</p>
-            <p>
-              {isDm
-                ? "Use Tell for quick coordination or Ask for owned work with a reply."
-                : "Start the thread below."}
-            </p>
-          </div>
-        ) : (
-          messages.map((message, index) => {
-            const isYou = isOperatorMessage(message, operatorName);
-            const dispatch = readScoutDispatch(message);
-            const rowClass = dispatch ? "scout.dispatch" : message.class;
-            const badgeLabel = messageClassLabel(rowClass);
-            const showDayDivider =
-              index === 0 ||
-              !isSameCalendarDay(
-                messages[index - 1]?.createdAt,
-                message.createdAt,
-              );
-            const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
-            return (
-              <div key={message.id} className="s-thread-message-block">
-                {showDayDivider && (
-                  <div
-                    className="s-thread-day-divider"
-                    aria-label={formatThreadDayLabel(message.createdAt)}
-                  >
-                    <span className="s-thread-day-line" aria-hidden="true" />
-                    <span className="s-thread-day-label">
-                      {formatThreadDayLabel(message.createdAt)}
-                    </span>
-                    <span className="s-thread-day-line" aria-hidden="true" />
-                  </div>
-                )}
-
-                <article
-                  className={`s-msg s-row-message${isYou ? " s-msg-you" : ""}`}
-                  data-class={rowClass}
-                  onContextMenu={(e) => onMessageContextMenu(e, message)}
+                  className="s-thread-center-header-time"
+                  title={formatAbsoluteTimestamp(threadUpdatedAt)}
                 >
-                  <div className="s-msg-card">
-                    <div className="s-msg-header">
-                      <div className="s-msg-meta">
-                        <span className="s-msg-actor">
-                          {isYou ? "You" : message.actorName}
-                        </span>
-                        {badgeLabel && (
-                          <span className="s-msg-kind">{badgeLabel}</span>
-                        )}
-                      </div>
-                      <span className="s-msg-time" title={absoluteTime}>
-                        {timeAgo(message.createdAt)}
-                      </span>
-                    </div>
-
-                    <div className="s-msg-body" title={absoluteTime}>
-                      {renderWithMentions(message.body)}
-                    </div>
-
-                    {dispatch && dispatch.candidates.length > 0 && (
-                      <div className="s-scout-dispatch">
-                        {dispatch.candidates.map((candidate) => (
-                          <button
-                            key={candidate.agentId}
-                            type="button"
-                            className="s-scout-tile"
-                            onClick={() =>
-                              void dispatchToCandidate(dispatch, candidate)
-                            }
-                          >
-                            <span className="s-scout-tile-id">
-                              @{candidate.agentId}
-                            </span>
-                            <span className="s-scout-tile-state">
-                              {candidate.endpointState}
-                            </span>
-                            <span className="s-scout-tile-meta">
-                              {[
-                                candidate.workspace,
-                                candidate.node,
-                                candidate.projectRoot,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ") || candidate.displayName}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </article>
-              </div>
-            );
-          })
-        )}
-
-        {presence.showTyping && (
-          <div className="s-thread-message-block">
-            <div className="s-msg s-msg-working" aria-live="polite">
-              <div className="s-msg-card s-msg-working-card">
-                <div className="s-msg-header">
-                  <div className="s-msg-meta">
-                    <span className="s-msg-actor">{agentName}</span>
-                    <span className="s-msg-kind">Live</span>
-                  </div>
-                  <span
-                    className="s-msg-time"
-                    title={
-                      currentFlight?.startedAt
-                        ? formatAbsoluteTimestamp(currentFlight.startedAt)
-                        : "now"
-                    }
-                  >
-                    {currentFlight?.startedAt
-                      ? timeAgo(currentFlight.startedAt)
-                      : "now"}
-                  </span>
-                </div>
-                <div className="s-msg-working-body">
-                  <span className="s-typing-indicator" aria-hidden="true">
-                    <span className="s-typing-dot" />
-                    <span className="s-typing-dot" />
-                    <span className="s-typing-dot" />
-                  </span>
-                  <span className="s-msg-working-copy">{presence.detail}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div ref={bottomRef} />
-      </div>
-
-      <form
-        className="s-compose"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        <div className="s-thread-compose-shell">
-          {isDm && (
-            <div className="s-compose-mode-row">
-              <div
-                className="s-seg s-compose-mode"
-                role="tablist"
-                aria-label="Direct message mode"
-              >
-                <button
-                  type="button"
-                  className="s-seg-btn"
-                  aria-pressed={composeMode === "tell"}
-                  onClick={() => setComposeMode("tell")}
-                >
-                  Tell
-                </button>
-                <button
-                  type="button"
-                  className="s-seg-btn"
-                  aria-pressed={composeMode === "ask"}
-                  onClick={() => setComposeMode("ask")}
-                >
-                  Ask
-                </button>
-              </div>
-              <span className="s-compose-mode-detail">{composeModeDetail}</span>
-            </div>
-          )}
-          <textarea
-            ref={composeRef}
-            className="s-compose-input"
-            placeholder={composePlaceholder}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                event.key !== "Enter" ||
-                event.shiftKey ||
-                event.nativeEvent.isComposing
-              )
-                return;
-              event.preventDefault();
-              if (!sending && draft.trim()) {
-                void send();
-              }
-            }}
-            rows={1}
-          />
-
-          <div className="s-thread-compose-footer">
-            <span className="s-thread-compose-hint">
-              {sending ? (
-                `Sending…`
-              ) : isStopMode ? (
-                "Stop"
-              ) : composeAction === "steer" ? (
-                <>
-                  <kbd className="s-kbd">↵</kbd> steer
-                </>
-              ) : composeAction === "ask" ? (
-                <>
-                  <kbd className="s-kbd">↵</kbd> ask
-                  <kbd className="s-kbd">⇧↵</kbd> newline
-                </>
-              ) : (
-                <>
-                  <kbd className="s-kbd">↵</kbd> {isDm ? "tell" : "send"}
-                  <kbd className="s-kbd">⇧↵</kbd> newline
-                </>
+                  {timeAgo(threadUpdatedAt)}
+                </span>
               )}
-            </span>
-            {isStopMode ? (
+            </div>
+          </div>
+
+          <div className="s-thread-center-header-right">
+            {threadChips.length > 0 && (
+              <div className="s-thread-center-header-chips">
+                {threadChips.map((chip, index) => (
+                  <span
+                    key={`${chip.label}-${index}`}
+                    className="s-thread-center-chip"
+                    title={chip.title}
+                  >
+                    {chip.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {stackedAvatarAgents.length > 0 && (
+              <div className="s-thread-center-avatars">
+                {stackedAvatarAgents.map((a) => (
+                  <div
+                    key={a.id}
+                    className="s-ops-avatar"
+                    style={{
+                      "--size": "22px",
+                      background: actorColor(a.name),
+                    } as React.CSSProperties}
+                    title={a.name}
+                  >
+                    {a.name[0]?.toUpperCase() ?? "?"}
+                  </div>
+                ))}
+                <span className="s-thread-center-participant-count">
+                  {participantCount}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {pinnedAsk && (
+          <div className="s-thread-pinned-ask">
+            <div className="s-thread-pinned-ask-label">
+              Pinned ask &middot; Awaiting operator
+            </div>
+            <div className="s-thread-pinned-ask-body">
+              {pinnedAsk.task}
+            </div>
+            <div className="s-thread-pinned-ask-routing">
+              <span>{pinnedAsk.agentName ?? pinnedAsk.agentId}</span>
+              <span className="s-thread-pinned-ask-routing-arrow">
+                &rarr;
+              </span>
+              <span>You</span>
+            </div>
+            <div className="s-thread-pinned-ask-actions">
               <button
                 type="button"
-                className="s-compose-send s-compose-stop"
-                onClick={() => void interrupt()}
-                aria-label="Stop agent"
+                className="s-ops-btn s-ops-btn--primary"
+                onClick={() => {
+                  composeRef.current?.focus();
+                }}
               >
-                <StopIcon />
+                Answer
               </button>
-            ) : (
-              <button
-                type="submit"
-                className="s-compose-send"
-                disabled={sending || !draft.trim()}
-                aria-label={
-                  composeAction === "ask"
-                    ? "Ask agent"
-                    : composeAction === "steer"
-                      ? "Steer agent"
-                      : isDm
-                        ? "Tell agent"
-                        : "Send message"
-                }
-              >
-                <SendIcon />
+              <button type="button" className="s-ops-btn">
+                Defer
               </button>
-            )}
+              <button type="button" className="s-ops-btn">
+                Route
+              </button>
+            </div>
+            <div className="s-thread-pinned-ask-strip" />
           </div>
+        )}
+
+        {presence.showStrip && (
+          <div
+            className={`s-thread-status s-thread-status--${presence.tone}`}
+            aria-live="polite"
+          >
+            <span
+              className="s-thread-status-dot"
+              style={{
+                background: presenceColor(presence, agent?.state ?? null),
+              }}
+            />
+            <div className="s-thread-status-copy">
+              <span className="s-thread-status-label">{presence.label}</span>
+              <span className="s-thread-status-detail">{presence.detail}</span>
+            </div>
+          </div>
+        )}
+
+        {isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
+          <details className="s-thread-meta-disclosure">
+            <summary className="s-thread-meta-toggle">
+              Session details
+            </summary>
+            <div className="s-thread-meta-block">
+              {agent.harnessSessionId && (
+                <div className="s-thread-meta-row">
+                  <span className="s-thread-meta-row-label">
+                    Harness Session
+                  </span>
+                  <span className="s-thread-meta-row-value">
+                    {agent.harnessSessionId}
+                  </span>
+                </div>
+              )}
+              {agent.harnessLogPath && (
+                <div className="s-thread-meta-row">
+                  <span className="s-thread-meta-row-label">Harness Log</span>
+                  <span className="s-thread-meta-row-value">
+                    {agent.harnessLogPath}
+                  </span>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
+
+        {error && <p className="s-thread-error">{error}</p>}
+
+        <div className="s-thread-feed">
+          {messages.length === 0 ? (
+            <div className="s-thread-empty">
+              <p>No messages yet</p>
+              <p>
+                {isDm
+                  ? "Use Tell for quick coordination or Ask for owned work with a reply."
+                  : "Start the thread below."}
+              </p>
+            </div>
+          ) : (
+            messages.map((message, index) => {
+              const isYou = isOperatorMessage(message, operatorName);
+              const dispatch = readScoutDispatch(message);
+              const rowClass = dispatch ? "scout.dispatch" : message.class;
+              const badgeLabel = messageClassLabel(rowClass);
+              const isToolMessage = rowClass === "status";
+              const showDayDivider =
+                index === 0 ||
+                !isSameCalendarDay(
+                  messages[index - 1]?.createdAt,
+                  message.createdAt,
+                );
+              const absoluteTime = formatAbsoluteTimestamp(message.createdAt);
+              const messageAgent =
+                !isYou && message.actorName
+                  ? agents.find((a) => a.name === message.actorName) ?? null
+                  : null;
+              const actorHandle = messageAgent?.handle ?? null;
+
+              return (
+                <div
+                  key={message.id}
+                  className={[
+                    "s-thread-feed-block",
+                    isYou && "s-thread-feed-block--you",
+                    showDayDivider && "s-thread-feed-block--full-width",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {showDayDivider && (
+                    <div
+                      className="s-thread-day-divider"
+                      aria-label={formatThreadDayLabel(message.createdAt)}
+                    >
+                      <span className="s-thread-day-line" aria-hidden="true" />
+                      <span className="s-thread-day-label">
+                        {formatThreadDayLabel(message.createdAt)}
+                      </span>
+                      <span className="s-thread-day-line" aria-hidden="true" />
+                    </div>
+                  )}
+
+                  <article
+                    className={[
+                      "s-thread-msg",
+                      isYou && "s-thread-msg--you",
+                      isToolMessage && "s-thread-msg--tool",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    data-class={rowClass}
+                    onContextMenu={(e) => onMessageContextMenu(e, message)}
+                  >
+                    <div className="s-thread-msg-card s-thread-msg-card--avatar-row">
+                      <div
+                        className="s-ops-avatar s-thread-msg-avatar"
+                        style={{
+                          "--size": "28px",
+                          background: actorColor(
+                            isYou ? operatorName : (message.actorName ?? "?"),
+                          ),
+                        } as React.CSSProperties}
+                      >
+                        {(isYou
+                          ? operatorName[0]
+                          : message.actorName?.[0] ?? "?"
+                        ).toUpperCase()}
+                      </div>
+                      <div className="s-thread-msg-card-content">
+                        <div className="s-thread-msg-header">
+                          <div className="s-thread-msg-meta">
+                            <span className="s-thread-msg-actor">
+                              {isYou ? "You" : message.actorName}
+                            </span>
+                            {actorHandle && (
+                              <span className="s-thread-msg-handle">
+                                @{actorHandle}
+                              </span>
+                            )}
+                            {badgeLabel && (
+                              <span className="s-thread-msg-kind">
+                                {badgeLabel}
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            className="s-thread-msg-time"
+                            title={absoluteTime}
+                          >
+                            {timeAgo(message.createdAt)}
+                          </span>
+                        </div>
+
+                        <div className="s-thread-msg-body" title={absoluteTime}>
+                          {renderWithMentions(message.body)}
+                        </div>
+
+                        {dispatch && dispatch.candidates.length > 0 && (
+                          <div className="s-thread-dispatch">
+                            {dispatch.candidates.map((candidate) => (
+                              <button
+                                key={candidate.agentId}
+                                type="button"
+                                className="s-thread-dispatch-tile"
+                                onClick={() =>
+                                  void dispatchToCandidate(dispatch, candidate)
+                                }
+                              >
+                                <span className="s-thread-dispatch-tile-id">
+                                  @{candidate.agentId}
+                                </span>
+                                <span className="s-thread-dispatch-tile-state">
+                                  {candidate.endpointState}
+                                </span>
+                                <span className="s-thread-dispatch-tile-meta">
+                                  {[
+                                    candidate.workspace,
+                                    candidate.node,
+                                    candidate.projectRoot,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ") || candidate.displayName}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              );
+            })
+          )}
+
+          {presence.showTyping && (
+            <div className="s-thread-feed-block">
+              <div className="s-thread-msg" aria-live="polite">
+                <div className="s-thread-msg-card s-thread-msg-working-card s-thread-msg-card--avatar-row">
+                  <div
+                    className="s-ops-avatar s-thread-msg-avatar"
+                    style={{
+                      "--size": "28px",
+                      background: actorColor(agentName),
+                    } as React.CSSProperties}
+                  >
+                    {agentName[0]?.toUpperCase() ?? "?"}
+                  </div>
+                  <div className="s-thread-msg-card-content">
+                    <div className="s-thread-msg-header">
+                      <div className="s-thread-msg-meta">
+                        <span className="s-thread-msg-actor">{agentName}</span>
+                        <span className="s-thread-msg-kind">Live</span>
+                      </div>
+                      <span
+                        className="s-thread-msg-time"
+                        title={
+                          currentFlight?.startedAt
+                            ? formatAbsoluteTimestamp(currentFlight.startedAt)
+                            : "now"
+                        }
+                      >
+                        {currentFlight?.startedAt
+                          ? timeAgo(currentFlight.startedAt)
+                          : "now"}
+                      </span>
+                    </div>
+                    <div className="s-thread-msg-working-body">
+                      <span
+                        className="s-thread-typing-indicator"
+                        aria-hidden="true"
+                      >
+                        <span className="s-thread-typing-dot" />
+                        <span className="s-thread-typing-dot" />
+                        <span className="s-thread-typing-dot" />
+                      </span>
+                      <span className="s-thread-msg-working-copy">
+                        {presence.detail}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
         </div>
-      </form>
+
+        {presence.showTyping && (
+          <div className="s-thread-presence-line">
+            <div className="s-thread-presence-line-avatars">
+              <div
+                className="s-ops-avatar"
+                style={{
+                  "--size": "20px",
+                  background: actorColor(agentName),
+                } as React.CSSProperties}
+              >
+                {agentName[0]?.toUpperCase() ?? "?"}
+              </div>
+            </div>
+            <span className="s-thread-presence-line-label">
+              {agentName} is {presence.label.toLowerCase()}...
+            </span>
+            <div className="s-thread-presence-strip" />
+          </div>
+        )}
+
+        <form
+          className="s-thread-compose"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
+        >
+          <div className="s-thread-compose-shell">
+            {isDm && (
+              <div className="s-thread-compose-mode-row">
+                <div
+                  className="s-thread-compose-mode"
+                  role="tablist"
+                  aria-label="Direct message mode"
+                >
+                  <button
+                    type="button"
+                    className="s-thread-compose-mode-btn"
+                    aria-pressed={composeMode === "tell"}
+                    onClick={() => setComposeMode("tell")}
+                  >
+                    Tell
+                  </button>
+                  <button
+                    type="button"
+                    className="s-thread-compose-mode-btn"
+                    aria-pressed={composeMode === "ask"}
+                    onClick={() => setComposeMode("ask")}
+                  >
+                    Ask
+                  </button>
+                </div>
+                <span className="s-thread-compose-mode-detail">
+                  {composeModeDetail}
+                </span>
+              </div>
+            )}
+            <textarea
+              ref={composeRef}
+              className="s-thread-compose-input"
+              placeholder={composePlaceholder}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  event.key !== "Enter" ||
+                  event.shiftKey ||
+                  event.nativeEvent.isComposing
+                )
+                  return;
+                event.preventDefault();
+                if (!sending && draft.trim()) {
+                  void send();
+                }
+              }}
+              rows={1}
+            />
+
+            <div className="s-thread-compose-footer">
+              <div className="s-thread-compose-actions">
+                <button
+                  type="button"
+                  className="s-thread-compose-action-btn"
+                  onClick={() => setDraft((d) => d + "/route ")}
+                >
+                  /route
+                </button>
+                <button
+                  type="button"
+                  className="s-thread-compose-action-btn"
+                  onClick={() => {
+                    setComposeMode("ask");
+                    composeRef.current?.focus();
+                  }}
+                >
+                  ?ask
+                </button>
+              </div>
+              <span className="s-thread-compose-hint">
+                {sending ? (
+                  "Sending..."
+                ) : isStopMode ? (
+                  "Stop"
+                ) : composeAction === "steer" ? (
+                  <>
+                    <kbd className="s-thread-kbd">Enter</kbd> steer
+                  </>
+                ) : composeAction === "ask" ? (
+                  <>
+                    <kbd className="s-thread-kbd">Enter</kbd> ask
+                    <kbd className="s-thread-kbd">Shift+Enter</kbd> newline
+                  </>
+                ) : (
+                  <>
+                    <kbd className="s-thread-kbd">
+                      {"⌘"}Enter
+                    </kbd>{" "}
+                    send
+                  </>
+                )}
+              </span>
+              {isStopMode ? (
+                <button
+                  type="button"
+                  className="s-thread-compose-send s-thread-compose-send--stop"
+                  onClick={() => void interrupt()}
+                  aria-label="Stop agent"
+                >
+                  <StopIcon />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="s-thread-compose-send"
+                  disabled={sending || !draft.trim()}
+                  aria-label={
+                    composeAction === "ask"
+                      ? "Ask agent"
+                      : composeAction === "steer"
+                        ? "Steer agent"
+                        : isDm
+                          ? "Tell agent"
+                          : "Send message"
+                  }
+                >
+                  <SendIcon />
+                </button>
+              )}
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <PresenceSidebar
+        sessionMeta={sessionMeta}
+        agents={agents}
+        flights={allFlights}
+        conversationId={conversationId}
+      />
     </div>
   );
 }

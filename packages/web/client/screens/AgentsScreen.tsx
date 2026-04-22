@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkList } from "../components/WorkList.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -7,40 +7,39 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
-import type { Agent, Route, SessionEntry, WorkItem } from "../lib/types.ts";
+import type {
+  Agent,
+  FleetState,
+  Message,
+  Route,
+  SessionEntry,
+  WorkItem,
+} from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
-import "./agents-detail-redesign.css";
+import "./agents-screen.css";
+import "./ops-screen.css";
 
-type AgentField = {
-  label: string;
-  value: ReactNode;
-};
-
-type AgentSection = {
+type AgentGroup = {
   key: "working" | "available" | "offline";
   title: string;
   agents: Agent[];
 };
 
-/** Build a display label that disambiguates agents sharing the same name. */
-function agentLabel(agent: Agent, allAgents: Agent[]): { name: string; qualifier: string | null } {
-  const siblings = allAgents.filter((candidate) => candidate.name === agent.name);
-  if (siblings.length <= 1) {
-    return { name: agent.name, qualifier: null };
-  }
-  const qualifier =
-    agent.project ??
-    agent.branch ??
-    agent.id.replace(/^.*\./, "");
+function agentLabel(
+  agent: Agent,
+  allAgents: Agent[],
+): { name: string; qualifier: string | null } {
+  const siblings = allAgents.filter((c) => c.name === agent.name);
+  if (siblings.length <= 1) return { name: agent.name, qualifier: null };
+  const qualifier = agent.project ?? agent.branch ?? agent.id.replace(/^.*\./, "");
   return { name: agent.name, qualifier };
 }
 
 function formatLabel(value: string | null | undefined): string | null {
-  return value ? value.replace(/_/g, " ") : null;
-}
-
-function formatUpdatedAt(updatedAt: number | null): string {
-  return updatedAt ? timeAgo(updatedAt) : "—";
+  if (!value) return null;
+  const cleaned = value.replace(/_/g, " ");
+  if (cleaned.toLowerCase() === "relay agent") return "agent";
+  return cleaned;
 }
 
 function directSessionMaps(sessions: SessionEntry[]): {
@@ -48,79 +47,202 @@ function directSessionMaps(sessions: SessionEntry[]): {
   sessionByAgentId: Map<string, SessionEntry>;
 } {
   const directSessions = [...sessions]
-    .filter((session): session is SessionEntry & { agentId: string } => session.kind === "direct" && Boolean(session.agentId))
+    .filter(
+      (s): s is SessionEntry & { agentId: string } =>
+        s.kind === "direct" && Boolean(s.agentId),
+    )
     .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
 
   const conversationByAgentId = new Map<string, string>();
   const sessionByAgentId = new Map<string, SessionEntry>();
   for (const session of directSessions) {
-    const agentId = session.agentId;
-    if (!conversationByAgentId.has(agentId)) {
-      conversationByAgentId.set(agentId, session.id);
-      sessionByAgentId.set(agentId, session);
+    if (!conversationByAgentId.has(session.agentId)) {
+      conversationByAgentId.set(session.agentId, session.id);
+      sessionByAgentId.set(session.agentId, session);
     }
   }
-
   return { conversationByAgentId, sessionByAgentId };
 }
 
-function AgentMetadataRow({ label, value }: AgentField) {
-  return (
-    <div className="s-agent-meta-row">
-      <span className="s-agent-meta-label">{label}</span>
-      <span className="s-agent-meta-value">{value}</span>
-    </div>
-  );
-}
 
-function CapabilityTokens({ values }: { values: string[] }) {
-  return (
-    <span className="s-agent-token-list">
-      {values.map((value) => (
-        <span key={value} className="s-agent-token">
-          {value}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function AgentRosterSection({
-  title,
-  count,
-  children,
+function AgentActivityFeed({
+  agent,
+  fleet,
+  navigate,
 }: {
-  title: string;
-  count: number;
-  children: ReactNode;
+  agent: Agent;
+  fleet: FleetState | null;
+  navigate: (r: Route) => void;
 }) {
-  return (
-    <section className="s-agent-roster-section">
-      <div className="s-agent-roster-section-header">
-        <div className="s-agent-roster-section-title">{title}</div>
-        <span className="s-agent-roster-section-count">{count}</span>
-      </div>
-      <div className="s-agent-roster-stack">{children}</div>
-    </section>
-  );
-}
+  const agentActivity = useMemo(() => {
+    if (!fleet) return [];
+    return fleet.activity
+      .filter((a) => a.agentId === agent.id || a.actorId === agent.id)
+      .slice(0, 6);
+  }, [fleet, agent.id]);
 
-function AgentsOverviewPanel({ agents }: { agents: Agent[] }) {
-  if (agents.length === 0) {
-    return null;
+  const agentCompletedAsks = useMemo(() => {
+    if (!fleet) return [];
+    return fleet.recentCompleted
+      .filter((a) => a.agentId === agent.id)
+      .slice(0, 4);
+  }, [fleet, agent.id]);
+
+  if (agentActivity.length === 0 && agentCompletedAsks.length === 0) {
+    return (
+      <div className="s-profile-activity-empty">
+        <div className="s-profile-activity-empty-title">Quiet for now</div>
+        <div className="s-profile-activity-empty-detail">
+          Activity will appear here as this agent works, receives asks, and
+          completes tasks.
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="s-agent-overview-empty">
-      <h2 className="s-agent-overview-empty-title">Select an agent</h2>
-      <p className="s-agent-overview-empty-copy">
-        Pick an agent from the roster to view its profile, current work, and session context.
-      </p>
+    <div className="s-profile-activity-feed">
+      {agentCompletedAsks.map((ask) => (
+        <div
+          key={ask.invocationId}
+          className="s-profile-activity-row"
+          onClick={() => {
+            if (ask.conversationId) {
+              navigate({
+                view: "conversation",
+                conversationId: ask.conversationId,
+              });
+            }
+          }}
+        >
+          <div className="s-profile-activity-dot s-profile-activity-dot--done" />
+          <div className="s-profile-activity-body">
+            <div className="s-profile-activity-title">
+              {ask.summary ?? ask.task}
+            </div>
+            <div className="s-profile-activity-meta">
+              {ask.status === "completed" ? "completed" : ask.status}
+              {ask.completedAt && ` · ${timeAgo(ask.completedAt)}`}
+            </div>
+          </div>
+        </div>
+      ))}
+      {agentActivity.map((item) => (
+        <div
+          key={item.id}
+          className="s-profile-activity-row"
+          onClick={() => {
+            if (item.conversationId) {
+              navigate({
+                view: "conversation",
+                conversationId: item.conversationId,
+              });
+            }
+          }}
+        >
+          <div className="s-profile-activity-dot" />
+          <div className="s-profile-activity-body">
+            <div className="s-profile-activity-title">
+              {item.title ?? item.summary ?? item.kind}
+            </div>
+            <div className="s-profile-activity-meta">
+              {item.kind.replace(/_/g, " ")}
+              {item.actorName && ` · ${item.actorName}`}
+              {` · ${timeAgo(item.ts)}`}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function AgentDetail({
+function SectionRule({
+  label,
+  right,
+  rightClassName,
+}: {
+  label: string;
+  right?: string;
+  rightClassName?: string;
+}) {
+  return (
+    <div className="s-profile-section-rule">
+      <span className="s-profile-section-rule-label">{label}</span>
+      <span className="s-profile-section-rule-line" />
+      {right && (
+        <span
+          className={`s-profile-section-rule-right${rightClassName ? ` ${rightClassName}` : ""}`}
+        >
+          {right}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SignalFeed({
+  messages,
+  navigate,
+  conversationId,
+}: {
+  messages: Message[];
+  navigate: (r: Route) => void;
+  conversationId: string | null;
+}) {
+  const recent = messages.slice(-8).reverse();
+
+  if (recent.length === 0) return null;
+
+  return (
+    <div className="s-profile-signals">
+      <SectionRule label="Recent signal" right="last 1h" />
+      <div className="s-profile-signal-list">
+        {recent.map((msg) => {
+          const isAsk = msg.class === "ask" || msg.body?.toLowerCase().startsWith("@");
+          const kindLabel = isAsk ? "ASK" : "MESSAGE";
+          return (
+            <div
+              key={msg.id}
+              className="s-profile-signal"
+              onClick={() => {
+                if (conversationId) {
+                  navigate({
+                    view: "agents",
+                    agentId: undefined,
+                    conversationId,
+                  } as Route & { view: "agents" });
+                }
+              }}
+            >
+              <div
+                className="s-profile-signal-avatar"
+                style={{ background: actorColor(msg.actorName ?? "?") }}
+              >
+                {(msg.actorName ?? "?")[0].toUpperCase()}
+              </div>
+              <div className="s-profile-signal-body">
+                <div className="s-profile-signal-header">
+                  <span className="s-profile-signal-kind">{kindLabel}</span>
+                  <span className="s-profile-signal-sep">&middot;</span>
+                  <span className="s-profile-signal-routing">
+                    {msg.actorName}
+                  </span>
+                  <span className="s-profile-signal-time">
+                    {timeAgo(msg.createdAt)}
+                  </span>
+                </div>
+                <div className="s-profile-signal-text">{msg.body}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentDetailWithRail({
   agent,
   allAgents,
   session,
@@ -135,121 +257,424 @@ function AgentDetail({
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
   const [work, setWork] = useState<WorkItem[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [fleet, setFleet] = useState<FleetState | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
 
   const load = useCallback(async () => {
-    try {
-      setWork(await api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}`));
-    } catch {
-      setWork([]);
-    }
+    const [workResult, fleetResult] = await Promise.allSettled([
+      api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}`),
+      api<FleetState>("/api/fleet"),
+    ]);
+    if (workResult.status === "fulfilled") setWork(workResult.value);
+    if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
   }, [agent.id]);
+
+  const loadMessages = useCallback(async () => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const result = await api<Message[]>(
+        `/api/messages?conversationId=${encodeURIComponent(conversationId)}&limit=20`,
+      );
+      setMessages(result);
+    } catch {
+      setMessages([]);
+    }
+  }, [conversationId]);
 
   useEffect(() => {
     void load();
-  }, [load]);
-  useBrokerEvents(load);
+    void loadMessages();
+  }, [load, loadMessages]);
 
-  const contextItems: AgentField[] = [
-    ...(agent.project ? [{ label: "Project", value: agent.project }] : []),
-    ...(agent.branch ? [{ label: "Branch", value: agent.branch }] : []),
-    ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
-    ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
-    ...(agent.projectRoot ? [{ label: "Path", value: agent.projectRoot }] : []),
-    ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
-    ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
-  ];
+  useBrokerEvents(() => {
+    void load();
+    void loadMessages();
+  });
+
+  const currentWork = work.find(
+    (w) => w.state === "working" || w.state === "review",
+  );
+  const activeWork = work.filter(
+    (w) => w.state === "working" || w.state === "review" || w.state === "waiting",
+  );
+  const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
+
+  const teammates = allAgents.filter(
+    (a) => a.id !== agent.id && a.project === agent.project,
+  );
+
+  const facets: Array<{
+    label: string;
+    value: string;
+    sub?: string;
+    subAccent?: string;
+  }> = [];
+  if (session?.workspaceRoot || agent.projectRoot) {
+    facets.push({
+      label: "Workspace",
+      value: agent.project ?? "default",
+      sub: `${teammates.length} teammate${teammates.length !== 1 ? "s" : ""}`,
+    });
+  }
+  if (agent.branch || session?.currentBranch) {
+    const branchName = session?.currentBranch ?? agent.branch ?? "";
+    facets.push({
+      label: "Repo / Branch",
+      value: agent.project ?? "default",
+      subAccent: "⎇",
+      sub: branchName,
+    });
+  }
+  if (agent.cwd) {
+    facets.push({
+      label: "Working dir",
+      value: agent.cwd.length > 40 ? "..." + agent.cwd.slice(-37) : agent.cwd,
+      sub: agent.updatedAt
+        ? `updated ${timeAgo(agent.updatedAt)}`
+        : undefined,
+    });
+  }
+
+  const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
+  const harnessLabel = agent.harness;
+  const eyebrowParts = [roleLabel, harnessLabel]
+    .filter(Boolean)
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+
+  const taskProgress = currentWork?.currentPhase === "review"
+    ? 85
+    : currentWork?.currentPhase === "working"
+      ? 50
+      : 20;
 
   return (
-    <div className="s-agent-casefile">
-      <button
-        type="button"
-        className="s-back s-agent-mobile-back"
-        onClick={() => navigate({ view: "agents" })}
-      >
-        &larr; All agents
-      </button>
+    <>
+      <div className="s-profile-center">
+        <button
+          type="button"
+          className="s-back s-profile-mobile-back"
+          onClick={() => navigate({ view: "agents" })}
+        >
+          &larr; All agents
+        </button>
 
-      {/* -- Identity card -- */}
-      <section
-        className="s-agent-detail-identity"
-        onContextMenu={(e) => {
-          const sel = window.getSelection()?.toString().trim();
-          const items: MenuItem[] = [];
-          if (sel) {
-            items.push({ kind: "action", label: "Copy Selection", shortcut: "⌘C", onSelect: () => navigator.clipboard.writeText(sel) });
-            items.push({ kind: "separator" });
-          }
-          items.push({ kind: "action", label: "Copy Agent Name", onSelect: () => navigator.clipboard.writeText(name) });
-          items.push({ kind: "action", label: "Copy Agent ID", onSelect: () => navigator.clipboard.writeText(agent.id) });
-          if (agent.handle) {
-            items.push({ kind: "action", label: `Copy @${agent.handle}`, onSelect: () => navigator.clipboard.writeText(`@${agent.handle}`) });
-          }
-          showContextMenu(e, items);
-        }}
-      >
-        <div className="s-avatar s-agent-casefile-avatar" style={{ background: actorColor(agent.name) }}>
-          {agent.name[0].toUpperCase()}
-        </div>
-        <div className="s-agent-detail-identity-copy">
-          <h2 className="s-agent-detail-identity-name">
-            {name}
-            {qualifier && <span className="s-agent-casefile-title-qualifier">{qualifier}</span>}
-          </h2>
-          <div className="s-agent-detail-identity-meta">
-            {agent.handle && <span className="s-agent-detail-handle">@{agent.handle}</span>}
-            <span className={`s-agent-state-chip s-agent-state-chip-${state}`}>
-              <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-              {agentStateLabel(agent.state)}
-            </span>
-            {agent.updatedAt && <span className="s-agent-detail-updated">{timeAgo(agent.updatedAt)}</span>}
-          </div>
-          <p className="s-agent-detail-identity-desc">
-            {[formatLabel(agent.role) ?? formatLabel(agent.agentClass), agent.project]
-              .filter(Boolean)
-              .join(" \u00b7 ")}
-          </p>
-          <div className="s-agent-detail-actions">
-            <button
-              type="button"
-              className="s-btn s-btn-primary"
-              onClick={() => conversationId && navigate({ view: "agents", agentId: agent.id, conversationId })}
-              disabled={!conversationId}
-            >
-              {conversationId ? "Open conversation" : "No conversation"}
-            </button>
-            {agent.capabilities.length > 0 && (
-              <div className="s-agent-detail-capabilities">
-                <CapabilityTokens values={agent.capabilities} />
+        <section
+          className="s-profile-identity"
+          onContextMenu={(e) => {
+            const sel = window.getSelection()?.toString().trim();
+            const items: MenuItem[] = [];
+            if (sel) {
+              items.push({
+                kind: "action",
+                label: "Copy Selection",
+                shortcut: "⌘C",
+                onSelect: () => navigator.clipboard.writeText(sel),
+              });
+              items.push({ kind: "separator" });
+            }
+            items.push({
+              kind: "action",
+              label: "Copy Agent Name",
+              onSelect: () => navigator.clipboard.writeText(name),
+            });
+            items.push({
+              kind: "action",
+              label: "Copy Agent ID",
+              onSelect: () => navigator.clipboard.writeText(agent.id),
+            });
+            if (agent.handle) {
+              items.push({
+                kind: "action",
+                label: `Copy @${agent.handle}`,
+                onSelect: () =>
+                  navigator.clipboard.writeText(`@${agent.handle}`),
+              });
+            }
+            showContextMenu(e, items);
+          }}
+        >
+          <div className="s-profile-identity-top">
+            <div className="s-profile-identity-avatar-wrap">
+              <div
+                className="s-profile-identity-avatar"
+                style={{ background: actorColor(agent.name) }}
+              >
+                {agent.name[0].toUpperCase()}
               </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* -- Context metadata -- */}
-      {contextItems.length > 0 && (
-        <section className="s-agent-detail-context">
-          <h3 className="s-agent-detail-section-title">Context</h3>
-          <div className="s-agent-meta-card-body">
-            {contextItems.map((item) => (
-              <AgentMetadataRow key={item.label} label={item.label} value={item.value} />
-            ))}
+              <span
+                className={`s-profile-identity-pulse s-profile-identity-pulse--${state}`}
+                style={{ background: stateColor(agent.state) }}
+              />
+            </div>
+            <div className="s-profile-identity-copy">
+              {eyebrowParts.length > 0 && (
+                <div className="s-profile-identity-eyebrow">
+                  {eyebrowParts.join(" · ")}
+                </div>
+              )}
+              <h1 className="s-profile-identity-name">
+                {name}
+                {qualifier && (
+                  <span className="s-profile-identity-name-qualifier">
+                    {qualifier}
+                  </span>
+                )}
+                {agent.handle && (
+                  <span className="s-profile-identity-name-handle">
+                    @{agent.handle}
+                  </span>
+                )}
+              </h1>
+              <div className="s-profile-identity-state-row">
+                <span className="s-profile-identity-state">
+                  <span
+                    className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
+                    style={{ background: stateColor(agent.state) }}
+                  />
+                  <span className="s-profile-identity-state-label">
+                    {agentStateLabel(agent.state)}
+                  </span>
+                  {agent.updatedAt && (
+                    <span className="s-profile-identity-state-detail">
+                      &mdash; {timeAgo(agent.updatedAt)}
+                    </span>
+                  )}
+                </span>
+              </div>
+            </div>
+            <div className="s-profile-identity-actions">
+              <button
+                type="button"
+                className="s-profile-btn"
+                onClick={() => {
+                  if (conversationId) {
+                    navigate({
+                      view: "agents",
+                      agentId: agent.id,
+                      conversationId,
+                    });
+                  }
+                }}
+                disabled={!conversationId}
+              >
+                Observe
+              </button>
+              <button
+                type="button"
+                className="s-profile-btn"
+                onClick={() => {
+                  if (conversationId) {
+                    navigate({
+                      view: "agents",
+                      agentId: agent.id,
+                      conversationId,
+                    });
+                  }
+                }}
+                disabled={!conversationId}
+              >
+                Message
+              </button>
+              <button
+                type="button"
+                className="s-profile-btn s-profile-btn--primary"
+                disabled={!conversationId}
+              >
+                Assist
+              </button>
+            </div>
           </div>
         </section>
-      )}
 
-      {/* -- Active work -- */}
-      <section className="s-agent-detail-work">
-        <h3 className="s-agent-detail-section-title">Active work</h3>
-        <WorkList
-          items={work}
+        {facets.length > 0 && (
+          <div className="s-profile-facets">
+            {facets.map((f) => (
+              <div key={f.label} className="s-profile-facet">
+                <div className="s-profile-facet-label">{f.label}</div>
+                <div className="s-profile-facet-value">{f.value}</div>
+                {(f.sub || f.subAccent) && (
+                  <div className="s-profile-facet-sub">
+                    {f.subAccent && (
+                      <span className="s-profile-facet-accent">
+                        {f.subAccent}{" "}
+                      </span>
+                    )}
+                    {f.sub}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {currentWork && state === "working" && (
+          <>
+            <SectionRule
+              label="Current task"
+              right={`${taskProgress}% · live`}
+            />
+            <div className="s-profile-task">
+              <div className="s-profile-task-title">{currentWork.title}</div>
+              {currentWork.lastMeaningfulSummary && (
+                <>
+                  <div className="s-profile-task-progress">
+                    <div
+                      className="s-profile-task-progress-bar"
+                      style={{ width: `${taskProgress}%` }}
+                    />
+                  </div>
+                  <div className="s-profile-task-action">
+                    <span className="s-profile-task-action-chevron">
+                      &rsaquo;
+                    </span>
+                    <span>{currentWork.lastMeaningfulSummary}</span>
+                    <span className="s-profile-task-cursor" />
+                  </div>
+                </>
+              )}
+              <div className="s-profile-task-meta">
+                <span>{currentWork.currentPhase}</span>
+                <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeWork.length > 0 && (
+          <>
+            <SectionRule
+              label="Active work"
+              right={`${activeWork.length} in flight`}
+            />
+            <div className="s-profile-work">
+              <WorkList
+                items={activeWork}
+                navigate={navigate}
+                emptyTitle="Nothing in flight"
+              />
+            </div>
+          </>
+        )}
+
+        {recentDone.length > 0 && (
+          <>
+            <SectionRule
+              label={activeWork.length > 0 ? "Recently completed" : "Recent work"}
+              right={`${recentDone.length}`}
+            />
+            <div className="s-profile-work">
+              <WorkList
+                items={recentDone}
+                navigate={navigate}
+                emptyTitle=""
+              />
+            </div>
+          </>
+        )}
+
+        <SectionRule label="Activity" />
+        <div className="s-profile-work">
+          <AgentActivityFeed
+            agent={agent}
+            fleet={fleet}
+            navigate={navigate}
+          />
+        </div>
+
+        <SignalFeed
+          messages={messages}
           navigate={navigate}
-          emptyTitle="Nothing in flight"
-          emptyDetail="New asks, handoffs, and follow-ups will stack here once this agent picks up work."
+          conversationId={conversationId}
         />
-      </section>
+      </div>
+    </>
+  );
+}
+
+function RosterRow({
+  agent,
+  allAgents,
+  selected,
+  onClick,
+}: {
+  agent: Agent;
+  allAgents: Agent[];
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const { name, qualifier } = agentLabel(agent, allAgents);
+  const state = normalizeAgentState(agent.state);
+  const showContextMenu = useContextMenu();
+
+  return (
+    <div
+      className={`s-profile-roster-row${selected ? " s-profile-roster-row--active" : ""}`}
+      onClick={onClick}
+      onContextMenu={(e) => {
+        const items: MenuItem[] = [
+          {
+            kind: "action",
+            label: "Copy Agent Name",
+            onSelect: () => navigator.clipboard.writeText(name),
+          },
+          {
+            kind: "action",
+            label: "Copy Agent ID",
+            onSelect: () => navigator.clipboard.writeText(agent.id),
+          },
+        ];
+        if (agent.handle) {
+          items.push({
+            kind: "action",
+            label: `Copy @${agent.handle}`,
+            onSelect: () =>
+              navigator.clipboard.writeText(`@${agent.handle}`),
+          });
+        }
+        showContextMenu(e, items);
+      }}
+    >
+      <div className="s-profile-roster-avatar-wrap">
+        <div
+          className="s-profile-roster-avatar"
+          style={{ background: actorColor(agent.name) }}
+        >
+          {agent.name[0].toUpperCase()}
+        </div>
+        <span
+          className={`s-profile-roster-status-dot s-profile-roster-status-dot--${state}`}
+          style={{ background: stateColor(agent.state) }}
+        />
+      </div>
+      <div className="s-profile-roster-row-body">
+        <div className="s-profile-roster-row-top">
+          <span className="s-profile-roster-row-name">
+            {name}
+            {qualifier && (
+              <span className="s-profile-roster-row-qualifier">
+                {qualifier}
+              </span>
+            )}
+          </span>
+          {agent.updatedAt && (
+            <span className="s-profile-roster-row-time">
+              {timeAgo(agent.updatedAt)}
+            </span>
+          )}
+        </div>
+        {(agent.project || agent.branch) && (
+          <div className="s-profile-roster-row-sub">
+            {agent.project ?? ""}
+            {agent.project && agent.branch ? " · " : ""}
+            {agent.branch ?? ""}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -267,10 +692,8 @@ export function AgentsScreen({
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
 
   const load = useCallback(async () => {
-    const sessionsResult = await api<SessionEntry[]>("/api/sessions").catch(() => null);
-    if (sessionsResult) {
-      setSessions(sessionsResult);
-    }
+    const result = await api<SessionEntry[]>("/api/sessions").catch(() => null);
+    if (result) setSessions(result);
   }, []);
 
   useEffect(() => {
@@ -278,207 +701,199 @@ export function AgentsScreen({
   }, [load]);
   useBrokerEvents(load);
 
-  const sortedAgents = [...agents].sort((a, b) => {
-    const stateOrder = { working: 0, available: 1, offline: 2 } as const;
-    const stateDelta = stateOrder[normalizeAgentState(a.state)] - stateOrder[normalizeAgentState(b.state)];
-    if (stateDelta !== 0) {
-      return stateDelta;
-    }
-    const updatedDelta = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-    if (updatedDelta !== 0) {
-      return updatedDelta;
-    }
-    return a.name.localeCompare(b.name);
-  });
+  const sortedAgents = useMemo(
+    () =>
+      [...agents].sort((a, b) => {
+        const order = { working: 0, available: 1, offline: 2 } as const;
+        const sd =
+          order[normalizeAgentState(a.state)] -
+          order[normalizeAgentState(b.state)];
+        if (sd !== 0) return sd;
+        const ud = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+        if (ud !== 0) return ud;
+        return a.name.localeCompare(b.name);
+      }),
+    [agents],
+  );
 
-  const sections: AgentSection[] = [
-    {
-      key: "working",
-      title: "Working",
-      agents: sortedAgents.filter((agent) => normalizeAgentState(agent.state) === "working"),
-    },
-    {
-      key: "available",
-      title: "Available",
-      agents: sortedAgents.filter((agent) => normalizeAgentState(agent.state) === "available"),
-    },
-    {
-      key: "offline",
-      title: "Offline",
-      agents: sortedAgents.filter((agent) => normalizeAgentState(agent.state) === "offline"),
-    },
-  ];
+  const groups: AgentGroup[] = useMemo(
+    () => [
+      {
+        key: "working",
+        title: "Working",
+        agents: sortedAgents.filter(
+          (a) => normalizeAgentState(a.state) === "working",
+        ),
+      },
+      {
+        key: "available",
+        title: "Available",
+        agents: sortedAgents.filter(
+          (a) => normalizeAgentState(a.state) === "available",
+        ),
+      },
+      {
+        key: "offline",
+        title: "Offline",
+        agents: sortedAgents.filter(
+          (a) => normalizeAgentState(a.state) === "offline",
+        ),
+      },
+    ],
+    [sortedAgents],
+  );
 
-  const selectedAgent = selectedAgentId ? agents.find((agent) => agent.id === selectedAgentId) ?? null : null;
-  const { conversationByAgentId, sessionByAgentId } = directSessionMaps(sessions);
-  const hasDetailPane = agents.length > 0;
+  const selectedAgent = selectedAgentId
+    ? agents.find((a) => a.id === selectedAgentId) ?? null
+    : null;
+
+  const { conversationByAgentId, sessionByAgentId } =
+    directSessionMaps(sessions);
 
   const ROSTER_MIN = 200;
-  const ROSTER_MAX = 440;
+  const ROSTER_MAX = 400;
   const ROSTER_KEY = "scout-agents-roster-w";
   const [rosterWidth, setRosterWidth] = useState(() => {
     try {
       const v = localStorage.getItem(ROSTER_KEY);
-      if (v) { const n = Number(v); if (n >= ROSTER_MIN && n <= ROSTER_MAX) return n; }
-    } catch { /* ignore */ }
-    return 280;
+      if (v) {
+        const n = Number(v);
+        if (n >= ROSTER_MIN && n <= ROSTER_MAX) return n;
+      }
+    } catch {}
+    return 240;
   });
   const rosterDragging = useRef(false);
   const rosterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    try { localStorage.setItem(ROSTER_KEY, String(rosterWidth)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(ROSTER_KEY, String(rosterWidth));
+    } catch {}
   }, [rosterWidth]);
 
-  const onRosterResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    rosterDragging.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    const panelLeft = rosterRef.current?.getBoundingClientRect().left ?? 0;
-    const onMove = (ev: MouseEvent) => {
-      if (!rosterDragging.current) return;
-      setRosterWidth(Math.min(ROSTER_MAX, Math.max(ROSTER_MIN, ev.clientX - panelLeft)));
-    };
-    const onUp = () => {
-      rosterDragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, []);
+  const onRosterResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      rosterDragging.current = true;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      const panelLeft =
+        rosterRef.current?.getBoundingClientRect().left ?? 0;
+      const onMove = (ev: MouseEvent) => {
+        if (!rosterDragging.current) return;
+        setRosterWidth(
+          Math.min(ROSTER_MAX, Math.max(ROSTER_MIN, ev.clientX - panelLeft)),
+        );
+      };
+      const onUp = () => {
+        rosterDragging.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [],
+  );
+
+  const workingCount = groups[0].agents.length;
+  const availableCount = groups[1].agents.length;
 
   return (
     <div
       className={[
-        "s-agents-layout",
-        "s-agents-browser",
-        hasDetailPane ? "s-agents-layout-split" : "",
-        selectedAgent ? "s-agents-browser-selected" : "",
-      ].filter(Boolean).join(" ")}
+        "s-profile-layout",
+        selectedAgent ? "s-profile-layout--selected" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       style={{ "--agents-roster-w": `${rosterWidth}px` } as React.CSSProperties}
     >
-      <div ref={rosterRef} className="s-agents-list-panel s-agents-browser-list">
-        <div className="s-agent-roster">
-          <div className="s-agent-roster-header">
-            <div>
-              <h2 className="s-section-title s-agent-roster-title">Agents</h2>
-              <p className="s-agent-roster-copy">
-                {agents.length} total · {sections[0].agents.length} working · {sections[1].agents.length} available
-              </p>
+      <div ref={rosterRef} className="s-profile-roster">
+        <div className="s-profile-roster-scroll">
+          <div className="s-profile-roster-header">
+            <div className="s-profile-roster-title">Agents</div>
+            <div className="s-profile-roster-summary">
+              {agents.length} total &middot; {workingCount} working &middot;{" "}
+              {availableCount} available
             </div>
           </div>
 
           {agents.length === 0 ? (
-            <div className="s-empty s-agent-roster-empty">
-              <p>No agents</p>
+            <div className="s-profile-roster-empty">
+              <p>No agents connected.</p>
               <p>Agents appear here when they connect to the broker.</p>
             </div>
           ) : (
-            sections
-              .filter((section) => section.agents.length > 0)
-              .map((section) => (
-                <AgentRosterSection
-                  key={section.key}
-                  title={section.title}
-                  count={section.agents.length}
-                >
-                  {section.agents.map((agent) => (
-                    <AgentRow
-                      key={agent.id}
-                      agent={agent}
+            groups
+              .filter((g) => g.agents.length > 0)
+              .map((g) => (
+                <div key={g.key} className="s-profile-roster-group">
+                  <div className="s-profile-roster-group-header">
+                    <span className="s-profile-roster-group-title">
+                      {g.title}
+                    </span>
+                    <span className="s-profile-roster-group-count">
+                      {g.agents.length}
+                    </span>
+                  </div>
+                  {g.agents.map((a) => (
+                    <RosterRow
+                      key={a.id}
+                      agent={a}
                       allAgents={agents}
-                      selected={agent.id === selectedAgentId}
-                      onClick={() => navigate({ view: "agents", agentId: agent.id })}
+                      selected={a.id === selectedAgentId}
+                      onClick={() =>
+                        navigate({ view: "agents", agentId: a.id })
+                      }
                     />
                   ))}
-                </AgentRosterSection>
+                </div>
               ))
           )}
         </div>
       </div>
 
-      {hasDetailPane && (
-        <>
-        <div
-          className="s-agents-roster-resize"
-          onMouseDown={onRosterResizeStart}
-          role="separator"
-          aria-orientation="vertical"
-        />
-        <div className="s-agents-detail-panel s-agents-browser-detail">
-          {activeConversationId && selectedAgent ? (
-            <ConversationScreen conversationId={activeConversationId} navigate={navigate} />
-          ) : selectedAgent ? (
-            <AgentDetail
-              agent={selectedAgent}
-              allAgents={agents}
-              session={sessionByAgentId.get(selectedAgent.id) ?? null}
-              conversationId={conversationByAgentId.get(selectedAgent.id) ?? selectedAgent.conversationId ?? null}
-              navigate={navigate}
-            />
-          ) : (
-            <AgentsOverviewPanel agents={agents} />
-          )}
+      <div
+        className="s-profile-resize"
+        onMouseDown={onRosterResizeStart}
+        role="separator"
+        aria-orientation="vertical"
+      />
+
+      {activeConversationId && selectedAgent ? (
+        <div className="s-profile-center">
+          <ConversationScreen
+            conversationId={activeConversationId}
+            navigate={navigate}
+          />
         </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function AgentRow({
-  agent,
-  allAgents,
-  selected,
-  onClick,
-}: {
-  agent: Agent;
-  allAgents: Agent[];
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const { name, qualifier } = agentLabel(agent, allAgents);
-  const state = normalizeAgentState(agent.state);
-  const showContextMenu = useContextMenu();
-
-  return (
-    <div
-      className={`s-agent-list-row s-agent-roster-row${selected ? " s-agent-list-row-active" : ""}`}
-      onClick={onClick}
-      onContextMenu={(e) => {
-        const items: MenuItem[] = [
-          { kind: "action", label: "Copy Agent Name", onSelect: () => navigator.clipboard.writeText(name) },
-          { kind: "action", label: "Copy Agent ID", onSelect: () => navigator.clipboard.writeText(agent.id) },
-        ];
-        if (agent.handle) {
-          items.push({ kind: "action", label: `Copy @${agent.handle}`, onSelect: () => navigator.clipboard.writeText(`@${agent.handle}`) });
-        }
-        showContextMenu(e, items);
-      }}
-    >
-      <div className="s-agent-roster-avatar-wrap">
-        <div className="s-avatar s-avatar-sm" style={{ background: actorColor(agent.name) }}>
-          {agent.name[0].toUpperCase()}
-        </div>
-        <span
-          className={`s-agent-roster-avatar-status s-agent-roster-avatar-status-${state}`}
-          style={{ background: stateColor(agent.state) }}
+      ) : selectedAgent ? (
+        <AgentDetailWithRail
+          agent={selectedAgent}
+          allAgents={agents}
+          session={sessionByAgentId.get(selectedAgent.id) ?? null}
+          conversationId={
+            conversationByAgentId.get(selectedAgent.id) ??
+            selectedAgent.conversationId ??
+            null
+          }
+          navigate={navigate}
         />
-      </div>
-
-      <div className="s-agent-list-body s-agent-roster-row-body">
-        <div className="s-agent-roster-row-top">
-          <div className="s-agent-list-header">
-            <span className="s-agent-list-name">{name}</span>
-            {qualifier && <span className="s-agent-list-qualifier">{qualifier}</span>}
+      ) : (
+        <div className="s-profile-center">
+          <div className="s-profile-empty">
+            <h2 className="s-profile-empty-title">Select an agent</h2>
+            <p className="s-profile-empty-copy">
+              Pick an agent from the roster to view its profile, current work,
+              and session context.
+            </p>
           </div>
-          <span className="s-agent-roster-row-time">{formatUpdatedAt(agent.updatedAt)}</span>
         </div>
-      </div>
+      )}
     </div>
   );
 }
