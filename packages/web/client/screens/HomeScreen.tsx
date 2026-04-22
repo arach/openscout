@@ -316,7 +316,8 @@ function HeartrateGraph({ data }: { data: number[] }) {
           y={H / 2 - 2}
           textAnchor="middle"
           fill="var(--dim)"
-          fontSize="22"
+          fontSize="14"
+          letterSpacing="0.3em"
         >
           zzz
         </text>
@@ -325,7 +326,7 @@ function HeartrateGraph({ data }: { data: number[] }) {
           y={H / 2 + 14}
           textAnchor="middle"
           fill="var(--dim)"
-          fontSize="9"
+          fontSize="10"
           fontFamily="var(--hud-font-mono)"
           opacity="0.7"
         >
@@ -513,14 +514,11 @@ function NowCard({
       <div className="s-now-card-ticker">
         <span className="s-now-card-ticker-prompt">›</span>
         <span className="s-now-card-ticker-text">
-          {agent.cwd ?? "working…"}
+          working…
         </span>
         <span className="s-now-card-cursor" />
       </div>
 
-      <div className="s-now-card-progress">
-        <div className="s-now-card-progress-fill" style={{ width: "50%" }} />
-      </div>
       <div className="s-now-card-footer">
         <span>{agent.updatedAt ? `updated ${timeAgo(agent.updatedAt)}` : "active"}</span>
         <span>{branch}</span>

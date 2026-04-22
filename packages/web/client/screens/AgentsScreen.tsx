@@ -237,20 +237,25 @@ function SignalFeed({
   );
 }
 
+type AgentTab = "profile" | "observe" | "message";
+
 function AgentDetailWithRail({
   agent,
   allAgents,
   session,
   conversationId,
   navigate,
+  initialTab,
 }: {
   agent: Agent;
   allAgents: Agent[];
   session: SessionEntry | null;
   conversationId: string | null;
   navigate: (r: Route) => void;
+  initialTab?: AgentTab;
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
+  const [tab, setTab] = useState<AgentTab>(initialTab ?? "profile");
   const [work, setWork] = useState<WorkItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
@@ -299,42 +304,6 @@ function AgentDetailWithRail({
   );
   const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
 
-  const teammates = allAgents.filter(
-    (a) => a.id !== agent.id && a.project === agent.project,
-  );
-
-  const facets: Array<{
-    label: string;
-    value: string;
-    sub?: string;
-    subAccent?: string;
-  }> = [];
-  if (session?.workspaceRoot || agent.projectRoot) {
-    facets.push({
-      label: "Workspace",
-      value: agent.project ?? "default",
-      sub: `${teammates.length} teammate${teammates.length !== 1 ? "s" : ""}`,
-    });
-  }
-  if (agent.branch || session?.currentBranch) {
-    const branchName = session?.currentBranch ?? agent.branch ?? "";
-    facets.push({
-      label: "Repo / Branch",
-      value: agent.project ?? "default",
-      subAccent: "⎇",
-      sub: branchName,
-    });
-  }
-  if (agent.cwd) {
-    facets.push({
-      label: "Working dir",
-      value: agent.cwd.length > 40 ? "..." + agent.cwd.slice(-37) : agent.cwd,
-      sub: agent.updatedAt
-        ? `updated ${timeAgo(agent.updatedAt)}`
-        : undefined,
-    });
-  }
-
   const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
   const harnessLabel = agent.harness;
   const eyebrowParts = [roleLabel, harnessLabel]
@@ -347,247 +316,216 @@ function AgentDetailWithRail({
       ? 50
       : 20;
 
+  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
+    { key: "profile", label: "Profile" },
+    { key: "observe", label: "Observe", disabled: !conversationId },
+    { key: "message", label: "Message", disabled: !conversationId },
+  ];
+
   return (
-    <>
-      <div className="s-profile-center">
-        <button
-          type="button"
-          className="s-back s-profile-mobile-back"
-          onClick={() => navigate({ view: "agents" })}
-        >
-          &larr; All agents
-        </button>
+    <div className={`s-profile-center${tab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
+      <button
+        type="button"
+        className="s-back s-profile-mobile-back"
+        onClick={() => navigate({ view: "agents" })}
+      >
+        &larr; All agents
+      </button>
 
-        <section
-          className="s-profile-identity"
-          onContextMenu={(e) => {
-            const sel = window.getSelection()?.toString().trim();
-            const items: MenuItem[] = [];
-            if (sel) {
-              items.push({
-                kind: "action",
-                label: "Copy Selection",
-                shortcut: "⌘C",
-                onSelect: () => navigator.clipboard.writeText(sel),
-              });
-              items.push({ kind: "separator" });
-            }
+      <section
+        className="s-profile-identity"
+        onContextMenu={(e) => {
+          const sel = window.getSelection()?.toString().trim();
+          const items: MenuItem[] = [];
+          if (sel) {
             items.push({
               kind: "action",
-              label: "Copy Agent Name",
-              onSelect: () => navigator.clipboard.writeText(name),
+              label: "Copy Selection",
+              shortcut: "⌘C",
+              onSelect: () => navigator.clipboard.writeText(sel),
             });
+            items.push({ kind: "separator" });
+          }
+          items.push({
+            kind: "action",
+            label: "Copy Agent Name",
+            onSelect: () => navigator.clipboard.writeText(name),
+          });
+          items.push({
+            kind: "action",
+            label: "Copy Agent ID",
+            onSelect: () => navigator.clipboard.writeText(agent.id),
+          });
+          if (agent.handle) {
             items.push({
               kind: "action",
-              label: "Copy Agent ID",
-              onSelect: () => navigator.clipboard.writeText(agent.id),
+              label: `Copy @${agent.handle}`,
+              onSelect: () =>
+                navigator.clipboard.writeText(`@${agent.handle}`),
             });
-            if (agent.handle) {
-              items.push({
-                kind: "action",
-                label: `Copy @${agent.handle}`,
-                onSelect: () =>
-                  navigator.clipboard.writeText(`@${agent.handle}`),
-              });
-            }
-            showContextMenu(e, items);
-          }}
-        >
-          <div className="s-profile-identity-top">
-            <div className="s-profile-identity-avatar-wrap">
-              <div
-                className="s-profile-identity-avatar"
-                style={{ background: actorColor(agent.name) }}
-              >
-                {agent.name[0].toUpperCase()}
-              </div>
-              <span
-                className={`s-profile-identity-pulse s-profile-identity-pulse--${state}`}
-                style={{ background: stateColor(agent.state) }}
-              />
+          }
+          showContextMenu(e, items);
+        }}
+      >
+        <div className="s-profile-identity-top">
+          <div className="s-profile-identity-avatar-wrap">
+            <div
+              className="s-profile-identity-avatar"
+              style={{ background: actorColor(agent.name) }}
+            >
+              {agent.name[0].toUpperCase()}
             </div>
-            <div className="s-profile-identity-copy">
-              {eyebrowParts.length > 0 && (
-                <div className="s-profile-identity-eyebrow">
-                  {eyebrowParts.join(" · ")}
-                </div>
-              )}
-              <h1 className="s-profile-identity-name">
-                {name}
-                {qualifier && (
-                  <span className="s-profile-identity-name-qualifier">
-                    {qualifier}
-                  </span>
-                )}
-                {agent.handle && (
-                  <span className="s-profile-identity-name-handle">
-                    @{agent.handle}
-                  </span>
-                )}
-              </h1>
-              <div className="s-profile-identity-state-row">
-                <span className="s-profile-identity-state">
-                  <span
-                    className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
-                    style={{ background: stateColor(agent.state) }}
-                  />
-                  <span className="s-profile-identity-state-label">
-                    {agentStateLabel(agent.state)}
-                  </span>
-                  {agent.updatedAt && (
-                    <span className="s-profile-identity-state-detail">
-                      &mdash; {timeAgo(agent.updatedAt)}
-                    </span>
-                  )}
+            <span
+              className={`s-profile-identity-pulse s-profile-identity-pulse--${state}`}
+              style={{ background: stateColor(agent.state) }}
+            />
+          </div>
+          <div className="s-profile-identity-copy">
+            {eyebrowParts.length > 0 && (
+              <div className="s-profile-identity-eyebrow">
+                {eyebrowParts.join(" · ")}
+              </div>
+            )}
+            <h1 className="s-profile-identity-name">
+              {name}
+              {qualifier && (
+                <span className="s-profile-identity-name-qualifier">
+                  {qualifier}
                 </span>
-              </div>
-            </div>
-            <div className="s-profile-identity-actions">
-              <button
-                type="button"
-                className="s-profile-btn"
-                onClick={() => {
-                  if (conversationId) {
-                    navigate({
-                      view: "agents",
-                      agentId: agent.id,
-                      conversationId,
-                    });
-                  }
-                }}
-                disabled={!conversationId}
-              >
-                Observe
-              </button>
-              <button
-                type="button"
-                className="s-profile-btn"
-                onClick={() => {
-                  if (conversationId) {
-                    navigate({
-                      view: "agents",
-                      agentId: agent.id,
-                      conversationId,
-                    });
-                  }
-                }}
-                disabled={!conversationId}
-              >
-                Message
-              </button>
-              <button
-                type="button"
-                className="s-profile-btn s-profile-btn--primary"
-                disabled={!conversationId}
-              >
-                Assist
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {facets.length > 0 && (
-          <div className="s-profile-facets">
-            {facets.map((f) => (
-              <div key={f.label} className="s-profile-facet">
-                <div className="s-profile-facet-label">{f.label}</div>
-                <div className="s-profile-facet-value">{f.value}</div>
-                {(f.sub || f.subAccent) && (
-                  <div className="s-profile-facet-sub">
-                    {f.subAccent && (
-                      <span className="s-profile-facet-accent">
-                        {f.subAccent}{" "}
-                      </span>
-                    )}
-                    {f.sub}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {currentWork && state === "working" && (
-          <>
-            <SectionRule
-              label="Current task"
-              right={`${taskProgress}% · live`}
-            />
-            <div className="s-profile-task">
-              <div className="s-profile-task-title">{currentWork.title}</div>
-              {currentWork.lastMeaningfulSummary && (
-                <>
-                  <div className="s-profile-task-progress">
-                    <div
-                      className="s-profile-task-progress-bar"
-                      style={{ width: `${taskProgress}%` }}
-                    />
-                  </div>
-                  <div className="s-profile-task-action">
-                    <span className="s-profile-task-action-chevron">
-                      &rsaquo;
-                    </span>
-                    <span>{currentWork.lastMeaningfulSummary}</span>
-                    <span className="s-profile-task-cursor" />
-                  </div>
-                </>
               )}
-              <div className="s-profile-task-meta">
-                <span>{currentWork.currentPhase}</span>
-                <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
+              {agent.handle && (
+                <span className="s-profile-identity-name-handle">
+                  @{agent.handle}
+                </span>
+              )}
+            </h1>
+            <div className="s-profile-identity-state-row">
+              <span className="s-profile-identity-state">
+                <span
+                  className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
+                  style={{ background: stateColor(agent.state) }}
+                />
+                <span className="s-profile-identity-state-label">
+                  {agentStateLabel(agent.state)}
+                </span>
+                {agent.updatedAt && (
+                  <span className="s-profile-identity-state-detail">
+                    &mdash; {timeAgo(agent.updatedAt)}
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <nav className="s-profile-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`s-profile-tab${tab === t.key ? " s-profile-tab--active" : ""}`}
+            disabled={t.disabled}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "profile" && (
+        <div className="s-profile-tab-content">
+          {currentWork && state === "working" && (
+            <>
+              <SectionRule
+                label="Current task"
+                right={`${taskProgress}% · live`}
+              />
+              <div className="s-profile-task">
+                <div className="s-profile-task-title">{currentWork.title}</div>
+                {currentWork.lastMeaningfulSummary && (
+                  <>
+                    <div className="s-profile-task-progress">
+                      <div
+                        className="s-profile-task-progress-bar"
+                        style={{ width: `${taskProgress}%` }}
+                      />
+                    </div>
+                    <div className="s-profile-task-action">
+                      <span className="s-profile-task-action-chevron">
+                        &rsaquo;
+                      </span>
+                      <span>{currentWork.lastMeaningfulSummary}</span>
+                      <span className="s-profile-task-cursor" />
+                    </div>
+                  </>
+                )}
+                <div className="s-profile-task-meta">
+                  <span>{currentWork.currentPhase}</span>
+                  <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
+                </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
 
-        {activeWork.length > 0 && (
-          <>
-            <SectionRule
-              label="Active work"
-              right={`${activeWork.length} in flight`}
-            />
-            <div className="s-profile-work">
-              <WorkList
-                items={activeWork}
-                navigate={navigate}
-                emptyTitle="Nothing in flight"
+          {activeWork.length > 0 && (
+            <>
+              <SectionRule
+                label="Active work"
+                right={`${activeWork.length} in flight`}
               />
-            </div>
-          </>
-        )}
+              <div className="s-profile-work">
+                <WorkList
+                  items={activeWork}
+                  navigate={navigate}
+                  emptyTitle="Nothing in flight"
+                />
+              </div>
+            </>
+          )}
 
-        {recentDone.length > 0 && (
-          <>
-            <SectionRule
-              label={activeWork.length > 0 ? "Recently completed" : "Recent work"}
-              right={`${recentDone.length}`}
-            />
-            <div className="s-profile-work">
-              <WorkList
-                items={recentDone}
-                navigate={navigate}
-                emptyTitle=""
+          {recentDone.length > 0 && (
+            <>
+              <SectionRule
+                label={activeWork.length > 0 ? "Recently completed" : "Recent work"}
+                right={`${recentDone.length}`}
               />
-            </div>
-          </>
-        )}
+              <div className="s-profile-work">
+                <WorkList
+                  items={recentDone}
+                  navigate={navigate}
+                  emptyTitle=""
+                />
+              </div>
+            </>
+          )}
 
-        <SectionRule label="Activity" />
-        <div className="s-profile-work">
-          <AgentActivityFeed
-            agent={agent}
-            fleet={fleet}
+          <SectionRule label="Activity" />
+          <div className="s-profile-work">
+            <AgentActivityFeed
+              agent={agent}
+              fleet={fleet}
+              navigate={navigate}
+            />
+          </div>
+
+          <SignalFeed
+            messages={messages}
+            navigate={navigate}
+            conversationId={conversationId}
+          />
+        </div>
+      )}
+
+      {(tab === "observe" || tab === "message") && conversationId && (
+        <div className="s-profile-tab-conversation">
+          <ConversationScreen
+            conversationId={conversationId}
             navigate={navigate}
           />
         </div>
-
-        <SignalFeed
-          messages={messages}
-          navigate={navigate}
-          conversationId={conversationId}
-        />
-      </div>
-    </>
+      )}
+    </div>
   );
 }
 
@@ -620,27 +558,20 @@ export function AgentsScreen({
   const { conversationByAgentId, sessionByAgentId } =
     directSessionMaps(sessions);
 
-  if (activeConversationId && selectedAgent) {
-    return (
-      <ConversationScreen
-        conversationId={activeConversationId}
-        navigate={navigate}
-      />
-    );
-  }
-
   if (selectedAgent) {
+    const resolvedConversationId =
+      activeConversationId ??
+      conversationByAgentId.get(selectedAgent.id) ??
+      selectedAgent.conversationId ??
+      null;
     return (
       <AgentDetailWithRail
         agent={selectedAgent}
         allAgents={agents}
         session={sessionByAgentId.get(selectedAgent.id) ?? null}
-        conversationId={
-          conversationByAgentId.get(selectedAgent.id) ??
-          selectedAgent.conversationId ??
-          null
-        }
+        conversationId={resolvedConversationId}
         navigate={navigate}
+        initialTab={activeConversationId ? "observe" : "profile"}
       />
     );
   }

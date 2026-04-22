@@ -368,7 +368,7 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
               <div className="sys-settings-kv">
                 <span className="sys-settings-kv-label">Security</span>
                 <span className="sys-settings-kv-value">
-                  <span className="sys-chip sys-chip-success" style={{ margin: 0 }}>Noise XX</span>
+                  <span className="sys-chip sys-chip-success">Noise XX</span>
                 </span>
               </div>
             )}
