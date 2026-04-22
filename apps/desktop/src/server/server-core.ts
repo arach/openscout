@@ -1,8 +1,54 @@
-import type { Hono } from "hono";
-import { cors } from "hono/cors";
+import type { Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 
 export type ScoutWebAssetMode = "vite-proxy" | "static";
+
+const LOOPBACK_IPV4_HOST_PATTERN = /^127(?:\.\d{1,3}){3}$/;
+
+function normalizeHostname(hostname: string): string {
+  const trimmed = hostname.trim().toLowerCase();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function isTrustedLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  return normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized === "::1"
+    || LOOPBACK_IPV4_HOST_PATTERN.test(normalized);
+}
+
+function isTrustedApiRequest(c: Context): boolean {
+  const requestUrl = new URL(c.req.url);
+  if (!isTrustedLoopbackHostname(requestUrl.hostname)) {
+    return false;
+  }
+
+  const origin = c.req.header("origin");
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      if (
+        !isTrustedLoopbackHostname(originUrl.hostname)
+        || originUrl.origin !== requestUrl.origin
+      ) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  const fetchSite = c.req.header("sec-fetch-site")?.trim().toLowerCase();
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "same-site" && fetchSite !== "none") {
+    return false;
+  }
+
+  return true;
+}
 
 export function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
   let inflight: Promise<T> | null = null;
@@ -84,9 +130,14 @@ export function createCachedSnapshot<T>(load: () => Promise<T>, ttlMs: number) {
 }
 
 export function installScoutApiMiddleware(app: Hono, label = "api"): void {
-  app.use("/*", cors());
-
   app.use("/api/*", async (c, next) => {
+    if (!isTrustedApiRequest(c)) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    c.header("Cross-Origin-Resource-Policy", "same-origin");
+    c.header("X-Content-Type-Options", "nosniff");
+
     try {
       await next();
     } catch (error) {

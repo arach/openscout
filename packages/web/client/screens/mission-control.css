@@ -1,0 +1,429 @@
+/* ── Mission Control: live agent observation grid ── */
+
+.s-mission {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.s-mission-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.s-mission-bar-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+
+.s-mission-bar-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--green);
+}
+
+.s-mission-bar-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: s-ops-pulse 1.6s ease-in-out infinite;
+}
+
+.s-mission-hotkeys {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.s-mission-hotkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.s-mission-hotkey kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* ── Canvas viewport ── */
+
+.s-mission-viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+
+.s-mission-viewport:active {
+  cursor: grabbing;
+}
+
+.s-mission-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.s-mission-viewport::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Group label ── */
+
+.s-mission-group-label {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Observation tile ── */
+
+.s-mission-tile {
+  position: absolute;
+  width: 420px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.s-mission-tile:hover {
+  border-color: var(--muted);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--muted) 20%, transparent);
+}
+
+.s-mission-tile--working {
+  border-color: color-mix(in srgb, var(--green) 30%, var(--border));
+}
+
+.s-mission-tile--asking {
+  border-color: color-mix(in srgb, var(--amber) 40%, var(--border));
+}
+
+/* ── Tile header ── */
+
+.s-mission-tile-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.s-mission-tile-identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-mission-tile-name {
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.s-mission-tile-handle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.s-mission-tile-meta {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+/* ── Mini event stream ── */
+
+.s-mission-tile-stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 0;
+  position: relative;
+}
+
+.s-mission-tile-stream-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 14px;
+}
+
+.s-mission-tile-stream::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: linear-gradient(var(--surface), transparent);
+  pointer-events: none;
+}
+
+.s-mission-evt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  min-height: 0;
+}
+
+.s-mission-evt-bead {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.s-mission-evt-kind {
+  flex-shrink: 0;
+  width: 32px;
+  color: var(--dim);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 1px;
+}
+
+.s-mission-evt-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-mission-evt-text--think {
+  font-style: italic;
+  color: var(--dim);
+}
+
+.s-mission-evt-text--tool {
+  color: var(--accent);
+}
+
+.s-mission-evt-text--ask {
+  color: var(--amber);
+}
+
+.s-mission-evt-text--note {
+  color: var(--green);
+}
+
+/* ── Tile footer ── */
+
+.s-mission-tile-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  flex: none;
+}
+
+.s-mission-tile-ctx {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+
+.s-mission-tile-ctx-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.s-mission-tile-stats {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.s-mission-tile-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--green);
+  flex-shrink: 0;
+}
+
+.s-mission-tile-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: s-ops-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Empty state ── */
+
+.s-mission-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.s-mission-empty-title {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.s-mission-empty-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+/* ── Focus overlay ── */
+
+.s-mission-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+}
+
+.s-mission-overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.s-mission-overlay-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.s-mission-overlay-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.s-mission-overlay-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.s-mission-overlay-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Minimap ── */
+
+.s-mission-minimap {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 5;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 85%, black);
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.s-mission-minimap-tile {
+  position: absolute;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.s-mission-minimap-viewport {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  pointer-events: none;
+}
+
+.s-mission-minimap-group {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  text-transform: uppercase;
+  pointer-events: none;
+}

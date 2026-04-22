@@ -2,11 +2,13 @@ import "./ops-screen.css";
 
 import { useScout } from "../scout/Provider.tsx";
 import { ConductorView } from "./ConductorView.tsx";
+import { MissionControlView } from "./MissionControlView.tsx";
 import { PlanView } from "./PlanView.tsx";
 import { WarRoomView } from "./WarRoomView.tsx";
 import type { OpsMode, Route } from "../lib/types.ts";
 
 const TABS: { id: OpsMode; label: string }[] = [
+  { id: "mission", label: "Mission Control" },
   { id: "plan", label: "Plan" },
   { id: "conductor", label: "Conductor" },
   { id: "warroom", label: "War Room" },
@@ -14,7 +16,7 @@ const TABS: { id: OpsMode; label: string }[] = [
 
 export function OpsScreen({
   navigate,
-  mode = "plan",
+  mode = "mission",
 }: {
   navigate: (r: Route) => void;
   mode?: OpsMode;
@@ -38,6 +40,7 @@ export function OpsScreen({
         </div>
       </div>
       <div className="s-ops-body">
+        {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
         {mode === "plan" && <PlanView navigate={navigate} agents={agents} />}
         {mode === "conductor" && <ConductorView navigate={navigate} agents={agents} />}
         {mode === "warroom" && <WarRoomView navigate={navigate} agents={agents} />}

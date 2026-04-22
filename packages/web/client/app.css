@@ -119,10 +119,16 @@ body { margin: 0; }
   max-width: none;
   margin: 0;
   padding: 0 12px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .s-left-roster-search .s-search-input {
   padding-right: 10px;
+}
+
+.s-left-roster-settings {
+  padding: 0 8px;
 }
 
 .s-left-roster-empty {

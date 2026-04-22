@@ -2,8 +2,25 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";
+export type CommsChannel = "here" | "mobile" | "here+mobile";
+export type CommsVerbosity = "terse" | "normal" | "detailed";
+export type CommsTone = "direct" | "warm" | "formal";
+
 export type OpenScoutUserConfig = {
   name?: string;
+  handle?: string;
+  pronouns?: string;
+  hue?: number;
+  bio?: string;
+  timezone?: string;
+  workingHours?: string;
+  interruptThreshold?: InterruptThreshold;
+  batchWindow?: number;
+  channel?: CommsChannel;
+  verbosity?: CommsVerbosity;
+  tone?: CommsTone;
+  quietHours?: string;
 };
 
 function userConfigPath(): string {

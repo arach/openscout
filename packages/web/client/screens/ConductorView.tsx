@@ -3,17 +3,18 @@ import "./conductor-view.css";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
+  useMemo,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor } from "../lib/colors.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
+import { summarizeObserveEvent, useObservePolling } from "../lib/observe.ts";
 import { conversationForAgent } from "../lib/router.ts";
-import type { Agent, FleetState, Route } from "../lib/types.ts";
+import type { Agent, FleetState, ObserveData, ObserveEvent, Route } from "../lib/types.ts";
 
 /* ── Constants ── */
 
@@ -108,22 +109,43 @@ function groupAgents(agents: Agent[]): AgentGroup[] {
 
 /* ── Helpers ── */
 
-function terminalLinesForAgent(agent: Agent, taskSummary: string | null): string[] {
-  const project = agent.project ?? "workspace";
-  const branch = agent.branch ?? "main";
-  const state = normalizeAgentState(agent.state);
+function terminalLineForEvent(event: ObserveEvent): string {
+  switch (event.kind) {
+    case "tool":
+      return `$ ${summarizeObserveEvent(event)}`;
+    case "think":
+      return `~ ${summarizeObserveEvent(event)}`;
+    case "ask":
+      return `↗ ${summarizeObserveEvent(event)}`;
+    case "message":
+      return `→ ${summarizeObserveEvent(event)}`;
+    case "note":
+      return `+ ${summarizeObserveEvent(event)}`;
+    case "system":
+    case "boot":
+      return `▸ ${summarizeObserveEvent(event)}`;
+  }
+}
 
-  if (state === "working") {
-    return [
-      `$ cd ${project}`,
-      `→ on branch ${branch}`,
-      ...(taskSummary ? [`working: ${taskSummary}`] : []),
-    ];
+function terminalLinesForAgent(
+  agent: Agent,
+  taskSummary: string | null,
+  observe: ObserveData | null,
+): string[] {
+  const tail = observe?.events.slice(-8).map(terminalLineForEvent).filter(Boolean) ?? [];
+  if (tail.length > 0) {
+    return tail;
   }
-  if (state === "available") {
-    return [`$ cd ${project}`, `→ on branch ${branch}`, "idle — awaiting instruction"];
+
+  const state = normalizeAgentState(agent.state);
+  if (state === "offline") {
+    return ["No session trace available"];
   }
-  return ["offline"];
+
+  return [
+    "Waiting for session trace…",
+    ...(taskSummary ? [`task: ${taskSummary}`] : []),
+  ];
 }
 
 function stateChipColor(state: string | null): string {
@@ -137,14 +159,32 @@ function stateChipColor(state: string | null): string {
   }
 }
 
-function Sparkline({ agentId, color }: { agentId: string; color: string }) {
-  const points = useMemo(() => {
-    const seed = agentId.charCodeAt(0);
-    return Array.from({ length: 40 }, (_, i) =>
-      0.5 + 0.35 * Math.sin(i * 0.5 + seed) + 0.15 * Math.cos(i * 1.1 + seed * 0.3),
+function Sparkline({
+  color,
+  data,
+}: {
+  color: string;
+  data: number[] | undefined;
+}) {
+  const points = data ?? [];
+  if (points.length < 2) {
+    return (
+      <div
+        style={{
+          width: 80,
+          height: 16,
+          display: "flex",
+          alignItems: "center",
+          color: "var(--dim)",
+          fontSize: 10,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+        }}
+      >
+        No ctx
+      </div>
     );
-  }, [agentId]);
-
+  }
   const pts = points
     .map((v, i) => `${(i / (points.length - 1)) * 100},${20 - v * 18 - 1}`)
     .join(" ");
@@ -169,6 +209,7 @@ export function ConductorView({
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const observeCache = useObservePolling(agents);
   const interruptAgent = useCallback(async (agentId: string) => {
     await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
       method: "POST",
@@ -362,6 +403,7 @@ export function ConductorView({
                 key={agent.id}
                 agent={agent}
                 task={tasksByAgent[agent.id] ?? null}
+                observe={observeCache[agent.id]?.data ?? null}
                 x={pos.x}
                 y={pos.y}
                 onClick={() => setFocusedId(agent.id)}
@@ -386,6 +428,7 @@ export function ConductorView({
         <FocusOverlay
           agent={focusedAgent}
           task={tasksByAgent[focusedAgent.id] ?? null}
+          observe={observeCache[focusedAgent.id]?.data ?? null}
           onClose={() => setFocusedId(null)}
           onTell={() => {
             setFocusedId(null);
@@ -512,6 +555,7 @@ function Minimap({
 function FocusOverlay({
   agent,
   task,
+  observe,
   onClose,
   onTell,
   onAsk,
@@ -520,13 +564,14 @@ function FocusOverlay({
 }: {
   agent: Agent;
   task: AgentTask | null;
+  observe: ObserveData | null;
   onClose: () => void;
   onTell: () => void;
   onAsk: () => void;
   onFreeze?: () => void;
   onOpenProfile: () => void;
 }) {
-  const lines = terminalLinesForAgent(agent, task?.summary ?? null);
+  const lines = terminalLinesForAgent(agent, task?.summary ?? null, observe);
 
   return (
     <div className="s-conductor-overlay" onClick={onClose}>
@@ -594,12 +639,14 @@ function FocusOverlay({
 function ConductorTile({
   agent,
   task,
+  observe,
   x,
   y,
   onClick,
 }: {
   agent: Agent;
   task: AgentTask | null;
+  observe: ObserveData | null;
   x: number;
   y: number;
   onClick: () => void;
@@ -607,8 +654,12 @@ function ConductorTile({
   const color = actorColor(agent.name);
   const chipColor = stateChipColor(agent.state);
   const stateLabel = agentStateLabel(agent.state).toUpperCase();
-  const lines = terminalLinesForAgent(agent, task?.summary ?? null);
+  const lines = terminalLinesForAgent(agent, task?.summary ?? null, observe);
   const isWorking = normalizeAgentState(agent.state) === "working";
+  const lastEvent = observe?.events[observe.events.length - 1];
+  const detail = lastEvent
+    ? summarizeObserveEvent(lastEvent)
+    : task?.summary ?? agentStateLabel(agent.state);
 
   return (
     <div
@@ -662,9 +713,9 @@ function ConductorTile({
       </div>
 
       <div className="s-conductor-tile-footer">
-        <Sparkline agentId={agent.id} color={color} />
+        <Sparkline color={color} data={observe?.contextUsage} />
         <span className="s-conductor-tile-detail">
-          {task?.summary ?? agentStateLabel(agent.state)}
+          {detail}
         </span>
         {isWorking && <span className="s-conductor-terminal-cursor" />}
       </div>

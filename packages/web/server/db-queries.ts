@@ -59,6 +59,7 @@ export type WebMessage = {
 
 type WorkAttention = "silent" | "badge" | "interrupt";
 type AgentSummaryState = "offline" | "available" | "working";
+type SqlClause = string | null | undefined | false;
 
 export type WebWorkItem = {
   id: string;
@@ -205,6 +206,27 @@ function coerceNumber(value: number | string | null): number | null {
   return null;
 }
 
+function sqlJoinClauses(clauses: SqlClause[], operator: "AND" | "OR" = "AND"): string {
+  return clauses.filter((clause): clause is string => Boolean(clause)).join(` ${operator} `);
+}
+
+function sqlWhereClause(clauses: SqlClause[], operator: "AND" | "OR" = "AND"): string {
+  const joined = sqlJoinClauses(clauses, operator);
+  return joined ? `WHERE ${joined}` : "";
+}
+
+function sqlPlaceholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
+}
+
+function sqlQuoteLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function sqlStringList(values: readonly string[]): string {
+  return `(${values.map(sqlQuoteLiteral).join(",")})`;
+}
+
 const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
   SELECT ep2.id
   FROM agent_endpoints ep2
@@ -251,6 +273,9 @@ function normalizeTimestampMs(value: number | string | null): number | null {
   }
   return numeric < 1e12 ? numeric * 1000 : numeric;
 }
+
+const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
+const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
 function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: WebActivityItem): boolean {
   if (!previous) {
@@ -526,12 +551,12 @@ export function queryActivity(limit = 60): WebActivityItem[] {
 
 export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
-  const where = [
+  const where = sqlJoinClauses([
     transientBrokerWorkingStatusPredicate("m"),
     conversationIds.length > 0
-      ? `m.conversation_id IN (${conversationIds.map(() => "?").join(", ")})`
+      ? `m.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
       : null,
-  ].filter(Boolean).join(" AND ");
+  ]);
 
   const rows = db()
     .prepare(
@@ -597,16 +622,15 @@ export function queryFlights(opts?: {
   collaborationRecordId?: string;
   activeOnly?: boolean;
 }): WebFlight[] {
-  const activeStates = "('running','waking','waiting','queued')";
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
-  const where = [
-    opts?.activeOnly ? `f.state IN ${activeStates}` : null,
+  const where = sqlJoinClauses([
+    opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
     conversationIds.length > 0
-      ? `inv.conversation_id IN (${conversationIds.map(() => "?").join(", ")})`
+      ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
       : null,
     opts?.collaborationRecordId ? `inv.collaboration_record_id = ?` : null,
-  ].filter(Boolean).join(" AND ");
+  ]);
 
   const sql = `SELECT
     f.id,
@@ -622,7 +646,7 @@ export function queryFlights(opts?: {
   FROM flights f
   JOIN invocations inv ON inv.id = f.invocation_id
   LEFT JOIN actors ac ON ac.id = f.target_agent_id
-  ${where ? `WHERE ${where}` : ""}
+  ${sqlWhereClause([where])}
   ORDER BY f.started_at DESC NULLS LAST
   LIMIT 100`;
 
@@ -690,7 +714,6 @@ export type WebWorkDetail = WebWorkItem & {
 };
 
 export function queryWorkItemById(id: string): WebWorkDetail | null {
-  const activeStates = "('open','working','waiting','review')";
   const sql = `SELECT
     cr.id,
     cr.title,
@@ -713,7 +736,7 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
       FROM collaboration_records child
       WHERE child.parent_id = cr.id
         AND child.kind = 'work_item'
-        AND child.state IN ${activeStates}
+        AND child.state IN ${ACTIVE_WORK_STATES_SQL}
     ) AS active_child_work_count,
     (
       SELECT COUNT(*)
@@ -966,12 +989,11 @@ export function queryWorkItems(opts?: {
   activeOnly?: boolean;
   limit?: number;
 }): WebWorkItem[] {
-  const activeStates = "('open','working','waiting','review')";
-  const where = [
+  const where = sqlJoinClauses([
     "cr.kind = 'work_item'",
-    opts?.activeOnly !== false ? `cr.state IN ${activeStates}` : null,
+    opts?.activeOnly !== false ? `cr.state IN ${ACTIVE_WORK_STATES_SQL}` : null,
     opts?.agentId ? "(cr.owner_id = ? OR cr.next_move_owner_id = ?)" : null,
-  ].filter(Boolean).join(" AND ");
+  ]);
 
   const sql = `SELECT
     cr.id,
@@ -992,7 +1014,7 @@ export function queryWorkItems(opts?: {
       FROM collaboration_records child
       WHERE child.parent_id = cr.id
         AND child.kind = 'work_item'
-        AND child.state IN ${activeStates}
+        AND child.state IN ${ACTIVE_WORK_STATES_SQL}
     ) AS active_child_work_count,
     (
       SELECT COUNT(*)
@@ -1070,7 +1092,7 @@ export function queryWorkItems(opts?: {
   FROM collaboration_records cr
   LEFT JOIN actors owner ON owner.id = cr.owner_id
   LEFT JOIN actors next ON next.id = cr.next_move_owner_id
-  ${where ? `WHERE ${where}` : ""}
+  ${sqlWhereClause([where])}
   ORDER BY sort_ts DESC, cr.updated_at DESC
   LIMIT ?`;
 
@@ -2141,7 +2163,7 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  ${filters.length ? `WHERE ${filters.join(" OR ")}` : ""}
+  ${sqlWhereClause(filters, "OR")}
   ORDER BY ai.ts DESC
   LIMIT ?`;
 
@@ -2173,7 +2195,7 @@ function fleetStatusLabel(status: WebFleetAskStatus): string {
 }
 
 function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[] {
-  const requesterClause = requesterIds.map(() => "?").join(", ");
+  const requesterClause = sqlPlaceholders(requesterIds.length);
   return db().prepare(
     `SELECT
        inv.id AS invocation_id,
@@ -2282,7 +2304,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
 }
 
 function queryFleetAttentionRows(requesterIds: string[], limit: number): FleetAttentionRow[] {
-  const requesterClause = requesterIds.map(() => "?").join(", ");
+  const requesterClause = sqlPlaceholders(requesterIds.length);
   return db().prepare(
     `SELECT
        cr.kind AS record_kind,

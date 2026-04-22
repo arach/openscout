@@ -36,7 +36,10 @@ import {
   sendScoutDirectMessage,
   sendScoutMessage,
 } from "./core/broker/service.ts";
-import { loadAgentObservePayload } from "./core/observe/service.ts";
+import {
+  loadAgentObservePayload,
+  loadAgentObserveSummaries,
+} from "./core/observe/service.ts";
 import { announceMeshVisibility, loadMeshStatus } from "./core/mesh/service.ts";
 import {
   loadOpenScoutWebShellState,
@@ -252,6 +255,13 @@ export async function createOpenScoutWebServer(
   );
 
   app.get("/api/agents", (c) => c.json(queryAgents()));
+  app.get("/api/observe/agents", async (c) => {
+    const ids = c.req.query("ids")
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    return c.json(await loadAgentObserveSummaries(ids));
+  });
   app.get("/api/agents/:id/observe", async (c) => {
     const payload = await loadAgentObservePayload(c.req.param("id"));
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
@@ -334,7 +344,22 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/user", (c) => {
-    return c.json({ name: resolveOperatorName() });
+    const config = loadUserConfig();
+    return c.json({
+      name: resolveOperatorName(),
+      handle: config.handle ?? "",
+      pronouns: config.pronouns ?? "",
+      hue: config.hue ?? 195,
+      bio: config.bio ?? "",
+      timezone: config.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      workingHours: config.workingHours ?? "08:00 – 18:00",
+      interruptThreshold: config.interruptThreshold ?? "blocking-only",
+      batchWindow: config.batchWindow ?? 15,
+      channel: config.channel ?? "here+mobile",
+      verbosity: config.verbosity ?? "terse",
+      tone: config.tone ?? "direct",
+      quietHours: config.quietHours ?? "22:00 – 07:00",
+    });
   });
 
   app.get("/api/onboarding/state", async (c) => {
@@ -428,15 +453,47 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/user", async (c) => {
-    const { name } = (await c.req.json()) as { name?: string };
+    const body = (await c.req.json()) as Record<string, unknown>;
     const config = loadUserConfig();
-    if (name?.trim()) {
-      config.name = name.trim();
-    } else {
-      delete config.name;
+
+    const stringFields = [
+      "name", "handle", "pronouns", "bio", "timezone",
+      "workingHours", "interruptThreshold", "channel",
+      "verbosity", "tone", "quietHours",
+    ] as const;
+    for (const key of stringFields) {
+      if (key in body) {
+        const val = body[key];
+        if (typeof val === "string" && val.trim()) {
+          (config as Record<string, unknown>)[key] = val.trim();
+        } else {
+          delete (config as Record<string, unknown>)[key];
+        }
+      }
     }
+    if ("hue" in body && typeof body.hue === "number") {
+      config.hue = body.hue;
+    }
+    if ("batchWindow" in body && typeof body.batchWindow === "number") {
+      config.batchWindow = body.batchWindow;
+    }
+
     saveUserConfig(config);
-    return c.json({ name: resolveOperatorName() });
+    return c.json({
+      name: resolveOperatorName(),
+      handle: config.handle ?? "",
+      pronouns: config.pronouns ?? "",
+      hue: config.hue ?? 195,
+      bio: config.bio ?? "",
+      timezone: config.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      workingHours: config.workingHours ?? "08:00 – 18:00",
+      interruptThreshold: config.interruptThreshold ?? "blocking-only",
+      batchWindow: config.batchWindow ?? 15,
+      channel: config.channel ?? "here+mobile",
+      verbosity: config.verbosity ?? "terse",
+      tone: config.tone ?? "direct",
+      quietHours: config.quietHours ?? "22:00 – 07:00",
+    });
   });
 
   app.post("/api/agents/:agentId/interrupt", async (c) => {

@@ -76,6 +76,8 @@ type TimestampedPairingEvent = {
   event: PairingEvent;
 };
 
+type ObserveBrokerContext = Awaited<ReturnType<typeof loadScoutBrokerContext>>;
+
 type SnapshotSource =
   | {
       source: "history";
@@ -99,6 +101,22 @@ type SnapshotSource =
       live: false;
       sessionId: null;
     };
+
+type HistorySnapshotResult = {
+  historyPath: string;
+  snapshot: SessionState;
+  timedEvents: TimestampedPairingEvent[];
+};
+
+type HistorySnapshotCacheEntry = HistorySnapshotResult & {
+  adapterType: "claude-code" | "codex";
+  mtimeMs: number;
+  size: number;
+};
+
+const HISTORY_SNAPSHOT_CACHE_LIMIT = 128;
+const historySnapshotCache = new Map<string, HistorySnapshotCacheEntry>();
+const OBSERVE_SUMMARY_TAIL_SIZE = 8;
 
 function activeEndpoint(
   snapshot: RuntimeRegistrySnapshot,
@@ -245,7 +263,7 @@ function normalizeTimedEvents(
 
 function readHistorySnapshot(
   candidate: { path: string; adapterType: "claude-code" | "codex" } | null,
-): { historyPath: string; snapshot: SessionState; timedEvents: TimestampedPairingEvent[] } | null {
+): HistorySnapshotResult | null {
   if (!candidate) {
     return null;
   }
@@ -257,6 +275,19 @@ function readHistorySnapshot(
   }
 
   const stat = statSync(candidate.path);
+  const cached = historySnapshotCache.get(candidate.path);
+  if (
+    cached
+    && cached.adapterType === candidate.adapterType
+    && cached.mtimeMs === stat.mtimeMs
+    && cached.size === stat.size
+  ) {
+    return {
+      historyPath: cached.historyPath,
+      snapshot: cached.snapshot,
+      timedEvents: cached.timedEvents,
+    };
+  }
   const replay = createHistorySessionSnapshot({
     path: candidate.path,
     content: readFileSync(candidate.path, "utf8"),
@@ -264,10 +295,26 @@ function readHistorySnapshot(
     baseTimestampMs: stat.mtimeMs,
   });
 
-  return {
+  const nextEntry: HistorySnapshotCacheEntry = {
     historyPath: candidate.path,
     snapshot: replay.snapshot,
     timedEvents: normalizeTimedEvents(replay.events),
+    adapterType: candidate.adapterType,
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+  };
+  historySnapshotCache.set(candidate.path, nextEntry);
+  if (historySnapshotCache.size > HISTORY_SNAPSHOT_CACHE_LIMIT) {
+    const oldestKey = historySnapshotCache.keys().next().value;
+    if (typeof oldestKey === "string") {
+      historySnapshotCache.delete(oldestKey);
+    }
+  }
+
+  return {
+    historyPath: nextEntry.historyPath,
+    snapshot: nextEntry.snapshot,
+    timedEvents: nextEntry.timedEvents,
   };
 }
 
@@ -742,8 +789,10 @@ function unavailableObserveData(agent: WebAgent): ObserveData {
   };
 }
 
-async function resolveSnapshotSource(agent: WebAgent): Promise<SnapshotSource> {
-  const broker = await loadScoutBrokerContext();
+async function resolveSnapshotSource(
+  agent: WebAgent,
+  broker: ObserveBrokerContext,
+): Promise<SnapshotSource> {
   const endpoint = broker ? activeEndpoint(broker.snapshot, agent.id) : null;
   const liveSnapshot = await readLiveSnapshot(endpoint);
   const live = Boolean(
@@ -795,18 +844,14 @@ async function resolveSnapshotSource(agent: WebAgent): Promise<SnapshotSource> {
   };
 }
 
-export async function loadAgentObservePayload(
-  agentId: string,
-): Promise<AgentObservePayload | null> {
-  const agent = queryAgents(200).find((entry) => entry.id === agentId) ?? null;
-  if (!agent) {
-    return null;
-  }
-
-  const source = await resolveSnapshotSource(agent);
+async function buildAgentObservePayload(
+  agent: WebAgent,
+  broker: ObserveBrokerContext,
+): Promise<AgentObservePayload> {
+  const source = await resolveSnapshotSource(agent, broker);
   if (source.source === "unavailable") {
     return {
-      agentId,
+      agentId: agent.id,
       source: "unavailable",
       fidelity: "synthetic",
       historyPath: null,
@@ -818,7 +863,7 @@ export async function loadAgentObservePayload(
 
   const fidelity = source.timedEvents.length > 0 ? "timestamped" : "synthetic";
   return {
-    agentId,
+    agentId: agent.id,
     source: source.source,
     fidelity,
     historyPath: source.historyPath,
@@ -826,4 +871,46 @@ export async function loadAgentObservePayload(
     updatedAt: Date.now(),
     data: buildObserveDataFromSnapshot(source.snapshot, source.timedEvents, source.live),
   };
+}
+
+async function loadAgentObservePayloadsInternal(
+  agentIds?: string[],
+): Promise<AgentObservePayload[]> {
+  const agents = queryAgents(200);
+  const filteredAgents = agentIds && agentIds.length > 0
+    ? agents.filter((agent) => agentIds.includes(agent.id))
+    : agents;
+  if (filteredAgents.length === 0) {
+    return [];
+  }
+
+  const broker = await loadScoutBrokerContext();
+  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker)));
+}
+
+function summarizeAgentObservePayload(
+  payload: AgentObservePayload,
+): AgentObservePayload {
+  return {
+    ...payload,
+    data: {
+      ...payload.data,
+      events: payload.data.events.slice(-OBSERVE_SUMMARY_TAIL_SIZE),
+      files: [],
+    },
+  };
+}
+
+export async function loadAgentObserveSummaries(
+  agentIds?: string[],
+): Promise<AgentObservePayload[]> {
+  const payloads = await loadAgentObservePayloadsInternal(agentIds);
+  return payloads.map(summarizeAgentObservePayload);
+}
+
+export async function loadAgentObservePayload(
+  agentId: string,
+): Promise<AgentObservePayload | null> {
+  const payloads = await loadAgentObservePayloadsInternal([agentId]);
+  return payloads[0] ?? null;
 }

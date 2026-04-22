@@ -160,6 +160,7 @@ export function ScoutLeftPanel() {
           }}
         />
       </div>
+      <div style={{ flex: 1, overflow: "auto" }}>
 
       {agents.length === 0 ? (
         <div className="s-left-roster-empty">No agents registered</div>
@@ -269,6 +270,7 @@ export function ScoutLeftPanel() {
           );
         })
       )}
+      </div>
     </div>
   );
 }

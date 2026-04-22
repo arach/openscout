@@ -49,7 +49,7 @@ function routeFromPath(): Route {
       return { view: "inbox" };
     }
     const mode = parts[1];
-    if (mode === "conductor" || mode === "warroom" || mode === "plan") {
+    if (mode === "conductor" || mode === "warroom" || mode === "plan" || mode === "mission") {
       return { view: "ops", mode };
     }
     return { view: "ops" };

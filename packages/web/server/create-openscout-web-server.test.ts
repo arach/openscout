@@ -43,6 +43,7 @@ let askScoutQuestionResult: unknown = {
 mock.module("./db-queries.ts", () => ({
   queryAgents: () => [],
   queryActivity: () => [],
+  queryHeartrate: () => [],
   queryFleet: () => ({
     generatedAt: Date.now(),
     totals: { active: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
@@ -135,6 +136,20 @@ beforeEach(() => {
 });
 
 describe("createOpenScoutWebServer", () => {
+  test("returns batched observe payloads for the requested agent ids", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      "http://localhost/api/observe/agents?ids=agent-1,agent-2",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([]);
+  });
+
   test("routes direct DM tells through sendScoutDirectMessage", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",

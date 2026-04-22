@@ -4,6 +4,9 @@ import {
 } from "./create-scout-web-server.ts";
 
 const port = Number(process.env.SCOUT_WEB_PORT ?? "3200");
+const hostname = process.env.SCOUT_WEB_HOST?.trim()
+  || process.env.OPENSCOUT_WEB_HOST?.trim()
+  || "127.0.0.1";
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 
 const shellStateCacheTtlMs = Number.parseInt(process.env.SCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
@@ -33,9 +36,10 @@ const { app, warmupCaches } = createScoutWebServer({
 
 export default {
   port,
+  hostname,
   idleTimeout: REQUEST_IDLE_TIMEOUT_SECONDS,
   fetch: app.fetch,
 };
 
-console.log(`Scout web → http://localhost:${port}`);
+console.log(`Scout web → http://${hostname}:${port}`);
 void warmupCaches();

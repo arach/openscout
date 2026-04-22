@@ -52,6 +52,7 @@ export type WebMessage = {
 };
 
 type WorkAttention = "silent" | "badge" | "interrupt";
+type SqlClause = string | null | undefined | false;
 
 export type WebWorkItem = {
   id: string;
@@ -121,6 +122,23 @@ function coerceNumber(value: number | string | null): number | null {
   return null;
 }
 
+function sqlJoinClauses(clauses: SqlClause[], operator: "AND" | "OR" = "AND"): string {
+  return clauses.filter((clause): clause is string => Boolean(clause)).join(` ${operator} `);
+}
+
+function sqlWhereClause(clauses: SqlClause[], operator: "AND" | "OR" = "AND"): string {
+  const joined = sqlJoinClauses(clauses, operator);
+  return joined ? `WHERE ${joined}` : "";
+}
+
+function sqlQuoteLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function sqlStringList(values: readonly string[]): string {
+  return `(${values.map(sqlQuoteLiteral).join(",")})`;
+}
+
 function isExecutingFlightState(state: string | null): boolean {
   return state === "running";
 }
@@ -170,6 +188,9 @@ function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: Web
     && previous.conversationId === next.conversationId
     && Math.abs(previous.ts - next.ts) <= 5_000;
 }
+
+const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
+const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
 function workPhaseFromFlightState(state: string | null): string | null {
   switch (state) {
@@ -714,7 +735,7 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  ${filters.length ? `WHERE ${filters.join(" OR ")}` : ""}
+  ${sqlWhereClause(filters, "OR")}
   ORDER BY ai.ts DESC
   LIMIT ?`;
 
@@ -933,13 +954,12 @@ export function queryFlights(opts?: {
   collaborationRecordId?: string;
   activeOnly?: boolean;
 }): WebFlight[] {
-  const activeStates = "('running','waking','waiting','queued')";
-  const where = [
-    opts?.activeOnly ? `f.state IN ${activeStates}` : null,
+  const where = sqlJoinClauses([
+    opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
     opts?.conversationId ? `inv.conversation_id = ?` : null,
     opts?.collaborationRecordId ? `inv.collaboration_record_id = ?` : null,
-  ].filter(Boolean).join(" AND ");
+  ]);
 
   const sql = `SELECT
     f.id,
@@ -955,7 +975,7 @@ export function queryFlights(opts?: {
   FROM flights f
   JOIN invocations inv ON inv.id = f.invocation_id
   LEFT JOIN actors ac ON ac.id = f.target_agent_id
-  ${where ? `WHERE ${where}` : ""}
+  ${sqlWhereClause([where])}
   ORDER BY f.started_at DESC NULLS LAST
   LIMIT 100`;
 
@@ -996,12 +1016,11 @@ export function queryWorkItems(opts?: {
   activeOnly?: boolean;
   limit?: number;
 }): WebWorkItem[] {
-  const activeStates = "('open','working','waiting','review')";
-  const where = [
+  const where = sqlJoinClauses([
     "cr.kind = 'work_item'",
-    opts?.activeOnly !== false ? `cr.state IN ${activeStates}` : null,
+    opts?.activeOnly !== false ? `cr.state IN ${ACTIVE_WORK_STATES_SQL}` : null,
     opts?.agentId ? "(cr.owner_id = ? OR cr.next_move_owner_id = ?)" : null,
-  ].filter(Boolean).join(" AND ");
+  ]);
 
   const sql = `SELECT
     cr.id,
@@ -1022,7 +1041,7 @@ export function queryWorkItems(opts?: {
       FROM collaboration_records child
       WHERE child.parent_id = cr.id
         AND child.kind = 'work_item'
-        AND child.state IN ${activeStates}
+        AND child.state IN ${ACTIVE_WORK_STATES_SQL}
     ) AS active_child_work_count,
     (
       SELECT COUNT(*)
@@ -1100,7 +1119,7 @@ export function queryWorkItems(opts?: {
   FROM collaboration_records cr
   LEFT JOIN actors owner ON owner.id = cr.owner_id
   LEFT JOIN actors next ON next.id = cr.next_move_owner_id
-  ${where ? `WHERE ${where}` : ""}
+  ${sqlWhereClause([where])}
   ORDER BY sort_ts DESC, cr.updated_at DESC
   LIMIT ?`;
 
@@ -1140,7 +1159,6 @@ export function queryWorkItems(opts?: {
 }
 
 export function queryWorkItemById(id: string): WebWorkDetail | null {
-  const activeStates = "('open','working','waiting','review')";
   const sql = `SELECT
     cr.id,
     cr.title,
@@ -1163,7 +1181,7 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
       FROM collaboration_records child
       WHERE child.parent_id = cr.id
         AND child.kind = 'work_item'
-        AND child.state IN ${activeStates}
+        AND child.state IN ${ACTIVE_WORK_STATES_SQL}
     ) AS active_child_work_count,
     (
       SELECT COUNT(*)

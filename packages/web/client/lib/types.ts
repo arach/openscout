@@ -231,6 +231,27 @@ export type AgentObservePayload = {
   data: ObserveData;
 };
 
+export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";
+export type CommsChannel = "here" | "mobile" | "here+mobile";
+export type CommsVerbosity = "terse" | "normal" | "detailed";
+export type CommsTone = "direct" | "warm" | "formal";
+
+export type OperatorProfile = {
+  name: string;
+  handle: string;
+  pronouns: string;
+  hue: number;
+  bio: string;
+  timezone: string;
+  workingHours: string;
+  interruptThreshold: InterruptThreshold;
+  batchWindow: number;
+  channel: CommsChannel;
+  verbosity: CommsVerbosity;
+  tone: CommsTone;
+  quietHours: string;
+};
+
 /** Mesh status report from the broker. */
 export type MeshIssue = {
   code:
@@ -349,7 +370,7 @@ export type Route =
   | { view: "settings" }
   | { view: "ops"; mode?: OpsMode };
 
-export type OpsMode = "plan" | "conductor" | "warroom";
+export type OpsMode = "plan" | "conductor" | "warroom" | "mission";
 
 /* ── Ops types (Plan view) ── */
 

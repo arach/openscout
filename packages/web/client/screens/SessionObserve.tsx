@@ -1,38 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import type {
+  ObserveData,
+  ObserveEvent,
+  ObserveFile,
+} from "../lib/types.ts";
+
 import "./session-observe.css";
 
-/* ── Adapter types — real data plugs in here later ── */
-
-export interface SessionEvent {
-  id: string;
-  t: number;
-  kind: "think" | "tool" | "ask" | "message" | "note" | "system" | "boot";
-  text: string;
-  tool?: string;
-  arg?: string;
-  diff?: { add: number; del: number; preview: string };
-  result?: Record<string, string | number>;
-  stream?: string[];
-  live?: boolean;
-  to?: string;
-  answer?: string;
-  answerT?: number;
-  detail?: string;
-}
-
-export interface SessionFile {
-  path: string;
-  state: "read" | "created" | "modified";
-  touches: number;
-  lastT: number;
-}
-
-export interface SessionObserveData {
-  events: SessionEvent[];
-  files: SessionFile[];
-  contextUsage?: number[];
-  live?: boolean;
-}
+export type SessionEvent = ObserveEvent;
+export type SessionFile = ObserveFile;
+export type SessionObserveData = ObserveData;
 
 /* ── Constants ── */
 
@@ -372,159 +350,20 @@ function Scrubber({
   );
 }
 
-/* ── Mock data ── */
-
-const MOCK_EVENTS: SessionEvent[] = [
-  {
-    id: "e1",
-    t: 0,
-    kind: "boot",
-    text: "Session started · claude-sonnet-4-6 · workspace openscout",
-    detail: "context: 200k · tools: 12 · branch: main",
-  },
-  {
-    id: "e2",
-    t: 3,
-    kind: "think",
-    text: "The user wants me to refactor the authentication middleware. Let me start by reading the current implementation to understand the data flow.",
-  },
-  {
-    id: "e3",
-    t: 8,
-    kind: "tool",
-    tool: "read",
-    text: "",
-    arg: "packages/server/src/middleware/auth.ts",
-    result: { lines: 142, exports: 3, imports: 5 },
-  },
-  {
-    id: "e4",
-    t: 14,
-    kind: "tool",
-    tool: "grep",
-    text: "",
-    arg: "validateSession",
-    result: { matches: 7, files: 4 },
-  },
-  {
-    id: "e5",
-    t: 22,
-    kind: "think",
-    text: "The session validation is scattered across four files. I should consolidate it into the auth middleware and expose a single validateSession export.",
-    live: false,
-  },
-  {
-    id: "e6",
-    t: 30,
-    kind: "tool",
-    tool: "edit",
-    text: "",
-    arg: "packages/server/src/middleware/auth.ts",
-    diff: {
-      add: 24,
-      del: 8,
-      preview:
-        '+export async function validateSession(req: Request) {\n+  const token = extractBearerToken(req);\n+  if (!token) return null;\n+  return await verifyAndDecode(token);\n+}',
+const EMPTY_OBSERVE_DATA: SessionObserveData = {
+  events: [
+    {
+      id: "observe:empty",
+      t: 0,
+      kind: "system",
+      text: "No session trace is available for this agent yet.",
+      detail: "Waiting for a live session or readable history file.",
     },
-  },
-  {
-    id: "e7",
-    t: 45,
-    kind: "tool",
-    tool: "bash",
-    text: "",
-    arg: "bun test packages/server --filter auth",
-    stream: [
-      "bun test v1.2.8",
-      "",
-      "packages/server/tests/auth.test.ts:",
-      "  ✓ validates valid session token (3ms)",
-      "  ✓ rejects expired token (1ms)",
-      "  ✓ handles missing bearer prefix (1ms)",
-      "  ✓ returns null for invalid signature (2ms)",
-      "",
-      " 4 pass | 0 fail (42ms)",
-    ],
-  },
-  {
-    id: "e8",
-    t: 56,
-    kind: "note",
-    text: "Auth middleware consolidated — 4 tests passing",
-  },
-  {
-    id: "e9",
-    t: 60,
-    kind: "tool",
-    tool: "edit",
-    text: "",
-    arg: "packages/server/src/routes/api.ts",
-    diff: {
-      add: 2,
-      del: 11,
-      preview:
-        '-import { checkAuth } from "../utils/auth-check";\n-import { getSession } from "../utils/session";\n+import { validateSession } from "../middleware/auth";',
-    },
-  },
-  {
-    id: "e10",
-    t: 78,
-    kind: "ask",
-    text: "The old auth-check.ts and session.ts files are now unused. Should I delete them or keep them around for reference?",
-    to: "human",
-    answer: "Delete them. We have git history if we need them.",
-    answerT: 95,
-  },
-  {
-    id: "e11",
-    t: 98,
-    kind: "tool",
-    tool: "bash",
-    text: "",
-    arg: "rm packages/server/src/utils/auth-check.ts packages/server/src/utils/session.ts",
-    result: { deleted: 2 },
-  },
-  {
-    id: "e12",
-    t: 105,
-    kind: "tool",
-    tool: "bash",
-    text: "",
-    arg: "bun test packages/server",
-    stream: [
-      "bun test v1.2.8",
-      "",
-      "  12 pass | 0 fail (380ms)",
-    ],
-  },
-  {
-    id: "e13",
-    t: 115,
-    kind: "think",
-    text: "All tests pass after removing the old files. The auth flow is now centralized in one middleware module. Let me write a summary for the operator.",
-    live: true,
-  },
-  {
-    id: "e14",
-    t: 120,
-    kind: "message",
-    text: "Refactored the auth middleware — consolidated validateSession into a single export, removed 2 unused util files, all 12 tests pass. The auth flow now goes through one module instead of four.",
-    to: "human",
-  },
-];
-
-const MOCK_FILES: SessionFile[] = [
-  { path: "packages/server/src/middleware/auth.ts", state: "modified", touches: 3, lastT: 30 },
-  { path: "packages/server/src/routes/api.ts", state: "modified", touches: 1, lastT: 60 },
-  { path: "packages/server/src/utils/auth-check.ts", state: "read", touches: 1, lastT: 14 },
-  { path: "packages/server/src/utils/session.ts", state: "read", touches: 1, lastT: 14 },
-  { path: "packages/server/tests/auth.test.ts", state: "read", touches: 2, lastT: 105 },
-];
-
-const MOCK_CONTEXT: number[] = [
-  0.02, 0.04, 0.08, 0.12, 0.18, 0.22, 0.28, 0.32, 0.38, 0.42,
-  0.46, 0.50, 0.55, 0.58, 0.62, 0.65, 0.68,
-];
+  ],
+  files: [],
+  contextUsage: [],
+  live: false,
+};
 
 /* ── Main component ── */
 
@@ -533,13 +372,9 @@ export function SessionObserve({
 }: {
   data?: SessionObserveData;
 }) {
-  const { events, files, contextUsage } = data ?? {
-    events: MOCK_EVENTS,
-    files: MOCK_FILES,
-    contextUsage: MOCK_CONTEXT,
-    live: true,
-  };
-  const liveSession = data?.live ?? true;
+  const observeData = data ?? EMPTY_OBSERVE_DATA;
+  const { events, files, contextUsage } = observeData;
+  const liveSession = observeData.live === true;
 
   const duration = events.length > 0 ? events[events.length - 1].t + 30 : 60;
   const [cursor, setCursor] = useState(duration);

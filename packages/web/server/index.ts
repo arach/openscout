@@ -16,6 +16,9 @@ const port = Number(
     ?? process.env.SCOUT_WEB_PORT
     ?? "3200",
 );
+const hostname = process.env.OPENSCOUT_WEB_HOST?.trim()
+  || process.env.SCOUT_WEB_HOST?.trim()
+  || "127.0.0.1";
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
 
@@ -56,6 +59,7 @@ const honoFetch = app.fetch;
 
 const server = Bun.serve<RelayWSData>({
   port,
+  hostname,
   idleTimeout: idleTimeoutSeconds,
 
   fetch(req, server) {
@@ -94,6 +98,6 @@ const shutdown = () => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-console.log(`OpenScout Web -> http://localhost:${server.port}`);
-console.log(`Relay WebSocket -> ws://localhost:${server.port}`);
+console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
+console.log(`Relay WebSocket -> ws://${hostname}:${server.port}`);
 void warmupCaches();
