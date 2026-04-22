@@ -1,0 +1,468 @@
+/* Settings drawer — slides from left edge */
+
+.s-settings-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  transition: opacity 180ms ease;
+}
+
+.s-settings-scrim--open { opacity: 1; pointer-events: auto; }
+.s-settings-scrim--closed { opacity: 0; pointer-events: none; }
+
+.s-settings-drawer {
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 720px;
+  z-index: 100;
+  background: var(--bg);
+  color: var(--ink);
+  border-right: 1px solid var(--border);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--bg) 60%, transparent);
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-rows: 52px 1fr 48px;
+  transition: transform 240ms cubic-bezier(.2,.8,.2,1);
+}
+.s-settings-drawer--open { transform: translateX(0); }
+.s-settings-drawer--closed { transform: translateX(-100%); }
+
+/* Header */
+.s-settings-header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.s-settings-header-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  font-weight: 600;
+}
+.s-settings-header-sep { color: var(--dim); }
+.s-settings-header-section {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.s-settings-header-hint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+.s-settings-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px;
+  line-height: 1;
+}
+
+/* Section rail */
+.s-settings-rail {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 1px solid var(--border);
+  padding: 18px 0;
+  background: var(--surface);
+}
+.s-settings-rail-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 20px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  color: inherit;
+}
+.s-settings-rail-btn--active {
+  background: var(--bg);
+  border-left-color: var(--accent);
+}
+.s-settings-rail-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.s-settings-rail-btn--active .s-settings-rail-label { color: var(--ink); }
+.s-settings-rail-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+/* Content area */
+.s-settings-content {
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+  padding: 28px 32px 32px;
+}
+
+/* Footer */
+.s-settings-footer {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 22px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+}
+.s-settings-footer-sync { color: var(--green); }
+
+/* ── Section divider ── */
+.s-settings-section-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  margin-bottom: 16px;
+}
+.s-settings-section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+.s-settings-section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.s-settings-section-right {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+/* ── Field ── */
+.s-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.s-settings-field-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.s-settings-field-hint {
+  font-size: 11.5px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+/* ── Inputs ── */
+.s-settings-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  outline: none;
+}
+.s-settings-input:focus {
+  border-color: var(--accent);
+}
+.s-settings-input--mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.s-settings-textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+.s-settings-textarea:focus {
+  border-color: var(--accent);
+}
+
+/* ── Option row (grid or stacked) ── */
+.s-settings-option-grid {
+  display: grid;
+  gap: 6px;
+}
+.s-settings-option-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.s-settings-option-btn {
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: inherit;
+}
+.s-settings-option-btn--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.s-settings-option-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.s-settings-option-btn--active .s-settings-option-label { color: var(--ink); }
+.s-settings-option-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+/* ── Slider ── */
+.s-settings-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.s-settings-slider-wrap input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.s-settings-slider-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  min-width: 70px;
+  text-align: center;
+}
+
+/* ── Identity preview card ── */
+.s-settings-identity-card {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.s-settings-identity-dot {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 23px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.s-settings-identity-name {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+.s-settings-identity-meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 4px;
+}
+.s-settings-hue-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.s-settings-hue-row {
+  display: flex;
+  gap: 4px;
+}
+.s-settings-hue-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+.s-settings-hue-dot--active {
+  border: 2px solid var(--accent);
+}
+
+/* ── Grid helpers ── */
+.s-settings-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.s-settings-col-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── Device row ── */
+.s-settings-device-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.s-settings-device-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--muted);
+}
+.s-settings-device-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.s-settings-device-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+.s-settings-device-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Relay card ── */
+.s-settings-relay-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+.s-settings-relay-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.s-settings-relay-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+.s-settings-relay-desc {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* ── Launcher button (left panel footer) ── */
+.s-settings-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.s-settings-launcher:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+.s-settings-launcher-icon { font-size: 13px; }
+
+/* Responsive: collapse to full-width on narrow screens */
+@media (max-width: 800px) {
+  .s-settings-drawer {
+    width: 100%;
+    grid-template-columns: 1fr;
+    grid-template-rows: 52px auto 1fr 48px;
+  }
+  .s-settings-rail {
+    grid-column: 1;
+    grid-row: 2;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    padding: 8px 12px;
+    gap: 4px;
+    overflow-x: auto;
+  }
+  .s-settings-rail-btn {
+    flex-direction: row;
+    gap: 8px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  .s-settings-content {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .s-settings-footer {
+    grid-column: 1;
+    grid-row: 4;
+  }
+}

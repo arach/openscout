@@ -741,10 +741,12 @@ export function ConversationScreen({
   conversationId,
   initialComposeMode,
   navigate,
+  embedded,
 }: {
   conversationId: string;
   initialComposeMode?: ComposeMode;
   navigate: (r: Route) => void;
+  embedded?: boolean;
 }) {
   const { agents } = useScout();
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
@@ -1282,9 +1284,9 @@ export function ConversationScreen({
   }, [sessionMeta, agents]);
 
   return (
-    <div className="s-thread-layout">
+    <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
       <div className="s-thread-center">
-        <div
+        {!embedded && <div
           className="s-thread-center-header"
           onClick={() =>
             isDm ? navigate({ view: "agent-info", conversationId }) : undefined
@@ -1365,7 +1367,7 @@ export function ConversationScreen({
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
         {pinnedAsk && (
           <div className="s-thread-pinned-ask">
@@ -1421,7 +1423,7 @@ export function ConversationScreen({
           </div>
         )}
 
-        {isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
+        {!embedded && isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
           <details className="s-thread-meta-disclosure">
             <summary className="s-thread-meta-toggle">
               Session details
@@ -1702,7 +1704,6 @@ export function ConversationScreen({
             />
 
             <div className="s-thread-compose-footer">
-              <span />
               {isStopMode ? (
                 <button
                   type="button"

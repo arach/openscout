@@ -8,7 +8,7 @@ import type { Route } from "../lib/types.ts";
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate, agents, reload } = useScout();
+  const { navigate, agents, reload, openSettings } = useScout();
   const opsEnabled = isOpsEnabled();
 
   const interruptAgent = useCallback(async (agentId: string) => {
@@ -65,13 +65,13 @@ export function useScoutCommands(): CommandOption[] {
       {
         id: "nav:settings",
         label: "Open Settings",
-        action: () => navigate({ view: "settings" }),
+        action: () => openSettings(),
         shortcut: "Cmd+,",
       },
       {
         id: "nav:pair",
         label: "Pair Device",
-        action: () => navigate({ view: "settings" }),
+        action: () => openSettings(),
       },
       {
         id: "scout:reload",
@@ -131,7 +131,7 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
 const VIEW_LABELS: Record<string, string> = {
-  inbox: "Home",
+  inbox: "Fleet",
   conversation: "Conversation",
   "agent-info": "Agent",
   agents: "Agents",
@@ -148,7 +148,7 @@ export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
   const opsEnabled = isOpsEnabled();
   const tabItems: { label: string; view: Route["view"] }[] = [
-    { label: "Home", view: "inbox" },
+    { label: "Fleet", view: "inbox" },
     { label: "Agents", view: "agents" },
     { label: "Sessions", view: "sessions" },
     { label: "Mesh", view: "mesh" },
@@ -181,11 +181,11 @@ export function useScoutNavCenter(): ReactNode | null {
 
 /* ── useNavActions — "Pair device" button ──────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
-  const { navigate } = useScout();
+  const { openSettings } = useScout();
   return createElement(
     "button",
     {
-      onClick: () => navigate({ view: "settings" }),
+      onClick: () => openSettings(),
       className:
         "px-2 py-1 rounded-sm text-[11px] font-mono uppercase tracking-wider text-white/60 hover:text-white/90 hover:bg-white/[0.04] border border-white/[0.06] transition-colors",
     },
@@ -194,7 +194,11 @@ export function useScoutNavActions(): ReactNode | null {
 }
 
 /* ── useLayoutMode ─────────────────────────────────────────────────────── */
-export function useScoutLayoutMode(): "canvas" | "panel" {
+export function useScoutLayoutMode(): "canvas" | "panel" | "focus" {
+  const { route } = useScout();
+  if (route.view === "ops" || route.view === "work") {
+    return "focus";
+  }
   return "panel";
 }
 

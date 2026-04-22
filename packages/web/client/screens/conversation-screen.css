@@ -781,7 +781,7 @@
 .s-thread-compose-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 10px 10px 16px;
   gap: 10px;
 }
@@ -1159,4 +1159,14 @@ details[open] > .s-thread-meta-toggle::before {
   .s-thread-meta-disclosure {
     margin-inline: 16px;
   }
+}
+
+/* ── Embedded mode (inside agent profile tabs) ── */
+
+.s-thread-layout--embedded {
+  border-top: none;
+}
+
+.s-thread-layout--embedded .s-thread-center {
+  padding: 0;
 }

@@ -378,6 +378,11 @@ function AgentDetailWithRail({
     .filter(Boolean)
     .filter((v, i, arr) => arr.indexOf(v) === i);
 
+  const teammateCount = useMemo(
+    () => allAgents.filter((a) => a.project === agent.project).length,
+    [allAgents, agent.project],
+  );
+
   const taskProgress = currentWork?.currentPhase === "review"
     ? 85
     : currentWork?.currentPhase === "working"
@@ -484,25 +489,69 @@ function AgentDetailWithRail({
               </span>
             </div>
           </div>
+          <nav className="s-profile-tabs">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className={`s-profile-tab${tab === t.key ? " s-profile-tab--active" : ""}`}
+                disabled={t.disabled}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
         </div>
       </section>
 
-      <nav className="s-profile-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`s-profile-tab${tab === t.key ? " s-profile-tab--active" : ""}`}
-            disabled={t.disabled}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-
       {tab === "profile" && (
         <div className="s-profile-tab-content">
+          {(agent.project || agent.branch || agent.cwd) && (
+            <div className="s-profile-facets">
+              {agent.project && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Workspace</div>
+                  <div className="s-profile-facet-value">{agent.project}</div>
+                  {teammateCount > 1 && (
+                    <div className="s-profile-facet-detail">
+                      {teammateCount} teammates
+                    </div>
+                  )}
+                </div>
+              )}
+              {(agent.branch || agent.projectRoot) && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Repo / Branch</div>
+                  <div className="s-profile-facet-value">
+                    {agent.projectRoot
+                      ? agent.projectRoot.split("/").pop()
+                      : agent.project ?? "—"}
+                  </div>
+                  {agent.branch && (
+                    <div className="s-profile-facet-detail">
+                      <span className="s-profile-facet-accent">⎇</span> {agent.branch}
+                    </div>
+                  )}
+                </div>
+              )}
+              {agent.cwd && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Working Dir</div>
+                  <div className="s-profile-facet-value">
+                    {agent.cwd.startsWith("/Users/")
+                      ? "~/" + agent.cwd.split("/").slice(3).join("/")
+                      : agent.cwd}
+                  </div>
+                  {agent.updatedAt && (
+                    <div className="s-profile-facet-detail">
+                      uptime {timeAgo(agent.updatedAt)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {currentWork && state === "working" && (
             <>
               <SectionRule
@@ -606,6 +655,7 @@ function AgentDetailWithRail({
           <ConversationScreen
             conversationId={conversationId}
             navigate={navigate}
+            embedded
           />
         </div>
       )}

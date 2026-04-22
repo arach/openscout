@@ -1,9 +1,10 @@
 import { createElement } from "react";
-import { Radio } from "lucide-react";
+import { Compass } from "lucide-react";
 import type { HudsonApp, AppIntent } from "@hudson/sdk";
 import { ScoutProvider } from "./Provider.tsx";
 import { ScoutContent } from "./slots/Content.tsx";
 import { ScoutInspector } from "./slots/Inspector.tsx";
+import { ScoutLeftFooter } from "./slots/LeftFooter.tsx";
 import { ScoutLeftPanel } from "./slots/LeftPanel.tsx";
 import { OnboardingTakeover } from "./takeover/OnboardingTakeover.tsx";
 import {
@@ -167,7 +168,7 @@ export const scoutApp: HudsonApp = {
   description:
     "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
   mode: "panel",
-  icon: createElement(Radio, { size: 16, strokeWidth: 1.5 }),
+  icon: createElement(Compass, { size: 14, strokeWidth: 1.2 }),
 
   Provider: ScoutProvider,
 
@@ -182,6 +183,7 @@ export const scoutApp: HudsonApp = {
   slots: {
     Content: ScoutContent,
     LeftPanel: ScoutLeftPanel,
+    LeftFooter: ScoutLeftFooter,
     Inspector: ScoutInspector,
     Takeover: OnboardingTakeover,
   },

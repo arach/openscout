@@ -35,7 +35,7 @@
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
   --font-sans: var(--hud-font-sans);
   --font-mono: var(--hud-font-mono);
-  --font-serif: "Instrument Serif", Spectral, var(--hud-font-serif);
+  --font-serif: var(--hud-font-serif);
   color: var(--ink);
 }
 
