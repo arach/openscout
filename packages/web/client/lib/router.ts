@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isOpsEnabled } from "./feature-flags.ts";
 import type { Route } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
@@ -44,6 +45,9 @@ function routeFromPath(): Route {
   }
   if (parts[0] === "settings") return { view: "settings" };
   if (parts[0] === "ops") {
+    if (!isOpsEnabled()) {
+      return { view: "inbox" };
+    }
     const mode = parts[1];
     if (mode === "conductor" || mode === "warroom" || mode === "plan") {
       return { view: "ops", mode };
@@ -134,11 +138,14 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
+    const nextRoute: Route = r.view === "ops" && !isOpsEnabled()
+      ? { view: "inbox" }
+      : r;
     scrollMap.current[routeKey(routeFromPath())] = window.scrollY;
-    window.history.pushState(null, "", routePath(r));
-    setRouteState(r);
+    window.history.pushState(null, "", routePath(nextRoute));
+    setRouteState(nextRoute);
     requestAnimationFrame(() => {
-      window.scrollTo(0, scrollMap.current[routeKey(r)] ?? 0);
+      window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
     });
   }, []);
 

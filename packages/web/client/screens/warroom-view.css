@@ -117,6 +117,19 @@
   border-radius: 4px;
   background: var(--surface);
   margin-bottom: 8px;
+  width: 100%;
+  border-color: var(--border);
+  color: inherit;
+}
+
+button.s-warroom-ask-card {
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+button.s-warroom-ask-card:hover {
+  background: color-mix(in srgb, var(--surface) 85%, var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
 
 .s-warroom-ask-header {
@@ -142,6 +155,20 @@
 
 .s-warroom-blockers-item--high {
   color: var(--amber);
+}
+
+.s-warroom-blockers-item--med {
+  color: var(--muted);
+}
+
+.s-warroom-blockers button,
+.s-warroom-ticker-line {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
 }
 
 /* ── Center: mesh ── */
@@ -173,6 +200,7 @@
   gap: 8px;
   white-space: nowrap;
   overflow: hidden;
+  align-items: baseline;
 }
 
 .s-warroom-ticker-agent {

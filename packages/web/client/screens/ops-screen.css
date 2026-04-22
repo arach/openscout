@@ -123,6 +123,15 @@
   background: var(--surface);
 }
 
+.s-ops-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.s-ops-btn:disabled:hover {
+  background: transparent;
+}
+
 .s-ops-btn--primary {
   background: var(--accent);
   color: var(--bg);

@@ -5,6 +5,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
@@ -81,7 +82,7 @@ export function HomeScreen({
     () =>
       agents.filter((a) => {
         const s = normalizeAgentState(a.state);
-        return s === "available" || s === "paused";
+        return s === "available";
       }),
     [agents],
   );
@@ -105,6 +106,7 @@ export function HomeScreen({
   const activityPreview = useMemo(() => activity.slice(0, 8), [activity]);
   const now = new Date();
   const greeting = greetingFor(now.getHours());
+  const opsEnabled = isOpsEnabled();
 
   const heartrate = useMemo(() => {
     const N = 96;
@@ -173,12 +175,14 @@ export function HomeScreen({
                   Answer asks · {pendingAsks.length}
                 </button>
               )}
-              <button
-                className="s-btn-fleet"
-                onClick={() => navigate({ view: "ops" })}
-              >
-                Open ops center
-              </button>
+              {opsEnabled && (
+                <button
+                  className="s-btn-fleet"
+                  onClick={() => navigate({ view: "ops" })}
+                >
+                  Open ops center
+                </button>
+              )}
               <button
                 className="s-btn-fleet"
                 onClick={() => navigate({ view: "sessions" })}

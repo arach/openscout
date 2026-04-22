@@ -1283,14 +1283,6 @@ export function ConversationScreen({
 
   return (
     <div className="s-thread-layout">
-      <ChannelRail
-        sessions={railSessions}
-        activeConversationId={conversationId}
-        needsYouIds={needsYouIds}
-        lastViewed={lastViewed}
-        navigate={navigate}
-      />
-
       <div className="s-thread-center">
         <div
           className="s-thread-center-header"
@@ -1688,35 +1680,6 @@ export function ConversationScreen({
           }}
         >
           <div className="s-thread-compose-shell">
-            {isDm && (
-              <div className="s-thread-compose-mode-row">
-                <div
-                  className="s-thread-compose-mode"
-                  role="tablist"
-                  aria-label="Direct message mode"
-                >
-                  <button
-                    type="button"
-                    className="s-thread-compose-mode-btn"
-                    aria-pressed={composeMode === "tell"}
-                    onClick={() => setComposeMode("tell")}
-                  >
-                    Tell
-                  </button>
-                  <button
-                    type="button"
-                    className="s-thread-compose-mode-btn"
-                    aria-pressed={composeMode === "ask"}
-                    onClick={() => setComposeMode("ask")}
-                  >
-                    Ask
-                  </button>
-                </div>
-                <span className="s-thread-compose-mode-detail">
-                  {composeModeDetail}
-                </span>
-              </div>
-            )}
             <textarea
               ref={composeRef}
               className="s-thread-compose-input"
@@ -1813,12 +1776,6 @@ export function ConversationScreen({
         </form>
       </div>
 
-      <PresenceSidebar
-        sessionMeta={sessionMeta}
-        agents={agents}
-        flights={allFlights}
-        conversationId={conversationId}
-      />
     </div>
   );
 }

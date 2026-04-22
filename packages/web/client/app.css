@@ -119,30 +119,64 @@ body { margin: 0; }
   color: rgba(255, 255, 255, 0.2);
 }
 
-.s-left-roster-group {
-  margin-bottom: 4px;
+.s-left-roster-parent {
+  /* no extra spacing — rows handle it */
 }
 
-.s-left-roster-group-hdr {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px 4px;
-}
-
-.s-left-roster-group-label {
-  font-family: var(--hud-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.25);
-  font-weight: 500;
-}
-
-.s-left-roster-group-ct {
+.s-left-roster-ct {
+  flex: none;
   font-family: var(--hud-font-mono);
   font-size: 10px;
   color: rgba(255, 255, 255, 0.18);
+  min-width: 16px;
+  text-align: right;
+}
+
+.s-left-roster-instances {
+  padding-left: 20px;
+}
+
+.s-left-roster-instance {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+  box-sizing: border-box;
+}
+
+.s-left-roster-instance:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.s-left-roster-instance--active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.s-left-roster-instance-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.s-left-roster-instance-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--hud-font-mono);
+  color: rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-left-roster-instance:hover .s-left-roster-instance-label,
+.s-left-roster-instance--active .s-left-roster-instance-label {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .s-left-roster-row {

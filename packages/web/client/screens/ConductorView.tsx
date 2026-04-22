@@ -12,6 +12,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor } from "../lib/colors.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
+import { conversationForAgent } from "../lib/router.ts";
 import type { Agent, FleetState, Route } from "../lib/types.ts";
 
 /* ── Constants ── */
@@ -168,6 +169,12 @@ export function ConductorView({
 }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const interruptAgent = useCallback(async (agentId: string) => {
+    await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }, []);
 
   /* ── Pan / zoom state ── */
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -380,6 +387,30 @@ export function ConductorView({
           agent={focusedAgent}
           task={tasksByAgent[focusedAgent.id] ?? null}
           onClose={() => setFocusedId(null)}
+          onTell={() => {
+            setFocusedId(null);
+            navigate({
+              view: "conversation",
+              conversationId: conversationForAgent(focusedAgent.id),
+              composeMode: "tell",
+            });
+          }}
+          onAsk={() => {
+            setFocusedId(null);
+            navigate({
+              view: "conversation",
+              conversationId: conversationForAgent(focusedAgent.id),
+              composeMode: "ask",
+            });
+          }}
+          onFreeze={
+            normalizeAgentState(focusedAgent.state) === "working"
+              ? () => {
+                  setFocusedId(null);
+                  void interruptAgent(focusedAgent.id);
+                }
+              : undefined
+          }
           onOpenProfile={() => {
             setFocusedId(null);
             navigate({ view: "agents", agentId: focusedAgent.id });
@@ -482,11 +513,17 @@ function FocusOverlay({
   agent,
   task,
   onClose,
+  onTell,
+  onAsk,
+  onFreeze,
   onOpenProfile,
 }: {
   agent: Agent;
   task: AgentTask | null;
   onClose: () => void;
+  onTell: () => void;
+  onAsk: () => void;
+  onFreeze?: () => void;
   onOpenProfile: () => void;
 }) {
   const lines = terminalLinesForAgent(agent, task?.summary ?? null);
@@ -539,9 +576,9 @@ function FocusOverlay({
           </div>
         </div>
         <div className="s-conductor-overlay-footer">
-          <button className="s-ops-btn s-ops-btn--primary">Send instruction</button>
-          <button className="s-ops-btn">Freeze</button>
-          <button className="s-ops-btn">Route ask</button>
+          <button className="s-ops-btn s-ops-btn--primary" onClick={onTell}>Send instruction</button>
+          <button className="s-ops-btn" onClick={onFreeze} disabled={!onFreeze}>Freeze</button>
+          <button className="s-ops-btn" onClick={onAsk}>Route ask</button>
           <span style={{ flex: 1 }} />
           <button className="s-ops-btn" onClick={onOpenProfile}>
             Open profile ↗
