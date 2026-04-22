@@ -15,6 +15,19 @@ export type {
   SessionDecisionInput,
   SessionRegistryErrorCode,
 } from "./registry";
+export {
+  createHistorySessionSnapshot,
+  inferHistorySessionAdapterType,
+  supportsHistorySessionSnapshot,
+  supportsHistorySessionSnapshotForPath,
+} from "./history";
+export type {
+  HistoryAdapterType,
+  HistorySessionEvent,
+  HistorySessionSnapshotInput,
+  HistorySessionSnapshotResult,
+  SupportedHistoryAdapterType,
+} from "./history";
 export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code";
 export { createAdapter as createCodexAdapter } from "./adapters/codex";
 export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat";

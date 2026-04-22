@@ -29,6 +29,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/message/send":      TRPCRoute(path: "mobile.sendMessage",     method: .mutation),
     "mobile/activity":          TRPCRoute(path: "mobile.activity",        method: .query),
     "mobile/inbox":             TRPCRoute(path: "mobile.inbox",           method: .query),
+    "mobile/push/sync":         TRPCRoute(path: "mobile.pushSync",        method: .mutation),
     "mobile/home":              TRPCRoute(path: "mobile.home",            method: .query),
     "mobile/workspaces":        TRPCRoute(path: "mobile.workspaces",      method: .query),
     "mobile/agents":            TRPCRoute(path: "mobile.agents",          method: .query),
@@ -432,6 +433,28 @@ enum MobileInboxItemKind: String, Codable, Sendable {
     case approval
 }
 
+enum PushAuthorizationStatus: String, Codable, Sendable {
+    case notDetermined
+    case denied
+    case authorized
+    case provisional
+    case ephemeral
+
+    var allowsRemoteNotifications: Bool {
+        switch self {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined, .denied:
+            return false
+        }
+    }
+}
+
+enum APNSEnvironment: String, Codable, Sendable {
+    case development
+    case production
+}
+
 struct MobileInboxItem: Codable, Identifiable, Sendable {
     let id: String
     let kind: MobileInboxItemKind
@@ -468,6 +491,24 @@ struct OperatorNotificationEvent: Codable, Sendable {
     let event: String
     let tier: OperatorNotificationTier
     let item: MobileInboxItem
+}
+
+struct MobilePushSyncParams: Codable, Sendable {
+    let pushToken: String?
+    let authorizationStatus: PushAuthorizationStatus
+    let appBundleId: String
+    let apnsEnvironment: APNSEnvironment
+    let appVersion: String?
+    let buildNumber: String?
+    let deviceModel: String?
+    let systemVersion: String?
+}
+
+struct PushRegistrationResult: Codable, Sendable {
+    let ok: Bool
+    let registered: Bool
+    let removed: Bool
+    let token: String?
 }
 
 struct ActivityItem: Codable, Identifiable, Sendable {

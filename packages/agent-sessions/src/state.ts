@@ -51,6 +51,38 @@ export interface SessionSummary {
   lastActivityAt: number;
 }
 
+function normalizeTrackedTimestamp(value: number | string | Date | undefined | null): number | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+    return value < 1e12 ? value * 1000 : value;
+  }
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // StateTracker
 // ---------------------------------------------------------------------------
@@ -105,7 +137,11 @@ export class StateTracker {
   }
 
   /** Process one Pairing event and update internal state. */
-  trackEvent(sessionId: string, event: PairingEvent): void {
+  trackEvent(
+    sessionId: string,
+    event: PairingEvent,
+    capturedAt?: number | string | Date,
+  ): void {
     const state = this.states.get(sessionId);
     if (!state) return;
 
@@ -121,15 +157,15 @@ export class StateTracker {
 
       // -- Turn lifecycle -----------------------------------------------------
       case "turn:start":
-        this.handleTurnStart(state, event);
+        this.handleTurnStart(state, event, capturedAt);
         break;
 
       case "turn:end":
-        this.handleTurnEnd(state, event);
+        this.handleTurnEnd(state, event, capturedAt);
         break;
 
       case "turn:error":
-        this.handleTurnError(state, event);
+        this.handleTurnError(state, event, capturedAt);
         break;
 
       // -- Block lifecycle ----------------------------------------------------
@@ -170,12 +206,15 @@ export class StateTracker {
   private handleTurnStart(
     state: SessionState,
     event: Extract<PairingEvent, { event: "turn:start" }>,
+    capturedAt?: number | string | Date,
   ): void {
     const turn: TurnState = {
       id: event.turn.id,
       status: "streaming",
       blocks: [],
-      startedAt: Date.now(),
+      startedAt: normalizeTrackedTimestamp(event.turn.startedAt)
+        ?? normalizeTrackedTimestamp(capturedAt)
+        ?? Date.now(),
     };
     state.turns.push(turn);
     state.currentTurnId = turn.id;
@@ -184,6 +223,7 @@ export class StateTracker {
   private handleTurnEnd(
     state: SessionState,
     event: Extract<PairingEvent, { event: "turn:end" }>,
+    capturedAt?: number | string | Date,
   ): void {
     const turn = this.findTurn(state, event.turnId);
     if (!turn) return;
@@ -206,7 +246,7 @@ export class StateTracker {
         break;
     }
 
-    turn.endedAt = Date.now();
+    turn.endedAt = normalizeTrackedTimestamp(capturedAt) ?? Date.now();
 
     if (state.currentTurnId === event.turnId) {
       state.currentTurnId = undefined;
@@ -216,12 +256,13 @@ export class StateTracker {
   private handleTurnError(
     state: SessionState,
     event: Extract<PairingEvent, { event: "turn:error" }>,
+    capturedAt?: number | string | Date,
   ): void {
     const turn = this.findTurn(state, event.turnId);
     if (!turn) return;
 
     turn.status = "error";
-    turn.endedAt = Date.now();
+    turn.endedAt = normalizeTrackedTimestamp(capturedAt) ?? Date.now();
 
     if (state.currentTurnId === event.turnId) {
       state.currentTurnId = undefined;

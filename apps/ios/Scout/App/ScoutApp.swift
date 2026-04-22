@@ -11,6 +11,7 @@ private let bootLogger = Logger(subsystem: "com.openscout.scout", category: "Boo
 
 @main
 struct ScoutApp: App {
+    @UIApplicationDelegateAdaptor(ScoutAppDelegate.self) private var appDelegate
 
     @State private var sessionStore: SessionStore
     @State private var inboxStore: InboxStore
@@ -65,7 +66,16 @@ struct ScoutApp: App {
                     Task { await connectionManager.reconnect() }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .scoutDidRegisterRemotePushToken)) { notification in
+                guard let token = notification.userInfo?["deviceToken"] as? Data else { return }
+                connectionManager.handleRemotePushDeviceToken(token)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .scoutRemotePushRegistrationFailed)) { notification in
+                guard let error = notification.object as? Error else { return }
+                connectionManager.handleRemotePushRegistrationFailure(error)
+            }
             .task {
+                await connectionManager.refreshPushRegistration()
                 // Start loading Parakeet immediately on app launch.
                 #if canImport(FluidAudio)
                 ScoutLog.voice.info("Preloading Parakeet model at app launch")

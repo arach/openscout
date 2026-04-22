@@ -27,6 +27,7 @@ import {
   getScoutMobileSessionSnapshot,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { syncMobilePushRegistration } from "@openscout/runtime";
 import {
   conversationIdForAgent,
   queryMobileAgentDetail,
@@ -560,6 +561,45 @@ const mobileRouter = t.router({
     .query(({ ctx }) => ({
       items: queryMobileInboxItems(ctx.bridge),
     })),
+
+  pushSync: procedure
+    .input(z.object({
+      pushToken: z.string().nullable().optional(),
+      authorizationStatus: z.enum([
+        "notDetermined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+      ]),
+      appBundleId: z.string(),
+      apnsEnvironment: z.enum(["development", "production"]),
+      appVersion: z.string().nullable().optional(),
+      buildNumber: z.string().nullable().optional(),
+      deviceModel: z.string().nullable().optional(),
+      systemVersion: z.string().nullable().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      if (!ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Push registration requires a paired mobile device",
+        });
+      }
+
+      return syncMobilePushRegistration({
+        deviceId: ctx.deviceId,
+        platform: "ios",
+        appBundleId: input.appBundleId,
+        apnsEnvironment: input.apnsEnvironment,
+        authorizationStatus: input.authorizationStatus,
+        pushToken: input.pushToken ?? null,
+        appVersion: input.appVersion ?? null,
+        buildNumber: input.buildNumber ?? null,
+        deviceModel: input.deviceModel ?? null,
+        systemVersion: input.systemVersion ?? null,
+      });
+    }),
 
   home: procedure
     .input(

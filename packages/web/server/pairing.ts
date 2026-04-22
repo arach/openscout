@@ -974,6 +974,23 @@ export async function refreshScoutWebPairingState(currentDirectory?: string): Pr
   return readScoutPairingState(currentDirectory);
 }
 
+export async function getScoutWebPairingSessionSnapshot(
+  sessionId: string,
+): Promise<SessionState | null> {
+  if (!isScoutPairingRuntimeRunning()) {
+    return null;
+  }
+
+  const resolvedConfig = resolveScoutPairingConfig();
+  try {
+    return await withScoutPairingBridgeClient(resolvedConfig.port, async (client) =>
+      client.query<SessionState>("session.snapshot", { sessionId }),
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function controlScoutWebPairingService(
   action: ScoutPairingControlAction,
   currentDirectory?: string,

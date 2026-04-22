@@ -188,6 +188,47 @@ export type SessionEntry = {
   workspaceRoot: string | null;
 };
 
+export type ObserveEvent = {
+  id: string;
+  t: number;
+  kind: "think" | "tool" | "ask" | "message" | "note" | "system" | "boot";
+  text: string;
+  tool?: string;
+  arg?: string;
+  diff?: { add: number; del: number; preview: string };
+  result?: Record<string, string | number>;
+  stream?: string[];
+  live?: boolean;
+  to?: string;
+  answer?: string;
+  answerT?: number;
+  detail?: string;
+};
+
+export type ObserveFile = {
+  path: string;
+  state: "read" | "created" | "modified";
+  touches: number;
+  lastT: number;
+};
+
+export type ObserveData = {
+  events: ObserveEvent[];
+  files: ObserveFile[];
+  contextUsage?: number[];
+  live?: boolean;
+};
+
+export type AgentObservePayload = {
+  agentId: string;
+  source: "history" | "live" | "unavailable";
+  fidelity: "timestamped" | "synthetic";
+  historyPath: string | null;
+  sessionId: string | null;
+  updatedAt: number;
+  data: ObserveData;
+};
+
 /** Mesh status report from the broker. */
 export type MeshIssue = {
   code:

@@ -34,6 +34,7 @@ import type { ServerWebSocket } from "bun";
 
 import { realpathSync } from "fs";
 import { homedir } from "os";
+import { broadcastApnsAlertToActiveMobileDevices } from "@openscout/runtime";
 
 import { log } from "./log.ts";
 import type { Bridge } from "./bridge.ts";
@@ -99,6 +100,59 @@ function resolveCurrentDirectory(): string {
     return realpathSync(expanded);
   } catch {
     return process.cwd();
+  }
+}
+
+let loggedMissingApnsCredentials = false;
+
+async function sendApprovalPushNotification(item: {
+  id: string;
+  title: string;
+  description: string;
+  sessionId: string;
+  turnId: string;
+  blockId: string;
+}) {
+  const result = await broadcastApnsAlertToActiveMobileDevices({
+    title: item.title,
+    body: item.description,
+    sound: "default",
+    threadId: "scout.inbox",
+    payload: {
+      destination: "inbox",
+      itemId: item.id,
+      sessionId: item.sessionId,
+      turnId: item.turnId,
+      blockId: item.blockId,
+    },
+  });
+
+  if (result.attemptedCount === 0) {
+    return;
+  }
+
+  if (result.configMissing && !loggedMissingApnsCredentials) {
+    loggedMissingApnsCredentials = true;
+    log.warn(
+      "push",
+      "APNs credentials are not configured; remote mobile push notifications are registered but disabled",
+    );
+  }
+
+  if (result.deliveredCount > 0) {
+    log.info(
+      "push",
+      `Delivered ${result.deliveredCount}/${result.attemptedCount} APNs approval alert(s)`,
+      { itemId: item.id },
+    );
+  }
+
+  for (const failure of result.failures) {
+    log.warn(
+      "push",
+      `APNs delivery failed for ${failure.deviceId} (${failure.tokenSuffix})`,
+      { reason: failure.reason, status: failure.status, itemId: item.id },
+    );
   }
 }
 
@@ -484,6 +538,13 @@ export function startBridgeServerTRPC(options: {
             tier: "interrupt",
             item,
           }));
+          void sendApprovalPushNotification(item).catch((error) => {
+            log.warn(
+              "push",
+              "Unexpected error while sending APNs approval alert",
+              { itemId: item.id, error: error instanceof Error ? error.message : String(error) },
+            );
+          });
         }
       }
     });

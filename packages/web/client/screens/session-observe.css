@@ -1,0 +1,592 @@
+/* ── SessionObserve — editorial session replay ── */
+
+.s-observe {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: 1fr 56px;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* ── Main timeline ── */
+
+.s-observe-main {
+  grid-column: 1;
+  grid-row: 1;
+  overflow-y: auto;
+  overflow-y: overlay;
+  padding: 24px 28px 40px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.s-observe-main:hover {
+  scrollbar-color: color-mix(in srgb, var(--ink) 12%, transparent) transparent;
+}
+
+/* ── Replay stream with spine ── */
+
+.s-observe-stream {
+  position: relative;
+  padding-left: 68px;
+  max-width: 860px;
+}
+
+.s-observe-spine {
+  position: absolute;
+  left: 56px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+/* ── Stream row ── */
+
+.s-observe-row {
+  position: relative;
+  padding-bottom: 18px;
+}
+
+.s-observe-row-gap {
+  position: absolute;
+  left: -42px;
+  top: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.s-observe-row-time {
+  position: absolute;
+  left: -68px;
+  top: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.s-observe-row-bead {
+  position: absolute;
+  left: -14px;
+  top: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--bg);
+}
+
+/* ── Think block ── */
+
+.s-observe-think-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+
+.s-observe-think-text {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--muted);
+  letter-spacing: -0.005em;
+  font-style: italic;
+}
+
+.s-observe-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  background: var(--dim);
+  margin-left: 4px;
+  vertical-align: -2px;
+  animation: s-profile-blink 1s steps(1) infinite;
+}
+
+/* ── Tool block ── */
+
+.s-observe-tool {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.s-observe-tool-header {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--bg) 50%, var(--surface));
+}
+
+.s-observe-tool-header--has-body {
+  border-bottom: 1px solid var(--border);
+}
+
+.s-observe-tool-glyph {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 13px;
+  width: 14px;
+  text-align: center;
+}
+
+.s-observe-tool-cmd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.s-observe-tool-cmd-name {
+  color: var(--dim);
+}
+
+.s-observe-tool-result {
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.s-observe-tool-diff {
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.s-observe-tool-diff-stats {
+  color: var(--dim);
+  margin-bottom: 6px;
+}
+
+.s-observe-tool-diff-add {
+  color: var(--green);
+}
+
+.s-observe-tool-diff-del {
+  color: var(--red);
+}
+
+.s-observe-tool-diff-preview {
+  margin: 0;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--bg) 70%, black);
+  border-radius: 4px;
+  color: var(--green);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+}
+
+.s-observe-tool-stream {
+  margin: 0;
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ── Ask line ── */
+
+.s-observe-ask {
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
+  padding: 10px 14px;
+}
+
+.s-observe-ask-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+
+.s-observe-ask-text {
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.s-observe-ask-answer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.s-observe-ask-answer-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.s-observe-ask-answer-text {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+  flex: 1;
+}
+
+/* ── Message line ── */
+
+.s-observe-message-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+
+.s-observe-message-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* ── Note line ── */
+
+.s-observe-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  border-radius: 20px;
+}
+
+.s-observe-note-icon {
+  color: var(--green);
+  font-size: 11px;
+}
+
+.s-observe-note-text {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ── System line ── */
+
+.s-observe-system {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.04em;
+}
+
+.s-observe-system-arrow {
+  color: color-mix(in srgb, var(--dim) 60%, transparent);
+}
+
+.s-observe-system-detail {
+  margin-top: 4px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ── Live indicator ── */
+
+.s-observe-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-top: 4px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.s-observe-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: s-profile-state-pulse 1.6s ease-in-out infinite;
+}
+
+.s-observe-live-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--green);
+  letter-spacing: 0.06em;
+}
+
+/* ── Right rail ── */
+
+.s-observe-rail {
+  grid-column: 2;
+  grid-row: 1;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-y: overlay;
+  padding: 24px 22px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.s-observe-rail:hover {
+  scrollbar-color: color-mix(in srgb, var(--ink) 12%, transparent) transparent;
+}
+
+.s-observe-rail-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 10px;
+}
+
+.s-observe-ctx-detail {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  margin-top: 6px;
+}
+
+/* ── Files list ── */
+
+.s-observe-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-observe-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.s-observe-file--visible {
+  background: var(--surface);
+}
+
+.s-observe-file--hidden {
+  opacity: 0.35;
+}
+
+.s-observe-file-glyph {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.s-observe-file-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-observe-file-touches {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+/* ── Stats grid ── */
+
+.s-observe-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.s-observe-stat {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.s-observe-stat-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+
+.s-observe-stat-value {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* ── Scrubber footer ── */
+
+.s-observe-scrubber {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 80%, black);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+}
+
+.s-observe-play-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.s-observe-play-btn:hover {
+  border-color: var(--accent);
+}
+
+.s-observe-rewind-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.s-observe-rewind-btn:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+.s-observe-track-wrap {
+  flex: 1;
+  position: relative;
+  height: 36px;
+}
+
+.s-observe-track {
+  position: absolute;
+  inset: 14px 0;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.s-observe-track-tick {
+  position: absolute;
+  width: 1.5px;
+  opacity: 0.7;
+}
+
+.s-observe-track-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.s-observe-track-cursor {
+  position: absolute;
+  top: -6px;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 16px;
+  background: var(--accent);
+}
+
+.s-observe-speed-group {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.s-observe-speed-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--muted);
+}
+
+.s-observe-speed-btn--active {
+  background: var(--accent);
+  color: black;
+  border-color: var(--accent);
+}
+
+.s-observe-jump-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.s-observe-jump-btn:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 1080px) {
+  .s-observe {
+    grid-template-columns: 1fr;
+  }
+
+  .s-observe-rail {
+    display: none;
+  }
+}

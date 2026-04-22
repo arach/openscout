@@ -36,6 +36,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             connectionManager.noteAppDidBecomeActive()
+            Task { await connectionManager.refreshPushRegistration() }
             guard connectionManager.hasTrustedBridge,
                   connectionManager.state != .connected else { return }
             Task { await connectionManager.reconnect() }

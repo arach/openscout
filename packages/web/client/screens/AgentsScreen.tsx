@@ -9,6 +9,7 @@ import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
   Agent,
+  AgentObservePayload,
   FleetState,
   Message,
   Route,
@@ -16,6 +17,7 @@ import type {
   WorkItem,
 } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
+import { SessionObserve } from "./SessionObserve.tsx";
 import "./agents-screen.css";
 import "./ops-screen.css";
 
@@ -104,7 +106,8 @@ function AgentActivityFeed({
           onClick={() => {
             if (ask.conversationId) {
               navigate({
-                view: "conversation",
+                view: "agents",
+                agentId: agent.id,
                 conversationId: ask.conversationId,
               });
             }
@@ -129,7 +132,8 @@ function AgentActivityFeed({
           onClick={() => {
             if (item.conversationId) {
               navigate({
-                view: "conversation",
+                view: "agents",
+                agentId: agent.id,
                 conversationId: item.conversationId,
               });
             }
@@ -180,10 +184,12 @@ function SignalFeed({
   messages,
   navigate,
   conversationId,
+  agentId,
 }: {
   messages: Message[];
   navigate: (r: Route) => void;
   conversationId: string | null;
+  agentId: string;
 }) {
   const recent = messages.slice(-8).reverse();
 
@@ -204,9 +210,9 @@ function SignalFeed({
                 if (conversationId) {
                   navigate({
                     view: "agents",
-                    agentId: undefined,
+                    agentId,
                     conversationId,
-                  } as Route & { view: "agents" });
+                  });
                 }
               }}
             >
@@ -259,6 +265,8 @@ function AgentDetailWithRail({
   const [work, setWork] = useState<WorkItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const [observeLoading, setObserveLoading] = useState(false);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
 
@@ -286,15 +294,75 @@ function AgentDetailWithRail({
     }
   }, [conversationId]);
 
+  const loadObserve = useCallback(async () => {
+    setObserveLoading(true);
+    try {
+      const result = await api<AgentObservePayload>(
+        `/api/agents/${encodeURIComponent(agent.id)}/observe`,
+      );
+      setObserve(result);
+    } catch {
+      setObserve({
+        agentId: agent.id,
+        source: "unavailable",
+        fidelity: "synthetic",
+        historyPath: null,
+        sessionId: null,
+        updatedAt: Date.now(),
+        data: {
+          events: [
+            {
+              id: `${agent.id}:observe-error`,
+              t: 0,
+              kind: "system",
+              text: "Observer data is temporarily unavailable.",
+              detail: "Retrying will resume once the session source becomes reachable.",
+            },
+          ],
+          files: [],
+          contextUsage: [],
+          live: false,
+        },
+      });
+    } finally {
+      setObserveLoading(false);
+    }
+  }, [agent.id]);
+
   useEffect(() => {
     void load();
     void loadMessages();
   }, [load, loadMessages]);
 
+  useEffect(() => {
+    setObserve(null);
+    setObserveLoading(false);
+  }, [agent.id]);
+
+  useEffect(() => {
+    if (tab !== "observe") {
+      return;
+    }
+    void loadObserve();
+  }, [tab, loadObserve]);
+
   useBrokerEvents(() => {
     void load();
     void loadMessages();
+    if (tab === "observe") {
+      void loadObserve();
+    }
   });
+
+  useEffect(() => {
+    if (tab !== "observe" || !observe?.data.live) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void loadObserve();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [tab, observe?.data.live, loadObserve]);
 
   const currentWork = work.find(
     (w) => w.state === "working" || w.state === "review",
@@ -318,7 +386,7 @@ function AgentDetailWithRail({
 
   const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
     { key: "profile", label: "Profile" },
-    { key: "observe", label: "Observe", disabled: !conversationId },
+    { key: "observe", label: "Observe" },
     { key: "message", label: "Message", disabled: !conversationId },
   ];
 
@@ -513,11 +581,27 @@ function AgentDetailWithRail({
             messages={messages}
             navigate={navigate}
             conversationId={conversationId}
+            agentId={agent.id}
           />
         </div>
       )}
 
-      {(tab === "observe" || tab === "message") && conversationId && (
+      {tab === "observe" && (
+        <div className="s-profile-tab-conversation">
+          {observeLoading && !observe ? (
+            <div className="s-profile-activity-empty">
+              <div className="s-profile-activity-empty-title">Loading trace</div>
+              <div className="s-profile-activity-empty-detail">
+                Resolving the best available live or history-backed session stream for this agent.
+              </div>
+            </div>
+          ) : (
+            <SessionObserve data={observe?.data} />
+          )}
+        </div>
+      )}
+
+      {tab === "message" && conversationId && (
         <div className="s-profile-tab-conversation">
           <ConversationScreen
             conversationId={conversationId}

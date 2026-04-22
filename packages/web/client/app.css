@@ -113,6 +113,18 @@ body { margin: 0; }
   padding: 4px 0;
 }
 
+.s-left-roster-search {
+  flex: none;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0 12px;
+}
+
+.s-left-roster-search .s-search-input {
+  padding-right: 10px;
+}
+
 .s-left-roster-empty {
   padding: 24px 12px;
   text-align: center;

@@ -57,11 +57,71 @@ function buildGroups(agents: Agent[]): ParentGroup[] {
   return groups;
 }
 
+function normalizeQuery(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function agentSearchFields(agent: Agent): string[] {
+  return [
+    agent.id,
+    agent.name,
+    agent.handle ?? "",
+    agent.selector ?? "",
+    agent.project ?? "",
+    agent.branch ?? "",
+    agent.role ?? "",
+    agent.harness ?? "",
+    agent.harnessSessionId ?? "",
+    agent.conversationId,
+    agent.harnessLogPath ?? "",
+  ];
+}
+
+function agentMatchesQuery(agent: Agent, query: string): boolean {
+  if (!query) {
+    return true;
+  }
+  return agentSearchFields(agent).some((field) => field.toLowerCase().includes(query));
+}
+
+function matchedSessionIdentifier(agent: Agent, query: string): string | null {
+  if (!query) {
+    return null;
+  }
+  const candidates = [
+    agent.harnessSessionId,
+    agent.conversationId,
+  ];
+  return candidates.find((value) => value?.toLowerCase().includes(query)) ?? null;
+}
+
+function navigateToAgent(
+  navigate: ReturnType<typeof useScout>["navigate"],
+  agent: Agent,
+  options: { observe?: boolean } = {},
+): void {
+  navigate({
+    view: "agents",
+    agentId: agent.id,
+    ...(options.observe ? { conversationId: agent.conversationId } : {}),
+  });
+}
+
 export function ScoutLeftPanel() {
   const { agents, route, navigate } = useScout();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [query, setQuery] = useState("");
 
-  const groups = useMemo(() => buildGroups(agents), [agents]);
+  const normalizedQuery = normalizeQuery(query);
+  const searchActive = normalizedQuery.length > 0;
+
+  const filteredAgents = useMemo(
+    () => agents.filter((agent) => agentMatchesQuery(agent, normalizedQuery)),
+    [agents, normalizedQuery],
+  );
+
+  const groups = useMemo(() => buildGroups(filteredAgents), [filteredAgents]);
+  const firstMatch = filteredAgents[0] ?? null;
 
   const selectedAgentId = route.view === "agents" ? route.agentId : undefined;
 
@@ -76,14 +136,44 @@ export function ScoutLeftPanel() {
 
   return (
     <div className="s-left-roster">
+      <div className="s-left-roster-search s-search">
+        <input
+          type="text"
+          className="s-search-input"
+          placeholder="Search agents or session IDs…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              if (query) {
+                setQuery("");
+              } else {
+                (event.target as HTMLInputElement).blur();
+              }
+            }
+
+            if (event.key === "Enter" && firstMatch) {
+              navigateToAgent(navigate, firstMatch, {
+                observe: Boolean(matchedSessionIdentifier(firstMatch, normalizedQuery)),
+              });
+            }
+          }}
+        />
+      </div>
+
       {agents.length === 0 ? (
         <div className="s-left-roster-empty">No agents registered</div>
+      ) : filteredAgents.length === 0 ? (
+        <div className="s-left-roster-empty">
+          No agents match this session or agent search.
+        </div>
       ) : (
         groups.map((group) => {
           const isSingle = group.agents.length === 1;
-          const isOpen = expanded.has(group.key);
+          const isOpen = searchActive || expanded.has(group.key);
           const only = isSingle ? group.agents[0] : null;
           const anySelected = group.agents.some((a) => a.id === selectedAgentId);
+          const onlySessionMatch = only ? matchedSessionIdentifier(only, normalizedQuery) : null;
 
           return (
             <div key={group.key} className="s-left-roster-parent">
@@ -91,7 +181,9 @@ export function ScoutLeftPanel() {
                 className={`s-left-roster-row${anySelected && (isSingle || !isOpen) ? " s-left-roster-row--active" : ""}`}
                 onClick={() => {
                   if (isSingle) {
-                    navigate({ view: "agents", agentId: only!.id });
+                    navigateToAgent(navigate, only!, {
+                      observe: Boolean(onlySessionMatch),
+                    });
                   } else {
                     toggle(group.key);
                   }
@@ -114,7 +206,14 @@ export function ScoutLeftPanel() {
                   <span className="s-left-roster-name">
                     {group.label}
                   </span>
-                  {isSingle && (only!.project || only!.branch) && (
+                  {isSingle && onlySessionMatch ? (
+                    <span
+                      className="s-left-roster-sub"
+                      title={onlySessionMatch}
+                    >
+                      session · {onlySessionMatch}
+                    </span>
+                  ) : isSingle && (only!.project || only!.branch) && (
                     <span className="s-left-roster-sub">
                       {only!.name}
                       {only!.branch ? ` · ${only!.branch}` : ""}
@@ -143,7 +242,10 @@ export function ScoutLeftPanel() {
                     <button
                       key={agent.id}
                       className={`s-left-roster-instance${agent.id === selectedAgentId ? " s-left-roster-instance--active" : ""}`}
-                      onClick={() => navigate({ view: "agents", agentId: agent.id })}
+                      onClick={() => navigateToAgent(navigate, agent, {
+                        observe: Boolean(matchedSessionIdentifier(agent, normalizedQuery)),
+                      })}
+                      title={matchedSessionIdentifier(agent, normalizedQuery) ?? undefined}
                     >
                       <span
                         className={`s-left-roster-instance-dot s-left-roster-dot--${normalizeAgentState(agent.state)}`}
@@ -152,6 +254,9 @@ export function ScoutLeftPanel() {
                       <span className="s-left-roster-instance-label">
                         {agent.name}
                         {agent.branch ? ` · ${agent.branch}` : ""}
+                        {matchedSessionIdentifier(agent, normalizedQuery)
+                          ? ` · ${matchedSessionIdentifier(agent, normalizedQuery)}`
+                          : ""}
                       </span>
                       {agent.updatedAt && (
                         <span className="s-left-roster-time">{timeAgo(agent.updatedAt)}</span>

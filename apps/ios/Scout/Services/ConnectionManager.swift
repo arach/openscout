@@ -10,6 +10,7 @@
 
 import Foundation
 import os
+import UIKit
 
 // MARK: - Connection state
 
@@ -386,8 +387,10 @@ final class ConnectionManager: @unchecked Sendable {
     private let urlSession: URLSession
     private let sessionDelegate = TrustAllDelegate()
     private var connectionInfo: BridgeConnectionInfo?
+    private var cachedRemotePushToken: String?
     private var identityKeyPair: NoiseKeyPair?
     private var manualDisconnectRequested = false
+    private var lastSyncedPushRegistrationSignature: String?
     private var healthProbeTask: Task<Void, Never>?
     private var lastSuccessfulRPCAt: Date?
     private var lastIncomingMessageAt: Date?
@@ -426,6 +429,7 @@ final class ConnectionManager: @unchecked Sendable {
         self.inboxStore = inboxStore
         self.urlSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
         self.connectionInfo = Self.loadConnectionInfo()
+        self.cachedRemotePushToken = Self.loadRemotePushToken()
         self.health = self.connectionInfo == nil ? .offline : .suspect
     }
 
@@ -448,6 +452,35 @@ final class ConnectionManager: @unchecked Sendable {
         guard hasTrustedBridge, state != .connected else { return }
         transitionHealth(to: .suspect)
         scheduleHealthProbe(reason: "app_foreground")
+    }
+
+    func refreshPushRegistration() async {
+        let authorizationStatus = await PermissionAuthorizations.notificationAuthorizationStatus()
+        if authorizationStatus.allowsRemoteNotifications {
+            await MainActor.run {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+        await syncPushRegistrationIfPossible(authorizationStatus: authorizationStatus)
+    }
+
+    func handleRemotePushDeviceToken(_ deviceToken: Data) {
+        let token = hexString(deviceToken).lowercased()
+        guard !token.isEmpty else { return }
+
+        if token != cachedRemotePushToken {
+            cachedRemotePushToken = token
+            Self.saveRemotePushToken(token)
+            lastSyncedPushRegistrationSignature = nil
+        }
+
+        Task {
+            await syncPushRegistrationIfPossible(force: true)
+        }
+    }
+
+    func handleRemotePushRegistrationFailure(_ error: Error) {
+        Self.logger.warning("Remote notification registration failed: \(error.localizedDescription, privacy: .public)")
     }
 
     private func transitionHealth(to newHealth: BridgeHealthState) {
@@ -566,6 +599,7 @@ final class ConnectionManager: @unchecked Sendable {
             )
             saveConnectionInfo(info)
             connectionInfo = info
+            lastSyncedPushRegistrationSignature = nil
 
             // Bind session store to this bridge for seq persistence.
             await MainActor.run {
@@ -930,6 +964,7 @@ final class ConnectionManager: @unchecked Sendable {
             inboxStore.clear()
             sessionStore.connectionState = .disconnected
         }
+        lastSyncedPushRegistrationSignature = nil
         setState(.disconnected)
         Self.logger.notice("Cleared trusted bridge record")
     }
@@ -1008,6 +1043,11 @@ final class ConnectionManager: @unchecked Sendable {
     func getInbox() async throws -> MobileInboxResponse {
         let data = try await sendRPC(method: "mobile/inbox", params: nil as Empty?)
         return try decodeResult(MobileInboxResponse.self, from: data)
+    }
+
+    func syncPushRegistration(_ params: MobilePushSyncParams) async throws -> PushRegistrationResult {
+        let data = try await sendRPC(method: "mobile/push/sync", params: params)
+        return try decodeResult(PushRegistrationResult.self, from: data)
     }
 
     func getAgentDetail(agentId: String) async throws -> MobileAgentDetail {
@@ -1540,6 +1580,86 @@ final class ConnectionManager: @unchecked Sendable {
     private func runRecovery() async {
         await refreshRelaySessions()
         await inboxStore.refresh(using: self)
+        await syncPushRegistrationIfPossible()
+    }
+
+    private func syncPushRegistrationIfPossible(
+        force: Bool = false,
+        authorizationStatus: PushAuthorizationStatus? = nil
+    ) async {
+        guard hasTrustedBridge, state == .connected else { return }
+
+        let resolvedAuthorizationStatus: PushAuthorizationStatus
+        if let authorizationStatus {
+            resolvedAuthorizationStatus = authorizationStatus
+        } else {
+            resolvedAuthorizationStatus = await PermissionAuthorizations.notificationAuthorizationStatus()
+        }
+
+        guard let params = await currentPushSyncParams(authorizationStatus: resolvedAuthorizationStatus) else {
+            return
+        }
+
+        let signature = pushRegistrationSignature(for: params)
+        if !force, signature == lastSyncedPushRegistrationSignature {
+            return
+        }
+
+        do {
+            let response = try await syncPushRegistration(params)
+            if response.ok {
+                lastSyncedPushRegistrationSignature = signature
+            }
+        } catch {
+            Self.logger.warning("Push registration sync failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func currentPushSyncParams(
+        authorizationStatus: PushAuthorizationStatus
+    ) async -> MobilePushSyncParams? {
+        let bundleId = Bundle.main.bundleIdentifier?.trimmedNonEmpty ?? "com.openscout.scout"
+        let info = Bundle.main.infoDictionary
+        let appVersion = info?["CFBundleShortVersionString"] as? String
+        let buildNumber = info?["CFBundleVersion"] as? String
+        let deviceInfo = await MainActor.run {
+            (
+                model: UIDevice.current.model,
+                systemVersion: UIDevice.current.systemVersion
+            )
+        }
+
+        return MobilePushSyncParams(
+            pushToken: authorizationStatus.allowsRemoteNotifications ? cachedRemotePushToken : nil,
+            authorizationStatus: authorizationStatus,
+            appBundleId: bundleId,
+            apnsEnvironment: currentAPNSEnvironment,
+            appVersion: appVersion,
+            buildNumber: buildNumber,
+            deviceModel: deviceInfo.model,
+            systemVersion: deviceInfo.systemVersion
+        )
+    }
+
+    private var currentAPNSEnvironment: APNSEnvironment {
+        #if DEBUG
+        return .development
+        #else
+        return .production
+        #endif
+    }
+
+    private func pushRegistrationSignature(for params: MobilePushSyncParams) -> String {
+        [
+            params.pushToken ?? "",
+            params.authorizationStatus.rawValue,
+            params.appBundleId,
+            params.apnsEnvironment.rawValue,
+            params.appVersion ?? "",
+            params.buildNumber ?? "",
+            params.deviceModel ?? "",
+            params.systemVersion ?? "",
+        ].joined(separator: "|")
     }
 
     // MARK: - Private: Connection info persistence
@@ -1551,10 +1671,18 @@ final class ConnectionManager: @unchecked Sendable {
         return try? JSONDecoder().decode(BridgeConnectionInfo.self, from: data)
     }
 
+    private static func loadRemotePushToken() -> String? {
+        UserDefaults.standard.string(forKey: "scout.remotePushToken")?.trimmedNonEmpty
+    }
+
     private func saveConnectionInfo(_ info: BridgeConnectionInfo) {
         if let data = try? JSONEncoder().encode(info) {
             UserDefaults.standard.set(data, forKey: "scout.connectionInfo")
         }
+    }
+
+    private static func saveRemotePushToken(_ token: String) {
+        UserDefaults.standard.set(token, forKey: "scout.remotePushToken")
     }
 
     private func verifyRemoteKey(

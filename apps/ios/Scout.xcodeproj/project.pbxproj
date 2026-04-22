@@ -33,6 +33,7 @@
 		A11B22C33D44E55F66778890 /* InboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778890 /* InboxStore.swift */; };
 		A11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift */; };
 		A11B22C33D44E55F66778892 /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778892 /* InboxView.swift */; };
+		A11B22C33D44E55F66778893 /* ScoutAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778893 /* ScoutAppDelegate.swift */; };
 		43C16D70F1056087789D0C39 /* SessionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */; };
 		4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FDE9E16EC017A6B945AF9D /* MicButton.swift */; };
 		4C338EE4D28D668134EA3F52 /* KeyComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37F081F478DEDB2F906765D /* KeyComponents.swift */; };
@@ -143,6 +144,7 @@
 		B11B22C33D44E55F66778890 /* InboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStore.swift; sourceTree = "<group>"; };
 		B11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNotificationDelegate.swift; sourceTree = "<group>"; };
 		B11B22C33D44E55F66778892 /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
+		B11B22C33D44E55F66778893 /* ScoutAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAppDelegate.swift; sourceTree = "<group>"; };
 		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
 		CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
@@ -378,6 +380,7 @@
 			children = (
 				09A0710F2737060ABA3FC0A0 /* ContentView.swift */,
 				2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */,
+				B11B22C33D44E55F66778893 /* ScoutAppDelegate.swift */,
 				1E6C0A30A72EE6C72F54DC86 /* ScoutRouter.swift */,
 			);
 			path = App;
@@ -595,6 +598,7 @@
 				ECEDCF709BDAE4260FDE7161 /* ReasoningBlockView.swift in Sources */,
 				2E233FBDD7ABD16D18172BAC /* RecordingIndicator.swift in Sources */,
 				89C658D59512376E44D79698 /* ScoutApp.swift in Sources */,
+				A11B22C33D44E55F66778893 /* ScoutAppDelegate.swift in Sources */,
 				676D68D8E8A12B4607055123 /* ScoutBottomBar.swift in Sources */,
 				CCB65C48A10E885795764D27 /* ScoutCompactKeyboard.swift in Sources */,
 				38D003C041D9ACB728447B4B /* ScoutKeyboardView.swift in Sources */,
@@ -650,6 +654,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_ENTITLEMENTS = Scout/ScoutRelease.entitlements;
 				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scout/Info.plist;
@@ -818,6 +823,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_ENTITLEMENTS = Scout/ScoutDebug.entitlements;
 				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scout/Info.plist;

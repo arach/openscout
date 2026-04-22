@@ -9,8 +9,11 @@
 import { initTRPC, tracked, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
+  createHistorySessionSnapshot,
+  inferHistorySessionAdapterType,
   isSessionRegistryError,
   normalizeApprovalRequest,
+  supportsHistorySessionSnapshotForPath,
   type ActionBlock,
   type Prompt,
   type SequencedEvent,
@@ -27,6 +30,7 @@ import {
   getScoutMobileSessionSnapshot,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { syncMobilePushRegistration } from "@openscout/runtime";
 import {
   conversationIdForAgent,
   queryMobileAgents,
@@ -182,6 +186,7 @@ interface DiscoveredSession {
   modifiedAt: number;
   sizeBytes: number;
   lineCount: number;
+  traceSupported: boolean;
 }
 
 async function discoverSessionFiles(
@@ -222,6 +227,7 @@ async function discoverSessionFiles(
           modifiedAt,
           sizeBytes,
           lineCount: 0,
+          traceSupported: supportsHistorySessionSnapshotForPath(filePath, agent),
         });
       }
     } catch {
@@ -253,6 +259,7 @@ async function discoverSessionFiles(
             modifiedAt,
             sizeBytes,
             lineCount: 0,
+            traceSupported: supportsHistorySessionSnapshotForPath(filePath, detectAgent(filePath)),
           });
         }
       }
@@ -558,6 +565,45 @@ const mobileRouter = t.router({
     .query(({ ctx }) => ({
       items: queryMobileInboxItems(ctx.bridge),
     })),
+
+  pushSync: procedure
+    .input(z.object({
+      pushToken: z.string().nullable().optional(),
+      authorizationStatus: z.enum([
+        "notDetermined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+      ]),
+      appBundleId: z.string(),
+      apnsEnvironment: z.enum(["development", "production"]),
+      appVersion: z.string().nullable().optional(),
+      buildNumber: z.string().nullable().optional(),
+      deviceModel: z.string().nullable().optional(),
+      systemVersion: z.string().nullable().optional(),
+    }))
+    .mutation(({ input, ctx }) => {
+      if (!ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Push registration requires a paired mobile device",
+        });
+      }
+
+      return syncMobilePushRegistration({
+        deviceId: ctx.deviceId,
+        platform: "ios",
+        appBundleId: input.appBundleId,
+        apnsEnvironment: input.apnsEnvironment,
+        authorizationStatus: input.authorizationStatus,
+        pushToken: input.pushToken ?? null,
+        appVersion: input.appVersion ?? null,
+        buildNumber: input.buildNumber ?? null,
+        deviceModel: input.deviceModel ?? null,
+        systemVersion: input.systemVersion ?? null,
+      });
+    }),
 
   home: procedure
     .input(
@@ -923,6 +969,59 @@ const historyRouter = t.router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: `Cannot read file: ${err.message}`,
+        });
+      }
+    }),
+
+  snapshot: procedure
+    .input(
+      z.object({
+        path: z.string(),
+        adapterType: z.string().optional(),
+        name: z.string().optional(),
+        includeEvents: z.boolean().optional(),
+      }),
+    )
+    .query(({ input }) => {
+      if (!input.path.endsWith(".jsonl")) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only .jsonl files can be replayed",
+        });
+      }
+
+      const adapterType = inferHistorySessionAdapterType(input.path, input.adapterType);
+      if (!supportsHistorySessionSnapshotForPath(input.path, input.adapterType)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `History replay is not supported for adapter type "${adapterType}".`,
+        });
+      }
+
+      try {
+        const fileStat = statSync(input.path);
+        const content = readFileSync(input.path, "utf-8");
+        const replay = createHistorySessionSnapshot({
+          path: input.path,
+          content,
+          adapterType: input.adapterType,
+          name: input.name,
+          baseTimestampMs: fileStat.mtimeMs,
+        });
+
+        return {
+          path: input.path,
+          adapterType: replay.adapterType,
+          lineCount: replay.lineCount,
+          parsedLineCount: replay.parsedLineCount,
+          skippedLineCount: replay.skippedLineCount,
+          snapshot: replay.snapshot,
+          ...(input.includeEvents ? { events: replay.events } : {}),
+        };
+      } catch (err: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Cannot replay history file: ${err.message}`,
         });
       }
     }),

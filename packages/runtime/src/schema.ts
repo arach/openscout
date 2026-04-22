@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 3;
+export const CONTROL_PLANE_SCHEMA_VERSION = 4;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -285,6 +285,22 @@ CREATE TABLE IF NOT EXISTS activity_items (
   payload_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS mobile_push_registrations (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  app_bundle_id TEXT NOT NULL,
+  apns_environment TEXT NOT NULL,
+  push_token TEXT NOT NULL,
+  authorization_status TEXT NOT NULL,
+  app_version TEXT,
+  build_number TEXT,
+  device_model TEXT,
+  system_version TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
   ON nodes (mesh_id);
 CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
@@ -325,4 +341,10 @@ CREATE INDEX IF NOT EXISTS idx_scout_dispatches_dispatched_at
   ON scout_dispatches (dispatched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scout_dispatches_conversation_ts
   ON scout_dispatches (conversation_id, dispatched_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_push_registrations_device_bundle_env
+  ON mobile_push_registrations (device_id, platform, app_bundle_id, apns_environment);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mobile_push_registrations_push_token
+  ON mobile_push_registrations (push_token);
+CREATE INDEX IF NOT EXISTS idx_mobile_push_registrations_device_updated_at
+  ON mobile_push_registrations (device_id, updated_at DESC);
 `;

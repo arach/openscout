@@ -36,6 +36,7 @@ import {
   sendScoutDirectMessage,
   sendScoutMessage,
 } from "./core/broker/service.ts";
+import { loadAgentObservePayload } from "./core/observe/service.ts";
 import { announceMeshVisibility, loadMeshStatus } from "./core/mesh/service.ts";
 import {
   loadOpenScoutWebShellState,
@@ -251,6 +252,10 @@ export async function createOpenScoutWebServer(
   );
 
   app.get("/api/agents", (c) => c.json(queryAgents()));
+  app.get("/api/agents/:id/observe", async (c) => {
+    const payload = await loadAgentObservePayload(c.req.param("id"));
+    return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
+  });
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
   app.get("/api/fleet", (c) =>

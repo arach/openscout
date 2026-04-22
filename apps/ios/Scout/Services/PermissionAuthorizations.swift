@@ -1,5 +1,6 @@
 import AVFoundation
 import Speech
+import UIKit
 import UserNotifications
 
 enum PermissionAuthorizations {
@@ -11,9 +12,27 @@ enum PermissionAuthorizations {
         SFSpeechRecognizer.authorizationStatus() == .authorized
     }
 
-    static func notificationsGranted() async -> Bool {
+    static func notificationAuthorizationStatus() async -> PushAuthorizationStatus {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
-        return settings.authorizationStatus == .authorized
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            return .notDetermined
+        case .denied:
+            return .denied
+        case .authorized:
+            return .authorized
+        case .provisional:
+            return .provisional
+        case .ephemeral:
+            return .ephemeral
+        @unknown default:
+            return .notDetermined
+        }
+    }
+
+    static func notificationsGranted() async -> Bool {
+        let status = await notificationAuthorizationStatus()
+        return status.allowsRemoteNotifications
     }
 
     static func requestMicrophone() async -> Bool {
@@ -34,7 +53,13 @@ enum PermissionAuthorizations {
 
     static func requestNotifications() async -> Bool {
         do {
-            return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            if granted {
+                await MainActor.run {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+            return granted
         } catch {
             return false
         }
