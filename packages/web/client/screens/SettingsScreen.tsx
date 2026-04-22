@@ -129,6 +129,8 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
     }
   }, []);
 
+  const autoStartedRef = useRef(false);
+
   useEffect(() => {
     void loadPairing("initial");
     void loadUser();
@@ -188,6 +190,12 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!pairing || pairing.isRunning || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    void control("start");
+  }, [pairing, control]);
 
   const removePeer = useCallback(async (fingerprint: string) => {
     setRemovingPeer(fingerprint);
@@ -293,9 +301,7 @@ export function SettingsScreen({ navigate: _navigate }: { navigate: (r: Route) =
             </div>
           ) : (
             <div className="sys-settings-qr-empty">
-              <span className="sys-settings-qr-empty-label">
-                {pairing?.isRunning ? "Waiting for QR..." : "Start pairing to generate QR"}
-              </span>
+              <span className="sys-settings-qr-empty-label">Generating QR...</span>
             </div>
           )}
         </div>

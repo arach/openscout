@@ -40,6 +40,10 @@ struct ContentView: View {
                   connectionManager.state != .connected else { return }
             Task { await connectionManager.reconnect() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .scoutOpenInbox)) { _ in
+            guard connectionManager.hasTrustedBridge else { return }
+            router.push(.inbox)
+        }
     }
 
 }

@@ -29,6 +29,7 @@ import {
   queryWorkItemById,
   querySessions,
   querySessionById,
+  queryHeartrate,
 } from "./db-queries.ts";
 import {
   askScoutQuestion,
@@ -65,6 +66,7 @@ export type CreateOpenScoutWebServerOptions = {
   currentDirectory: string;
   shellStateCacheTtlMs?: number;
   assetMode: ScoutWebAssetMode;
+  viteDevUrl?: string;
   staticRoot?: string;
 };
 
@@ -250,6 +252,7 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/agents", (c) => c.json(queryAgents()));
   app.get("/api/activity", (c) => c.json(queryActivity()));
+  app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
   app.get("/api/fleet", (c) =>
     c.json(
       queryFleet({
@@ -537,10 +540,8 @@ export async function createOpenScoutWebServer(
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,
     staticRoot: resolveStaticRoot(options.staticRoot),
-    viteConfigPath: resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "../vite.config.ts",
-    ),
+    viteDevUrl: options.viteDevUrl,
+    defaultViteUrl: "http://127.0.0.1:5180",
   });
 
   const warmupCaches = () =>

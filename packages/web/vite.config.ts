@@ -8,6 +8,7 @@ const webNodeModules = resolve(__dirname, "node_modules");
 
 export default defineConfig({
   root: resolve(__dirname, "client"),
+  clearScreen: false,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

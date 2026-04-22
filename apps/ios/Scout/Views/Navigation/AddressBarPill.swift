@@ -28,6 +28,8 @@ struct AddressBarPill: View {
         switch router.currentSurface {
         case .home:
             return "Home"
+        case .inbox:
+            return "Inbox"
         case .agents:
             return "Agents"
         case .sessionDetail(let sessionId):

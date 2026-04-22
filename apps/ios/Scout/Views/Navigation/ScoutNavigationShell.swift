@@ -121,6 +121,8 @@ struct ScoutNavigationShell: View {
         switch surface {
         case .home:
             HomeView()
+        case .inbox:
+            InboxView()
         case .agents:
             AgentsView()
         case .activity:

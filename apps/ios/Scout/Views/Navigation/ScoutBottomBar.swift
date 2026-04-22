@@ -9,6 +9,7 @@ import SwiftUI
 struct ScoutBottomBar: View {
     @Environment(ScoutRouter.self) private var router
     @Environment(ConnectionManager.self) private var connection
+    @Environment(InboxStore.self) private var inbox
     @Environment(SessionStore.self) private var store
 
     @State private var showingDiscovery = false
@@ -191,6 +192,12 @@ struct ScoutBottomBar: View {
 
     private var overflowMenu: some View {
         Menu {
+            Button {
+                router.push(.inbox)
+            } label: {
+                Label(inbox.unreadCount > 0 ? "Inbox (\(inbox.unreadCount))" : "Inbox", systemImage: "tray.full")
+            }
+
             Button {
                 router.push(.agents)
             } label: {

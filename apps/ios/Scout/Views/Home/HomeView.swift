@@ -7,6 +7,7 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(SessionStore.self) private var store
+    @Environment(InboxStore.self) private var inbox
     @Environment(ConnectionManager.self) private var connection
     @Environment(ScoutRouter.self) private var router
 
@@ -174,6 +175,18 @@ struct HomeView: View {
                 .padding(.horizontal, ScoutSpacing.lg)
 
             LazyVGrid(columns: shortcutColumns, spacing: ScoutSpacing.md) {
+                shortcutCard(
+                    title: inbox.pendingCount == 0 ? "Inbox" : "Inbox \(inbox.pendingCount)",
+                    subtitle: inbox.pendingCount == 0
+                        ? "Approvals that need you will appear here."
+                        : "\(inbox.pendingCount) approval\(inbox.pendingCount == 1 ? "" : "s") waiting for confirmation.",
+                    icon: inbox.unreadCount > 0 ? "bell.badge.fill" : "tray.full.fill",
+                    accent: inbox.unreadCount > 0 ? ScoutColors.statusStreaming : ScoutColors.statusStreaming,
+                    enabled: isConnected || inbox.pendingCount > 0
+                ) {
+                    router.push(.inbox)
+                }
+
                 shortcutCard(
                     title: "New Session",
                     subtitle: isConnected

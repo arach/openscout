@@ -30,6 +30,9 @@
 		401B8B1200C88EDF5DBFBF4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04511C1BCDD7DF678F39AB23 /* Assets.xcassets */; };
 		40BB09A722485DE63DE08361 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 00F1A9565B1EE831E901D4BB /* FluidAudio */; };
 		41219D151E0B15AB2EDDA8FF /* Primitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06649F0636F0648AB140561 /* Primitives.swift */; };
+		A11B22C33D44E55F66778890 /* InboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778890 /* InboxStore.swift */; };
+		A11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift */; };
+		A11B22C33D44E55F66778892 /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B22C33D44E55F66778892 /* InboxView.swift */; };
 		43C16D70F1056087789D0C39 /* SessionCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */; };
 		4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25FDE9E16EC017A6B945AF9D /* MicButton.swift */; };
 		4C338EE4D28D668134EA3F52 /* KeyComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37F081F478DEDB2F906765D /* KeyComponents.swift */; };
@@ -137,6 +140,9 @@
 		9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashCatcher.swift; sourceTree = "<group>"; };
 		9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		A156270D797264F0441EF34B /* TurnHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnHashTests.swift; sourceTree = "<group>"; };
+		B11B22C33D44E55F66778890 /* InboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStore.swift; sourceTree = "<group>"; };
+		B11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutNotificationDelegate.swift; sourceTree = "<group>"; };
+		B11B22C33D44E55F66778892 /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
 		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
 		CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
@@ -204,13 +210,23 @@
 			children = (
 				B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */,
 				9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */,
+				B11B22C33D44E55F66778890 /* InboxStore.swift */,
 				2E552A43E6BA2AB3110C09C8 /* PermissionAuthorizations.swift */,
 				451CC5D7711018A3EB64FBA9 /* ScoutLog.swift */,
+				B11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift */,
 				E51A81D21A37B458E927F61B /* SessionCache.swift */,
 				DD6940B82A6F6FB299D5556A /* SessionStore.swift */,
 				0B1014280AC32ECEFDC6123A /* TurnHash.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		C11B22C33D44E55F66778890 /* Inbox */ = {
+			isa = PBXGroup;
+			children = (
+				B11B22C33D44E55F66778892 /* InboxView.swift */,
+			);
+			path = Inbox;
 			sourceTree = "<group>";
 		};
 		2771BC91F699E13325A0D0A9 /* Keyboard */ = {
@@ -317,6 +333,7 @@
 				6A881A2E98FAE9347CA9ADB4 /* Composer */,
 				A3CA4FF329970B1A022D0311 /* Discovery */,
 				84CDCF5673D49C714DE6387F /* Home */,
+				C11B22C33D44E55F66778890 /* Inbox */,
 				2771BC91F699E13325A0D0A9 /* Keyboard */,
 				655D1D640EB95CB8B5338EF3 /* Navigation */,
 				E31022DD011A60F3EC81D9D4 /* Onboarding */,
@@ -560,7 +577,9 @@
 				C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */,
 				FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */,
 				3B43F694BB7BE9915A5D466F /* HomeView.swift in Sources */,
+				A11B22C33D44E55F66778892 /* InboxView.swift in Sources */,
 				8D3F4293E86ED617E69A2612 /* Identity.swift in Sources */,
+				A11B22C33D44E55F66778890 /* InboxStore.swift in Sources */,
 				4C338EE4D28D668134EA3F52 /* KeyComponents.swift in Sources */,
 				4FC9249A9F6D914920B77F99 /* LogView.swift in Sources */,
 				4476BB46CE8DC39B4CBC67CA /* MicButton.swift in Sources */,
@@ -580,6 +599,7 @@
 				CCB65C48A10E885795764D27 /* ScoutCompactKeyboard.swift in Sources */,
 				38D003C041D9ACB728447B4B /* ScoutKeyboardView.swift in Sources */,
 				F52869C4547FCD738992F356 /* ScoutLog.swift in Sources */,
+				A11B22C33D44E55F66778891 /* ScoutNotificationDelegate.swift in Sources */,
 				11ABE7E5EC9EAFE29087C37F /* ScoutNavigationShell.swift in Sources */,
 				6E27EE08D0DECC675FB8AA5E /* ScoutRouter.swift in Sources */,
 				94E40717522CC80B764A1EA8 /* ScoutTextField.swift in Sources */,

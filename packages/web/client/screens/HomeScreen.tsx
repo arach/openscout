@@ -38,14 +38,17 @@ export function HomeScreen({
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
+  const [heartrate, setHeartrate] = useState<number[]>([]);
+  const [heartrateWindow, setHeartrateWindow] = useState("30m");
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
-    const [activityResult, sessionsResult, fleetResult] =
+    const [activityResult, sessionsResult, fleetResult, heartrateResult] =
       await Promise.allSettled([
         api<ActivityItem[]>("/api/activity"),
         api<SessionEntry[]>("/api/sessions"),
         api<FleetState>("/api/fleet"),
+        api<{ windowLabel: string; buckets: Array<{ value: number }> }>("/api/heartrate"),
       ]);
     if (activityResult.status === "fulfilled")
       setActivity(activityResult.value);
@@ -56,6 +59,10 @@ export function HomeScreen({
         ),
       );
     if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
+    if (heartrateResult.status === "fulfilled") {
+      setHeartrate(heartrateResult.value.buckets.map((b) => b.value));
+      setHeartrateWindow(heartrateResult.value.windowLabel);
+    }
   }, []);
 
   const scheduleRefresh = useCallback(() => {
@@ -108,18 +115,6 @@ export function HomeScreen({
   const greeting = greetingFor(now.getHours());
   const opsEnabled = isOpsEnabled();
 
-  const heartrate = useMemo(() => {
-    const N = 96;
-    return Array.from({ length: N }, (_, i) => {
-      const t = i / N;
-      const base = 0.4 + 0.35 * Math.sin(t * 9 + 1.3) * Math.cos(t * 2.1);
-      const spike = i > 55 && i < 62 ? 0.3 : 0;
-      return Math.max(
-        0.05,
-        Math.min(1, base + spike + (Math.random() - 0.5) * 0.06),
-      );
-    });
-  }, []);
 
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
@@ -196,7 +191,7 @@ export function HomeScreen({
             <div className="s-heartrate-header">
               <span className="s-eyebrow">Fleet heart-rate</span>
               <span style={{ flex: 1 }} />
-              <span className="s-heartrate-live">● live · 30m</span>
+              <span className="s-heartrate-live">● live · {heartrateWindow}</span>
             </div>
             <HeartrateGraph data={heartrate} />
             <div className="s-heartrate-stats">
@@ -310,6 +305,36 @@ function HeartrateGraph({ data }: { data: number[] }) {
   const W = 372;
   const H = 56;
   const N = data.length;
+  const allZero = N < 2 || data.every((v) => v === 0);
+
+  if (allZero) {
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
+        <line x1="0" y1={H - 0.5} x2={W} y2={H - 0.5} stroke="var(--border)" />
+        <text
+          x={W / 2}
+          y={H / 2 - 2}
+          textAnchor="middle"
+          fill="var(--dim)"
+          fontSize="22"
+        >
+          zzz
+        </text>
+        <text
+          x={W / 2}
+          y={H / 2 + 14}
+          textAnchor="middle"
+          fill="var(--dim)"
+          fontSize="9"
+          fontFamily="var(--hud-font-mono)"
+          opacity="0.7"
+        >
+          nothing to report
+        </text>
+      </svg>
+    );
+  }
+
   const stepX = W / (N - 1);
   const path = data
     .map(

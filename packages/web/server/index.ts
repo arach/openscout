@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createOpenScoutWebServer,
@@ -24,24 +24,31 @@ function resolveStaticRoot(): string | undefined {
     return process.env.OPENSCOUT_WEB_STATIC_ROOT.trim();
   }
   const selfDir = dirname(fileURLToPath(import.meta.url));
-  const siblingClient = join(selfDir, "client", "index.html");
-  if (existsSync(siblingClient)) {
-    return join(selfDir, "client");
+  const siblingClientRoot = join(selfDir, "client");
+  if (existsSync(join(siblingClientRoot, "index.html"))) {
+    return siblingClientRoot;
+  }
+  const sourceDistClientRoot = resolve(selfDir, "../dist/client");
+  if (existsSync(join(sourceDistClientRoot, "index.html"))) {
+    return sourceDistClientRoot;
   }
   return undefined;
 }
 
 const staticRoot = resolveStaticRoot();
-const dev = process.env.NODE_ENV !== "production" && !staticRoot;
+const viteDevUrl = process.env.OPENSCOUT_WEB_VITE_URL?.trim() || undefined;
+const useViteProxy = Boolean(viteDevUrl) || !staticRoot;
 const idleTimeoutSeconds = Number.parseInt(
-  process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim() || (dev ? "180" : "30"),
+  process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim()
+    || (useViteProxy ? "180" : "30"),
   10,
 );
 
 const { app, warmupCaches } = await createOpenScoutWebServer({
   currentDirectory,
   shellStateCacheTtlMs,
-  assetMode: dev ? "vite-dev" : "static",
+  assetMode: useViteProxy ? "vite-proxy" : "static",
+  viteDevUrl,
   staticRoot,
 });
 

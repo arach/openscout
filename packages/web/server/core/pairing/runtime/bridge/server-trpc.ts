@@ -39,7 +39,7 @@ import { log } from "./log.ts";
 import type { Bridge } from "./bridge.ts";
 import { resolveConfig } from "./config.ts";
 import { handleRPC, type BridgeServerOptions } from "./server.ts";
-import { bridgeRouter } from "./router.ts";
+import { bridgeRouter, lookupMobileInboxApprovalItem } from "./router.ts";
 import {
   SecureTransport,
   type SocketLike,
@@ -470,6 +470,22 @@ export function startBridgeServerTRPC(options: {
       sendEvent(
         JSON.stringify({ seq: sequenced.seq, event: sequenced.event }),
       );
+
+      if (sequenced.event.event === "block:action:approval") {
+        const item = lookupMobileInboxApprovalItem(
+          bridge,
+          sequenced.event.sessionId,
+          sequenced.event.turnId,
+          sequenced.event.blockId,
+        );
+        if (item) {
+          sendEvent(JSON.stringify({
+            event: "operator:notify",
+            tier: "interrupt",
+            item,
+          }));
+        }
+      }
     });
   }
 

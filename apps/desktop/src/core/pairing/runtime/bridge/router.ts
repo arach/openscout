@@ -10,9 +10,11 @@ import { initTRPC, tracked, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
   isSessionRegistryError,
+  normalizeApprovalRequest,
   type ActionBlock,
   type Prompt,
   type SequencedEvent,
+  type SessionState,
 } from "@openscout/agent-sessions";
 
 import { log } from "./log.ts";
@@ -334,6 +336,117 @@ function trackedSequencedEventId(event: SequencedEvent): string {
   return `${getEventSessionId(event) ?? "unknown"}:${event.seq}`;
 }
 
+export type MobileInboxItem = {
+  id: string;
+  kind: "approval";
+  createdAt: number;
+  sessionId: string;
+  sessionName: string;
+  adapterType: string;
+  turnId: string;
+  blockId: string;
+  version: number;
+  risk: "low" | "medium" | "high";
+  title: string;
+  description: string;
+  detail: string | null;
+  actionKind: ActionBlock["action"]["kind"];
+  actionStatus: ActionBlock["action"]["status"];
+};
+
+function approvalInboxItemId(
+  sessionId: string,
+  turnId: string,
+  blockId: string,
+  version: number,
+): string {
+  return `approval:${sessionId}:${turnId}:${blockId}:v${version}`;
+}
+
+function projectApprovalInboxItem(
+  snapshot: SessionState,
+  turn: SessionState["turns"][number],
+  block: ActionBlock,
+): MobileInboxItem | null {
+  const normalized = normalizeApprovalRequest(snapshot.session, turn.id, block);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    id: approvalInboxItemId(
+      normalized.sessionId,
+      normalized.turnId,
+      normalized.blockId,
+      normalized.version,
+    ),
+    kind: "approval",
+    createdAt: turn.startedAt,
+    sessionId: normalized.sessionId,
+    sessionName: normalized.sessionName,
+    adapterType: normalized.adapterType,
+    turnId: normalized.turnId,
+    blockId: normalized.blockId,
+    version: normalized.version,
+    risk: normalized.risk,
+    title: normalized.title,
+    description: normalized.description,
+    detail: normalized.detail,
+    actionKind: normalized.actionKind,
+    actionStatus: normalized.actionStatus,
+  };
+}
+
+export function lookupMobileInboxApprovalItem(
+  bridge: Bridge,
+  sessionId: string,
+  turnId: string,
+  blockId: string,
+): MobileInboxItem | null {
+  const snapshot = bridge.getSessionSnapshot(sessionId);
+  if (!snapshot) {
+    return null;
+  }
+
+  const turn = snapshot.turns.find((candidate) => candidate.id === turnId);
+  if (!turn) {
+    return null;
+  }
+
+  const blockState = turn.blocks.find((candidate) => candidate.block.id === blockId);
+  if (!blockState || blockState.block.type !== "action") {
+    return null;
+  }
+
+  return projectApprovalInboxItem(snapshot, turn, blockState.block);
+}
+
+function queryMobileInboxItems(bridge: Bridge): MobileInboxItem[] {
+  const items: MobileInboxItem[] = [];
+
+  for (const session of bridge.getSessionSummaries()) {
+    const snapshot = bridge.getSessionSnapshot(session.sessionId);
+    if (!snapshot) {
+      continue;
+    }
+
+    for (const turn of snapshot.turns) {
+      for (const blockState of turn.blocks) {
+        if (blockState.block.type !== "action") {
+          continue;
+        }
+        const item = projectApprovalInboxItem(snapshot, turn, blockState.block);
+        if (item) {
+          items.push(item);
+        }
+      }
+    }
+  }
+
+  return items.sort((left, right) =>
+    right.createdAt - left.createdAt || left.id.localeCompare(right.id));
+}
+
 function toTRPCRegistryError(error: unknown): TRPCError | null {
   if (!isSessionRegistryError(error)) {
     return null;
@@ -443,6 +556,11 @@ const sessionRouter = t.router({
 // -- Mobile -----------------------------------------------------------------
 
 const mobileRouter = t.router({
+  inbox: procedure
+    .query(({ ctx }) => ({
+      items: queryMobileInboxItems(ctx.bridge),
+    })),
+
   home: procedure
     .input(
       z

@@ -2255,3 +2255,152 @@ export function queryFleet(opts?: {
     activity,
   };
 }
+
+/* ── Heartrate: bucketed activity over a time window ── */
+
+export type HeartrateBucket = { ts: number; count: number; value: number };
+
+const WINDOW_TIERS: Array<{ ms: number; label: string }> = [
+  { ms: 30 * 60_000, label: "30m" },
+  { ms: 60 * 60_000, label: "1h" },
+  { ms: 6 * 60 * 60_000, label: "6h" },
+  { ms: 24 * 60 * 60_000, label: "24h" },
+  { ms: 7 * 24 * 60 * 60_000, label: "7d" },
+];
+
+const MIN_FILLED_BUCKETS = 3;
+
+type HeartrateResult = { windowLabel: string; buckets: HeartrateBucket[] };
+
+const _sealedCounts = new Map<string, number>();
+let _cachedTier: string | null = null;
+
+export function queryHeartrate(numBuckets = 48): HeartrateResult {
+  const nowMs = Date.now();
+
+  let chosenTier = WINDOW_TIERS[WINDOW_TIERS.length - 1];
+
+  for (const tier of WINDOW_TIERS) {
+    const bucketMs = tier.ms / numBuckets;
+    const currentBucketStart = Math.floor(nowMs / bucketMs) * bucketMs;
+    const alignedStart = currentBucketStart - (numBuckets - 1) * bucketMs;
+
+    if (_cachedTier === tier.label) {
+      let sealedHits = 0;
+      let filledSealed = 0;
+      for (let i = 0; i < numBuckets - 1; i++) {
+        const key = String(alignedStart + i * bucketMs);
+        if (_sealedCounts.has(key)) {
+          sealedHits++;
+          if (_sealedCounts.get(key)! > 0) filledSealed++;
+        }
+      }
+      if (sealedHits === numBuckets - 1 && filledSealed >= MIN_FILLED_BUCKETS) {
+        chosenTier = tier;
+        break;
+      }
+    }
+
+    const rows = db()
+      .prepare(`SELECT ts FROM activity_items WHERE ts >= ? ORDER BY ts ASC`)
+      .all(alignedStart) as Array<{ ts: number }>;
+
+    const counts = new Array<number>(numBuckets).fill(0);
+    for (const row of rows) {
+      const ms = row.ts < 1e12 ? row.ts * 1000 : row.ts;
+      if (ms < alignedStart) continue;
+      const idx = Math.min(numBuckets - 1, Math.floor((ms - alignedStart) / bucketMs));
+      if (idx >= 0) counts[idx]++;
+    }
+
+    const filled = counts.filter((c) => c > 0).length;
+    if (filled >= MIN_FILLED_BUCKETS) {
+      if (_cachedTier !== tier.label) {
+        _sealedCounts.clear();
+        _cachedTier = tier.label;
+      }
+      for (let i = 0; i < numBuckets - 1; i++) {
+        _sealedCounts.set(String(alignedStart + i * bucketMs), counts[i]);
+      }
+
+      const peak = Math.max(1, ...counts);
+      return {
+        windowLabel: tier.label,
+        buckets: counts.map((count, i) => ({
+          ts: Math.round(alignedStart + i * bucketMs),
+          count,
+          value: count / peak,
+        })),
+      };
+    }
+  }
+
+  const bucketMs = chosenTier.ms / numBuckets;
+  const currentBucketStart = Math.floor(nowMs / bucketMs) * bucketMs;
+  const alignedStart = currentBucketStart - (numBuckets - 1) * bucketMs;
+
+  if (_cachedTier === chosenTier.label) {
+    const counts = new Array<number>(numBuckets).fill(0);
+    let allSealed = true;
+    for (let i = 0; i < numBuckets - 1; i++) {
+      const key = String(alignedStart + i * bucketMs);
+      if (_sealedCounts.has(key)) {
+        counts[i] = _sealedCounts.get(key)!;
+      } else {
+        allSealed = false;
+        break;
+      }
+    }
+
+    if (allSealed) {
+      const liveStart = alignedStart + (numBuckets - 1) * bucketMs;
+      const row = db()
+        .prepare(`SELECT COUNT(*) AS c FROM activity_items WHERE ts >= ?`)
+        .get(liveStart) as { c: number };
+      counts[numBuckets - 1] = row.c;
+
+      const peak = Math.max(1, ...counts);
+      return {
+        windowLabel: chosenTier.label,
+        buckets: counts.map((count, i) => ({
+          ts: Math.round(alignedStart + i * bucketMs),
+          count,
+          value: count / peak,
+        })),
+      };
+    }
+  }
+
+  _sealedCounts.clear();
+  _cachedTier = chosenTier.label;
+
+  const rows = db()
+    .prepare(`SELECT ts FROM activity_items WHERE ts >= ? ORDER BY ts ASC`)
+    .all(alignedStart) as Array<{ ts: number }>;
+
+  const counts = new Array<number>(numBuckets).fill(0);
+  for (const row of rows) {
+    const ms = row.ts < 1e12 ? row.ts * 1000 : row.ts;
+    if (ms < alignedStart) continue;
+    const idx = Math.min(numBuckets - 1, Math.floor((ms - alignedStart) / bucketMs));
+    if (idx >= 0) counts[idx]++;
+  }
+
+  for (let i = 0; i < numBuckets - 1; i++) {
+    _sealedCounts.set(String(alignedStart + i * bucketMs), counts[i]);
+  }
+
+  for (const key of _sealedCounts.keys()) {
+    if (Number(key) < alignedStart) _sealedCounts.delete(key);
+  }
+
+  const peak = Math.max(1, ...counts);
+  return {
+    windowLabel: chosenTier.label,
+    buckets: counts.map((count, i) => ({
+      ts: Math.round(alignedStart + i * bucketMs),
+      count,
+      value: count / peak,
+    })),
+  };
+}

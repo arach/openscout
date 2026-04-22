@@ -5,6 +5,7 @@
 
 import SwiftUI
 import os
+import UserNotifications
 
 private let bootLogger = Logger(subsystem: "com.openscout.scout", category: "Boot")
 
@@ -12,7 +13,9 @@ private let bootLogger = Logger(subsystem: "com.openscout.scout", category: "Boo
 struct ScoutApp: App {
 
     @State private var sessionStore: SessionStore
+    @State private var inboxStore: InboxStore
     @State private var connectionManager: ConnectionManager
+    @State private var notificationDelegate: ScoutNotificationDelegate
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var lastCrash: String?
     @State private var showSplash: Bool
@@ -22,10 +25,15 @@ struct ScoutApp: App {
         CrashCatcher.install()
         bootLogger.notice("Scout app launching")
         let store = SessionStore()
-        let manager = ConnectionManager(sessionStore: store)
+        let inbox = InboxStore()
+        let notifications = ScoutNotificationDelegate()
+        let manager = ConnectionManager(sessionStore: store, inboxStore: inbox)
+        UNUserNotificationCenter.current().delegate = notifications
         bootLogger.notice("hasTrustedBridge=\(manager.hasTrustedBridge, privacy: .public), state=\(String(describing: manager.state), privacy: .public)")
         _sessionStore = State(initialValue: store)
+        _inboxStore = State(initialValue: inbox)
         _connectionManager = State(initialValue: manager)
+        _notificationDelegate = State(initialValue: notifications)
         _lastCrash = State(initialValue: CrashCatcher.consumeLastCrash())
         _showSplash = State(initialValue: Self.shouldShowSplash())
     }
@@ -42,6 +50,7 @@ struct ScoutApp: App {
                 } else if hasCompletedOnboarding {
                     ContentView()
                         .environment(sessionStore)
+                        .environment(inboxStore)
                         .environment(connectionManager)
                         .transition(.opacity)
                 } else {

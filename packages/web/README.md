@@ -49,11 +49,17 @@ This builds:
 
 ## Local dev (UI only)
 
-Run the standalone web server against a Vite dev client:
+Run the standalone web server and the Vite client together:
 
 ```bash
-OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun run packages/web/server/index.ts
 npm --prefix packages/web run dev
 ```
 
-Vite serves on port 5180 and proxies `/api` to `http://127.0.0.1:3200`.
+If you need to run them separately:
+
+```bash
+npm --prefix packages/web run dev:client
+OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 npm --prefix packages/web run dev:server
+```
+
+Vite serves on `http://127.0.0.1:5180`, and the Bun server proxies non-API routes there while continuing to serve `/api` locally on port `3200`.

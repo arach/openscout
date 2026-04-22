@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const originalFetch = globalThis.fetch;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutDirectMessageCalls: Array<Record<string, unknown>> = [];
 const askScoutQuestionCalls: Array<Record<string, unknown>> = [];
@@ -100,6 +101,7 @@ function makeStaticRoot(): string {
 }
 
 beforeEach(() => {
+  globalThis.fetch = originalFetch;
   querySessionByIdImpl = () => null;
   sendScoutMessageResult = {
     usedBroker: true,
@@ -253,5 +255,43 @@ describe("createOpenScoutWebServer", () => {
     expect(await channelResponse.json()).toEqual({
       error: "ask is only available in a direct conversation with one agent",
     });
+  });
+
+  test("proxies UI routes to the configured Vite dev server", async () => {
+    const fetchCalls: Array<{
+      input: string;
+      init: RequestInit | undefined;
+    }> = [];
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({
+        input: String(input),
+        init,
+      });
+      return new Response("<!doctype html><html><body>vite</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "vite-proxy",
+      viteDevUrl: "http://127.0.0.1:5180",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/agents/demo?tab=inbox",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("vite");
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]?.input).toBe(
+      "http://127.0.0.1:5180/agents/demo?tab=inbox",
+    );
+    expect(fetchCalls[0]?.init?.method).toBe("GET");
+    expect(fetchCalls[0]?.init?.headers).toBeInstanceOf(Headers);
+    expect(fetchCalls[0]?.init?.body).toBeUndefined();
   });
 });

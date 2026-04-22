@@ -94,9 +94,10 @@ private struct PermissionsPage: View {
 
     @State private var micGranted: Bool?
     @State private var speechGranted: Bool?
+    @State private var notificationsGranted: Bool?
 
     private var allGranted: Bool {
-        micGranted == true && speechGranted == true
+        micGranted == true && speechGranted == true && notificationsGranted == true
     }
 
     var body: some View {
@@ -118,7 +119,7 @@ private struct PermissionsPage: View {
                         .font(ScoutTypography.body(28, weight: .bold))
                         .foregroundStyle(ScoutColors.textPrimary)
 
-                    Text("Scout needs microphone access for voice input and speech recognition for transcription.")
+                    Text("Scout needs microphone access for voice input, speech recognition for transcription, and notifications for approvals that need you.")
                         .font(ScoutTypography.body(15))
                         .foregroundStyle(ScoutColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -142,6 +143,15 @@ private struct PermissionsPage: View {
                         granted: speechGranted
                     ) {
                         await requestSpeech()
+                    }
+
+                    PermissionRow(
+                        icon: "bell.badge.fill",
+                        title: "Notifications",
+                        subtitle: "For approval requests and inbox alerts",
+                        granted: notificationsGranted
+                    ) {
+                        await requestNotifications()
                     }
                 }
                 .padding(.horizontal, ScoutSpacing.lg)
@@ -169,6 +179,7 @@ private struct PermissionsPage: View {
             // Check existing status
             micGranted = PermissionAuthorizations.microphoneGranted()
             speechGranted = PermissionAuthorizations.speechGranted()
+            notificationsGranted = await PermissionAuthorizations.notificationsGranted()
         }
     }
 
@@ -180,6 +191,11 @@ private struct PermissionsPage: View {
     @MainActor
     private func requestSpeech() async {
         speechGranted = await PermissionAuthorizations.requestSpeechRecognition()
+    }
+
+    @MainActor
+    private func requestNotifications() async {
+        notificationsGranted = await PermissionAuthorizations.requestNotifications()
     }
 }
 

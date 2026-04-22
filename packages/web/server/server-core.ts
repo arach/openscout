@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 
-export type ScoutWebAssetMode = "vite-dev" | "static";
+export type ScoutWebAssetMode = "vite-proxy" | "static";
 
 export function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
   let inflight: Promise<T> | null = null;
@@ -102,90 +102,30 @@ export async function registerScoutWebAssets(
   options: {
     assetMode: ScoutWebAssetMode;
     staticRoot: string;
-    viteConfigPath?: string;
+    viteDevUrl?: string;
+    defaultViteUrl: string;
   },
 ): Promise<void> {
-  if (options.assetMode === "vite-dev") {
-    const { createServer } = await import("vite");
-    const fs = await import("node:fs");
-    const path = await import("node:path");
+  const viteUrl = options.viteDevUrl?.trim() || options.defaultViteUrl;
 
-    const vite = await createServer({
-      configFile: options.viteConfigPath,
-      server: { middlewareMode: true, hmr: { port: 5183 } },
-      appType: "custom",
-    });
-
-    const viteRoot = (vite.config.root ?? process.cwd()).replace(/\/$/, "");
-
-    const proxyToVite = (req: Request, url: URL): Promise<Response> => {
-      return new Promise<Response>((resolve) => {
-        const http = require("node:http");
-        const { Duplex } = require("node:stream");
-
-        const socket = new Duplex({
-          read() {},
-          write(_chunk: unknown, _encoding: string, cb: () => void) { cb(); },
-        });
-
-        const nodeReq = new http.IncomingMessage(socket);
-        nodeReq.method = req.method;
-        nodeReq.url = url.pathname + url.search;
-        nodeReq.headers = {};
-        for (const [key, value] of req.headers.entries()) {
-          nodeReq.headers[key.toLowerCase()] = value;
-        }
-
-        const nodeRes = new http.ServerResponse(nodeReq);
-        const chunks: Buffer[] = [];
-
-        nodeRes.write = function (chunk: unknown) {
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
-          return true;
-        };
-
-        const originalEnd = nodeRes.end.bind(nodeRes);
-        nodeRes.end = function (chunk?: unknown) {
-          if (chunk) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
-          }
-          const body = Buffer.concat(chunks);
-          const headers = new Headers();
-          for (const [key, val] of Object.entries(nodeRes.getHeaders())) {
-            if (val == null) continue;
-            if (Array.isArray(val)) {
-              for (const v of val) headers.append(key, v);
-            } else {
-              headers.set(key, String(val));
-            }
-          }
-          resolve(new Response(body.length > 0 ? body : null, {
-            status: nodeRes.statusCode,
-            headers,
-          }));
-          return originalEnd();
-        } as typeof nodeRes.end;
-
-        vite.middlewares.handle(nodeReq, nodeRes, async () => {
-          // Vite didn't handle it — serve index.html as SPA fallback
-          try {
-            const indexPath = path.join(viteRoot, "index.html");
-            let html = fs.readFileSync(indexPath, "utf-8");
-            html = await vite.transformIndexHtml(url.pathname, html);
-            resolve(new Response(html, {
-              status: 200,
-              headers: { "content-type": "text/html; charset=utf-8" },
-            }));
-          } catch {
-            resolve(new Response("Not Found", { status: 404 }));
-          }
-        });
-      });
-    };
-
+  if (options.assetMode === "vite-proxy") {
     app.all("/*", async (c) => {
-      const url = new URL(c.req.url);
-      return proxyToVite(c.req.raw, url);
+      const target = new URL(c.req.path, viteUrl);
+      target.search = new URL(c.req.url).search;
+      const headers = new Headers(c.req.header());
+      headers.delete("host");
+      const response = await fetch(target.toString(), {
+        method: c.req.method,
+        headers,
+        body:
+          c.req.method !== "GET" && c.req.method !== "HEAD"
+            ? c.req.raw.body
+            : undefined,
+      });
+      return new Response(response.body, {
+        status: response.status,
+        headers: response.headers,
+      });
     });
     return;
   }

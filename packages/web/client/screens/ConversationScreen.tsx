@@ -1702,48 +1702,7 @@ export function ConversationScreen({
             />
 
             <div className="s-thread-compose-footer">
-              <div className="s-thread-compose-actions">
-                <button
-                  type="button"
-                  className="s-thread-compose-action-btn"
-                  onClick={() => setDraft((d) => d + "/route ")}
-                >
-                  /route
-                </button>
-                <button
-                  type="button"
-                  className="s-thread-compose-action-btn"
-                  onClick={() => {
-                    setComposeMode("ask");
-                    composeRef.current?.focus();
-                  }}
-                >
-                  ?ask
-                </button>
-              </div>
-              <span className="s-thread-compose-hint">
-                {sending ? (
-                  "Sending..."
-                ) : isStopMode ? (
-                  "Stop"
-                ) : composeAction === "steer" ? (
-                  <>
-                    <kbd className="s-thread-kbd">Enter</kbd> steer
-                  </>
-                ) : composeAction === "ask" ? (
-                  <>
-                    <kbd className="s-thread-kbd">Enter</kbd> ask
-                    <kbd className="s-thread-kbd">Shift+Enter</kbd> newline
-                  </>
-                ) : (
-                  <>
-                    <kbd className="s-thread-kbd">
-                      {"⌘"}Enter
-                    </kbd>{" "}
-                    send
-                  </>
-                )}
-              </span>
+              <span />
               {isStopMode ? (
                 <button
                   type="button"

@@ -28,6 +28,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/session/snapshot":  TRPCRoute(path: "mobile.sessionSnapshot", method: .query),
     "mobile/message/send":      TRPCRoute(path: "mobile.sendMessage",     method: .mutation),
     "mobile/activity":          TRPCRoute(path: "mobile.activity",        method: .query),
+    "mobile/inbox":             TRPCRoute(path: "mobile.inbox",           method: .query),
     "mobile/home":              TRPCRoute(path: "mobile.home",            method: .query),
     "mobile/workspaces":        TRPCRoute(path: "mobile.workspaces",      method: .query),
     "mobile/agents":            TRPCRoute(path: "mobile.agents",          method: .query),
@@ -425,6 +426,48 @@ struct MobileActivityParams: Codable, Sendable {
     var actorId: String?
     var conversationId: String?
     var limit: Int?
+}
+
+enum MobileInboxItemKind: String, Codable, Sendable {
+    case approval
+}
+
+struct MobileInboxItem: Codable, Identifiable, Sendable {
+    let id: String
+    let kind: MobileInboxItemKind
+    let createdAt: Int
+    let sessionId: String
+    let sessionName: String
+    let adapterType: String
+    let turnId: String
+    let blockId: String
+    let version: Int
+    let risk: ApprovalRisk
+    let title: String
+    let description: String
+    let detail: String?
+    let actionKind: ActionKind
+    let actionStatus: ActionStatus
+
+    var createdDate: Date {
+        Date(timeIntervalSince1970: Double(createdAt > 10_000_000_000 ? createdAt : createdAt * 1000) / 1000.0)
+    }
+}
+
+struct MobileInboxResponse: Codable, Sendable {
+    let items: [MobileInboxItem]
+}
+
+enum OperatorNotificationTier: String, Codable, Sendable {
+    case silent
+    case badge
+    case interrupt
+}
+
+struct OperatorNotificationEvent: Codable, Sendable {
+    let event: String
+    let tier: OperatorNotificationTier
+    let item: MobileInboxItem
 }
 
 struct ActivityItem: Codable, Identifiable, Sendable {

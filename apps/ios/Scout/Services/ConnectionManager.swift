@@ -374,6 +374,7 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: Dependencies
 
     private let sessionStore: SessionStore
+    private let inboxStore: InboxStore
 
     // MARK: Internal state
 
@@ -420,8 +421,9 @@ final class ConnectionManager: @unchecked Sendable {
 
     // MARK: Init
 
-    init(sessionStore: SessionStore) {
+    init(sessionStore: SessionStore, inboxStore: InboxStore) {
         self.sessionStore = sessionStore
+        self.inboxStore = inboxStore
         self.urlSession = URLSession(configuration: .default, delegate: sessionDelegate, delegateQueue: nil)
         self.connectionInfo = Self.loadConnectionInfo()
         self.health = self.connectionInfo == nil ? .offline : .suspect
@@ -925,6 +927,7 @@ final class ConnectionManager: @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: "scout.connectionInfo")
         Task { @MainActor in
             sessionStore.clearAll()
+            inboxStore.clear()
             sessionStore.connectionState = .disconnected
         }
         setState(.disconnected)
@@ -1000,6 +1003,11 @@ final class ConnectionManager: @unchecked Sendable {
         let params = MobileActivityParams(agentId: agentId, limit: limit)
         let data = try await sendRPC(method: "mobile/activity", params: params)
         return try decodeResult([ActivityItem].self, from: data)
+    }
+
+    func getInbox() async throws -> MobileInboxResponse {
+        let data = try await sendRPC(method: "mobile/inbox", params: nil as Empty?)
+        return try decodeResult(MobileInboxResponse.self, from: data)
     }
 
     func getAgentDetail(agentId: String) async throws -> MobileAgentDetail {
@@ -1334,6 +1342,14 @@ final class ConnectionManager: @unchecked Sendable {
             return
         }
 
+        if let notification = try? JSONDecoder().decode(OperatorNotificationEvent.self, from: data),
+           notification.event == "operator:notify" {
+            Task { @MainActor in
+                inboxStore.receiveOperatorNotification(notification)
+            }
+            return
+        }
+
         // Try parsing as a sequenced event (has "seq" and "event" fields).
         // This handles the transition period before subscriptions are fully adopted.
         if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: data) {
@@ -1523,6 +1539,7 @@ final class ConnectionManager: @unchecked Sendable {
     /// Run the reconnect recovery algorithm from PROTOCOL.md §4.
     private func runRecovery() async {
         await refreshRelaySessions()
+        await inboxStore.refresh(using: self)
     }
 
     // MARK: - Private: Connection info persistence
@@ -1608,8 +1625,8 @@ extension ConnectionManager {
     @MainActor
     static func preview() -> ConnectionManager {
         let store = SessionStore.preview
-        let manager = ConnectionManager(sessionStore: store)
-        manager.state = .connected
+        let manager = ConnectionManager(sessionStore: store, inboxStore: InboxStore())
+        manager.state = ConnectionState.connected
         return manager
     }
 }
