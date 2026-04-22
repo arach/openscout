@@ -43,7 +43,8 @@ const intents: AppIntent[] = [
   {
     commandId: "nav:sessions",
     title: "Go to Sessions",
-    description: "Navigate to the sessions list showing all active conversations",
+    description:
+      "Navigate to the sessions list showing all active conversations",
     category: "navigation",
     keywords: ["sessions", "conversations", "threads"],
     shortcut: "Cmd+4",
@@ -67,7 +68,8 @@ const intents: AppIntent[] = [
   {
     commandId: "nav:settings",
     title: "Open Settings",
-    description: "Open the settings screen for pairing, identity, and relay config",
+    description:
+      "Open the settings screen for pairing, identity, and relay config",
     category: "settings",
     keywords: ["settings", "preferences", "config", "pair"],
     shortcut: "Cmd+,",
@@ -89,33 +91,72 @@ const intents: AppIntent[] = [
   {
     commandId: "scout:open:*",
     title: "Open Agent Conversation",
-    description: "Open a direct message conversation with a specific agent. The commandId is scout:open:{agentId} where agentId comes from the current agent roster.",
+    description:
+      "Open the DM lane for one specific agent. One agent maps to a DM; group work belongs in an explicit channel and broadcasts belong in the shared channel.",
     category: "navigation",
     keywords: ["open", "chat", "conversation", "dm", "message"],
     params: [
-      { name: "agentId", description: "The agent identifier to open", type: "string" },
+      {
+        name: "agentId",
+        description: "The agent identifier to open",
+        type: "string",
+      },
     ],
   },
   {
     commandId: "scout:send:*",
-    title: "Send Message to Agent",
-    description: "Send a text message to a specific agent. The commandId is scout:send:{agentId}. Requires a message parameter.",
+    title: "Tell Agent",
+    description:
+      "Open or compose the DM tell/update path for one specific agent. Use Tell for heads-up, replies, status, and steering an active turn inside the same DM.",
     category: "workspace",
-    keywords: ["send", "message", "tell", "ask", "request"],
+    keywords: ["tell", "message", "update", "dm", "reply", "steer"],
     params: [
-      { name: "agentId", description: "The agent identifier to message", type: "string" },
-      { name: "message", description: "The message body to send", type: "string" },
+      {
+        name: "agentId",
+        description: "The agent identifier to tell",
+        type: "string",
+      },
+      {
+        name: "message",
+        description: "The message body to send",
+        type: "string",
+      },
+    ],
+  },
+  {
+    commandId: "scout:ask:*",
+    title: "Ask Agent",
+    description:
+      "Open the DM ask path for one specific agent. Use Ask when the meaning is 'own this work and get back to me' and keep follow-up in the same DM.",
+    category: "workspace",
+    keywords: ["ask", "assign", "task", "dm", "work", "reply"],
+    params: [
+      {
+        name: "agentId",
+        description: "The agent identifier to ask",
+        type: "string",
+      },
+      {
+        name: "message",
+        description: "The message body to send",
+        type: "string",
+      },
     ],
   },
   {
     commandId: "scout:interrupt:*",
     title: "Interrupt Agent",
-    description: "Send Ctrl-C to interrupt a working agent. The commandId is scout:interrupt:{agentId}.",
+    description:
+      "Send Ctrl-C to interrupt a working agent. The commandId is scout:interrupt:{agentId}.",
     category: "workspace",
     keywords: ["stop", "interrupt", "cancel", "halt", "kill"],
     dangerous: true,
     params: [
-      { name: "agentId", description: "The agent identifier to interrupt", type: "string" },
+      {
+        name: "agentId",
+        description: "The agent identifier to interrupt",
+        type: "string",
+      },
     ],
   },
 ];
@@ -123,7 +164,8 @@ const intents: AppIntent[] = [
 export const scoutApp: HudsonApp = {
   id: "openscout",
   name: "Scout",
-  description: "All your agents, one message away. Scout is a control plane for managing coding agents — it shows their status, routes messages between them, and lets you steer, interrupt, or dispatch work to any agent in the fleet.",
+  description:
+    "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
   mode: "panel",
 
   Provider: ScoutProvider,

@@ -47,6 +47,17 @@ know a name yet, start here instead of guessing.
 
 An agent name is the address you type to reach one agent. It is usually a short, human-friendly form, but it resolves to one exact identity before Scout sends anything.
 
+## 2b. Use One Routing Model Everywhere
+
+The routing rules do not change by surface:
+
+- one target -> DM
+- group coordination -> explicit channel
+- everyone -> shared broadcast
+- tell / update -> `send`
+- owned work / requested reply -> `ask`
+- follow-up stays in the same DM or explicit channel
+
 ## 3. Try The Two Main Paths
 
 ```bash

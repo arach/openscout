@@ -17,27 +17,88 @@ export function useScoutCommands(): CommandOption[] {
 
   return useMemo<CommandOption[]>(() => {
     const commands: CommandOption[] = [
-      { id: "nav:home", label: "Go to Home", action: () => navigate({ view: "inbox" }), shortcut: "Cmd+1" },
-      { id: "nav:agents", label: "Go to Agents", action: () => navigate({ view: "agents" }), shortcut: "Cmd+2" },
-      { id: "nav:fleet", label: "Go to Fleet", action: () => navigate({ view: "fleet" }), shortcut: "Cmd+3" },
-      { id: "nav:sessions", label: "Go to Sessions", action: () => navigate({ view: "sessions" }), shortcut: "Cmd+4" },
-      { id: "nav:activity", label: "Go to Activity", action: () => navigate({ view: "activity" }), shortcut: "Cmd+5" },
-      { id: "nav:mesh", label: "Go to Mesh", action: () => navigate({ view: "mesh" }), shortcut: "Cmd+6" },
-      { id: "nav:settings", label: "Open Settings", action: () => navigate({ view: "settings" }), shortcut: "Cmd+," },
-      { id: "nav:pair", label: "Pair Device", action: () => navigate({ view: "settings" }) },
-      { id: "scout:reload", label: "Reload Agents", action: () => void reload() },
+      {
+        id: "nav:home",
+        label: "Go to Home",
+        action: () => navigate({ view: "inbox" }),
+        shortcut: "Cmd+1",
+      },
+      {
+        id: "nav:agents",
+        label: "Go to Agents",
+        action: () => navigate({ view: "agents" }),
+        shortcut: "Cmd+2",
+      },
+      {
+        id: "nav:fleet",
+        label: "Go to Fleet",
+        action: () => navigate({ view: "fleet" }),
+        shortcut: "Cmd+3",
+      },
+      {
+        id: "nav:sessions",
+        label: "Go to Sessions",
+        action: () => navigate({ view: "sessions" }),
+        shortcut: "Cmd+4",
+      },
+      {
+        id: "nav:activity",
+        label: "Go to Activity",
+        action: () => navigate({ view: "activity" }),
+        shortcut: "Cmd+5",
+      },
+      {
+        id: "nav:mesh",
+        label: "Go to Mesh",
+        action: () => navigate({ view: "mesh" }),
+        shortcut: "Cmd+6",
+      },
+      {
+        id: "nav:settings",
+        label: "Open Settings",
+        action: () => navigate({ view: "settings" }),
+        shortcut: "Cmd+,",
+      },
+      {
+        id: "nav:pair",
+        label: "Pair Device",
+        action: () => navigate({ view: "settings" }),
+      },
+      {
+        id: "scout:reload",
+        label: "Reload Agents",
+        action: () => void reload(),
+      },
     ];
 
     for (const agent of agents) {
       commands.push({
         id: `scout:open:${agent.id}`,
         label: `Open ${agent.name}`,
-        action: () => navigate({ view: "conversation", conversationId: conversationForAgent(agent.id) }),
+        action: () =>
+          navigate({
+            view: "conversation",
+            conversationId: conversationForAgent(agent.id),
+          }),
       });
       commands.push({
         id: `scout:send:${agent.id}`,
-        label: `Send message to ${agent.name}`,
-        action: () => navigate({ view: "conversation", conversationId: conversationForAgent(agent.id) }),
+        label: `Tell ${agent.name}`,
+        action: () =>
+          navigate({
+            view: "conversation",
+            conversationId: conversationForAgent(agent.id),
+          }),
+      });
+      commands.push({
+        id: `scout:ask:${agent.id}`,
+        label: `Ask ${agent.name}`,
+        action: () =>
+          navigate({
+            view: "conversation",
+            conversationId: conversationForAgent(agent.id),
+            composeMode: "ask",
+          }),
       });
       commands.push({
         id: `scout:interrupt:${agent.id}`,
@@ -54,7 +115,8 @@ export function useScoutCommands(): CommandOption[] {
 export function useScoutStatus(): { label: string; color: StatusColor } {
   const { agents, onlineCount } = useScout();
   if (agents.length === 0) return { label: "offline", color: "neutral" };
-  if (onlineCount === 0) return { label: `0/${agents.length} agents`, color: "amber" };
+  if (onlineCount === 0)
+    return { label: `0/${agents.length} agents`, color: "amber" };
   return { label: `${onlineCount}/${agents.length} agents`, color: "emerald" };
 }
 
@@ -77,7 +139,9 @@ export function useScoutNavCenter(): ReactNode | null {
   const label = VIEW_LABELS[route.view] ?? route.view;
   return createElement(
     "span",
-    { className: "text-[10px] font-mono uppercase tracking-wider text-white/40" },
+    {
+      className: "text-[10px] font-mono uppercase tracking-wider text-white/40",
+    },
     label,
   );
 }

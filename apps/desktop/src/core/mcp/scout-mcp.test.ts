@@ -93,6 +93,12 @@ describe("createScoutMcpServer", () => {
       "invocations_ask",
       "work_update",
     ]);
+    expect(result.tools.find((tool) => tool.name === "whoami")?.description)
+      .toContain("Start here.");
+    expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
+      .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
+    expect(result.tools.find((tool) => tool.name === "work_update")?.description)
+      .toContain("progress, waiting, review, and done transitions");
   });
 
   test("surfaces broker-backed search results", async () => {

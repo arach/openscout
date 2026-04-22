@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatScoutAskRoutingError } from "./ask.ts";
+import { formatScoutAskRoutingError, renderAskCommandHelp } from "./ask.ts";
+
+describe("renderAskCommandHelp", () => {
+  test("documents owned-work semantics and DM default routing", () => {
+    const help = renderAskCommandHelp();
+
+    expect(help).toContain("Ask one agent to do work or return a concrete answer.");
+    expect(help).toContain("one target + no channel            -> DM");
+    expect(help).toContain("Use ask when the meaning is \"do this and get back to me.\"");
+  });
+});
 
 describe("formatScoutAskRoutingError", () => {
   test("explains discovered targets with an explicit startup command", () => {

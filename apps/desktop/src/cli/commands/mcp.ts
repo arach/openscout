@@ -10,8 +10,15 @@ export function renderMcpCommandHelp(): string {
     "Run a Scout MCP server over stdio.",
     "",
     "This command is intended to be launched by an MCP host. It exposes",
-    "broker-backed tools for sender resolution, live agent search and resolve,",
-    "message send, and ask-style invocations.",
+    "the same canonical Scout coordination loop the CLI teaches:",
+    "",
+    "  whoami           resolve sender identity for this workspace",
+    "  agents_search    find likely targets",
+    "  agents_resolve   pin one exact target when needed",
+    "  messages_send    tell / update in a DM or explicit channel",
+    "  invocations_ask  owned work / reply handoff",
+    "  work_update      progress / waiting / review / done for existing work",
+    "  card_create      fresh reply-ready return address",
   ].join("\n");
 }
 

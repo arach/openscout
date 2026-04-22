@@ -1016,7 +1016,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Scout Whoami",
       description:
-        "Resolve the default Scout sender identity for a working directory.",
+        "Start here. Resolve the default Scout sender identity and broker URL for a working directory before creating cards, sending messages, or handing off work.",
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
@@ -1056,7 +1056,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Create Scout Agent Card",
       description:
-        "Create a dedicated Scout agent card with a reply-ready return address. Use this when another agent should get back to you on a fresh project-scoped inbox. One target stays private by default; group coordination still requires an explicit channel elsewhere.",
+        "Create a dedicated Scout agent card with a reply-ready return address. Use this when another agent should get back to you on a fresh project-scoped inbox or worktree-scoped alias. One target stays private by default; group coordination still requires an explicit channel elsewhere.",
       inputSchema: z.object({
         projectPath: z.string().optional(),
         currentDirectory: z.string().optional(),
@@ -1115,7 +1115,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Search Scout Agents",
       description:
-        "Search the live Scout broker and discovered agent inventory for @mention candidates.",
+        "Search the live Scout broker and discovered agent inventory for @mention candidates. Use this after whoami when you know roughly who you need but do not yet have an exact handle.",
       inputSchema: z.object({
         query: z.string().optional(),
         currentDirectory: z.string().optional(),
@@ -1156,7 +1156,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Resolve Scout Agent",
       description:
-        "Resolve one exact Scout agent handle or return ambiguity details.",
+        "Resolve one exact Scout agent handle or return ambiguity details. Use this before send or ask when a short handle may be ambiguous.",
       inputSchema: z.object({
         label: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -1197,7 +1197,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. One explicit target without a channel becomes a DM. Group delivery requires an explicit channel. Use broadcast or channel='shared' for shared updates. Prefer mentionAgentIds for first-class targeting.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. One explicit target without a channel becomes a DM. Group delivery requires an explicit channel. Use broadcast or channel='shared' for shared updates. For owned work or a reply lifecycle, use invocations_ask instead. Prefer mentionAgentIds for first-class targeting.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -1296,7 +1296,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask Scout Agent",
       description:
-        "Create a broker-backed Scout ask/work handoff. One target without a channel becomes a DM. Provide workItem to mint a durable workId beyond the message and flight ids.",
+        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' One target without a channel becomes a DM. Provide workItem to mint a durable workId beyond the message and flight ids. Use awaitReply only when the host cannot delegate background waiting.",
       inputSchema: z
         .object({
           body: z.string().min(1),
@@ -1445,7 +1445,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Update Scout Work",
       description:
-        "Update a durable Scout work item and append a matching collaboration event.",
+        "Update a durable Scout work item and append a matching collaboration event. Use this for progress, waiting, review, and done transitions instead of sending a second ad hoc status message.",
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),

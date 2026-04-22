@@ -159,20 +159,27 @@
   transition: background 0.1s ease;
 }
 
-.s-inbox-thread-redesign.s-sessions-screen .s-inbox-row[data-unread="true"]::before {
+.s-inbox-thread-redesign.s-sessions-screen
+  .s-inbox-row[data-unread="true"]::before {
   background: var(--accent);
 }
 
-.s-inbox-thread-redesign.s-sessions-screen .s-inbox-row[data-unread="false"] .s-inbox-name {
+.s-inbox-thread-redesign.s-sessions-screen
+  .s-inbox-row[data-unread="false"]
+  .s-inbox-name {
   font-weight: 500;
   color: var(--muted);
 }
 
-.s-inbox-thread-redesign.s-sessions-screen .s-inbox-row[data-unread="false"] .s-inbox-preview {
+.s-inbox-thread-redesign.s-sessions-screen
+  .s-inbox-row[data-unread="false"]
+  .s-inbox-preview {
   opacity: 0.6;
 }
 
-.s-inbox-thread-redesign.s-sessions-screen .s-inbox-row[data-unread="true"] .s-inbox-name {
+.s-inbox-thread-redesign.s-sessions-screen
+  .s-inbox-row[data-unread="true"]
+  .s-inbox-name {
   font-weight: 600;
   color: var(--ink);
 }
@@ -360,7 +367,9 @@
   transition: opacity 0.15s ease;
 }
 
-.s-inbox-thread-redesign.s-conversation .s-conv-header:hover .s-thread-header-meta {
+.s-inbox-thread-redesign.s-conversation
+  .s-conv-header:hover
+  .s-thread-header-meta {
   opacity: 0.65;
 }
 
@@ -464,15 +473,20 @@
   max-width: min(85%, 780px);
 }
 
-.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-msg-you) {
+.s-inbox-thread-redesign.s-conversation
+  .s-thread-message-block:has(.s-msg-you) {
   align-self: flex-end;
 }
 
-.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-msg-you) .s-msg-header {
+.s-inbox-thread-redesign.s-conversation
+  .s-thread-message-block:has(.s-msg-you)
+  .s-msg-header {
   flex-direction: row-reverse;
 }
 
-.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-msg-you) .s-msg-meta {
+.s-inbox-thread-redesign.s-conversation
+  .s-thread-message-block:has(.s-msg-you)
+  .s-msg-meta {
   flex-direction: row-reverse;
 }
 
@@ -483,7 +497,8 @@
   margin: 6px 0;
 }
 
-.s-inbox-thread-redesign.s-conversation .s-thread-message-block:has(.s-thread-day-divider) {
+.s-inbox-thread-redesign.s-conversation
+  .s-thread-message-block:has(.s-thread-day-divider) {
   max-width: 100%;
   align-self: stretch;
 }
@@ -559,11 +574,15 @@
 }
 
 .s-inbox-thread-redesign.s-conversation .s-msg[data-class="status"] .s-msg-card,
-.s-inbox-thread-redesign.s-conversation .s-msg[data-class="scout.dispatch"] .s-msg-card {
+.s-inbox-thread-redesign.s-conversation
+  .s-msg[data-class="scout.dispatch"]
+  .s-msg-card {
   border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
 }
 
-.s-inbox-thread-redesign.s-conversation .s-msg[data-class="system"] .s-msg-card {
+.s-inbox-thread-redesign.s-conversation
+  .s-msg[data-class="system"]
+  .s-msg-card {
   background: var(--bg);
 }
 
@@ -624,12 +643,33 @@
   border-radius: 20px;
   background: var(--surface);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 2%, transparent);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-thread-compose-shell:focus-within {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.s-inbox-thread-redesign.s-conversation .s-compose-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 0;
+}
+
+.s-inbox-thread-redesign.s-conversation .s-compose-mode {
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--bg) 82%, var(--surface));
+}
+
+.s-inbox-thread-redesign.s-conversation .s-compose-mode-detail {
+  font-size: 10px;
+  color: var(--dim);
+  line-height: 1.4;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-compose-input {
@@ -683,7 +723,9 @@
   border-radius: 50%;
   background: var(--ink);
   box-shadow: none;
-  transition: opacity 0.12s ease, transform 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
 }
 
 .s-inbox-thread-redesign.s-conversation .s-compose-send:not(:disabled):hover {
@@ -729,6 +771,11 @@
     justify-content: flex-start;
     padding-left: 40px;
   }
+
+  .s-inbox-thread-redesign.s-conversation .s-compose-mode-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 720px) {
@@ -770,7 +817,9 @@
 }
 
 @media (max-width: 560px) {
-  .s-inbox-thread-redesign.s-sessions-screen .s-thread-overview-heading .s-page-title {
+  .s-inbox-thread-redesign.s-sessions-screen
+    .s-thread-overview-heading
+    .s-page-title {
     font-size: 16px;
   }
 

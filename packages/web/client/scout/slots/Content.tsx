@@ -41,9 +41,20 @@ function renderScreen(
 ) {
   switch (route.view) {
     case "conversation":
-      return <ConversationScreen conversationId={route.conversationId} navigate={navigate} />;
+      return (
+        <ConversationScreen
+          conversationId={route.conversationId}
+          initialComposeMode={route.composeMode}
+          navigate={navigate}
+        />
+      );
     case "agent-info":
-      return <AgentInfoScreen conversationId={route.conversationId} navigate={navigate} />;
+      return (
+        <AgentInfoScreen
+          conversationId={route.conversationId}
+          navigate={navigate}
+        />
+      );
     case "settings":
       return <SettingsScreen navigate={navigate} />;
     case "agents":
@@ -58,7 +69,12 @@ function renderScreen(
       return <FleetScreen navigate={navigate} />;
     case "sessions":
       if (route.sessionId) {
-        return <ConversationScreen conversationId={route.sessionId} navigate={navigate} />;
+        return (
+          <ConversationScreen
+            conversationId={route.sessionId}
+            navigate={navigate}
+          />
+        );
       }
       return <SessionsScreen navigate={navigate} />;
     case "mesh":

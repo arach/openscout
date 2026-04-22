@@ -13,6 +13,29 @@ import {
   waitForScoutFlight,
 } from "../../core/broker/service.ts";
 
+const HELP_FLAGS = new Set(["--help", "-h"]);
+
+export function renderAskCommandHelp(): string {
+  return [
+    "Usage: scout ask --to <agent> [--as <sender>] [--channel <name>] [--timeout <seconds>] [--harness <runtime>] <message>",
+    "",
+    "Ask one agent to do work or return a concrete answer.",
+    "",
+    "Routing:",
+    "  one target + no channel            -> DM",
+    "  --channel <name>                   -> named group thread",
+    "  short @name                        -> must resolve to exactly one routable agent",
+    "",
+    "Use ask when the meaning is \"do this and get back to me.\"",
+    "Keep progress, review, and completion in that same DM or explicit channel.",
+    "",
+    "Examples:",
+    '  scout ask --to hudson "review the parser"',
+    '  scout ask --as premotion.master.mini --to hudson "build the editor"',
+    '  scout ask --to vox.harness:codex "take another pass on the runtime fix"',
+  ].join("\n");
+}
+
 function renderScoutTargetLabel(targetLabel: string): string {
   const trimmed = targetLabel.trim();
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
@@ -77,6 +100,11 @@ export async function runAskCommand(
   context: ScoutCommandContext,
   args: string[],
 ): Promise<void> {
+  if (args.some((arg) => HELP_FLAGS.has(arg))) {
+    context.output.writeText(renderAskCommandHelp());
+    return;
+  }
+
   const options = parseAskCommandOptions(
     args,
     defaultScoutContextDirectory(context),

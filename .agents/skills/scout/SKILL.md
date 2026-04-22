@@ -52,6 +52,29 @@ Interpret them like this:
 
 Use the CLI for quick orientation. Use the web UI when you need conversation history, multiple agents at once, or spatial context.
 
+## One true paths by surface
+
+The semantics do not change by host. Only the verbs change:
+
+| Meaning | CLI | MCP | Venue rule |
+| ------- | --- | --- | ---------- |
+| Resolve who you are | `scout whoami` | `whoami` | start here |
+| Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | do not guess |
+| Tell / status / reply | `scout send` | `messages_send` | one target -> DM |
+| Owned work / requested reply | `scout ask` | `invocations_ask` | one target -> DM |
+| Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
+| Fresh reply-ready identity | `scout card create` | `card_create` | project-scoped inbox |
+| Everybody on this broker | `scout broadcast` | `messages_send` with `channel="shared"` | shared broadcast only |
+
+Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI. The same rules apply everywhere:
+
+- one target -> DM
+- group coordination -> explicit channel
+- everyone -> shared broadcast
+- tell/update -> send
+- owned work / requested reply -> ask
+- follow-up stays in the same DM or explicit channel
+
 ## Frequent questions
 
 Map common operator/agent questions to one command:

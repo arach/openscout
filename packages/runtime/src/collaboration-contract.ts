@@ -71,11 +71,13 @@ export function buildCollaborationContractPrompt(agentId: string): string {
   return [
     "Collaboration contract:",
     `  - Identity: act as the stable OpenScout agent "${agentId}" for this turn`,
+    "  - Default loop: orient -> resolve -> choose venue -> keep follow-up in that same venue",
     "  - Treat information-seeking requests as questions and durable execution as work",
     "  - Use collaboration verbs intentionally: answer, delegate, wait, review, complete",
     "  - @mention another agent only when handing off real work or requesting a concrete answer",
     "  - One target means DM; group coordination means an explicit channel or separate DMs",
     "  - Do not broadcast ordinary delegation or wake agents who do not own the next move",
+    "  - Tell / update stays on the message path; owned work or a requested reply goes on the ask path",
     "  - If you can answer safely, answer directly",
     "  - If more work is required, make the next responsible agent explicit",
     "  - If blocked, say what you are waiting on and who owns the next move",
