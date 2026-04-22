@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { WorkList } from "../components/WorkList.tsx";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -19,11 +19,6 @@ import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./agents-screen.css";
 import "./ops-screen.css";
 
-type AgentGroup = {
-  key: "working" | "available" | "offline";
-  title: string;
-  agents: Agent[];
-};
 
 function agentLabel(
   agent: Agent,
@@ -596,89 +591,6 @@ function AgentDetailWithRail({
   );
 }
 
-function RosterRow({
-  agent,
-  allAgents,
-  selected,
-  onClick,
-}: {
-  agent: Agent;
-  allAgents: Agent[];
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const { name, qualifier } = agentLabel(agent, allAgents);
-  const state = normalizeAgentState(agent.state);
-  const showContextMenu = useContextMenu();
-
-  return (
-    <div
-      className={`s-profile-roster-row${selected ? " s-profile-roster-row--active" : ""}`}
-      onClick={onClick}
-      onContextMenu={(e) => {
-        const items: MenuItem[] = [
-          {
-            kind: "action",
-            label: "Copy Agent Name",
-            onSelect: () => navigator.clipboard.writeText(name),
-          },
-          {
-            kind: "action",
-            label: "Copy Agent ID",
-            onSelect: () => navigator.clipboard.writeText(agent.id),
-          },
-        ];
-        if (agent.handle) {
-          items.push({
-            kind: "action",
-            label: `Copy @${agent.handle}`,
-            onSelect: () =>
-              navigator.clipboard.writeText(`@${agent.handle}`),
-          });
-        }
-        showContextMenu(e, items);
-      }}
-    >
-      <div className="s-profile-roster-avatar-wrap">
-        <div
-          className="s-profile-roster-avatar"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0].toUpperCase()}
-        </div>
-        <span
-          className={`s-profile-roster-status-dot s-profile-roster-status-dot--${state}`}
-          style={{ background: stateColor(agent.state) }}
-        />
-      </div>
-      <div className="s-profile-roster-row-body">
-        <div className="s-profile-roster-row-top">
-          <span className="s-profile-roster-row-name">
-            {name}
-            {qualifier && (
-              <span className="s-profile-roster-row-qualifier">
-                {qualifier}
-              </span>
-            )}
-          </span>
-          {agent.updatedAt && (
-            <span className="s-profile-roster-row-time">
-              {timeAgo(agent.updatedAt)}
-            </span>
-          )}
-        </div>
-        {(agent.project || agent.branch) && (
-          <div className="s-profile-roster-row-sub">
-            {agent.project ?? ""}
-            {agent.project && agent.branch ? " · " : ""}
-            {agent.branch ?? ""}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function AgentsScreen({
   navigate,
   selectedAgentId,
@@ -701,48 +613,6 @@ export function AgentsScreen({
   }, [load]);
   useBrokerEvents(load);
 
-  const sortedAgents = useMemo(
-    () =>
-      [...agents].sort((a, b) => {
-        const order = { working: 0, available: 1, offline: 2 } as const;
-        const sd =
-          order[normalizeAgentState(a.state)] -
-          order[normalizeAgentState(b.state)];
-        if (sd !== 0) return sd;
-        const ud = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-        if (ud !== 0) return ud;
-        return a.name.localeCompare(b.name);
-      }),
-    [agents],
-  );
-
-  const groups: AgentGroup[] = useMemo(
-    () => [
-      {
-        key: "working",
-        title: "Working",
-        agents: sortedAgents.filter(
-          (a) => normalizeAgentState(a.state) === "working",
-        ),
-      },
-      {
-        key: "available",
-        title: "Available",
-        agents: sortedAgents.filter(
-          (a) => normalizeAgentState(a.state) === "available",
-        ),
-      },
-      {
-        key: "offline",
-        title: "Offline",
-        agents: sortedAgents.filter(
-          (a) => normalizeAgentState(a.state) === "offline",
-        ),
-      },
-    ],
-    [sortedAgents],
-  );
-
   const selectedAgent = selectedAgentId
     ? agents.find((a) => a.id === selectedAgentId) ?? null
     : null;
@@ -750,150 +620,40 @@ export function AgentsScreen({
   const { conversationByAgentId, sessionByAgentId } =
     directSessionMaps(sessions);
 
-  const ROSTER_MIN = 200;
-  const ROSTER_MAX = 400;
-  const ROSTER_KEY = "scout-agents-roster-w";
-  const [rosterWidth, setRosterWidth] = useState(() => {
-    try {
-      const v = localStorage.getItem(ROSTER_KEY);
-      if (v) {
-        const n = Number(v);
-        if (n >= ROSTER_MIN && n <= ROSTER_MAX) return n;
-      }
-    } catch {}
-    return 240;
-  });
-  const rosterDragging = useRef(false);
-  const rosterRef = useRef<HTMLDivElement>(null);
+  if (activeConversationId && selectedAgent) {
+    return (
+      <ConversationScreen
+        conversationId={activeConversationId}
+        navigate={navigate}
+      />
+    );
+  }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(ROSTER_KEY, String(rosterWidth));
-    } catch {}
-  }, [rosterWidth]);
-
-  const onRosterResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      rosterDragging.current = true;
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      const panelLeft =
-        rosterRef.current?.getBoundingClientRect().left ?? 0;
-      const onMove = (ev: MouseEvent) => {
-        if (!rosterDragging.current) return;
-        setRosterWidth(
-          Math.min(ROSTER_MAX, Math.max(ROSTER_MIN, ev.clientX - panelLeft)),
-        );
-      };
-      const onUp = () => {
-        rosterDragging.current = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [],
-  );
-
-  const workingCount = groups[0].agents.length;
-  const availableCount = groups[1].agents.length;
+  if (selectedAgent) {
+    return (
+      <AgentDetailWithRail
+        agent={selectedAgent}
+        allAgents={agents}
+        session={sessionByAgentId.get(selectedAgent.id) ?? null}
+        conversationId={
+          conversationByAgentId.get(selectedAgent.id) ??
+          selectedAgent.conversationId ??
+          null
+        }
+        navigate={navigate}
+      />
+    );
+  }
 
   return (
-    <div
-      className={[
-        "s-profile-layout",
-        selectedAgent ? "s-profile-layout--selected" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      style={{ "--agents-roster-w": `${rosterWidth}px` } as React.CSSProperties}
-    >
-      <div ref={rosterRef} className="s-profile-roster">
-        <div className="s-profile-roster-scroll">
-          <div className="s-profile-roster-header">
-            <div className="s-profile-roster-title">Agents</div>
-            <div className="s-profile-roster-summary">
-              {agents.length} total &middot; {workingCount} working &middot;{" "}
-              {availableCount} available
-            </div>
-          </div>
-
-          {agents.length === 0 ? (
-            <div className="s-profile-roster-empty">
-              <p>No agents connected.</p>
-              <p>Agents appear here when they connect to the broker.</p>
-            </div>
-          ) : (
-            groups
-              .filter((g) => g.agents.length > 0)
-              .map((g) => (
-                <div key={g.key} className="s-profile-roster-group">
-                  <div className="s-profile-roster-group-header">
-                    <span className="s-profile-roster-group-title">
-                      {g.title}
-                    </span>
-                    <span className="s-profile-roster-group-count">
-                      {g.agents.length}
-                    </span>
-                  </div>
-                  {g.agents.map((a) => (
-                    <RosterRow
-                      key={a.id}
-                      agent={a}
-                      allAgents={agents}
-                      selected={a.id === selectedAgentId}
-                      onClick={() =>
-                        navigate({ view: "agents", agentId: a.id })
-                      }
-                    />
-                  ))}
-                </div>
-              ))
-          )}
-        </div>
+    <div className="s-profile-center" style={{ height: "100%" }}>
+      <div className="s-profile-empty">
+        <h2 className="s-profile-empty-title">Select an agent</h2>
+        <p className="s-profile-empty-copy">
+          Pick an agent from the sidebar to view its profile, current work,
+          and session context.
+        </p>
       </div>
-
-      <div
-        className="s-profile-resize"
-        onMouseDown={onRosterResizeStart}
-        role="separator"
-        aria-orientation="vertical"
-      />
-
-      {activeConversationId && selectedAgent ? (
-        <div className="s-profile-center">
-          <ConversationScreen
-            conversationId={activeConversationId}
-            navigate={navigate}
-          />
-        </div>
-      ) : selectedAgent ? (
-        <AgentDetailWithRail
-          agent={selectedAgent}
-          allAgents={agents}
-          session={sessionByAgentId.get(selectedAgent.id) ?? null}
-          conversationId={
-            conversationByAgentId.get(selectedAgent.id) ??
-            selectedAgent.conversationId ??
-            null
-          }
-          navigate={navigate}
-        />
-      ) : (
-        <div className="s-profile-center">
-          <div className="s-profile-empty">
-            <h2 className="s-profile-empty-title">Select an agent</h2>
-            <p className="s-profile-empty-copy">
-              Pick an agent from the roster to view its profile, current work,
-              and session context.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
