@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.53",
+  "version": "0.2.54",
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
   "bin": {
@@ -95,8 +95,8 @@
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },
   "dependencies": {
-    "@openscout/agent-sessions": "0.2.53",
-    "@openscout/protocol": "0.2.53",
+    "@openscout/agent-sessions": "0.2.54",
+    "@openscout/protocol": "0.2.54",
     "drizzle-orm": "^0.45.2",
     "smol-toml": "^1.6.1"
   },
