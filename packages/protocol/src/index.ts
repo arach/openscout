@@ -4,6 +4,7 @@ export * from "./agent-identity.js";
 export * from "./agent-address.js";
 export * from "./agent-selectors.js";
 export * from "./scout-agent-card.js";
+export * from "./relay-agent-card.js";
 export * from "./mesh.js";
 export * from "./conversations.js";
 export * from "./collaboration.js";
