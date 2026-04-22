@@ -687,6 +687,10 @@ function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
   return lines.join("\n");
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === process.argv[1] &&
+  !process.argv[1].endsWith("/main.mjs")
+) {
   await main();
 }
