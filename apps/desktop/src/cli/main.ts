@@ -1,3 +1,7 @@
+import { existsSync, readFileSync, writeFileSync, statSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { parseScoutArgv } from "./argv.ts";
 import { createScoutCommandContext, defaultScoutContextDirectory } from "./context.ts";
 import { ScoutCliError } from "./errors.ts";
@@ -13,6 +17,9 @@ async function main() {
   const context = createScoutCommandContext({ outputMode: input.outputMode });
   let command = input.command;
   let commandArgs = input.args;
+
+  // Restart broker if CLI was updated since last run
+  await ensureBrokerUptodate();
 
   if (input.versionRequested) {
     context.output.writeText(SCOUT_APP_VERSION);
@@ -55,6 +62,39 @@ async function main() {
   const resolvedCommand = registration.canonicalName ?? registration.name;
   const handler = await loadScoutCommandHandler(resolvedCommand as Parameters<typeof loadScoutCommandHandler>[0]);
   await handler(context, commandArgs);
+}
+
+/**
+ * Detects if the CLI binary was updated (newer mtime than our checkpoint)
+ * and silently restarts the broker to pick up the fresh runtime.
+ */
+async function ensureBrokerUptodate(): Promise<void> {
+  try {
+    const execPath = process.execPath;
+    const mtime = statSync(execPath).mtimeMs;
+    const checkpointDir = join(homedir(), ".scout");
+    const mtimePath = join(checkpointDir, "cli-mtime");
+
+    const lastMtime = existsSync(mtimePath) ? Number(readFileSync(mtimePath, "utf8").trim()) : 0;
+
+    if (mtime > lastMtime) {
+      // CLI was updated — bounce the broker
+      const uid = process.getuid();
+      const plistPath = join(homedir(), "Library", "LaunchAgents", "dev.openscout.broker.plist");
+      spawnSync("launchctl", ["bootout", `gui/${uid}/dev.openscout.broker`], { stdio: "ignore" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+      spawnSync("launchctl", ["bootstrap", `gui/${uid}`, plistPath], { stdio: "ignore" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+    }
+
+    // Update checkpoint on every run
+    if (!existsSync(checkpointDir)) {
+      mkdirSync(checkpointDir, { recursive: true });
+    }
+    writeFileSync(mtimePath, String(Math.floor(mtime)), { encoding: "utf8", flag: "w" });
+  } catch {
+    // Non-fatal: don't block command execution if broker check fails
+  }
 }
 
 try {
