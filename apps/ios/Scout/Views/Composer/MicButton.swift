@@ -85,20 +85,15 @@ struct MicButton: View {
         .accessibilityRemoveTraits(state == .disabled ? .isButton : [])
     }
 
-    // MARK: - Glow Ring (Talkie pattern: blurred circle + pulsing)
-
     private var glowRing: some View {
         ZStack {
-            // Outer diffuse glow
             Circle()
-                .fill(ScoutColors.statusError)
+                .fill(Self.micColor)
                 .frame(width: glowSize + 12, height: glowSize + 12)
                 .blur(radius: 18)
                 .opacity(glowPulsing ? 0.4 : 0.15)
-
-            // Inner sharp glow
             Circle()
-                .fill(ScoutColors.statusError)
+                .fill(Self.micColor)
                 .frame(width: glowSize, height: glowSize)
                 .blur(radius: 12)
                 .opacity(glowPulsing ? 0.55 : 0.25)
@@ -154,15 +149,14 @@ struct MicButton: View {
 
     // MARK: - Colors
 
-    // Talkie-style warm red for the mic button — pops against dark backgrounds
-    private static let micColor = Color(red: 1.0, green: 0.23, blue: 0.19) // #FF3B30
+    private static let micColor = Color(red: 1.0, green: 0.23, blue: 0.19)
 
     private var buttonFillColor: Color {
         switch state {
         case .idle:         Self.micColor
         case .recording:    Self.micColor
-        case .transcribing: ScoutColors.statusStreaming
-        case .disabled:     ScoutColors.textMuted.opacity(0.3)
+        case .transcribing: ScoutColors.textSecondary
+        case .disabled:     ScoutColors.textMuted.opacity(0.2)
         }
     }
 
@@ -170,7 +164,7 @@ struct MicButton: View {
         switch state {
         case .idle:         Self.micColor.opacity(0.4)
         case .recording:    Self.micColor.opacity(0.6)
-        case .transcribing: ScoutColors.statusStreaming.opacity(0.4)
+        case .transcribing: ScoutColors.textSecondary.opacity(0.4)
         case .disabled:     ScoutColors.textMuted.opacity(0.15)
         }
     }

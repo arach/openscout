@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type {
@@ -95,6 +96,84 @@ function parseJsonObject(value: string | null | undefined): Record<string, unkno
   } catch {
     return {};
   }
+}
+
+/* ── Session catalog ── */
+
+export type SessionCatalogEntry = {
+  id: string;
+  startedAt: number;
+  endedAt?: number;
+  cwd: string;
+};
+
+export type SessionCatalog = {
+  activeSessionId: string | null;
+  sessions: SessionCatalogEntry[];
+};
+
+const SESSION_CATALOG_FILENAME = "session-catalog.json";
+const SESSION_CATALOG_MAX_ENTRIES = 64;
+
+export function readSessionCatalogSync(runtimeDirectory: string): SessionCatalog {
+  const catalogPath = join(runtimeDirectory, SESSION_CATALOG_FILENAME);
+  try {
+    if (!existsSync(catalogPath)) {
+      const legacyPath = join(runtimeDirectory, "claude-session-id.txt");
+      if (existsSync(legacyPath)) {
+        const legacyId = readFileSync(legacyPath, "utf8").trim();
+        if (legacyId) {
+          return {
+            activeSessionId: legacyId,
+            sessions: [{ id: legacyId, startedAt: Date.now(), cwd: "" }],
+          };
+        }
+      }
+      return { activeSessionId: null, sessions: [] };
+    }
+    const raw = readFileSync(catalogPath, "utf8").trim();
+    if (!raw) return { activeSessionId: null, sessions: [] };
+    const parsed = JSON.parse(raw) as SessionCatalog;
+    return {
+      activeSessionId: parsed.activeSessionId ?? null,
+      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    };
+  } catch {
+    return { activeSessionId: null, sessions: [] };
+  }
+}
+
+async function readSessionCatalog(runtimeDirectory: string): Promise<SessionCatalog> {
+  return readSessionCatalogSync(runtimeDirectory);
+}
+
+async function writeSessionCatalog(runtimeDirectory: string, catalog: SessionCatalog): Promise<void> {
+  const catalogPath = join(runtimeDirectory, SESSION_CATALOG_FILENAME);
+  await writeFile(catalogPath, JSON.stringify(catalog, null, 2) + "\n");
+}
+
+function catalogRecordSession(
+  catalog: SessionCatalog,
+  sessionId: string,
+  cwd: string,
+): SessionCatalog {
+  const now = Date.now();
+
+  const sessions = catalog.sessions.map((s) =>
+    s.id === catalog.activeSessionId && !s.endedAt
+      ? { ...s, endedAt: now }
+      : s,
+  );
+
+  if (!sessions.some((s) => s.id === sessionId)) {
+    sessions.push({ id: sessionId, startedAt: now, cwd });
+  }
+
+  while (sessions.length > SESSION_CATALOG_MAX_ENTRIES) {
+    sessions.shift();
+  }
+
+  return { activeSessionId: sessionId, sessions };
 }
 
 function appendActionOutput(blockState: BlockState | undefined, output: string): void {
@@ -602,7 +681,7 @@ export function buildClaudeStreamJsonSessionSnapshot(
 }
 
 class ClaudeStreamJsonSession {
-  private readonly sessionStatePath: string;
+  private readonly catalogDirectory: string;
 
   private readonly stdoutLogPath: string;
 
@@ -621,7 +700,7 @@ class ClaudeStreamJsonSession {
   private lastConfigSignature: string;
 
   constructor(private options: SessionRequestOptions) {
-    this.sessionStatePath = join(options.runtimeDirectory, "claude-session-id.txt");
+    this.catalogDirectory = options.runtimeDirectory;
     this.stdoutLogPath = join(options.logsDirectory, "stdout.log");
     this.stderrLogPath = join(options.logsDirectory, "stderr.log");
     this.lastConfigSignature = this.configSignature(options);
@@ -746,7 +825,9 @@ class ClaudeStreamJsonSession {
 
     if (options.resetSession) {
       this.claudeSessionId = null;
-      await rm(this.sessionStatePath, { force: true });
+      const catalog = await readSessionCatalog(this.catalogDirectory);
+      catalog.activeSessionId = null;
+      await writeSessionCatalog(this.catalogDirectory, catalog);
     }
   }
 
@@ -779,7 +860,8 @@ class ClaudeStreamJsonSession {
     await mkdir(this.options.runtimeDirectory, { recursive: true });
     await mkdir(this.options.logsDirectory, { recursive: true });
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
-    this.claudeSessionId = await readOptionalFile(this.sessionStatePath);
+    const catalog = await readSessionCatalog(this.catalogDirectory);
+    this.claudeSessionId = catalog.activeSessionId;
 
     const args = [
       "--verbose",
@@ -862,7 +944,11 @@ class ClaudeStreamJsonSession {
       const nextSessionId = event.session_id ?? event.sessionId ?? null;
       if (nextSessionId && nextSessionId !== this.claudeSessionId) {
         this.claudeSessionId = nextSessionId;
-        void writeFile(this.sessionStatePath, `${nextSessionId}\n`);
+        void (async () => {
+          const catalog = await readSessionCatalog(this.catalogDirectory);
+          const updated = catalogRecordSession(catalog, nextSessionId, this.options.cwd);
+          await writeSessionCatalog(this.catalogDirectory, updated);
+        })();
       }
       return;
     }
@@ -964,17 +1050,16 @@ export async function getClaudeStreamJsonAgentSnapshot(
   options: SessionRequestOptions,
 ): Promise<SessionState | null> {
   const stdoutLogPath = join(options.logsDirectory, "stdout.log");
-  const sessionStatePath = join(options.runtimeDirectory, "claude-session-id.txt");
-  const [rawLog, persistedSessionId] = await Promise.all([
+  const [rawLog, catalog] = await Promise.all([
     readOptionalFile(stdoutLogPath),
-    readOptionalFile(sessionStatePath),
+    readSessionCatalog(options.runtimeDirectory),
   ]);
 
   if (!rawLog) {
     return null;
   }
 
-  return buildClaudeStreamJsonSessionSnapshot(rawLog, options, persistedSessionId);
+  return buildClaudeStreamJsonSessionSnapshot(rawLog, options, catalog.activeSessionId);
 }
 
 export async function shutdownClaudeStreamJsonAgent(
@@ -985,7 +1070,9 @@ export async function shutdownClaudeStreamJsonAgent(
   const session = sessions.get(key);
   if (!session) {
     if (shutdownOptions.resetSession) {
-      await rm(join(options.runtimeDirectory, "claude-session-id.txt"), { force: true });
+      const catalog = await readSessionCatalog(options.runtimeDirectory);
+      catalog.activeSessionId = null;
+      await writeSessionCatalog(options.runtimeDirectory, catalog);
     }
     return;
   }

@@ -8,6 +8,7 @@ import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
+  AgentTab,
   Agent,
   AgentObservePayload,
   FleetState,
@@ -243,25 +244,22 @@ function SignalFeed({
   );
 }
 
-type AgentTab = "profile" | "observe" | "message";
-
 function AgentDetailWithRail({
   agent,
   allAgents,
   session,
   conversationId,
   navigate,
-  initialTab,
+  activeTab,
 }: {
   agent: Agent;
   allAgents: Agent[];
   session: SessionEntry | null;
   conversationId: string | null;
   navigate: (r: Route) => void;
-  initialTab?: AgentTab;
+  activeTab: AgentTab;
 }) {
   const { name, qualifier } = agentLabel(agent, allAgents);
-  const [tab, setTab] = useState<AgentTab>(initialTab ?? "profile");
   const [work, setWork] = useState<WorkItem[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
@@ -340,29 +338,29 @@ function AgentDetailWithRail({
   }, [agent.id]);
 
   useEffect(() => {
-    if (tab !== "observe") {
+    if (activeTab !== "observe") {
       return;
     }
     void loadObserve();
-  }, [tab, loadObserve]);
+  }, [activeTab, loadObserve]);
 
   useBrokerEvents(() => {
     void load();
     void loadMessages();
-    if (tab === "observe") {
+    if (activeTab === "observe") {
       void loadObserve();
     }
   });
 
   useEffect(() => {
-    if (tab !== "observe" || !observe?.data.live) {
+    if (activeTab !== "observe" || !observe?.data.live) {
       return;
     }
     const timer = setInterval(() => {
       void loadObserve();
     }, 2500);
     return () => clearInterval(timer);
-  }, [tab, observe?.data.live, loadObserve]);
+  }, [activeTab, observe?.data.live, loadObserve]);
 
   const currentWork = work.find(
     (w) => w.state === "working" || w.state === "review",
@@ -395,8 +393,17 @@ function AgentDetailWithRail({
     { key: "message", label: "Message", disabled: !conversationId },
   ];
 
+  const navigateToTab = (tab: AgentTab) => {
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      ...(conversationId ? { conversationId } : {}),
+      tab,
+    });
+  };
+
   return (
-    <div className={`s-profile-center${tab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
+    <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
       <button
         type="button"
         className="s-back s-profile-mobile-back"
@@ -494,9 +501,9 @@ function AgentDetailWithRail({
               <button
                 key={t.key}
                 type="button"
-                className={`s-profile-tab${tab === t.key ? " s-profile-tab--active" : ""}`}
+                className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
                 disabled={t.disabled}
-                onClick={() => setTab(t.key)}
+                onClick={() => navigateToTab(t.key)}
               >
                 {t.label}
               </button>
@@ -505,7 +512,7 @@ function AgentDetailWithRail({
         </div>
       </section>
 
-      {tab === "profile" && (
+      {activeTab === "profile" && (
         <div className="s-profile-tab-content">
           {(agent.project || agent.branch || agent.cwd) && (
             <div className="s-profile-facets">
@@ -635,7 +642,7 @@ function AgentDetailWithRail({
         </div>
       )}
 
-      {tab === "observe" && (
+      {activeTab === "observe" && (
         <div className="s-profile-tab-conversation">
           {observeLoading && !observe ? (
             <div className="s-profile-activity-empty">
@@ -650,7 +657,7 @@ function AgentDetailWithRail({
         </div>
       )}
 
-      {tab === "message" && conversationId && (
+      {activeTab === "message" && conversationId && (
         <div className="s-profile-tab-conversation">
           <ConversationScreen
             conversationId={conversationId}
@@ -667,10 +674,12 @@ export function AgentsScreen({
   navigate,
   selectedAgentId,
   conversationId: activeConversationId,
+  tab: activeTab,
 }: {
   navigate: (r: Route) => void;
   selectedAgentId?: string;
   conversationId?: string;
+  tab?: AgentTab;
 }) {
   const { agents } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
@@ -698,6 +707,8 @@ export function AgentsScreen({
       conversationByAgentId.get(selectedAgent.id) ??
       selectedAgent.conversationId ??
       null;
+    const resolvedTab = activeTab
+      ?? (activeConversationId ? "message" : "profile");
     return (
       <AgentDetailWithRail
         agent={selectedAgent}
@@ -705,7 +716,7 @@ export function AgentsScreen({
         session={sessionByAgentId.get(selectedAgent.id) ?? null}
         conversationId={resolvedConversationId}
         navigate={navigate}
-        initialTab={activeConversationId ? "observe" : "profile"}
+        activeTab={resolvedTab}
       />
     );
   }

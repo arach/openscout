@@ -67,26 +67,16 @@ struct ConnectionStatusPill: View {
 
     @State private var showingConnectionSheet = false
 
-    private var dotColor: Color {
-        connectionStatusColor(health: connection.health, state: connection.state)
-    }
-
     var body: some View {
         Button {
             showingConnectionSheet = true
         } label: {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(dotColor)
-                    .frame(width: 7, height: 7)
-                Text(connection.statusDetails.shortLabel)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(dotColor)
-                    .tracking(-0.3)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: Capsule())
+            Text(connection.statusDetails.shortLabel.uppercased())
+                .font(ScoutTypography.code(9, weight: .medium))
+                .foregroundStyle(ScoutColors.textMuted)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(.ultraThinMaterial, in: Capsule())
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showingConnectionSheet) {
@@ -107,17 +97,13 @@ struct ConnectionStatusTrayButton: View {
 
     @State private var showingConnectionSheet = false
 
-    private var dotColor: Color {
-        connectionStatusColor(health: connection.health, state: connection.state)
-    }
-
     var body: some View {
         Button {
             showingConnectionSheet = true
         } label: {
             Circle()
-                .fill(dotColor)
-                .frame(width: 10, height: 10)
+                .fill(ScoutColors.textMuted)
+                .frame(width: 8, height: 8)
                 .frame(width: 44, height: 44)
                 .background {
                     RoundedRectangle(cornerRadius: 8)
@@ -225,27 +211,21 @@ struct ConnectionStatusSheet: View {
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: ScoutSpacing.md) {
             HStack(spacing: ScoutSpacing.sm) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 10, height: 10)
                 Text(connection.statusDetails.title)
-                    .font(ScoutTypography.body(17, weight: .semibold))
+                    .font(ScoutTypography.code(15, weight: .semibold))
                     .foregroundStyle(ScoutColors.textPrimary)
                 Spacer()
-                Text(connection.statusDetails.shortLabel)
-                    .font(ScoutTypography.caption(12, weight: .semibold))
-                    .foregroundStyle(statusColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(statusColor.opacity(0.12), in: Capsule())
+                Text(connection.statusDetails.shortLabel.uppercased())
+                    .font(ScoutTypography.code(10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
             }
 
-            Text("Glanceable app health, remote bridge reachability, and the latest network read from your Mac.")
-                .font(ScoutTypography.caption(13))
+            Text("Bridge reachability and the latest network read from your Mac.")
+                .font(ScoutTypography.caption(12))
                 .foregroundStyle(ScoutColors.textSecondary)
         }
         .padding(ScoutSpacing.lg)
-        .background(ScoutColors.surfaceRaisedAdaptive, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(ScoutColors.surfaceRaisedAdaptive, in: RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
     }
 
     private var overviewCard: some View {
@@ -277,18 +257,18 @@ struct ConnectionStatusSheet: View {
             }
         }
         .padding(ScoutSpacing.lg)
-        .background(ScoutColors.surfaceRaisedAdaptive, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(ScoutColors.surfaceRaisedAdaptive, in: RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous))
     }
 
     private func narrativeCard(message: String, tone: NarrativeTone = .neutral) -> some View {
         Text(message)
-            .font(ScoutTypography.caption(13))
-            .foregroundStyle(tone == .error ? ScoutColors.statusError : ScoutColors.textSecondary)
+            .font(ScoutTypography.code(12))
+            .foregroundStyle(ScoutColors.textSecondary)
             .padding(ScoutSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                tone == .error ? ScoutColors.statusError.opacity(0.08) : ScoutColors.surfaceRaisedAdaptive,
-                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                ScoutColors.surfaceRaisedAdaptive,
+                in: RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
             )
     }
 

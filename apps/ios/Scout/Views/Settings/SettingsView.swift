@@ -43,15 +43,15 @@ struct SettingsView: View {
 
     private var connectionSection: some View {
         SettingsSectionCard(title: "Connection", icon: "antenna.radiowaves.left.and.right") {
-            SettingsRow(icon: "circle.fill", iconColor: connectionColor, label: "Status") {
+            SettingsRow(icon: "circle.fill", iconColor: ScoutColors.textMuted, label: "Status") {
                 Text(connectionLabel)
                     .foregroundStyle(ScoutColors.textSecondary)
             }
 
             if connection.hasTrustedBridge {
-                SettingsRow(icon: "checkmark.shield", iconColor: ScoutColors.statusActive, label: "Trusted Bridge") {
+                SettingsRow(icon: "checkmark.shield", iconColor: ScoutColors.textMuted, label: "Trusted Bridge") {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(ScoutColors.statusActive)
+                        .foregroundStyle(ScoutColors.textSecondary)
                 }
 
                 Divider().padding(.leading, 40)
@@ -77,7 +77,7 @@ struct SettingsView: View {
 
     private var voiceSection: some View {
         SettingsSectionCard(title: "Voice", icon: "waveform") {
-            SettingsRow(icon: "cpu", iconColor: ScoutColors.accent, label: "Engine") {
+            SettingsRow(icon: "cpu", iconColor: ScoutColors.textMuted, label: "Engine") {
                 Text(engineName)
                     .foregroundStyle(ScoutColors.textSecondary)
             }
@@ -88,7 +88,7 @@ struct SettingsView: View {
             }
 
             #if canImport(FluidAudio)
-            SettingsRow(icon: "brain", iconColor: ScoutColors.accent, label: "Parakeet") {
+            SettingsRow(icon: "brain", iconColor: ScoutColors.textMuted, label: "Parakeet") {
                 Text(parakeetStatus)
                     .foregroundStyle(ScoutColors.textSecondary)
             }
@@ -182,13 +182,7 @@ struct SettingsView: View {
     }
 
     private var voiceStateColor: Color {
-        switch voice.state {
-        case .ready: ScoutColors.statusActive
-        case .recording: ScoutColors.statusError
-        case .transcribing: ScoutColors.statusStreaming
-        case .error: ScoutColors.statusError
-        default: ScoutColors.textSecondary
-        }
+        ScoutColors.textSecondary
     }
 
     #if canImport(FluidAudio)
@@ -206,12 +200,7 @@ struct SettingsView: View {
     #endif
 
     private var connectionColor: Color {
-        switch connection.state {
-        case .connected: ScoutColors.statusActive
-        case .connecting, .handshaking, .reconnecting: ScoutColors.statusStreaming
-        case .disconnected: ScoutColors.statusIdle
-        case .failed: ScoutColors.statusError
-        }
+        ScoutColors.textMuted
     }
 
     private var connectionLabel: String {
@@ -245,10 +234,10 @@ private struct SettingsSectionCard<Content: View>: View {
         VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
             HStack(spacing: ScoutSpacing.sm) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ScoutColors.accent)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ScoutColors.textMuted)
                 Text(title.uppercased())
-                    .font(ScoutTypography.caption(12, weight: .bold))
+                    .font(ScoutTypography.code(10, weight: .semibold))
                     .foregroundStyle(ScoutColors.textMuted)
             }
             .padding(.leading, ScoutSpacing.xs)
@@ -345,12 +334,12 @@ private struct SettingsButton: View {
             HStack(spacing: ScoutSpacing.md) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(role == .destructive ? ScoutColors.statusError : ScoutColors.accent)
+                    .foregroundStyle(ScoutColors.textMuted)
                     .frame(width: 20)
 
                 Text(label)
                     .font(ScoutTypography.body(15))
-                    .foregroundStyle(role == .destructive ? ScoutColors.statusError : ScoutColors.textPrimary)
+                    .foregroundStyle(ScoutColors.textPrimary)
 
                 Spacer()
             }
@@ -379,12 +368,8 @@ private struct AppearancePill: View {
                 .foregroundStyle(isSelected ? ScoutColors.textPrimary : ScoutColors.textSecondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, ScoutSpacing.sm)
-                .background(isSelected ? ScoutColors.accent.opacity(0.15) : ScoutColors.surfaceAdaptive)
+                .background(isSelected ? ScoutColors.textPrimary.opacity(0.08) : ScoutColors.surfaceAdaptive)
                 .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                        .strokeBorder(isSelected ? ScoutColors.accent.opacity(0.4) : ScoutColors.border, lineWidth: 0.5)
-                )
         }
         .buttonStyle(.plain)
     }

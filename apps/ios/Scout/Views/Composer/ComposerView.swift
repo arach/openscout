@@ -82,8 +82,23 @@ struct ComposerView: View {
     private var isRecording: Bool { micState == .recording }
     private var isTranscribing: Bool { micState == .transcribing }
     private var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var canSend: Bool { isConnected && hasText && !isStreaming }
+    private var canSend: Bool { isConnected && hasText }
     private var showMessageField: Bool { hasText || showKeyboard }
+    private var isSteeringActiveTurn: Bool { isStreaming }
+    private var composerPlaceholder: String {
+        isSteeringActiveTurn ? "Steer the current turn..." : "Ask anything..."
+    }
+    private var sendButtonAccessibilityLabel: String {
+        isSteeringActiveTurn ? "Steer active turn" : "Send message"
+    }
+    private var sendButtonAccessibilityHint: String {
+        isSteeringActiveTurn
+            ? "Sends a follow-up while the current turn keeps running. The center button interrupts."
+            : "Sends your message to the session."
+    }
+    private var sendButtonForegroundStyle: Color {
+        canSend ? ScoutColors.textPrimary : ScoutColors.textMuted
+    }
 
     // Keyboard button center = 14 (horizontal pad) + 24 (half of 48pt button) = 38pt from trailing edge
     private let sendButtonTrailing: CGFloat = 14 + 24 - 16 // 38 - half send button width
@@ -127,12 +142,12 @@ struct ComposerView: View {
         VStack(spacing: 0) {
             if let lastError {
                 Text(lastError)
-                    .font(ScoutTypography.caption(12, weight: .medium))
-                    .foregroundStyle(.white)
+                    .font(ScoutTypography.code(11))
+                    .foregroundStyle(ScoutColors.textPrimary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity)
-                    .background(ScoutColors.statusError.opacity(0.85))
+                    .background(ScoutColors.surfaceAdaptive)
                     .onTapGesture { self.lastError = nil }
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .task {
@@ -143,6 +158,10 @@ struct ComposerView: View {
 
             // Message field — always visible
             messageField
+
+            if isSteeringActiveTurn {
+                activeTurnStrip
+            }
 
             if shouldSuggestKeepAlive {
                 keepAliveSuggestionStrip
@@ -175,6 +194,7 @@ struct ComposerView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showKeyboard)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: showMetadataStrip)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: micState)
+        .animation(.easeInOut(duration: 0.2), value: isStreaming)
         .accessibilityElement(children: .contain)
         .sheet(isPresented: $showDiscovery) {
             SessionDiscoveryView(projectFilter: projectName)
@@ -242,10 +262,10 @@ struct ComposerView: View {
                 onInterrupt()
             } label: {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(ScoutColors.statusError)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
                     .frame(width: 70, height: 70)
-                    .background(ScoutColors.statusError.opacity(0.12))
+                    .background(ScoutColors.surfaceAdaptive)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -296,7 +316,7 @@ struct ComposerView: View {
             ScoutTextField(
                 text: $text,
                 measuredHeight: $measuredTextHeight,
-                placeholder: "Ask anything...",
+                placeholder: composerPlaceholder,
                 minHeight: messageTextMinHeight,
                 maxHeight: messageTextMaxHeight
             )
@@ -315,7 +335,7 @@ struct ComposerView: View {
             } label: {
                 Image(systemName: "paperplane.fill")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(canSend ? ScoutColors.textPrimary : ScoutColors.textSecondary)
+                    .foregroundColor(sendButtonForegroundStyle)
                     .frame(width: 44, height: 44)
                     .background {
                         RoundedRectangle(cornerRadius: 10)
@@ -328,7 +348,8 @@ struct ComposerView: View {
             .disabled(!canSend)
             .padding(.trailing, 14)
             .padding(.bottom, 2)
-            .accessibilityLabel("Send message")
+            .accessibilityLabel(sendButtonAccessibilityLabel)
+            .accessibilityHint(sendButtonAccessibilityHint)
         }
         .padding(.top, 8)
         .padding(.bottom, 6)
@@ -363,8 +384,32 @@ struct ComposerView: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.5), value: justSent)
     }
 
-    /// Clean solid surface — white in light, near-black in dark
-    private let composerSurface = Color(light: .white, dark: Color(white: 0.12))
+    private let composerSurface = Color(light: Color(white: 0.96), dark: Color(white: 0.09))
+
+    private var activeTurnStrip: some View {
+        HStack(spacing: 8) {
+            Text("LIVE")
+                .font(ScoutTypography.code(9, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
+
+            Text("Send a follow-up to steer, or stop in the center.")
+                .font(ScoutTypography.caption(11))
+                .foregroundStyle(ScoutColors.textMuted)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background {
+            composerSurface
+        }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(ScoutColors.border.opacity(0.25))
+                .frame(height: 0.5)
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
 
     private var metadataStrip: some View {
         VStack(spacing: 10) {
@@ -386,6 +431,7 @@ struct ComposerView: View {
                     }
 
                     branchChip
+
                 }
                 .padding(.horizontal, 14)
             }
@@ -445,23 +491,12 @@ struct ComposerView: View {
                 }
             }
         } label: {
-            metadataChip(
-                icon: "cpu",
-                title: "Model",
-                value: effectiveModelLabel,
-                accent: ScoutColors.accent
-            )
+            metadataChip(icon: "cpu", title: "Model", value: effectiveModelLabel)
         }
     }
 
     private var readOnlyModelChip: some View {
-        metadataChip(
-            icon: "cpu",
-            title: "Model",
-            value: effectiveModelLabel,
-            accent: ScoutColors.textPrimary,
-            isReadOnly: true
-        )
+        metadataChip(icon: "cpu", title: "Model", value: effectiveModelLabel, isReadOnly: true)
     }
 
     private var effortPickerChip: some View {
@@ -478,12 +513,7 @@ struct ComposerView: View {
                 }
             }
         } label: {
-            metadataChip(
-                icon: "dial.medium",
-                title: "Effort",
-                value: selectedEffort.label,
-                accent: ScoutColors.textPrimary
-            )
+            metadataChip(icon: "dial.medium", title: "Effort", value: selectedEffort.label)
         }
     }
 
@@ -491,8 +521,7 @@ struct ComposerView: View {
         metadataChip(
             icon: "arrow.triangle.branch",
             title: "Branch",
-            value: currentBranch ?? "Unavailable",
-            accent: currentBranch == nil ? ScoutColors.textMuted : ScoutColors.textPrimary,
+            value: currentBranch ?? "—",
             isReadOnly: true
         )
     }
@@ -501,39 +530,29 @@ struct ComposerView: View {
         icon: String,
         title: String,
         value: String,
-        accent: Color,
         isReadOnly: Bool = false
     ) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(accent)
-                .frame(width: 16)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(ScoutColors.textMuted)
+                .frame(width: 14)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title.uppercased())
-                    .font(ScoutTypography.caption(10, weight: .semibold))
-                    .foregroundStyle(ScoutColors.textMuted)
-                Text(value)
-                    .font(ScoutTypography.code(12, weight: .medium))
-                    .foregroundStyle(isReadOnly ? accent : ScoutColors.textPrimary)
-                    .lineLimit(1)
-            }
+            Text(value)
+                .font(ScoutTypography.code(11, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .lineLimit(1)
 
             if !isReadOnly {
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(ScoutColors.textMuted)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
         .background(ScoutColors.surfaceAdaptive)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(ScoutColors.border, lineWidth: 0.5)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
     }
 
     // MARK: - State
@@ -554,23 +573,19 @@ struct ComposerView: View {
     }
 
     private var keepAliveSuggestionStrip: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "bolt.badge.clock")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(ScoutColors.accent)
-
+        HStack(spacing: 8) {
             Text("Suggest Amphetamine-style keep alive")
-                .font(ScoutTypography.caption(12, weight: .medium))
-                .foregroundStyle(ScoutColors.textSecondary)
+                .font(ScoutTypography.code(11))
+                .foregroundStyle(ScoutColors.textMuted)
                 .lineLimit(1)
 
             Spacer(minLength: 0)
 
-            Button("Use") {
+            Button("USE") {
                 applyKeepAliveSuggestion()
             }
-            .font(ScoutTypography.caption(12, weight: .semibold))
-            .foregroundStyle(ScoutColors.accent)
+            .font(ScoutTypography.code(10, weight: .semibold))
+            .foregroundStyle(ScoutColors.textPrimary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -589,7 +604,7 @@ struct ComposerView: View {
 
     private func sendIfPossible() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, isConnected, !isStreaming else { return }
+        guard !trimmed.isEmpty, isConnected else { return }
         let impact = UIImpactFeedbackGenerator(style: .light)
         impact.impactOccurred()
         onSend(

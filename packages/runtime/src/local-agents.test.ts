@@ -5,6 +5,7 @@ import {
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
+  normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
@@ -21,9 +22,9 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Project context:");
     expect(prompt).toContain("Codebase root: /Users/arach/dev/shaper");
     expect(prompt).toContain("Projects root: /Users/arach/dev");
-    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "@<agent> your message"');
-    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" ask --to <agent> --as shaper "your request"');
-    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read --as shaper');
+    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "@<agent> your message"');
+    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" ask --to <agent> --as shaper "your request"');
+    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read --as shaper');
     expect(prompt).toContain("Relay protocol:");
     expect(prompt).toContain("Do not use file-backed relay state or side channels directly");
     expect(prompt).toContain("Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue");
@@ -32,6 +33,28 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Do not use channel.shared for ordinary delegation or follow-up");
     expect(prompt).toContain("Use send for tells and status; use ask when the meaning is 'do this and get back to me'");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
+  });
+
+  test("legacy generated node-based prompts normalize away so bun defaults can replace them", () => {
+    const legacyPrompt = renderLocalAgentSystemPromptTemplate(
+      buildLocalAgentSystemPromptTemplate(),
+      {
+        agentId: "shaper",
+        displayName: "Shaper",
+        projectName: "shaper",
+        projectPath: "/Users/arach/dev/shaper",
+        brokerUrl: DEFAULT_BROKER_URL,
+        relayCommand: 'node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs"',
+        projectsRoot: "/Users/arach/dev",
+        relayHub: "/Users/arach/.openscout/relay",
+        openscoutRoot: "/Users/arach/dev/openscout",
+        scoutSkill: "/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md",
+      },
+    );
+
+    expect(
+      normalizeLocalAgentSystemPrompt("shaper", "shaper", "/Users/arach/dev/shaper", legacyPrompt),
+    ).toBeUndefined();
   });
 
   test("system prompt template renders shared fragments, path aliases, and env variables at wake time", () => {
@@ -102,8 +125,8 @@ describe("local agent prompts", () => {
 
     expect(prompt).toContain("Task: Find the session restore race.");
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
-    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read -n 20 --as shaper');
-    expect(prompt).toContain('node "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "[ask:flt-1] @hudson <your response>"');
+    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" read -n 20 --as shaper');
+    expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "[ask:flt-1] @hudson <your response>"');
   });
 
   test("tmux launch shell command quotes script paths with spaces", () => {

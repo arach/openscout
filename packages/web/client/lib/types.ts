@@ -361,7 +361,12 @@ export type Route =
       composeMode?: "tell" | "ask";
     }
   | { view: "agent-info"; conversationId: string }
-  | { view: "agents"; agentId?: string; conversationId?: string }
+  | {
+      view: "agents";
+      agentId?: string;
+      conversationId?: string;
+      tab?: AgentTab;
+    }
   | { view: "fleet" }
   | { view: "sessions"; sessionId?: string }
   | { view: "mesh" }
@@ -370,6 +375,7 @@ export type Route =
   | { view: "settings" }
   | { view: "ops"; mode?: OpsMode };
 
+export type AgentTab = "profile" | "observe" | "message";
 export type OpsMode = "plan" | "conductor" | "warroom" | "mission";
 
 /* ── Ops types (Plan view) ── */

@@ -406,16 +406,10 @@ private struct ProjectRow: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: ScoutSpacing.md) {
-                // Project icon with marker-based color
-                ZStack {
-                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                        .fill(markerColor.opacity(0.12))
-                        .frame(width: 40, height: 40)
-
-                    Image(systemName: markerIcon)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(markerColor)
-                }
+                Image(systemName: markerIcon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name)
@@ -469,18 +463,7 @@ private struct ProjectRow: View {
     }
 
     private var markerColor: Color {
-        let m = entry.markers.first ?? ""
-        switch m {
-        case "swift", "xcode": return .orange
-        case "rust":           return .brown
-        case "go":             return .cyan
-        case "python":         return .yellow
-        case "node":           return .green
-        case "ruby":           return .red
-        case "java":           return .blue
-        case "cpp", "make":    return .purple
-        default:               return ScoutColors.accent
-        }
+        ScoutColors.accent
     }
 }
 

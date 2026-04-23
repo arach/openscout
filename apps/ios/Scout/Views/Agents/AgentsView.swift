@@ -131,63 +131,65 @@ struct AgentsView: View {
 
     private var overviewCard: some View {
         VStack(alignment: .leading, spacing: ScoutSpacing.md) {
-            Text("Jump straight into any live agent, or start a session from the same workspace when one is available.")
+            Text("Open a live agent or start from an available workspace.")
                 .font(ScoutTypography.body(14))
                 .foregroundStyle(ScoutColors.textSecondary)
 
             HStack(spacing: ScoutSpacing.sm) {
-                countPill(title: "Working", value: workingCount, color: ScoutColors.statusStreaming)
-                countPill(title: "Available", value: availableCount, color: ScoutColors.statusActive)
-                countPill(title: "Offline", value: offlineCount, color: ScoutColors.textMuted)
+                countPill(title: "Working", value: workingCount, tone: .primary)
+                countPill(title: "Available", value: availableCount, tone: .secondary)
+                countPill(title: "Offline", value: offlineCount, tone: .muted)
             }
         }
         .scoutCard(padding: ScoutSpacing.lg, cornerRadius: ScoutRadius.lg)
     }
 
-    private func countPill(title: String, value: Int, color: Color) -> some View {
+    private enum CountPillTone {
+        case primary
+        case secondary
+        case muted
+    }
+
+    private func countPill(title: String, value: Int, tone: CountPillTone) -> some View {
         VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
             Text("\(value)")
                 .font(ScoutTypography.body(20, weight: .semibold))
                 .foregroundStyle(ScoutColors.textPrimary)
             Text(title)
                 .font(ScoutTypography.caption(11, weight: .semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(countPillTitleColor(for: tone))
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, ScoutSpacing.md)
         .padding(.vertical, ScoutSpacing.sm)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
+        .background(countPillBackgroundColor(for: tone), in: RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
     }
 
     private func inlineErrorCard(_ message: String) -> some View {
         Text(message)
-            .font(ScoutTypography.caption(13))
-            .foregroundStyle(ScoutColors.statusError)
+            .font(ScoutTypography.code(12))
+            .foregroundStyle(ScoutColors.textSecondary)
             .padding(ScoutSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ScoutColors.statusError.opacity(0.08), in: RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
+            .background(ScoutColors.surfaceAdaptive, in: RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
     }
 
     private func agentRow(_ agent: MobileAgentSummary) -> some View {
         let isLaunchable = isLaunchable(agent)
 
-        return HStack(spacing: ScoutSpacing.md) {
+        return HStack(spacing: ScoutSpacing.sm) {
             // Row body — tap navigates to agent detail
             Button {
                 router.push(.agentDetail(agentId: agent.id))
             } label: {
                 HStack(spacing: ScoutSpacing.md) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                            .fill(agentStatusColor(agent).opacity(0.12))
-                            .frame(width: 44, height: 44)
+                    Image(systemName: AdapterIcon.systemName(for: agent.harness ?? agent.transport ?? "relay"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(iconColor(for: agent))
+                        .frame(width: 24)
 
-                        Image(systemName: AdapterIcon.systemName(for: agent.harness ?? agent.transport ?? "relay"))
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(agentStatusColor(agent))
-                    }
-
-                    VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
+                    VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
                         HStack(spacing: ScoutSpacing.xs) {
                             Text(agent.title)
                                 .font(ScoutTypography.body(15, weight: .semibold))
@@ -196,11 +198,11 @@ struct AgentsView: View {
 
                             if agent.sessionId != nil {
                                 Text("LIVE")
-                                    .font(ScoutTypography.caption(10, weight: .bold))
-                                    .foregroundStyle(ScoutColors.accent)
+                                    .font(ScoutTypography.code(9, weight: .semibold))
+                                    .foregroundStyle(ScoutColors.textMuted)
                                     .padding(.horizontal, ScoutSpacing.sm)
                                     .padding(.vertical, ScoutSpacing.xxs)
-                                    .background(ScoutColors.accent.opacity(0.12), in: Capsule())
+                                    .background(ScoutColors.surfaceAdaptive, in: Capsule())
                             }
                         }
 
@@ -212,23 +214,7 @@ struct AgentsView: View {
                                 .truncationMode(.middle)
                         }
 
-                        HStack(spacing: ScoutSpacing.sm) {
-                            statusBadge(for: agent)
-
-                            if let project = agent.projectName {
-                                metaPill(project, icon: "folder")
-                            }
-
-                            if let harness = agent.harness?.trimmedNonEmpty {
-                                metaPill(AdapterIcon.displayName(for: harness), icon: AdapterIcon.systemName(for: harness))
-                            }
-
-                            if let lastActive = agent.lastActiveDate {
-                                Text(RelativeTime.string(from: lastActive))
-                                    .font(ScoutTypography.caption(11))
-                                    .foregroundStyle(ScoutColors.textMuted)
-                            }
-                        }
+                        metadataRow(for: agent)
                     }
 
                     Spacer(minLength: 0)
@@ -260,7 +246,24 @@ struct AgentsView: View {
                     .foregroundStyle(actionColor(for: agent, isLaunchable: isLaunchable))
                     .padding(.horizontal, ScoutSpacing.md)
                     .padding(.vertical, ScoutSpacing.sm)
-                    .background(actionColor(for: agent, isLaunchable: isLaunchable).opacity(0.12), in: Capsule())
+                    .background(ScoutColors.surfaceAdaptive, in: Capsule())
+            }
+        }
+    }
+
+    private func metadataRow(for agent: MobileAgentSummary) -> some View {
+        HStack(spacing: ScoutSpacing.sm) {
+            statusBadge(for: agent)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Spacer(minLength: 0)
+
+            if let harness = agent.harness?.trimmedNonEmpty {
+                metadataLabel(AdapterIcon.displayName(for: harness))
+            }
+
+            if let lastActive = agent.lastActiveDate {
+                metadataLabel(RelativeTime.string(from: lastActive))
             }
         }
     }
@@ -269,25 +272,16 @@ struct AgentsView: View {
         HStack(spacing: ScoutSpacing.xs) {
             Circle()
                 .fill(agentStatusColor(agent))
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
 
-            Text(agent.statusLabel)
-                .font(ScoutTypography.caption(11, weight: .semibold))
-                .foregroundStyle(agentStatusColor(agent))
+            Text(agentStatusLabel(agent))
+                .font(ScoutTypography.caption(11, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .lineLimit(1)
         }
         .padding(.horizontal, ScoutSpacing.sm)
         .padding(.vertical, ScoutSpacing.xxs)
-        .background(agentStatusColor(agent).opacity(0.08), in: Capsule())
-    }
-
-    private func metaPill(_ text: String, icon: String) -> some View {
-        Label(text, systemImage: icon)
-            .font(ScoutTypography.caption(11))
-            .foregroundStyle(ScoutColors.textMuted)
-            .lineLimit(1)
-            .padding(.horizontal, ScoutSpacing.sm)
-            .padding(.vertical, ScoutSpacing.xxs)
-            .background(ScoutColors.surfaceAdaptive, in: Capsule())
+        .background(ScoutColors.surfaceAdaptive, in: Capsule())
     }
 
     private var emptyState: some View {
@@ -326,7 +320,7 @@ struct AgentsView: View {
 
             Image(systemName: connection.statusDetails.symbol)
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(ScoutColors.statusError)
+                .foregroundStyle(ScoutColors.textMuted)
 
             Text(connection.statusDetails.message ?? "Scout is not connected to your Mac right now.")
                 .font(ScoutTypography.body(14))
@@ -351,7 +345,7 @@ struct AgentsView: View {
 
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36, weight: .light))
-                .foregroundStyle(ScoutColors.statusError)
+                .foregroundStyle(ScoutColors.textMuted)
 
             Text(message)
                 .font(ScoutTypography.body(14))
@@ -389,20 +383,72 @@ struct AgentsView: View {
 
     private func actionColor(for agent: MobileAgentSummary, isLaunchable: Bool) -> Color {
         if agent.sessionId != nil || (isConnected && isLaunchable) {
-            return ScoutColors.accent
+            return ScoutColors.textPrimary
         }
         return ScoutColors.textMuted
+    }
+
+    private func countPillTitleColor(for tone: CountPillTone) -> Color {
+        switch tone {
+        case .primary:
+            return ScoutColors.textPrimary
+        case .secondary:
+            return ScoutColors.textSecondary
+        case .muted:
+            return ScoutColors.textMuted
+        }
+    }
+
+    private func countPillBackgroundColor(for tone: CountPillTone) -> Color {
+        switch tone {
+        case .primary:
+            return ScoutColors.surfaceAdaptive
+        case .secondary:
+            return ScoutColors.surfaceAdaptive.opacity(0.92)
+        case .muted:
+            return ScoutColors.surfaceAdaptive.opacity(0.82)
+        }
+    }
+
+    private func iconColor(for agent: MobileAgentSummary) -> Color {
+        switch agent.state {
+        case "working":
+            return ScoutColors.textPrimary
+        case "available":
+            return ScoutColors.textSecondary
+        default:
+            return ScoutColors.textMuted
+        }
     }
 
     private func agentStatusColor(_ agent: MobileAgentSummary) -> Color {
         switch agent.state {
         case "working":
-            return ScoutColors.statusStreaming
+            return ScoutColors.textPrimary
         case "available":
-            return ScoutColors.statusActive
+            return ScoutColors.textSecondary
         default:
             return ScoutColors.textMuted
         }
+    }
+
+    private func agentStatusLabel(_ agent: MobileAgentSummary) -> String {
+        switch agent.state {
+        case "working":
+            return "Working"
+        case "available":
+            return "Available"
+        default:
+            return "Offline"
+        }
+    }
+
+    private func metadataLabel(_ text: String) -> some View {
+        Text(text)
+            .font(ScoutTypography.caption(11))
+            .foregroundStyle(ScoutColors.textMuted)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     private func handleSelection(for agent: MobileAgentSummary, isLaunchable: Bool) {

@@ -1,28 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import type { Route } from "./types.ts";
+import type { AgentTab, Route } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
 
-function routeFromPath(): Route {
-  const url = new URL(window.location.href);
+function parseAgentTab(value: string | null): AgentTab | undefined {
+  switch (value) {
+    case "profile":
+    case "observe":
+    case "message":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+export function routeFromUrl(urlLike: string | URL): Route {
+  const url = new URL(urlLike.toString());
   const parts = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
   const composeMode =
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
+  const agentTab = parseAgentTab(url.searchParams.get("tab"));
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
-  // /agents/{agentId}/c/{conversationId} → agents view with inline conversation
+  // /agents/{agentId}/c/{conversationId} → agent detail with inline conversation
   if (parts[0] === "agents" && parts[1] && parts[2] === "c" && parts[3]) {
     return {
       view: "agents",
       agentId: decodeURIComponent(parts[1]),
       conversationId: decodeURIComponent(parts[3]),
+      tab: agentTab ?? "message",
     };
   }
   // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
-    return { view: "agents", agentId: decodeURIComponent(parts[1]) };
+    return {
+      view: "agents",
+      agentId: decodeURIComponent(parts[1]),
+      ...(agentTab ? { tab: agentTab } : {}),
+    };
   }
   if (parts[0] === "agents") return { view: "agents" };
   if (parts[0] === "fleet") return { view: "fleet" };
@@ -57,7 +74,11 @@ function routeFromPath(): Route {
   return { view: "inbox" };
 }
 
-function routePath(r: Route): string {
+function routeFromPath(): Route {
+  return routeFromUrl(window.location.href);
+}
+
+export function routePath(r: Route): string {
   switch (r.view) {
     case "inbox":
       return "/";
@@ -71,12 +92,20 @@ function routePath(r: Route): string {
     }
     case "agent-info":
       return `/agent/${encodeURIComponent(r.conversationId)}`;
-    case "agents":
-      return r.agentId
+    case "agents": {
+      const params = new URLSearchParams();
+      const defaultTab = r.conversationId ? "message" : "profile";
+      if (r.tab && r.tab !== defaultTab) {
+        params.set("tab", r.tab);
+      }
+      const search = params.toString();
+      const path = r.agentId
         ? r.conversationId
           ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
           : `/agents/${encodeURIComponent(r.agentId)}`
         : "/agents";
+      return `${path}${search ? `?${search}` : ""}`;
+    }
     case "fleet":
       return "/fleet";
     case "sessions":
@@ -104,9 +133,9 @@ function routeKey(r: Route): string {
       return `agent-info:${r.conversationId}`;
     case "agents":
       return r.conversationId
-        ? `agent-conv:${r.conversationId}`
+        ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}`
         : r.agentId
-          ? `agent:${r.agentId}`
+          ? `agent:${r.agentId}:${r.tab ?? "profile"}`
           : "agents";
     case "sessions":
       return r.sessionId ? `session:${r.sessionId}` : "sessions";

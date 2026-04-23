@@ -176,7 +176,12 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
     (session: SessionEntry, options: { observe?: boolean } = {}) => {
       setLastViewed(saveLastViewed(session.id));
       if (options.observe && session.agentId) {
-        navigate({ view: "agents", agentId: session.agentId, conversationId: session.id });
+        navigate({
+          view: "agents",
+          agentId: session.agentId,
+          conversationId: session.id,
+          tab: "observe",
+        });
         return;
       }
       navigate({ view: "conversation", conversationId: session.id });

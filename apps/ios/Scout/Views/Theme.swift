@@ -14,41 +14,34 @@ enum ScoutColors {
     static let surface = Color("surface", bundle: nil)
     static let surfaceRaised = Color("surfaceRaised", bundle: nil)
 
-    // Adaptive fallbacks (used if asset catalog colors are not yet defined)
-    static let backgroundAdaptive = Color(light: .init(white: 0.98), dark: .init(white: 0.07))
-    static let surfaceAdaptive = Color(light: .init(white: 0.94), dark: .init(white: 0.11))
-    static let surfaceRaisedAdaptive = Color(light: .white, dark: .init(white: 0.15))
+    // Adaptive fallbacks
+    static let backgroundAdaptive = Color(light: .init(white: 0.95), dark: .init(white: 0.04))
+    static let surfaceAdaptive = Color(light: .init(white: 0.91), dark: .init(white: 0.07))
+    static let surfaceRaisedAdaptive = Color(light: .init(white: 0.95), dark: .init(white: 0.09))
 
     // Text
-    static let textPrimary = Color(light: .init(white: 0.1), dark: .init(white: 0.93))
-    static let textSecondary = Color(light: .init(white: 0.4), dark: .init(white: 0.55))
-    static let textMuted = Color(light: .init(white: 0.6), dark: .init(white: 0.38))
+    static let textPrimary = Color(light: .init(white: 0.12), dark: .init(white: 0.78))
+    static let textSecondary = Color(light: .init(white: 0.44), dark: .init(white: 0.40))
+    static let textMuted = Color(light: .init(white: 0.60), dark: .init(white: 0.26))
 
-    // Accent
-    static let accent = Color(light: .init(red: 0.35, green: 0.55, blue: 1.0),
-                               dark: .init(red: 0.45, green: 0.65, blue: 1.0))
+    // Accent — cool gray, barely blue
+    static let accent = Color(light: .init(white: 0.30), dark: .init(white: 0.68))
 
-    // Status
-    static let statusActive = Color(light: .init(red: 0.2, green: 0.78, blue: 0.4),
-                                     dark: .init(red: 0.3, green: 0.85, blue: 0.5))
-    static let statusStreaming = Color(light: .init(red: 1.0, green: 0.8, blue: 0.2),
-                                       dark: .init(red: 1.0, green: 0.85, blue: 0.3))
-    static let statusIdle = Color(light: .init(white: 0.65), dark: .init(white: 0.4))
-    static let statusError = Color(light: .init(red: 1.0, green: 0.3, blue: 0.3),
-                                    dark: .init(red: 1.0, green: 0.4, blue: 0.4))
+    // Status — pure grays with the faintest tint
+    static let statusActive = Color(light: .init(white: 0.36), dark: .init(white: 0.58))
+    static let statusStreaming = Color(light: .init(white: 0.40), dark: .init(white: 0.54))
+    static let statusIdle = Color(light: .init(white: 0.54), dark: .init(white: 0.28))
+    static let statusError = Color(light: .init(white: 0.40), dark: .init(white: 0.52))
 
     // Semantic
-    static let diffAdded = Color(light: .init(red: 0.2, green: 0.7, blue: 0.3),
-                                  dark: .init(red: 0.3, green: 0.8, blue: 0.4))
-    static let diffRemoved = Color(light: .init(red: 0.9, green: 0.3, blue: 0.3),
-                                    dark: .init(red: 1.0, green: 0.4, blue: 0.4))
-    static let errorBackground = Color(light: .init(red: 1.0, green: 0.93, blue: 0.93),
-                                        dark: .init(red: 0.25, green: 0.1, blue: 0.1))
-    static let reasoningBackground = Color(light: .init(white: 0.95), dark: .init(white: 0.1))
+    static let diffAdded = Color(light: .init(white: 0.36), dark: .init(white: 0.54))
+    static let diffRemoved = Color(light: .init(white: 0.40), dark: .init(white: 0.52))
+    static let errorBackground = Color(light: .init(white: 0.92), dark: .init(white: 0.06))
+    static let reasoningBackground = Color(light: .init(white: 0.93), dark: .init(white: 0.06))
 
     // Borders / Dividers
-    static let border = Color(light: .init(white: 0.88), dark: .init(white: 0.18))
-    static let divider = Color(light: .init(white: 0.9), dark: .init(white: 0.15))
+    static let border = Color(light: .init(white: 0.84), dark: .init(white: 0.12))
+    static let divider = Color(light: .init(white: 0.87), dark: .init(white: 0.10))
 }
 
 // MARK: - Typography
@@ -78,22 +71,22 @@ enum ScoutTypography {
 // MARK: - Spacing
 
 enum ScoutSpacing {
-    static let xxs: CGFloat = 2
-    static let xs: CGFloat = 4
-    static let sm: CGFloat = 8
-    static let md: CGFloat = 12
-    static let lg: CGFloat = 16
-    static let xl: CGFloat = 24
-    static let xxl: CGFloat = 32
+    static let xxs: CGFloat = 1
+    static let xs: CGFloat = 3
+    static let sm: CGFloat = 5
+    static let md: CGFloat = 8
+    static let lg: CGFloat = 12
+    static let xl: CGFloat = 16
+    static let xxl: CGFloat = 24
 }
 
 // MARK: - Corner Radius
 
 enum ScoutRadius {
-    static let sm: CGFloat = 6
-    static let md: CGFloat = 10
-    static let lg: CGFloat = 14
-    static let xl: CGFloat = 20
+    static let sm: CGFloat = 3
+    static let md: CGFloat = 5
+    static let lg: CGFloat = 8
+    static let xl: CGFloat = 10
 }
 
 // MARK: - Card Style
@@ -107,10 +100,6 @@ struct ScoutCardModifier: ViewModifier {
             .padding(padding)
             .background(ScoutColors.surfaceRaisedAdaptive)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(ScoutColors.border, lineWidth: 0.5)
-            )
     }
 }
 
@@ -150,21 +139,6 @@ struct StatusDot: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .shadow(color: isAnimated ? color.opacity(0.6) : .clear, radius: isAnimated ? 4 : 0)
-            .overlay {
-                if isAnimated {
-                    Circle()
-                        .stroke(color.opacity(0.4), lineWidth: 1.5)
-                        .frame(width: size + 4, height: size + 4)
-                        .scaleEffect(isAnimated ? 1.0 : 0.5)
-                        .opacity(isAnimated ? 0.0 : 1.0)
-                        .animation(
-                            .easeOut(duration: 1.5)
-                            .repeatForever(autoreverses: false),
-                            value: isAnimated
-                        )
-                }
-            }
             .accessibilityLabel(accessibilityDescription)
     }
 
@@ -198,16 +172,15 @@ struct StreamingCursor: View {
 // MARK: - Pulse Indicator
 
 struct PulseIndicator: View {
-    @State private var animating = false
+    @State private var on = false
 
     var body: some View {
         Circle()
-            .fill(ScoutColors.accent.opacity(0.8))
-            .frame(width: 6, height: 6)
-            .scaleEffect(animating ? 1.3 : 0.7)
-            .opacity(animating ? 0.5 : 1.0)
-            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: animating)
-            .onAppear { animating = true }
+            .fill(ScoutColors.textSecondary)
+            .frame(width: 5, height: 5)
+            .opacity(on ? 1.0 : 0.3)
+            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: on)
+            .onAppear { on = true }
             .accessibilityLabel("Streaming")
     }
 }

@@ -164,7 +164,7 @@ function resolveHarnessSessionId(
   }
 
   if (transport === "claude_stream_json") {
-    return endpointSessionId ?? metadataString(metadata, "externalSessionId");
+    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
   }
 
   return null;

@@ -20,14 +20,14 @@ struct Harness: Identifiable, Hashable {
             name: "Claude Code",
             icon: "terminal",
             description: "Anthropic's agentic coding CLI",
-            color: Color(red: 0.45, green: 0.65, blue: 1.0)
+            color: ScoutColors.accent
         ),
         Harness(
             id: "codex",
             name: "Codex",
             icon: "chevron.left.forwardslash.chevron.right",
             description: "OpenAI's coding agent",
-            color: Color(red: 0.3, green: 0.85, blue: 0.5)
+            color: ScoutColors.accent
         ),
     ]
 }
@@ -151,8 +151,8 @@ struct HarnessPickerView: View {
     private var projectHeader: some View {
         HStack(spacing: ScoutSpacing.md) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(ScoutColors.accent)
+                .font(.system(size: 15))
+                .foregroundStyle(ScoutColors.textMuted)
             VStack(alignment: .leading, spacing: 2) {
                 Text(projectName)
                     .font(ScoutTypography.body(16, weight: .semibold))
@@ -193,8 +193,8 @@ struct HarnessPickerView: View {
                 } label: {
                     HStack(spacing: ScoutSpacing.md) {
                         Image(systemName: AdapterIcon.systemName(for: summary.adapterType))
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(ScoutColors.accent)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(ScoutColors.textMuted)
                             .frame(width: 24)
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -224,17 +224,13 @@ struct HarnessPickerView: View {
 
                         Spacer()
 
-                        Text("Resume")
-                            .font(ScoutTypography.caption(12, weight: .semibold))
-                            .foregroundStyle(ScoutColors.accent)
+                        Text("RESUME")
+                            .font(ScoutTypography.code(10, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textMuted)
                     }
                     .padding(ScoutSpacing.md)
                     .background(ScoutColors.surfaceRaisedAdaptive)
                     .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous)
-                            .strokeBorder(ScoutColors.border, lineWidth: 0.5)
-                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -300,8 +296,8 @@ struct HarnessPickerView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(harness.color)
-                .foregroundStyle(.white)
+                .background(ScoutColors.textPrimary)
+                .foregroundStyle(ScoutColors.backgroundAdaptive)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .padding(ScoutSpacing.lg)
@@ -361,11 +357,7 @@ private extension HarnessPickerView {
             }
             .padding(ScoutSpacing.md)
             .background(ScoutColors.surfaceAdaptive)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(ScoutColors.border, lineWidth: 0.5)
-            )
+            .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
         }
     }
 }
@@ -380,39 +372,31 @@ private struct HarnessCard: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: ScoutSpacing.md) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(harness.color.opacity(isSelected ? 0.2 : 0.12))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: harness.icon)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(harness.color)
-                }
+                Image(systemName: harness.icon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(ScoutColors.textSecondary)
+                    .frame(width: 24)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(harness.name)
-                        .font(ScoutTypography.body(15, weight: .semibold))
+                        .font(ScoutTypography.code(14, weight: .medium))
                         .foregroundStyle(ScoutColors.textPrimary)
                     Text(harness.description)
-                        .font(ScoutTypography.caption(13))
-                        .foregroundStyle(ScoutColors.textSecondary)
+                        .font(ScoutTypography.caption(12))
+                        .foregroundStyle(ScoutColors.textMuted)
                 }
 
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(harness.color)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
                 }
             }
             .padding(ScoutSpacing.md)
-            .background(ScoutColors.surfaceRaisedAdaptive)
+            .background(isSelected ? ScoutColors.surfaceAdaptive : ScoutColors.surfaceRaisedAdaptive)
             .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous)
-                    .strokeBorder(isSelected ? harness.color.opacity(0.4) : ScoutColors.border, lineWidth: isSelected ? 1.5 : 0.5)
-            )
         }
         .buttonStyle(.plain)
     }

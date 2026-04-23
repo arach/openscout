@@ -193,10 +193,13 @@ struct TimelineView: View {
     @MainActor
     private func verifyLatestTurnBeforeSending() async throws -> Bool {
         guard connection.state == .connected else { return true }
+        if sessionState?.currentTurnId != nil {
+            return true
+        }
 
         let localState = store.sessions[sessionId] ?? SessionCache.shared.load(sessionId: sessionId)
-            let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
-            guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
+        let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
+        guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
             store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
             sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
             return false

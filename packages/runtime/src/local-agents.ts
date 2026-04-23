@@ -186,8 +186,16 @@ function normalizeBrokerTimestamp(value: number): number {
   return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
 }
 
+function scoutCliPath(): string {
+  return join(OPENSCOUT_REPO_ROOT, "packages", "cli", "bin", "scout.mjs");
+}
+
+function legacyNodeBrokerRelayCommand(): string {
+  return `node ${JSON.stringify(scoutCliPath())}`;
+}
+
 function brokerRelayCommand(): string {
-  return `node ${JSON.stringify(join(OPENSCOUT_REPO_ROOT, "packages", "cli", "bin", "scout.mjs"))}`;
+  return `bun ${JSON.stringify(scoutCliPath())}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -463,7 +471,7 @@ function legacyLocalAgentSystemPromptCandidates(
 ): string[] {
   const relayHub = resolveRelayHub();
   const brokerUrl = resolveBrokerUrl();
-  const relayCommandBases = ["openscout relay", brokerRelayCommand()];
+  const relayCommandBases = ["openscout relay", brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
   const projectPathCandidates = projectPath.endsWith("/") ? [projectPath, projectPath.slice(0, -1)] : [projectPath, `${projectPath}/`];
   const candidates = new Set<string>();
 
@@ -477,13 +485,43 @@ function legacyLocalAgentSystemPromptCandidates(
   return Array.from(candidates);
 }
 
-function normalizeLocalAgentSystemPrompt(agentId: string, projectName: string, projectPath: string, systemPrompt: string | undefined): string | undefined {
+function generatedLocalAgentSystemPromptCandidates(
+  agentId: string,
+  projectName: string,
+  projectPath: string,
+): string[] {
+  const baseContext = buildLocalAgentTemplateContext(agentId, projectName, projectPath);
+  const relayCommands = [brokerRelayCommand(), legacyNodeBrokerRelayCommand()];
+  const transportModes: Array<RelayRuntimeTransport | undefined> = [undefined, "codex_app_server", "claude_stream_json"];
+  const candidates = new Set<string>();
+
+  for (const relayCommand of relayCommands) {
+    const context = {
+      ...baseContext,
+      relayCommand,
+    };
+    for (const transport of transportModes) {
+      candidates.add(renderLocalAgentSystemPromptTemplate(
+        buildLocalAgentSystemPromptTemplate(),
+        context,
+        transport ? { transport } : {},
+      ));
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+export function normalizeLocalAgentSystemPrompt(agentId: string, projectName: string, projectPath: string, systemPrompt: string | undefined): string | undefined {
   const trimmed = systemPrompt?.trim();
   if (!trimmed) {
     return undefined;
   }
 
-  if (legacyLocalAgentSystemPromptCandidates(agentId, projectName, projectPath).includes(trimmed)) {
+  if (
+    legacyLocalAgentSystemPromptCandidates(agentId, projectName, projectPath).includes(trimmed)
+    || generatedLocalAgentSystemPromptCandidates(agentId, projectName, projectPath).includes(trimmed)
+  ) {
     return undefined;
   }
 
@@ -910,15 +948,18 @@ export async function getLocalAgentEndpointSessionSnapshot(endpoint: AgentEndpoi
   return null;
 }
 
-export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<void> {
+export async function ensureLocalSessionEndpointOnline(endpoint: AgentEndpoint): Promise<{ externalSessionId?: string | null }> {
   if (endpoint.transport === "codex_app_server") {
     await ensureCodexAppServerAgentOnline(buildCodexEndpointSessionOptions(endpoint));
-    return;
+    return {};
   }
 
   if (endpoint.transport === "claude_stream_json") {
-    await ensureClaudeStreamJsonAgentOnline(buildClaudeEndpointSessionOptions(endpoint));
+    const result = await ensureClaudeStreamJsonAgentOnline(buildClaudeEndpointSessionOptions(endpoint));
+    return { externalSessionId: result.sessionId };
   }
+
+  return {};
 }
 
 export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Promise<void> {
@@ -2162,6 +2203,30 @@ export async function restartAllLocalAgents(options: {
   return restarted.filter((agent): agent is ScoutLocalAgentStatus => Boolean(agent));
 }
 
+function readPersistedClaudeSessionId(agentName: string): string | null {
+  try {
+    const runtimeDir = relayAgentRuntimeDirectory(agentName);
+    const catalogPath = join(runtimeDir, "session-catalog.json");
+    if (existsSync(catalogPath)) {
+      const raw = readFileSync(catalogPath, "utf8").trim();
+      if (raw) {
+        const catalog = JSON.parse(raw) as { activeSessionId?: string | null };
+        if (typeof catalog.activeSessionId === "string" && catalog.activeSessionId.trim()) {
+          return catalog.activeSessionId.trim();
+        }
+      }
+    }
+    const legacyPath = join(runtimeDir, "claude-session-id.txt");
+    if (existsSync(legacyPath)) {
+      const value = readFileSync(legacyPath, "utf8").trim();
+      return value || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function buildLocalAgentBinding(
   agentId: string,
   record: LocalAgentRecord,
@@ -2175,6 +2240,9 @@ function buildLocalAgentBinding(
   const projectRoot = normalizedRecord.projectRoot ?? normalizedRecord.cwd;
   const instance = buildRelayAgentInstance(definitionId, projectRoot);
   const actorId = instance.id;
+  const externalSessionId = normalizedRecord.transport === "claude_stream_json"
+    ? readPersistedClaudeSessionId(definitionId)
+    : null;
 
   return {
     actor: {
@@ -2254,6 +2322,7 @@ function buildLocalAgentBinding(
         nodeQualifier: instance.nodeQualifier,
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
+        ...(externalSessionId ? { externalSessionId } : {}),
       },
     },
   };

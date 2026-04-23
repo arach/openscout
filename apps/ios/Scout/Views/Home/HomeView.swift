@@ -93,23 +93,18 @@ struct HomeView: View {
 
     private var deviceCard: some View {
         HStack(spacing: ScoutSpacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                    .fill(connectionCardColor.opacity(0.12))
-                    .frame(width: 44, height: 44)
+            Image(systemName: connectionCardIcon)
+                .font(.system(size: 15, weight: .medium, design: .monospaced))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .frame(width: 20)
 
-                Image(systemName: connectionCardIcon)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(connectionCardColor)
-            }
-
-            VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
-                Text("Scout Bridge")
-                    .font(ScoutTypography.body(16, weight: .semibold))
-                    .foregroundStyle(ScoutColors.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("BRIDGE")
+                    .font(ScoutTypography.code(11, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 Text(connectionCardSubtitle)
-                    .font(ScoutTypography.caption(13))
+                    .font(ScoutTypography.code(12))
                     .foregroundStyle(ScoutColors.textSecondary)
             }
 
@@ -119,13 +114,13 @@ struct HomeView: View {
                 Button {
                     Task { await connection.reconnect() }
                 } label: {
-                    Text("Retry")
-                        .font(ScoutTypography.caption(13, weight: .semibold))
-                        .foregroundStyle(ScoutColors.accent)
+                    Text("RETRY")
+                        .font(ScoutTypography.code(10, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textPrimary)
                         .padding(.horizontal, ScoutSpacing.md)
                         .padding(.vertical, ScoutSpacing.sm)
-                        .background(ScoutColors.accent.opacity(0.12))
-                        .clipShape(Capsule())
+                        .background(ScoutColors.surfaceAdaptive)
+                        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
                 }
             }
         }
@@ -133,11 +128,7 @@ struct HomeView: View {
     }
 
     private var connectionCardColor: Color {
-        switch connection.state {
-        case .connected: ScoutColors.statusActive
-        case .connecting, .handshaking, .reconnecting: ScoutColors.statusStreaming
-        case .disconnected, .failed: ScoutColors.statusError
-        }
+        ScoutColors.textSecondary
     }
 
     private var connectionCardIcon: String {
@@ -181,7 +172,7 @@ struct HomeView: View {
                         ? "Approvals that need you will appear here."
                         : "\(inbox.pendingCount) approval\(inbox.pendingCount == 1 ? "" : "s") waiting for confirmation.",
                     icon: inbox.unreadCount > 0 ? "bell.badge.fill" : "tray.full.fill",
-                    accent: inbox.unreadCount > 0 ? ScoutColors.statusStreaming : ScoutColors.statusStreaming,
+                    accent: ScoutColors.accent,
                     enabled: isConnected || inbox.pendingCount > 0
                 ) {
                     router.push(.inbox)
@@ -205,7 +196,7 @@ struct HomeView: View {
                         ? "See every live agent and jump into its session."
                         : "Connect to browse the agents on your Mac.",
                     icon: "person.3.fill",
-                    accent: ScoutColors.statusActive,
+                    accent: ScoutColors.accent,
                     enabled: isConnected
                 ) {
                     router.push(.agents)
@@ -229,43 +220,24 @@ struct HomeView: View {
             impact.impactOccurred()
             action()
         } label: {
-            VStack(alignment: .leading, spacing: ScoutSpacing.md) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                        .fill(accent.opacity(enabled ? 0.14 : 0.08))
-                        .frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(enabled ? ScoutColors.textSecondary : ScoutColors.textMuted)
 
-                    Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(enabled ? accent : ScoutColors.textMuted)
-                }
+                Text(title)
+                    .font(ScoutTypography.code(13, weight: .medium))
+                    .foregroundStyle(enabled ? ScoutColors.textPrimary : ScoutColors.textMuted)
 
-                VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
-                    Text(title)
-                        .font(ScoutTypography.body(15, weight: .semibold))
-                        .foregroundStyle(ScoutColors.textPrimary)
-
-                    Text(subtitle)
-                        .font(ScoutTypography.caption(12))
-                        .foregroundStyle(ScoutColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                HStack(spacing: ScoutSpacing.xs) {
-                    Text(enabled ? "Open" : "Offline")
-                        .font(ScoutTypography.caption(11, weight: .semibold))
-                        .foregroundStyle(enabled ? accent : ScoutColors.textMuted)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(enabled ? accent : ScoutColors.textMuted)
-                }
+                Text(subtitle)
+                    .font(ScoutTypography.caption(11))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
-            .opacity(enabled ? 1 : 0.72)
-            .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(enabled ? 1 : 0.5)
+            .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.md)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -296,33 +268,32 @@ struct HomeView: View {
     private func activeSessionCard(_ summary: SessionSummary) -> some View {
         VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
             HStack(spacing: ScoutSpacing.sm) {
+                StatusDot(SessionStatus(rawValue: summary.status) ?? .idle, size: 5)
                 Image(systemName: AdapterIcon.systemName(for: summary.adapterType))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(ScoutColors.accent)
-
-                StatusDot(SessionStatus(rawValue: summary.status) ?? .idle, size: 7)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ScoutColors.textMuted)
             }
 
             Text(summary.name)
-                .font(ScoutTypography.body(14, weight: .semibold))
+                .font(ScoutTypography.code(12, weight: .medium))
                 .foregroundStyle(ScoutColors.textPrimary)
                 .lineLimit(2)
 
             HStack(spacing: ScoutSpacing.xs) {
                 if summary.currentTurnStatus == "streaming" || summary.currentTurnStatus == "started" {
                     PulseIndicator()
-                    Text("Working")
-                        .font(ScoutTypography.caption(11, weight: .medium))
-                        .foregroundStyle(ScoutColors.statusStreaming)
+                    Text("working")
+                        .font(ScoutTypography.code(10))
+                        .foregroundStyle(ScoutColors.textSecondary)
                 } else {
                     Text(RelativeTime.string(from: summary.lastActivityAt))
-                        .font(ScoutTypography.caption(11))
+                        .font(ScoutTypography.code(10))
                         .foregroundStyle(ScoutColors.textMuted)
                 }
             }
         }
-        .frame(width: 150, alignment: .leading)
-        .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.md)
+        .frame(width: 140, alignment: .leading)
+        .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.sm)
     }
 
     // MARK: - Recent Sessions (vertical list)
@@ -359,33 +330,19 @@ struct HomeView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: ScoutSpacing.xl) {
-            Spacer().frame(height: 60)
+        VStack(spacing: ScoutSpacing.md) {
+            Spacer().frame(height: 80)
 
-            VStack(spacing: ScoutSpacing.lg) {
-                ZStack {
-                    Circle()
-                        .fill(ScoutColors.accent.opacity(0.08))
-                        .frame(width: 80, height: 80)
+            Text("NO SESSIONS")
+                .font(ScoutTypography.code(11, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
 
-                    Image(systemName: "rectangle.connected.to.line.below")
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundStyle(ScoutColors.accent.opacity(0.6))
-                }
-
-                VStack(spacing: ScoutSpacing.sm) {
-                    Text("No sessions")
-                        .font(ScoutTypography.body(20, weight: .semibold))
-                        .foregroundStyle(ScoutColors.textPrimary)
-
-                    Text(isConnected
-                         ? "Start a new session or jump into an available agent."
-                         : "Connect to a bridge to see your sessions.")
-                        .font(ScoutTypography.body(15))
-                        .foregroundStyle(ScoutColors.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
+            Text(isConnected
+                 ? "Start a new session or jump into an available agent."
+                 : "Connect to a bridge to see your sessions.")
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .multilineTextAlignment(.center)
         }
         .padding(.horizontal, ScoutSpacing.xxl)
     }
@@ -394,7 +351,7 @@ struct HomeView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(ScoutTypography.caption(12, weight: .bold))
+            .font(ScoutTypography.code(10, weight: .semibold))
             .foregroundStyle(ScoutColors.textMuted)
             .padding(.top, ScoutSpacing.sm)
     }

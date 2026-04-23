@@ -2326,13 +2326,14 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     }
 
     try {
-      await ensureLocalSessionEndpointOnline(endpoint);
+      const sessionResult = await ensureLocalSessionEndpointOnline(endpoint);
       const revivedEndpoint: AgentEndpoint = {
         ...endpoint,
         state: "idle",
         metadata: {
           ...(endpoint.metadata ?? {}),
           lastResumedAt: Date.now(),
+          ...(sessionResult.externalSessionId ? { externalSessionId: sessionResult.externalSessionId } : {}),
         },
       };
       await persistEndpoint(revivedEndpoint);

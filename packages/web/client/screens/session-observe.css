@@ -544,6 +544,58 @@
   flex-shrink: 0;
 }
 
+.s-observe-tail-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  flex-shrink: 0;
+}
+
+.s-observe-tail-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.s-observe-tail-state-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.s-observe-tail-state--live {
+  border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.s-observe-tail-state--live .s-observe-tail-state-dot {
+  background: var(--green);
+  animation: s-profile-state-pulse 1.6s ease-in-out infinite;
+}
+
+.s-observe-tail-state--live .s-observe-tail-state-label {
+  color: var(--green);
+}
+
+.s-observe-tail-state--paused {
+  border-color: color-mix(in srgb, var(--amber) 40%, var(--border));
+  background: color-mix(in srgb, var(--amber) 7%, transparent);
+}
+
+.s-observe-tail-state--paused .s-observe-tail-state-dot {
+  background: var(--amber);
+}
+
+.s-observe-tail-state--paused .s-observe-tail-state-label {
+  color: var(--amber);
+}
+
 .s-observe-speed-btn {
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -577,6 +629,12 @@
 .s-observe-jump-btn:hover {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+.s-observe-jump-btn--active {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+  background: color-mix(in srgb, var(--green) 8%, transparent);
 }
 
 /* ── Responsive ── */

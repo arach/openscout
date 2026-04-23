@@ -33,10 +33,16 @@ const TOOL_GLYPH: Record<string, string> = {
   think: "∿",
 };
 
+const LIVE_EDGE_WINDOW_SECONDS = 20;
+
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function isCursorAtLiveEdge(cursor: number, duration: number): boolean {
+  return cursor >= Math.max(0, duration - LIVE_EDGE_WINDOW_SECONDS);
 }
 
 /* ── Event blocks ── */
@@ -159,6 +165,32 @@ function LiveIndicator() {
     <div className="s-observe-live">
       <span className="s-observe-live-dot" />
       <span className="s-observe-live-label">LIVE · tailing session</span>
+    </div>
+  );
+}
+
+function TailStatus({
+  liveSession,
+  isLive,
+}: {
+  liveSession: boolean;
+  isLive: boolean;
+}) {
+  const tone = liveSession
+    ? isLive
+      ? "live"
+      : "paused"
+    : "replay";
+  const label = liveSession
+    ? isLive
+      ? "LIVE · tail mode on"
+      : "LIVE · tail paused"
+    : "REPLAY · saved trace";
+
+  return (
+    <div className={`s-observe-tail-state s-observe-tail-state--${tone}`}>
+      <span className="s-observe-tail-state-dot" />
+      <span className="s-observe-tail-state-label">{label}</span>
     </div>
   );
 }
@@ -386,7 +418,7 @@ export function SessionObserve({
     setCursor((current) => {
       const previousDuration = previousDurationRef.current;
       previousDurationRef.current = duration;
-      const wasNearLiveEdge = current >= previousDuration - 20;
+      const wasNearLiveEdge = isCursorAtLiveEdge(current, previousDuration);
       if (current > duration || wasNearLiveEdge) {
         return duration;
       }
@@ -410,7 +442,12 @@ export function SessionObserve({
   }, [playing, duration, speed]);
 
   const visible = events.filter((e) => e.t <= cursor);
-  const isLive = liveSession && cursor >= duration - 20;
+  const isLive = liveSession && isCursorAtLiveEdge(cursor, duration);
+  const jumpButtonLabel = liveSession
+    ? isLive
+      ? "Following live"
+      : "Jump to live ↦"
+    : "Jump to end ↦";
 
   const toolCount = events.filter((e) => e.kind === "tool").length;
   const thinkCount = events.filter((e) => e.kind === "think").length;
@@ -523,8 +560,13 @@ export function SessionObserve({
           ))}
         </div>
 
-        <button className="s-observe-jump-btn" onClick={() => setCursor(duration)}>
-          Jump to live ↦
+        <TailStatus liveSession={liveSession} isLive={isLive} />
+
+        <button
+          className={`s-observe-jump-btn${isLive ? " s-observe-jump-btn--active" : ""}`}
+          onClick={() => setCursor(duration)}
+        >
+          {jumpButtonLabel}
         </button>
       </footer>
     </div>

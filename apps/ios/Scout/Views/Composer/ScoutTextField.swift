@@ -60,6 +60,7 @@ struct ScoutTextField: UIViewRepresentable {
             textView.text = text
             textView.invalidateIntrinsicContentSize()
         }
+        context.coordinator.placeholderLabel?.text = placeholder
         context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
         updateColors(textView)
         textView.reportHeightIfNeeded()

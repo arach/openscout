@@ -488,7 +488,12 @@ function NowCard({
     <div
       className="s-now-card"
       onClick={() =>
-        navigate({ view: "agents", agentId: agent.id, conversationId })
+        navigate({
+          view: "agents",
+          agentId: agent.id,
+          conversationId,
+          tab: "observe",
+        })
       }
     >
       <div className="s-now-card-head">

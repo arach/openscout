@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -166,17 +166,42 @@ function resolveClaudeHistoryPath(
   sessionId: string | null | undefined,
 ): string | null {
   const normalizedCwd = expandHome(cwd)?.trim();
-  const normalizedSessionId = sessionId?.trim().replace(/\.jsonl$/u, "") || "";
-  if (!normalizedCwd || !normalizedSessionId) {
+  if (!normalizedCwd) {
     return null;
   }
-  return join(
+  const projectDir = join(
     homedir(),
     ".claude",
     "projects",
     encodeClaudeProjectsSlug(normalizedCwd),
-    `${normalizedSessionId}.jsonl`,
   );
+  const normalizedSessionId = sessionId?.trim().replace(/\.jsonl$/u, "") || "";
+  if (normalizedSessionId) {
+    const exactPath = join(projectDir, `${normalizedSessionId}.jsonl`);
+    if (existsSync(exactPath)) {
+      return exactPath;
+    }
+  }
+  // Fallback: find the most recently modified .jsonl in the project dir
+  return findMostRecentJsonl(projectDir);
+}
+
+function findMostRecentJsonl(dir: string): string | null {
+  if (!existsSync(dir)) return null;
+  try {
+    let best: { path: string; mtime: number } | null = null;
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith(".jsonl")) continue;
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (!best || st.mtimeMs > best.mtime) {
+        best = { path: full, mtime: st.mtimeMs };
+      }
+    }
+    return best?.path ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function historyAdapterAlias(

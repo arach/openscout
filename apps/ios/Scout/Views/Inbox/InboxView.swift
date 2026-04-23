@@ -60,23 +60,18 @@ struct InboxView: View {
 
     private var headerCard: some View {
         HStack(spacing: ScoutSpacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                    .fill(ScoutColors.statusStreaming.opacity(0.14))
-                    .frame(width: 44, height: 44)
+            Image(systemName: "tray.full")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .frame(width: 20)
 
-                Image(systemName: "bell.badge.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(ScoutColors.statusStreaming)
-            }
-
-            VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
-                Text("Inbox")
-                    .font(ScoutTypography.body(16, weight: .semibold))
-                    .foregroundStyle(ScoutColors.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("INBOX")
+                    .font(ScoutTypography.code(11, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
 
                 Text(headerSubtitle)
-                    .font(ScoutTypography.caption(13))
+                    .font(ScoutTypography.code(12))
                     .foregroundStyle(ScoutColors.textSecondary)
             }
 
@@ -110,29 +105,17 @@ struct InboxView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: ScoutSpacing.lg) {
-            ZStack {
-                Circle()
-                    .fill(ScoutColors.statusActive.opacity(0.08))
-                    .frame(width: 84, height: 84)
+        VStack(spacing: ScoutSpacing.md) {
+            Text("CLEAR")
+                .font(ScoutTypography.code(11, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
 
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 34, weight: .light))
-                    .foregroundStyle(ScoutColors.statusActive.opacity(0.75))
-            }
-
-            VStack(spacing: ScoutSpacing.xs) {
-                Text("Nothing waiting")
-                    .font(ScoutTypography.body(20, weight: .semibold))
-                    .foregroundStyle(ScoutColors.textPrimary)
-
-                Text(isConnected
-                     ? "New approval requests will appear here and trigger a notification."
-                     : "Scout will repopulate this inbox when your Mac reconnects.")
-                    .font(ScoutTypography.body(14))
-                    .foregroundStyle(ScoutColors.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
+            Text(isConnected
+                 ? "New approval requests will appear here."
+                 : "Reconnect to refresh pending approvals.")
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .multilineTextAlignment(.center)
         }
         .padding(.horizontal, ScoutSpacing.xxl)
     }

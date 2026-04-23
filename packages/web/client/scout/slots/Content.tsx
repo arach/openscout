@@ -64,6 +64,7 @@ function renderScreen(
           navigate={navigate}
           selectedAgentId={route.agentId}
           conversationId={route.conversationId}
+          tab={route.tab}
         />
       );
     case "fleet":

@@ -103,7 +103,7 @@ function navigateToAgent(
   navigate({
     view: "agents",
     agentId: agent.id,
-    ...(options.observe ? { conversationId: agent.conversationId } : {}),
+    ...(options.observe ? { conversationId: agent.conversationId, tab: "observe" } : {}),
   });
 }
 
