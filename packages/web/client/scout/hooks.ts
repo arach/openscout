@@ -186,8 +186,7 @@ export function useScoutNavActions(): ReactNode | null {
     "button",
     {
       onClick: () => openSettings(),
-      className:
-        "px-2 py-1 rounded-sm text-[11px] font-mono uppercase tracking-wider text-white/60 hover:text-white/90 hover:bg-white/[0.04] border border-white/[0.06] transition-colors",
+      className: "scout-nav-action",
     },
     "Pair device",
   );

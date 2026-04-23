@@ -10,6 +10,7 @@ import {
   queryAgents,
   queryFleet,
   queryFlights,
+  queryHeartrate,
   queryMobileAgentDetail,
   queryRecentMessages,
   querySessions,
@@ -165,6 +166,65 @@ describe("web db query flights", () => {
           completedAt: null,
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db query heartrate", () => {
+  test("returns a smoothed trailing 7 day series across millisecond and second timestamps", () => {
+    const store = createSeededStore();
+    const now = 1_700_000_000_000;
+
+    try {
+      store.recordMessage({
+        id: "msg-heartrate-1",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Six days ago.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 6 * 24 * 60 * 60_000,
+      });
+      store.recordMessage({
+        id: "msg-heartrate-2",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Yesterday.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 24 * 60 * 60_000,
+      });
+      store.recordFlight({
+        id: "flight-heartrate-seconds",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Seconds timestamp activity.",
+        startedAt: Math.floor((now - 90 * 60_000) / 1000),
+        completedAt: Math.floor((now - 30 * 60_000) / 1000),
+      });
+
+      const heartrate = queryHeartrate(56, now);
+      const filledIndexes = heartrate.buckets
+        .map((bucket, index) => bucket.count > 0 ? index : -1)
+        .filter((index) => index >= 0);
+
+      expect(heartrate.windowLabel).toBe("trailing 7d");
+      expect(heartrate.bucketLabel).toBe("3h buckets");
+      expect(heartrate.buckets).toHaveLength(56);
+      expect(heartrate.buckets.reduce((total, bucket) => total + bucket.count, 0)).toBe(3);
+      expect(filledIndexes.length).toBe(3);
+
+      const firstFilled = filledIndexes[0] ?? -1;
+      expect(heartrate.buckets[firstFilled].value).toBeGreaterThan(0);
+      expect(heartrate.buckets[firstFilled + 1].value).toBeGreaterThan(0);
     } finally {
       store.close();
     }

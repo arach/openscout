@@ -151,15 +151,15 @@ function ShowcaseCaption({
   title: string;
 }) {
   return (
-    <div className="border-t border-[#eae6dd] bg-[#faf9f6] px-4 py-3.5 sm:px-5">
-      <div className="landing-label text-[#2657c6]">{eyebrow}</div>
-      <h3 className="mt-1.5 text-base font-semibold tracking-tight text-[#111110]">
+    <div className="border-t border-[var(--site-border)] bg-[var(--site-panel)] px-4 py-3.5 sm:px-5">
+      <div className="landing-label text-[var(--site-accent)]">{eyebrow}</div>
+      <h3 className="mt-1.5 text-base font-semibold tracking-tight text-[var(--site-ink)]">
         {title}
       </h3>
-      <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-[#6b6862]">
+      <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-[var(--site-copy)]">
         {description}
       </p>
-      <p className="mt-2 text-xs leading-relaxed text-[#9a978f]">{focus}</p>
+      <p className="mt-2 text-xs leading-relaxed text-[var(--site-muted-soft)]">{focus}</p>
     </div>
   );
 }
@@ -209,7 +209,7 @@ export function LandingProductShowcase({
   return (
     <div className="landing-panel overflow-hidden rounded-xl">
       {/* ── toolbar ── */}
-      <div className="flex h-12 items-center justify-between border-b border-[#eae6dd] bg-[#fbfaf7] px-4">
+      <div className="flex h-12 items-center justify-between border-b border-[var(--site-border)] bg-[var(--site-panel)] px-4">
         <div className="flex items-center gap-3.5">
           <div className="flex gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
@@ -217,14 +217,14 @@ export function LandingProductShowcase({
             <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
           </div>
 
-          <div className="flex items-center gap-0.5 rounded-md border border-[#eae6dd] bg-white p-0.5">
+          <div className="flex items-center gap-0.5 rounded-md border border-[var(--site-border)] bg-[var(--site-surface-strong)] p-0.5">
             <button
               type="button"
               onClick={() => selectSurface("relay")}
               className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
                 surface === "relay"
-                  ? "bg-[#111110] text-[#f5f4ef]"
-                  : "text-[#7a7770] hover:bg-[#f5f4ef]"
+                  ? "bg-[var(--site-ink)] text-[var(--site-ink-contrast)]"
+                  : "text-[var(--site-copy)] hover:bg-[var(--site-panel)]"
               }`}
             >
               <Terminal className="h-3 w-3" />
@@ -235,8 +235,8 @@ export function LandingProductShowcase({
               onClick={() => selectSurface("pairing")}
               className={`inline-flex items-center gap-1.5 rounded-[5px] px-2.5 py-1 text-xs font-medium transition-colors ${
                 surface === "pairing"
-                  ? "bg-[#111110] text-[#f5f4ef]"
-                  : "text-[#7a7770] hover:bg-[#f5f4ef]"
+                  ? "bg-[var(--site-ink)] text-[var(--site-ink-contrast)]"
+                  : "text-[var(--site-copy)] hover:bg-[var(--site-panel)]"
               }`}
             >
               <Send className="h-3 w-3" />
@@ -245,7 +245,7 @@ export function LandingProductShowcase({
           </div>
         </div>
 
-        <div className="hidden items-center gap-3.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[#9a978f] sm:flex">
+        <div className="hidden items-center gap-3.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--site-muted-soft)] sm:flex">
           <span className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[#2f9d5d]" />
             Connected
@@ -257,7 +257,7 @@ export function LandingProductShowcase({
       {/* ── content ── */}
       {surface === "relay" ? (
         <div className="grid lg:grid-cols-[13rem_minmax(0,1fr)]">
-          <aside className="hidden border-r border-[#eae6dd] bg-[#f8f7f2] lg:block">
+          <aside className="hidden border-r border-[var(--site-border)] bg-[var(--site-panel-rail)] lg:block">
             <div className="flex flex-col gap-1 p-3">
               {availableRelayViews.map((view) => {
                 const Icon = view.icon;
@@ -270,16 +270,16 @@ export function LandingProductShowcase({
                     onClick={() => selectRelayView(view.id)}
                     className={`rounded-lg border px-2.5 py-2.5 text-left transition-colors ${
                       active
-                        ? "border-[#e2ded5] bg-white text-[#111110] shadow-sm"
-                        : "border-transparent bg-transparent text-[#6e6b65] hover:bg-white/60"
+                        ? "border-[var(--site-border-strong)] bg-[var(--site-surface-strong)] text-[var(--site-ink)] shadow-sm"
+                        : "border-transparent bg-transparent text-[var(--site-copy)] hover:bg-[var(--site-surface)]"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <span
                         className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
                           active
-                            ? "border-[#dce4ff] bg-[#f2f5ff] text-[#2657c6]"
-                            : "border-[#eae6dd] bg-[#faf9f6] text-[#9a978f]"
+                            ? "border-[var(--site-accent-border)] bg-[var(--site-accent-soft-strong)] text-[var(--site-accent)]"
+                            : "border-[var(--site-border)] bg-[var(--site-panel)] text-[var(--site-muted-soft)]"
                         }`}
                       >
                         <Icon className="h-3.5 w-3.5" strokeWidth={1.6} />
@@ -288,7 +288,7 @@ export function LandingProductShowcase({
                         <div className="text-[13px] font-medium leading-tight">
                           {view.label}
                         </div>
-                        <div className="text-[11px] leading-tight text-[#9a978f]">
+                        <div className="text-[11px] leading-tight text-[var(--site-muted-soft)]">
                           {view.title}
                         </div>
                       </div>
@@ -299,7 +299,7 @@ export function LandingProductShowcase({
             </div>
           </aside>
 
-          <div className="bg-white p-3 sm:p-4">
+          <div className="bg-[var(--site-surface-strong)] p-3 sm:p-4">
             <div className="mb-3 flex gap-1.5 overflow-x-auto lg:hidden">
               {availableRelayViews.map((view) => (
                 <button
@@ -308,8 +308,8 @@ export function LandingProductShowcase({
                   onClick={() => selectRelayView(view.id)}
                   className={`shrink-0 rounded-md border px-2.5 py-1 text-[13px] font-medium transition-colors ${
                     relayView === view.id
-                      ? "border-[#111110] bg-[#111110] text-[#f5f4ef]"
-                      : "border-[#e2ded5] bg-white text-[#6e6b65]"
+                      ? "border-[var(--site-ink)] bg-[var(--site-ink)] text-[var(--site-ink-contrast)]"
+                      : "border-[var(--site-border-strong)] bg-[var(--site-surface-strong)] text-[var(--site-copy)]"
                   }`}
                 >
                   {view.label}
@@ -317,7 +317,7 @@ export function LandingProductShowcase({
               ))}
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-[#eae6dd] bg-[#f3f1eb]">
+            <div className="overflow-hidden rounded-lg border border-[var(--site-border)] bg-[var(--site-panel-muted)]">
               <ExpandableImage
                 analyticsId={`showcase-${surface === "relay" ? activeRelayView.id : "pairing"}`}
                 analyticsLocation="hero_showcase"
@@ -341,8 +341,8 @@ export function LandingProductShowcase({
           </div>
         </div>
       ) : (
-        <div className="bg-white p-3 sm:p-4">
-          <div className="overflow-hidden rounded-lg border border-[#eae6dd] bg-[#f3f1eb]">
+        <div className="bg-[var(--site-surface-strong)] p-3 sm:p-4">
+          <div className="overflow-hidden rounded-lg border border-[var(--site-border)] bg-[var(--site-panel-muted)]">
             <ExpandableImage
               analyticsId="showcase-pairing"
               analyticsLocation="hero_showcase"

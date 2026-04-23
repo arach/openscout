@@ -175,6 +175,7 @@ struct ConnectionStatusSheet: View {
 
     @State private var syncStatus: SyncStatusResponse?
     @State private var bridgeStatus: BridgeStatusResponse?
+    @State private var syncStatusSessionName: String?
     @State private var isRefreshing = false
     @State private var refreshError: String?
 
@@ -289,6 +290,9 @@ struct ConnectionStatusSheet: View {
             }
             if let syncStatus {
                 statusRow(label: "Sync Cursor", value: "#\(syncStatus.currentSeq)")
+                if let syncStatusSessionName {
+                    statusRow(label: "Sync Session", value: syncStatusSessionName)
+                }
                 statusRow(label: "Synced Sessions", value: "\(syncStatus.sessionCount)")
             }
             if let lastSeen = connection.pairedBridgeLastSeen {
@@ -366,6 +370,7 @@ struct ConnectionStatusSheet: View {
         guard connection.hasTrustedBridge else {
             syncStatus = nil
             bridgeStatus = nil
+            syncStatusSessionName = nil
             refreshError = nil
             return
         }
@@ -376,18 +381,27 @@ struct ConnectionStatusSheet: View {
 
         if connection.state == .connected {
             do {
-                async let sync = connection.syncStatus()
-                async let bridge = connection.bridgeStatus()
-                syncStatus = try await sync
-                bridgeStatus = try await bridge
+                let bridge = try await connection.bridgeStatus()
+                bridgeStatus = bridge
+
+                guard let session = bridge.sessions.max(by: { $0.lastActivityAt < $1.lastActivityAt }) else {
+                    syncStatus = nil
+                    syncStatusSessionName = nil
+                    return
+                }
+
+                syncStatus = try await connection.syncStatus(sessionId: session.sessionId)
+                syncStatusSessionName = session.name
             } catch {
                 syncStatus = nil
                 bridgeStatus = nil
+                syncStatusSessionName = nil
                 refreshError = error.scoutUserFacingMessage
             }
         } else {
             syncStatus = nil
             bridgeStatus = nil
+            syncStatusSessionName = nil
         }
     }
 

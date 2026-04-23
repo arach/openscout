@@ -18,6 +18,12 @@ import type {
   SessionEntry,
 } from "../lib/types.ts";
 
+type HeartrateBucketView = {
+  ts: number;
+  count: number;
+  value: number;
+};
+
 function greetingFor(hour: number): string {
   if (hour < 5) return "Still up";
   if (hour < 12) return "Good morning";
@@ -38,8 +44,9 @@ export function HomeScreen({
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
-  const [heartrate, setHeartrate] = useState<number[]>([]);
-  const [heartrateWindow, setHeartrateWindow] = useState("30m");
+  const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
+  const [heartrateWindow, setHeartrateWindow] = useState("trailing 7d");
+  const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -48,7 +55,11 @@ export function HomeScreen({
         api<ActivityItem[]>("/api/activity"),
         api<SessionEntry[]>("/api/sessions"),
         api<FleetState>("/api/fleet"),
-        api<{ windowLabel: string; buckets: Array<{ value: number }> }>("/api/heartrate"),
+        api<{
+          windowLabel: string;
+          bucketLabel?: string;
+          buckets: HeartrateBucketView[];
+        }>("/api/heartrate"),
       ]);
     if (activityResult.status === "fulfilled")
       setActivity(activityResult.value);
@@ -60,8 +71,9 @@ export function HomeScreen({
       );
     if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
     if (heartrateResult.status === "fulfilled") {
-      setHeartrate(heartrateResult.value.buckets.map((b) => b.value));
+      setHeartrate(heartrateResult.value.buckets);
       setHeartrateWindow(heartrateResult.value.windowLabel);
+      setHeartrateBucketLabel(heartrateResult.value.bucketLabel ?? "");
     }
   }, []);
 
@@ -191,9 +203,11 @@ export function HomeScreen({
             <div className="s-heartrate-header">
               <span className="s-eyebrow">Fleet heart-rate</span>
               <span style={{ flex: 1 }} />
-              <span className="s-heartrate-live">● live · {heartrateWindow}</span>
+              <span className="s-heartrate-live">
+                ● {heartrateWindow}{heartrateBucketLabel ? ` · ${heartrateBucketLabel}` : ""}
+              </span>
             </div>
-            <HeartrateGraph data={heartrate} />
+            <HeartrateGraph buckets={heartrate} />
             <div className="s-heartrate-stats">
               <StatCell label="Active" value={active.length} color="var(--green)" />
               <StatCell label="Waiting" value={waiting.length} color="var(--amber)" />
@@ -301,19 +315,47 @@ export function HomeScreen({
 
 /* ── Sub-components ────────────────────────────────────────────────── */
 
-function HeartrateGraph({ data }: { data: number[] }) {
+function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+
+  const commands = [`M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const cp1 = {
+      x: p1.x + (p2.x - p0.x) / 6,
+      y: p1.y + (p2.y - p0.y) / 6,
+    };
+    const cp2 = {
+      x: p2.x - (p3.x - p1.x) / 6,
+      y: p2.y - (p3.y - p1.y) / 6,
+    };
+    commands.push(
+      `C ${cp1.x.toFixed(1)} ${cp1.y.toFixed(1)}, ${cp2.x.toFixed(1)} ${cp2.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`,
+    );
+  }
+  return commands.join(" ");
+}
+
+function HeartrateGraph({ buckets }: { buckets: HeartrateBucketView[] }) {
   const W = 372;
-  const H = 56;
-  const N = data.length;
-  const allZero = N < 2 || data.every((v) => v === 0);
+  const H = 82;
+  const chartTop = 6;
+  const chartBottom = 60;
+  const labelY = 77;
+  const N = buckets.length;
+  const allZero = N < 2 || buckets.every((bucket) => bucket.count === 0);
 
   if (allZero) {
     return (
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H, display: "block" }}>
-        <line x1="0" y1={H - 0.5} x2={W} y2={H - 0.5} stroke="var(--border)" />
+        <line x1="0" y1={chartBottom} x2={W} y2={chartBottom} stroke="var(--border)" />
         <text
           x={W / 2}
-          y={H / 2 - 2}
+          y={H / 2 - 4}
           textAnchor="middle"
           fill="var(--dim)"
           fontSize="14"
@@ -323,7 +365,7 @@ function HeartrateGraph({ data }: { data: number[] }) {
         </text>
         <text
           x={W / 2}
-          y={H / 2 + 14}
+          y={H / 2 + 12}
           textAnchor="middle"
           fill="var(--dim)"
           fontSize="10"
@@ -337,12 +379,12 @@ function HeartrateGraph({ data }: { data: number[] }) {
   }
 
   const stepX = W / (N - 1);
-  const path = data
-    .map(
-      (v, i) =>
-        `${i === 0 ? "M" : "L"} ${(i * stepX).toFixed(1)} ${((1 - v) * H).toFixed(1)}`,
-    )
-    .join(" ");
+  const points = buckets.map((bucket, i) => ({
+    x: i * stepX,
+    y: chartBottom - Math.max(0, Math.min(1, bucket.value)) * (chartBottom - chartTop),
+  }));
+  const path = buildSmoothPath(points);
+  const areaPath = `${path} L ${W} ${chartBottom} L 0 ${chartBottom} Z`;
 
   return (
     <svg
@@ -351,25 +393,36 @@ function HeartrateGraph({ data }: { data: number[] }) {
     >
       <defs>
         <linearGradient id="hrFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
+          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.28" />
           <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
         </linearGradient>
       </defs>
+      <line x1="0" y1={chartTop} x2={W} y2={chartTop} stroke="var(--border)" opacity="0.18" />
+      <line x1="0" y1={(chartTop + chartBottom) / 2} x2={W} y2={(chartTop + chartBottom) / 2} stroke="var(--border)" opacity="0.25" />
       <line
         x1="0"
-        y1={H - 0.5}
+        y1={chartBottom}
         x2={W}
-        y2={H - 0.5}
+        y2={chartBottom}
         stroke="var(--border)"
       />
-      <path d={`${path} L ${W} ${H} L 0 ${H} Z`} fill="url(#hrFill)" />
-      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="1.2" />
+      <path d={areaPath} fill="url(#hrFill)" />
+      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
       <circle
-        cx={(N - 1) * stepX}
-        cy={(1 - data[N - 1]) * H}
-        r="3"
+        cx={points[N - 1].x}
+        cy={points[N - 1].y}
+        r="3.5"
         fill="var(--accent)"
       />
+      <text x="0" y={labelY} fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">
+        7d ago
+      </text>
+      <text x={W / 2} y={labelY} textAnchor="middle" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">
+        3d
+      </text>
+      <text x={W} y={labelY} textAnchor="end" fill="var(--dim)" fontSize="9" fontFamily="var(--font-mono)">
+        now
+      </text>
     </svg>
   );
 }

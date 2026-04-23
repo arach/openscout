@@ -15,6 +15,7 @@ import {
   useScoutLayoutMode,
   useScoutTakeover,
 } from "./hooks.ts";
+import type { ScoutTheme } from "../lib/theme.ts";
 
 const intents: AppIntent[] = [
   {
@@ -162,40 +163,47 @@ const intents: AppIntent[] = [
   },
 ];
 
-export const scoutApp: HudsonApp = {
-  id: "openscout",
-  name: "Scout",
-  description:
-    "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
-  mode: "panel",
-  icon: createElement(Compass, { size: 14, strokeWidth: 1.2 }),
+export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): HudsonApp {
+  const { initialTheme = "dark" } = options;
 
-  Provider: ScoutProvider,
+  return {
+    id: "openscout",
+    name: "Scout",
+    description:
+      "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
+    mode: "panel",
+    icon: createElement(Compass, { size: 14, strokeWidth: 1.2 }),
 
-  leftPanel: {
-    title: "Agents",
-  },
+    Provider: ({ children }) =>
+      createElement(ScoutProvider, { initialTheme }, children),
 
-  rightPanel: {
-    title: "Context",
-  },
+    leftPanel: {
+      title: "Agents",
+    },
 
-  slots: {
-    Content: ScoutContent,
-    LeftPanel: ScoutLeftPanel,
-    LeftFooter: ScoutLeftFooter,
-    Inspector: ScoutInspector,
-    Takeover: OnboardingTakeover,
-  },
+    rightPanel: {
+      title: "Context",
+    },
 
-  intents,
+    slots: {
+      Content: ScoutContent,
+      LeftPanel: ScoutLeftPanel,
+      LeftFooter: ScoutLeftFooter,
+      Inspector: ScoutInspector,
+      Takeover: OnboardingTakeover,
+    },
 
-  hooks: {
-    useCommands: useScoutCommands,
-    useStatus: useScoutStatus,
-    useNavCenter: useScoutNavCenter,
-    useNavActions: useScoutNavActions,
-    useLayoutMode: useScoutLayoutMode,
-    useTakeover: useScoutTakeover,
-  },
-};
+    intents,
+
+    hooks: {
+      useCommands: useScoutCommands,
+      useStatus: useScoutStatus,
+      useNavCenter: useScoutNavCenter,
+      useNavActions: useScoutNavActions,
+      useLayoutMode: useScoutLayoutMode,
+      useTakeover: useScoutTakeover,
+    },
+  };
+}
+
+export const scoutApp: HudsonApp = createScoutApp();

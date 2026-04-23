@@ -19,3 +19,9 @@ Expected migration order:
 Project notes:
 - XcodeGen project definition: [project.yml](/Users/arach/dev/openscout/apps/ios/project.yml)
 - source root: [Scout](/Users/arach/dev/openscout/apps/ios/Scout)
+
+## App Store prep
+
+- The iOS marketing version should track the repo root npm version from [package.json](/Users/arach/dev/openscout/package.json).
+- [scripts/release.sh](/Users/arach/dev/openscout/apps/ios/scripts/release.sh) regenerates the Xcode project from [project.yml](/Users/arach/dev/openscout/apps/ios/project.yml), resolves the next build number from App Store Connect with `asc`, uploads the archive, attaches the build to the current App Store draft, and runs `asc validate`.
+- `asc validate` still requires App Store Connect-side completeness, especially pricing/availability, screenshots, and published App Privacy data.

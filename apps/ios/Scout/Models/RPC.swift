@@ -168,7 +168,12 @@ struct SessionIdParams: Codable, Sendable {
 }
 
 struct ReplayParams: Codable, Sendable {
+    let sessionId: String
     let lastSeq: Int
+}
+
+struct SyncStatusParams: Codable, Sendable {
+    let sessionId: String
 }
 
 struct SyncStatusResponse: Codable, Sendable {

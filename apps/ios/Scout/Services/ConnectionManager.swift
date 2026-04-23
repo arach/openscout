@@ -1148,13 +1148,14 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(SessionState.self, from: data)
     }
 
-    func syncStatus() async throws -> SyncStatusResponse {
-        let data = try await sendRPC(method: "sync/status", params: nil as Empty?)
+    func syncStatus(sessionId: String) async throws -> SyncStatusResponse {
+        let params = SyncStatusParams(sessionId: sessionId)
+        let data = try await sendRPC(method: "sync/status", params: params)
         return try decodeResult(SyncStatusResponse.self, from: data)
     }
 
-    func syncReplay(lastSeq: Int) async throws -> [SequencedEvent] {
-        let params = ReplayParams(lastSeq: lastSeq)
+    func syncReplay(sessionId: String, lastSeq: Int) async throws -> [SequencedEvent] {
+        let params = ReplayParams(sessionId: sessionId, lastSeq: lastSeq)
         let data = try await sendRPC(method: "sync/replay", params: params)
         let response = try decodeResult(ReplayResponse.self, from: data)
         return response.events

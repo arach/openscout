@@ -27,12 +27,12 @@ export function CopyCommand({
     <button
       type="button"
       onClick={copy}
-      className="group inline-flex h-11 items-center gap-3 rounded-full border border-[#dad6cd] bg-white px-4 font-mono text-[13px] text-[#111110] shadow-sm transition-all hover:border-[#cfcac1] hover:bg-[#faf9f4] hover:shadow-md max-w-full overflow-hidden"
+      className="group inline-flex h-11 max-w-full items-center gap-3 overflow-hidden rounded-full border border-[var(--site-border)] bg-[var(--site-surface-strong)] px-4 font-mono text-[13px] text-[var(--site-ink)] shadow-sm transition-all hover:border-[var(--site-border-strong)] hover:bg-[var(--site-panel)] hover:shadow-md"
     >
-      <span className="text-[#8b887f] shrink-0">$</span>
+      <span className="shrink-0 text-[var(--site-muted)]">$</span>
       <span className="truncate">{command}</span>
-      <span className="ml-1 text-[#8b887f] transition-colors group-hover:text-[#5f5d57] shrink-0">
-        {copied ? <Check className="h-3.5 w-3.5 text-[#2657c6]" /> : <Copy className="h-3.5 w-3.5" />}
+      <span className="ml-1 shrink-0 text-[var(--site-muted)] transition-colors group-hover:text-[var(--site-copy)]">
+        {copied ? <Check className="h-3.5 w-3.5 text-[var(--site-accent)]" /> : <Copy className="h-3.5 w-3.5" />}
       </span>
     </button>
   );
@@ -63,17 +63,17 @@ export function CopyCommandBlock({
     <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,24rem)_1fr]">
       <button
         onClick={copy}
-        className="group flex min-h-12 items-center justify-between rounded-xl border border-[#ded9cf] bg-white px-4 py-3 font-mono text-[13px] text-[#111110] shadow-sm transition-colors hover:border-[#cfcac1] hover:bg-[#faf9f4]"
+        className="group flex min-h-12 items-center justify-between rounded-xl border border-[var(--site-border)] bg-[var(--site-surface-strong)] px-4 py-3 font-mono text-[13px] text-[var(--site-ink)] shadow-sm transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-panel)]"
       >
         <span className="text-left leading-relaxed">
-          <span className="text-[#8b887f]">$ </span>
+          <span className="text-[var(--site-muted)]">$ </span>
           <span>{command}</span>
         </span>
-        <span className="ml-3 shrink-0 text-[#8b887f] transition-colors group-hover:text-[#5f5d57]">
-          {copied ? <Check className="h-3.5 w-3.5 text-[#2657c6]" /> : <Copy className="h-3.5 w-3.5" />}
+        <span className="ml-3 shrink-0 text-[var(--site-muted)] transition-colors group-hover:text-[var(--site-copy)]">
+          {copied ? <Check className="h-3.5 w-3.5 text-[var(--site-accent)]" /> : <Copy className="h-3.5 w-3.5" />}
         </span>
       </button>
-      {label && <p className="pt-1 text-[13px] leading-relaxed text-[#64625c]">{label}</p>}
+      {label && <p className="pt-1 text-[13px] leading-relaxed text-[var(--site-copy)]">{label}</p>}
     </div>
   );
 }
