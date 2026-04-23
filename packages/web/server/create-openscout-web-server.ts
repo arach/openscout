@@ -63,6 +63,9 @@ import {
   readOpenScoutSettings,
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
+import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
+import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
+import { buildHarnessResumeCommand, findHarnessEntry } from "@openscout/runtime/harness-catalog";
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
@@ -171,13 +174,13 @@ function resolveConversationRouting(conversationId: string | undefined): {
 function resolveBundledStaticClientRoot(
   moduleUrl: string | URL = import.meta.url,
 ): string {
-  return resolve(dirname(fileURLToPath(moduleUrl)), "client");
+  return resolve(dirname(fileURLToPath(moduleUrl.toString())), "client");
 }
 
 function resolveSourceStaticClientRoot(
   moduleUrl: string | URL = import.meta.url,
 ): string {
-  return resolve(dirname(fileURLToPath(moduleUrl)), "../dist/client");
+  return resolve(dirname(fileURLToPath(moduleUrl.toString())), "../dist/client");
 }
 
 function resolveStaticRoot(staticRoot: string | undefined): string {
@@ -265,6 +268,21 @@ export async function createOpenScoutWebServer(
   app.get("/api/agents/:id/observe", async (c) => {
     const payload = await loadAgentObservePayload(c.req.param("id"));
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
+  });
+  app.get("/api/agents/:id/session-catalog", (c) => {
+    const agentId = c.req.param("id");
+    const agents = queryAgents();
+    const agent = agents.find((a) => a.id === agentId);
+    if (!agent) return c.json({ error: "agent not found" }, 404);
+    const runtimeDir = relayAgentRuntimeDirectory(agent.id);
+    const catalog = readSessionCatalogSync(runtimeDir);
+    const cwd = agent.cwd ?? agent.projectRoot ?? ".";
+    const sessionId = catalog.activeSessionId;
+    const harnessEntry = findHarnessEntry(agent.harness);
+    const resumeCommand = sessionId && harnessEntry
+      ? buildHarnessResumeCommand(harnessEntry, sessionId, cwd)
+      : null;
+    return c.json({ ...catalog, agentId, harness: agent.harness, resumeCommand });
   });
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));

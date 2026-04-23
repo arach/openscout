@@ -3,7 +3,9 @@
 .s-observe {
   display: grid;
   grid-template-columns: 1fr 320px;
-  grid-template-rows: 1fr 56px;
+  grid-template-rows: 1fr auto;
+  flex: 1;
+  min-height: 0;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
@@ -462,7 +464,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px;
+  padding: 10px 20px;
 }
 
 .s-observe-play-btn {
@@ -478,6 +480,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  padding-left: 2px;
 }
 
 .s-observe-play-btn:hover {
@@ -504,13 +507,14 @@
   flex: 1;
   position: relative;
   height: 36px;
+  min-width: 0;
 }
 
 .s-observe-track {
   position: absolute;
   inset: 14px 0;
   background: color-mix(in srgb, var(--ink) 10%, transparent);
-  border-radius: 2px;
+  border-radius: 3px;
   cursor: pointer;
 }
 
@@ -531,11 +535,12 @@
 
 .s-observe-track-cursor {
   position: absolute;
-  top: -6px;
+  top: -4px;
   transform: translateX(-50%);
   width: 3px;
   height: 16px;
   background: var(--accent);
+  border-radius: 1.5px;
 }
 
 .s-observe-speed-group {
@@ -647,4 +652,87 @@
   .s-observe-rail {
     display: none;
   }
+}
+
+/* ── Session header ── */
+
+.s-observe-session-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.s-observe-session-active {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-observe-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-observe-session-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.s-observe-session-time {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.s-observe-resume-btn {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.s-observe-resume-btn:hover {
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+  border-color: color-mix(in srgb, var(--green) 35%, transparent);
+}
+
+.s-observe-session-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.s-observe-session-history-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+
+.s-observe-session-past {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.6;
+}
+
+.s-observe-session-past .s-observe-session-id {
+  color: var(--dim);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
 }

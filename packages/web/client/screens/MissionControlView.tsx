@@ -518,7 +518,7 @@ function FocusOverlay({
           </div>
         </div>
         <div className="s-mission-overlay-body">
-          <SessionObserve data={observe ?? undefined} />
+          <SessionObserve data={observe ?? undefined} agentId={agent.id} />
         </div>
       </div>
     </div>

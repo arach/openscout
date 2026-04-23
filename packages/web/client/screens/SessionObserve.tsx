@@ -4,7 +4,9 @@ import type {
   ObserveData,
   ObserveEvent,
   ObserveFile,
+  SessionCatalogWithResume,
 } from "../lib/types.ts";
+import { api } from "../lib/api.ts";
 
 import "./session-observe.css";
 
@@ -382,6 +384,93 @@ function Scrubber({
   );
 }
 
+/* ── Session header ── */
+
+function fmtRelative(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function fmtDuration(start: number, end: number): string {
+  const diff = end - start;
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s`;
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m`;
+}
+
+function SessionHeader({
+  catalog,
+  sessionId,
+}: {
+  catalog: SessionCatalogWithResume;
+  sessionId: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+  const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
+  const past = catalog.sessions
+    .filter((s) => s.id !== catalog.activeSessionId && s.endedAt)
+    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+    .slice(0, 5);
+
+  const displayId = catalog.activeSessionId ?? sessionId;
+  const shortId = displayId ? displayId.slice(0, 8) : null;
+
+  const copyResume = useCallback(() => {
+    if (!catalog.resumeCommand) return;
+    void navigator.clipboard.writeText(catalog.resumeCommand);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [catalog.resumeCommand]);
+
+  return (
+    <div className="s-observe-session-header">
+      <div className="s-observe-session-active">
+        <div className="s-observe-session-row">
+          {shortId && (
+            <span className="s-observe-session-id" title={displayId ?? undefined}>
+              {shortId}
+            </span>
+          )}
+          {active && (
+            <span className="s-observe-session-time">
+              started {fmtRelative(active.startedAt)}
+            </span>
+          )}
+          {catalog.resumeCommand && (
+            <button
+              className="s-observe-resume-btn"
+              onClick={copyResume}
+              title={catalog.resumeCommand}
+            >
+              {copied ? "Copied" : "Resume"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {past.length > 0 && (
+        <div className="s-observe-session-history">
+          <div className="s-observe-session-history-label">
+            {catalog.sessions.length} session{catalog.sessions.length !== 1 ? "s" : ""} total
+          </div>
+          {past.map((s) => (
+            <div key={s.id} className="s-observe-session-past">
+              <span className="s-observe-session-id">{s.id.slice(0, 8)}</span>
+              <span className="s-observe-session-time">
+                {fmtRelative(s.startedAt)}
+                {s.endedAt ? ` · ${fmtDuration(s.startedAt, s.endedAt)}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_OBSERVE_DATA: SessionObserveData = {
   events: [
     {
@@ -401,12 +490,26 @@ const EMPTY_OBSERVE_DATA: SessionObserveData = {
 
 export function SessionObserve({
   data,
+  agentId,
+  sessionId,
 }: {
   data?: SessionObserveData;
+  agentId?: string;
+  sessionId?: string | null;
 }) {
   const observeData = data ?? EMPTY_OBSERVE_DATA;
   const { events, files, contextUsage } = observeData;
   const liveSession = observeData.live === true;
+
+  const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
+      .then((result) => { if (!cancelled) setCatalog(result); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agentId]);
 
   const duration = events.length > 0 ? events[events.length - 1].t + 30 : 60;
   const [cursor, setCursor] = useState(duration);
@@ -465,6 +568,13 @@ export function SessionObserve({
 
       {/* Right rail */}
       <aside className="s-observe-rail">
+        {catalog && catalog.sessions.length > 0 && (
+          <div>
+            <div className="s-observe-rail-label">Session</div>
+            <SessionHeader catalog={catalog} sessionId={sessionId ?? null} />
+          </div>
+        )}
+
         <div>
           <div className="s-observe-rail-label">Context window</div>
           {contextUsage && contextUsage.length >= 2 ? (

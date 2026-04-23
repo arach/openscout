@@ -47,6 +47,11 @@
       "bun": "./src/support-paths.ts",
       "default": "./dist/support-paths.js"
     },
+    "./claude-stream-json": {
+      "types": "./src/claude-stream-json.ts",
+      "bun": "./src/claude-stream-json.ts",
+      "default": "./dist/claude-stream-json.js"
+    },
     "./codex-app-server": {
       "types": "./src/codex-app-server.ts",
       "bun": "./src/codex-app-server.ts",

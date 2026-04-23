@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import {
+  compactAgentId,
+  minimalAgentDisplayName,
+  minimalAgentHandle,
+} from "../lib/agent-labels.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { agentIdFromConversation } from "../lib/router.ts";
@@ -12,11 +17,6 @@ type ProfileField = {
   label: string;
   value: ReactNode;
 };
-
-function compactId(id: string): string {
-  const parts = id.split(".");
-  return parts[parts.length - 1] || id;
-}
 
 function formatLabel(value: string | null | undefined): string | null {
   return value ? value.replace(/_/g, " ") : null;
@@ -115,12 +115,20 @@ export function AgentInfoScreen({
     );
   }
 
+  const shortHandle = minimalAgentHandle(agent);
+  const displayName = minimalAgentDisplayName({
+    name: agent.name,
+    id: agent.id,
+  });
   const identityItems: ProfileField[] = [
-    { label: "Agent ID", value: agent.id },
-    ...(agent.handle ? [{ label: "Handle", value: `@${agent.handle}` }] : []),
+    { label: "Agent", value: displayName },
+    ...(shortHandle ? [{ label: "Handle", value: shortHandle }] : []),
+    { label: "System ID", value: agent.id },
     { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
     ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
-    ...(agent.selector ? [{ label: "Selector", value: agent.selector }] : []),
+    ...(agent.selector && agent.selector !== shortHandle
+      ? [{ label: "Selector", value: agent.selector }]
+      : []),
   ];
   const workspaceItems: ProfileField[] = [
     ...(agent.project ? [{ label: "Project", value: agent.project }] : []),
@@ -136,7 +144,7 @@ export function AgentInfoScreen({
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
   ];
   const conversationItems: ProfileField[] = [
-    { label: "Conversation ID", value: conversationId },
+    { label: "Thread ID", value: conversationId },
     ...(session?.title ? [{ label: "Title", value: session.title }] : []),
     ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
     ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
@@ -178,7 +186,9 @@ export function AgentInfoScreen({
             </div>
             <div className="s-agent-profile-hero-copy">
               <div className="s-agent-casefile-title-meta">
-                <span className="s-agent-casefile-record">{compactId(agent.id)}</span>
+                <span className="s-agent-casefile-record">
+                  {shortHandle ?? compactAgentId(agent.id) ?? agent.id}
+                </span>
                 <span className={`s-agent-state-chip s-agent-state-chip-${normalizeAgentState(agent.state)}`}>
                   <span className="s-dot" style={{ background: stateColor(agent.state) }} />
                   {agentStateLabel(agent.state)}
@@ -186,7 +196,7 @@ export function AgentInfoScreen({
               </div>
               <h1 className="s-agent-profile-hero-title">{agent.name}</h1>
               <p className="s-agent-profile-hero-copyline">
-                {[agent.handle ? `@${agent.handle}` : null, agent.project, agent.branch, formatLabel(agent.role) ?? formatLabel(agent.agentClass)]
+                {[shortHandle, agent.project, agent.branch, formatLabel(agent.role) ?? formatLabel(agent.agentClass)]
                   .filter(Boolean)
                   .join(" • ")}
               </p>

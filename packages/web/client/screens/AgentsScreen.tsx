@@ -15,6 +15,7 @@ import type {
   Message,
   Route,
   SessionEntry,
+  SessionCatalogWithResume,
   WorkItem,
 } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
@@ -62,6 +63,43 @@ function directSessionMaps(sessions: SessionEntry[]): {
   return { conversationByAgentId, sessionByAgentId };
 }
 
+
+function SessionFacet({ catalog }: { catalog: SessionCatalogWithResume }) {
+  const [copied, setCopied] = useState(false);
+  const shortId = catalog.activeSessionId?.slice(0, 8) ?? null;
+  const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
+
+  const copyResume = () => {
+    if (!catalog.resumeCommand) return;
+    void navigator.clipboard.writeText(catalog.resumeCommand);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="s-profile-facet">
+      <div className="s-profile-facet-label">Session</div>
+      <div className="s-profile-facet-value s-profile-facet-value--mono" title={catalog.activeSessionId ?? undefined}>
+        {shortId}
+        {catalog.resumeCommand && (
+          <button
+            type="button"
+            className="s-profile-facet-action"
+            onClick={copyResume}
+            title={catalog.resumeCommand}
+          >
+            {copied ? "Copied" : "Resume"}
+          </button>
+        )}
+      </div>
+      {active && (
+        <div className="s-profile-facet-detail">
+          {catalog.sessions.length} session{catalog.sessions.length !== 1 ? "s" : ""} · started {timeAgo(active.startedAt)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AgentActivityFeed({
   agent,
@@ -265,6 +303,7 @@ function AgentDetailWithRail({
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [observeLoading, setObserveLoading] = useState(false);
+  const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
 
@@ -330,7 +369,10 @@ function AgentDetailWithRail({
   useEffect(() => {
     void load();
     void loadMessages();
-  }, [load, loadMessages]);
+    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
+      .then(setSessionCatalog)
+      .catch(() => {});
+  }, [load, loadMessages, agent.id]);
 
   useEffect(() => {
     setObserve(null);
@@ -514,7 +556,7 @@ function AgentDetailWithRail({
 
       {activeTab === "profile" && (
         <div className="s-profile-tab-content">
-          {(agent.project || agent.branch || agent.cwd) && (
+          {(agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId) && (
             <div className="s-profile-facets">
               {agent.project && (
                 <div className="s-profile-facet">
@@ -556,6 +598,9 @@ function AgentDetailWithRail({
                     </div>
                   )}
                 </div>
+              )}
+              {sessionCatalog?.activeSessionId && (
+                <SessionFacet catalog={sessionCatalog} />
               )}
             </div>
           )}
@@ -652,7 +697,7 @@ function AgentDetailWithRail({
               </div>
             </div>
           ) : (
-            <SessionObserve data={observe?.data} />
+            <SessionObserve data={observe?.data} agentId={agent.id} sessionId={observe?.sessionId} />
           )}
         </div>
       )}

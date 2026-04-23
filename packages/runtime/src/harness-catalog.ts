@@ -65,16 +65,22 @@ export type HarnessCatalogEntry = {
   launch?: {
     args: string[];
   };
+  resume?: {
+    command: string;
+    sessionFlag: string;
+    cwdFlag?: string;
+  };
   resolveEnv?: Array<{ from: string; to: string }>;
   capabilities: AgentCapability[];
   metadata?: Record<string, string | number | boolean | null>;
 };
 
-export type HarnessCatalogOverride = Partial<Omit<HarnessCatalogEntry, "support" | "install" | "readiness" | "launch">> & {
+export type HarnessCatalogOverride = Partial<Omit<HarnessCatalogEntry, "support" | "install" | "readiness" | "launch" | "resume">> & {
   support?: Partial<HarnessCatalogSupport>;
   install?: Partial<HarnessInstallSpec>;
   readiness?: Partial<HarnessReadinessConfig>;
   launch?: Partial<HarnessCatalogEntry["launch"]>;
+  resume?: Partial<HarnessCatalogEntry["resume"]>;
 };
 
 export type HarnessCatalogOverrideRecord = {
@@ -158,6 +164,11 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       loginCommand: "claude login",
       notReadyMessage: "Claude is installed but not authenticated yet.",
     },
+    resume: {
+      command: "claude",
+      sessionFlag: "--resume",
+      cwdFlag: "--cwd",
+    },
     capabilities: ["chat", "invoke", "deliver", "summarize", "review"],
   },
   {
@@ -188,6 +199,11 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       ],
       loginCommand: "codex login",
       notReadyMessage: "Codex is installed but not authenticated yet.",
+    },
+    resume: {
+      command: "codex",
+      sessionFlag: "--thread",
+      cwdFlag: "--cwd",
     },
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
   },
@@ -312,6 +328,26 @@ function supportSummaryText(entry: HarnessCatalogEntry): string {
   return enabled.length > 0 ? enabled.join(", ") : "general use";
 }
 
+export function buildHarnessResumeCommand(
+  entry: HarnessCatalogEntry,
+  sessionId: string,
+  cwd?: string,
+): string | null {
+  if (!entry.resume) return null;
+  const parts = [entry.resume.command, entry.resume.sessionFlag, sessionId];
+  if (cwd && entry.resume.cwdFlag) {
+    parts.push(entry.resume.cwdFlag, cwd);
+  }
+  return parts.join(" ");
+}
+
+export function findHarnessEntry(
+  harness: string | null | undefined,
+): HarnessCatalogEntry | null {
+  if (!harness) return null;
+  return BUILT_IN_HARNESS_CATALOG.find((e) => e.harness === harness || e.name === harness) ?? null;
+}
+
 export function createBuiltInHarnessCatalog(): HarnessCatalogEntry[] {
   return BUILT_IN_HARNESS_CATALOG.map((entry) => ({
     ...entry,
@@ -326,6 +362,7 @@ export function createBuiltInHarnessCatalog(): HarnessCatalogEntry[] {
       }
       : undefined,
     launch: entry.launch ? { ...entry.launch, args: [...entry.launch.args] } : undefined,
+    resume: entry.resume ? { ...entry.resume } : undefined,
     resolveEnv: entry.resolveEnv ? [...entry.resolveEnv] : undefined,
     capabilities: [...entry.capabilities],
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
@@ -347,6 +384,9 @@ export function mergeHarnessCatalogEntries(
       install: mergeInstall(entry.install, override.install),
       readiness: mergeReadiness(entry.readiness, override.readiness),
       launch: mergeLaunch(entry.launch, override.launch),
+      resume: override.resume && entry.resume
+        ? { ...entry.resume, ...override.resume }
+        : entry.resume,
       tags: override.tags ? [...override.tags] : entry.tags,
       capabilities: override.capabilities ? [...override.capabilities] : entry.capabilities,
       resolveEnv: override.resolveEnv ? [...override.resolveEnv] : entry.resolveEnv,
@@ -375,6 +415,9 @@ export function mergeHarnessCatalogEntries(
       install: mergeInstall(undefined, override.install),
       readiness: mergeReadiness(undefined, override.readiness),
       launch: mergeLaunch(undefined, override.launch),
+      resume: override.resume?.command && override.resume?.sessionFlag
+        ? { command: override.resume.command, sessionFlag: override.resume.sessionFlag, cwdFlag: override.resume.cwdFlag }
+        : undefined,
       resolveEnv: override.resolveEnv ? [...override.resolveEnv] : undefined,
       capabilities: [...override.capabilities],
       metadata: override.metadata ? { ...override.metadata } : undefined,

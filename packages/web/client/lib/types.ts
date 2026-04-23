@@ -231,6 +231,24 @@ export type AgentObservePayload = {
   data: ObserveData;
 };
 
+export type SessionCatalogEntry = {
+  id: string;
+  startedAt: number;
+  endedAt?: number;
+  cwd: string;
+};
+
+export type SessionCatalog = {
+  activeSessionId: string | null;
+  sessions: SessionCatalogEntry[];
+};
+
+export type SessionCatalogWithResume = SessionCatalog & {
+  agentId: string;
+  harness: string | null;
+  resumeCommand: string | null;
+};
+
 export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never";
 export type CommsChannel = "here" | "mobile" | "here+mobile";
 export type CommsVerbosity = "terse" | "normal" | "detailed";

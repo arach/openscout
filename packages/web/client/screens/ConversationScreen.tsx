@@ -4,6 +4,11 @@ import type {
   ScoutDispatchCandidate,
 } from "@openscout/protocol";
 import { api } from "../lib/api.ts";
+import {
+  compactAgentId,
+  minimalAgentDisplayName,
+  minimalAgentHandle,
+} from "../lib/agent-labels.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -28,6 +33,7 @@ import type {
   Message,
   Route,
   SessionEntry,
+  SessionCatalogWithResume,
 } from "../lib/types.ts";
 import "./conversation-screen.css";
 import "./ops-screen.css";
@@ -96,6 +102,9 @@ function pathLeaf(path: string | null | undefined): string | null {
 
 function deriveDisplayTitle(session: SessionEntry): string {
   if (session.kind === "direct" && session.agentName) return session.agentName;
+  if (session.kind === "direct" && session.agentId) {
+    return compactAgentId(session.agentId) ?? session.agentId;
+  }
   return session.title.replace(/\s*<>\s*/g, " · ");
 }
 
@@ -381,11 +390,16 @@ function StopIcon() {
 
 function participantListLabel(session: SessionEntry | null): string | null {
   if (!session) return null;
+  if (session.kind === "direct") {
+    return session.agentName ?? compactAgentId(session.agentId) ?? null;
+  }
   const participants = session.participantIds.filter(
     (participant) => participant !== "operator",
   );
   if (participants.length === 0) return null;
-  return participants.join(", ");
+  return participants
+    .map((participant) => compactAgentId(participant) ?? participant)
+    .join(", ");
 }
 
 type RailWorkspaceGroup = {
@@ -593,7 +607,7 @@ function PresenceSidebar({
     return participantAgents.map((a) => ({
       id: a.id,
       name: a.name,
-      handle: a.handle ?? a.id,
+      handle: minimalAgentHandle(a) ?? `@${compactAgentId(a.id) ?? a.id}`,
       activity: deriveParticipantActivity(a, flights, conversationId),
       state: normalizeAgentState(a.state),
     }));
@@ -854,6 +868,17 @@ export function ConversationScreen({
     void load();
   }, [load]);
 
+  const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [resumeCopied, setResumeCopied] = useState(false);
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
+      .then((result) => { if (!cancelled) setSessionCatalog(result); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agentId]);
+
   useEffect(() => {
     currentFlightRef.current = currentFlight;
   }, [currentFlight]);
@@ -912,12 +937,12 @@ export function ConversationScreen({
   const hasOutstandingReply =
     sending || awaitingResponseSince !== null || showWorkingTurn;
 
-  const agentName =
-    agent?.name ??
-    sessionMeta?.agentName ??
-    sessionMeta?.title ??
-    agentId ??
-    "Conversation";
+  const agentName = minimalAgentDisplayName({
+    name: agent?.name,
+    agentName: sessionMeta?.agentName,
+    id: agentId,
+    title: sessionMeta?.title,
+  });
   const presence = useMemo(
     () =>
       describePresence({
@@ -1378,7 +1403,7 @@ export function ConversationScreen({
               {pinnedAsk.task}
             </div>
             <div className="s-thread-pinned-ask-routing">
-              <span>{pinnedAsk.agentName ?? pinnedAsk.agentId}</span>
+              <span>{pinnedAsk.agentName ?? compactAgentId(pinnedAsk.agentId) ?? pinnedAsk.agentId}</span>
               <span className="s-thread-pinned-ask-routing-arrow">
                 &rarr;
               </span>
@@ -1423,12 +1448,39 @@ export function ConversationScreen({
           </div>
         )}
 
-        {!embedded && isDm && agent && (agent.harnessSessionId || agent.harnessLogPath) && (
+        {!embedded && isDm && agent && (agent.harnessSessionId || agent.harnessLogPath || sessionCatalog?.activeSessionId) && (
           <details className="s-thread-meta-disclosure">
             <summary className="s-thread-meta-toggle">
               Session details
             </summary>
             <div className="s-thread-meta-block">
+              {sessionCatalog?.activeSessionId && (
+                <div className="s-thread-meta-row">
+                  <span className="s-thread-meta-row-label">Session ID</span>
+                  <span className="s-thread-meta-row-value s-thread-meta-row-value--accent" title={sessionCatalog.activeSessionId}>
+                    {sessionCatalog.activeSessionId.slice(0, 8)}
+                  </span>
+                </div>
+              )}
+              {sessionCatalog?.resumeCommand && (
+                <div className="s-thread-meta-row">
+                  <span className="s-thread-meta-row-label">Resume</span>
+                  <span className="s-thread-meta-row-value">
+                    <button
+                      type="button"
+                      className="s-thread-meta-resume-btn"
+                      title={sessionCatalog.resumeCommand}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(sessionCatalog.resumeCommand!);
+                        setResumeCopied(true);
+                        setTimeout(() => setResumeCopied(false), 2000);
+                      }}
+                    >
+                      {resumeCopied ? "Copied!" : sessionCatalog.resumeCommand}
+                    </button>
+                  </span>
+                </div>
+              )}
               {agent.harnessSessionId && (
                 <div className="s-thread-meta-row">
                   <span className="s-thread-meta-row-label">
