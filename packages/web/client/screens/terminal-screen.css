@@ -1,0 +1,110 @@
+/* ── Terminal takeover screen ── */
+
+.s-term {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #0d0d0d;
+  overflow: hidden;
+}
+
+.s-term-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  height: 40px;
+  flex: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #111;
+}
+
+.s-term-back {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.4);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.s-term-back:hover {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.s-term-agent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.s-term-agent-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.s-term-agent-handle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.04em;
+}
+
+.s-term-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.25);
+  text-transform: uppercase;
+}
+
+.s-term-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.s-term-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.s-term-dot--live {
+  background: #5adf8c;
+  animation: s-term-pulse 1.8s ease-in-out infinite;
+}
+
+.s-term-dot--connecting {
+  background: #f0b429;
+  animation: s-term-blink 0.9s step-start infinite;
+}
+
+.s-term-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes s-term-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.35); }
+}
+
+@keyframes s-term-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}

@@ -127,3 +127,31 @@ final class InboxStore {
         }
     }
 }
+
+extension InboxStore {
+    static func screenshotPreview() -> InboxStore {
+        let store = InboxStore()
+        let now = Int(Date().timeIntervalSince1970)
+        store.items = [
+            MobileInboxItem(
+                id: "approval-1",
+                kind: .approval,
+                createdAt: now - 120,
+                sessionId: "s1",
+                sessionName: "Refactor auth",
+                adapterType: "claude-code",
+                turnId: "t1",
+                blockId: "b3",
+                version: 1,
+                risk: .medium,
+                title: "Approval needed",
+                description: "Confirm the proposed auth refactor before the agent writes files.",
+                detail: "Update src/auth/jwt.ts and src/auth/session.ts",
+                actionKind: .fileChange,
+                actionStatus: .awaitingApproval
+            )
+        ]
+        store.unreadItemIds = Set(store.items.map(\.id))
+        return store
+    }
+}

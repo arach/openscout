@@ -38,6 +38,14 @@ import type {
 import "./conversation-screen.css";
 import "./ops-screen.css";
 
+async function queueTakeover(command: string) {
+  await fetch("/api/terminal/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command }),
+  });
+}
+
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const KIND_LABELS: Record<string, string> = {
   direct: "Direct message",
@@ -45,6 +53,86 @@ const KIND_LABELS: Record<string, string> = {
   group_direct: "Group",
   thread: "Thread",
 };
+
+type SlashCommand = {
+  command: string;
+  label: string;
+  description: string;
+  insert: string;
+};
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { command: "/ask", label: "/ask", description: "Ask the agent owned work with a reply", insert: "/ask " },
+  { command: "/tell", label: "/tell", description: "Send a heads-up or quick message", insert: "/tell " },
+  { command: "/steer", label: "/steer", description: "Steer the active turn mid-flight", insert: "/steer " },
+  { command: "/route", label: "/route", description: "Route this to another agent", insert: "/route @" },
+  { command: "/inbox", label: "/inbox", description: "Go to the inbox", insert: "/inbox" },
+  { command: "/agents", label: "/agents", description: "Open the agents list", insert: "/agents" },
+  { command: "/fleet", label: "/fleet", description: "Open the fleet view", insert: "/fleet" },
+  { command: "/sessions", label: "/sessions", description: "Browse sessions", insert: "/sessions" },
+  { command: "/mesh", label: "/mesh", description: "Open the mesh view", insert: "/mesh" },
+  { command: "/activity", label: "/activity", description: "Open activity feed", insert: "/activity" },
+  { command: "/settings", label: "/settings", description: "Open settings", insert: "/settings" },
+];
+
+type SlashSuggestState = {
+  open: boolean;
+  query: string;
+  triggerStart: number;
+  index: number;
+};
+
+type MentionSuggestState = {
+  open: boolean;
+  query: string;
+  triggerStart: number;
+  index: number;
+};
+
+type MentionCandidate = {
+  id: string;
+  label: string;
+  name: string;
+  handle: string;
+};
+
+function isWordBoundaryBefore(value: string, index: number): boolean {
+  if (index <= 0) return true;
+  const prev = value[index - 1];
+  return !prev || /\s/.test(prev);
+}
+
+function matchSlashTrigger(value: string, caret: number): { start: number; query: string } | null {
+  if (caret === 0) return null;
+  let start = caret - 1;
+  while (start >= 0) {
+    const ch = value[start];
+    if (ch === "/") break;
+    if (!ch || /\s/.test(ch)) return null;
+    start -= 1;
+  }
+  if (start < 0 || value[start] !== "/") return null;
+  if (!isWordBoundaryBefore(value, start)) return null;
+  const query = value.slice(start + 1, caret);
+  if (/[^a-zA-Z0-9_-]/.test(query)) return null;
+  return { start, query };
+}
+
+function matchMentionTrigger(value: string, caret: number): { start: number; query: string } | null {
+  if (caret === 0) return null;
+  let start = caret - 1;
+  while (start >= 0) {
+    const ch = value[start];
+    if (ch === "@") break;
+    if (!ch || /\s/.test(ch)) return null;
+    start -= 1;
+  }
+  if (start < 0 || value[start] !== "@") return null;
+  if (!isWordBoundaryBefore(value, start)) return null;
+  const query = value.slice(start + 1, caret);
+  if (/[^a-zA-Z0-9._/:-]/.test(query)) return null;
+  return { start, query };
+}
 
 type EventMessageRecord = {
   id: string;
@@ -869,7 +957,7 @@ export function ConversationScreen({
   }, [load]);
 
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
-  const [resumeCopied, setResumeCopied] = useState(false);
+  const [takeoverSent, setTakeoverSent] = useState(false);
   useEffect(() => {
     if (!agentId) return;
     let cancelled = false;
@@ -886,6 +974,18 @@ export function ConversationScreen({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [operatorName, setOperatorName] = useState("operator");
+  const [slashState, setSlashState] = useState<SlashSuggestState>({
+    open: false,
+    query: "",
+    triggerStart: -1,
+    index: 0,
+  });
+  const [mentionState, setMentionState] = useState<MentionSuggestState>({
+    open: false,
+    query: "",
+    triggerStart: -1,
+    index: 0,
+  });
   const [awaitingResponseSince, setAwaitingResponseSince] = useState<
     number | null
   >(null);
@@ -896,6 +996,134 @@ export function ConversationScreen({
   useEffect(() => {
     setComposeMode(isDm && initialComposeMode === "ask" ? "ask" : "tell");
   }, [conversationId, initialComposeMode, isDm]);
+
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const list: MentionCandidate[] = [];
+    for (const a of agents) {
+      const handleRaw = a.handle?.trim().replace(/^@+/, "") ?? compactAgentId(a.id) ?? a.id;
+      if (!handleRaw) continue;
+      const key = handleRaw.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        id: a.id,
+        label: handleRaw,
+        name: a.name ?? handleRaw,
+        handle: handleRaw,
+      });
+    }
+    return list.sort((a, b) => a.handle.localeCompare(b.handle));
+  }, [agents]);
+
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashState.open) return [];
+    const q = slashState.query.toLowerCase();
+    if (!q) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter(
+      (c) =>
+        c.command.toLowerCase().startsWith("/" + q) ||
+        c.command.toLowerCase().includes(q),
+    );
+  }, [slashState.open, slashState.query]);
+
+  const filteredMentions = useMemo(() => {
+    if (!mentionState.open) return [];
+    const q = mentionState.query.toLowerCase();
+    if (!q) return mentionCandidates.slice(0, 8);
+    return mentionCandidates
+      .filter(
+        (c) =>
+          c.handle.toLowerCase().includes(q) ||
+          c.name.toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [mentionState.open, mentionState.query, mentionCandidates]);
+
+  const closeSuggestions = useCallback(() => {
+    setSlashState((s) => (s.open ? { ...s, open: false } : s));
+    setMentionState((s) => (s.open ? { ...s, open: false } : s));
+  }, []);
+
+  const updateTriggersFromDraft = useCallback(
+    (value: string, caret: number) => {
+      const slashMatch = matchSlashTrigger(value, caret);
+      if (slashMatch) {
+        setSlashState((prev) => ({
+          open: true,
+          query: slashMatch.query,
+          triggerStart: slashMatch.start,
+          index:
+            prev.open && prev.triggerStart === slashMatch.start ? prev.index : 0,
+        }));
+      } else {
+        setSlashState((prev) => (prev.open ? { ...prev, open: false } : prev));
+      }
+
+      const mentionMatch = matchMentionTrigger(value, caret);
+      if (mentionMatch) {
+        setMentionState((prev) => ({
+          open: true,
+          query: mentionMatch.query,
+          triggerStart: mentionMatch.start,
+          index:
+            prev.open && prev.triggerStart === mentionMatch.start
+              ? prev.index
+              : 0,
+        }));
+      } else {
+        setMentionState((prev) => (prev.open ? { ...prev, open: false } : prev));
+      }
+    },
+    [],
+  );
+
+  const applySlashCommand = useCallback(
+    (command: SlashCommand) => {
+      const textarea = composeRef.current;
+      const start = slashState.triggerStart;
+      if (start < 0) return;
+      const caret = textarea?.selectionStart ?? draft.length;
+      const before = draft.slice(0, start);
+      const after = draft.slice(caret);
+      const insert = command.insert;
+      const next = `${before}${insert}${after}`;
+      setDraft(next);
+      setSlashState((s) => ({ ...s, open: false }));
+      requestAnimationFrame(() => {
+        const el = composeRef.current;
+        if (!el) return;
+        const pos = before.length + insert.length;
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      });
+    },
+    [draft, slashState.triggerStart],
+  );
+
+  const applyMention = useCallback(
+    (candidate: MentionCandidate) => {
+      const textarea = composeRef.current;
+      const start = mentionState.triggerStart;
+      if (start < 0) return;
+      const caret = textarea?.selectionStart ?? draft.length;
+      const before = draft.slice(0, start);
+      const after = draft.slice(caret);
+      const needsSpace = after.length === 0 || !after.startsWith(" ");
+      const insert = `@${candidate.handle}${needsSpace ? " " : ""}`;
+      const next = `${before}${insert}${after}`;
+      setDraft(next);
+      setMentionState((s) => ({ ...s, open: false }));
+      requestAnimationFrame(() => {
+        const el = composeRef.current;
+        if (!el) return;
+        const pos = before.length + insert.length;
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      });
+    },
+    [draft, mentionState.triggerStart],
+  );
 
   useEffect(() => {
     const element = composeRef.current;
@@ -1464,19 +1692,20 @@ export function ConversationScreen({
               )}
               {sessionCatalog?.resumeCommand && (
                 <div className="s-thread-meta-row">
-                  <span className="s-thread-meta-row-label">Resume</span>
+                  <span className="s-thread-meta-row-label">Takeover</span>
                   <span className="s-thread-meta-row-value">
                     <button
                       type="button"
-                      className="s-thread-meta-resume-btn"
+                      className="s-thread-meta-takeover-btn"
                       title={sessionCatalog.resumeCommand}
                       onClick={() => {
-                        void navigator.clipboard.writeText(sessionCatalog.resumeCommand!);
-                        setResumeCopied(true);
-                        setTimeout(() => setResumeCopied(false), 2000);
+                        void queueTakeover(sessionCatalog.resumeCommand!).then(() =>
+                          navigate({ view: "terminal", agentId: agentId ?? undefined }),
+                        );
+                        setTakeoverSent(true);
                       }}
                     >
-                      {resumeCopied ? "Copied!" : sessionCatalog.resumeCommand}
+                      {takeoverSent ? "Going…" : `Takeover — ${sessionCatalog.resumeCommand}`}
                     </button>
                   </span>
                 </div>
@@ -1506,6 +1735,7 @@ export function ConversationScreen({
         {error && <p className="s-thread-error">{error}</p>}
 
         <div className="s-thread-feed">
+          <div className="s-thread-feed-spacer" />
           {messages.length === 0 ? (
             <div className="s-thread-empty">
               <p>No messages yet</p>
@@ -1533,7 +1763,9 @@ export function ConversationScreen({
                 !isYou && message.actorName
                   ? agents.find((a) => a.name === message.actorName) ?? null
                   : null;
-              const actorHandle = messageAgent?.handle ?? null;
+              const actorHandle = isYou
+                ? operatorName.toLowerCase()
+                : messageAgent?.handle ?? null;
 
               return (
                 <div
@@ -1560,6 +1792,7 @@ export function ConversationScreen({
                   )}
 
                   <article
+                    id={`msg-${message.id}`}
                     className={[
                       "s-thread-msg",
                       isYou && "s-thread-msg--you",
@@ -1589,7 +1822,7 @@ export function ConversationScreen({
                         <div className="s-thread-msg-header">
                           <div className="s-thread-msg-meta">
                             <span className="s-thread-msg-actor">
-                              {isYou ? "You" : message.actorName}
+                              {isYou ? operatorName : message.actorName}
                             </span>
                             {actorHandle && (
                               <span className="s-thread-msg-handle">
@@ -1608,6 +1841,31 @@ export function ConversationScreen({
                           >
                             {timeAgo(message.createdAt)}
                           </span>
+                          <button
+                            type="button"
+                            className="s-thread-msg-permalink"
+                            aria-label="Copy link to message"
+                            title="Copy link to message"
+                            onClick={() => {
+                              const url = `${window.location.origin}${window.location.pathname}#msg-${message.id}`;
+                              void navigator.clipboard.writeText(url);
+                            }}
+                          >
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M6.5 9.5a2.5 2.5 0 0 0 3.54 0l2.12-2.12a2.5 2.5 0 0 0-3.54-3.54l-.7.7" />
+                              <path d="M9.5 6.5a2.5 2.5 0 0 0-3.54 0L3.84 8.62a2.5 2.5 0 0 0 3.54 3.54l.7-.7" />
+                            </svg>
+                          </button>
                         </div>
 
                         <div className="s-thread-msg-body" title={absoluteTime}>
@@ -1734,28 +1992,191 @@ export function ConversationScreen({
           }}
         >
           <div className="s-thread-compose-shell">
-            <textarea
-              ref={composeRef}
-              className="s-thread-compose-input"
-              placeholder={composePlaceholder}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key !== "Enter" ||
-                  event.shiftKey ||
-                  event.nativeEvent.isComposing
-                )
-                  return;
-                event.preventDefault();
-                if (!sending && draft.trim()) {
-                  void send();
-                }
-              }}
-              rows={1}
-            />
+            {slashState.open && filteredSlashCommands.length > 0 && (
+              <div
+                className="s-thread-compose-suggest"
+                role="listbox"
+                aria-label="Slash commands"
+              >
+                <div className="s-thread-compose-suggest-label">
+                  Slash commands
+                </div>
+                {filteredSlashCommands.map((cmd, i) => (
+                  <button
+                    key={cmd.command}
+                    type="button"
+                    role="option"
+                    aria-selected={i === slashState.index}
+                    className={[
+                      "s-thread-compose-suggest-item",
+                      i === slashState.index &&
+                        "s-thread-compose-suggest-item--active",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applySlashCommand(cmd);
+                    }}
+                    onMouseEnter={() =>
+                      setSlashState((s) => ({ ...s, index: i }))
+                    }
+                  >
+                    <span className="s-thread-compose-suggest-cmd">
+                      {cmd.label}
+                    </span>
+                    <span className="s-thread-compose-suggest-desc">
+                      {cmd.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
 
-            <div className="s-thread-compose-footer">
+            {mentionState.open && filteredMentions.length > 0 && (
+              <div
+                className="s-thread-compose-suggest"
+                role="listbox"
+                aria-label="Mention agents"
+              >
+                <div className="s-thread-compose-suggest-label">
+                  Mention agent
+                </div>
+                {filteredMentions.map((m, i) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="option"
+                    aria-selected={i === mentionState.index}
+                    className={[
+                      "s-thread-compose-suggest-item",
+                      i === mentionState.index &&
+                        "s-thread-compose-suggest-item--active",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyMention(m);
+                    }}
+                    onMouseEnter={() =>
+                      setMentionState((s) => ({ ...s, index: i }))
+                    }
+                  >
+                    <span
+                      className="s-ops-avatar s-thread-compose-suggest-avatar"
+                      style={{
+                        "--size": "20px",
+                        background: actorColor(m.name),
+                      } as React.CSSProperties}
+                    >
+                      {m.name[0]?.toUpperCase() ?? "?"}
+                    </span>
+                    <span className="s-thread-compose-suggest-cmd">
+                      @{m.handle}
+                    </span>
+                    <span className="s-thread-compose-suggest-desc">
+                      {m.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="s-thread-compose-row">
+              <textarea
+                ref={composeRef}
+                className="s-thread-compose-input"
+                placeholder={composePlaceholder}
+                value={draft}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setDraft(next);
+                  updateTriggersFromDraft(next, event.target.selectionStart);
+                }}
+                onSelect={(event) => {
+                  const target = event.currentTarget;
+                  updateTriggersFromDraft(target.value, target.selectionStart);
+                }}
+                onBlur={() => {
+                  // Small delay so mousedown on a suggestion lands first
+                  setTimeout(closeSuggestions, 120);
+                }}
+                onKeyDown={(event) => {
+                  const suggestOpen =
+                    (slashState.open && filteredSlashCommands.length > 0) ||
+                    (mentionState.open && filteredMentions.length > 0);
+                  if (suggestOpen) {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      if (slashState.open) {
+                        setSlashState((s) => ({
+                          ...s,
+                          index: (s.index + 1) % filteredSlashCommands.length,
+                        }));
+                      } else if (mentionState.open) {
+                        setMentionState((s) => ({
+                          ...s,
+                          index: (s.index + 1) % filteredMentions.length,
+                        }));
+                      }
+                      return;
+                    }
+                    if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      if (slashState.open) {
+                        setSlashState((s) => ({
+                          ...s,
+                          index:
+                            (s.index - 1 + filteredSlashCommands.length) %
+                            filteredSlashCommands.length,
+                        }));
+                      } else if (mentionState.open) {
+                        setMentionState((s) => ({
+                          ...s,
+                          index:
+                            (s.index - 1 + filteredMentions.length) %
+                            filteredMentions.length,
+                        }));
+                      }
+                      return;
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      closeSuggestions();
+                      return;
+                    }
+                    if (event.key === "Enter" || event.key === "Tab") {
+                      if (event.shiftKey) return;
+                      event.preventDefault();
+                      if (slashState.open) {
+                        const pick =
+                          filteredSlashCommands[slashState.index] ??
+                          filteredSlashCommands[0];
+                        if (pick) applySlashCommand(pick);
+                      } else if (mentionState.open) {
+                        const pick =
+                          filteredMentions[mentionState.index] ??
+                          filteredMentions[0];
+                        if (pick) applyMention(pick);
+                      }
+                      return;
+                    }
+                  }
+                  if (
+                    event.key !== "Enter" ||
+                    event.shiftKey ||
+                    event.nativeEvent.isComposing
+                  )
+                    return;
+                  event.preventDefault();
+                  if (!sending && draft.trim()) {
+                    void send();
+                  }
+                }}
+                rows={1}
+              />
+
               {isStopMode ? (
                 <button
                   type="button"

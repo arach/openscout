@@ -249,11 +249,7 @@ export function useScoutNavActions(): ReactNode | null {
 }
 
 /* ── useLayoutMode ─────────────────────────────────────────────────────── */
-export function useScoutLayoutMode(): "canvas" | "panel" | "focus" {
-  const { route } = useScout();
-  if (route.view === "ops" || route.view === "work") {
-    return "focus";
-  }
+export function useScoutLayoutMode(): "canvas" | "panel" {
   return "panel";
 }
 

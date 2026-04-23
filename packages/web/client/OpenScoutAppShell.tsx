@@ -194,10 +194,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     const handler = () => {
       setActiveTab("terminal");
       setShowTerminal(true);
+      // Reset height if stuck at full-screen
+      setTerminalHeight((h) => (h > window.innerHeight * 0.8 ? 420 : h));
     };
     window.addEventListener("scout:open-terminal", handler);
     return () => window.removeEventListener("scout:open-terminal", handler);
-  }, [setActiveTab]);
+  }, [setActiveTab, setTerminalHeight]);
 
   const InspectorSlot = app.slots.Inspector;
   const RightPanelSlot = app.slots.RightPanel;
@@ -356,8 +358,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   onClose={() => setShowTerminal(false)}
                   onToggleMaximize={() => setIsTerminalMaximized((maximized) => !maximized)}
                   isMaximized={isTerminalMaximized}
-                  height={terminalHeight}
-                  onHeightChange={setTerminalHeight}
+                  height={Math.min(terminalHeight, window.innerHeight * 0.8)}
+                  onHeightChange={(h) => setTerminalHeight(Math.min(h, window.innerHeight * 0.8))}
                   title={(
                     <DrawerTabs
                       tabs={drawerTabs}

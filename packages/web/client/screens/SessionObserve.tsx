@@ -7,8 +7,17 @@ import type {
   SessionCatalogWithResume,
 } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
+import { useScout } from "../scout/Provider.tsx";
 
 import "./session-observe.css";
+
+async function queueTakeover(command: string) {
+  await fetch("/api/terminal/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command }),
+  });
+}
 
 export type SessionEvent = ObserveEvent;
 export type SessionFile = ObserveFile;
@@ -250,7 +259,6 @@ function ReplayStream({
       {events.map((e, i) => (
         <StreamRow key={e.id} event={e} prevT={i > 0 ? events[i - 1].t : 0} />
       ))}
-      {isLive && <LiveIndicator />}
       <div ref={endRef} />
     </div>
   );
@@ -404,11 +412,14 @@ function fmtDuration(start: number, end: number): string {
 function SessionHeader({
   catalog,
   sessionId,
+  agentId,
 }: {
   catalog: SessionCatalogWithResume;
   sessionId: string | null;
+  agentId?: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const { navigate } = useScout();
+  const [sent, setSent] = useState(false);
   const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
   const past = catalog.sessions
     .filter((s) => s.id !== catalog.activeSessionId && s.endedAt)
@@ -418,12 +429,13 @@ function SessionHeader({
   const displayId = catalog.activeSessionId ?? sessionId;
   const shortId = displayId ? displayId.slice(0, 8) : null;
 
-  const copyResume = useCallback(() => {
+  const runTakeover = useCallback(() => {
     if (!catalog.resumeCommand) return;
-    void navigator.clipboard.writeText(catalog.resumeCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [catalog.resumeCommand]);
+    void queueTakeover(catalog.resumeCommand).then(() => {
+      navigate({ view: "terminal", agentId });
+    });
+    setSent(true);
+  }, [catalog.resumeCommand, navigate, agentId]);
 
   return (
     <div className="s-observe-session-header">
@@ -441,11 +453,11 @@ function SessionHeader({
           )}
           {catalog.resumeCommand && (
             <button
-              className="s-observe-resume-btn"
-              onClick={copyResume}
+              className="s-observe-takeover-btn"
+              onClick={runTakeover}
               title={catalog.resumeCommand}
             >
-              {copied ? "Copied" : "Resume"}
+              {sent ? "Sent" : "Takeover"}
             </button>
           )}
         </div>
@@ -563,6 +575,11 @@ export function SessionObserve({
     <div className="s-observe">
       {/* Main timeline */}
       <main className="s-observe-main">
+        {isLive && (
+          <div className="s-observe-live-sticky">
+            <LiveIndicator />
+          </div>
+        )}
         <ReplayStream events={visible} isLive={isLive} />
       </main>
 
@@ -571,7 +588,7 @@ export function SessionObserve({
         {catalog && catalog.sessions.length > 0 && (
           <div>
             <div className="s-observe-rail-label">Session</div>
-            <SessionHeader catalog={catalog} sessionId={sessionId ?? null} />
+            <SessionHeader catalog={catalog} sessionId={sessionId ?? null} agentId={agentId} />
           </div>
         )}
 

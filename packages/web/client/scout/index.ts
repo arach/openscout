@@ -6,6 +6,7 @@ import { ScoutContent } from "./slots/Content.tsx";
 import { ScoutInspector } from "./slots/Inspector.tsx";
 import { ScoutLeftFooter } from "./slots/LeftFooter.tsx";
 import { ScoutLeftPanel } from "./slots/LeftPanel.tsx";
+import { ScoutTerminal } from "./slots/Terminal.tsx";
 import { OnboardingTakeover } from "./takeover/OnboardingTakeover.tsx";
 import {
   useScoutCommands,
@@ -191,6 +192,7 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
       LeftFooter: ScoutLeftFooter,
       Inspector: ScoutInspector,
       Takeover: OnboardingTakeover,
+      Terminal: ScoutTerminal,
     },
 
     intents,

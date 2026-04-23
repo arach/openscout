@@ -19,6 +19,7 @@ struct TimelineView: View {
     @State private var isLoadingOlder = false
     @State private var liveRefreshGeneration = 0
     @State private var liveRefreshDeadline: Date?
+    @State private var isHydrating = true
     @Namespace private var bottomAnchor
 
     private var sessionState: SessionState? {
@@ -229,8 +230,12 @@ struct TimelineView: View {
             }
         }
 
-        guard connection.state == .connected else { return }
+        guard connection.state == .connected else {
+            isHydrating = false
+            return
+        }
         await refreshTimeline()
+        isHydrating = false
     }
 
     @MainActor
@@ -444,8 +449,12 @@ struct TimelineView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.25)) {
+        if isHydrating {
             proxy.scrollTo("bottom", anchor: .bottom)
+        } else {
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
         }
     }
 

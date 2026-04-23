@@ -395,7 +395,8 @@ export type Route =
   | { view: "activity" }
   | { view: "work"; workId: string }
   | { view: "settings" }
-  | { view: "ops"; mode?: OpsMode };
+  | { view: "ops"; mode?: OpsMode }
+  | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
 export type OpsMode = "plan" | "conductor" | "warroom" | "mission";

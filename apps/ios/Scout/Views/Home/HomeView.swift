@@ -117,15 +117,20 @@ struct HomeView: View {
                 if homeSearchText.isEmpty {
                     shortcutsSection
 
-                    if !activeSummaries.isEmpty {
-                        activeSessionsSection
-                    }
+                    let stillLoading = isConnected && !store.hasReceivedLiveList
+                    if !stillLoading {
+                        if !activeSummaries.isEmpty {
+                            activeSessionsSection
+                        }
 
-                    if !recentSummaries.isEmpty {
-                        recentSessionsSection
-                    }
+                        if !recentSummaries.isEmpty {
+                            recentSessionsSection
+                        }
 
-                    if surfacedSummaries.isEmpty {
+                        if surfacedSummaries.isEmpty {
+                            emptyState
+                        }
+                    } else if surfacedSummaries.isEmpty {
                         emptyState
                     }
                 } else {
@@ -424,10 +429,12 @@ struct HomeView: View {
                     .foregroundStyle(enabled ? ScoutColors.textPrimary : ScoutColors.textMuted)
                     .multilineTextAlignment(.center)
 
-                Text(badge ?? " ")
-                    .font(ScoutTypography.code(8))
-                    .foregroundStyle(badge != nil ? ScoutColors.textMuted : .clear)
-                    .multilineTextAlignment(.center)
+                if let badge {
+                    Text(badge)
+                        .font(ScoutTypography.code(8))
+                        .foregroundStyle(ScoutColors.textMuted)
+                        .multilineTextAlignment(.center)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, ScoutSpacing.md)

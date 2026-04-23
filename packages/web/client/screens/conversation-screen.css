@@ -372,9 +372,27 @@
   gap: 6px;
   padding: 20px 20px 16px;
   align-items: stretch;
-  justify-content: flex-end;
   background: linear-gradient(var(--bg) 2%, transparent 8%), linear-gradient(transparent 92%, var(--bg) 98%);
   background-attachment: local;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border) 60%, transparent) transparent;
+}
+
+.s-thread-feed::-webkit-scrollbar {
+  width: 4px;
+}
+
+.s-thread-feed::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.s-thread-feed::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 2px;
+}
+
+.s-thread-feed-spacer {
+  flex: 1;
 }
 
 .s-thread-feed-block {
@@ -394,6 +412,34 @@
 
 .s-thread-feed-block--you .s-thread-msg-meta {
   flex-direction: row-reverse;
+}
+
+.s-thread-msg--you .s-thread-msg-card--avatar-row {
+  flex-direction: row-reverse;
+}
+
+.s-thread-msg--you .s-thread-msg-card-content {
+  text-align: left;
+}
+
+.s-thread-msg-permalink {
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.s-thread-msg-card:hover .s-thread-msg-permalink {
+  opacity: 1;
+}
+
+.s-thread-msg-permalink:hover {
+  color: var(--ink);
 }
 
 .s-thread-feed-block--full-width {
@@ -699,6 +745,7 @@
 }
 
 .s-thread-compose-shell {
+  position: relative;
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
   border-radius: 16px;
@@ -710,6 +757,13 @@
 .s-thread-compose-shell:focus-within {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.s-thread-compose-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 8px 6px 6px;
 }
 
 .s-thread-compose-mode-row {
@@ -755,13 +809,14 @@
 
 .s-thread-compose-input {
   display: block;
-  width: 100%;
-  min-height: 40px;
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
   max-height: 160px;
   border: none;
-  border-radius: 20px 20px 0 0;
+  border-radius: 0;
   background: transparent;
-  padding: 10px 16px 6px;
+  padding: 8px 4px 8px 10px;
   font-size: 13px;
   font-family: var(--font-sans);
   line-height: 1.5;
@@ -778,15 +833,6 @@
   box-shadow: none;
 }
 
-.s-thread-compose-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 10px 10px 16px;
-  gap: 10px;
-}
-
-
 .s-thread-compose-send {
   width: 34px;
   height: 34px;
@@ -799,6 +845,7 @@
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  align-self: flex-end;
   transition: opacity 0.12s ease, transform 0.12s ease;
 }
 
@@ -813,6 +860,71 @@
 
 .s-thread-compose-send--stop {
   background: var(--red);
+}
+
+.s-thread-compose-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 22%, transparent);
+  z-index: 20;
+}
+
+.s-thread-compose-suggest-label {
+  padding: 6px 10px 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-thread-compose-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.s-thread-compose-suggest-item:hover,
+.s-thread-compose-suggest-item--active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-thread-compose-suggest-cmd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.s-thread-compose-suggest-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-thread-compose-suggest-avatar {
+  flex-shrink: 0;
 }
 
 /* ── Presence sidebar (right) ── */
@@ -1023,7 +1135,7 @@ details[open] > .s-thread-meta-toggle::before {
   color: var(--accent);
 }
 
-.s-thread-meta-resume-btn {
+.s-thread-meta-takeover-btn {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--green);
@@ -1039,7 +1151,7 @@ details[open] > .s-thread-meta-toggle::before {
   white-space: nowrap;
 }
 
-.s-thread-meta-resume-btn:hover {
+.s-thread-meta-takeover-btn:hover {
   background: color-mix(in srgb, var(--green) 14%, transparent);
 }
 
@@ -1203,14 +1315,15 @@ details[open] > .s-thread-meta-toggle::before {
   border-radius: 12px;
 }
 
-.s-thread-layout--embedded .s-thread-compose-input {
-  min-height: 32px;
-  padding: 8px 14px 4px;
-  font-size: 12.5px;
+.s-thread-layout--embedded .s-thread-compose-row {
+  padding: 4px 6px 4px 4px;
+  gap: 6px;
 }
 
-.s-thread-layout--embedded .s-thread-compose-footer {
-  padding: 0 8px 6px 14px;
+.s-thread-layout--embedded .s-thread-compose-input {
+  min-height: 28px;
+  padding: 6px 4px 6px 8px;
+  font-size: 12.5px;
 }
 
 .s-thread-layout--embedded .s-thread-compose-send {

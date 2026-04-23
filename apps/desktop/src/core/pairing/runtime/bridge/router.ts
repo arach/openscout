@@ -1044,20 +1044,56 @@ function readSyncStatus(
   };
 }
 
+function resolveSyncSessionId(
+  bridge: Bridge,
+  preferredSessionId?: string,
+): string | null {
+  if (preferredSessionId) {
+    return preferredSessionId;
+  }
+
+  let latestSessionId: string | null = null;
+  let latestActivityAt = Number.NEGATIVE_INFINITY;
+
+  for (const session of bridge.getSessionSummaries()) {
+    if (session.lastActivityAt > latestActivityAt) {
+      latestActivityAt = session.lastActivityAt;
+      latestSessionId = session.sessionId;
+    }
+  }
+
+  return latestSessionId;
+}
+
 const syncRouter = t.router({
   replay: procedure
-    .input(z.object({ lastSeq: z.number(), sessionId: z.string() }))
+    .input(z.object({ lastSeq: z.number(), sessionId: z.string().optional() }))
     .query(({ input, ctx }) => {
-      const events = replaySyncEvents(ctx.bridge, input.sessionId, input.lastSeq);
+      const sessionId = resolveSyncSessionId(ctx.bridge, input.sessionId);
+      if (!sessionId) {
+        return { events: [] };
+      }
+
+      const events = replaySyncEvents(ctx.bridge, sessionId, input.lastSeq);
       return { events };
     }),
 
   status: procedure
-    .input(z.object({ sessionId: z.string() }))
+    .input(z.object({ sessionId: z.string().optional() }).optional())
     .query(({ input, ctx }) => {
+      const sessionCount = ctx.bridge.listSessions().length;
+      const sessionId = resolveSyncSessionId(ctx.bridge, input?.sessionId);
+      if (!sessionId) {
+        return {
+          currentSeq: 0,
+          oldestBufferedSeq: 0,
+          sessionCount,
+        };
+      }
+
       return {
-        ...readSyncStatus(ctx.bridge, input.sessionId),
-        sessionCount: ctx.bridge.listSessions().length,
+        ...readSyncStatus(ctx.bridge, sessionId),
+        sessionCount,
       };
     }),
 });

@@ -116,11 +116,9 @@ function routeForActivity(item: FleetActivity): Route | null {
 function FleetSectionHeader({
   title,
   detail,
-  count,
 }: {
   title: string;
   detail: string;
-  count: number;
 }) {
   return (
     <>
@@ -128,7 +126,6 @@ function FleetSectionHeader({
         <div>
           <h3>{title}</h3>
         </div>
-        <span className="s-dashboard-count" style={count === 0 ? { opacity: 0.4 } : undefined}>{count}</span>
       </div>
       <p className="s-dashboard-panel-copy">{detail}</p>
     </>
@@ -201,10 +198,9 @@ function AttentionRow({ item, navigate }: { item: FleetAttentionItem; navigate: 
         <div className="s-work-row-title-wrap">
           <span className="s-work-row-title">{item.title}</span>
         </div>
-        <span className="s-pill s-pill-updated">Needs your input</span>
       </div>
       <div className="s-work-row-meta">
-        <span>{item.kind === "question" ? "question" : "work item"}</span>
+        {item.kind === "work_item" && <span>work item</span>}
         {item.agentName && <span>{item.agentName}</span>}
         <span>{stateLabel}</span>
         <span>{responseLabel}</span>
@@ -392,7 +388,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
           <FleetSectionHeader
             title="Needs your input"
             detail="Handle interruptions, pending answers, and review requests first."
-            count={needsAttention.length}
           />
           {needsAttention.length === 0 ? (
             <div className="s-empty">
@@ -412,7 +407,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
           <FleetSectionHeader
             title="In-flight agents"
             detail="Agents with active flights right now, including how long each task has been in flight."
-            count={activeFlights.length}
           />
           {activeFlights.length === 0 ? (
             <div className="s-empty">
@@ -439,7 +433,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
             <FleetSectionHeader
               title="Active asks"
               detail="The asks still in flight across the fleet."
-              count={activeAsks.length}
             />
             {activeAsks.length === 0 ? (
               <div className="s-empty">
@@ -459,7 +452,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
             <FleetSectionHeader
               title="Recent finishes"
               detail="Review completions and failures once the active queue is stable."
-              count={recentCompleted.length}
             />
             {recentCompleted.length === 0 ? (
               <div className="s-empty">
@@ -480,7 +472,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
           <FleetSectionHeader
             title="Recent activity"
             detail="The broader event stream behind the queue."
-            count={activity.length}
           />
           {activity.length === 0 ? (
             <div className="s-empty">

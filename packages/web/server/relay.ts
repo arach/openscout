@@ -39,6 +39,31 @@ export async function handleRelayUpload(req: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// Terminal command queue — lets the web server inject commands into the
+// currently attached pty session, or queue them for the next session:init.
+// ---------------------------------------------------------------------------
+
+let _pendingCommand: string | null = null;
+
+export function queueTerminalCommand(cmd: string): void {
+  // If there's already an active session, write to it immediately
+  for (const [, session] of sessions) {
+    if (!session.exited) {
+      session.pty.write(cmd + "\n");
+      return;
+    }
+  }
+  // No active session yet — queue it for the next session:init/reconnect
+  _pendingCommand = cmd;
+}
+
+function drainPendingCommand(): string | null {
+  const cmd = _pendingCommand;
+  _pendingCommand = null;
+  return cmd;
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket helpers
 // ---------------------------------------------------------------------------
 
@@ -89,6 +114,8 @@ export const relayWebSocket = {
         if (!session) break;
         ws.data.sessionId = session.id;
         send(rws, { type: "session:ready", sessionId: session.id });
+        const pending = drainPendingCommand();
+        if (pending) setTimeout(() => session.pty.write(pending + "\n"), 400);
         break;
       }
 
@@ -109,6 +136,8 @@ export const relayWebSocket = {
             sessionId: existing.id,
             reconnected: true,
           });
+          const pending = drainPendingCommand();
+          if (pending) setTimeout(() => existing.pty.write(pending + "\n"), 400);
         } else {
           send(rws, { type: "session:expired", sessionId: msg.sessionId });
         }

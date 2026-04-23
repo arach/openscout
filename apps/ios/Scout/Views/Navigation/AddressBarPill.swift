@@ -9,28 +9,36 @@ import SwiftUI
 
 // Shared helper — maps connection state/health to a single status color.
 private func connectionStatusColor(health: BridgeHealthState, state: ConnectionState) -> Color {
-    switch health {
-    case .healthy: break
-    case .suspect, .degraded: return ScoutColors.statusStreaming
-    case .offline: return ScoutColors.statusError
-    }
+    let displayHealth = normalizedConnectionDisplayHealth(state: state, health: health)
     switch state {
-    case .connected: return ScoutColors.statusActive
+    case .connected:
+        switch displayHealth {
+        case .suspect, .degraded: return ScoutColors.statusStreaming
+        case .healthy, .offline: return ScoutColors.statusActive
+        }
     case .connecting, .handshaking, .reconnecting: return ScoutColors.statusStreaming
-    case .disconnected, .failed: return ScoutColors.statusError
+    case .disconnected, .failed:
+        switch displayHealth {
+        case .suspect, .degraded: return ScoutColors.statusStreaming
+        case .healthy, .offline: return ScoutColors.statusError
+        }
     }
 }
 
 private func connectionLEDColor(health: BridgeHealthState, state: ConnectionState) -> Color {
-    switch health {
-    case .healthy: break
-    case .suspect, .degraded: return ScoutColors.ledAmber
-    case .offline: return ScoutColors.ledRed
-    }
+    let displayHealth = normalizedConnectionDisplayHealth(state: state, health: health)
     switch state {
-    case .connected: return ScoutColors.ledGreen
+    case .connected:
+        switch displayHealth {
+        case .suspect, .degraded: return ScoutColors.ledAmber
+        case .healthy, .offline: return ScoutColors.ledGreen
+        }
     case .connecting, .handshaking, .reconnecting: return ScoutColors.ledAmber
-    case .disconnected, .failed: return ScoutColors.ledRed
+    case .disconnected, .failed:
+        switch displayHealth {
+        case .suspect, .degraded: return ScoutColors.ledAmber
+        case .healthy, .offline: return ScoutColors.ledRed
+        }
     }
 }
 

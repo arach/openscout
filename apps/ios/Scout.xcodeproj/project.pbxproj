@@ -64,6 +64,7 @@
 		C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */; };
 		C6FACCAD49E7E43628B33F79 /* ScoutSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 390280403D808E04858F3EA7 /* ScoutSearchField.swift */; };
 		CB5753E1996ECD1B8E3D73C5 /* QuestionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 622F7388E33A9A08EA9913F4 /* QuestionBlockView.swift */; };
+		CBCE2EADF2F6B1EDB5DF3CC0 /* AppStoreScreenshotMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C46A2565EF034B8EBDC0E7 /* AppStoreScreenshotMode.swift */; };
 		CCB65C48A10E885795764D27 /* ScoutCompactKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFAD4CD356A35B1F2E319563 /* ScoutCompactKeyboard.swift */; };
 		CCFF56AC0101E94DC30A7EF5 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6940B82A6F6FB299D5556A /* SessionStore.swift */; };
 		DA89CEF284347FCCA2AB04E8 /* AddressBarPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10BA2E5EE2B7C4C28BF65201 /* AddressBarPill.swift */; };
@@ -159,6 +160,7 @@
 		DD6940B82A6F6FB299D5556A /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		E1480A7B45017C3E2A44619D /* ScoutAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutAppDelegate.swift; sourceTree = "<group>"; };
 		E204EEA7E7F90B8A9AE38FFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E2C46A2565EF034B8EBDC0E7 /* AppStoreScreenshotMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreScreenshotMode.swift; sourceTree = "<group>"; };
 		E37F081F478DEDB2F906765D /* KeyComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyComponents.swift; sourceTree = "<group>"; };
 		E51A81D21A37B458E927F61B /* SessionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCache.swift; sourceTree = "<group>"; };
 		E61B31D0E2A906FC93D58001 /* SessionHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistoryView.swift; sourceTree = "<group>"; };
@@ -379,6 +381,7 @@
 		AA728CF631FF144FCEB9DE17 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				E2C46A2565EF034B8EBDC0E7 /* AppStoreScreenshotMode.swift */,
 				09A0710F2737060ABA3FC0A0 /* ContentView.swift */,
 				2B05A33D42DFC47E9C54BEE0 /* ScoutApp.swift */,
 				E1480A7B45017C3E2A44619D /* ScoutAppDelegate.swift */,
@@ -579,6 +582,7 @@
 				A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */,
 				4F6B19AF43BFDFA1FD35963C /* AgentsView.swift in Sources */,
 				1BF5B43FCC85EB3FAD07F724 /* AllSessionsGridView.swift in Sources */,
+				CBCE2EADF2F6B1EDB5DF3CC0 /* AppStoreScreenshotMode.swift in Sources */,
 				97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */,
 				105F24BC57F5A44E8AA397E7 /* ComposerView.swift in Sources */,
 				928B8FEA4EA1A6731D9F468F /* ConnectionManager.swift in Sources */,

@@ -202,15 +202,23 @@ struct ScoutBottomBar: View {
     // MARK: - Connection Indicator
 
     private var showsConnectionWarning: Bool {
+        let displayHealth = normalizedConnectionDisplayHealth(
+            state: connection.state,
+            health: connection.health
+        )
         if connection.state != .connected { return true }
-        switch connection.health {
+        switch displayHealth {
         case .suspect, .degraded, .offline: return true
         case .healthy: return false
         }
     }
 
     private var connectionWarningColor: Color {
-        switch connection.health {
+        let displayHealth = normalizedConnectionDisplayHealth(
+            state: connection.state,
+            health: connection.health
+        )
+        switch displayHealth {
         case .suspect, .degraded: return ScoutColors.ledAmber
         case .offline: return ScoutColors.ledRed
         default: break

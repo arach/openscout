@@ -730,10 +730,17 @@ final class SessionStore: @unchecked Sendable {
 // MARK: - Preview instance
 
 extension SessionStore {
-    static let preview: SessionStore = {
+    static let preview: SessionStore = makePreviewStore()
+
+    static func screenshotPreview() -> SessionStore {
+        makePreviewStore()
+    }
+
+    private static func makePreviewStore() -> SessionStore {
         let store = SessionStore()
         store.clearAll()
         store.connectionState = .connected
+        store.hasReceivedLiveList = true
         store.summaries = [
             SessionSummary(
                 sessionId: "s1", name: "Refactor auth",
@@ -753,6 +760,15 @@ extension SessionStore {
                 project: "scout-mobile",
                 model: "gpt-5.4-mini"
             ),
+            SessionSummary(
+                sessionId: "s3", name: "Prepare App Store assets",
+                adapterType: "codex", status: "idle",
+                turnCount: 5, currentTurnStatus: nil,
+                startedAt: Int(Date().addingTimeInterval(-5400).timeIntervalSince1970 * 1000),
+                lastActivityAt: Int(Date().addingTimeInterval(-900).timeIntervalSince1970 * 1000),
+                project: "openscout",
+                model: "gpt-5.4"
+            ),
         ]
         store.sessions["s1"] = SessionState(
             session: Session(
@@ -764,27 +780,56 @@ extension SessionStore {
             history: nil,
             turns: [
                 TurnState(
-                    id: "t1",
+                    id: "t0",
                     status: .completed,
                     blocks: [
                         BlockState(
                             block: Block(
+                                id: "u1", turnId: "t0", type: .text, status: .completed, index: 0,
+                                text: "Refactor the authentication module to use JWT while preserving the existing session semantics."
+                            ),
+                            status: .completed
+                        )
+                    ],
+                    startedAt: Int(Date().addingTimeInterval(-420).timeIntervalSince1970 * 1000),
+                    isUserTurn: true
+                ),
+                TurnState(
+                    id: "t1",
+                    status: .streaming,
+                    blocks: [
+                        BlockState(
+                            block: Block(
                                 id: "b1", turnId: "t1", type: .text, status: .completed, index: 0,
-                                text: "I'll help you refactor the authentication module to use JWT tokens."
+                                text: "I refactored the auth module to issue JWTs while keeping the current session lifecycle intact."
                             ),
                             status: .completed
                         ),
                         BlockState(
                             block: Block(
-                                id: "b2", turnId: "t1", type: .action, status: .completed, index: 1,
+                                id: "b2", turnId: "t1", type: .reasoning, status: .completed, index: 1,
+                                text: "Next I’m updating the token signer and preserving compatibility with existing middleware."
+                            ),
+                            status: .completed
+                        ),
+                        BlockState(
+                            block: Block(
+                                id: "b3", turnId: "t1", type: .action, status: .completed, index: 2,
                                 action: Action(
                                     kind: .fileChange, status: .completed,
                                     output: "",
                                     path: "src/auth/jwt.ts",
-                                    diff: "+import jwt from 'jsonwebtoken'\n+export function signToken(payload: object) {\n+  return jwt.sign(payload, process.env.SECRET!)\n+}"
+                                    diff: "+import jwt from 'jsonwebtoken'\n+export function signToken(payload: object) {\n+  return jwt.sign(payload, process.env.SECRET!, { expiresIn: '1h' })\n+}"
                                 )
                             ),
                             status: .completed
+                        ),
+                        BlockState(
+                            block: Block(
+                                id: "b4", turnId: "t1", type: .text, status: .streaming, index: 3,
+                                text: "Finishing the session compatibility pass and preparing the migration notes..."
+                            ),
+                            status: .streaming
                         ),
                     ],
                     startedAt: Int(Date().addingTimeInterval(-300).timeIntervalSince1970 * 1000)
@@ -792,6 +837,17 @@ extension SessionStore {
             ],
             currentTurnId: "t1"
         )
+        store.sessions["s2"] = SessionState(
+            session: Session(
+                id: "s2", name: "Write API docs",
+                adapterType: "openai", status: .idle,
+                cwd: "/Users/arach/dev/openscout/apps/cloud",
+                model: "gpt-5.4-mini"
+            ),
+            history: nil,
+            turns: [],
+            currentTurnId: nil
+        )
         return store
-    }()
+    }
 }

@@ -13,6 +13,13 @@ interface TLSPair {
   key: string;
 }
 
+interface TailscaleStatusProbe {
+  backendState: string | null;
+  dnsName: string | null;
+  online: boolean;
+  health: string[];
+}
+
 export type StartedManagedRelay = {
   relayUrl: string;
   stop: () => void;
@@ -42,18 +49,76 @@ function findStoredCerts(): TLSPair | null {
   }
 }
 
-function getTailscaleHostname(): string | null {
+function readTailscaleStatus(): TailscaleStatusProbe | null {
   try {
     const output = execSync("tailscale status --self=true --peers=false --json", {
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5_000,
     }).toString();
-    const data = JSON.parse(output);
-    const dnsName: string = data?.Self?.DNSName ?? "";
-    return dnsName.replace(/\.$/, "") || null;
+    const data = JSON.parse(output) as {
+      BackendState?: string;
+      Health?: string[];
+      Self?: {
+        DNSName?: string;
+        Online?: boolean;
+      };
+    };
+
+    const dnsName = typeof data.Self?.DNSName === "string"
+      ? data.Self.DNSName.replace(/\.$/, "")
+      : "";
+
+    return {
+      backendState: typeof data.BackendState === "string" ? data.BackendState : null,
+      dnsName: dnsName || null,
+      online: data.Self?.Online !== false,
+      health: Array.isArray(data.Health) ? data.Health.filter((entry): entry is string => typeof entry === "string") : [],
+    };
   } catch {
     return null;
   }
+}
+
+export function resolveRelayEndpointForTailscaleStatus(
+  port: number,
+  tailscale: TailscaleStatusProbe | null,
+) {
+  const backendState = tailscale?.backendState?.trim().toLowerCase() ?? "";
+  const hostname = tailscale?.dnsName ?? null;
+  const tailscaleRunning = backendState === "running" && tailscale?.online !== false && Boolean(hostname);
+  const tls = resolveTls(tailscaleRunning ? hostname : null);
+
+  if (tailscaleRunning && hostname && tls) {
+    return {
+      relayUrl: `wss://${hostname}:${port}`,
+      options: { tls } satisfies RelayOptions,
+    };
+  }
+
+  if (tailscaleRunning && hostname) {
+    pairingLog.warn("relay", "tailscale is running without TLS; falling back to insecure websocket relay", {
+      hostname,
+      port,
+    });
+    return {
+      relayUrl: `ws://${hostname}:${port}`,
+      options: {} satisfies RelayOptions,
+    };
+  }
+
+  if (hostname && backendState && backendState !== "running") {
+    pairingLog.warn("relay", "tailscale hostname detected but tailscale is not running; using local-only relay endpoint", {
+      hostname,
+      backendState,
+      health: tailscale?.health ?? [],
+      port,
+    });
+  }
+
+  return {
+    relayUrl: `ws://127.0.0.1:${port}`,
+    options: {} satisfies RelayOptions,
+  };
 }
 
 function generateTailscaleCerts(hostname: string): TLSPair | null {
@@ -113,31 +178,7 @@ function resolveTls(hostname: string | null) {
 }
 
 function resolveRelayEndpoint(port: number) {
-  const hostname = getTailscaleHostname();
-  const tls = resolveTls(hostname);
-
-  if (hostname && tls) {
-    return {
-      relayUrl: `wss://${hostname}:${port}`,
-      options: { tls } satisfies RelayOptions,
-    };
-  }
-
-  if (hostname) {
-    pairingLog.warn("relay", "tailscale hostname detected without TLS; falling back to insecure websocket relay", {
-      hostname,
-      port,
-    });
-    return {
-      relayUrl: `ws://${hostname}:${port}`,
-      options: {} satisfies RelayOptions,
-    };
-  }
-
-  return {
-    relayUrl: `ws://127.0.0.1:${port}`,
-    options: {} satisfies RelayOptions,
-  };
+  return resolveRelayEndpointForTailscaleStatus(port, readTailscaleStatus());
 }
 
 export function suggestedRelayUrl(port = 7889) {

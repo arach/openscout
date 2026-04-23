@@ -67,6 +67,19 @@
   font-size: inherit;
 }
 
+.s-mission-hotkey--btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.s-mission-hotkey--btn:hover {
+  opacity: 1;
+}
+
 /* ── Canvas viewport ── */
 
 .s-mission-viewport {
@@ -130,14 +143,46 @@
 .s-mission-tile:hover {
   border-color: var(--muted);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--muted) 20%, transparent);
+  /* Preserve dark surface on hover so accent-colored event text stays readable */
+  background: var(--surface);
+}
+
+/* Explicitly keep event text readable on hover — never invert to light bg */
+.s-mission-tile:hover .s-mission-evt-text--tool {
+  color: var(--accent);
+}
+
+.s-mission-tile:hover .s-mission-evt-text--ask {
+  color: var(--amber);
+}
+
+.s-mission-tile:hover .s-mission-evt-text--note {
+  color: var(--green);
+}
+
+.s-mission-tile:hover .s-mission-evt-text--think {
+  color: var(--dim);
 }
 
 .s-mission-tile--working {
   border-color: color-mix(in srgb, var(--green) 30%, var(--border));
 }
 
+.s-mission-tile--working:hover {
+  /* Override generic hover: keep green tint on border, keep dark bg */
+  border-color: color-mix(in srgb, var(--green) 55%, var(--border));
+  background: var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 18%, transparent);
+}
+
 .s-mission-tile--asking {
   border-color: color-mix(in srgb, var(--amber) 40%, var(--border));
+}
+
+.s-mission-tile--asking:hover {
+  border-color: color-mix(in srgb, var(--amber) 60%, var(--border));
+  background: var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 20%, transparent);
 }
 
 /* ── Tile header ── */
