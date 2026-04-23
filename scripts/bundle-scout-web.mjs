@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Shared steps: Bun-bundle the Scout Hono server for @openscout/scout, and copy the
+ * Shared steps: Bun-bundle the Scout web servers for @openscout/scout, and copy the
  * relevant Vite clients into dist/ for published packages.
  */
 import { spawnSync } from "node:child_process";
@@ -13,16 +13,19 @@ export function getOpenScoutRepoRoot() {
 }
 
 /**
+ * Compatibility bundle for older packaging entry names. This now builds the
+ * current @openscout/web server instead of the retired desktop web server.
+ *
  * @param {string} repoRoot
  * @param {string} outfile Absolute path to scout-web-server.mjs
  * @returns {boolean}
  */
 export function bundleScoutWebServerBun(repoRoot, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
-  const entry = resolve(repoRoot, "apps/desktop/src/server/index.ts");
+  const entry = resolve(repoRoot, "packages/web/server/index.ts");
   const result = spawnSync(
     "bun",
-    ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile],
+    ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile, "--external", "vite"],
     { cwd: repoRoot, stdio: "inherit" },
   );
   return (result.status ?? 1) === 0;
@@ -65,33 +68,6 @@ export function buildControlPlaneClientAndCopy(repoRoot, targetClientDir) {
   const indexHtml = resolve(source, "index.html");
   if (!existsSync(indexHtml)) {
     console.error("[bundle-scout-web] expected control-plane index.html after build at", indexHtml);
-    return false;
-  }
-  rmSync(targetClientDir, { recursive: true, force: true });
-  mkdirSync(dirname(targetClientDir), { recursive: true });
-  cpSync(source, targetClientDir, { recursive: true });
-  return true;
-}
-
-/**
- * Run Vite client build in apps/desktop and copy dist/client -> targetClientDir.
- * @param {string} repoRoot
- * @param {string} targetClientDir e.g. packages/cli/dist/client
- * @returns {boolean}
- */
-export function buildDesktopClientAndCopy(repoRoot, targetClientDir) {
-  const desktopApp = resolve(repoRoot, "apps/desktop");
-  const build = spawnSync("bun", ["run", "web:build"], {
-    cwd: desktopApp,
-    stdio: "inherit",
-  });
-  if ((build.status ?? 1) !== 0) {
-    return false;
-  }
-  const source = resolve(desktopApp, "dist/client");
-  const indexHtml = resolve(source, "index.html");
-  if (!existsSync(indexHtml)) {
-    console.error("[bundle-scout-web] expected index.html after desktop web build at", indexHtml);
     return false;
   }
   rmSync(targetClientDir, { recursive: true, force: true });

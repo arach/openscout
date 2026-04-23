@@ -182,7 +182,7 @@ Outside the repo, it opens an installed `OpenScout Menu` app when available.
 
 ### Web UI (`scout server start`, `scout server open`)
 
-Runs the same Scout desktop web stack as the repo’s `bun run web` entry (Hono + shared IPC services). **Bun must be on your PATH.** Publish builds ship `dist/scout-web-server.mjs` and `dist/client/` (Vite build); when `dist/client/index.html` is present, **`scout server start` defaults to static assets** unless you pass `--vite-url` to proxy a dev server.
+Runs the current OpenScout web UI used by the repo’s `bun run dev` entry. **Bun must be on your PATH.** Published CLI builds ship `dist/scout-control-plane-web.mjs` and `dist/client/` (Vite build); when `dist/client/index.html` is present, **`scout server start` defaults to static assets** unless you pass `--vite-url` to proxy a dev server.
 
 ```bash
 scout whoami
@@ -198,4 +198,4 @@ scout server start --static --static-root /custom/client
 
 `scout server open` reuses an already-running matching Scout server on that port, or starts one in the background and opens the browser for you. Use `scout server` or `scout server help` for full flags.
 
-For a standalone **lightweight** web UI, see **`@openscout/web`** (`openscout-web`): it ships its own `dist/client`, bundled Bun server, and pairing supervisor. The full desktop UI remains vendored with the CLI build; the lightweight web package no longer boots through `scout server control-plane start`.
+For the same web UI without the full `scout` CLI package, use **`@openscout/web`** (`openscout-web`): it ships its own `dist/client`, bundled Bun server, and pairing supervisor.

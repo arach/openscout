@@ -1,6 +1,6 @@
 import { createScoutControlPlaneServer } from "./create-scout-control-plane-server.ts";
 
-const port = Number(process.env.SCOUT_WEB_PORT ?? "3200");
+const port = Number(process.env.OPENSCOUT_WEB_PORT ?? process.env.SCOUT_WEB_PORT ?? "3200");
 const hostname = process.env.SCOUT_WEB_HOST?.trim()
   || process.env.OPENSCOUT_WEB_HOST?.trim()
   || "127.0.0.1";

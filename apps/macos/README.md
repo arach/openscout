@@ -76,7 +76,7 @@ Release DMG signing/notarization environment:
 
 ## Tool Resolution
 
-The app prefers installed commands first, then falls back to repo-local scripts when running from this checkout.
+The app prefers explicit `OPENSCOUT_*` overrides, then repo-local scripts when running from this checkout, then installed commands.
 
 Optional overrides:
 

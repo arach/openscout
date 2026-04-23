@@ -6,6 +6,11 @@ import Foundation
 final class OpenScoutAppController: ObservableObject {
     static let shared = OpenScoutAppController()
 
+    private struct WebSurfaceHealth: Decodable {
+        let ok: Bool
+        let surface: String
+    }
+
     struct BrokerState: Sendable {
         var label: String = "OpenScout Broker"
         var brokerURL: String = "http://127.0.0.1:65535"
@@ -248,8 +253,13 @@ final class OpenScoutAppController: ObservableObject {
 
         do {
             try await ensureWebServerRunning()
-            if let url = URL(string: "http://127.0.0.1:3200") {
-                NSWorkspace.shared.open(url)
+            if var components = URLComponents(string: "http://127.0.0.1:3200/fleet") {
+                components.queryItems = [
+                    URLQueryItem(name: "openedAt", value: String(Int(Date().timeIntervalSince1970)))
+                ]
+                if let url = components.url {
+                    NSWorkspace.shared.open(url)
+                }
             }
         } catch {
             lastError = error.localizedDescription
@@ -278,22 +288,35 @@ final class OpenScoutAppController: ObservableObject {
                 return
             }
         }
+
+        throw NSError(
+            domain: "OpenScoutWeb",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for the current OpenScout web app on port 3200."
+            ]
+        )
     }
 
     private func isWebSurfaceReachable() async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:3200") else {
+        guard let url = URL(string: "http://127.0.0.1:3200/api/health") else {
             return false
         }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 0.8
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 return false
             }
-            return (200..<500).contains(httpResponse.statusCode)
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                return false
+            }
+            let health = try JSONDecoder().decode(WebSurfaceHealth.self, from: data)
+            return health.ok && (health.surface == "openscout-web" || health.surface == "control-plane")
         } catch {
             return false
         }

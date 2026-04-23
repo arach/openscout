@@ -66,7 +66,7 @@ function defaultMonorepoControlPlaneStaticClientRoot(
   moduleUrl: string | URL = import.meta.url,
 ): string {
   return resolve(
-    dirname(fileURLToPath(moduleUrl)),
+    dirname(fileURLToPath(moduleUrl.toString())),
     "../../../../packages/web/dist/client",
   );
 }
@@ -74,7 +74,7 @@ function defaultMonorepoControlPlaneStaticClientRoot(
 function resolveBundledControlPlaneStaticClientRoot(
   moduleUrl: string | URL = import.meta.url,
 ): string {
-  return resolve(dirname(fileURLToPath(moduleUrl)), "control-plane-client");
+  return resolve(dirname(fileURLToPath(moduleUrl.toString())), "control-plane-client");
 }
 
 function resolveStaticRoot(staticRoot: string | undefined): string {

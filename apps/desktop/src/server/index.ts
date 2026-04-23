@@ -1,34 +1,41 @@
 import {
-  createScoutWebServer,
+  createScoutControlPlaneServer,
   type ScoutWebAssetMode,
-} from "./create-scout-web-server.ts";
+} from "./create-scout-control-plane-server.ts";
 
-const port = Number(process.env.SCOUT_WEB_PORT ?? "3200");
+const port = Number(process.env.OPENSCOUT_WEB_PORT ?? process.env.SCOUT_WEB_PORT ?? "3200");
 const hostname = process.env.SCOUT_WEB_HOST?.trim()
   || process.env.OPENSCOUT_WEB_HOST?.trim()
   || "127.0.0.1";
 const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
 
-const shellStateCacheTtlMs = Number.parseInt(process.env.SCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
-const servicesStateCacheTtlMs = Number.parseInt(process.env.SCOUT_WEB_SERVICES_CACHE_TTL_MS ?? "3000", 10);
-const homeStateCacheTtlMs = Number.parseInt(process.env.SCOUT_WEB_HOME_CACHE_TTL_MS ?? "5000", 10);
+const shellStateCacheTtlMs = Number.parseInt(
+  process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS
+    ?? process.env.SCOUT_WEB_SHELL_CACHE_TTL_MS
+    ?? "15000",
+  10,
+);
 
-const useStaticAssets = process.env.SCOUT_STATIC === "1";
+const useStaticAssets = process.env.OPENSCOUT_WEB_STATIC === "1" || process.env.SCOUT_STATIC === "1";
 /** Vite dev proxies /api here; first shell-state can be slow if the broker is warming up. */
 const defaultWebIdleTimeoutSeconds = useStaticAssets ? "30" : "180";
 const REQUEST_IDLE_TIMEOUT_SECONDS = Number.parseInt(
-  process.env.SCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim() || defaultWebIdleTimeoutSeconds,
+  process.env.OPENSCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim()
+    || process.env.SCOUT_WEB_IDLE_TIMEOUT_SECONDS?.trim()
+    || defaultWebIdleTimeoutSeconds,
   10,
 );
 const assetMode: ScoutWebAssetMode = useStaticAssets ? "static" : "vite-proxy";
-const staticRoot = process.env.SCOUT_STATIC_ROOT?.trim() || undefined;
-const viteDevUrl = process.env.SCOUT_VITE_URL?.trim() || undefined;
+const staticRoot = process.env.OPENSCOUT_WEB_STATIC_ROOT?.trim()
+  || process.env.SCOUT_STATIC_ROOT?.trim()
+  || undefined;
+const viteDevUrl = process.env.OPENSCOUT_WEB_VITE_URL?.trim()
+  || process.env.SCOUT_VITE_URL?.trim()
+  || undefined;
 
-const { app, warmupCaches } = createScoutWebServer({
+const { app, warmupCaches } = createScoutControlPlaneServer({
   currentDirectory,
   shellStateCacheTtlMs: shellStateCacheTtlMs,
-  servicesStateCacheTtlMs: servicesStateCacheTtlMs,
-  homeStateCacheTtlMs: homeStateCacheTtlMs,
   assetMode,
   viteDevUrl,
   staticRoot,
@@ -41,5 +48,5 @@ export default {
   fetch: app.fetch,
 };
 
-console.log(`Scout web → http://${hostname}:${port}`);
+console.log(`Scout → http://${hostname}:${port}`);
 void warmupCaches();

@@ -28,9 +28,9 @@ Then open the URL printed in the terminal (default port `3200`).
 
 | | `@openscout/scout` | `@openscout/web` |
 |---|-------------------|------------------|
-| Command | `scout` (full CLI + bundled desktop web UI) | `openscout-web` (standalone Bun server + bundled client) |
+| Command | `scout` (full CLI + bundled current web UI) | `openscout-web` (standalone Bun server + bundled client) |
 | Static UI | Vendored next to `main.mjs` in the CLI package | This package’s `dist/client` |
-| Server | CLI-owned | Web-package-owned |
+| Server | CLI wrapper around the web package | Web-package-owned |
 | Broker / setup | Yes (`scout setup`, etc.) | Uses the same broker/runtime data, but does not boot through the CLI |
 
 ## Build (maintainers)

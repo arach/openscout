@@ -8,12 +8,12 @@ import { loadLocalConfig } from "@openscout/runtime/local-config";
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 
-type ScoutServerMode = "full" | "control-plane";
+type ScoutServerMode = "openscout-web";
 type ScoutServerAction = "start" | "open";
 
 type ScoutServerHealth = {
   ok: true;
-  surface: "full" | "control-plane" | "openscout-web";
+  surface: "control-plane" | "openscout-web";
   currentDirectory: string;
 };
 
@@ -34,6 +34,7 @@ export function renderServerCommandHelp(): string {
     "Usage:",
     "  scout server start [options]",
     "  scout server open [options]",
+    "  scout server control-plane open [options]  # legacy alias",
     "",
     "Subcommands:",
     "  start              Start the Scout web UI server.",
@@ -65,12 +66,16 @@ export function resolveScoutControlPlaneWebServerEntry(): string {
   if (existsSync(bundled)) {
     return bundled;
   }
-  const source = fileURLToPath(new URL("../../server/control-plane-index.ts", import.meta.url));
+  const source = fileURLToPath(new URL("../../../../../packages/web/server/index.ts", import.meta.url).href);
   if (existsSync(source)) {
     return source;
   }
+  const legacySource = fileURLToPath(new URL("../../server/control-plane-index.ts", import.meta.url).href);
+  if (existsSync(legacySource)) {
+    return legacySource;
+  }
   throw new ScoutCliError(
-    "Could not find Scout control-plane web server entry. Rebuild @openscout/scout or run from the OpenScout repository.",
+    "Could not find Scout web server entry. Rebuild @openscout/scout or run from the OpenScout repository.",
   );
 }
 
@@ -180,7 +185,7 @@ function parseServerSelection(args: string[]): {
       action: "start",
       flagArgs: args.slice(1),
       entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "full",
+      mode: "openscout-web",
     };
   }
   if (args[0] === "open") {
@@ -188,7 +193,7 @@ function parseServerSelection(args: string[]): {
       action: "open",
       flagArgs: args.slice(1),
       entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "full",
+      mode: "openscout-web",
     };
   }
   if (args[0] === "control-plane") {
@@ -197,7 +202,7 @@ function parseServerSelection(args: string[]): {
       action: sub,
       flagArgs: args.slice(2),
       entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "control-plane",
+      mode: "openscout-web",
     };
   }
   throw new ScoutCliError(`unknown subcommand: ${args[0]} (try: scout server open)`);
@@ -236,7 +241,7 @@ function resolveExpectedCurrentDirectory(env: NodeJS.ProcessEnv): string {
 }
 
 function renderModeLabel(mode: ScoutServerMode): string {
-  return mode === "control-plane" ? "Scout control plane" : "Scout";
+  return "Scout web";
 }
 
 function renderSurfaceLabel(surface: ScoutServerHealth["surface"]): string {
@@ -245,15 +250,15 @@ function renderSurfaceLabel(surface: ScoutServerHealth["surface"]): string {
       return "control-plane";
     case "openscout-web":
       return "@openscout/web";
-    case "full":
-    default:
-      return "full";
   }
 }
 
 function renderServerOpenResult(result: ScoutServerOpenResult): string {
-  const prefix = result.mode === "control-plane" ? "Opened Scout control plane" : "Opened Scout";
-  return `${prefix} at ${result.url}${result.reusedExistingServer ? "" : " (started server)"}`;
+  return `Opened Scout web at ${result.url}${result.reusedExistingServer ? "" : " (started server)"}`;
+}
+
+function isCurrentScoutWebSurface(surface: ScoutServerHealth["surface"]): boolean {
+  return surface === "openscout-web" || surface === "control-plane";
 }
 
 function healthUrlForPort(port: number): URL {
@@ -292,7 +297,7 @@ async function probeScoutServer(port: number): Promise<
 
     if (
       body.ok === true
-      && (body.surface === "full" || body.surface === "control-plane" || body.surface === "openscout-web")
+      && (body.surface === "control-plane" || body.surface === "openscout-web")
       && typeof body.currentDirectory === "string"
     ) {
       return {
@@ -387,7 +392,7 @@ async function waitForScoutServer(
     const probe = await probeScoutServer(port);
     if (probe.status === "healthy") {
       const actualCurrentDirectory = resolve(probe.health.currentDirectory);
-      if (probe.health.surface !== mode) {
+      if (!isCurrentScoutWebSurface(probe.health.surface)) {
         throw new ScoutCliError(
           `port ${port} is serving Scout ${renderSurfaceLabel(probe.health.surface)}, not ${renderModeLabel(mode)}.`,
         );
@@ -421,7 +426,7 @@ async function openScoutServer(options: {
 
   if (probe.status === "healthy") {
     const actualCurrentDirectory = resolve(probe.health.currentDirectory);
-    if (probe.health.surface !== options.mode) {
+    if (!isCurrentScoutWebSurface(probe.health.surface)) {
       throw new ScoutCliError(
         `port ${port} is already serving Scout ${renderSurfaceLabel(probe.health.surface)}, not ${renderModeLabel(options.mode)}.`,
       );

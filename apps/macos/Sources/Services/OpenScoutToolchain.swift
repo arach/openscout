@@ -62,10 +62,7 @@ struct OpenScoutToolchain {
     }
 
     func scoutCommand(arguments: [String]) throws -> CommandDescriptor {
-        if let scoutExecutable = resolveExecutable(
-            envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"],
-            names: ["scout"]
-        ) {
+        if let scoutExecutable = resolveExplicitExecutable(envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"]) {
             return CommandDescriptor(
                 executableURL: scoutExecutable,
                 arguments: arguments,
@@ -74,24 +71,34 @@ struct OpenScoutToolchain {
             )
         }
 
-        guard let repoRoot = resolveRepoRoot() else {
-            throw OpenScoutToolchainError.missingScoutCLI
-        }
-        guard let bun = resolveBunExecutable() else {
-            throw OpenScoutToolchainError.missingBun
+        if let repoRoot = resolveRepoRoot() {
+            guard let bun = resolveBunExecutable() else {
+                throw OpenScoutToolchainError.missingBun
+            }
+
+            let script = repoRoot.appending(path: "apps/desktop/bin/scout.ts")
+            guard fileManager.fileExists(atPath: script.path) else {
+                throw OpenScoutToolchainError.missingScoutCLI
+            }
+
+            return CommandDescriptor(
+                executableURL: bun,
+                arguments: [script.path] + arguments,
+                environment: defaultEnvironment(),
+                currentDirectoryURL: repoRoot
+            )
         }
 
-        let script = repoRoot.appending(path: "apps/desktop/bin/scout.ts")
-        guard fileManager.fileExists(atPath: script.path) else {
-            throw OpenScoutToolchainError.missingScoutCLI
+        if let scoutExecutable = resolveExecutable(envKeys: [], names: ["scout"]) {
+            return CommandDescriptor(
+                executableURL: scoutExecutable,
+                arguments: arguments,
+                environment: defaultEnvironment(),
+                currentDirectoryURL: workspaceContextRoot()
+            )
         }
 
-        return CommandDescriptor(
-            executableURL: bun,
-            arguments: [script.path] + arguments,
-            environment: defaultEnvironment(),
-            currentDirectoryURL: repoRoot
-        )
+        throw OpenScoutToolchainError.missingScoutCLI
     }
 
     func pairSupervisorCommand() throws -> CommandDescriptor {
@@ -160,10 +167,7 @@ struct OpenScoutToolchain {
         if let workspaceRoot = workspaceContextRoot() {
             env["OPENSCOUT_SETUP_CWD"] = workspaceRoot.path
         }
-        if let scoutCLI = resolveExecutable(
-            envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"],
-            names: ["scout"]
-        ) {
+        if let scoutCLI = resolveExplicitExecutable(envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"]) {
             env["OPENSCOUT_CLI_BIN"] = scoutCLI.path
         }
         if let bun = resolveBunExecutable() {
@@ -234,6 +238,16 @@ struct OpenScoutToolchain {
         return nil
     }
 
+    private func resolveExplicitExecutable(envKeys: [String]) -> URL? {
+        for key in envKeys {
+            if let explicit = resolvePath(fromEnvironmentKey: key), isExecutable(explicit) {
+                return explicit
+            }
+        }
+
+        return nil
+    }
+
     private func resolveBunExecutable() -> URL? {
         resolveExecutable(
             envKeys: ["OPENSCOUT_BUN_BIN", "SCOUT_BUN_BIN", "BUN_BIN"],
@@ -269,10 +283,10 @@ struct OpenScoutToolchain {
     private func installedPairSupervisorCandidates() -> [URL] {
         let home = fileManager.homeDirectoryForCurrentUser
         return [
-            home.appending(path: ".bun/install/global/node_modules/@openscout/scout/dist/pair-supervisor.mjs"),
-            home.appending(path: ".bun/node_modules/@openscout/scout/dist/pair-supervisor.mjs"),
             home.appending(path: ".bun/install/global/node_modules/@openscout/web/dist/pair-supervisor.mjs"),
             home.appending(path: ".bun/node_modules/@openscout/web/dist/pair-supervisor.mjs"),
+            home.appending(path: ".bun/install/global/node_modules/@openscout/scout/dist/pair-supervisor.mjs"),
+            home.appending(path: ".bun/node_modules/@openscout/scout/dist/pair-supervisor.mjs"),
         ]
     }
 
