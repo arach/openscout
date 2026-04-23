@@ -362,6 +362,16 @@ interface ThreadCursorRow {
   updated_at: number;
 }
 
+type ThreadEventInsert = {
+  id: string;
+  conversation: ConversationDefinition;
+  kind: ThreadEventKind;
+  actorId?: string;
+  ts: number;
+  payload: ThreadEventEnvelope["payload"];
+  notification?: ThreadEventNotification;
+};
+
 export type ActivityItemKind =
   | "message_posted"
   | "agent_message"
@@ -513,6 +523,18 @@ export class SQLiteControlPlaneStore {
 
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_invocations_collaboration_record_id_created_at ON invocations(collaboration_record_id, created_at)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_invocations_requester_created_at ON invocations(requester_id, created_at DESC)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_flights_invocation_id ON flights(invocation_id)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_activity_items_ts ON activity_items(ts DESC)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC)",
     );
   }
 
@@ -1056,8 +1078,14 @@ export class SQLiteControlPlaneStore {
   }
 
   recordMessage(message: MessageRecord): ThreadEventEnvelope[] {
+    const activityItem = this.projectMessageActivity(message);
+    const threadMessageEvent = this.buildThreadMessageEvent(message, this.readDb);
     let threadEvents: ThreadEventEnvelope[] = [];
-    (this.db as SQLiteTransactionalDatabase).transaction((nextMessage: MessageRecord) => {
+    (this.db as SQLiteTransactionalDatabase).transaction((
+      nextMessage: MessageRecord,
+      nextActivityItem: ActivityItem,
+      nextThreadMessageEvent: ThreadEventInsert | null,
+    ) => {
       this.db.query(
         `INSERT OR REPLACE INTO messages (
           id, conversation_id, actor_id, origin_node_id, class, body, reply_to_message_id,
@@ -1101,9 +1129,11 @@ export class SQLiteControlPlaneStore {
           stringify(attachment.metadata),
         );
       }
-      this.recordActivityItem(this.projectMessageActivity(nextMessage));
-      threadEvents = this.recordThreadMessageEvent(nextMessage);
-    })(message);
+      this.recordActivityItem(nextActivityItem);
+      threadEvents = nextThreadMessageEvent
+        ? [this.appendThreadEvent(nextThreadMessageEvent)]
+        : [];
+    })(message, activityItem, threadMessageEvent);
     return threadEvents;
   }
 
@@ -1796,9 +1826,9 @@ export class SQLiteControlPlaneStore {
     };
   }
 
-  private loadConversation(conversationId: string): ConversationDefinition | null {
+  private loadConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
     const row = queryGet<ConversationRow, [string]>(
-      this.db,
+      db,
       "SELECT * FROM conversations WHERE id = ?1 LIMIT 1",
       conversationId,
     );
@@ -1813,7 +1843,7 @@ export class SQLiteControlPlaneStore {
       visibility: row.visibility,
       shareMode: row.share_mode,
       authorityNodeId: row.authority_node_id,
-      participantIds: this.listConversationMemberIds(row.id, this.db),
+      participantIds: this.listConversationMemberIds(row.id, db),
       topic: row.topic ?? undefined,
       parentConversationId: row.parent_conversation_id ?? undefined,
       messageId: row.message_id ?? undefined,
@@ -1845,15 +1875,7 @@ export class SQLiteControlPlaneStore {
     return conversation.shareMode === "summary" ? "summary" : "shared";
   }
 
-  private appendThreadEvent(input: {
-    id: string;
-    conversation: ConversationDefinition;
-    kind: ThreadEventKind;
-    actorId?: string;
-    ts: number;
-    payload: ThreadEventEnvelope["payload"];
-    notification?: ThreadEventNotification;
-  }): ThreadEventEnvelope {
+  private appendThreadEvent(input: ThreadEventInsert): ThreadEventEnvelope {
     const existing = queryGet<ThreadEventRow, [string]>(
       this.db,
       "SELECT * FROM thread_events WHERE id = ?1 LIMIT 1",
@@ -1900,24 +1922,29 @@ export class SQLiteControlPlaneStore {
   }
 
   private recordThreadMessageEvent(message: MessageRecord): ThreadEventEnvelope[] {
-    const conversation = this.loadConversation(message.conversationId);
+    const input = this.buildThreadMessageEvent(message);
+    return input ? [this.appendThreadEvent(input)] : [];
+  }
+
+  private buildThreadMessageEvent(message: MessageRecord, db: Database = this.db): ThreadEventInsert | null {
+    const conversation = this.loadConversation(message.conversationId, db);
     if (!conversation) {
-      return [];
+      return null;
     }
 
     const payload = this.threadModeForConversation(conversation) === "summary"
       ? { message: this.buildThreadMessageSummary(message) }
       : { message };
 
-    return [this.appendThreadEvent({
+    return {
       id: `thread-event:message:${message.id}:${message.createdAt}`,
       conversation,
       kind: "message.posted",
       actorId: message.actorId,
       ts: message.createdAt,
       payload,
-      notification: this.buildMessageThreadNotification(message),
-    })];
+      notification: this.buildMessageThreadNotification(message, db),
+    };
   }
 
   private recordThreadFlightEvent(flight: FlightRecord): ThreadEventEnvelope[] {
@@ -2059,7 +2086,7 @@ export class SQLiteControlPlaneStore {
     };
   }
 
-  private buildMessageThreadNotification(message: MessageRecord): ThreadEventNotification | undefined {
+  private buildMessageThreadNotification(message: MessageRecord, db: Database = this.db): ThreadEventNotification | undefined {
     const mentionActorIds = [...new Set(
       (message.mentions ?? [])
         .map((mention) => mention.actorId)
@@ -2079,7 +2106,7 @@ export class SQLiteControlPlaneStore {
     }
 
     const replyTarget = queryGet<{ actor_id: string }, [string]>(
-      this.db,
+      db,
       "SELECT actor_id FROM messages WHERE id = ?1 LIMIT 1",
       message.replyToMessageId,
     );

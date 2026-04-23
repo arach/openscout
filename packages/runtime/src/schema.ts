@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 4;
+export const CONTROL_PLANE_SCHEMA_VERSION = 5;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -309,8 +309,12 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
   ON messages (conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_invocations_target_created_at
   ON invocations (target_agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_invocations_requester_created_at
+  ON invocations (requester_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_flights_target_state
   ON flights (target_agent_id, state);
+CREATE INDEX IF NOT EXISTS idx_flights_invocation_id
+  ON flights (invocation_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_status_transport
   ON deliveries (status, transport);
 CREATE INDEX IF NOT EXISTS idx_collaboration_records_state
@@ -331,12 +335,16 @@ CREATE INDEX IF NOT EXISTS idx_activity_items_actor_ts
   ON activity_items (actor_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_conversation_ts
   ON activity_items (conversation_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_items_ts
+  ON activity_items (ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_workspace_ts
   ON activity_items (workspace_root, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_kind_ts
   ON activity_items (kind, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_items_session_ts
   ON activity_items (session_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_created_at
+  ON conversations (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scout_dispatches_dispatched_at
   ON scout_dispatches (dispatched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scout_dispatches_conversation_ts

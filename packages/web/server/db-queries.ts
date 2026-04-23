@@ -90,23 +90,20 @@ function resolveDbPath(): string {
   return join(controlHome, "control-plane.sqlite");
 }
 
-/* ── Readonly connection (reopened periodically to see WAL updates) ── */
+/* ── Readonly connection (WAL-visible without periodic reopen) ── */
 
 let _db: Database | null = null;
-let _dbOpenedAt = 0;
-const DB_REOPEN_MS = 2_000; // reopen every 2s to pick up WAL frames
+const DB_BUSY_TIMEOUT_MS = 250; // keep UI reads short under broker write contention
+
+export function configureReadonlyDb(db: Database): void {
+  db.exec(`PRAGMA busy_timeout = ${DB_BUSY_TIMEOUT_MS}`);
+  db.exec("PRAGMA query_only = ON");
+}
 
 function db(): Database {
-  const now = Date.now();
-  if (_db && now - _dbOpenedAt > DB_REOPEN_MS) {
-    _db.close();
-    _db = null;
-  }
   if (!_db) {
     _db = new Database(resolveDbPath(), { readonly: true });
-    _db.exec("PRAGMA busy_timeout = 5000");
-    _db.exec("PRAGMA journal_mode = WAL");
-    _dbOpenedAt = now;
+    configureReadonlyDb(_db);
   }
   return _db;
 }

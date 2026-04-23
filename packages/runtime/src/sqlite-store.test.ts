@@ -32,6 +32,18 @@ function createStoreWithPath(): { store: SQLiteControlPlaneStore; dbPath: string
   };
 }
 
+function getIndexNames(db: Database, tables: string[]): string[] {
+  const placeholders = tables.map(() => "?").join(", ");
+  const rows = db.query(
+    `SELECT name
+     FROM sqlite_master
+     WHERE type = 'index'
+       AND tbl_name IN (${placeholders})
+     ORDER BY name ASC`,
+  ).all(...tables) as Array<{ name: string }>;
+  return rows.map((row) => row.name);
+}
+
 describe("SQLiteControlPlaneStore", () => {
   test("persists a new conversation before its members and allows messages to be recorded", () => {
     const store = createStore();
@@ -176,6 +188,23 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
+  test("creates dashboard read indexes on fresh databases", () => {
+    const { store, dbPath } = createStoreWithPath();
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      const indexNames = getIndexNames(db, ["conversations", "flights", "activity_items", "invocations"]);
+
+      expect(indexNames).toContain("idx_conversations_created_at");
+      expect(indexNames).toContain("idx_flights_invocation_id");
+      expect(indexNames).toContain("idx_activity_items_ts");
+      expect(indexNames).toContain("idx_invocations_requester_created_at");
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
   test("persists invocation collaboration record ids, including context fallback", () => {
     const { store, dbPath } = createStoreWithPath();
     const db = new Database(dbPath, { readonly: true });
@@ -292,6 +321,28 @@ describe("SQLiteControlPlaneStore", () => {
       legacyDb.exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA foreign_keys = ON;
+        CREATE TABLE IF NOT EXISTS conversations (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS flights (
+          id TEXT PRIMARY KEY,
+          invocation_id TEXT NOT NULL,
+          target_agent_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          started_at INTEGER,
+          completed_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS activity_items (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          ts INTEGER NOT NULL,
+          conversation_id TEXT,
+          agent_id TEXT,
+          actor_id TEXT,
+          workspace_root TEXT,
+          session_id TEXT
+        );
         CREATE TABLE IF NOT EXISTS invocations (
           id TEXT PRIMARY KEY,
           requester_id TEXT NOT NULL,
@@ -319,14 +370,14 @@ describe("SQLiteControlPlaneStore", () => {
 
     try {
       const columns = db.query("SELECT name FROM pragma_table_info('invocations')").all() as Array<{ name: string }>;
-      const indexes = db.query(
-        `SELECT name
-         FROM sqlite_master
-         WHERE type = 'index' AND tbl_name = 'invocations'`,
-      ).all() as Array<{ name: string }>;
+      const indexNames = getIndexNames(db, ["conversations", "flights", "activity_items", "invocations"]);
 
       expect(columns.some((column) => column.name === "collaboration_record_id")).toBe(true);
-      expect(indexes.some((index) => index.name === "idx_invocations_collaboration_record_id_created_at")).toBe(true);
+      expect(indexNames).toContain("idx_invocations_collaboration_record_id_created_at");
+      expect(indexNames).toContain("idx_invocations_requester_created_at");
+      expect(indexNames).toContain("idx_flights_invocation_id");
+      expect(indexNames).toContain("idx_activity_items_ts");
+      expect(indexNames).toContain("idx_conversations_created_at");
     } finally {
       db.close();
       store.close();

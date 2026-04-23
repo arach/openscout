@@ -12,6 +12,11 @@ import { SQLiteControlPlaneStore, type ActivityItem } from "./sqlite-store.js";
 
 type ActivityQuery = Parameters<SQLiteControlPlaneStore["listActivityItems"]>[0];
 
+type RecoverableSQLiteProjectionOptions = {
+  disabled?: boolean;
+  createStore?: (dbPath: string) => SQLiteControlPlaneStore;
+};
+
 function normalizeEntries(
   entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
 ): BrokerJournalEntry[] {
@@ -239,6 +244,9 @@ function applyJournalEntriesToStore(
     try {
       threadEvents.push(...applyJournalEntryToStore(store, entry));
     } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        throw error;
+      }
       onSkip?.(entry, error);
     }
   }
@@ -261,16 +269,31 @@ function reportSkippedEntry(entry: BrokerJournalEntry, error: unknown): void {
   );
 }
 
+function isTransientStoreBusyError(error: unknown): boolean {
+  if (typeof error === "object" && error !== null) {
+    const code = (error as { code?: unknown }).code;
+    if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED") {
+      return true;
+    }
+  }
+
+  const msg = formatError(error).toLowerCase();
+  if (msg.includes("database is locked")) return true;
+  if (msg.includes("database is busy")) return true;
+  if (msg.includes("sqlite_busy")) return true;
+  return false;
+}
+
 /**
  * Errors that mean the store itself is unusable (closed db, disk full,
- * locked db, schema mismatch). These must invalidate the store so the
- * next call rebuilds it. Per-entry constraint violations are NOT in
- * this set — those are skipped.
+ * schema mismatch). These must invalidate the store so the next call
+ * rebuilds it. Transient lock contention is handled separately and must
+ * preserve the store.
  */
 function isFatalStoreError(error: unknown): boolean {
+  if (isTransientStoreBusyError(error)) return false;
   const msg = formatError(error).toLowerCase();
   if (msg.includes("disk i/o")) return true;
-  if (msg.includes("database is locked")) return true;
   if (msg.includes("database disk image is malformed")) return true;
   if (msg.includes("no such table")) return true;
   if (msg.includes("readonly database")) return true;
@@ -289,7 +312,7 @@ export class RecoverableSQLiteProjection {
   constructor(
     private readonly dbPath: string,
     private readonly journal: FileBackedBrokerJournal,
-    private readonly options: { disabled?: boolean } = {},
+    private readonly options: RecoverableSQLiteProjectionOptions = {},
   ) {}
 
   warm(): void {
@@ -313,6 +336,9 @@ export class RecoverableSQLiteProjection {
       try {
         applyJournalEntriesToStore(store, entries, reportSkippedEntry);
       } catch (error) {
+        if (isTransientStoreBusyError(error)) {
+          return;
+        }
         if (isFatalStoreError(error)) {
           this.invalidateStore(error);
         } else {
@@ -336,6 +362,9 @@ export class RecoverableSQLiteProjection {
       try {
         store.recordEvent(event);
       } catch (error) {
+        if (isTransientStoreBusyError(error)) {
+          return;
+        }
         this.invalidateStore(error);
       }
     });
@@ -355,6 +384,9 @@ export class RecoverableSQLiteProjection {
     try {
       return store.listActivityItems(options);
     } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return [];
+      }
       this.invalidateStore(error);
       return [];
     }
@@ -379,6 +411,9 @@ export class RecoverableSQLiteProjection {
       try {
         return applyJournalEntriesToStore(store, entries, reportSkippedEntry);
       } catch (error) {
+        if (isTransientStoreBusyError(error)) {
+          return [];
+        }
         if (isFatalStoreError(error)) {
           this.invalidateStore(error);
         } else {
@@ -396,7 +431,19 @@ export class RecoverableSQLiteProjection {
 
     await this.flush();
     const store = await this.ensureStore();
-    return store ? store.latestThreadSeq(conversationId) : 0;
+    if (!store) {
+      return 0;
+    }
+
+    try {
+      return store.latestThreadSeq(conversationId);
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return 0;
+      }
+      this.invalidateStore(error);
+      return 0;
+    }
   }
 
   async oldestThreadSeq(conversationId: string): Promise<number> {
@@ -406,7 +453,19 @@ export class RecoverableSQLiteProjection {
 
     await this.flush();
     const store = await this.ensureStore();
-    return store ? store.oldestThreadSeq(conversationId) : 0;
+    if (!store) {
+      return 0;
+    }
+
+    try {
+      return store.oldestThreadSeq(conversationId);
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return 0;
+      }
+      this.invalidateStore(error);
+      return 0;
+    }
   }
 
   async listThreadEvents(options: {
@@ -420,7 +479,19 @@ export class RecoverableSQLiteProjection {
 
     await this.flush();
     const store = await this.ensureStore();
-    return store ? store.listThreadEvents(options) : [];
+    if (!store) {
+      return [];
+    }
+
+    try {
+      return store.listThreadEvents(options);
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return [];
+      }
+      this.invalidateStore(error);
+      return [];
+    }
   }
 
   async getThreadSnapshot(conversationId: string): Promise<ThreadSnapshot | null> {
@@ -430,7 +501,19 @@ export class RecoverableSQLiteProjection {
 
     await this.flush();
     const store = await this.ensureStore();
-    return store ? store.getThreadSnapshot(conversationId) : null;
+    if (!store) {
+      return null;
+    }
+
+    try {
+      return store.getThreadSnapshot(conversationId);
+    } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return null;
+      }
+      this.invalidateStore(error);
+      return null;
+    }
   }
 
   close(): void {
@@ -471,7 +554,8 @@ export class RecoverableSQLiteProjection {
     }
 
     try {
-      const store = new SQLiteControlPlaneStore(this.dbPath);
+      const createStore = this.options.createStore ?? ((dbPath: string) => new SQLiteControlPlaneStore(dbPath));
+      const store = createStore(this.dbPath);
       // Collect all entries and sort by dependency tier so parent rows
       // (nodes, actors, conversations) are inserted before children
       // (messages, deliveries).  Stable sort preserves journal order
@@ -484,6 +568,9 @@ export class RecoverableSQLiteProjection {
         try {
           applyJournalEntryToStore(store, entry);
         } catch (error) {
+          if (isTransientStoreBusyError(error)) {
+            throw error;
+          }
           if (isFatalStoreError(error)) {
             throw error;
           }
@@ -494,6 +581,9 @@ export class RecoverableSQLiteProjection {
       this.lastUnavailableReason = null;
       return store;
     } catch (error) {
+      if (isTransientStoreBusyError(error)) {
+        return null;
+      }
       this.invalidateStore(error);
       return null;
     }
