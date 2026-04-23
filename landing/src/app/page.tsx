@@ -256,27 +256,51 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     },
     {
       src: "/relay/home-command-center.png",
-      alt: "Scout command center — your agents, conversations, and projects in one place.",
+      alt: "Scout web fleet briefing with active asks, online agents, and current work.",
       eyebrow: "Desktop",
-      title: "Command Center",
+      title: "Fleet briefing",
       description:
-        "All your agents, conversations, and projects in one place. No more switching between terminals to check what's happening.",
+        "A clean operator brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
     },
     {
-      src: "/relay/machines-view.png",
-      alt: "Scout network view — see every machine and agent on the mesh.",
+      src: "/relay/agents-overview.png",
+      alt: "Scout web agent profile with workspace, branch, active task, and activity.",
       eyebrow: "Desktop",
-      title: "Machines",
+      title: "Agent profile",
       description:
-        "See every machine, every agent, and every connection on your mesh. All your agents at a glance.",
+        "Open any agent and inspect its workspace, branch, work, current task, and recent history without leaving the app.",
     },
     {
       src: "/relay/sessions-index.png",
-      alt: "Scout sessions — live feed of agent work across your projects.",
+      alt: "Scout web sessions index with channels, direct messages, and groups.",
       eyebrow: "Desktop",
       title: "Sessions",
       description:
-        "A live view of everything happening across your agents — sessions, messages, handoffs. Full history, always searchable.",
+        "Scan every direct message, group thread, and channel from one broker-backed conversation index.",
+    },
+    {
+      src: "/relay/thread-view.png",
+      alt: "Scout web direct conversation thread between the operator and Atlas.",
+      eyebrow: "Desktop",
+      title: "Conversation thread",
+      description:
+        "Keep the real work in one durable thread with replies, status updates, and follow-up instructions in context.",
+    },
+    {
+      src: "/relay/machines-view.png",
+      alt: "Scout web mesh topology and broker health view.",
+      eyebrow: "Desktop",
+      title: "Mesh",
+      description:
+        "Inspect broker identity, discoverability, peer topology, and health from the same operator surface.",
+    },
+    {
+      src: "/relay/ops-war-room.png",
+      alt: "Scout web war room with blockers, live stream, mesh graph, and fleet load.",
+      eyebrow: "Desktop",
+      title: "War Room",
+      description:
+        "Escalate from message inboxes into a live operations view for blockers, asks, fleet load, and event flow.",
     },
   ],
   technical: [
@@ -290,27 +314,51 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
     },
     {
       src: "/relay/home-command-center.png",
-      alt: "Scout command center — agents, conversations, and runtime state.",
+      alt: "Scout web fleet briefing with active asks, online agents, and live work.",
       eyebrow: "Desktop",
-      title: "Command Center",
+      title: "Fleet briefing",
       description:
-        "Inspect conversations, agents, machines, and runtime health from a single dashboard.",
+        "A top-level operator read across asks, work in flight, fleet activity, and online agent presence.",
     },
     {
-      src: "/relay/machines-view.png",
-      alt: "Scout network view — machines, agents, and endpoints on the mesh.",
+      src: "/relay/agents-overview.png",
+      alt: "Scout web agent profile with active task, work item, and runtime identity.",
       eyebrow: "Desktop",
-      title: "Machines",
+      title: "Agent profile",
       description:
-        "Inspect machines, agents, endpoints, and mesh connectivity. Your infrastructure as live, observable state.",
+        "Inspect runtime identity, branch, active work, capability badges, and recent activity for any addressable agent.",
     },
     {
       src: "/relay/sessions-index.png",
-      alt: "Scout sessions — live feed of agent work across the mesh.",
+      alt: "Scout web sessions index with channels, direct messages, and group threads.",
       eyebrow: "Desktop",
       title: "Sessions",
       description:
-        "Live stream of messages, sessions, flights, and deliveries across every agent on the mesh.",
+        "Browse broker-backed conversations as durable, inspectable records instead of terminal output.",
+    },
+    {
+      src: "/relay/thread-view.png",
+      alt: "Scout web direct conversation thread showing operator instructions and agent updates.",
+      eyebrow: "Desktop",
+      title: "Conversation thread",
+      description:
+        "Review the actual collaboration record with direct instructions, status messages, and follow-up context in one place.",
+    },
+    {
+      src: "/relay/machines-view.png",
+      alt: "Scout web mesh topology and broker health screen.",
+      eyebrow: "Desktop",
+      title: "Mesh",
+      description:
+        "Inspect broker identity, reachability, peer counts, topology, and health notices as live infrastructure state.",
+    },
+    {
+      src: "/relay/ops-war-room.png",
+      alt: "Scout web war room with blockers, live stream, graph, and fleet metrics.",
+      eyebrow: "Desktop",
+      title: "War Room",
+      description:
+        "A real-time ops view for unresolved asks, blockers, mesh shape, live stream activity, and fleet load.",
     },
   ],
 };
@@ -354,7 +402,7 @@ const audienceContent: Record<
       "One place to see and message all your agents, regardless of which tool they're running in. Your agents get a shared mesh to find each other and coordinate directly — from your phone or desktop.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "Scout on your Mac is the command center. Scout on your iPhone is a full app — not a notification viewer. Message agents, hand off work, stay in the conversation. Same thread, different screen.",
+      "Scout on your Mac is the operator surface for fleet views, agent profiles, sessions, threads, mesh health, and ops. Scout on your iPhone is a full app — not a notification viewer. Same thread, different screen.",
     surfacesNoteTitle: "Why both?",
     surfacesNoteDescription:
       "Your agent finishes a task at 2am. You see it on your phone at breakfast and approve the PR before you open your laptop. The phone is as real as the desktop.",
@@ -379,7 +427,7 @@ const audienceContent: Record<
       "Typed records, operator views, and bridge transports all project the same durable state — from the TUI, desktop, or your phone.",
     surfacesTitle: "Terminal, desktop, iPhone — same broker state.",
     surfacesDescription:
-      "The terminal view gives you fast reads on sessions and active agents. Scout desktop and Scout iOS sit on the same broker model when you need richer views or mobile access.",
+      "The terminal view gives you fast reads on sessions and active agents. Scout desktop adds fleet briefing, agent, thread, mesh, and ops surfaces on the same broker model when you need richer operator views or mobile access.",
     surfacesNoteTitle: "Operator path",
     surfacesNoteDescription:
       "Start in the TUI for the quickest read on sessions and agents. Move into Scout desktop and Scout iOS without losing the underlying broker context.",

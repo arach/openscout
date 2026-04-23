@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import {
+  Activity,
   Bot,
   Layers,
   MessageSquare,
   Network,
-  Search,
   Send,
   Terminal,
   type LucideIcon,
@@ -19,7 +19,14 @@ import {
 
 type AudienceMode = "general" | "technical";
 type SurfaceId = "relay" | "pairing";
-type RelayViewId = "tui" | "home" | "agents" | "sessions" | "search" | "machines";
+type RelayViewId =
+  | "tui"
+  | "home"
+  | "agent"
+  | "sessions"
+  | "thread"
+  | "mesh"
+  | "ops";
 
 type ShowcaseView = {
   alt: string;
@@ -44,8 +51,8 @@ const technicalRelayView: RelayView = {
   label: "TUI",
   title: "Terminal console",
   description:
-    "The fast compatibility surface for reading broker state, active agents, and recent sessions straight from the terminal.",
-  focus: "Best starting point when you want the quickest operator view.",
+    "The fast compatibility surface for reading broker state, active agents, and recent sessions from the terminal.",
+  focus: "Best starting point when you want the quickest operator read.",
   src: "/relay-tui.png",
   alt: "OpenScout Relay terminal interface showing active agents and recent sessions.",
   imageClassName: "aspect-[1004/649] w-full object-cover object-top",
@@ -58,23 +65,23 @@ const relayViews: RelayView[] = [
     id: "home",
     icon: Layers,
     label: "Home",
-    title: "Command center",
+    title: "Fleet briefing",
     description:
-      "The front door for Relay: quick entry points into live messaging, sessions, runtime sync, and indexed activity.",
-    focus: "Best top-level overview of the current Relay app.",
+      "A clean operator brief with live asks, active work, fleet activity, and fast routes into the views that need attention.",
+    focus: "Best top-level overview of the current Scout web app.",
     src: "/relay/home-command-center.png",
-    alt: "OpenScout Relay command center view captured March 31, 2026 at 11:53:45 AM",
+    alt: "Scout web fleet briefing showing live asks, active work, and online agents.",
   },
   {
-    id: "agents",
+    id: "agent",
     icon: Bot,
-    label: "Agents",
-    title: "Agent detail",
+    label: "Agent",
+    title: "Agent profile",
     description:
-      "Identity, context, capabilities, and active work for any agent on the mesh. See what's in flight and jump straight into the conversation.",
+      "Identity, workspace, branch, active task, work records, and recent activity for a specific agent.",
     focus: "Shows how Scout turns agent state into an inspectable working surface.",
     src: "/relay/agents-overview.png",
-    alt: "Scout agent detail view showing Hudson with context, capabilities, and active work.",
+    alt: "Scout web agent profile for Atlas with workspace, active task, active work, and activity.",
   },
   {
     id: "sessions",
@@ -82,32 +89,43 @@ const relayViews: RelayView[] = [
     label: "Sessions",
     title: "Session index",
     description:
-      "Project and direct-session listing with tags, message counts, and quick scanning across broker-backed conversations.",
+      "A broker-backed conversation index with direct messages, channels, groups, tags, previews, and recency.",
     focus: "Shows the broker as an indexable conversation store instead of a terminal log.",
     src: "/relay/sessions-index.png",
-    alt: "OpenScout Relay sessions index captured March 31, 2026 at 11:53:59 AM",
+    alt: "Scout web sessions index with channels, direct messages, groups, and recent previews.",
   },
   {
-    id: "search",
-    icon: Search,
-    label: "Search",
-    title: "Broker-wide search",
+    id: "thread",
+    icon: Send,
+    label: "Thread",
+    title: "Conversation thread",
     description:
-      "Full-text search over sessions, messages, and metadata with scopes, time filters, and agent filters.",
-    focus: "Makes the durable record visible as a searchable working surface.",
-    src: "/relay/search-view.png",
-    alt: "OpenScout Relay search view captured March 31, 2026 at 11:54:04 AM",
+      "A durable direct-message surface for routing instructions, reviewing status, and continuing the same thread.",
+    focus: "Shows agent collaboration as a first-class conversation, not a transient terminal buffer.",
+    src: "/relay/thread-view.png",
+    alt: "Scout web conversation thread with Atlas and the operator exchanging landing-page work updates.",
   },
   {
-    id: "machines",
+    id: "mesh",
     icon: Network,
-    label: "Machines",
-    title: "Machine inventory",
+    label: "Mesh",
+    title: "Mesh topology",
     description:
-      "Reachable endpoints, project counts, runtime endpoints, and machine-level health in one operator view.",
+      "Broker identity, discoverability, peer counts, health notices, and topology in one operator view.",
     focus: "Shows the mesh as live infrastructure, not just chat threads.",
     src: "/relay/machines-view.png",
-    alt: "OpenScout Relay machines view captured March 31, 2026 at 11:53:55 AM",
+    alt: "Scout web mesh view showing broker identity, reachable endpoint, peers, and topology.",
+  },
+  {
+    id: "ops",
+    icon: Activity,
+    label: "Ops",
+    title: "War Room",
+    description:
+      "A live operations view for unresolved asks, blockers, mesh shape, event stream, fleet load, and recent activity.",
+    focus: "Shows how the web app scales from chat into real-time operator control.",
+    src: "/relay/ops-war-room.png",
+    alt: "Scout web War Room showing awaiting asks, mesh graph, live stream, fleet load, and activity.",
   },
 ];
 
@@ -168,7 +186,7 @@ export function LandingProductShowcase({
   const activeRelayView =
     availableRelayViews.find((view) => view.id === relayView) ?? availableRelayViews[0];
   const activeView = surface === "relay" ? activeRelayView : pairingView;
-  const relayEyebrow = activeRelayView.id === "tui" ? "Relay TUI" : "Relay";
+  const relayEyebrow = activeRelayView.id === "tui" ? "Relay TUI" : "Scout web";
 
   function selectSurface(nextSurface: SurfaceId) {
     trackShowcaseSurfaceSelect({
@@ -210,7 +228,7 @@ export function LandingProductShowcase({
               }`}
             >
               <Terminal className="h-3 w-3" />
-              Relay
+              Web
             </button>
             <button
               type="button"
