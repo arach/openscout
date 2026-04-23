@@ -122,7 +122,34 @@ struct TextBlockView: View {
             attributed[range].font = .system(.body, design: .monospaced)
         }
 
+        applyMentionLinks(&attributed)
+
         return attributed
+    }
+
+    private func applyMentionLinks(_ attributed: inout AttributedString) {
+        var i = attributed.startIndex
+        while i < attributed.endIndex {
+            guard attributed.characters[i] == "@" else {
+                i = attributed.characters.index(after: i)
+                continue
+            }
+            var j = attributed.characters.index(after: i)
+            while j < attributed.endIndex {
+                let c = attributed.characters[j]
+                guard c.isLetter || c.isNumber || c == "." || c == "-" || c == "_" else { break }
+                j = attributed.characters.index(after: j)
+            }
+            // Must have at least one word char after @
+            if j > attributed.characters.index(after: i) {
+                let handle = String(attributed.characters[attributed.characters.index(after: i)..<j])
+                if let url = URL(string: "scout://agent/\(handle)") {
+                    attributed[i..<j].link = url
+                    attributed[i..<j].foregroundColor = ScoutColors.activityBlue
+                }
+            }
+            i = j
+        }
     }
 
     private func headingView(level: Int, text: String) -> some View {
