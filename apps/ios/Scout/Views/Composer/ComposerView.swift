@@ -735,6 +735,68 @@ struct ComposerView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
+    // MARK: - Mention Suggestions
+
+    private var mentionSuggestionsStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(agentSuggestions, id: \.id) { agent in
+                    Button {
+                        completeMention(with: agent)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(agent.state == "working" ? ScoutColors.ledGreen : ScoutColors.textMuted)
+                                .frame(width: 6, height: 6)
+                            Text("@\(agent.mentionHandle)")
+                                .font(ScoutTypography.code(12, weight: .medium))
+                                .foregroundStyle(ScoutColors.activityBlue)
+                            Text(agent.title)
+                                .font(ScoutTypography.code(11))
+                                .foregroundStyle(ScoutColors.textSecondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(ScoutColors.surfaceAdaptive)
+                        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                                .strokeBorder(ScoutColors.border.opacity(0.4), lineWidth: 0.5)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .background { composerSurface }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(ScoutColors.border.opacity(0.25))
+                .frame(height: 0.5)
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func detectMentionQuery(in text: String) -> String? {
+        let lastToken = text.components(separatedBy: .whitespacesAndNewlines).last ?? ""
+        guard lastToken.hasPrefix("@") else { return nil }
+        return String(lastToken.dropFirst())
+    }
+
+    private func completeMention(with agent: MobileAgentSummary) {
+        let handle = agent.mentionHandle
+        let tokens = text.components(separatedBy: .whitespacesAndNewlines)
+        guard let lastToken = tokens.last, lastToken.hasPrefix("@") else { return }
+        if let range = text.range(of: lastToken, options: .backwards) {
+            text.replaceSubrange(range, with: "@\(handle) ")
+        }
+        agentSuggestions = []
+        mentionQuery = nil
+    }
+
     // MARK: - Actions
 
     private func handlePrimaryAction() {
