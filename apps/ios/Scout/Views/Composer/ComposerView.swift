@@ -81,6 +81,9 @@ struct ComposerView: View {
     @State private var isLoadingBranchSessions = false
     @State private var isOpeningBranchSession = false
 
+    @State private var agentSuggestions: [MobileAgentSummary] = []
+    @State private var mentionQuery: String?
+
     @StateObject private var voice = ScoutVoice()
 
     @State private var micState: MicButtonState = .idle
@@ -194,6 +197,11 @@ struct ComposerView: View {
                 controlRail
             }
 
+            // @mention autocomplete
+            if !agentSuggestions.isEmpty {
+                mentionSuggestionsStrip
+            }
+
             // Keyboard (only when explicitly toggled)
             if showKeyboard && !isRecording && !isTranscribing {
                 ScoutKeyboardView(
@@ -231,6 +239,21 @@ struct ComposerView: View {
         }
         .onChange(of: selectedEffort) { _, _ in
             persistPreferences()
+        }
+        .onChange(of: text) { _, newText in
+            let query = detectMentionQuery(in: newText)
+            if mentionQuery != query {
+                mentionQuery = query
+                if query == nil { agentSuggestions = [] }
+            }
+        }
+        .task(id: mentionQuery) {
+            guard let query = mentionQuery else { return }
+            guard let results = try? await connection.listMobileAgents(
+                query: query.isEmpty ? nil : query,
+                limit: 6
+            ) else { return }
+            agentSuggestions = results
         }
         .task {
             await voice.prepare()

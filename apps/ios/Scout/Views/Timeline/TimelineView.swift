@@ -129,6 +129,18 @@ struct TimelineView: View {
             }
         }
         .background(ScoutColors.backgroundAdaptive)
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "scout", url.host == "agent",
+                  let handle = url.pathComponents.dropFirst().first
+            else { return .systemAction }
+            Task {
+                guard let agents = try? await connection.listMobileAgents(query: handle),
+                      let agent = agents.first(where: { $0.mentionHandle == handle })
+                else { return }
+                router.push(.agentDashboard(agentId: agent.id))
+            }
+            return .handled
+        })
         .task {
             await hydrateTimeline()
         }
