@@ -11,13 +11,13 @@ APP_PATH="$DERIVED_DATA_PATH/Build/Products/${CONFIG}-iphoneos/Scout.app"
 
 if [[ ! -d "$DERIVED_DATA_PATH" ]]; then
   echo "ERROR: Stable iPhone DerivedData path not found at $DERIVED_DATA_PATH"
-  echo "Run ios:buildPhone first."
+  echo "Run 'npm run ios:build' or './scripts/build-device.sh' first."
   exit 1
 fi
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "ERROR: No built app found at $APP_PATH"
-  echo "Run ios:buildPhone first."
+  echo "Run 'npm run ios:build' or './scripts/build-device.sh' first."
   exit 1
 fi
 

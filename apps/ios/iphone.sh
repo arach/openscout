@@ -1,21 +1,42 @@
 #!/bin/bash
-# Build and deploy Scout to Arach's iPhone.
-# Usage: ./iphone.sh
+# Build and deploy Scout to a physical iPhone using the repo-owned DerivedData path.
+# Usage: ./iphone.sh [--release] [--log]
 
-set -e
+set -euo pipefail
+cd "$(dirname "$0")"
 
-XCODE_DEST="id=00008110-000610240E13801E"
-DEVICE_ID="1E273304-29B6-5B10-BEC2-F4361F1CA25B"
-APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -name "Scout-*" -type d | head -1)/Build/Products/Debug-iphoneos/Scout.app
+CONFIG="${OPENSCOUT_IOS_CONFIGURATION:-Debug}"
+LOG_AFTER_INSTALL=0
 
-echo "⠋ Building..."
-xcodebuild build -project Scout.xcodeproj -scheme ScoutApp -destination "$XCODE_DEST" -quiet 2>&1 | grep "error:" && exit 1
+for arg in "$@"; do
+  case "$arg" in
+    --release)
+      CONFIG="Release"
+      ;;
+    --log)
+      LOG_AFTER_INSTALL=1
+      ;;
+    *)
+      echo "Unknown argument: $arg"
+      echo "Usage: ./iphone.sh [--release] [--log]"
+      exit 2
+      ;;
+  esac
+done
 
-echo "⠿ Installing..."
-xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH" 2>&1 | grep -q "installed" && echo "✓ Deployed" || { echo "✗ Install failed"; exit 1; }
+export OPENSCOUT_IOS_CONFIGURATION="$CONFIG"
 
-# Pass --log to stream device logs after deploy
-if [[ "$1" == "--log" ]]; then
-    echo "⠿ Streaming logs (Ctrl-C to stop)..."
-    xcrun devicectl device process launch --device "$DEVICE_ID" --console com.openscout.scout 2>&1
+if [[ "$CONFIG" == "Release" ]]; then
+  bash ./scripts/build-device.sh --release
+else
+  bash ./scripts/build-device.sh
+fi
+
+bash ./scripts/install-last-build.sh
+
+if [[ "$LOG_AFTER_INSTALL" -eq 1 ]]; then
+  DEVICE_ID="${OPENSCOUT_IOS_DEVICE_ID:-1E273304-29B6-5B10-BEC2-F4361F1CA25B}"
+  echo ""
+  echo "Streaming logs (Ctrl-C to stop)..."
+  xcrun devicectl device process launch --device "$DEVICE_ID" --console com.openscout.scout 2>&1
 fi

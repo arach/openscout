@@ -1,8 +1,9 @@
-// Navigation pills for the persistent bottom bar.
+// Navigation elements for the persistent bottom bar and top-level status.
 //
-// - AddressBarPill: current section only
-// - ConnectionStatusPill: compact global connection control with diagnostics
-// - ConnectionStatusTrayButton: same status, sized for the action tray left slot
+// - AddressBarPill: current section readout (center of chrome bar)
+// - ConnectionLED: small color-coded dot at top-right (green/amber/red)
+// - ConnectionStatusPill: legacy compact pill (retained for compatibility)
+// - ConnectionStatusTrayButton: legacy tray button (retained for compatibility)
 
 import SwiftUI
 
@@ -17,6 +18,53 @@ private func connectionStatusColor(health: BridgeHealthState, state: ConnectionS
     case .connected: return ScoutColors.statusActive
     case .connecting, .handshaking, .reconnecting: return ScoutColors.statusStreaming
     case .disconnected, .failed: return ScoutColors.statusError
+    }
+}
+
+private func connectionLEDColor(health: BridgeHealthState, state: ConnectionState) -> Color {
+    switch health {
+    case .healthy: break
+    case .suspect, .degraded: return ScoutColors.ledAmber
+    case .offline: return ScoutColors.ledRed
+    }
+    switch state {
+    case .connected: return ScoutColors.ledGreen
+    case .connecting, .handshaking, .reconnecting: return ScoutColors.ledAmber
+    case .disconnected, .failed: return ScoutColors.ledRed
+    }
+}
+
+// MARK: - Connection LED (top-right indicator)
+
+struct ConnectionLED: View {
+    @Environment(ConnectionManager.self) private var connection
+    @Environment(SessionStore.self) private var store
+
+    @State private var showingSheet = false
+
+    private var color: Color {
+        connectionLEDColor(health: connection.health, state: connection.state)
+    }
+
+    var body: some View {
+        Button {
+            showingSheet = true
+        } label: {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingSheet) {
+            ConnectionStatusSheet()
+                .environment(connection)
+                .environment(store)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .accessibilityLabel("Connection: \(connection.statusDetails.shortLabel)")
     }
 }
 
@@ -40,6 +88,8 @@ struct AddressBarPill: View {
             return "Activity"
         case .newSession:
             return "New Session"
+        case .agentDashboard:
+            return "Agent"
         case .agentDetail:
             return "Agent"
         case .settings:
@@ -48,16 +98,11 @@ struct AddressBarPill: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(contextText)
-                .font(ScoutTypography.caption(13, weight: .medium))
-                .foregroundStyle(ScoutColors.textPrimary)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
-        .accessibilityLabel("Current section: \(contextText)")
+        Text(contextText.uppercased())
+            .font(ScoutTypography.code(10, weight: .semibold))
+            .foregroundStyle(ScoutColors.textSecondary)
+            .lineLimit(1)
+            .accessibilityLabel("Current section: \(contextText)")
     }
 }
 

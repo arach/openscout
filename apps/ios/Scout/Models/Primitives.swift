@@ -303,6 +303,14 @@ extension Session {
         providerMeta?["agentId"]?.stringValue?.trimmedNonEmpty
     }
 
+    var workspaceRoot: String? {
+        if let root = providerMeta?["workspaceRoot"]?.stringValue?.trimmedNonEmpty {
+            return root
+        }
+
+        return cwd?.trimmedNonEmpty
+    }
+
     var currentBranch: String? {
         for key in ["branch", "gitBranch", "currentBranch", "workspaceQualifier"] {
             if let branch = providerMeta?[key]?.stringValue?.trimmedNonEmpty {

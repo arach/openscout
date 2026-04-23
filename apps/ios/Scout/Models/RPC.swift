@@ -339,6 +339,24 @@ struct MobileAgentSummary: Codable, Sendable {
     let lastActiveAt: Int?
 }
 
+private func minimalAgentSelector(
+    selector: String?,
+    defaultSelector: String?
+) -> String? {
+    let candidates = [
+        selector?.trimmedNonEmpty,
+        defaultSelector?.trimmedNonEmpty,
+    ]
+        .compactMap { $0 }
+
+    return candidates.min { lhs, rhs in
+        if lhs.count == rhs.count {
+            return lhs < rhs
+        }
+        return lhs.count < rhs.count
+    }
+}
+
 extension MobileAgentSummary {
     var projectName: String? {
         guard let root = workspaceRoot?.trimmedNonEmpty else { return nil }
@@ -346,12 +364,21 @@ extension MobileAgentSummary {
     }
 
     var resolvedSelector: String? {
-        selector?.trimmedNonEmpty ?? defaultSelector?.trimmedNonEmpty
+        minimalAgentSelector(selector: selector, defaultSelector: defaultSelector)
     }
 
     var lastActiveDate: Date? {
         guard let lastActiveAt else { return nil }
         return Date(timeIntervalSince1970: Double(lastActiveAt))
+    }
+
+    /// Short handle used in @mention autocomplete and URLs (e.g. "vox" from "@vox.host.abc").
+    var mentionHandle: String {
+        if let sel = resolvedSelector?.trimmedNonEmpty {
+            let stripped = sel.hasPrefix("@") ? String(sel.dropFirst()) : sel
+            return stripped.components(separatedBy: ".").first ?? stripped
+        }
+        return title.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
     }
 }
 
@@ -402,7 +429,7 @@ extension MobileAgentDetail {
     }
 
     var resolvedSelector: String? {
-        selector?.trimmedNonEmpty ?? defaultSelector?.trimmedNonEmpty
+        minimalAgentSelector(selector: selector, defaultSelector: defaultSelector)
     }
 
     var lastActiveDate: Date? {
@@ -583,12 +610,12 @@ struct ActivityItem: Codable, Identifiable, Sendable {
 
     var kindColor: Color {
         switch kind {
-        case "ask_replied": ScoutColors.statusActive
-        case "ask_failed": ScoutColors.statusError
-        case "flight_updated": ScoutColors.statusStreaming
-        case "agent_message": ScoutColors.accent
-        case "ask_opened", "invocation_recorded": ScoutColors.accent
-        case "message_posted": ScoutColors.textPrimary
+        case "ask_replied": ScoutColors.activityGreen
+        case "ask_failed": ScoutColors.activityRed
+        case "flight_updated": ScoutColors.activityBlue
+        case "agent_message": ScoutColors.activityTeal
+        case "ask_opened", "invocation_recorded": ScoutColors.activityAmber
+        case "message_posted": ScoutColors.activityBlue
         default: ScoutColors.textSecondary
         }
     }

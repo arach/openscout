@@ -25,6 +25,7 @@
 		2E7028BB05A0F7A013B51FCD /* NoiseProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43071A343AD10BEA3B6162AA /* NoiseProtocol.swift */; };
 		38CDA54A82A9CCE4B4D5BF23 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3967724C6396B93527EC3A5C /* SettingsView.swift */; };
 		38D003C041D9ACB728447B4B /* ScoutKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AB6BB7DED4B0586E7C9769 /* ScoutKeyboardView.swift */; };
+		BB1234567890ABCDEF012345 /* ScoutSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF012345 /* ScoutSearchField.swift */; };
 		3B43F694BB7BE9915A5D466F /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9460188DFF1700D3892C49C /* HomeView.swift */; };
 		3DCA49831D5D6A725231D2EF /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481B4B35E3666F78B9AC957A /* PairingView.swift */; };
 		401B8B1200C88EDF5DBFBF4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04511C1BCDD7DF678F39AB23 /* Assets.xcassets */; };
@@ -58,6 +59,7 @@
 		A50AB845B5B69E8F3839348C /* Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E41DEC22E607215EDBB5203 /* Events.swift */; };
 		A6C0D4FC3028FA5637640C66 /* SessionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51A81D21A37B458E927F61B /* SessionCache.swift */; };
 		A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */; };
+		DD9876543210FEDCBA987654 /* AgentDashboardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9876543210FEDCBA987654 /* AgentDashboardSheet.swift */; };
 		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
 		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
 		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
@@ -113,6 +115,7 @@
 		3161549947E066F37145FB0C /* SessionDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDiscoveryView.swift; sourceTree = "<group>"; };
 		37311097FD4418A4CC259888 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDetailView.swift; sourceTree = "<group>"; };
+		CC9876543210FEDCBA987654 /* AgentDashboardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDashboardSheet.swift; sourceTree = "<group>"; };
 		3967724C6396B93527EC3A5C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		3D43A2017A04707A443F35BA /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		411CAD7D046E8100A43E7599 /* ReasoningBlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReasoningBlockView.swift; sourceTree = "<group>"; };
@@ -150,6 +153,7 @@
 		CBA76BF506FD778E1BC17EF0 /* SessionCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCardView.swift; sourceTree = "<group>"; };
 		CD0DC1A52DFF1F128145DA0C /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
 		D8D0C482CFF39891FF22556C /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF012345 /* ScoutSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutSearchField.swift; sourceTree = "<group>"; };
 		D9460188DFF1700D3892C49C /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		DD6940B82A6F6FB299D5556A /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		E204EEA7E7F90B8A9AE38FFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -351,6 +355,7 @@
 		84CDCF5673D49C714DE6387F /* Home */ = {
 			isa = PBXGroup;
 			children = (
+				AA1234567890ABCDEF012345 /* ScoutSearchField.swift */,
 				D9460188DFF1700D3892C49C /* HomeView.swift */,
 			);
 			path = Home;
@@ -458,6 +463,7 @@
 		FAF4F04B7B7D29C2F3133636 /* Agents */ = {
 			isa = PBXGroup;
 			children = (
+				CC9876543210FEDCBA987654 /* AgentDashboardSheet.swift */,
 				37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */,
 				3D43A2017A04707A443F35BA /* AgentsView.swift */,
 			);
@@ -565,6 +571,7 @@
 				C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */,
 				0925DEE6A5BFA1C0199C2EB5 /* ActivityFeedView.swift in Sources */,
 				DA89CEF284347FCCA2AB04E8 /* AddressBarPill.swift in Sources */,
+				DD9876543210FEDCBA987654 /* AgentDashboardSheet.swift in Sources */,
 				A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */,
 				4F6B19AF43BFDFA1FD35963C /* AgentsView.swift in Sources */,
 				1BF5B43FCC85EB3FAD07F724 /* AllSessionsGridView.swift in Sources */,
@@ -579,6 +586,7 @@
 				4C4D0937368EECDAE8EFC76B /* FileBlockView.swift in Sources */,
 				C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */,
 				FC900834CED212A124E3D589 /* HistoryRPC.swift in Sources */,
+				BB1234567890ABCDEF012345 /* ScoutSearchField.swift in Sources */,
 				3B43F694BB7BE9915A5D466F /* HomeView.swift in Sources */,
 				A11B22C33D44E55F66778892 /* InboxView.swift in Sources */,
 				8D3F4293E86ED617E69A2612 /* Identity.swift in Sources */,
@@ -902,8 +910,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = exactVersion;
+				version = 0.13.6;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

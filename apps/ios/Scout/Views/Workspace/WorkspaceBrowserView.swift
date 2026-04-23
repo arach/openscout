@@ -121,9 +121,9 @@ struct WorkspaceBrowserView: View {
                                 }
                             }
                         } header: {
-                            Text("Projects")
-                                .font(ScoutTypography.caption(12, weight: .semibold))
-                                .foregroundStyle(ScoutColors.textSecondary)
+                            Text("PROJECTS  \(projects.count)")
+                                .font(ScoutTypography.code(10, weight: .semibold))
+                                .foregroundStyle(ScoutColors.textMuted)
                         }
                     }
 
@@ -135,13 +135,13 @@ struct WorkspaceBrowserView: View {
                                 }
                             }
                         } header: {
-                            Text("Folders")
-                                .font(ScoutTypography.caption(12, weight: .semibold))
-                                .foregroundStyle(ScoutColors.textSecondary)
+                            Text("FOLDERS  \(dirs.count)")
+                                .font(ScoutTypography.code(10, weight: .semibold))
+                                .foregroundStyle(ScoutColors.textMuted)
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
+                .listStyle(.plain)
             }
         }
     }
@@ -150,18 +150,18 @@ struct WorkspaceBrowserView: View {
 
     private var breadcrumbBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 Button {
                     Task { await browse(path: nil) }
                 } label: {
-                    Image(systemName: "house.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(ScoutColors.accent)
+                    Text("~")
+                        .font(ScoutTypography.code(12, weight: .medium))
+                        .foregroundStyle(ScoutColors.textSecondary)
                 }
 
                 ForEach(Array(breadcrumbs.enumerated()), id: \.offset) { index, crumb in
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    Text("/")
+                        .font(ScoutTypography.code(11))
                         .foregroundStyle(ScoutColors.textMuted)
 
                     Button {
@@ -169,11 +169,11 @@ struct WorkspaceBrowserView: View {
                         Task { await browse(path: subPath) }
                     } label: {
                         Text(crumb)
-                            .font(ScoutTypography.caption(13, weight: .medium))
+                            .font(ScoutTypography.code(12, weight: index == breadcrumbs.count - 1 ? .medium : .regular))
                             .foregroundStyle(
                                 index == breadcrumbs.count - 1
                                     ? ScoutColors.textPrimary
-                                    : ScoutColors.accent
+                                    : ScoutColors.textSecondary
                             )
                     }
                     .disabled(index == breadcrumbs.count - 1)
@@ -405,65 +405,44 @@ private struct ProjectRow: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: ScoutSpacing.md) {
-                Image(systemName: markerIcon)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(ScoutColors.textMuted)
-                    .frame(width: 28)
+            HStack(spacing: ScoutSpacing.sm) {
+                Text(entry.name)
+                    .font(ScoutTypography.code(13, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
+                    .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.name)
-                        .font(ScoutTypography.body(16, weight: .semibold))
-                        .foregroundStyle(ScoutColors.textPrimary)
-
-                    HStack(spacing: 6) {
-                        ForEach(entry.markers, id: \.self) { marker in
-                            Text(marker)
-                                .font(ScoutTypography.caption(11, weight: .medium))
-                                .foregroundStyle(ScoutColors.textMuted)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(ScoutColors.surfaceAdaptive)
-                                .clipShape(Capsule())
-                        }
-                    }
+                ForEach(entry.markers, id: \.self) { marker in
+                    Text(marker)
+                        .font(ScoutTypography.code(10))
+                        .foregroundStyle(ScoutColors.textMuted)
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
 
-                // Navigate into folder
+                if let branch = entry.currentBranch?.trimmedNonEmpty {
+                    HStack(spacing: 2) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 8, weight: .medium))
+                        Text(branch)
+                            .font(ScoutTypography.code(10))
+                    }
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .lineLimit(1)
+                }
+
                 Button(action: onNavigate) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(ScoutColors.textMuted)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var markerIcon: String {
-        let m = entry.markers.first ?? ""
-        switch m {
-        case "swift", "xcode": return "swift"
-        case "rust":           return "gearshape.2"
-        case "go":             return "arrow.right.arrow.left"
-        case "python":         return "chevron.left.forwardslash.chevron.right"
-        case "node":           return "cube"
-        case "ruby":           return "diamond"
-        case "java":           return "cup.and.saucer"
-        case "cpp", "make":    return "wrench"
-        default:               return "folder.fill"
-        }
-    }
-
-    private var markerColor: Color {
-        ScoutColors.accent
     }
 }
 
@@ -475,22 +454,24 @@ private struct DirectoryRow: View {
 
     var body: some View {
         Button(action: onNavigate) {
-            HStack(spacing: ScoutSpacing.md) {
+            HStack(spacing: ScoutSpacing.sm) {
                 Image(systemName: "folder")
-                    .font(.system(size: 17))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(ScoutColors.textMuted)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 16)
 
                 Text(entry.name)
-                    .font(ScoutTypography.body(15))
+                    .font(ScoutTypography.code(13))
                     .foregroundStyle(ScoutColors.textSecondary)
+                    .lineLimit(1)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(ScoutColors.textMuted)
             }
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

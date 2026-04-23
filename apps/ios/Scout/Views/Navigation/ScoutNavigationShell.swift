@@ -4,11 +4,16 @@
 // ScoutBottomBar always mounted at the bottom, and
 // interactive edge-swipe-back via UIScreenEdgePanGestureRecognizer.
 //
+// Push animation: new surfaces slide in from the right, previous surface
+// shows a 30% parallax retreat. Driven by entranceOffset (animated @State).
+//
+// Swipe-back: UIScreenEdgePanGestureRecognizer drives dragOffset directly.
+// Both systems share the same previousSurface parallax/dim math.
+//
 // Performance:
-// - .drawingGroup() flattens each surface into a single Metal texture during drag
 // - .compositingGroup() prevents per-frame recomposition of deep view trees
-// - Previous surface is kept alive (but hidden) so it's pre-rendered for swipe
-// - Shadow only applied when dragging, and uses a simple offset (no blur radius ramp)
+// - Previous surface is kept alive (but hidden) so it's pre-rendered
+// - Shadow only applied when a previous surface is visible
 // - GeometryReader width cached in @State to avoid relayout during drag
 
 import SwiftUI
@@ -20,6 +25,8 @@ struct ScoutNavigationShell: View {
 
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging = false
+    @State private var entranceOffset: CGFloat = 0
+    @State private var isEntering = false
     @State private var screenWidth: CGFloat = UIScreen.main.bounds.width
 
     private var canSwipeBack: Bool { router.canGoBack }
@@ -30,35 +37,65 @@ struct ScoutNavigationShell: View {
         return stack[stack.count - 2]
     }
 
-    /// Normalized drag progress 0...1
+    /// Normalized drag progress 0...1 (swipe-back)
     private var dragProgress: Double {
         guard screenWidth > 0 else { return 0 }
         return min(1, max(0, Double(dragOffset / screenWidth)))
     }
 
+    /// Normalized entrance progress 0...1 (push slide-in)
+    private var entranceProgress: Double {
+        guard screenWidth > 0 else { return 1 }
+        return min(1, max(0, Double(1 - entranceOffset / screenWidth)))
+    }
+
+    private var isShowingPrevious: Bool { isDragging || isEntering }
+
+    /// Previous surface parallax offset — retreats left as new surface arrives or current is dragged back.
+    private var previousOffset: CGFloat {
+        if isDragging {
+            return -screenWidth * 0.3 * (1 - dragProgress)
+        }
+        if isEntering {
+            return -screenWidth * 0.3 * entranceProgress
+        }
+        return 0
+    }
+
+    /// Dim overlay on previous surface.
+    private var previousDim: Double {
+        if isDragging {
+            return 0.1 * (1 - dragProgress)
+        }
+        if isEntering {
+            return 0.1 * entranceProgress
+        }
+        return 0
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Previous surface — always in the tree when stack > 1 so it's pre-rendered.
-            // Hidden via opacity when not dragging (costs nothing, avoids layout thrash on drag start).
+            // Previous surface — pre-rendered; revealed during drag or entrance animation.
             if let previousSurface {
                 surfaceView(for: previousSurface)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: isDragging ? -screenWidth * 0.3 * (1 - dragProgress) : 0)
+                    .offset(x: previousOffset)
                     .overlay {
-                        Color.black.opacity(isDragging ? 0.1 * (1 - dragProgress) : 0)
+                        Color.black.opacity(previousDim)
                             .allowsHitTesting(false)
                     }
-                    .opacity(isDragging ? 1 : 0)
+                    .opacity(isShowingPrevious ? 1 : 0)
+                    .animation(.easeOut(duration: 0.1), value: isShowingPrevious)
                     .allowsHitTesting(false)
                     .compositingGroup()
             }
 
-            // Current surface
+            // Current surface — offset by drag (swipe-back) + entrance (push slide-in)
             surfaceView(for: router.currentSurface)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .offset(x: dragOffset)
+                .offset(x: dragOffset + entranceOffset)
                 .compositingGroup()
-                .shadow(color: isDragging ? .black.opacity(0.06) : .clear,
+                .shadow(color: isShowingPrevious ? .black.opacity(0.06) : .clear,
                         radius: 4, x: -2)
 
             ScoutBottomBar()
@@ -74,7 +111,8 @@ struct ScoutNavigationShell: View {
             .allowsHitTesting(false)
         }
         .overlay {
-            if canSwipeBack {
+            // Disable swipe-back gesture while a push entrance is in flight
+            if canSwipeBack && !isEntering {
                 EdgeSwipeGesture(
                     edge: .left,
                     onChanged: { translation in
@@ -85,15 +123,14 @@ struct ScoutNavigationShell: View {
                         let commit = translation > screenWidth * 0.35 || velocity > 500
 
                         if commit {
-                            // Use a fast linear animation for the finish — feels snappier
                             withAnimation(.linear(duration: 0.15)) {
                                 dragOffset = screenWidth
                             }
-                            // Use Transaction completion via task
+                            // Only call pop — onChange resets dragOffset/isDragging in the
+                            // same render pass, avoiding the one-frame flash from resetting
+                            // dragOffset before the stack change lands.
                             Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(150))
-                                dragOffset = 0
-                                isDragging = false
                                 router.pop()
                             }
                         } else {
@@ -110,9 +147,23 @@ struct ScoutNavigationShell: View {
                 .allowsHitTesting(true)
             }
         }
-        .onChange(of: router.currentSurface) { _, _ in
+        .onChange(of: router.surfaceStack) { old, new in
+            let isPush = new.count > old.count
             dragOffset = 0
             isDragging = false
+
+            if isPush {
+                isEntering = true
+                entranceOffset = screenWidth
+                withAnimation(.interpolatingSpring(stiffness: 350, damping: 32)) {
+                    entranceOffset = 0
+                } completion: {
+                    isEntering = false
+                }
+            } else {
+                entranceOffset = 0
+                isEntering = false
+            }
         }
     }
 
@@ -135,6 +186,8 @@ struct ScoutNavigationShell: View {
             WorkspaceBrowserView { sessionId in
                 router.replaceTop(.sessionDetail(sessionId: sessionId))
             }
+        case .agentDashboard(let agentId):
+            AgentDashboardView(agentId: agentId)
         case .agentDetail(let agentId):
             AgentDetailView(agentId: agentId)
         case .settings:

@@ -6,10 +6,19 @@
 // Glow ring with spring animation and pulsing blur.
 // Haptic feedback on all state transitions.
 //
-// Also includes BottomCircleButton — the 48pt side button with
+// Also includes BottomCircleButton — the 44pt side button with
 // iOS 26 Liquid Glass and pre-iOS 26 chrome metallic fallback.
 
 import SwiftUI
+
+enum ActionTrayMetrics {
+    static let sideButtonSize: CGFloat = 44
+    static let centerButtonSize: CGFloat = 70
+    static let centerTouchTargetSize: CGFloat = centerButtonSize + 20
+    static let horizontalPadding: CGFloat = 14
+    static let topPadding: CGFloat = 18
+    static let bottomPadding: CGFloat = -14
+}
 
 // MARK: - Mic State
 
@@ -31,8 +40,8 @@ struct MicButton: View {
     @State private var glowPulsing = false
     @State private var isPressed = false
 
-    private let buttonSize: CGFloat = 70
-    private let glowSize: CGFloat = 72
+    private let buttonSize: CGFloat = ActionTrayMetrics.centerButtonSize
+    private let glowSize: CGFloat = ActionTrayMetrics.centerButtonSize + 2
 
     var body: some View {
         ZStack {
@@ -53,11 +62,19 @@ struct MicButton: View {
             // Icon
             buttonIcon
         }
-        .frame(width: buttonSize + 20, height: buttonSize + 20)
+        .frame(
+            width: ActionTrayMetrics.centerTouchTargetSize,
+            height: ActionTrayMetrics.centerTouchTargetSize
+        )
         .scaleEffect(scaleValue)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: state)
         .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isPressed)
-        .contentShape(Circle().size(width: buttonSize + 20, height: buttonSize + 20))
+        .contentShape(
+            Circle().size(
+                width: ActionTrayMetrics.centerTouchTargetSize,
+                height: ActionTrayMetrics.centerTouchTargetSize
+            )
+        )
         .onTapGesture {
             guard state != .disabled, state != .transcribing else { return }
             let impact = UIImpactFeedbackGenerator(style: .medium)
@@ -192,8 +209,7 @@ struct MicButton: View {
 
 // MARK: - BottomCircleButton (Talkie ActionDock pattern)
 
-/// 48pt side button with iOS 26 Liquid Glass and pre-iOS 26 chrome metallic fallback.
-/// Used for attachment (left) and keyboard toggle (right) in the action tray.
+/// Bare icon button for the action tray side slots.
 struct BottomCircleButton: View {
     let icon: String
     let isActive: Bool
@@ -204,16 +220,14 @@ struct BottomCircleButton: View {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(isActive ? ScoutColors.textPrimary : ScoutColors.textSecondary)
-                .frame(width: 44, height: 44)
-                .background {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.clear)
-                        .glassEffect(.regular.interactive())
-                }
+                .frame(
+                    width: ActionTrayMetrics.sideButtonSize,
+                    height: ActionTrayMetrics.sideButtonSize
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }
-
 }
 
 // MARK: - Previews

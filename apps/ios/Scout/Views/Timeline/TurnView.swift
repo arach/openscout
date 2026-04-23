@@ -39,8 +39,21 @@ struct TurnView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(ScoutColors.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [ScoutColors.userBubbleStart, ScoutColors.userBubbleEnd],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                }
+                .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
         }
         .padding(.horizontal, ScoutSpacing.lg)
         .padding(.vertical, ScoutSpacing.sm)

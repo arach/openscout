@@ -19,13 +19,28 @@ enum ScoutColors {
     static let surfaceAdaptive = Color(light: .init(white: 0.91), dark: .init(white: 0.07))
     static let surfaceRaisedAdaptive = Color(light: .init(white: 0.95), dark: .init(white: 0.09))
 
+    // Dark-first home surface — very dark in dark mode, very light in light mode
+    static let pageBg = Color(light: .init(white: 0.96), dark: .init(white: 0.02))
+    static let cardBg = Color(light: .init(white: 0.93), dark: .init(white: 0.035))
+
     // Text
     static let textPrimary = Color(light: .init(white: 0.12), dark: .init(white: 0.78))
     static let textSecondary = Color(light: .init(white: 0.44), dark: .init(white: 0.40))
     static let textMuted = Color(light: .init(white: 0.60), dark: .init(white: 0.26))
 
-    // Accent — cool gray, barely blue
+    // Accent — neutral UI highlight
     static let accent = Color(light: .init(white: 0.30), dark: .init(white: 0.68))
+
+    // User bubble — separate from accent so chat can stay blue without
+    // shifting the rest of the chrome away from the neutral palette.
+    static let userBubbleStart = Color(
+        light: .init(red: 0.19, green: 0.46, blue: 0.87),
+        dark: .init(red: 0.22, green: 0.49, blue: 0.90)
+    )
+    static let userBubbleEnd = Color(
+        light: .init(red: 0.11, green: 0.32, blue: 0.71),
+        dark: .init(red: 0.13, green: 0.31, blue: 0.67)
+    )
 
     // Status — pure grays with the faintest tint
     static let statusActive = Color(light: .init(white: 0.36), dark: .init(white: 0.58))
@@ -38,6 +53,18 @@ enum ScoutColors {
     static let diffRemoved = Color(light: .init(white: 0.40), dark: .init(white: 0.52))
     static let errorBackground = Color(light: .init(white: 0.92), dark: .init(white: 0.06))
     static let reasoningBackground = Color(light: .init(white: 0.93), dark: .init(white: 0.06))
+
+    // Connection LED — color-coded status, one of two color exceptions (with mic red)
+    static let ledGreen = Color(light: .init(red: 0.30, green: 0.48, blue: 0.30), dark: .init(red: 0.38, green: 0.58, blue: 0.38))
+    static let ledAmber = Color(light: .init(red: 0.55, green: 0.45, blue: 0.20), dark: .init(red: 0.62, green: 0.52, blue: 0.28))
+    static let ledRed = Color(light: .init(red: 0.50, green: 0.26, blue: 0.26), dark: .init(red: 0.58, green: 0.32, blue: 0.32))
+
+    // Activity feed — desaturated tints, third color exception alongside mic red and LED
+    static let activityGreen = Color(light: .init(red: 0.24, green: 0.46, blue: 0.32), dark: .init(red: 0.34, green: 0.58, blue: 0.42))
+    static let activityRed = Color(light: .init(red: 0.52, green: 0.28, blue: 0.28), dark: .init(red: 0.60, green: 0.36, blue: 0.36))
+    static let activityBlue = Color(light: .init(red: 0.24, green: 0.38, blue: 0.56), dark: .init(red: 0.36, green: 0.50, blue: 0.68))
+    static let activityAmber = Color(light: .init(red: 0.54, green: 0.43, blue: 0.22), dark: .init(red: 0.64, green: 0.54, blue: 0.30))
+    static let activityTeal = Color(light: .init(red: 0.22, green: 0.42, blue: 0.44), dark: .init(red: 0.30, green: 0.54, blue: 0.56))
 
     // Borders / Dividers
     static let border = Color(light: .init(white: 0.84), dark: .init(white: 0.12))

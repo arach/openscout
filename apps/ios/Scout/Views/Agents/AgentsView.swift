@@ -49,18 +49,6 @@ struct AgentsView: View {
         .filter { !$0.agents.isEmpty }
     }
 
-    private var workingCount: Int {
-        agents.filter { $0.state == "working" }.count
-    }
-
-    private var availableCount: Int {
-        agents.filter { $0.state == "available" }.count
-    }
-
-    private var offlineCount: Int {
-        agents.filter { $0.state == "offline" }.count
-    }
-
     var body: some View {
         Group {
             if isLoading && agents.isEmpty {
@@ -87,16 +75,16 @@ struct AgentsView: View {
         }
     }
 
+    // MARK: - Content
+
     private var content: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: ScoutSpacing.xl) {
-                overviewCard
-                    .padding(.horizontal, ScoutSpacing.lg)
-                    .padding(.top, ScoutSpacing.lg)
-
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if let error {
-                    inlineErrorCard(error)
-                        .padding(.horizontal, ScoutSpacing.lg)
+                    Text(error)
+                        .font(ScoutTypography.code(11))
+                        .foregroundStyle(ScoutColors.textSecondary)
+                        .padding(ScoutSpacing.lg)
                 }
 
                 if filteredAgents.isEmpty {
@@ -105,18 +93,28 @@ struct AgentsView: View {
                         .padding(.horizontal, ScoutSpacing.xxl)
                 } else {
                     ForEach(groupedAgents, id: \.title) { group in
-                        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+                        HStack {
                             Text(group.title.uppercased())
-                                .font(ScoutTypography.caption(12, weight: .bold))
+                                .font(ScoutTypography.code(10, weight: .semibold))
                                 .foregroundStyle(ScoutColors.textMuted)
-                                .padding(.horizontal, ScoutSpacing.lg)
+                            Spacer()
+                            Text("\(group.agents.count)")
+                                .font(ScoutTypography.code(10))
+                                .foregroundStyle(ScoutColors.textMuted)
+                        }
+                        .padding(.horizontal, ScoutSpacing.lg)
+                        .padding(.top, ScoutSpacing.xl)
+                        .padding(.bottom, ScoutSpacing.xs)
 
-                            VStack(spacing: ScoutSpacing.md) {
-                                ForEach(group.agents, id: \.id) { agent in
-                                    agentRow(agent)
-                                }
+                        ForEach(Array(group.agents.enumerated()), id: \.element.id) { index, agent in
+                            agentRow(agent)
+
+                            if index < group.agents.count - 1 {
+                                Rectangle()
+                                    .fill(ScoutColors.divider)
+                                    .frame(height: 0.5)
+                                    .padding(.leading, ScoutSpacing.lg + 6 + ScoutSpacing.sm)
                             }
-                            .padding(.horizontal, ScoutSpacing.lg)
                         }
                     }
                 }
@@ -129,175 +127,79 @@ struct AgentsView: View {
         }
     }
 
-    private var overviewCard: some View {
-        VStack(alignment: .leading, spacing: ScoutSpacing.md) {
-            Text("Open a live agent or start from an available workspace.")
-                .font(ScoutTypography.body(14))
-                .foregroundStyle(ScoutColors.textSecondary)
-
-            HStack(spacing: ScoutSpacing.sm) {
-                countPill(title: "Working", value: workingCount, tone: .primary)
-                countPill(title: "Available", value: availableCount, tone: .secondary)
-                countPill(title: "Offline", value: offlineCount, tone: .muted)
-            }
-        }
-        .scoutCard(padding: ScoutSpacing.lg, cornerRadius: ScoutRadius.lg)
-    }
-
-    private enum CountPillTone {
-        case primary
-        case secondary
-        case muted
-    }
-
-    private func countPill(title: String, value: Int, tone: CountPillTone) -> some View {
-        VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
-            Text("\(value)")
-                .font(ScoutTypography.body(20, weight: .semibold))
-                .foregroundStyle(ScoutColors.textPrimary)
-            Text(title)
-                .font(ScoutTypography.caption(11, weight: .semibold))
-                .foregroundStyle(countPillTitleColor(for: tone))
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, ScoutSpacing.md)
-        .padding(.vertical, ScoutSpacing.sm)
-        .background(countPillBackgroundColor(for: tone), in: RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
-    }
-
-    private func inlineErrorCard(_ message: String) -> some View {
-        Text(message)
-            .font(ScoutTypography.code(12))
-            .foregroundStyle(ScoutColors.textSecondary)
-            .padding(ScoutSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ScoutColors.surfaceAdaptive, in: RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
-    }
+    // MARK: - Agent Row
 
     private func agentRow(_ agent: MobileAgentSummary) -> some View {
-        let isLaunchable = isLaunchable(agent)
+        Button {
+            if agent.sessionId != nil {
+                router.push(.agentDashboard(agentId: agent.id))
+            } else if isLaunchable(agent) {
+                handleSelection(for: agent, isLaunchable: true)
+            } else {
+                router.push(.agentDetail(agentId: agent.id))
+            }
+        } label: {
+            HStack(spacing: ScoutSpacing.md) {
+                Text(agent.title)
+                    .font(ScoutTypography.code(13, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
+                    .lineLimit(1)
 
-        return HStack(spacing: ScoutSpacing.sm) {
-            // Row body — tap navigates to agent detail
+                Spacer(minLength: 0)
+
+                statusChip(for: agent.state)
+
+                if openingAgentId == agent.id {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                }
+            }
+            .padding(.vertical, ScoutSpacing.md)
+            .padding(.horizontal, ScoutSpacing.lg)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
             Button {
                 router.push(.agentDetail(agentId: agent.id))
             } label: {
-                HStack(spacing: ScoutSpacing.md) {
-                    Image(systemName: AdapterIcon.systemName(for: agent.harness ?? agent.transport ?? "relay"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(iconColor(for: agent))
-                        .frame(width: 24)
+                Label("Details", systemImage: "info.circle")
+            }
 
-                    VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
-                        HStack(spacing: ScoutSpacing.xs) {
-                            Text(agent.title)
-                                .font(ScoutTypography.body(15, weight: .semibold))
-                                .foregroundStyle(ScoutColors.textPrimary)
-                                .lineLimit(1)
-
-                            if agent.sessionId != nil {
-                                Text("LIVE")
-                                    .font(ScoutTypography.code(9, weight: .semibold))
-                                    .foregroundStyle(ScoutColors.textMuted)
-                                    .padding(.horizontal, ScoutSpacing.sm)
-                                    .padding(.vertical, ScoutSpacing.xxs)
-                                    .background(ScoutColors.surfaceAdaptive, in: Capsule())
-                            }
-                        }
-
-                        if let selector = agent.resolvedSelector {
-                            Text(selector)
-                                .font(ScoutTypography.code(11))
-                                .foregroundStyle(ScoutColors.textMuted)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-
-                        metadataRow(for: agent)
-                    }
-
-                    Spacer(minLength: 0)
+            if let sessionId = agent.sessionId {
+                Button {
+                    router.push(.sessionDetail(sessionId: sessionId))
+                } label: {
+                    Label("Open Session", systemImage: "arrow.right")
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
 
-            // Trailing action — quick session open/start
-            Button {
-                handleSelection(for: agent, isLaunchable: isLaunchable)
-            } label: {
-                trailingAction(for: agent, isLaunchable: isLaunchable)
-            }
-            .buttonStyle(.plain)
-            .disabled(!isInteractive(agent, isLaunchable: isLaunchable))
-        }
-        .scoutCard(padding: ScoutSpacing.md, cornerRadius: ScoutRadius.lg)
-    }
-
-    private func trailingAction(for agent: MobileAgentSummary, isLaunchable: Bool) -> some View {
-        Group {
-            if openingAgentId == agent.id {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Text(actionLabel(for: agent, isLaunchable: isLaunchable))
-                    .font(ScoutTypography.caption(11, weight: .semibold))
-                    .foregroundStyle(actionColor(for: agent, isLaunchable: isLaunchable))
-                    .padding(.horizontal, ScoutSpacing.md)
-                    .padding(.vertical, ScoutSpacing.sm)
-                    .background(ScoutColors.surfaceAdaptive, in: Capsule())
+            if isLaunchable(agent), agent.sessionId == nil {
+                Button {
+                    handleSelection(for: agent, isLaunchable: true)
+                } label: {
+                    Label("Start Session", systemImage: "play")
+                }
             }
         }
     }
 
-    private func metadataRow(for agent: MobileAgentSummary) -> some View {
-        HStack(spacing: ScoutSpacing.sm) {
-            statusBadge(for: agent)
-                .fixedSize(horizontal: true, vertical: false)
-
-            Spacer(minLength: 0)
-
-            if let harness = agent.harness?.trimmedNonEmpty {
-                metadataLabel(AdapterIcon.displayName(for: harness))
-            }
-
-            if let lastActive = agent.lastActiveDate {
-                metadataLabel(RelativeTime.string(from: lastActive))
-            }
-        }
-    }
-
-    private func statusBadge(for agent: MobileAgentSummary) -> some View {
-        HStack(spacing: ScoutSpacing.xs) {
-            Circle()
-                .fill(agentStatusColor(agent))
-                .frame(width: 6, height: 6)
-
-            Text(agentStatusLabel(agent))
-                .font(ScoutTypography.caption(11, weight: .medium))
-                .foregroundStyle(ScoutColors.textSecondary)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, ScoutSpacing.sm)
-        .padding(.vertical, ScoutSpacing.xxs)
-        .background(ScoutColors.surfaceAdaptive, in: Capsule())
-    }
+    // MARK: - States
 
     private var emptyState: some View {
-        VStack(spacing: ScoutSpacing.lg) {
-            Image(systemName: searchText.isEmpty ? "person.3" : "magnifyingglass")
-                .font(.system(size: 34, weight: .light))
+        VStack(spacing: ScoutSpacing.md) {
+            Text(searchText.isEmpty ? "NO AGENTS" : "NO MATCHES")
+                .font(ScoutTypography.code(11, weight: .semibold))
                 .foregroundStyle(ScoutColors.textMuted)
 
-            Text(searchText.isEmpty ? "No agents available" : "No matching agents")
-                .font(ScoutTypography.body(17, weight: .semibold))
-                .foregroundStyle(ScoutColors.textPrimary)
-
             Text(searchText.isEmpty
-                 ? "Start a session from Home or connect to your Mac to load live agents."
-                 : "Try a broader search for the agent name, selector, or workspace.")
-                .font(ScoutTypography.body(14))
+                 ? "Start a session from Home or connect to your Mac."
+                 : "Try a broader search.")
+                .font(ScoutTypography.body(13))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -305,11 +207,11 @@ struct AgentsView: View {
     }
 
     private var loadingState: some View {
-        VStack(spacing: ScoutSpacing.lg) {
+        VStack(spacing: ScoutSpacing.md) {
             ProgressView()
             Text("Loading agents...")
-                .font(ScoutTypography.body(15))
-                .foregroundStyle(ScoutColors.textSecondary)
+                .font(ScoutTypography.code(12))
+                .foregroundStyle(ScoutColors.textMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -317,13 +219,8 @@ struct AgentsView: View {
     private var connectionStateView: some View {
         VStack(spacing: ScoutSpacing.lg) {
             Spacer()
-
-            Image(systemName: connection.statusDetails.symbol)
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(ScoutColors.textMuted)
-
-            Text(connection.statusDetails.message ?? "Scout is not connected to your Mac right now.")
-                .font(ScoutTypography.body(14))
+            Text(connection.statusDetails.message ?? "Not connected.")
+                .font(ScoutTypography.code(12))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
@@ -331,9 +228,9 @@ struct AgentsView: View {
                 Button("Retry") {
                     Task { await connection.reconnect() }
                 }
+                .font(ScoutTypography.code(11, weight: .semibold))
                 .buttonStyle(.bordered)
             }
-
             Spacer()
         }
         .padding(.horizontal, ScoutSpacing.xxl)
@@ -342,24 +239,39 @@ struct AgentsView: View {
     private func errorState(_ message: String) -> some View {
         VStack(spacing: ScoutSpacing.lg) {
             Spacer()
-
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(ScoutColors.textMuted)
-
             Text(message)
-                .font(ScoutTypography.body(14))
+                .font(ScoutTypography.code(12))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
                 Task { await refreshAgents() }
             }
+            .font(ScoutTypography.code(11, weight: .semibold))
             .buttonStyle(.bordered)
-
             Spacer()
         }
         .padding(.horizontal, ScoutSpacing.xxl)
+    }
+
+    // MARK: - Helpers
+
+    private func statusChip(for state: String) -> some View {
+        let (label, color): (String, Color) = {
+            switch state {
+            case "working": return ("WORKING", ScoutColors.ledGreen)
+            case "available": return ("AVAILABLE", ScoutColors.ledAmber)
+            default: return ("OFFLINE", ScoutColors.textMuted)
+            }
+        }()
+
+        return Text(label)
+            .font(ScoutTypography.code(8, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
     }
 
     private func isLaunchable(_ agent: MobileAgentSummary) -> Bool {
@@ -367,88 +279,14 @@ struct AgentsView: View {
         return launchableWorkspaceRoots.contains(workspaceRoot)
     }
 
-    private func isInteractive(_ agent: MobileAgentSummary, isLaunchable: Bool) -> Bool {
-        agent.sessionId != nil || (isConnected && isLaunchable)
-    }
-
-    private func actionLabel(for agent: MobileAgentSummary, isLaunchable: Bool) -> String {
-        if agent.sessionId != nil {
-            return "Open"
+    private func handlePrimaryTap(for agent: MobileAgentSummary) {
+        if let sessionId = agent.sessionId {
+            router.push(.sessionDetail(sessionId: sessionId))
+        } else if isLaunchable(agent) {
+            handleSelection(for: agent, isLaunchable: true)
+        } else {
+            router.push(.agentDetail(agentId: agent.id))
         }
-        if isConnected && isLaunchable {
-            return "Start"
-        }
-        return isConnected ? "Unavailable" : "Offline"
-    }
-
-    private func actionColor(for agent: MobileAgentSummary, isLaunchable: Bool) -> Color {
-        if agent.sessionId != nil || (isConnected && isLaunchable) {
-            return ScoutColors.textPrimary
-        }
-        return ScoutColors.textMuted
-    }
-
-    private func countPillTitleColor(for tone: CountPillTone) -> Color {
-        switch tone {
-        case .primary:
-            return ScoutColors.textPrimary
-        case .secondary:
-            return ScoutColors.textSecondary
-        case .muted:
-            return ScoutColors.textMuted
-        }
-    }
-
-    private func countPillBackgroundColor(for tone: CountPillTone) -> Color {
-        switch tone {
-        case .primary:
-            return ScoutColors.surfaceAdaptive
-        case .secondary:
-            return ScoutColors.surfaceAdaptive.opacity(0.92)
-        case .muted:
-            return ScoutColors.surfaceAdaptive.opacity(0.82)
-        }
-    }
-
-    private func iconColor(for agent: MobileAgentSummary) -> Color {
-        switch agent.state {
-        case "working":
-            return ScoutColors.textPrimary
-        case "available":
-            return ScoutColors.textSecondary
-        default:
-            return ScoutColors.textMuted
-        }
-    }
-
-    private func agentStatusColor(_ agent: MobileAgentSummary) -> Color {
-        switch agent.state {
-        case "working":
-            return ScoutColors.textPrimary
-        case "available":
-            return ScoutColors.textSecondary
-        default:
-            return ScoutColors.textMuted
-        }
-    }
-
-    private func agentStatusLabel(_ agent: MobileAgentSummary) -> String {
-        switch agent.state {
-        case "working":
-            return "Working"
-        case "available":
-            return "Available"
-        default:
-            return "Offline"
-        }
-    }
-
-    private func metadataLabel(_ text: String) -> some View {
-        Text(text)
-            .font(ScoutTypography.caption(11))
-            .foregroundStyle(ScoutColors.textMuted)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
     }
 
     private func handleSelection(for agent: MobileAgentSummary, isLaunchable: Bool) {

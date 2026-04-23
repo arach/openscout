@@ -99,11 +99,11 @@ struct ActivityFeedView: View {
         ForEach(groupedItems, id: \.0) { label, sectionItems in
             VStack(alignment: .leading, spacing: 0) {
                 Text(label.uppercased())
-                    .font(ScoutTypography.caption(12, weight: .bold))
+                    .font(ScoutTypography.code(10, weight: .semibold))
                     .foregroundStyle(ScoutColors.textMuted)
                     .padding(.horizontal, ScoutSpacing.lg)
-                    .padding(.top, ScoutSpacing.xl)
-                    .padding(.bottom, ScoutSpacing.sm)
+                    .padding(.top, ScoutSpacing.xxl)
+                    .padding(.bottom, ScoutSpacing.md)
 
                 ForEach(sectionItems) { item in
                     ActivityItemRow(item: item, canNavigate: canNavigate(item))
@@ -219,39 +219,37 @@ private struct ActivityItemRow: View {
     let canNavigate: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: ScoutSpacing.md) {
-            // Kind icon
+        HStack(alignment: .top, spacing: ScoutSpacing.lg) {
             ZStack {
                 RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
-                    .fill(item.kindColor.opacity(0.12))
-                    .frame(width: 32, height: 32)
+                    .fill(item.kindColor.opacity(0.10))
+                    .frame(width: 28, height: 28)
 
                 Image(systemName: item.kindIcon)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(item.kindColor)
             }
+            .padding(.top, 1)
 
-            VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
-                // Top line: kind + agent/project + time
+            VStack(alignment: .leading, spacing: ScoutSpacing.xs) {
                 HStack(spacing: ScoutSpacing.xs) {
-                    Text(item.kindLabel)
-                        .font(ScoutTypography.caption(12, weight: .semibold))
+                    Text(item.kindLabel.uppercased())
+                        .font(ScoutTypography.code(10, weight: .semibold))
                         .foregroundStyle(item.kindColor)
 
                     if let project = item.projectName {
-                        Text("in \(project)")
-                            .font(ScoutTypography.caption(12))
+                        Text(project)
+                            .font(ScoutTypography.code(10))
                             .foregroundStyle(ScoutColors.textMuted)
                     }
 
                     Spacer()
 
                     Text(RelativeTime.string(from: item.tsMs))
-                        .font(ScoutTypography.caption(11))
+                        .font(ScoutTypography.code(10))
                         .foregroundStyle(ScoutColors.textMuted)
                 }
 
-                // Title
                 if let title = item.title, !title.isEmpty {
                     Text(title)
                         .font(ScoutTypography.body(14))
@@ -259,7 +257,6 @@ private struct ActivityItemRow: View {
                         .lineLimit(2)
                 }
 
-                // Summary (if different from title)
                 if let summary = item.summary, !summary.isEmpty, summary != item.title {
                     Text(summary)
                         .font(ScoutTypography.body(13))
@@ -272,10 +269,10 @@ private struct ActivityItemRow: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(ScoutColors.textMuted)
-                    .padding(.top, ScoutSpacing.xs)
+                    .padding(.top, 2)
             }
         }
         .padding(.horizontal, ScoutSpacing.lg)
-        .padding(.vertical, ScoutSpacing.md)
+        .padding(.vertical, ScoutSpacing.lg)
     }
 }

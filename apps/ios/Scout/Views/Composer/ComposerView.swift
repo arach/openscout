@@ -54,11 +54,15 @@ private enum ComposerEffort: String, CaseIterable, Identifiable {
 }
 
 struct ComposerView: View {
+    @Environment(ConnectionManager.self) private var connection
+    @Environment(ScoutRouter.self) private var router
+
     let sessionId: String
     var projectName: String? = nil
     var adapterType: String? = nil
     var currentModel: String? = nil
     var currentBranch: String? = nil
+    var currentWorkspaceRoot: String? = nil
     let isConnected: Bool
     let isStreaming: Bool
     let onSend: (ComposerSendRequest) -> Void
@@ -68,9 +72,14 @@ struct ComposerView: View {
     @State private var text = ""
     @State private var showKeyboard = false
     @State private var showDiscovery = false
-    @State private var showMetadataStrip = false
     @State private var selectedModel: String
     @State private var selectedEffort: ComposerEffort = .medium
+    @State private var showBranchSheet = false
+    @State private var branchDraft = ""
+    @State private var branchSheetError: String?
+    @State private var branchSessions: [MobileSessionSummary] = []
+    @State private var isLoadingBranchSessions = false
+    @State private var isOpeningBranchSession = false
 
     @StateObject private var voice = ScoutVoice()
 
@@ -81,23 +90,38 @@ struct ComposerView: View {
 
     private var isRecording: Bool { micState == .recording }
     private var isTranscribing: Bool { micState == .transcribing }
-    private var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var canSend: Bool { isConnected && hasText }
+    private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var hasText: Bool { !trimmedText.isEmpty }
+    private var canSendDraft: Bool { isConnected && hasText && !isTranscribing }
     private var showMessageField: Bool { hasText || showKeyboard }
     private var isSteeringActiveTurn: Bool { isStreaming }
+    private var canInterruptTurn: Bool { isConnected && isSteeringActiveTurn && !isRecording && !isTranscribing }
+    private var sendButtonShowsInterrupt: Bool { canInterruptTurn && !hasText }
+    private var canActivatePrimaryAction: Bool { sendButtonShowsInterrupt || canSendDraft }
     private var composerPlaceholder: String {
-        isSteeringActiveTurn ? "Steer the current turn..." : "Ask anything..."
+        isSteeringActiveTurn ? "Send a follow-up while the turn is live..." : "Ask anything..."
     }
     private var sendButtonAccessibilityLabel: String {
-        isSteeringActiveTurn ? "Steer active turn" : "Send message"
+        if sendButtonShowsInterrupt {
+            return "Stop active turn"
+        }
+
+        return isSteeringActiveTurn ? "Send follow-up" : "Send message"
     }
     private var sendButtonAccessibilityHint: String {
-        isSteeringActiveTurn
-            ? "Sends a follow-up while the current turn keeps running. The center button interrupts."
+        if sendButtonShowsInterrupt {
+            return "Interrupts the current turn. The microphone stays available for your next recording."
+        }
+
+        return isSteeringActiveTurn
+            ? "Sends your draft into the live turn. Stop remains available in the compact control rail."
             : "Sends your message to the session."
     }
     private var sendButtonForegroundStyle: Color {
-        canSend ? ScoutColors.textPrimary : ScoutColors.textMuted
+        canActivatePrimaryAction ? ScoutColors.textPrimary : ScoutColors.textMuted
+    }
+    private var sendButtonSymbolName: String {
+        sendButtonShowsInterrupt ? "stop.fill" : "paperplane.fill"
     }
 
     // Keyboard button center = 14 (horizontal pad) + 24 (half of 48pt button) = 38pt from trailing edge
@@ -108,7 +132,8 @@ struct ComposerView: View {
     private static let keepAliveReplacement = "use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online"
     private static let keepAliveAppendix = "If this may run a while, use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online."
     private static let messageCompactTextHeight: CGFloat = 32
-    private static let messageExpandedMinTextHeight: CGFloat = 84
+    private static let messageExpandedMinTextHeight: CGFloat = 72
+    private static let messageExpandedActiveTurnMinTextHeight: CGFloat = 60
     private static let messageExpandedMaxTextHeight: CGFloat = 168
 
     init(
@@ -117,6 +142,7 @@ struct ComposerView: View {
         adapterType: String? = nil,
         currentModel: String? = nil,
         currentBranch: String? = nil,
+        currentWorkspaceRoot: String? = nil,
         isConnected: Bool,
         isStreaming: Bool,
         onSend: @escaping (ComposerSendRequest) -> Void,
@@ -129,6 +155,7 @@ struct ComposerView: View {
         self.adapterType = adapterType
         self.currentModel = currentModel
         self.currentBranch = currentBranch
+        self.currentWorkspaceRoot = currentWorkspaceRoot
         self.isConnected = isConnected
         self.isStreaming = isStreaming
         self.onSend = onSend
@@ -159,18 +186,12 @@ struct ComposerView: View {
             // Message field — always visible
             messageField
 
-            if isSteeringActiveTurn {
-                activeTurnStrip
-            }
-
             if shouldSuggestKeepAlive {
                 keepAliveSuggestionStrip
             }
 
-            if showMetadataStrip {
-                metadataStrip
-            } else {
-                collapsedMetadataStrip
+            if showsControlRail {
+                controlRail
             }
 
             // Keyboard (only when explicitly toggled)
@@ -192,13 +213,17 @@ struct ComposerView: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showMessageField)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showKeyboard)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: showMetadataStrip)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: micState)
         .animation(.easeInOut(duration: 0.2), value: isStreaming)
         .accessibilityElement(children: .contain)
         .sheet(isPresented: $showDiscovery) {
             SessionDiscoveryView(projectFilter: projectName)
                 .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showBranchSheet) {
+            branchSessionSheet
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .onChange(of: selectedModel) { _, _ in
@@ -217,22 +242,19 @@ struct ComposerView: View {
     private var actionTray: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                leftButton.frame(width: 48, height: 48)
+                leftButton
+                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
                 Spacer()
                 centerButton
                 Spacer()
-                rightButton.frame(width: 48, height: 48)
+                rightButton
+                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-            .padding(.bottom, -18)
+            .padding(.horizontal, ActionTrayMetrics.horizontalPadding)
+            .padding(.top, ActionTrayMetrics.topPadding)
+            .padding(.bottom, ActionTrayMetrics.bottomPadding)
         }
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(ScoutColors.border.opacity(0.3))
-                .frame(height: 0.5)
-        }
         .background {
             composerSurface
                 .ignoresSafeArea(edges: .bottom)
@@ -257,27 +279,12 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var centerButton: some View {
-        if isStreaming {
-            Button {
-                onInterrupt()
-            } label: {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(ScoutColors.textPrimary)
-                    .frame(width: 70, height: 70)
-                    .background(ScoutColors.surfaceAdaptive)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .transition(.scale.combined(with: .opacity))
-        } else {
-            MicButton(
-                state: currentMicState,
-                onTap: handleMicTap,
-                onLongPressStart: nil,
-                onLongPressEnd: nil
-            )
-        }
+        MicButton(
+            state: currentMicState,
+            onTap: handleMicTap,
+            onLongPressStart: nil,
+            onLongPressEnd: nil
+        )
     }
 
     private var rightButton: some View {
@@ -294,7 +301,7 @@ struct ComposerView: View {
 
     private var messageTextMinHeight: CGFloat {
         hasText || showKeyboard
-            ? Self.messageExpandedMinTextHeight
+            ? (isSteeringActiveTurn ? Self.messageExpandedActiveTurnMinTextHeight : Self.messageExpandedMinTextHeight)
             : Self.messageCompactTextHeight
     }
 
@@ -331,9 +338,9 @@ struct ComposerView: View {
                 .padding(.top, 4)
 
             Button {
-                sendIfPossible()
+                handlePrimaryAction()
             } label: {
-                Image(systemName: "paperplane.fill")
+                Image(systemName: sendButtonSymbolName)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(sendButtonForegroundStyle)
                     .frame(width: 44, height: 44)
@@ -345,7 +352,7 @@ struct ComposerView: View {
                     .scaleEffect(justSent ? 0.85 : 1.0)
             }
             .buttonStyle(.plain)
-            .disabled(!canSend)
+            .disabled(!canActivatePrimaryAction)
             .padding(.trailing, 14)
             .padding(.bottom, 2)
             .accessibilityLabel(sendButtonAccessibilityLabel)
@@ -355,7 +362,6 @@ struct ComposerView: View {
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .simultaneousGesture(metadataDragGesture)
         .background {
             composerSurface
                 .clipShape(
@@ -380,46 +386,21 @@ struct ComposerView: View {
                 .shadow(color: .black.opacity(0.04), radius: 2, y: -1)
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: messageFieldHeight)
-        .animation(.easeInOut(duration: 0.15), value: canSend)
+        .animation(.easeInOut(duration: 0.15), value: canActivatePrimaryAction)
         .animation(.spring(response: 0.2, dampingFraction: 0.5), value: justSent)
     }
 
     private let composerSurface = Color(light: Color(white: 0.96), dark: Color(white: 0.09))
 
-    private var activeTurnStrip: some View {
+    private var controlRail: some View {
         HStack(spacing: 8) {
-            Text("LIVE")
-                .font(ScoutTypography.code(9, weight: .semibold))
-                .foregroundStyle(ScoutColors.textMuted)
-
-            Text("Send a follow-up to steer, or stop in the center.")
-                .font(ScoutTypography.caption(11))
-                .foregroundStyle(ScoutColors.textMuted)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background {
-            composerSurface
-        }
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(ScoutColors.border.opacity(0.25))
-                .frame(height: 0.5)
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-
-    private var metadataStrip: some View {
-        VStack(spacing: 10) {
-            Capsule()
-                .fill(ScoutColors.textMuted.opacity(0.3))
-                .frame(width: 30, height: 4)
-                .padding(.top, 4)
+            if isSteeringActiveTurn {
+                activeTurnBadge
+                stopChip
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     if showsModelPicker {
                         modelPickerChip
                     } else if showReadOnlyModelChip {
@@ -431,12 +412,11 @@ struct ComposerView: View {
                     }
 
                     branchChip
-
                 }
-                .padding(.horizontal, 14)
             }
-            .padding(.bottom, 10)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background { composerSurface }
         .overlay(alignment: .top) {
@@ -445,36 +425,177 @@ struct ComposerView: View {
                 .frame(height: 0.5)
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .simultaneousGesture(metadataDragGesture)
     }
 
-    private var collapsedMetadataStrip: some View {
-        Button {
-            withAnimation {
-                showMetadataStrip = true
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(collapsedMetadataSummary)
-                    .font(ScoutTypography.caption(12, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(ScoutColors.textMuted)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+    private var activeTurnBadge: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(activeTurnBadgeColor)
+                .frame(width: 7, height: 7)
+
+            Text(activeTurnBadgeLabel)
+                .font(ScoutTypography.code(10, weight: .semibold))
+                .foregroundStyle(ScoutColors.textSecondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(ScoutColors.surfaceAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
+    }
+
+    private var stopChip: some View {
+        Button("STOP") {
+            interruptActiveTurn()
         }
         .buttonStyle(.plain)
-        .background { composerSurface }
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(ScoutColors.border.opacity(0.25))
-                .frame(height: 0.5)
+        .font(ScoutTypography.code(10, weight: .semibold))
+        .foregroundStyle(canInterruptTurn ? ScoutColors.textPrimary : ScoutColors.textMuted)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(ScoutColors.surfaceAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous)
+                .strokeBorder(ScoutColors.border.opacity(0.35), lineWidth: 0.5)
         }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .simultaneousGesture(metadataDragGesture)
+        .disabled(!canInterruptTurn)
+        .accessibilityLabel("Stop active turn")
+        .accessibilityHint("Interrupts the current turn without affecting the draft you are composing.")
+    }
+
+    private var branchChip: some View {
+        let chip = metadataChip(
+            icon: "arrow.triangle.branch",
+            title: "Branch",
+            value: effectiveBranchLabel,
+            isReadOnly: !canEditBranch
+        )
+
+        return Group {
+            if canEditBranch {
+                Button {
+                    openBranchSheet()
+                } label: {
+                    chip
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Branch")
+                .accessibilityValue(effectiveBranchLabel)
+                .accessibilityHint("Opens branch controls for this workspace.")
+            } else {
+                chip
+                    .accessibilityLabel("Current branch")
+                    .accessibilityValue(effectiveBranchLabel)
+            }
+        }
+    }
+
+    private var branchSessionSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Open or resume a session for a specific branch.")
+                            .font(ScoutTypography.body(14))
+                            .foregroundStyle(ScoutColors.textSecondary)
+
+                        TextField("main", text: $branchDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(ScoutTypography.code(14))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(ScoutColors.surfaceAdaptive)
+                            .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
+                    }
+
+                    if let branchSheetError {
+                        Text(branchSheetError)
+                            .font(ScoutTypography.caption(12, weight: .medium))
+                            .foregroundStyle(ScoutColors.statusError)
+                    }
+
+                    if isLoadingBranchSessions {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading sessions for this workspace...")
+                                .font(ScoutTypography.caption(12))
+                                .foregroundStyle(ScoutColors.textMuted)
+                        }
+                    } else if !branchSessions.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Existing Sessions")
+                                .font(ScoutTypography.caption(12, weight: .semibold))
+                                .foregroundStyle(ScoutColors.textMuted)
+
+                            ForEach(branchSessions, id: \.id) { session in
+                                Button {
+                                    resumeBranchSession(session.id)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(session.currentBranch?.trimmedNonEmpty ?? "No branch")
+                                                .font(ScoutTypography.code(12, weight: .medium))
+                                                .foregroundStyle(ScoutColors.textPrimary)
+
+                                            Text(session.title)
+                                                .font(ScoutTypography.caption(12))
+                                                .foregroundStyle(ScoutColors.textMuted)
+                                                .lineLimit(1)
+                                        }
+
+                                        Spacer(minLength: 0)
+
+                                        if session.id == sessionId {
+                                            Text("CURRENT")
+                                                .font(ScoutTypography.code(10, weight: .semibold))
+                                                .foregroundStyle(ScoutColors.textMuted)
+                                        } else {
+                                            Text("OPEN")
+                                                .font(ScoutTypography.code(10, weight: .semibold))
+                                                .foregroundStyle(ScoutColors.textMuted)
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(ScoutColors.surfaceAdaptive)
+                                    .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isOpeningBranchSession || session.id == sessionId)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 18)
+            .background(ScoutColors.backgroundAdaptive)
+            .navigationTitle("Branch")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        closeBranchSheet()
+                    }
+                    .disabled(isOpeningBranchSession)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isOpeningBranchSession ? "Opening..." : "Open") {
+                        Task { await openSelectedBranch() }
+                    }
+                    .disabled(!canOpenSelectedBranch)
+                }
+            }
+            .task {
+                await loadBranchSessions()
+            }
+        }
     }
 
     private var modelPickerChip: some View {
@@ -515,15 +636,6 @@ struct ComposerView: View {
         } label: {
             metadataChip(icon: "dial.medium", title: "Effort", value: selectedEffort.label)
         }
-    }
-
-    private var branchChip: some View {
-        metadataChip(
-            icon: "arrow.triangle.branch",
-            title: "Branch",
-            value: currentBranch ?? "—",
-            isReadOnly: true
-        )
     }
 
     private func metadataChip(
@@ -602,14 +714,22 @@ struct ComposerView: View {
 
     // MARK: - Actions
 
+    private func handlePrimaryAction() {
+        if sendButtonShowsInterrupt {
+            interruptActiveTurn()
+            return
+        }
+
+        sendIfPossible()
+    }
+
     private func sendIfPossible() {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, isConnected else { return }
+        guard !trimmedText.isEmpty, isConnected, !isTranscribing else { return }
         let impact = UIImpactFeedbackGenerator(style: .light)
         impact.impactOccurred()
         onSend(
             ComposerSendRequest(
-                text: trimmed,
+                text: trimmedText,
                 model: composerModelOverride,
                 effort: showsEffortPicker ? selectedEffort.rawValue : nil
             )
@@ -625,6 +745,13 @@ struct ComposerView: View {
         }
     }
 
+    private func interruptActiveTurn() {
+        guard canInterruptTurn else { return }
+        let impact = UIImpactFeedbackGenerator(style: .medium)
+        impact.impactOccurred()
+        onInterrupt()
+    }
+
     private var modelOptions: [String] {
         Self.modelOptions(for: adapterType, currentModel: currentModel)
     }
@@ -635,6 +762,10 @@ struct ComposerView: View {
 
     private var showReadOnlyModelChip: Bool {
         !showsModelPicker && currentModel?.trimmedNonEmpty != nil
+    }
+
+    private var showsControlRail: Bool {
+        isSteeringActiveTurn || showsModelPicker || showReadOnlyModelChip || showsEffortPicker || currentBranch != nil || canEditBranch
     }
 
     private var showsEffortPicker: Bool {
@@ -651,31 +782,134 @@ struct ComposerView: View {
         return ScoutModelLabel.displayText(for: rawModel, fallback: Self.defaultModelLabel)
     }
 
-    private var collapsedMetadataSummary: String {
-        [
-            showsModelPicker || showReadOnlyModelChip ? effectiveModelLabel : nil,
-            showsEffortPicker ? selectedEffort.label : nil,
-            currentBranch ?? "No branch",
-        ]
-        .compactMap { $0 }
-        .joined(separator: " • ")
+    private var sessionWorkspaceRoot: String? {
+        currentWorkspaceRoot?.trimmedNonEmpty
     }
 
-    private var metadataDragGesture: some Gesture {
-        DragGesture(minimumDistance: 16)
-            .onEnded { value in
-                let vertical = value.translation.height
-                guard abs(vertical) > abs(value.translation.width) else { return }
-                if vertical > 18, showMetadataStrip {
-                    withAnimation {
-                        showMetadataStrip = false
-                    }
-                } else if vertical < -18, !showMetadataStrip {
-                    withAnimation {
-                        showMetadataStrip = true
-                    }
+    private var canEditBranch: Bool {
+        isConnected && sessionWorkspaceRoot != nil
+    }
+
+    private var effectiveBranchLabel: String {
+        currentBranch?.trimmedNonEmpty ?? "No branch"
+    }
+
+    private var branchLaunchHarness: String? {
+        guard let adapter = adapterType?.trimmedNonEmpty, adapter != "relay" else { return nil }
+        return adapter
+    }
+
+    private var branchLaunchModel: String? {
+        composerModelOverride ?? currentModel?.trimmedNonEmpty
+    }
+
+    private var activeTurnBadgeLabel: String {
+        if isRecording {
+            return "REC"
+        }
+
+        if isTranscribing {
+            return "TEXT"
+        }
+
+        return "LIVE"
+    }
+
+    private var activeTurnBadgeColor: Color {
+        if isRecording {
+            return ScoutColors.statusError
+        }
+
+        if isTranscribing {
+            return ScoutColors.accent
+        }
+
+        return ScoutColors.statusStreaming
+    }
+
+    private var canOpenSelectedBranch: Bool {
+        canEditBranch && branchDraft.trimmedNonEmpty != nil && !isOpeningBranchSession
+    }
+
+    private func normalizedBranch(_ branch: String?) -> String? {
+        branch?.trimmedNonEmpty?.lowercased()
+    }
+
+    private func openBranchSheet() {
+        branchDraft = currentBranch?.trimmedNonEmpty ?? ""
+        branchSheetError = nil
+        branchSessions = []
+        showBranchSheet = true
+    }
+
+    private func closeBranchSheet() {
+        branchSheetError = nil
+        showBranchSheet = false
+    }
+
+    @MainActor
+    private func loadBranchSessions() async {
+        guard showBranchSheet, let workspaceRoot = sessionWorkspaceRoot, isConnected else {
+            branchSessions = []
+            return
+        }
+
+        isLoadingBranchSessions = true
+        defer { isLoadingBranchSessions = false }
+
+        do {
+            let sessions = try await connection.listMobileSessions()
+            branchSessions = sessions
+                .filter { $0.workspaceRoot?.trimmedNonEmpty == workspaceRoot }
+                .sorted { lhs, rhs in
+                    (lhs.lastMessageAt ?? 0) > (rhs.lastMessageAt ?? 0)
                 }
-            }
+        } catch {
+            branchSheetError = error.scoutUserFacingMessage
+            branchSessions = []
+        }
+    }
+
+    @MainActor
+    private func openSelectedBranch() async {
+        guard let workspaceRoot = sessionWorkspaceRoot else { return }
+        guard let targetBranch = branchDraft.trimmedNonEmpty else { return }
+
+        branchSheetError = nil
+        isOpeningBranchSession = true
+        defer { isOpeningBranchSession = false }
+
+        if normalizedBranch(targetBranch) == normalizedBranch(currentBranch) {
+            closeBranchSheet()
+            return
+        }
+
+        if let existing = branchSessions.first(where: {
+            $0.id != sessionId && normalizedBranch($0.currentBranch) == normalizedBranch(targetBranch)
+        }) {
+            resumeBranchSession(existing.id)
+            return
+        }
+
+        do {
+            let handle = try await connection.createMobileSession(
+                workspaceId: workspaceRoot,
+                harness: branchLaunchHarness,
+                branch: targetBranch,
+                model: branchLaunchModel,
+                forceNew: true
+            )
+            closeBranchSheet()
+            router.replaceTop(.sessionDetail(sessionId: handle.session.conversationId))
+        } catch {
+            branchSheetError = error.scoutUserFacingMessage
+        }
+    }
+
+    private func resumeBranchSession(_ targetSessionId: String) {
+        guard targetSessionId != sessionId else { return }
+        closeBranchSheet()
+        router.replaceTop(.sessionDetail(sessionId: targetSessionId))
     }
 
     private func modelMenuLabel(for model: String) -> String {
@@ -762,7 +996,7 @@ struct ComposerView: View {
         Task {
             do {
                 let transcribed = try await voice.stopAndTranscribe()
-                text = transcribed
+                text = mergedDictationText(current: text, transcribed: transcribed)
                 micState = .idle
             } catch ScoutVoice.VoiceError.recordingTooShort {
                 lastError = "Recording too short (min 0.3s)"
@@ -772,6 +1006,19 @@ struct ComposerView: View {
                 micState = .idle
             }
         }
+    }
+
+    private func mergedDictationText(current: String, transcribed: String) -> String {
+        let appended = transcribed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !appended.isEmpty else { return current }
+        guard !current.isEmpty else { return appended }
+
+        if let lastScalar = current.unicodeScalars.last,
+           CharacterSet.whitespacesAndNewlines.contains(lastScalar) {
+            return current + appended
+        }
+
+        return current + " " + appended
     }
 }
 

@@ -107,6 +107,13 @@ extension Error {
                     || message.localizedCaseInsensitiveContains("relay is not reachable") {
                     return "Your Mac looks offline or asleep. Open Scout on your Mac or wake it, then try again. Cached sessions on this iPhone stay available read-only."
                 }
+                // Suppress raw server validation errors (e.g. Zod schema errors)
+                if message.localizedCaseInsensitiveContains("expected object")
+                    || message.localizedCaseInsensitiveContains("received undefined")
+                    || message.localizedCaseInsensitiveContains("invalid type")
+                    || message.localizedCaseInsensitiveContains("invalid input") {
+                    return "Scout received an unexpected response from your Mac. Make sure Scout on your Mac is up to date."
+                }
                 return message
             case .handshakeFailed, .identityError:
                 return "Scout couldn't establish a secure connection to your Mac. Reconnect and try again."

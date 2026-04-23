@@ -13,6 +13,7 @@ enum Surface: Hashable {
     case sessionDetail(sessionId: String)
     case allSessions
     case newSession
+    case agentDashboard(agentId: String)
     case agentDetail(agentId: String)
     case settings
 }

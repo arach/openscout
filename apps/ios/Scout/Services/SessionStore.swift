@@ -24,6 +24,12 @@ final class SessionStore: @unchecked Sendable {
     /// Session IDs restored from local cache but not known to be live on the bridge.
     private(set) var cachedOnlySessionIds: Set<String> = []
 
+    /// Set to true after the first successful reconcileLiveSummaries call.
+    /// Gates the isCachedOnly filter in HomeView — without this, the connected
+    /// filter fires the moment the socket opens, before live data has arrived,
+    /// causing a jump from the cached list to a partial (or empty) live list.
+    private(set) var hasReceivedLiveList: Bool = false
+
     /// Last live relay summaries fetched for active sessions.
     private var relaySummariesById: [String: SessionSummary] = [:]
 
@@ -244,6 +250,7 @@ final class SessionStore: @unchecked Sendable {
         }
         lock.unlock()
 
+        hasReceivedLiveList = true
         rebuildSummaries()
         Self.logger.notice("Reconciled \(summaries.count) live relay summaries")
     }
@@ -259,6 +266,7 @@ final class SessionStore: @unchecked Sendable {
         bridgeIdentityKey = nil
         lock.unlock()
 
+        hasReceivedLiveList = false
         Self.logger.notice("Cleared all session state")
     }
 

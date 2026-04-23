@@ -28,12 +28,15 @@ if [[ "${1:-}" != "--same-version" ]]; then
 fi
 
 echo "Build:    $CURRENT_BUILD → $NEW_BUILD"
-xcrun agvtool new-version -all "$NEW_BUILD" 2>&1 | grep "^Setting" || true
+xcrun agvtool new-version -all "$NEW_BUILD"
 
 # ── Archive ───────────────────────────────────────────────────────────────────
 
 echo ""
 echo "Archiving…"
+rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
+mkdir -p "$(dirname "$ARCHIVE_PATH")" "$EXPORT_PATH"
+
 xcodebuild archive \
   -project Scout.xcodeproj \
   -scheme ScoutApp \
@@ -42,7 +45,7 @@ xcodebuild archive \
   -allowProvisioningUpdates \
   CODE_SIGN_STYLE=Automatic \
   DEVELOPMENT_TEAM="$TEAM_ID" \
-  2>&1 | grep -E "^(error:|.*ARCHIVE SUCCEEDED|.*ARCHIVE FAILED)" || true
+  2>&1
 
 echo "Archive ready."
 
@@ -55,7 +58,7 @@ xcodebuild -exportArchive \
   -exportOptionsPlist "$EXPORT_OPTIONS" \
   -exportPath "$EXPORT_PATH" \
   -allowProvisioningUpdates \
-  2>&1 | grep -E "Progress 100%|Upload succeeded|error:" || true
+  2>&1
 
 echo ""
 echo "✓ Build $NEW_BUILD uploaded to App Store Connect."

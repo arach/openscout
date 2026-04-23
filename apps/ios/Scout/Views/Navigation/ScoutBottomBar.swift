@@ -1,8 +1,11 @@
-// ScoutBottomBar — Persistent Liquid Glass toolbar at the bottom of every surface.
+// ScoutBottomBar — Persistent toolbar at the bottom of every surface.
 //
 // Two modes:
-// - Chrome mode (non-session): status pill + centered section pill + actions
-// - Composer mode (session detail): ComposerView with address bar
+// - Chrome mode (non-session): back + hero home/grid + overflow
+// - Composer mode (session detail): ComposerView with compact home button left
+//
+// The center home button carries an integrated connection indicator:
+// hidden when healthy, amber when degraded, red when disconnected.
 
 import SwiftUI
 
@@ -46,40 +49,28 @@ struct ScoutBottomBar: View {
 
     private var chromeMode: some View {
         VStack(spacing: 0) {
-            ZStack {
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        backButton
-                            .frame(width: 44, height: 44)
-                        ConnectionStatusPill()
-                    }
+            HStack(spacing: 0) {
+                backButton
+                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
 
-                    Spacer()
+                Spacer()
 
-                    HStack(spacing: 4) {
-                        gridButton
-                        newSessionButton
-                        overflowMenu
-                    }
-                }
+                heroHomeButton
 
-                AddressBarPill()
+                Spacer()
+
+                overflowMenu
+                    .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 10)
-            .padding(.bottom, -18)
+            .padding(.horizontal, ActionTrayMetrics.horizontalPadding)
+            .padding(.top, ActionTrayMetrics.topPadding)
+            .padding(.bottom, ActionTrayMetrics.bottomPadding)
         }
         .frame(maxWidth: .infinity)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [.white.opacity(0.12), .white.opacity(0.04), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(height: 1)
+                .fill(ScoutColors.border.opacity(0.2))
+                .frame(height: 0.5)
         }
         .background {
             Color.clear
@@ -103,6 +94,7 @@ struct ScoutBottomBar: View {
             adapterType: session?.adapterType,
             currentModel: session?.model,
             currentBranch: session?.currentBranch,
+            currentWorkspaceRoot: session?.workspaceRoot,
             isConnected: isSessionConnected,
             isStreaming: isStreaming,
             onSend: { request in
@@ -121,21 +113,112 @@ struct ScoutBottomBar: View {
                     }
                 }
             },
-            navigationLeftButton: AnyView(
-                Group {
-                    if isSessionConnected {
-                        BottomCircleButton(icon: "square.grid.2x2", isActive: false) {
-                            let impact = UIImpactFeedbackGenerator(style: .light)
-                            impact.impactOccurred()
-                            router.push(.allSessions)
-                        }
-                        .accessibilityLabel("All sessions")
-                    } else {
-                        ConnectionStatusTrayButton()
+            navigationLeftButton: AnyView(compactHomeButton)
+        )
+    }
+
+    // MARK: - Home Buttons
+
+    private func navigateHome() {
+        let impact = UIImpactFeedbackGenerator(style: .light)
+        impact.impactOccurred()
+        router.popToRoot()
+    }
+
+    private var homeButtonForeground: Color {
+        router.currentSurface == .home
+            ? ScoutColors.textPrimary
+            : ScoutColors.textSecondary
+    }
+
+    private var compactHomeButton: some View {
+        Button {
+            navigateHome()
+        } label: {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(homeButtonForeground)
+                .frame(
+                    width: ActionTrayMetrics.sideButtonSize,
+                    height: ActionTrayMetrics.sideButtonSize
+                )
+                .contentShape(Circle())
+                .overlay(alignment: .topTrailing) {
+                    if showsConnectionWarning {
+                        Circle()
+                            .fill(connectionWarningColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: -6, y: 6)
                     }
                 }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Home")
+    }
+
+    private var heroHomeButton: some View {
+        Button {
+            navigateHome()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(heroHomeButtonFill)
+
+                Circle()
+                    .strokeBorder(heroHomeButtonBorder, lineWidth: 1)
+
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(homeButtonForeground)
+            }
+            .frame(
+                width: ActionTrayMetrics.centerButtonSize,
+                height: ActionTrayMetrics.centerButtonSize
             )
-        )
+            .contentShape(Circle())
+            .overlay(alignment: .topTrailing) {
+                if showsConnectionWarning {
+                    Circle()
+                        .fill(connectionWarningColor)
+                        .frame(width: 8, height: 8)
+                        .offset(x: -8, y: 8)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Home")
+    }
+
+    private var heroHomeButtonFill: Color {
+        router.currentSurface == .home
+            ? ScoutColors.surfaceRaisedAdaptive
+            : ScoutColors.surfaceAdaptive.opacity(0.92)
+    }
+
+    private var heroHomeButtonBorder: Color {
+        ScoutColors.border.opacity(router.currentSurface == .home ? 0.34 : 0.22)
+    }
+
+    // MARK: - Connection Indicator
+
+    private var showsConnectionWarning: Bool {
+        if connection.state != .connected { return true }
+        switch connection.health {
+        case .suspect, .degraded, .offline: return true
+        case .healthy: return false
+        }
+    }
+
+    private var connectionWarningColor: Color {
+        switch connection.health {
+        case .suspect, .degraded: return ScoutColors.ledAmber
+        case .offline: return ScoutColors.ledRed
+        default: break
+        }
+        switch connection.state {
+        case .connecting, .handshaking, .reconnecting: return ScoutColors.ledAmber
+        default: return ScoutColors.ledRed
+        }
     }
 
     // MARK: - Chrome Buttons
@@ -149,49 +232,26 @@ struct ScoutBottomBar: View {
             Image(systemName: "chevron.left")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(router.canGoBack ? ScoutColors.textPrimary : ScoutColors.textMuted.opacity(0.4))
-                .frame(width: 44, height: 44)
+                .frame(
+                    width: ActionTrayMetrics.sideButtonSize,
+                    height: ActionTrayMetrics.sideButtonSize
+                )
         }
         .disabled(!router.canGoBack)
         .accessibilityLabel("Back")
     }
 
-    private var gridButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            router.push(.allSessions)
-        } label: {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(router.currentSurface == .allSessions ? ScoutColors.accent : ScoutColors.textPrimary)
-                .frame(width: 40, height: 40)
-        }
-        .accessibilityLabel("All sessions")
-    }
-
-    private var newSessionButton: some View {
-        Button {
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            router.push(.newSession)
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(newSessionButtonColor)
-                .frame(width: 40, height: 40)
-        }
-        .disabled(!isConnected)
-        .accessibilityLabel("New session")
-        .accessibilityHint(isConnected ? "Browse workspaces and launch a new session" : "Connect to your Mac first")
-    }
-
-    private var newSessionButtonColor: Color {
-        guard isConnected else { return ScoutColors.textMuted.opacity(0.4) }
-        return router.currentSurface == .newSession ? ScoutColors.accent : ScoutColors.textPrimary
-    }
-
     private var overflowMenu: some View {
         Menu {
+            Button {
+                router.push(.newSession)
+            } label: {
+                Label("New Session", systemImage: "plus")
+            }
+            .disabled(!isConnected)
+
+            Divider()
+
             Button {
                 router.push(.inbox)
             } label: {
@@ -229,21 +289,19 @@ struct ScoutBottomBar: View {
             Divider()
 
             Button {
-                router.popToRoot()
-            } label: {
-                Label("Home", systemImage: "house")
-            }
-
-            Button {
                 router.push(.settings)
             } label: {
                 Label("Settings", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(ScoutColors.textSecondary)
-                .frame(width: 40, height: 40)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
+                .frame(
+                    width: ActionTrayMetrics.sideButtonSize,
+                    height: ActionTrayMetrics.sideButtonSize
+                )
+                .contentShape(Circle())
         }
         .accessibilityLabel("More options")
     }

@@ -2,7 +2,7 @@ name: Scout
 packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
-    branch: main
+    exactVersion: 0.13.6
 options:
   bundleIdPrefix: com.openscout
   deploymentTarget:
