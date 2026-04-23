@@ -137,3 +137,113 @@ final class TurnHashTests: XCTestCase {
         XCTAssertFalse(TurnHash.latestTurnsMatch(local: local, remote: differentRemote))
     }
 }
+
+final class ScoutMarkdownParserTests: XCTestCase {
+    func testParsesCommonChatMarkdownBlocks() {
+        let markdown = """
+        ## Plan
+
+        - [x] Ship parser
+          - [ ] Follow up
+        1. Verify
+
+        > Keep this readable
+        > on mobile
+
+        ~~~swift
+        let value = 1
+        ~~~
+
+        | Name | State |
+        | --- | :---: |
+        | Parser | **Done** |
+        """
+
+        XCTAssertEqual(ScoutMarkdownParser.parse(markdown), [
+            .heading(level: 2, text: "Plan"),
+            .list([
+                .init(level: 0, marker: .unordered, taskState: .checked, text: "Ship parser"),
+                .init(level: 1, marker: .unordered, taskState: .unchecked, text: "Follow up"),
+                .init(level: 0, marker: .ordered(1), taskState: nil, text: "Verify"),
+            ]),
+            .blockquote("Keep this readable\non mobile"),
+            .codeBlock(language: "swift", code: "let value = 1"),
+            .table(
+                header: ["Name", "State"],
+                rows: [["Parser", "**Done**"]]
+            ),
+        ])
+    }
+
+    func testHeadingRequiresWhitespaceAfterMarker() {
+        XCTAssertEqual(ScoutMarkdownParser.parse("#tag"), [.text("#tag")])
+        XCTAssertEqual(ScoutMarkdownParser.parse("### Heading ###"), [.heading(level: 3, text: "Heading")])
+    }
+
+    func testRulesAllowSpacesBetweenMarkers() {
+        XCTAssertEqual(ScoutMarkdownParser.parse("- - -"), [.rule])
+    }
+
+    func testPromotesPlanHeadingAndListToPlanSurface() {
+        let parts = ScoutMarkdownParser.parse("""
+        Before.
+
+        ## Implementation Plan
+        Keep the scope mobile-native.
+        - [ ] Detect plan
+        - [x] Render surface
+
+        After.
+        """)
+
+        XCTAssertEqual(ScoutMarkdownPresentation.sections(from: parts), [
+            .markdown(.text("Before.")),
+            .plan(.init(
+                title: "Implementation Plan",
+                summary: "Keep the scope mobile-native.",
+                items: [
+                    .init(level: 0, marker: .unordered, taskState: .unchecked, text: "Detect plan"),
+                    .init(level: 0, marker: .unordered, taskState: .checked, text: "Render surface"),
+                ]
+            )),
+            .markdown(.text("After.")),
+        ])
+    }
+
+    func testPromotesPlanIntroAndListToPlanSurface() {
+        let parts = ScoutMarkdownParser.parse("""
+        Here's the plan:
+
+        1. Inspect
+        2. Build
+        """)
+
+        XCTAssertEqual(ScoutMarkdownPresentation.sections(from: parts), [
+            .plan(.init(
+                title: "Plan",
+                summary: nil,
+                items: [
+                    .init(level: 0, marker: .ordered(1), taskState: nil, text: "Inspect"),
+                    .init(level: 0, marker: .ordered(2), taskState: nil, text: "Build"),
+                ]
+            )),
+        ])
+    }
+
+    func testLeavesOrdinaryListsAsMarkdown() {
+        let parts = ScoutMarkdownParser.parse("""
+        Things I saw:
+
+        - One
+        - Two
+        """)
+
+        XCTAssertEqual(ScoutMarkdownPresentation.sections(from: parts), [
+            .markdown(.text("Things I saw:")),
+            .markdown(.list([
+                .init(level: 0, marker: .unordered, taskState: nil, text: "One"),
+                .init(level: 0, marker: .unordered, taskState: nil, text: "Two"),
+            ])),
+        ])
+    }
+}
