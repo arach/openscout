@@ -274,6 +274,7 @@ export type OperatorProfile = {
 export type MeshIssue = {
   code:
     | "broker_unreachable"
+    | "tailscale_stopped"
     | "local_only"
     | "mesh_loopback"
     | "discovery_unconfigured";
@@ -326,6 +327,9 @@ export type MeshStatus = {
   >;
   tailscale: {
     available: boolean;
+    running: boolean;
+    backendState: string | null;
+    health: string[];
     onlineCount: number;
     peers: Array<{
       id: string;

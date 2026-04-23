@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { AppShell } from "@hudson/sdk/app-shell";
 
+import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { createScoutApp } from "./scout";
 import {
   applyScoutThemeToDocument,
@@ -20,6 +20,6 @@ applyScoutThemeToDocument(initialTheme);
 
 createRoot(el).render(
   <StrictMode>
-    <AppShell app={createScoutApp({ initialTheme })} />
+    <OpenScoutAppShell app={createScoutApp({ initialTheme })} />
   </StrictMode>,
 );

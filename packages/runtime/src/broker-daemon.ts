@@ -297,7 +297,10 @@ async function bootstrapRegisteredLocalAgents(): Promise<void> {
   await ensureCoreLocalAgentsOnline();
 }
 
-async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
+async function discoverPeers(seeds: string[] = []): Promise<{
+  discovered: NodeDefinition[];
+  probes: string[];
+}> {
   const result = await discoverMeshNodes({
     localNodeId: nodeId,
     localBrokerUrl: brokerUrl,
@@ -346,7 +349,10 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
     }
   }
 
-  return result.discovered;
+  return {
+    discovered: result.discovered,
+    probes: result.probes,
+  };
 }
 
 function currentLocalNode(): NodeDefinition {
@@ -3252,10 +3258,11 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/discover") {
     try {
       const body = await readRequestBody<{ seeds?: string[] }>(request);
-      const discovered = await discoverPeers(body.seeds ?? []);
+      const result = await discoverPeers(body.seeds ?? []);
       json(response, 200, {
         ok: true,
-        discovered,
+        discovered: result.discovered,
+        probes: result.probes,
       });
     } catch (error) {
       badRequest(response, error);

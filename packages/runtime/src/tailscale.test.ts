@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readTailscalePeers, readTailscaleSelf } from "./tailscale";
+import {
+  readTailscalePeers,
+  readTailscaleSelf,
+  readTailscaleStatusSummary,
+} from "./tailscale";
 
 const originalFixturePath = process.env.OPENSCOUT_TAILSCALE_STATUS_JSON;
 const tempDirectories = new Set<string>();
@@ -32,6 +36,8 @@ function writeFixture(body: unknown): string {
 describe("tailscale status readers", () => {
   test("reads peer candidates and self identity from a status fixture", async () => {
     process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = writeFixture({
+      BackendState: "Stopped",
+      Health: ["Tailscale is stopped."],
       Self: {
         ID: "self-node",
         HostName: "workstation",
@@ -57,9 +63,10 @@ describe("tailscale status readers", () => {
       },
     });
 
-    const [peers, self] = await Promise.all([
+    const [peers, self, summary] = await Promise.all([
       readTailscalePeers(),
       readTailscaleSelf(),
+      readTailscaleStatusSummary(),
     ]);
 
     expect(peers).toEqual([
@@ -85,6 +92,14 @@ describe("tailscale status readers", () => {
       os: "macOS",
       tailnetName: "example.tailnet",
       magicDnsSuffix: "tailnet.ts.net",
+    });
+
+    expect(summary).toEqual({
+      backendState: "Stopped",
+      running: false,
+      health: ["Tailscale is stopped."],
+      peers,
+      self,
     });
   });
 });

@@ -14,6 +14,8 @@ function issueTone(issue: MeshIssue): "notice" | "warning" | "error" {
 
 function issueBadge(issue: MeshIssue): string {
   switch (issue.code) {
+    case "tailscale_stopped":
+      return "Stopped";
     case "local_only":
       return "Not discoverable";
     case "mesh_loopback":
@@ -101,7 +103,13 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [announcing, setAnnouncing] = useState(false);
+  const [tailscaleBusy, setTailscaleBusy] = useState(false);
   const [announceFeedback, setAnnounceFeedback] = useState<{
+    tone: "success" | "warning";
+    title: string;
+    message: string;
+  } | null>(null);
+  const [tailscaleFeedback, setTailscaleFeedback] = useState<{
     tone: "success" | "warning";
     title: string;
     message: string;
@@ -186,6 +194,37 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     }
   }, []);
 
+  const openTailscale = useCallback(async () => {
+    setTailscaleBusy(true);
+    setTailscaleFeedback(null);
+
+    try {
+      const data = await api<MeshStatus>("/api/mesh/tailscale", {
+        method: "POST",
+        body: JSON.stringify({ action: "open_app" }),
+      });
+      setMesh(data);
+      meshRef.current = data;
+      setError(null);
+      setLastLoadedAt(Date.now());
+      setTailscaleFeedback({
+        tone: data.tailscale.running ? "success" : "warning",
+        title: data.tailscale.running ? "Tailscale is running." : "Tailscale launch requested.",
+        message: data.tailscale.running
+          ? "Mesh discovery can resume on this machine."
+          : "Scout asked macOS to open Tailscale. Approve any prompts, then refresh this page in a moment.",
+      });
+    } catch (tailscaleError) {
+      setTailscaleFeedback({
+        tone: "warning",
+        title: "Could not open Tailscale.",
+        message: tailscaleError instanceof Error ? tailscaleError.message : String(tailscaleError),
+      });
+    } finally {
+      setTailscaleBusy(false);
+    }
+  }, []);
+
   const tone = mesh ? overallMeshTone(mesh) : "warning";
   const statusLabel = mesh ? overallMeshLabel(mesh) : "Loading";
   const nodes = mesh ? Object.values(mesh.nodes) : [];
@@ -231,10 +270,16 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
       },
       {
         label: "Tailnet",
-        value: mesh.tailscale.available
-          ? `${externalTailscalePeers.filter((peer) => peer.online).length}/${externalTailscalePeers.length}`
-          : "Unavailable",
-        detail: mesh.tailscale.available ? "Online peers / visible peers" : "Tailscale peers not detected",
+        value: !mesh.tailscale.available
+          ? "Unavailable"
+          : !mesh.tailscale.running
+            ? "Stopped"
+            : `${externalTailscalePeers.filter((peer) => peer.online).length}/${externalTailscalePeers.length}`,
+        detail: !mesh.tailscale.available
+          ? "Tailscale was not detected on this machine"
+          : !mesh.tailscale.running
+            ? `Backend state: ${mesh.tailscale.backendState ?? "unknown"}`
+            : "Online peers / visible peers",
       },
     ];
   }, [externalTailscalePeers, mesh, remoteNodes.length]);
@@ -250,6 +295,9 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
         </div>
         <div className="sys-page-actions">
           <span className={`sys-chip sys-chip-${tone}`}>{statusLabel}</span>
+          {mesh?.tailscale.available && !mesh.tailscale.running && (
+            <span className="sys-chip sys-chip-warning">Tailnet stopped</span>
+          )}
           <div className="sys-sync-note">
             {loading
               ? "Loading system snapshot..."
@@ -313,6 +361,37 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
               </span>
             </div>
 
+            {mesh.tailscale.available && !mesh.tailscale.running && (
+              <div className="sys-banner sys-banner-warning">
+                <strong>Tailscale is stopped.</strong>
+                <span>
+                  {mesh.tailscale.health[0]
+                    ?? "This machine is showing cached Tailnet peers, but the local Tailscale backend is not running."}
+                </span>
+              </div>
+            )}
+
+            {mesh.tailscale.available && !mesh.tailscale.running && (
+              <div className="sys-inline-actions">
+                <button
+                  type="button"
+                  className="s-btn"
+                  disabled={tailscaleBusy}
+                  onClick={() => void openTailscale()}
+                >
+                  {tailscaleBusy ? "Opening Tailscale..." : "Open Tailscale"}
+                </button>
+                <button
+                  type="button"
+                  className="s-btn"
+                  disabled={tailscaleBusy || refreshing}
+                  onClick={() => void load("manual")}
+                >
+                  {refreshing ? "Refreshing..." : "Refresh status"}
+                </button>
+              </div>
+            )}
+
             <div className="sys-detail-grid">
               <div className="sys-detail-card">
                 <span className="sys-detail-label">Who Am I</span>
@@ -362,6 +441,13 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
               <div className={`sys-banner ${announceFeedback.tone === "success" ? "sys-banner-success" : "sys-banner-warning"}`}>
                 <strong>{announceFeedback.title}</strong>
                 <span>{announceFeedback.message}</span>
+              </div>
+            )}
+
+            {tailscaleFeedback && (
+              <div className={`sys-banner ${tailscaleFeedback.tone === "success" ? "sys-banner-success" : "sys-banner-warning"}`}>
+                <strong>{tailscaleFeedback.title}</strong>
+                <span>{tailscaleFeedback.message}</span>
               </div>
             )}
           </section>
@@ -482,9 +568,11 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
               <div className="sys-list-empty">
                 <h3>No external tailnet peers</h3>
                 <p>
-                  {mesh.tailscale.available
-                    ? "Only this host is visible in the current tailnet snapshot."
-                    : "Tailscale peers were not detected on this machine."}
+                  {!mesh.tailscale.available
+                    ? "Tailscale peers were not detected on this machine."
+                    : !mesh.tailscale.running
+                      ? "Tailscale is installed but currently stopped on this machine."
+                      : "Only this host is visible in the current tailnet snapshot."}
                 </p>
               </div>
             ) : (
