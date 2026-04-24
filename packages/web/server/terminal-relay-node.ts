@@ -11,10 +11,8 @@ import {
   detachSession,
   destroy,
   send,
-  resizeSession,
-  sessionOwnsSocket,
-  writeSession,
 } from "../../../../hudson/packages/hudson-relay/src/relay/session";
+import type { Session } from "../../../../hudson/packages/hudson-relay/src/relay/session";
 import type {
   ClientMessage,
   RelaySocket,
@@ -36,6 +34,38 @@ const port = Number.parseInt(
 const UPLOAD_DIR = "/tmp/scout-uploads";
 
 let pendingCommand: string | null = null;
+
+function sessionOwnsSocket(session: Session, socket: RelaySocket): boolean {
+  return session.ws === socket;
+}
+
+function writeSession(session: Session, data: string): boolean {
+  if (session.exited) {
+    return false;
+  }
+
+  try {
+    session.pty.write(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resizeSession(session: Session, cols: number, rows: number): boolean {
+  if (session.exited) {
+    return false;
+  }
+
+  try {
+    session.pty.resize(cols, rows);
+    session.cols = cols;
+    session.rows = rows;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function queueTerminalCommand(command: string): void {
   for (const [, session] of sessions) {

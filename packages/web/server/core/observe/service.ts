@@ -12,8 +12,8 @@ import {
 } from "@openscout/agent-sessions";
 import {
   getLocalAgentEndpointSessionSnapshot,
-  type RuntimeRegistrySnapshot,
-} from "@openscout/runtime";
+} from "@openscout/runtime/local-agents";
+import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import type { AgentEndpoint } from "@openscout/protocol";
 
 import type { WebAgent } from "../../db-queries.ts";

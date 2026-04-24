@@ -34,7 +34,7 @@ import type { ServerWebSocket } from "bun";
 
 import { realpathSync } from "fs";
 import { homedir } from "os";
-import { broadcastApnsAlertToActiveMobileDevices } from "@openscout/runtime";
+import { broadcastApnsAlertToActiveMobileDevices } from "@openscout/runtime/mobile-push";
 
 import { log } from "./log.ts";
 import type { Bridge } from "./bridge.ts";

@@ -27,7 +27,7 @@ import {
   getScoutMobileSessionSnapshot,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
-import { syncMobilePushRegistration } from "@openscout/runtime";
+import { syncMobilePushRegistration } from "@openscout/runtime/mobile-push";
 import {
   conversationIdForAgent,
   queryMobileAgentDetail,

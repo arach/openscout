@@ -4,7 +4,7 @@
  * relevant Vite clients into dist/ for published packages.
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,7 +46,10 @@ export function bundleScoutControlPlaneWebServerBun(repoRoot, outfile) {
     ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile, "--external", "vite"],
     { cwd: repoRoot, stdio: "inherit" },
   );
-  return (result.status ?? 1) === 0;
+  if ((result.status ?? 1) !== 0) {
+    return false;
+  }
+  return verifyScoutWebBundle(outfile);
 }
 
 /**
@@ -73,5 +76,20 @@ export function buildControlPlaneClientAndCopy(repoRoot, targetClientDir) {
   rmSync(targetClientDir, { recursive: true, force: true });
   mkdirSync(dirname(targetClientDir), { recursive: true });
   cpSync(source, targetClientDir, { recursive: true });
+  return true;
+}
+
+function verifyScoutWebBundle(outfile) {
+  const bundle = readFileSync(outfile, "utf8");
+  const referencesPromiseAll = /\b__promiseAll\s*\(/.test(bundle);
+  const definesPromiseAll = /\b(function|var|let|const)\s+__promiseAll\b/.test(bundle);
+
+  if (referencesPromiseAll && !definesPromiseAll) {
+    console.error(
+      `[bundle-scout-web] unresolved __promiseAll helper emitted in ${outfile}; refusing to ship a broken Scout web bundle`,
+    );
+    return false;
+  }
+
   return true;
 }
