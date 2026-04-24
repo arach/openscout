@@ -1,6 +1,9 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { normalizeServerOpenPath, renderServerCommandHelp } from "./server.ts";
+import { normalizeServerOpenPath, renderServerCommandHelp, resolveBunExecutable } from "./server.ts";
 
 describe("server command helpers", () => {
   test("documents the open workflow", () => {
@@ -18,5 +21,19 @@ describe("server command helpers", () => {
     expect(() => normalizeServerOpenPath("https://local.openscout.app")).toThrow(
       "--path must be a local path, not an absolute URL",
     );
+  });
+
+  test("resolves bun from explicit environment overrides", () => {
+    const directory = mkdtempSync(join(tmpdir(), "scout-server-bun-"));
+    const bunPath = join(directory, "bun");
+
+    try {
+      writeFileSync(bunPath, "#!/bin/sh\nexit 0\n");
+      chmodSync(bunPath, 0o755);
+
+      expect(resolveBunExecutable({ OPENSCOUT_BUN_BIN: bunPath })).toBe(bunPath);
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -153,6 +154,49 @@ function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): 
   const clientDirectory = join(entryDir, "client");
   const indexPath = join(clientDirectory, "index.html");
   return existsSync(indexPath) ? clientDirectory : null;
+}
+
+function isExecutable(filePath: string | undefined | null): filePath is string {
+  if (!filePath) {
+    return false;
+  }
+
+  try {
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveBunExecutable(env: NodeJS.ProcessEnv): string {
+  const explicitPaths = [
+    env.SCOUT_BUN_BIN,
+    env.OPENSCOUT_BUN_BIN,
+    env.BUN_BIN,
+  ].filter((candidate): candidate is string => Boolean(candidate?.trim()));
+
+  for (const candidate of explicitPaths) {
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  const pathEntries = (env.PATH ?? "").split(":").filter(Boolean);
+  const commonDirectories = [
+    join(homedir(), ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+
+  for (const directory of [...pathEntries, ...commonDirectories]) {
+    const candidate = join(directory.replace(/^~(?=$|\/)/, homedir()), "bun");
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "bun";
 }
 
 function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Record<string, string>): NodeJS.ProcessEnv {
@@ -356,8 +400,10 @@ async function openBrowser(url: string): Promise<void> {
 }
 
 async function spawnDetachedServer(entry: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const bunExecutable = resolveBunExecutable(env);
+
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn("bun", ["run", entry], {
+    const child = spawn(bunExecutable, ["run", entry], {
       detached: true,
       stdio: "ignore",
       env,
@@ -481,8 +527,10 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
     return;
   }
 
+  const bunExecutable = resolveBunExecutable(mergedEnv);
+
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn("bun", ["run", selection.entry], {
+    const child = spawn(bunExecutable, ["run", selection.entry], {
       stdio: "inherit",
       env: mergedEnv,
     });

@@ -9,7 +9,10 @@ import {
   handleRelayUpload,
   type RelayWSData,
 } from "./relay.ts";
-import { startManagedTerminalRelay } from "./managed-terminal-relay.ts";
+import {
+  startManagedTerminalRelay,
+  type ManagedTerminalRelay,
+} from "./managed-terminal-relay.ts";
 
 const port = Number(
   process.env.OPENSCOUT_WEB_PORT
@@ -47,10 +50,17 @@ const idleTimeoutSeconds = Number.parseInt(
   10,
 );
 
-const terminalRelay = await startManagedTerminalRelay({
-  hostname,
-  webPort: port,
-});
+let terminalRelay: ManagedTerminalRelay | null = null;
+
+try {
+  terminalRelay = await startManagedTerminalRelay({
+    hostname,
+    webPort: port,
+  });
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[scout] Terminal relay unavailable: ${message}`);
+}
 
 const { app, warmupCaches } = await createOpenScoutWebServer({
   currentDirectory,
@@ -58,11 +68,24 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
   assetMode: useViteProxy ? "vite-proxy" : "static",
   viteDevUrl,
   staticRoot,
-  runTerminalCommand: terminalRelay.queueCommand,
+  runTerminalCommand: terminalRelay?.queueCommand,
 });
 
 const honoFetch = app.fetch;
-const relayWebSocket = createRelayWebSocketProxy(terminalRelay.targetWebSocketUrl);
+const relayWebSocket = terminalRelay
+  ? createRelayWebSocketProxy(terminalRelay.targetWebSocketUrl)
+  : {
+      open(ws: {
+        readyState: number;
+        close(code?: number, reason?: string): void;
+      }) {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1013, "Terminal relay unavailable");
+        }
+      },
+      message() {},
+      close() {},
+    };
 
 const server = Bun.serve<RelayWSData>({
   port,
@@ -82,7 +105,7 @@ const server = Bun.serve<RelayWSData>({
 
     // Relay HTTP routes
     if (req.method === "GET" && url.pathname === "/health") {
-      const relayOk = await terminalRelay.healthcheck();
+      const relayOk = terminalRelay ? await terminalRelay.healthcheck() : false;
       return Response.json(
         { ok: relayOk, relay: relayOk ? "up" : "down" },
         { status: relayOk ? 200 : 503 },
@@ -102,7 +125,7 @@ const server = Bun.serve<RelayWSData>({
 // Graceful shutdown
 const shutdown = () => {
   console.log("\n[scout] Shutting down terminal relay...");
-  terminalRelay.shutdown();
+  terminalRelay?.shutdown();
   server.stop();
   process.exit(0);
 };
