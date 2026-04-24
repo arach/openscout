@@ -43,6 +43,9 @@ export default function DocsIndex() {
             </span>
           </Link>
           <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+            <Link href="/privacy" className="transition-colors hover:text-[var(--site-ink)]">
+              Privacy
+            </Link>
             <span className="text-[var(--site-ink)]">Docs</span>
             <SiteThemeToggle />
           </div>

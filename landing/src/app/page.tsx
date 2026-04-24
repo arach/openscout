@@ -894,6 +894,13 @@ export default function Home() {
                     Docs
                   </a>
                   <a
+                    href="/privacy"
+                    onClick={onNavigationClick("Privacy", "/privacy", "footer")}
+                    className="transition-colors hover:text-[var(--site-ink)]"
+                  >
+                    Privacy
+                  </a>
+                  <a
                     href="https://github.com/arach/openscout"
                     onClick={onCtaClick(
                       "GitHub",
@@ -931,6 +938,7 @@ export default function Home() {
             ["Apps", "#surfaces"],
             ["Get Started", "#get-started"],
             ["Docs", "/docs"],
+            ["Privacy", "/privacy"],
             ["GitHub", "https://github.com/arach/openscout"],
           ].map(([label, href]) => (
             <a
