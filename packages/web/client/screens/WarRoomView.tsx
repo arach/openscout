@@ -112,7 +112,9 @@ export function WarRoomView({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   useEffect(() => {
     const intervalId = setInterval(() => setNowMs(Date.now()), 1000);

@@ -58,7 +58,9 @@ function AgentContextPanel({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">

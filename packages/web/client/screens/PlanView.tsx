@@ -365,7 +365,9 @@ export function PlanView({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   useEffect(() => {
     const intervalId = setInterval(() => setNowMs(Date.now()), 15_000);

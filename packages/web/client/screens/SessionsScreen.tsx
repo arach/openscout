@@ -120,7 +120,9 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -384,11 +386,12 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
                     if (session.id) {
                       items.push({ kind: "action", label: "Copy Conversation ID", onSelect: () => navigator.clipboard.writeText(session.id) });
                     }
-                    if (session.harnessSessionId) {
+                    const harnessSessionId = session.harnessSessionId;
+                    if (harnessSessionId) {
                       items.push({
                         kind: "action",
                         label: "Copy Harness Session ID",
-                        onSelect: () => navigator.clipboard.writeText(session.harnessSessionId),
+                        onSelect: () => navigator.clipboard.writeText(harnessSessionId),
                       });
                     }
                     showContextMenu(e, items);

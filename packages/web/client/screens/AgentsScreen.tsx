@@ -747,7 +747,9 @@ export function AgentsScreen({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   const selectedAgent = selectedAgentId
     ? agents.find((a) => a.id === selectedAgentId) ?? null

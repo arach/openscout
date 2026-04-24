@@ -25,7 +25,12 @@ export function WorkInspector() {
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    if (!workId) {
+      return;
+    }
+    void load();
+  });
 
   if (route.view !== "work") return null;
 

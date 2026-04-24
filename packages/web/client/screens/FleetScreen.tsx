@@ -271,6 +271,8 @@ function FleetActivityRow({
   navigate: (r: Route) => void;
 }) {
   const nextRoute = routeForActivity(item);
+  const sender = item.actorName ?? "system";
+  const recipient = item.agentId && item.agentId !== item.actorName ? item.agentId : null;
 
   return (
     <div
@@ -279,25 +281,26 @@ function FleetActivityRow({
     >
       <div
         className="s-avatar s-avatar-sm"
-        style={{ background: actorColor(item.actorName ?? item.agentId ?? "system") }}
+        style={{ background: actorColor(sender) }}
       >
-        {(item.actorName ?? item.agentId ?? "S")[0]?.toUpperCase() ?? "S"}
+        {sender[0]?.toUpperCase() ?? "S"}
       </div>
-      <div className="s-dashboard-activity-body">
-        <div className="s-dashboard-activity-header">
-          <span className="s-dashboard-activity-actor">{item.actorName ?? "system"}</span>
-          <span className="s-dashboard-activity-kind">{kindLabel(item.kind)}</span>
-          <span className="s-time">{timeAgo(item.ts)}</span>
-        </div>
-        {(item.title || item.summary) && (
-          <p className="s-dashboard-activity-summary">
-            {renderWithMentions(item.title ?? item.summary ?? "")}
-          </p>
-        )}
-        {item.title && item.summary && (
-          <p className="s-dashboard-activity-note">{renderWithMentions(item.summary)}</p>
+      <div className="s-dashboard-activity-actors">
+        <span className="s-dashboard-activity-actor">{sender}</span>
+        {recipient && (
+          <>
+            <span className="s-dashboard-activity-arrow" aria-hidden="true">&rarr;</span>
+            <span className="s-dashboard-activity-recipient">{recipient}</span>
+          </>
         )}
       </div>
+      <span className="s-dashboard-activity-kind">{kindLabel(item.kind)}</span>
+      <span className="s-dashboard-activity-time">{timeAgo(item.ts)}</span>
+      {(item.title || item.summary) && (
+        <p className="s-dashboard-activity-summary">
+          {renderWithMentions(item.title ?? item.summary ?? "")}
+        </p>
+      )}
     </div>
   );
 }
@@ -327,7 +330,9 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 15_000);

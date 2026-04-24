@@ -90,7 +90,9 @@ export function AgentInfoScreen({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   const resolvedAgentId = session?.agentId ?? legacyAgentId;
   const agent = useMemo(

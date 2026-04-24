@@ -18,7 +18,9 @@ export function FleetInspector() {
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   if (!fleet) {
     return (

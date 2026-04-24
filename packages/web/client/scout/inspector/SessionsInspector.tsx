@@ -20,7 +20,9 @@ export function SessionsInspector() {
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   if (route.view !== "sessions") return null;
 

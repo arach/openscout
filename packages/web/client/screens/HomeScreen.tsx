@@ -40,7 +40,7 @@ export function HomeScreen({
 }: {
   navigate: (r: Route) => void;
 }) {
-  const { agents, messages, onlineCount } = useScout();
+  const { agents } = useScout();
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);

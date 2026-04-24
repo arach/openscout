@@ -447,6 +447,18 @@
   align-self: stretch;
 }
 
+.s-thread-feed-block--full-width.s-thread-feed-block--you {
+  align-items: flex-end;
+}
+
+.s-thread-feed-block--full-width.s-thread-feed-block--you .s-thread-day-divider {
+  align-self: stretch;
+}
+
+.s-thread-feed-block--full-width.s-thread-feed-block--you .s-thread-msg {
+  max-width: min(85%, 720px);
+}
+
 .s-thread-day-divider {
   display: flex;
   align-items: center;
@@ -511,7 +523,7 @@
 .s-thread-msg-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
 }
 
 .s-thread-msg-meta {
@@ -554,6 +566,12 @@
   color: var(--dim);
   opacity: 0.85;
   transition: opacity 0.12s ease;
+  margin-left: auto;
+}
+
+.s-thread-msg--you .s-thread-msg-time {
+  margin-left: 0;
+  margin-right: auto;
 }
 
 .s-thread-msg-card:hover .s-thread-msg-time {
@@ -747,16 +765,14 @@
 .s-thread-compose-shell {
   position: relative;
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface));
-  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, var(--surface));
+  border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 2%, transparent);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .s-thread-compose-shell:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--border) 100%, transparent);
 }
 
 .s-thread-compose-row {
