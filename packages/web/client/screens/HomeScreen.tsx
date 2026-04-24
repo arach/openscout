@@ -31,16 +31,12 @@ function greetingFor(hour: number): string {
   return "Good evening";
 }
 
-function operatorName(): string {
-  return "operator";
-}
-
 export function HomeScreen({
   navigate,
 }: {
   navigate: (r: Route) => void;
 }) {
-  const { agents } = useScout();
+  const { agents, onboarding } = useScout();
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
@@ -126,7 +122,10 @@ export function HomeScreen({
   const now = new Date();
   const greeting = greetingFor(now.getHours());
   const opsEnabled = isOpsEnabled();
-
+  const operatorName =
+    onboarding?.operatorName?.trim()
+    || onboarding?.operatorNameSuggestion?.trim()
+    || "operator";
 
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
@@ -158,7 +157,7 @@ export function HomeScreen({
               })}
             </div>
             <h1 className="s-hero-greeting">
-              {greeting}, <em>{operatorName()}.</em>
+              {greeting}, <em>{operatorName}.</em>
             </h1>
             <p className="s-hero-narrative">
               {narrativeParts.map((part, i) => (
@@ -240,6 +239,7 @@ export function HomeScreen({
                 ask={ask}
                 agents={agents}
                 navigate={navigate}
+                operatorName={operatorName}
                 pending
               />
             ))}
@@ -249,6 +249,7 @@ export function HomeScreen({
                 ask={ask}
                 agents={agents}
                 navigate={navigate}
+                operatorName={operatorName}
                 pending={false}
               />
             ))}
@@ -467,11 +468,13 @@ function AskBlock({
   ask,
   agents,
   navigate,
+  operatorName,
   pending,
 }: {
   ask: FleetAsk;
   agents: Agent[];
   navigate: (r: Route) => void;
+  operatorName: string;
   pending: boolean;
 }) {
   const fromAgent = agents.find((a) => a.id === ask.agentId);
@@ -504,7 +507,7 @@ function AskBlock({
           <div className="s-ask-route">
             <span className="s-ask-route-name">{fromName}</span>
             <span> → </span>
-            <span style={{ color: "var(--accent)" }}>operator</span>
+            <span style={{ color: "var(--accent)" }}>{operatorName}</span>
           </div>
           <div className="s-ask-text">
             "{ask.summary ?? ask.task}"

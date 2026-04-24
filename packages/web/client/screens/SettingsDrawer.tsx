@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
+import { useScout } from "../scout/Provider.tsx";
 import type {
   CommsChannel,
   CommsTone,
@@ -365,6 +366,7 @@ const DEFAULT_PROFILE: OperatorProfile = {
 };
 
 export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { refreshOnboarding } = useScout();
   const [section, setSection] = useState<Section>("operator");
   const [profile, setProfile] = useState<OperatorProfile>(DEFAULT_PROFILE);
   const [pairing, setPairing] = useState<PairingState | null>(null);
@@ -403,9 +405,13 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
       void api<OperatorProfile>("/api/user", {
         method: "POST",
         body: JSON.stringify(next),
-      });
+      })
+        .then(() => refreshOnboarding())
+        .catch(() => {
+          /* keep local draft state; next successful load will reconcile */
+        });
     }, 400);
-  }, []);
+  }, [refreshOnboarding]);
 
   const update = useCallback((patch: Partial<OperatorProfile>) => {
     setProfile((prev) => {
