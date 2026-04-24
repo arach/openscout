@@ -8,6 +8,7 @@ import {
   ensureCodexAppServerAgentOnline,
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
+  normalizeCodexAppServerLaunchArgs,
   sendCodexAppServerAgent,
   shutdownCodexAppServerAgent,
 } from "./codex-app-server";
@@ -88,6 +89,52 @@ for await (const line of rl) {
 `, "utf8");
   chmodSync(executablePath, 0o755);
   return executablePath;
+}
+
+function writeArgCaptureFakeCodexExecutable(baseDirectory: string): {
+  executablePath: string;
+  argsPath: string;
+} {
+  const executablePath = join(baseDirectory, "fake-codex-args");
+  const argsPath = join(baseDirectory, "codex-args.json");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+import { writeFileSync } from "node:fs";
+
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)), "utf8");
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    const threadId = String(params.threadId ?? "thread-unknown");
+    const cwd = typeof params.cwd === "string" ? params.cwd : null;
+    const thread = { id: threadId, path: \`/tmp/\${threadId}.jsonl\`, cwd };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return { executablePath, argsPath };
 }
 
 function writeSteerableFakeCodexExecutable(baseDirectory: string): string {
@@ -654,6 +701,45 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 });
 
 describe("ensureCodexAppServerAgentOnline", () => {
+  test("normalizes legacy model launch args for app-server sessions", () => {
+    expect(normalizeCodexAppServerLaunchArgs(["--model", "gpt-5.4-mini"])).toEqual([
+      "-c",
+      "model=\"gpt-5.4-mini\"",
+    ]);
+  });
+
+  test("passes launch args through to the spawned app-server process", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-launch-args-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    const { executablePath, argsPath } = writeArgCaptureFakeCodexExecutable(tempRoot);
+    process.env.OPENSCOUT_CODEX_BIN = executablePath;
+
+    const options = {
+      agentName: "codex-launch-args",
+      sessionId: "attached-codex-launch-args",
+      cwd: "/Users/arach/dev/openscout",
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory,
+      logsDirectory,
+      threadId: "thread-launch-args-1",
+      requireExistingThread: true,
+      launchArgs: ["--model", "gpt-5.4-mini", "--config", "sandbox_workspace_write.enabled=true"],
+    } as const;
+
+    await ensureCodexAppServerAgentOnline(options);
+
+    const argv = JSON.parse(readFileSync(argsPath, "utf8")) as string[];
+    expect(argv).toContain("app-server");
+    expect(argv).toContain("model=\"gpt-5.4-mini\"");
+    expect(argv).toContain("--config");
+    expect(argv).toContain("sandbox_workspace_write.enabled=true");
+    expect(argv).not.toContain("--model");
+
+    await shutdownCodexAppServerAgent(options);
+  });
+
   test("resumes a requested thread id without starting a new thread", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-attach-test-"));
     tempPaths.add(tempRoot);

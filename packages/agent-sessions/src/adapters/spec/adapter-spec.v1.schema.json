@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openscout.dev/schemas/adapter-spec.v1.schema.json",
+  "$id": "https://openscout.app/schemas/adapter-spec.v1.schema.json",
   "title": "OpenScout Adapter Spec v1",
   "type": "object",
   "additionalProperties": false,

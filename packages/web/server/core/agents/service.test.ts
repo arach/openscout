@@ -105,10 +105,18 @@ describe("agent service", () => {
       projectPath: "/tmp/alpha",
       agentName: "alpha",
       harness: "codex",
+      model: "gpt-5.4-mini",
     });
 
     expect(result).toEqual(status);
-    expect(startLocalAgent.mock.calls).toHaveLength(1);
+    expect(startLocalAgent.mock.calls).toEqual([
+      [{
+        projectPath: "/tmp/alpha",
+        agentName: "alpha",
+        harness: "codex",
+        model: "gpt-5.4-mini",
+      }],
+    ]);
     expect(registerScoutLocalAgentBinding.mock.calls).toEqual([
       [{ agentId: "alpha.test-node" }],
     ]);
@@ -178,6 +186,7 @@ describe("agent service", () => {
       projectPath: "/tmp/alpha",
       currentDirectory: "/tmp/alpha",
       createdById: "operator",
+      model: "gpt-5.4-mini",
     });
 
     expect(card.agentId).toBe(binding.agent.id);
@@ -188,6 +197,14 @@ describe("agent service", () => {
     expect(card.createdById).toBe("operator");
     expect(card.inboxConversationId).toBe("conv-alpha");
     expect(card.returnAddress.conversationId).toBe("conv-alpha");
+    expect(startLocalAgent.mock.calls).toEqual([
+      [{
+        projectPath: "/tmp/alpha",
+        currentDirectory: "/tmp/alpha",
+        createdById: "operator",
+        model: "gpt-5.4-mini",
+      }],
+    ]);
     expect(registerScoutLocalAgentBinding.mock.calls).toEqual([
       [{ agentId: binding.agent.id, broker }],
     ]);

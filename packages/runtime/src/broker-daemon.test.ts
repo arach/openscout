@@ -1385,6 +1385,99 @@ describe("broker daemon comms layer", () => {
     expect(typeof flight?.completedAt).toBe("number");
   }, 15_000);
 
+  test("does not treat the same invocation as newer work during stale reconciliation", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const firstHarness = await startBroker({ controlHome });
+    await seedBasicConversation(firstHarness);
+
+    await postJson(firstHarness.baseUrl, "/v1/agents", {
+      id: "arc",
+      kind: "agent",
+      definitionId: "arc",
+      displayName: "Arc",
+      handle: "arc",
+      labels: ["test"],
+      selector: "@arc",
+      defaultSelector: "@arc",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: firstHarness.nodeId,
+      authorityNodeId: firstHarness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const startedAt = Date.now() - 60_000;
+    await postJson(firstHarness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-arc",
+      agentId: "arc",
+      nodeId: firstHarness.nodeId,
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "active",
+      address: null,
+      sessionId: "relay-arc",
+      pane: null,
+      cwd: "/tmp/arc",
+      projectRoot: "/tmp/arc",
+      metadata: {
+        source: "test",
+        lastInvocationId: "inv-same-arc",
+        lastStartedAt: startedAt + 1_000,
+      },
+    });
+
+    firstHarness.child.kill();
+    await firstHarness.child.exited.catch(() => {});
+    harnesses.delete(firstHarness);
+
+    appendFileSync(
+      join(controlHome, "broker-journal.jsonl"),
+      [
+        JSON.stringify({
+          kind: "invocation.record",
+          invocation: {
+            id: "inv-same-arc",
+            requesterId: "operator",
+            requesterNodeId: firstHarness.nodeId,
+            targetAgentId: "arc",
+            action: "consult",
+            task: "still there?",
+            conversationId: "channel.shared",
+            ensureAwake: true,
+            stream: false,
+            createdAt: startedAt,
+          },
+        }),
+        JSON.stringify({
+          kind: "flight.record",
+          flight: {
+            id: "flt-same-arc",
+            invocationId: "inv-same-arc",
+            requesterId: "operator",
+            targetAgentId: "arc",
+            state: "running",
+            summary: "Arc is working.",
+            startedAt,
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const secondHarness = await startBroker({ controlHome });
+    await waitFor(async () => getJson<{
+      flights: Record<string, { state: string }>;
+    }>(secondHarness.baseUrl, "/v1/snapshot"), (next) => Boolean(next.flights["flt-same-arc"]));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const snapshot = await getJson<{
+      flights: Record<string, { state: string; error?: string }>;
+    }>(secondHarness.baseUrl, "/v1/snapshot");
+
+    expect(snapshot.flights["flt-same-arc"]?.state).toBe("running");
+    expect(snapshot.flights["flt-same-arc"]?.error).toBeUndefined();
+  }, 15_000);
+
   test("rebuilds the sqlite projection from the file journal after degraded writes", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const degradedHarness = await startBroker({
