@@ -14,7 +14,6 @@
     "check": "npm run protocol:check && bun run --cwd apps/desktop check && npm run runtime:check && bun run cloud:check",
     "test:happy": "cd apps/desktop && bun run test:happy && cd ../../packages/cli && bun run test:happy",
     "test:scenarios": "npm --prefix packages/runtime run test:scenarios",
-
     "cli:build": "npm run protocol:build && npm run runtime:build && npm --prefix packages/cli run build",
     "cli:dev": "npm --prefix packages/cli run dev",
     "web:build": "npm --prefix packages/web run build",
@@ -25,14 +24,12 @@
     "runtime:broker": "npm --prefix packages/runtime run broker",
     "runtime:discover": "npm --prefix packages/runtime run discover",
     "runtime:service": "npm --prefix packages/runtime run service",
-
     "cloud:build": "cd apps/cloud && bun run build",
     "cloud:check": "cd apps/cloud && bun run check",
     "cloud:dev": "cd apps/cloud && bun run dev",
     "cloud:start": "cd apps/cloud && bun run start",
     "landing:build": "cd landing && bun install && bun run build",
     "landing:dev": "cd landing && bun install && bun run dev",
-
     "macos:build": "bun ./apps/macos/bin/openscout-menu.ts build",
     "macos:launch": "bun ./apps/macos/bin/openscout-menu.ts launch",
     "macos:restart": "bun ./apps/macos/bin/openscout-menu.ts restart",
@@ -52,5 +49,8 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
-  ]
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
 }
