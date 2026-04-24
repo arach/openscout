@@ -178,6 +178,7 @@ describe("createScoutMcpServer", () => {
   });
 
   test("creates a reply-ready card from the current sender and directory", async () => {
+    let receivedModel: string | undefined;
     const { client } = await connectTestServer({
       resolveSenderId: async () => "scout.main.mini",
       resolveBrokerUrl: () => "http://broker.test",
@@ -192,7 +193,10 @@ describe("createScoutMcpServer", () => {
         currentDirectory,
         createdById,
         agentName,
-      }) => ({
+        model,
+      }) => {
+        receivedModel = model;
+        return {
         id: "scout-codex-reply.main.mini",
         agentId: "scout-codex-reply.main.mini",
         definitionId: agentName ?? "scout-codex-reply",
@@ -213,7 +217,8 @@ describe("createScoutMcpServer", () => {
           defaultSelector: "@scout-codex-reply",
           conversationId: "dm.scout-codex-reply.main.mini.scout.main.mini",
         },
-      }),
+        };
+      },
       sendMessage: async () => ({
         usedBroker: true,
         invokedTargets: [],
@@ -238,6 +243,7 @@ describe("createScoutMcpServer", () => {
       name: "card_create",
       arguments: {
         agentName: "scout-codex-reply",
+        model: "gpt-5.4-mini",
       },
     });
 
@@ -264,6 +270,7 @@ describe("createScoutMcpServer", () => {
     expect(structured.card.returnAddress.conversationId).toBe(
       "dm.scout-codex-reply.main.mini.scout.main.mini",
     );
+    expect(receivedModel).toBe("gpt-5.4-mini");
   });
 
   test("awaits explicit ask-by-id flights when requested", async () => {

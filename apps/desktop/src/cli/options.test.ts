@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseImplicitAskCommandOptions } from "./options.ts";
+import {
+  parseCardCreateCommandOptions,
+  parseImplicitAskCommandOptions,
+} from "./options.ts";
 
 describe("parseImplicitAskCommandOptions", () => {
   test("extracts a target agent from natural language input", () => {
@@ -42,5 +45,19 @@ describe("parseImplicitAskCommandOptions", () => {
         ["@dewey", "check", "with", "@hudson", "about", "this"],
         "/tmp/workspace",
       )).toThrow("implicit ask supports exactly one @agent mention");
+  });
+});
+
+describe("parseCardCreateCommandOptions", () => {
+  test("accepts an explicit model override", () => {
+    const options = parseCardCreateCommandOptions(
+      ["--name", "shellfix", "--harness", "codex", "--model", "gpt-5.4-mini", "/tmp/worktree"],
+      "/tmp/workspace",
+    );
+
+    expect(options.agentName).toBe("shellfix");
+    expect(options.harness).toBe("codex");
+    expect(options.model).toBe("gpt-5.4-mini");
+    expect(options.projectPath).toBe("/tmp/worktree");
   });
 });

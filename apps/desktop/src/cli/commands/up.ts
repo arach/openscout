@@ -18,6 +18,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   let target: string | null = null;
   let agentName: string | undefined;
   let harness: string | undefined;
+  let model: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const current = args[index] ?? "";
@@ -47,6 +48,19 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
       harness = current.slice("--harness=".length);
       continue;
     }
+    if (current === "--model") {
+      const value = args[index + 1];
+      if (!value) {
+        throw new ScoutCliError("missing value for --model");
+      }
+      model = value;
+      index += 1;
+      continue;
+    }
+    if (current.startsWith("--model=")) {
+      model = current.slice("--model=".length);
+      continue;
+    }
     if (current.startsWith("--")) {
       throw new ScoutCliError(`unexpected argument for up: ${current}`);
     }
@@ -57,7 +71,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   }
 
   if (!target) {
-    throw new ScoutCliError("usage: scout up <name|path> [--name <alias>] [--harness <claude|codex>]");
+    throw new ScoutCliError("usage: scout up <name|path> [--name <alias>] [--harness <claude|codex>] [--model <model>]");
   }
 
   let projectPath: string;
@@ -76,6 +90,7 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
     projectPath,
     agentName,
     harness: parseScoutHarness(harness),
+    model,
     currentDirectory: defaultScoutContextDirectory(context),
   });
 
