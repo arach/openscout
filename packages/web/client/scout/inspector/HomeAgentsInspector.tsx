@@ -9,7 +9,7 @@ export function HomeAgentsInspector() {
 
   if (agents.length === 0) {
     return (
-      <div className="flex flex-col h-full items-center justify-center px-4 text-center text-[11px] text-white/30 font-mono leading-relaxed">
+      <div className="flex h-full flex-col items-center justify-center px-4 text-center font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
         <div className="mb-1 uppercase tracking-[0.15em]">No agents</div>
         <div>Connect an agent to see your roster here.</div>
       </div>
@@ -51,10 +51,10 @@ function Section({
   return (
     <div className="flex flex-col">
       <div className="flex items-baseline justify-between mb-1.5">
-        <span className="text-[9px] font-mono uppercase tracking-[0.15em] text-white/30">
+        <span className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
           {label}
         </span>
-        <span className="text-[9px] font-mono tabular-nums text-white/25">
+        <span className="text-[9px] font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">
           {count}
         </span>
       </div>
@@ -78,27 +78,29 @@ function AgentRow({
       onClick={() => navigate({ view: "agents", agentId: agent.id })}
       className={`group flex items-center gap-2.5 px-2 py-1.5 rounded-sm text-left transition-colors ${
         dim
-          ? "opacity-60 hover:opacity-100 hover:bg-white/[0.03]"
-          : "hover:bg-white/[0.03]"
+          ? "opacity-60 hover:opacity-100 hover:bg-[var(--scout-chrome-hover)]"
+          : "hover:bg-[var(--scout-chrome-hover)]"
       }`}
     >
-      <div className="relative w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-mono text-black/80 shrink-0"
-           style={{ background: actorColor(agent.name) }}>
+      <div
+        className="relative h-6 w-6 shrink-0 rounded-full text-[10px] font-mono flex items-center justify-center text-[var(--scout-chrome-avatar-ink)]"
+        style={{ background: actorColor(agent.name) }}
+      >
         {agent.name[0]?.toUpperCase() ?? "?"}
         {online && (
-          <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-neutral-950" />
+          <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-[var(--hud-bg)]" />
         )}
       </div>
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="text-[12px] text-white/80 truncate group-hover:text-white transition-colors">
+        <span className="truncate text-[12px] text-[var(--scout-chrome-ink)] transition-colors group-hover:text-[var(--scout-chrome-ink-strong)]">
           {agent.name}
         </span>
-        <span className="text-[10px] font-mono text-white/30 truncate">
+        <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
           {agentStateLabel(agent.state)}
         </span>
       </div>
       {agent.updatedAt && (
-        <span className="text-[9px] font-mono tabular-nums text-white/25 shrink-0">
+        <span className="shrink-0 text-[9px] font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">
           {timeAgo(agent.updatedAt)}
         </span>
       )}

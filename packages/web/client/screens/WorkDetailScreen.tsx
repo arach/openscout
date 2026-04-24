@@ -151,7 +151,9 @@ export function WorkDetailScreen({
     setLoaded(false);
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   if (!loaded) {
     return (

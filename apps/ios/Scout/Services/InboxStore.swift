@@ -6,8 +6,17 @@ import UserNotifications
 @MainActor
 @Observable
 final class InboxStore {
+    private let defaults = UserDefaults.standard
+    private let notifiedDefaultsKey = "scout.inboxNotifiedItemIds"
+
     private(set) var items: [MobileInboxItem] = []
     private(set) var unreadItemIds: Set<String> = []
+    private(set) var focusedItemId: String?
+    private var notifiedItemIds: Set<String>
+
+    init() {
+        notifiedItemIds = Set(defaults.stringArray(forKey: notifiedDefaultsKey) ?? [])
+    }
 
     var unreadCount: Int {
         unreadItemIds.count
@@ -17,7 +26,10 @@ final class InboxStore {
         items.count
     }
 
-    func refresh(using connection: ConnectionManager) async {
+    func refresh(
+        using connection: ConnectionManager,
+        presentNotifications: Bool = false
+    ) async {
         guard connection.state == .connected else { return }
 
         do {
@@ -26,7 +38,7 @@ final class InboxStore {
                 items: response.items,
                 replaceExisting: true,
                 markNewAsUnread: true,
-                presentNotifications: false
+                presentNotifications: presentNotifications
             )
         } catch {
             // The inbox is secondary UI. Keep the last known state if refresh fails.
@@ -48,11 +60,25 @@ final class InboxStore {
         syncAppBadge()
     }
 
+    func focusItem(id: String?) {
+        let trimmed = id?.trimmingCharacters(in: .whitespacesAndNewlines)
+        focusedItemId = (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
+    func clearFocusedItem() {
+        focusedItemId = nil
+    }
+
     func removeItem(id: String) {
         items.removeAll { $0.id == id }
         unreadItemIds.remove(id)
+        notifiedItemIds.remove(id)
+        if focusedItemId == id {
+            focusedItemId = nil
+        }
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
+        persistNotifiedItemIds()
         syncAppBadge()
     }
 
@@ -60,8 +86,11 @@ final class InboxStore {
         let ids = items.map(\.id)
         items = []
         unreadItemIds.removeAll()
+        notifiedItemIds.subtract(ids)
+        focusedItemId = nil
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
+        persistNotifiedItemIds()
         syncAppBadge()
     }
 
@@ -90,6 +119,10 @@ final class InboxStore {
             for id in idsToRemove {
                 mergedById.removeValue(forKey: id)
                 unreadItemIds.remove(id)
+                notifiedItemIds.remove(id)
+                if focusedItemId == id {
+                    focusedItemId = nil
+                }
                 UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
                 UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
             }
@@ -99,24 +132,43 @@ final class InboxStore {
             $0.createdAt > $1.createdAt || ($0.createdAt == $1.createdAt && $0.id < $1.id)
         }
         unreadItemIds = Set(unreadItemIds.filter { mergedById[$0] != nil })
+        if let focusedItemId, mergedById[focusedItemId] == nil {
+            self.focusedItemId = nil
+        }
+        persistNotifiedItemIds()
         syncAppBadge()
     }
 
     private func scheduleNotification(for item: MobileInboxItem) {
-        let content = UNMutableNotificationContent()
-        content.title = item.title
-        content.subtitle = item.sessionName
-        content.body = item.description
-        content.sound = .default
-        content.badge = NSNumber(value: unreadCount)
-        content.threadIdentifier = "scout.inbox"
-        content.userInfo = [
-            "destination": "inbox",
-            "itemId": item.id,
-        ]
+        guard !notifiedItemIds.contains(item.id) else { return }
 
-        let request = UNNotificationRequest(identifier: item.id, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        Task { @MainActor in
+            guard !notifiedItemIds.contains(item.id) else { return }
+
+            let authorizationStatus = await PermissionAuthorizations.notificationAuthorizationStatus()
+            guard authorizationStatus.allowsRemoteNotifications else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = item.title
+            content.subtitle = item.sessionName
+            content.body = item.description
+            content.sound = .default
+            content.badge = NSNumber(value: unreadCount)
+            content.threadIdentifier = "scout.inbox"
+            content.userInfo = [
+                "destination": "inbox",
+                "itemId": item.id,
+            ]
+
+            let request = UNNotificationRequest(identifier: item.id, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request)
+            notifiedItemIds.insert(item.id)
+            persistNotifiedItemIds()
+        }
+    }
+
+    private func persistNotifiedItemIds() {
+        defaults.set(Array(notifiedItemIds).sorted(), forKey: notifiedDefaultsKey)
     }
 
     private func syncAppBadge() {
@@ -125,5 +177,33 @@ final class InboxStore {
         } else {
             UIApplication.shared.applicationIconBadgeNumber = unreadCount
         }
+    }
+}
+
+extension InboxStore {
+    static func screenshotPreview() -> InboxStore {
+        let store = InboxStore()
+        let now = Int(Date().timeIntervalSince1970)
+        store.items = [
+            MobileInboxItem(
+                id: "approval-1",
+                kind: .approval,
+                createdAt: now - 120,
+                sessionId: "s1",
+                sessionName: "Refactor auth",
+                adapterType: "claude-code",
+                turnId: "t1",
+                blockId: "b3",
+                version: 1,
+                risk: .medium,
+                title: "Approval needed",
+                description: "Confirm the proposed auth refactor before the agent writes files.",
+                detail: "Update src/auth/jwt.ts and src/auth/session.ts",
+                actionKind: .fileChange,
+                actionStatus: .awaitingApproval
+            )
+        ]
+        store.unreadItemIds = Set(store.items.map(\.id))
+        return store
     }
 }

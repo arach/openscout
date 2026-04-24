@@ -10,6 +10,7 @@ import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
 import { docsComponents } from "./mdx-components";
+import { SiteThemeToggle } from "@/components/site-theme-toggle";
 
 const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
   () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
@@ -145,7 +146,7 @@ function StateFlow({ states, terminal = [] }: { states: string[]; terminal?: str
               {state}
             </button>
             {i < states.length - 1 && (
-              <ArrowRightIcon className="h-3 w-3 text-[#c4c0b8] flex-shrink-0" />
+              <ArrowRightIcon className="h-3 w-3 flex-shrink-0 text-[var(--site-muted-soft)]" />
             )}
           </span>
         );
@@ -188,7 +189,7 @@ function ArcDiagramEmbed({ src }: { src: string }) {
     <div className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg border border-black/[0.08]" style={{ aspectRatio }}>
       <ArcDiagram
         data={data}
-        className="w-full h-full !rounded-none !border-0 !shadow-none !bg-[#fafafa]"
+        className="w-full h-full !rounded-none !border-0 !shadow-none !bg-[var(--site-docs-bg)]"
         mode="light"
         theme="cool"
         interactive={true}
@@ -258,36 +259,37 @@ export function DocView({
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#fafafa] text-[#111110]">
+    <div className="site-docs min-h-screen bg-[var(--site-docs-bg)] text-[var(--site-ink)]">
       {/* Header */}
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-black/[0.08] bg-[#fafafa]/90 backdrop-blur-xl">
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-[var(--site-border-soft)] bg-[var(--site-docs-bg-strong)] backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[92rem] items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-3">
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
+            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
             </span>
           </Link>
-          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
-            <Link href="/docs" className="transition-colors hover:text-[#111110]">
+          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+            <Link href="/docs" className="transition-colors hover:text-[var(--site-ink)]">
               Docs
             </Link>
             <span className="hidden sm:block truncate">{title}</span>
+            <SiteThemeToggle />
           </div>
         </div>
         <div className="absolute inset-x-0 bottom-0 h-[2px]">
-          <div className="h-full bg-[#111110]/20 transition-[width] duration-150" style={{ width: `${scrollProgress * 100}%` }} />
+          <div className="h-full bg-[var(--site-progress)] transition-[width] duration-150" style={{ width: `${scrollProgress * 100}%` }} />
         </div>
       </header>
 
       <main className="relative z-10 mx-auto max-w-[92rem] pt-14">
         <div className="grid lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_13rem]">
           {/* Sidebar — rail, not card */}
-          <aside className="hidden lg:block border-r border-black/[0.08] sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto">
+          <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-[var(--site-border-soft)] lg:block">
             <div className="py-6 px-4">
               <div className="space-y-0">
                 {navigation.map((group, groupIdx) => (
-                  <section key={group.title} className={groupIdx > 0 ? "mt-5 pt-4 border-t border-black/[0.08]" : ""}>
-                    <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579] px-3 mb-2">
+                  <section key={group.title} className={groupIdx > 0 ? "mt-5 border-t border-[var(--site-border-soft)] pt-4" : ""}>
+                    <p className="mb-2 px-3 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                       {group.title}
                     </p>
                     <div className="space-y-0.5">
@@ -300,8 +302,8 @@ export function DocView({
                             href={`/docs/${item.id}`}
                             className={`block rounded-xl px-3 py-2 text-[13px] transition-colors ${
                               isActive
-                                ? "bg-[#111110] text-white font-semibold"
-                                : "text-[#4c4841] hover:bg-black/[0.04]"
+                                ? "bg-[var(--site-ink)] font-semibold text-[var(--site-ink-contrast)]"
+                                : "text-[var(--site-copy)] hover:bg-[var(--site-panel)]"
                             }`}
                           >
                             {item.title}
@@ -317,14 +319,14 @@ export function DocView({
 
           {/* Mobile sidebar */}
           <div className="mb-4 px-4 pt-6 lg:hidden">
-            <details className="border border-black/[0.08] rounded-xl p-4">
-              <summary className="cursor-pointer list-none text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+            <details className="rounded-xl border border-[var(--site-border-soft)] p-4">
+              <summary className="cursor-pointer list-none text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                 Browse Docs
               </summary>
-              <div className="mt-4 space-y-4 border-t border-black/[0.08] pt-4">
+              <div className="mt-4 space-y-4 border-t border-[var(--site-border-soft)] pt-4">
                 {navigation.map((group) => (
                   <section key={group.title}>
-                    <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579] mb-2">
+                    <p className="mb-2 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                       {group.title}
                     </p>
                     <div className="space-y-0.5">
@@ -337,8 +339,8 @@ export function DocView({
                             href={`/docs/${item.id}`}
                             className={`block rounded-xl px-3 py-2 text-sm transition-colors ${
                               isActive
-                                ? "bg-[#111110] text-white font-semibold"
-                                : "text-[#4c4841] hover:bg-black/[0.04]"
+                                ? "bg-[var(--site-ink)] font-semibold text-[var(--site-ink-contrast)]"
+                                : "text-[var(--site-copy)] hover:bg-[var(--site-panel)]"
                             }`}
                           >
                             {item.title}
@@ -355,10 +357,10 @@ export function DocView({
           {/* Article — content region, not a card */}
           <article className="px-6 sm:px-10 lg:px-14 py-6">
             <div className="max-w-3xl">
-              <h1 className="font-[family-name:var(--font-spectral)] text-3xl font-semibold tracking-[-0.02em] text-[#111110] sm:text-4xl">
+              <h1 className="font-[family-name:var(--font-spectral)] text-3xl font-semibold tracking-[-0.02em] text-[var(--site-ink)] sm:text-4xl">
                 {title}
               </h1>
-              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[#5e5a52]">
+              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[var(--site-copy)]">
                 {description}
               </p>
             </div>
@@ -366,8 +368,8 @@ export function DocView({
             {/* Inline ToC for small screens */}
             {headings.length > 0 ? (
               <div className="mt-8 xl:hidden">
-                <div className="border border-black/[0.08] rounded-xl p-4">
-                  <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+                <div className="rounded-xl border border-[var(--site-border-soft)] p-4">
+                  <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                     On This Page
                   </p>
                   <div className="mt-3 space-y-1">
@@ -375,9 +377,9 @@ export function DocView({
                       <a
                         key={heading.id}
                         href={`#${heading.id}`}
-                        className={`block py-1 text-[13px] transition-colors hover:text-[#111110] ${
+                        className={`block py-1 text-[13px] transition-colors hover:text-[var(--site-ink)] ${
                           heading.depth === 3 ? "ml-4" : ""
-                        } ${activeId === heading.id ? "text-[#111110] font-medium" : "text-[#4c4841]"}`}
+                        } ${activeId === heading.id ? "font-medium text-[var(--site-ink)]" : "text-[var(--site-copy)]"}`}
                       >
                         {heading.title}
                       </a>
@@ -404,17 +406,17 @@ export function DocView({
             </div>
 
             {prevPage || nextPage ? (
-              <nav className="mt-12 grid gap-3 border-t border-black/[0.08] pt-8 md:grid-cols-2">
+              <nav className="mt-12 grid gap-3 border-t border-[var(--site-border-soft)] pt-8 md:grid-cols-2">
                 {prevPage ? (
                   <Link
                     href={`/docs/${prevPage.id}`}
-                    className="group rounded-xl border border-black/[0.08] p-4 transition-all hover:border-black/[0.15]"
+                    className="group rounded-xl border border-[var(--site-border-soft)] p-4 transition-all hover:border-[var(--site-border-strong)]"
                   >
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579] flex items-center gap-1.5">
+                    <span className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                       <ArrowLeft className="h-3 w-3" />
                       Previous
                     </span>
-                    <span className="mt-2 block text-sm font-medium text-[#111110]">
+                    <span className="mt-2 block text-sm font-medium text-[var(--site-ink)]">
                       {prevPage.title}
                     </span>
                   </Link>
@@ -424,13 +426,13 @@ export function DocView({
                 {nextPage ? (
                   <Link
                     href={`/docs/${nextPage.id}`}
-                    className="group rounded-xl border border-black/[0.08] p-4 text-left transition-all hover:border-black/[0.15]"
+                    className="group rounded-xl border border-[var(--site-border-soft)] p-4 text-left transition-all hover:border-[var(--site-border-strong)]"
                   >
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579] flex items-center justify-end gap-1.5">
+                    <span className="flex items-center justify-end gap-1.5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                       Next
                       <ArrowRight className="h-3 w-3" />
                     </span>
-                    <span className="mt-2 block text-right text-sm font-medium text-[#111110]">
+                    <span className="mt-2 block text-right text-sm font-medium text-[var(--site-ink)]">
                       {nextPage.title}
                     </span>
                   </Link>
@@ -441,9 +443,9 @@ export function DocView({
 
           {/* Table of Contents — rail, not card */}
           {headings.length > 0 ? (
-            <aside className="hidden xl:block border-l border-black/[0.08] sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto">
+            <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-l border-[var(--site-border-soft)] xl:block">
               <div className="py-6 px-5">
-                <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+                <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                   On This Page
                 </p>
                 <div className="mt-3 space-y-1">
@@ -451,9 +453,9 @@ export function DocView({
                     <a
                       key={heading.id}
                       href={`#${heading.id}`}
-                      className={`block py-1 text-[13px] transition-colors hover:text-[#111110] ${
+                      className={`block py-1 text-[13px] transition-colors hover:text-[var(--site-ink)] ${
                         heading.depth === 3 ? "ml-3" : ""
-                      } ${activeId === heading.id ? "text-[#111110] font-medium" : "text-[#4c4841]"}`}
+                      } ${activeId === heading.id ? "font-medium text-[var(--site-ink)]" : "text-[var(--site-copy)]"}`}
                     >
                       {heading.title}
                     </a>

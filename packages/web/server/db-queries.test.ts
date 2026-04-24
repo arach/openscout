@@ -10,6 +10,7 @@ import {
   queryAgents,
   queryFleet,
   queryFlights,
+  queryHeartrate,
   queryMobileAgentDetail,
   queryRecentMessages,
   querySessions,
@@ -165,6 +166,65 @@ describe("web db query flights", () => {
           completedAt: null,
         },
       ]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db query heartrate", () => {
+  test("returns a smoothed trailing 7 day series across millisecond and second timestamps", () => {
+    const store = createSeededStore();
+    const now = 1_700_000_000_000;
+
+    try {
+      store.recordMessage({
+        id: "msg-heartrate-1",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Six days ago.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 6 * 24 * 60 * 60_000,
+      });
+      store.recordMessage({
+        id: "msg-heartrate-2",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Yesterday.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 24 * 60 * 60_000,
+      });
+      store.recordFlight({
+        id: "flight-heartrate-seconds",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Seconds timestamp activity.",
+        startedAt: Math.floor((now - 90 * 60_000) / 1000),
+        completedAt: Math.floor((now - 30 * 60_000) / 1000),
+      });
+
+      const heartrate = queryHeartrate(56, now);
+      const filledIndexes = heartrate.buckets
+        .map((bucket, index) => bucket.count > 0 ? index : -1)
+        .filter((index) => index >= 0);
+
+      expect(heartrate.windowLabel).toBe("trailing 7d");
+      expect(heartrate.bucketLabel).toBe("3h buckets");
+      expect(heartrate.buckets).toHaveLength(56);
+      expect(heartrate.buckets.reduce((total, bucket) => total + bucket.count, 0)).toBe(3);
+      expect(filledIndexes.length).toBe(3);
+
+      const firstFilled = filledIndexes[0] ?? -1;
+      expect(heartrate.buckets[firstFilled].value).toBeGreaterThan(0);
+      expect(heartrate.buckets[firstFilled + 1].value).toBeGreaterThan(0);
     } finally {
       store.close();
     }
@@ -882,6 +942,55 @@ describe("web db query fleet", () => {
         createdAt: now - 20_000,
         updatedAt: now - 10_000,
       });
+      store.upsertActor({
+        id: "agent-4",
+        kind: "agent",
+        displayName: "Agent Four",
+      });
+      store.upsertAgent({
+        id: "agent-4",
+        kind: "agent",
+        definitionId: "agent-4",
+        displayName: "Agent Four",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "conv-4",
+        kind: "direct",
+        title: "Direct Four",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-4", "operator"],
+      });
+      store.recordInvocation({
+        id: "inv-4",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-4",
+        action: "consult",
+        task: "Synthetic stale failure",
+        conversationId: "conv-4",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 45_000,
+      });
+      store.recordFlight({
+        id: "flight-4",
+        invocationId: "inv-4",
+        requesterId: "operator",
+        targetAgentId: "agent-4",
+        state: "failed",
+        summary: "Agent Four did not finish cleanly.",
+        error: "Stale running flight reconciled: endpoint endpoint-4 started newer work at 1234567890",
+        startedAt: now - 44_000,
+        completedAt: now - 43_000,
+      });
 
       const fleet = queryFleet({ limit: 10, activityLimit: 20 });
 
@@ -918,6 +1027,8 @@ describe("web db query fleet", () => {
         }),
       ]);
       expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
+      expect(fleet.recentCompleted.some((ask) => ask.agentId === "agent-4")).toBe(false);
+      expect(fleet.activity.some((item) => item.id === "activity:flight:flight-4")).toBe(false);
     } finally {
       store.close();
     }

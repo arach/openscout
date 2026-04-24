@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import {
   compactAgentId,
-  minimalAgentDisplayName,
   minimalAgentHandle,
 } from "../lib/agent-labels.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -91,7 +90,9 @@ export function AgentInfoScreen({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   const resolvedAgentId = session?.agentId ?? legacyAgentId;
   const agent = useMemo(
@@ -116,13 +117,7 @@ export function AgentInfoScreen({
   }
 
   const shortHandle = minimalAgentHandle(agent);
-  const displayName = minimalAgentDisplayName({
-    name: agent.name,
-    id: agent.id,
-  });
   const identityItems: ProfileField[] = [
-    { label: "Agent", value: displayName },
-    ...(shortHandle ? [{ label: "Handle", value: shortHandle }] : []),
     { label: "System ID", value: agent.id },
     { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
     ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
@@ -137,7 +132,6 @@ export function AgentInfoScreen({
     ...(agent.cwd ? [{ label: "Working dir", value: agent.cwd }] : []),
   ];
   const runtimeItems: ProfileField[] = [
-    { label: "State", value: agentStateLabel(agent.state) },
     ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
     ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
     ...(agent.wakePolicy ? [{ label: "Wake policy", value: formatLabel(agent.wakePolicy) ?? agent.wakePolicy }] : []),
@@ -145,7 +139,6 @@ export function AgentInfoScreen({
   ];
   const conversationItems: ProfileField[] = [
     { label: "Thread ID", value: conversationId },
-    ...(session?.title ? [{ label: "Title", value: session.title }] : []),
     ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
     ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
     ...(session?.messageCount != null ? [{ label: "Messages", value: String(session.messageCount) }] : []),
@@ -195,11 +188,6 @@ export function AgentInfoScreen({
                 </span>
               </div>
               <h1 className="s-agent-profile-hero-title">{agent.name}</h1>
-              <p className="s-agent-profile-hero-copyline">
-                {[shortHandle, agent.project, agent.branch, formatLabel(agent.role) ?? formatLabel(agent.agentClass)]
-                  .filter(Boolean)
-                  .join(" • ")}
-              </p>
               <p className="s-agent-profile-hero-context">
                 {session?.title
                   ? `Conversation: ${session.title}.`

@@ -187,54 +187,88 @@ struct HarnessPickerView: View {
                 .foregroundStyle(ScoutColors.textMuted)
 
             ForEach(existingSessions) { summary in
-                Button {
-                    onAction(.resume(sessionId: summary.sessionId))
-                    dismiss()
-                } label: {
-                    HStack(spacing: ScoutSpacing.md) {
-                        Image(systemName: AdapterIcon.systemName(for: summary.adapterType))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(ScoutColors.textMuted)
-                            .frame(width: 24)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(summary.name)
-                                .font(ScoutTypography.body(14, weight: .medium))
-                                .foregroundStyle(ScoutColors.textPrimary)
-                                .lineLimit(1)
-
-                            HStack(spacing: ScoutSpacing.xs) {
-                                if summary.currentTurnStatus == "streaming" {
-                                    PulseIndicator()
-                                    Text("Working")
-                                        .font(ScoutTypography.caption(11, weight: .medium))
-                                        .foregroundStyle(ScoutColors.statusStreaming)
-                                } else {
-                                    Text("\(summary.turnCount) turns")
-                                        .font(ScoutTypography.caption(11))
-                                        .foregroundStyle(ScoutColors.textMuted)
-                                    Text("·")
-                                        .foregroundStyle(ScoutColors.textMuted)
-                                    Text(RelativeTime.string(from: summary.lastActivityAt))
-                                        .font(ScoutTypography.caption(11))
-                                        .foregroundStyle(ScoutColors.textMuted)
-                                }
-                            }
-                        }
-
-                        Spacer()
-
-                        Text("RESUME")
-                            .font(ScoutTypography.code(10, weight: .semibold))
-                            .foregroundStyle(ScoutColors.textMuted)
-                    }
-                    .padding(ScoutSpacing.md)
-                    .background(ScoutColors.surfaceRaisedAdaptive)
-                    .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
-                }
-                .buttonStyle(.plain)
+                existingSessionRow(summary)
             }
         }
+    }
+
+    private func existingSessionRow(_ summary: SessionSummary) -> some View {
+        HStack(alignment: .top, spacing: ScoutSpacing.md) {
+            Image(systemName: AdapterIcon.systemName(for: summary.adapterType))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(ScoutColors.textMuted)
+                .frame(width: 24)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                // Line 1: session name
+                Text(summary.name)
+                    .font(ScoutTypography.body(14, weight: .medium))
+                    .foregroundStyle(ScoutColors.textPrimary)
+                    .lineLimit(1)
+
+                // Line 2: status / turns / last activity
+                HStack(spacing: ScoutSpacing.xs) {
+                    if summary.currentTurnStatus == "streaming" {
+                        PulseIndicator()
+                        Text("Working")
+                            .font(ScoutTypography.caption(11, weight: .medium))
+                            .foregroundStyle(ScoutColors.statusStreaming)
+                        Text("·")
+                            .foregroundStyle(ScoutColors.textMuted)
+                        Text("\(summary.turnCount) turns")
+                            .font(ScoutTypography.caption(11))
+                            .foregroundStyle(ScoutColors.textMuted)
+                    } else {
+                        Text("\(summary.turnCount) turns")
+                            .font(ScoutTypography.caption(11))
+                            .foregroundStyle(ScoutColors.textMuted)
+                        Text("·")
+                            .foregroundStyle(ScoutColors.textMuted)
+                        Text(RelativeTime.string(from: summary.lastActivityAt))
+                            .font(ScoutTypography.caption(11))
+                            .foregroundStyle(ScoutColors.textMuted)
+                    }
+                }
+
+                // Line 3: harness + model metadata
+                HStack(spacing: ScoutSpacing.xs) {
+                    Text(AdapterIcon.displayName(for: summary.adapterType))
+                        .font(ScoutTypography.code(10, weight: .medium))
+                        .foregroundStyle(ScoutColors.textSecondary)
+
+                    if let modelLabel = ScoutModelLabel.describe(summary.model)?.title {
+                        Text("·")
+                            .foregroundStyle(ScoutColors.textMuted)
+                        Text(modelLabel)
+                            .font(ScoutTypography.code(10))
+                            .foregroundStyle(ScoutColors.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Spacer(minLength: ScoutSpacing.sm)
+
+            Button {
+                onAction(.resume(sessionId: summary.sessionId))
+                dismiss()
+            } label: {
+                Text("Resume")
+                    .font(ScoutTypography.body(13, weight: .semibold))
+                    .foregroundStyle(ScoutColors.backgroundAdaptive)
+                    .padding(.horizontal, ScoutSpacing.lg)
+                    .padding(.vertical, ScoutSpacing.sm)
+                    .frame(minHeight: 32)
+                    .background(ScoutColors.textPrimary)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Resume session \(summary.name)")
+        }
+        .padding(ScoutSpacing.md)
+        .background(ScoutColors.surfaceRaisedAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
     }
 
     // MARK: - Harness Selection

@@ -274,6 +274,7 @@ export type OperatorProfile = {
 export type MeshIssue = {
   code:
     | "broker_unreachable"
+    | "tailscale_stopped"
     | "local_only"
     | "mesh_loopback"
     | "discovery_unconfigured";
@@ -326,6 +327,9 @@ export type MeshStatus = {
   >;
   tailscale: {
     available: boolean;
+    running: boolean;
+    backendState: string | null;
+    health: string[];
     onlineCount: number;
     peers: Array<{
       id: string;
@@ -391,7 +395,8 @@ export type Route =
   | { view: "activity" }
   | { view: "work"; workId: string }
   | { view: "settings" }
-  | { view: "ops"; mode?: OpsMode };
+  | { view: "ops"; mode?: OpsMode }
+  | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
 export type OpsMode = "plan" | "conductor" | "warroom" | "mission";

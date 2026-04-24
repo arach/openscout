@@ -28,6 +28,8 @@ import {
   ensureCodexAppServerAgentOnline,
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
+  normalizeCodexAppServerLaunchArgs,
+  readCodexAppServerModelFromLaunchArgs,
   sendCodexAppServerAgent,
   isCodexAppServerAgentAlive,
   shutdownCodexAppServerAgent,
@@ -633,6 +635,155 @@ function normalizeLocalAgentLaunchArgs(value: unknown): string[] {
     : [];
 }
 
+function normalizeRequestedModel(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function readClaudeLaunchModel(launchArgs: string[]): string | undefined {
+  for (let index = 0; index < launchArgs.length; index += 1) {
+    const current = launchArgs[index] ?? "";
+    if (current === "--model") {
+      const next = launchArgs[index + 1]?.trim();
+      return next || undefined;
+    }
+    if (current.startsWith("--model=")) {
+      const next = current.slice("--model=".length).trim();
+      return next || undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeLaunchArgsForHarness(harness: AgentHarness, value: unknown): string[] {
+  const normalized = normalizeLocalAgentLaunchArgs(value);
+  if (harness === "codex") {
+    return normalizeCodexAppServerLaunchArgs(normalized);
+  }
+  return normalized;
+}
+
+function readLaunchModelForHarness(harness: AgentHarness, launchArgs: string[] | undefined): string | undefined {
+  if (harness === "codex") {
+    return readCodexAppServerModelFromLaunchArgs(launchArgs) ?? undefined;
+  }
+  if (harness === "claude") {
+    return readClaudeLaunchModel(launchArgs ?? []);
+  }
+  return undefined;
+}
+
+function stripLaunchModelForHarness(harness: AgentHarness, launchArgs: string[]): string[] {
+  if (harness === "codex") {
+    const next: string[] = [];
+    const normalized = normalizeCodexAppServerLaunchArgs(launchArgs);
+    for (let index = 0; index < normalized.length; index += 1) {
+      const current = normalized[index] ?? "";
+      if (current === "-c" || current === "--config") {
+        const value = normalized[index + 1];
+        if (readCodexAppServerModelFromLaunchArgs(value ? [current, value] : [current])) {
+          index += 1;
+          continue;
+        }
+        next.push(current);
+        if (value) {
+          next.push(value);
+          index += 1;
+        }
+        continue;
+      }
+      if (current.startsWith("--config=")) {
+        if (readCodexAppServerModelFromLaunchArgs([current])) {
+          continue;
+        }
+      }
+      next.push(current);
+    }
+    return next;
+  }
+
+  if (harness === "claude") {
+    const next: string[] = [];
+    const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
+    for (let index = 0; index < normalized.length; index += 1) {
+      const current = normalized[index] ?? "";
+      if (current === "--model") {
+        index += 1;
+        continue;
+      }
+      if (current.startsWith("--model=")) {
+        continue;
+      }
+      next.push(current);
+    }
+    return next;
+  }
+
+  return normalizeLocalAgentLaunchArgs(launchArgs);
+}
+
+function buildLaunchArgsForRequestedModel(harness: AgentHarness, model: string): string[] {
+  if (harness === "codex") {
+    return normalizeCodexAppServerLaunchArgs(["--model", model]);
+  }
+  if (harness === "claude") {
+    return ["--model", model];
+  }
+  return [];
+}
+
+function applyRequestedModelToLaunchArgs(
+  harness: AgentHarness,
+  launchArgs: unknown,
+  model?: string,
+): string[] {
+  const normalized = normalizeLaunchArgsForHarness(harness, launchArgs);
+  const requestedModel = normalizeRequestedModel(model);
+  if (!requestedModel) {
+    return normalized;
+  }
+
+  return [
+    ...stripLaunchModelForHarness(harness, normalized),
+    ...buildLaunchArgsForRequestedModel(harness, requestedModel),
+  ];
+}
+
+function defaultHarnessForOverride(
+  override: RelayAgentOverride,
+  fallback: ManagedAgentHarness = "claude",
+): ManagedAgentHarness {
+  return normalizeManagedHarness(override.defaultHarness ?? override.runtime?.harness, fallback);
+}
+
+function launchArgsForOverrideHarness(
+  override: RelayAgentOverride,
+  harness: ManagedAgentHarness,
+): string[] {
+  const profileLaunchArgs = override.harnessProfiles?.[harness]?.launchArgs;
+  if (profileLaunchArgs) {
+    return normalizeLaunchArgsForHarness(harness, profileLaunchArgs);
+  }
+  if (harness === defaultHarnessForOverride(override, harness)) {
+    return normalizeLaunchArgsForHarness(harness, override.launchArgs);
+  }
+  return [];
+}
+
+function overrideHarnessProfile(
+  override: RelayAgentOverride,
+  harness: ManagedAgentHarness,
+): RelayHarnessProfileInput {
+  const profile = override.harnessProfiles?.[harness];
+  return {
+    cwd: normalizeProjectPath(profile?.cwd || override.runtime?.cwd || override.projectRoot || process.cwd()),
+    transport: normalizeLocalAgentTransport(profile?.transport ?? override.runtime?.transport, harness),
+    sessionId: normalizeTmuxSessionName(profile?.sessionId, `${override.agentId}-${harness}`),
+    launchArgs: launchArgsForOverrideHarness(override, harness),
+  };
+}
+
 function normalizeManagedHarness(value: string | undefined, fallback: ManagedAgentHarness): ManagedAgentHarness {
   return value === "codex" ? "codex" : value === "claude" ? "claude" : fallback;
 }
@@ -652,7 +803,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       cwd: normalizeProjectPath(profile.cwd || record.cwd || process.cwd()),
       transport: normalizeLocalAgentTransport(profile.transport, harness),
       sessionId: normalizeTmuxSessionName(profile.sessionId, `${agentId}-${harness}`),
-      launchArgs: normalizeLocalAgentLaunchArgs(profile.launchArgs),
+      launchArgs: normalizeLaunchArgsForHarness(harness, profile.launchArgs),
     };
   }
   const runtimeHarness = normalizeManagedHarness(record.harness, defaultHarness);
@@ -662,7 +813,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       cwd: normalizeProjectPath(record.cwd || process.cwd()),
       transport: normalizeLocalAgentTransport(record.transport, runtimeHarness),
       sessionId: normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${runtimeHarness}`),
-      launchArgs: normalizeLocalAgentLaunchArgs(record.launchArgs),
+      launchArgs: normalizeLaunchArgsForHarness(runtimeHarness, record.launchArgs),
     };
   }
 
@@ -671,7 +822,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       cwd: normalizeProjectPath(record.cwd || process.cwd()),
       transport: normalizeLocalAgentTransport(record.transport, defaultHarness),
       sessionId: normalizeTmuxSessionName(record.tmuxSession, `${agentId}-${defaultHarness}`),
-      launchArgs: normalizeLocalAgentLaunchArgs(record.launchArgs),
+      launchArgs: normalizeLaunchArgsForHarness(defaultHarness, record.launchArgs),
     };
   }
 
@@ -684,7 +835,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
       cwd: normalizeProjectPath(profile.cwd || record.cwd || process.cwd()),
       transport: normalizeLocalAgentTransport(profile.transport, harness),
       sessionId: normalizeTmuxSessionName(profile.sessionId, `${agentId}-${harness}`),
-      launchArgs: normalizeLocalAgentLaunchArgs(profile.launchArgs),
+      launchArgs: normalizeLaunchArgsForHarness(harness, profile.launchArgs),
     } satisfies RelayHarnessProfile;
   }
 
@@ -718,14 +869,14 @@ function recordForHarness(record: LocalAgentRecord, harnessOverride?: AgentHarne
       tmuxSession: fallbackSessionId,
       cwd: fallbackCwd,
       transport: fallbackTransport,
-      launchArgs: normalizeLocalAgentLaunchArgs(normalized.launchArgs),
+      launchArgs: normalizeLaunchArgsForHarness(selectedHarness, normalized.launchArgs),
       harnessProfiles: {
         ...normalized.harnessProfiles,
         [selectedHarness]: {
           cwd: fallbackCwd,
           transport: fallbackTransport,
           sessionId: fallbackSessionId,
-          launchArgs: normalizeLocalAgentLaunchArgs(normalized.launchArgs),
+          launchArgs: normalizeLaunchArgsForHarness(selectedHarness, normalized.launchArgs),
         },
       },
     };
@@ -769,7 +920,7 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
     harnessProfiles,
     transport: activeProfile?.transport ?? normalizeLocalAgentTransport(record.transport, harness),
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
-    launchArgs: activeProfile?.launchArgs ?? normalizeLocalAgentLaunchArgs(record.launchArgs),
+    launchArgs: activeProfile?.launchArgs ?? normalizeLaunchArgsForHarness(harness, record.launchArgs),
   };
 }
 
@@ -858,7 +1009,10 @@ function relayAgentOverrideFromLocalAgentRecord(
     source: existing?.source && existing.source !== "inferred" ? existing.source : "manual",
     startedAt: normalizedRecord.startedAt,
     systemPrompt: normalizedRecord.systemPrompt,
-    launchArgs: normalizeLocalAgentLaunchArgs(normalizedRecord.launchArgs),
+    launchArgs: normalizeLaunchArgsForHarness(
+      normalizeLocalAgentHarness(normalizedRecord.harness),
+      normalizedRecord.launchArgs,
+    ),
     capabilities: normalizeLocalAgentCapabilities(normalizedRecord.capabilities),
     defaultHarness: normalizeManagedHarness(normalizedRecord.defaultHarness, "claude"),
     harnessProfiles: normalizedRecord.harnessProfiles,
@@ -884,7 +1038,10 @@ function buildLocalAgentConfigState(agentId: string, record: LocalAgentRecord): 
       sessionId: record.tmuxSession,
       wakePolicy: "on_demand",
     },
-    launchArgs: normalizeLocalAgentLaunchArgs(record.launchArgs),
+    launchArgs: normalizeLaunchArgsForHarness(
+      normalizeLocalAgentHarness(record.harness),
+      record.launchArgs,
+    ),
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     applyMode: "restart",
     templateHint: LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT,
@@ -1070,7 +1227,7 @@ function buildCodexAgentSessionOptions(
     systemPrompt: systemPrompt ?? buildLocalAgentSystemPrompt(agentName, record.project, record.cwd, { transport: "codex_app_server" }),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: normalizeLocalAgentLaunchArgs(record.launchArgs),
+    launchArgs: normalizeLaunchArgsForHarness("codex", record.launchArgs),
   };
 }
 
@@ -1094,7 +1251,7 @@ function buildClaudeAgentSessionOptions(
     systemPrompt: systemPrompt ?? buildLocalAgentSystemPrompt(agentName, record.project, record.cwd, { transport: "claude_stream_json" }),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: normalizeLocalAgentLaunchArgs(record.launchArgs),
+    launchArgs: normalizeLaunchArgsForHarness("claude", record.launchArgs),
   };
 }
 
@@ -1408,7 +1565,9 @@ function buildLocalAgentLaunchCommand(
   promptFile: string,
   workerScript?: string,
 ): string {
-  const extraArgs = shellQuoteArguments(normalizeLocalAgentLaunchArgs(record.launchArgs));
+  const extraArgs = shellQuoteArguments(
+    normalizeLaunchArgsForHarness(normalizeLocalAgentHarness(record.harness), record.launchArgs),
+  );
   if (normalizeLocalAgentHarness(record.harness) === "codex") {
     return `exec bash ${JSON.stringify(workerScript ?? join(relayAgentRuntimeDirectory(agentName), "codex-worker.sh"))}`;
   }
@@ -1430,7 +1589,7 @@ function buildCodexExecCommand(
   promptFileExpression: string,
   options: { resumeSessionIdExpression?: string | null } = {},
 ): string {
-  const extraArgs = shellQuoteArguments(normalizeLocalAgentLaunchArgs(record.launchArgs));
+  const extraArgs = shellQuoteArguments(normalizeLaunchArgsForHarness("codex", record.launchArgs));
   const sharedArgs = [
     "--skip-git-repo-check",
     "--dangerously-bypass-approvals-and-sandbox",
@@ -2012,6 +2171,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const effectiveHarness = normalizeManagedHarness(preferredHarness ?? configDefaultHarness, "claude");
     const transport = normalizeLocalAgentTransport(undefined, effectiveHarness);
     const sessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${effectiveHarness}`);
+    const launchArgs = applyRequestedModelToLaunchArgs(effectiveHarness, [], input.model);
 
     const existingForInstance = overrides[instance.id];
     if (existingForInstance && normalizeProjectPath(existingForInstance.projectRoot) !== projectRoot) {
@@ -2031,13 +2191,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       projectConfigPath: coldProjectConfigPath,
       source: "manual",
       startedAt: nowSeconds(),
+      launchArgs,
       defaultHarness: effectiveHarness,
       harnessProfiles: {
         [effectiveHarness]: {
           cwd: effectiveCwd ?? projectRoot,
           transport,
           sessionId,
-          launchArgs: [],
+          launchArgs,
         },
       },
       runtime: {
@@ -2066,6 +2227,15 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       );
     }
     const resolvedHarness = preferredHarness ?? matchingOverride.runtime?.harness;
+    const nextHarness = normalizeManagedHarness(resolvedHarness, "claude");
+    const nextDefaultHarness = preferredHarness
+      ? normalizeManagedHarness(preferredHarness, "claude")
+      : defaultHarnessForOverride(matchingOverride, "claude");
+    const nextLaunchArgs = applyRequestedModelToLaunchArgs(
+      nextHarness,
+      launchArgsForOverrideHarness(matchingOverride, nextHarness),
+      input.model,
+    );
     overrides[instance.id] = {
       agentId: instance.id,
       definitionId: requestedDefinitionId,
@@ -2076,10 +2246,18 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       source: "manual",
       startedAt: matchingOverride.startedAt ?? nowSeconds(),
       systemPrompt: matchingOverride.systemPrompt,
-      launchArgs: matchingOverride.launchArgs,
+      launchArgs: nextHarness === nextDefaultHarness
+        ? nextLaunchArgs
+        : matchingOverride.launchArgs,
       capabilities: matchingOverride.capabilities,
-      defaultHarness: normalizeManagedHarness(preferredHarness ?? matchingOverride.defaultHarness, "claude"),
-      harnessProfiles: matchingOverride.harnessProfiles,
+      defaultHarness: nextDefaultHarness,
+      harnessProfiles: {
+        ...(matchingOverride.harnessProfiles ?? {}),
+        [nextHarness]: {
+          ...overrideHarnessProfile(matchingOverride, nextHarness),
+          launchArgs: nextLaunchArgs,
+        },
+      },
       runtime: {
         cwd: effectiveCwd ?? matchingOverride.runtime?.cwd ?? matchingProjectRoot,
         harness: resolvedHarness,
@@ -2094,7 +2272,32 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     await writeRelayAgentOverrides(overrides);
     targetAgentId = instance.id;
   } else {
-    // Existing override already matches — nothing to persist.
+    if (input.model) {
+      const existingHarness = normalizeManagedHarness(
+        preferredHarness ?? matchingOverride.defaultHarness ?? matchingOverride.runtime?.harness,
+        "claude",
+      );
+      const nextLaunchArgs = applyRequestedModelToLaunchArgs(
+        existingHarness,
+        launchArgsForOverrideHarness(matchingOverride, existingHarness),
+        input.model,
+      );
+
+      overrides[matchingAgentId!] = {
+        ...matchingOverride,
+        launchArgs: existingHarness === defaultHarnessForOverride(matchingOverride, existingHarness)
+          ? nextLaunchArgs
+          : matchingOverride.launchArgs,
+        harnessProfiles: {
+          ...(matchingOverride.harnessProfiles ?? {}),
+          [existingHarness]: {
+            ...overrideHarnessProfile(matchingOverride, existingHarness),
+            launchArgs: nextLaunchArgs,
+          },
+        },
+      };
+      await writeRelayAgentOverrides(overrides);
+    }
     targetAgentId = matchingAgentId!;
   }
 
@@ -2235,6 +2438,10 @@ function buildLocalAgentBinding(
   source: "relay-agent-registry" | "project-inferred",
 ): LocalAgentBinding {
   const normalizedRecord = normalizeLocalAgentRecord(agentId, record);
+  const configuredModel = readLaunchModelForHarness(
+    normalizeLocalAgentHarness(normalizedRecord.harness),
+    normalizedRecord.launchArgs,
+  );
   const definitionId = normalizedRecord.definitionId ?? agentId;
   const displayName = titleCaseLocalAgentName(definitionId);
   const projectRoot = normalizedRecord.projectRoot ?? normalizedRecord.cwd;
@@ -2263,6 +2470,7 @@ function buildLocalAgentBinding(
         nodeQualifier: instance.nodeQualifier,
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
+        ...(configuredModel ? { model: configuredModel } : {}),
       },
     },
     agent: {
@@ -2290,6 +2498,7 @@ function buildLocalAgentBinding(
         nodeQualifier: instance.nodeQualifier,
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
+        ...(configuredModel ? { model: configuredModel } : {}),
       },
       agentClass: "general",
       capabilities: normalizeLocalAgentCapabilities(normalizedRecord.capabilities),
@@ -2322,6 +2531,7 @@ function buildLocalAgentBinding(
         nodeQualifier: instance.nodeQualifier,
         workspaceQualifier: instance.workspaceQualifier,
         branch: instance.branch,
+        ...(configuredModel ? { model: configuredModel } : {}),
         ...(externalSessionId ? { externalSessionId } : {}),
       },
     },

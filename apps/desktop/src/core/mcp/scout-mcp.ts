@@ -126,6 +126,7 @@ type ScoutMcpDependencies = {
     agentName?: string;
     displayName?: string;
     harness?: (typeof LOCAL_AGENT_HARNESS_VALUES)[number];
+    model?: string;
     currentDirectory: string;
     createdById?: string;
   }) => Promise<ScoutAgentCard>;
@@ -906,6 +907,7 @@ function defaultScoutMcpDependencies(
       agentName,
       displayName,
       harness,
+      model,
       currentDirectory,
       createdById,
     }) =>
@@ -914,6 +916,7 @@ function defaultScoutMcpDependencies(
         agentName,
         displayName,
         harness,
+        model,
         currentDirectory,
         createdById,
       }),
@@ -1064,6 +1067,7 @@ export function createScoutMcpServer(options: {
         agentName: z.string().optional(),
         displayName: z.string().optional(),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
+        model: z.string().optional(),
       }),
       outputSchema: cardCreateResultSchema,
       annotations: {
@@ -1080,6 +1084,7 @@ export function createScoutMcpServer(options: {
       agentName,
       displayName,
       harness,
+      model,
     }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
         currentDirectory,
@@ -1095,6 +1100,7 @@ export function createScoutMcpServer(options: {
         agentName: agentName?.trim() || undefined,
         displayName: displayName?.trim() || undefined,
         harness,
+        model: model?.trim() || undefined,
         currentDirectory: resolvedCurrentDirectory,
         createdById: resolvedSenderId,
       });

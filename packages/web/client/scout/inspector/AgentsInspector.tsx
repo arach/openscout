@@ -26,7 +26,7 @@ export function AgentsInspector() {
         <Row label="Total" value={`${agents.length}`} />
         <Row label="Working" value={`${working}`} />
         <Row label="Available" value={`${agents.length - working}`} />
-        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] text-white/25 leading-relaxed">
+        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
           Select an agent from the roster to see its context here.
         </div>
       </div>
@@ -58,20 +58,22 @@ function AgentContextPanel({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
       {/* Identity */}
-      <div className="flex items-center gap-3 pb-3 border-b border-white/[0.04]">
+      <div className="flex items-center gap-3 border-b border-[var(--scout-chrome-border-soft)] pb-3">
         <div
-          className="relative w-10 h-10 rounded-full flex items-center justify-center text-[13px] font-mono text-black/80 shrink-0"
+          className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-mono text-[var(--scout-chrome-avatar-ink)]"
           style={{ background: actorColor(agent.name) }}
         >
           {agent.name[0]?.toUpperCase() ?? "?"}
           {online && (
             <span
-              className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-neutral-950"
+              className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--hud-bg)]"
               style={{
                 background: stateColor(agent.state),
                 opacity: normalizeAgentState(agent.state) === "working" ? 0.85 : 0.6,
@@ -80,7 +82,7 @@ function AgentContextPanel({
           )}
         </div>
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[13px] text-white/90 truncate">
+          <span className="truncate text-[13px] text-[var(--scout-chrome-ink-strong)]">
             {agent.name}
           </span>
           {agent.handle && (
@@ -101,12 +103,12 @@ function AgentContextPanel({
               opacity: online ? 1 : 0.4,
             }}
           />
-          <span className="text-[12px] text-white/80 capitalize">
+          <span className="text-[12px] capitalize text-[var(--scout-chrome-ink)]">
             {agentStateLabel(agent.state)}
           </span>
         </div>
         {agent.updatedAt && (
-          <div className="text-[10px] font-mono text-white/30 mt-1">
+          <div className="mt-1 text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
             Updated {timeAgo(agent.updatedAt)}
           </div>
         )}
@@ -154,7 +156,7 @@ function AgentContextPanel({
             {agent.capabilities.map((cap) => (
               <span
                 key={cap}
-                className="text-[10px] font-mono text-white/50 px-1.5 py-0.5 rounded-sm bg-white/[0.04]"
+                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
               >
                 {cap}
               </span>
@@ -297,7 +299,7 @@ function InspectorMesh({
               fontFamily="var(--font-mono)"
               fontSize={n.focused ? 10 : 8}
               fontWeight={600}
-              fill="rgba(0,0,0,0.7)"
+              fill="var(--scout-chrome-avatar-ink)"
             >
               {n.agent.name[0].toUpperCase()}
             </text>
@@ -357,10 +359,10 @@ function InspectorAsks({
             <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-amber-500/80 mb-1">
               awaiting
             </div>
-            <div className="text-[11px] text-white/70 line-clamp-2 leading-relaxed">
+            <div className="line-clamp-2 text-[11px] leading-relaxed text-[var(--scout-chrome-ink)]">
               {ask.summary ?? ask.task}
             </div>
-            <div className="text-[9px] font-mono text-white/25 mt-1.5">
+            <div className="mt-1.5 text-[9px] font-mono text-[var(--scout-chrome-ink-ghost)]">
               {ask.harness ?? "operator"} &rarr; {ask.agentName ?? "agent"}
             </div>
           </div>
@@ -379,7 +381,7 @@ function Section({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-white/30 mb-1.5">
+      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
       {children}
@@ -390,10 +392,10 @@ function Section({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between py-0.5 gap-2">
-      <span className="text-[10px] font-mono uppercase tracking-wider text-white/30 shrink-0">
+      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
-      <span className="text-[11px] text-white/70 font-mono truncate">
+      <span className="truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]">
         {value}
       </span>
     </div>

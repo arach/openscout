@@ -27,7 +27,17 @@ export interface TailscaleSelfCandidate {
   magicDnsSuffix?: string;
 }
 
+export interface TailscaleStatusSummary {
+  backendState: string | null;
+  running: boolean;
+  health: string[];
+  peers: TailscalePeerCandidate[];
+  self: TailscaleSelfCandidate | null;
+}
+
 interface TailscaleStatusJson {
+  BackendState?: string;
+  Health?: string[];
   Self?: {
     ID?: string;
     HostName?: string;
@@ -89,6 +99,10 @@ function parseSelf(status: TailscaleStatusJson): TailscaleSelfCandidate | null {
   };
 }
 
+function isBackendRunning(status: TailscaleStatusJson): boolean {
+  return (status.BackendState ?? "").trim().toLowerCase() === "running";
+}
+
 async function readStatusJsonFromFile(filePath: string): Promise<TailscaleStatusJson> {
   const raw = await readFile(filePath, "utf8");
   return parseStatusJson(raw);
@@ -110,17 +124,32 @@ async function readStatusJson(): Promise<TailscaleStatusJson | null> {
 }
 
 export async function readTailscalePeers(): Promise<TailscalePeerCandidate[]> {
-  const status = await readStatusJson();
-  if (!status) {
+  const summary = await readTailscaleStatusSummary();
+  if (!summary) {
     return [];
   }
-  return parsePeers(status);
+  return summary.peers;
 }
 
 export async function readTailscaleSelf(): Promise<TailscaleSelfCandidate | null> {
+  const summary = await readTailscaleStatusSummary();
+  if (!summary) {
+    return null;
+  }
+  return summary.self;
+}
+
+export async function readTailscaleStatusSummary(): Promise<TailscaleStatusSummary | null> {
   const status = await readStatusJson();
   if (!status) {
     return null;
   }
-  return parseSelf(status);
+
+  return {
+    backendState: status.BackendState ?? null,
+    running: isBackendRunning(status),
+    health: status.Health ?? [],
+    peers: parsePeers(status),
+    self: parseSelf(status),
+  };
 }

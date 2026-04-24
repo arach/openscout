@@ -75,7 +75,7 @@ export async function startPairingRuntime(options?: {
     secure: config.secure,
     identity: config.secure ? identity : undefined,
   });
-  const fileServer = startFileServer({ port: config.port + 2 });
+  const fileServer = startFileServer({ port: config.port + 2, bridge });
 
   const relayUrl = options?.relayUrl?.trim() || config.relay || null;
   if (!relayUrl) {

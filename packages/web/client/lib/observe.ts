@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "./api.ts";
 import { normalizeAgentState } from "./agent-state.ts";
-import { useBrokerEvents } from "./sse.ts";
 import type { Agent, AgentObservePayload, ObserveEvent } from "./types.ts";
 
 const ACTIVE_POLL_INTERVAL_MS = 2500;
@@ -78,9 +77,6 @@ export function useObservePolling(agents: Agent[]): ObserveCache {
       clearInterval(timer);
     };
   }, [agents.length, fetchAll, pollIntervalMs]);
-
-  useBrokerEvents(fetchAll);
-
   return cache;
 }
 

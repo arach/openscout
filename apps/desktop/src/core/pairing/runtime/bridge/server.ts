@@ -94,6 +94,27 @@ function readSyncStatus(
   };
 }
 
+function resolveSyncSessionId(
+  bridge: Bridge,
+  preferredSessionId?: string,
+): string | null {
+  if (preferredSessionId) {
+    return preferredSessionId;
+  }
+
+  let latestSessionId: string | null = null;
+  let latestActivityAt = Number.NEGATIVE_INFINITY;
+
+  for (const session of bridge.getSessionSummaries()) {
+    if (session.lastActivityAt > latestActivityAt) {
+      latestActivityAt = session.lastActivityAt;
+      latestSessionId = session.sessionId;
+    }
+  }
+
+  return latestSessionId;
+}
+
 function sessionRegistryErrorResponse(reqId: string, error: unknown): RPCResponse | null {
   if (!isSessionRegistryError(error)) {
     return null;
@@ -345,24 +366,40 @@ async function handleRPCInner(
       // -- Reconnect / buffer ------------------------------------------------
 
       case "sync/replay": {
-        const p = req.params as { lastSeq: number; sessionId?: string };
-        if (!p.sessionId) {
-          return { id: req.id, error: { code: -32602, message: "sessionId is required" } };
+        const p = (req.params ?? {}) as { lastSeq?: number; sessionId?: string };
+        if (typeof p.lastSeq !== "number") {
+          return { id: req.id, error: { code: -32602, message: "lastSeq is required" } };
         }
-        const events = replaySyncEvents(bridge, p.sessionId, p.lastSeq);
+
+        const sessionId = resolveSyncSessionId(bridge, p.sessionId);
+        if (!sessionId) {
+          return { id: req.id, result: { events: [] } };
+        }
+
+        const events = replaySyncEvents(bridge, sessionId, p.lastSeq);
         return { id: req.id, result: { events } };
       }
 
       case "sync/status": {
         const p = (req.params ?? {}) as { sessionId?: string };
-        if (!p.sessionId) {
-          return { id: req.id, error: { code: -32602, message: "sessionId is required" } };
+        const sessionCount = bridge.listSessions().length;
+        const sessionId = resolveSyncSessionId(bridge, p.sessionId);
+        if (!sessionId) {
+          return {
+            id: req.id,
+            result: {
+              currentSeq: 0,
+              oldestBufferedSeq: 0,
+              sessionCount,
+            },
+          };
         }
+
         return {
           id: req.id,
           result: {
-            ...readSyncStatus(bridge, p.sessionId),
-            sessionCount: bridge.listSessions().length,
+            ...readSyncStatus(bridge, sessionId),
+            sessionCount,
           },
         };
       }

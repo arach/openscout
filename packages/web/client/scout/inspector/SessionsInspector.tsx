@@ -20,7 +20,9 @@ export function SessionsInspector() {
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   if (route.view !== "sessions") return null;
 
@@ -36,7 +38,7 @@ export function SessionsInspector() {
         <Row label="Total" value={`${sessions.length}`} />
         <Row label="Kinds" value={`${kinds.size}`} />
         <Row label="Branched" value={`${withBranch}`} />
-        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] text-white/25 leading-relaxed">
+        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
           Select a session from the list to see its context here.
         </div>
       </div>
@@ -45,8 +47,8 @@ export function SessionsInspector() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      <div className="pb-3 border-b border-white/[0.04]">
-        <div className="text-[13px] text-white/90 leading-snug">
+      <div className="border-b border-[var(--scout-chrome-border-soft)] pb-3">
+        <div className="text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
           {selected.title}
         </div>
         <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-400/70 mt-1">
@@ -84,7 +86,7 @@ export function SessionsInspector() {
 
       {selected.preview && (
         <Section label="Preview">
-          <div className="text-[11px] text-white/60 leading-relaxed italic">
+          <div className="text-[11px] italic leading-relaxed text-[var(--scout-chrome-ink-soft)]">
             "{selected.preview}"
           </div>
         </Section>
@@ -102,7 +104,7 @@ function Section({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-white/30 mb-1.5">
+      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </div>
       {children}
@@ -113,10 +115,10 @@ function Section({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between py-0.5 gap-2">
-      <span className="text-[10px] font-mono uppercase tracking-wider text-white/30 shrink-0">
+      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
-      <span className="text-[11px] text-white/70 font-mono truncate">
+      <span className="truncate text-[11px] font-mono text-[var(--scout-chrome-ink)]">
         {value}
       </span>
     </div>

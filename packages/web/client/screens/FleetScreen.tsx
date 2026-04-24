@@ -116,11 +116,9 @@ function routeForActivity(item: FleetActivity): Route | null {
 function FleetSectionHeader({
   title,
   detail,
-  count,
 }: {
   title: string;
   detail: string;
-  count: number;
 }) {
   return (
     <>
@@ -128,7 +126,6 @@ function FleetSectionHeader({
         <div>
           <h3>{title}</h3>
         </div>
-        <span className="s-dashboard-count" style={count === 0 ? { opacity: 0.4 } : undefined}>{count}</span>
       </div>
       <p className="s-dashboard-panel-copy">{detail}</p>
     </>
@@ -201,10 +198,9 @@ function AttentionRow({ item, navigate }: { item: FleetAttentionItem; navigate: 
         <div className="s-work-row-title-wrap">
           <span className="s-work-row-title">{item.title}</span>
         </div>
-        <span className="s-pill s-pill-updated">Needs your input</span>
       </div>
       <div className="s-work-row-meta">
-        <span>{item.kind === "question" ? "question" : "work item"}</span>
+        {item.kind === "work_item" && <span>work item</span>}
         {item.agentName && <span>{item.agentName}</span>}
         <span>{stateLabel}</span>
         <span>{responseLabel}</span>
@@ -275,6 +271,8 @@ function FleetActivityRow({
   navigate: (r: Route) => void;
 }) {
   const nextRoute = routeForActivity(item);
+  const sender = item.actorName ?? "system";
+  const recipient = item.agentId && item.agentId !== item.actorName ? item.agentId : null;
 
   return (
     <div
@@ -283,25 +281,26 @@ function FleetActivityRow({
     >
       <div
         className="s-avatar s-avatar-sm"
-        style={{ background: actorColor(item.actorName ?? item.agentId ?? "system") }}
+        style={{ background: actorColor(sender) }}
       >
-        {(item.actorName ?? item.agentId ?? "S")[0]?.toUpperCase() ?? "S"}
+        {sender[0]?.toUpperCase() ?? "S"}
       </div>
-      <div className="s-dashboard-activity-body">
-        <div className="s-dashboard-activity-header">
-          <span className="s-dashboard-activity-actor">{item.actorName ?? "system"}</span>
-          <span className="s-dashboard-activity-kind">{kindLabel(item.kind)}</span>
-          <span className="s-time">{timeAgo(item.ts)}</span>
-        </div>
-        {(item.title || item.summary) && (
-          <p className="s-dashboard-activity-summary">
-            {renderWithMentions(item.title ?? item.summary ?? "")}
-          </p>
-        )}
-        {item.title && item.summary && (
-          <p className="s-dashboard-activity-note">{renderWithMentions(item.summary)}</p>
+      <div className="s-dashboard-activity-actors">
+        <span className="s-dashboard-activity-actor">{sender}</span>
+        {recipient && (
+          <>
+            <span className="s-dashboard-activity-arrow" aria-hidden="true">&rarr;</span>
+            <span className="s-dashboard-activity-recipient">{recipient}</span>
+          </>
         )}
       </div>
+      <span className="s-dashboard-activity-kind">{kindLabel(item.kind)}</span>
+      <span className="s-dashboard-activity-time">{timeAgo(item.ts)}</span>
+      {(item.title || item.summary) && (
+        <p className="s-dashboard-activity-summary">
+          {renderWithMentions(item.title ?? item.summary ?? "")}
+        </p>
+      )}
     </div>
   );
 }
@@ -331,7 +330,9 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 15_000);
@@ -392,7 +393,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
           <FleetSectionHeader
             title="Needs your input"
             detail="Handle interruptions, pending answers, and review requests first."
-            count={needsAttention.length}
           />
           {needsAttention.length === 0 ? (
             <div className="s-empty">
@@ -412,7 +412,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
           <FleetSectionHeader
             title="In-flight agents"
             detail="Agents with active flights right now, including how long each task has been in flight."
-            count={activeFlights.length}
           />
           {activeFlights.length === 0 ? (
             <div className="s-empty">
@@ -439,7 +438,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
             <FleetSectionHeader
               title="Active asks"
               detail="The asks still in flight across the fleet."
-              count={activeAsks.length}
             />
             {activeAsks.length === 0 ? (
               <div className="s-empty">
@@ -459,7 +457,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
             <FleetSectionHeader
               title="Recent finishes"
               detail="Review completions and failures once the active queue is stable."
-              count={recentCompleted.length}
             />
             {recentCompleted.length === 0 ? (
               <div className="s-empty">
@@ -480,7 +477,6 @@ export function FleetScreen({ navigate }: { navigate: (r: Route) => void }) {
           <FleetSectionHeader
             title="Recent activity"
             detail="The broader event stream behind the queue."
-            count={activity.length}
           />
           {activity.length === 0 ? (
             <div className="s-empty">

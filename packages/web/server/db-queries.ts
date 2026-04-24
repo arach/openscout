@@ -293,6 +293,13 @@ function transientBrokerWorkingStatusPredicate(alias: string): string {
   )`;
 }
 
+function staleFlightActivityPredicate(alias: string): string {
+  return `NOT (
+    ${alias}.kind = 'flight_updated'
+    AND COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
+  )`;
+}
+
 function workPhaseFromFlightState(state: string | null): string | null {
   switch (state) {
     case "queued":
@@ -514,10 +521,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
        WHERE ai.kind != 'ask_replied'
-         AND NOT (
-           ai.kind = 'flight_updated'
-           AND COALESCE(ai.summary, '') LIKE 'Stale running flight reconciled:%'
-         )
+         AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ai.ts DESC
        LIMIT ?`,
     )
@@ -2142,6 +2146,7 @@ function queryFleetActivity(opts?: {
     params.push(opts.conversationId);
   }
 
+  const scopedFilters = sqlJoinClauses(filters, "OR");
   const sql = `SELECT
     ai.id,
     ai.kind,
@@ -2160,7 +2165,10 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  ${sqlWhereClause(filters, "OR")}
+  ${sqlWhereClause([
+    staleFlightActivityPredicate("ai"),
+    scopedFilters ? `(${scopedFilters})` : null,
+  ])}
   ORDER BY ai.ts DESC
   LIMIT ?`;
 
@@ -2249,6 +2257,10 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
      )
      LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
      WHERE inv.requester_id IN (${requesterClause})
+       AND NOT (
+         COALESCE(f.state, '') = 'failed'
+         AND COALESCE(f.error, '') LIKE 'Stale running flight reconciled:%'
+       )
      ORDER BY COALESCE(f.completed_at, f.started_at, inv.created_at) DESC
      LIMIT ?`,
   ).all(...requesterIds, limit) as Array<FleetAskRow>;
@@ -2374,151 +2386,85 @@ export function queryFleet(opts?: {
   };
 }
 
-/* ── Heartrate: bucketed activity over a time window ── */
+/* ── Heartrate: smoothed activity over a trailing 7-day window ── */
 
 export type HeartrateBucket = { ts: number; count: number; value: number };
 
-const WINDOW_TIERS: Array<{ ms: number; label: string }> = [
-  { ms: 30 * 60_000, label: "30m" },
-  { ms: 60 * 60_000, label: "1h" },
-  { ms: 6 * 60 * 60_000, label: "6h" },
-  { ms: 24 * 60 * 60_000, label: "24h" },
-  { ms: 7 * 24 * 60 * 60_000, label: "7d" },
-];
+type HeartrateResult = { windowLabel: string; bucketLabel: string; buckets: HeartrateBucket[] };
 
-const MIN_FILLED_BUCKETS = 3;
+const HEARTRATE_WINDOW_MS = 7 * 24 * 60 * 60_000;
+const DEFAULT_HEARTRATE_BUCKETS = 56;
+const SQLITE_MILLISECONDS_THRESHOLD = 1e12;
 
-type HeartrateResult = { windowLabel: string; buckets: HeartrateBucket[] };
+function normalizeActivityTimestampMs(ts: number): number {
+  return ts < SQLITE_MILLISECONDS_THRESHOLD ? ts * 1000 : ts;
+}
 
-const _sealedCounts = new Map<string, number>();
-let _cachedTier: string | null = null;
+function smoothHeartrateCounts(counts: number[]): number[] {
+  const energy = counts.map((count) => Math.sqrt(count));
+  const weights = [0.56, 0.28, 0.11, 0.05];
 
-export function queryHeartrate(numBuckets = 48): HeartrateResult {
-  const nowMs = Date.now();
-
-  let chosenTier = WINDOW_TIERS[WINDOW_TIERS.length - 1];
-
-  for (const tier of WINDOW_TIERS) {
-    const bucketMs = tier.ms / numBuckets;
-    const currentBucketStart = Math.floor(nowMs / bucketMs) * bucketMs;
-    const alignedStart = currentBucketStart - (numBuckets - 1) * bucketMs;
-
-    if (_cachedTier === tier.label) {
-      let sealedHits = 0;
-      let filledSealed = 0;
-      for (let i = 0; i < numBuckets - 1; i++) {
-        const key = String(alignedStart + i * bucketMs);
-        if (_sealedCounts.has(key)) {
-          sealedHits++;
-          if (_sealedCounts.get(key)! > 0) filledSealed++;
-        }
-      }
-      if (sealedHits === numBuckets - 1 && filledSealed >= MIN_FILLED_BUCKETS) {
-        chosenTier = tier;
-        break;
-      }
+  return energy.map((_, index) => {
+    let total = 0;
+    let weightTotal = 0;
+    for (let offset = -3; offset <= 3; offset++) {
+      const nextIndex = index + offset;
+      if (nextIndex < 0 || nextIndex >= energy.length) continue;
+      const weight = weights[Math.abs(offset)] ?? 0;
+      total += energy[nextIndex] * weight;
+      weightTotal += weight;
     }
+    return weightTotal > 0 ? total / weightTotal : 0;
+  });
+}
 
-    const rows = db()
-      .prepare(`SELECT ts FROM activity_items WHERE ts >= ? ORDER BY ts ASC`)
-      .all(alignedStart) as Array<{ ts: number }>;
-
-    const counts = new Array<number>(numBuckets).fill(0);
-    for (const row of rows) {
-      const ms = row.ts < 1e12 ? row.ts * 1000 : row.ts;
-      if (ms < alignedStart) continue;
-      const idx = Math.min(numBuckets - 1, Math.floor((ms - alignedStart) / bucketMs));
-      if (idx >= 0) counts[idx]++;
-    }
-
-    const filled = counts.filter((c) => c > 0).length;
-    if (filled >= MIN_FILLED_BUCKETS) {
-      if (_cachedTier !== tier.label) {
-        _sealedCounts.clear();
-        _cachedTier = tier.label;
-      }
-      for (let i = 0; i < numBuckets - 1; i++) {
-        _sealedCounts.set(String(alignedStart + i * bucketMs), counts[i]);
-      }
-
-      const peak = Math.max(1, ...counts);
-      return {
-        windowLabel: tier.label,
-        buckets: counts.map((count, i) => ({
-          ts: Math.round(alignedStart + i * bucketMs),
-          count,
-          value: count / peak,
-        })),
-      };
-    }
+function formatHeartrateBucketLabel(bucketMs: number): string {
+  const minutes = Math.round(bucketMs / 60_000);
+  if (minutes % (24 * 60) === 0) {
+    return `${minutes / (24 * 60)}d buckets`;
   }
+  if (minutes % 60 === 0) {
+    return `${minutes / 60}h buckets`;
+  }
+  return `${minutes}m buckets`;
+}
 
-  const bucketMs = chosenTier.ms / numBuckets;
+export function queryHeartrate(
+  numBuckets = DEFAULT_HEARTRATE_BUCKETS,
+  nowMs = Date.now(),
+): HeartrateResult {
+  const bucketMs = HEARTRATE_WINDOW_MS / numBuckets;
   const currentBucketStart = Math.floor(nowMs / bucketMs) * bucketMs;
   const alignedStart = currentBucketStart - (numBuckets - 1) * bucketMs;
-
-  if (_cachedTier === chosenTier.label) {
-    const counts = new Array<number>(numBuckets).fill(0);
-    let allSealed = true;
-    for (let i = 0; i < numBuckets - 1; i++) {
-      const key = String(alignedStart + i * bucketMs);
-      if (_sealedCounts.has(key)) {
-        counts[i] = _sealedCounts.get(key)!;
-      } else {
-        allSealed = false;
-        break;
-      }
-    }
-
-    if (allSealed) {
-      const liveStart = alignedStart + (numBuckets - 1) * bucketMs;
-      const row = db()
-        .prepare(`SELECT COUNT(*) AS c FROM activity_items WHERE ts >= ?`)
-        .get(liveStart) as { c: number };
-      counts[numBuckets - 1] = row.c;
-
-      const peak = Math.max(1, ...counts);
-      return {
-        windowLabel: chosenTier.label,
-        buckets: counts.map((count, i) => ({
-          ts: Math.round(alignedStart + i * bucketMs),
-          count,
-          value: count / peak,
-        })),
-      };
-    }
-  }
-
-  _sealedCounts.clear();
-  _cachedTier = chosenTier.label;
+  const alignedStartSeconds = Math.floor(alignedStart / 1000);
 
   const rows = db()
-    .prepare(`SELECT ts FROM activity_items WHERE ts >= ? ORDER BY ts ASC`)
-    .all(alignedStart) as Array<{ ts: number }>;
+    .prepare(
+      `SELECT ts
+       FROM activity_items
+       WHERE ts >= ?1
+          OR (ts < ?2 AND ts >= ?3)
+       ORDER BY ts ASC`,
+    )
+    .all(alignedStart, SQLITE_MILLISECONDS_THRESHOLD, alignedStartSeconds) as Array<{ ts: number }>;
 
   const counts = new Array<number>(numBuckets).fill(0);
   for (const row of rows) {
-    const ms = row.ts < 1e12 ? row.ts * 1000 : row.ts;
-    if (ms < alignedStart) continue;
+    const ms = normalizeActivityTimestampMs(row.ts);
+    if (ms < alignedStart || ms > nowMs) continue;
     const idx = Math.min(numBuckets - 1, Math.floor((ms - alignedStart) / bucketMs));
     if (idx >= 0) counts[idx]++;
   }
 
-  for (let i = 0; i < numBuckets - 1; i++) {
-    _sealedCounts.set(String(alignedStart + i * bucketMs), counts[i]);
-  }
-
-  for (const key of _sealedCounts.keys()) {
-    if (Number(key) < alignedStart) _sealedCounts.delete(key);
-  }
-
-  const peak = Math.max(1, ...counts);
+  const smoothed = smoothHeartrateCounts(counts);
+  const peak = Math.max(1, ...smoothed);
   return {
-    windowLabel: chosenTier.label,
+    windowLabel: "trailing 7d",
+    bucketLabel: formatHeartrateBucketLabel(bucketMs),
     buckets: counts.map((count, i) => ({
       ts: Math.round(alignedStart + i * bucketMs),
       count,
-      value: count / peak,
+      value: smoothed[i] / peak,
     })),
   };
 }

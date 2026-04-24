@@ -23,6 +23,7 @@ export type CreateScoutAgentCardInput = {
   agentName?: string;
   displayName?: string;
   harness?: AgentHarness;
+  model?: string;
   currentDirectory?: string;
   createdById?: string;
 };
@@ -73,6 +74,7 @@ export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Pr
     agentName: input.agentName,
     displayName: input.displayName,
     harness: input.harness,
+    model: input.model,
     currentDirectory: input.currentDirectory,
   });
   const currentDirectory = input.currentDirectory ?? input.projectPath;

@@ -297,7 +297,10 @@ async function bootstrapRegisteredLocalAgents(): Promise<void> {
   await ensureCoreLocalAgentsOnline();
 }
 
-async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
+async function discoverPeers(seeds: string[] = []): Promise<{
+  discovered: NodeDefinition[];
+  probes: string[];
+}> {
   const result = await discoverMeshNodes({
     localNodeId: nodeId,
     localBrokerUrl: brokerUrl,
@@ -346,7 +349,10 @@ async function discoverPeers(seeds: string[] = []): Promise<NodeDefinition[]> {
     }
   }
 
-  return result.discovered;
+  return {
+    discovered: result.discovered,
+    probes: result.probes,
+  };
 }
 
 function currentLocalNode(): NodeDefinition {
@@ -873,6 +879,11 @@ function flightTimestamp(flight: FlightRecord): number {
   return flight.completedAt ?? flight.startedAt ?? 0;
 }
 
+function endpointLastInvocationId(endpoint: AgentEndpoint): string | null {
+  const value = endpoint.metadata?.lastInvocationId;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 function endpointStartedAt(endpoint: AgentEndpoint): number {
   const value = endpoint.metadata?.lastStartedAt;
   return typeof value === "number" ? value : 0;
@@ -893,6 +904,15 @@ function latestEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, a
     Math.max(endpointTerminalAt(right), endpointStartedAt(right))
     - Math.max(endpointTerminalAt(left), endpointStartedAt(left))
   ))[0] ?? null;
+}
+
+function isReconciledStaleFlightActivityItem(item: {
+  kind: string;
+  summary?: string | null;
+}): boolean {
+  return item.kind === "flight_updated"
+    && typeof item.summary === "string"
+    && item.summary.startsWith("Stale running flight reconciled:");
 }
 
 function isStaleLocalAgent(agent: AgentDefinition | undefined): boolean {
@@ -1060,6 +1080,7 @@ async function brokerHomePayload() {
     .slice(0, 24);
 
   const activity = (await projection.listActivityItems({ limit: 96 }))
+    .filter((item) => !isReconciledStaleFlightActivityItem(item))
     .filter((item) => Boolean(item.messageId))
     .slice(0, 24)
     .map((item) => {
@@ -1116,7 +1137,13 @@ function staleWorkingFlightReason(
   }
 
   const startedEndpointAt = endpointStartedAt(endpoint);
-  if (endpoint.state === "active" && startedEndpointAt > startedAt) {
+  const endpointInvocationId = endpointLastInvocationId(endpoint);
+  if (
+    endpoint.state === "active"
+    && startedEndpointAt > startedAt
+    && endpointInvocationId !== null
+    && endpointInvocationId !== flight.invocationId
+  ) {
     return `endpoint ${endpoint.id} started newer work at ${startedEndpointAt}`;
   }
 
@@ -3038,12 +3065,13 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     const agentId = url.searchParams.get("agentId") ?? undefined;
     const actorId = url.searchParams.get("actorId") ?? undefined;
     const conversationId = url.searchParams.get("conversationId") ?? undefined;
-    json(response, 200, await projection.listActivityItems({
+    const items = await projection.listActivityItems({
       limit: parseLimit(url),
       agentId,
       actorId,
       conversationId,
-    }));
+    });
+    json(response, 200, items.filter((item) => !isReconciledStaleFlightActivityItem(item)));
     return;
   }
 
@@ -3252,10 +3280,11 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/mesh/discover") {
     try {
       const body = await readRequestBody<{ seeds?: string[] }>(request);
-      const discovered = await discoverPeers(body.seeds ?? []);
+      const result = await discoverPeers(body.seeds ?? []);
       json(response, 200, {
         ok: true,
-        discovered,
+        discovered: result.discovered,
+        probes: result.probes,
       });
     } catch (error) {
       badRequest(response, error);

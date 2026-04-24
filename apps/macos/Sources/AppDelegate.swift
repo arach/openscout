@@ -89,6 +89,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openItem.target = self
         menu.addItem(openItem)
 
+        let openTailscaleItem = NSMenuItem(title: "Open Tailscale", action: #selector(openTailscale), keyEquivalent: "")
+        openTailscaleItem.target = self
+        menu.addItem(openTailscaleItem)
+
         let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshState), keyEquivalent: "r")
         refreshItem.target = self
         menu.addItem(refreshItem)
@@ -114,6 +118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func openWebApp() {
         controller.openWebApp()
+    }
+
+    @objc
+    private func openTailscale() {
+        controller.openTailscale()
     }
 
     @objc

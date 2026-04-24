@@ -23,6 +23,14 @@ import { SessionObserve } from "./SessionObserve.tsx";
 import "./agents-screen.css";
 import "./ops-screen.css";
 
+async function queueTakeover(command: string) {
+  await fetch("/api/terminal/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command }),
+  });
+}
+
 
 function agentLabel(
   agent: Agent,
@@ -64,16 +72,18 @@ function directSessionMaps(sessions: SessionEntry[]): {
 }
 
 
-function SessionFacet({ catalog }: { catalog: SessionCatalogWithResume }) {
-  const [copied, setCopied] = useState(false);
+function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume; agentId: string }) {
+  const { navigate } = useScout();
+  const [sent, setSent] = useState(false);
   const shortId = catalog.activeSessionId?.slice(0, 8) ?? null;
   const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
 
-  const copyResume = () => {
+  const runTakeover = () => {
     if (!catalog.resumeCommand) return;
-    void navigator.clipboard.writeText(catalog.resumeCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void queueTakeover(catalog.resumeCommand).then(() =>
+      navigate({ view: "terminal", agentId }),
+    );
+    setSent(true);
   };
 
   return (
@@ -85,10 +95,10 @@ function SessionFacet({ catalog }: { catalog: SessionCatalogWithResume }) {
           <button
             type="button"
             className="s-profile-facet-action"
-            onClick={copyResume}
+            onClick={runTakeover}
             title={catalog.resumeCommand}
           >
-            {copied ? "Copied" : "Resume"}
+            {sent ? "Going…" : "Takeover"}
           </button>
         )}
       </div>
@@ -600,7 +610,7 @@ function AgentDetailWithRail({
                 </div>
               )}
               {sessionCatalog?.activeSessionId && (
-                <SessionFacet catalog={sessionCatalog} />
+                <SessionFacet catalog={sessionCatalog} agentId={agent.id} />
               )}
             </div>
           )}
@@ -737,7 +747,9 @@ export function AgentsScreen({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   const selectedAgent = selectedAgentId
     ? agents.find((a) => a.id === selectedAgentId) ?? null

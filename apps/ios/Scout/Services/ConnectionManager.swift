@@ -46,6 +46,20 @@ enum BridgeHealthState: Sendable, Equatable {
     case offline
 }
 
+func normalizedConnectionDisplayHealth(
+    state: ConnectionState,
+    health: BridgeHealthState
+) -> BridgeHealthState {
+    switch state {
+    case .connected:
+        return health == .offline ? .healthy : health
+    case .connecting, .handshaking, .reconnecting:
+        return health == .offline ? .suspect : health
+    case .disconnected, .failed:
+        return health
+    }
+}
+
 // MARK: - Errors
 
 enum ConnectionError: LocalizedError, Sendable {
@@ -242,37 +256,30 @@ final class ConnectionManager: @unchecked Sendable {
             )
         }
 
-        switch health {
-        case .suspect:
-            return ConnectionStatusDetails(
-                shortLabel: "Checking Mac",
-                title: "Checking Your Mac",
-                message: "Scout is reconnecting and checking whether your Mac is reachable over Tailscale.",
-                symbol: "arrow.triangle.2.circlepath",
-                allowsRetry: false
-            )
-        case .degraded:
-            return ConnectionStatusDetails(
-                shortLabel: "Mac Reachable",
-                title: "Scout Not Responding",
-                message: "Your Mac is reachable, but Scout on your Mac is not responding yet. The app will keep retrying.",
-                symbol: "exclamationmark.triangle",
-                allowsRetry: true
-            )
-        case .offline:
-            return ConnectionStatusDetails(
-                shortLabel: "Mac Offline",
-                title: "Mac Offline",
-                message: "Scout could not reach your Mac over Tailscale after retrying. It is probably offline or asleep.",
-                symbol: "wifi.exclamationmark",
-                allowsRetry: true
-            )
-        case .healthy:
-            break
-        }
+        let displayHealth = normalizedConnectionDisplayHealth(state: state, health: health)
 
         switch state {
         case .connected:
+            switch displayHealth {
+            case .suspect:
+                return ConnectionStatusDetails(
+                    shortLabel: "Checking Mac",
+                    title: "Checking Your Mac",
+                    message: "Scout is reconnecting and checking whether your Mac is reachable over Tailscale.",
+                    symbol: "arrow.triangle.2.circlepath",
+                    allowsRetry: false
+                )
+            case .degraded:
+                return ConnectionStatusDetails(
+                    shortLabel: "Mac Reachable",
+                    title: "Scout Not Responding",
+                    message: "Your Mac is reachable, but Scout on your Mac is not responding yet. The app will keep retrying.",
+                    symbol: "exclamationmark.triangle",
+                    allowsRetry: true
+                )
+            case .healthy, .offline:
+                break
+            }
             return ConnectionStatusDetails(
                 shortLabel: "Connected",
                 title: "Connected",
@@ -298,6 +305,34 @@ final class ConnectionManager: @unchecked Sendable {
                 allowsRetry: false
             )
         case .disconnected:
+            switch displayHealth {
+            case .suspect:
+                return ConnectionStatusDetails(
+                    shortLabel: "Checking Mac",
+                    title: "Checking Your Mac",
+                    message: "Scout is reconnecting and checking whether your Mac is reachable over Tailscale.",
+                    symbol: "arrow.triangle.2.circlepath",
+                    allowsRetry: false
+                )
+            case .degraded:
+                return ConnectionStatusDetails(
+                    shortLabel: "Mac Reachable",
+                    title: "Scout Not Responding",
+                    message: "Your Mac is reachable, but Scout on your Mac is not responding yet. The app will keep retrying.",
+                    symbol: "exclamationmark.triangle",
+                    allowsRetry: true
+                )
+            case .offline:
+                return ConnectionStatusDetails(
+                    shortLabel: "Mac Offline",
+                    title: "Mac Offline",
+                    message: "Scout could not reach your Mac over Tailscale after retrying. It is probably offline or asleep.",
+                    symbol: "wifi.exclamationmark",
+                    allowsRetry: true
+                )
+            case .healthy:
+                break
+            }
             return ConnectionStatusDetails(
                 shortLabel: "Disconnected",
                 title: "Disconnected",
@@ -394,6 +429,7 @@ final class ConnectionManager: @unchecked Sendable {
     private let urlSession: URLSession
     private let sessionDelegate = TrustAllDelegate()
     private var connectionInfo: BridgeConnectionInfo?
+    private var isScreenshotPreview = false
     private var cachedRemotePushToken: String?
     private var identityKeyPair: NoiseKeyPair?
     private var manualDisconnectRequested = false
@@ -1063,6 +1099,22 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(MobileAgentDetail.self, from: data)
     }
 
+    func createWebHandoff(
+        kind: MobileWebHandoffKind,
+        sessionId: String,
+        turnId: String? = nil,
+        blockId: String? = nil
+    ) async throws -> MobileWebHandoff {
+        let params = MobileWebHandoffParams(
+            kind: kind,
+            sessionId: sessionId,
+            turnId: turnId,
+            blockId: blockId
+        )
+        let data = try await sendRPC(method: "mobile/web/handoff", params: params)
+        return try decodeResult(MobileWebHandoff.self, from: data)
+    }
+
     func restartAgent(agentId: String) async throws -> AgentActionResult {
         let params = AgentIdParams(agentId: agentId)
         let data = try await sendRPC(method: "mobile/agent/restart", params: params)
@@ -1139,6 +1191,13 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     func getSnapshot(_ sessionId: String, beforeTurnId: String? = nil, limit: Int? = nil) async throws -> SessionState {
+        if isScreenshotPreview {
+            if let snapshot = await MainActor.run(body: { sessionStore.sessions[sessionId] }) {
+                return snapshot
+            }
+            throw ConnectionError.rpcError(code: -32602, message: "Missing preview snapshot")
+        }
+
         let params = MobileSessionSnapshotParams(
             conversationId: sessionId,
             beforeTurnId: beforeTurnId,
@@ -1148,13 +1207,14 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(SessionState.self, from: data)
     }
 
-    func syncStatus() async throws -> SyncStatusResponse {
-        let data = try await sendRPC(method: "sync/status", params: nil as Empty?)
+    func syncStatus(sessionId: String) async throws -> SyncStatusResponse {
+        let params = SyncStatusParams(sessionId: sessionId)
+        let data = try await sendRPC(method: "sync/status", params: params)
         return try decodeResult(SyncStatusResponse.self, from: data)
     }
 
-    func syncReplay(lastSeq: Int) async throws -> [SequencedEvent] {
-        let params = ReplayParams(lastSeq: lastSeq)
+    func syncReplay(sessionId: String, lastSeq: Int) async throws -> [SequencedEvent] {
+        let params = ReplayParams(sessionId: sessionId, lastSeq: lastSeq)
         let data = try await sendRPC(method: "sync/replay", params: params)
         let response = try decodeResult(ReplayResponse.self, from: data)
         return response.events
@@ -1185,6 +1245,13 @@ final class ConnectionManager: @unchecked Sendable {
     }
 
     func refreshRelaySessions(limit: Int = 100) async {
+        if isScreenshotPreview {
+            await MainActor.run {
+                sessionStore.connectionState = .connected
+            }
+            return
+        }
+
         do {
             let sessions = try await listMobileSessions(limit: limit)
             let now = Int(Date().timeIntervalSince1970 * 1000)
@@ -1586,7 +1653,7 @@ final class ConnectionManager: @unchecked Sendable {
     /// Run the reconnect recovery algorithm from PROTOCOL.md §4.
     private func runRecovery() async {
         await refreshRelaySessions()
-        await inboxStore.refresh(using: self)
+        await inboxStore.refresh(using: self, presentNotifications: true)
         await syncPushRegistrationIfPossible()
     }
 
@@ -1762,6 +1829,24 @@ extension ConnectionManager {
         let store = SessionStore.preview
         let manager = ConnectionManager(sessionStore: store, inboxStore: InboxStore())
         manager.state = ConnectionState.connected
+        return manager
+    }
+
+    @MainActor
+    static func screenshotPreview(
+        sessionStore: SessionStore,
+        inboxStore: InboxStore,
+        trustedBridge: Bool
+    ) -> ConnectionManager {
+        let manager = ConnectionManager(sessionStore: sessionStore, inboxStore: inboxStore)
+        manager.isScreenshotPreview = true
+        manager.state = trustedBridge ? .connected : .disconnected
+        manager.health = trustedBridge ? .healthy : .offline
+        manager.connectionInfo = trustedBridge ? BridgeConnectionInfo(
+            relayURL: "https://relay.openscout.app",
+            roomId: "preview-room",
+            publicKeyHex: String(repeating: "ab", count: 32)
+        ) : nil
         return manager
     }
 }

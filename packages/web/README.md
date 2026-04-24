@@ -4,6 +4,7 @@ Published package that ships a lightweight standalone Scout web UI: pairing QR, 
 
 ## Requirements
 
+- [Node.js](https://nodejs.org) on your `PATH`
 - [Bun](https://bun.sh) on your `PATH`
 
 ## Install
@@ -46,6 +47,7 @@ This builds:
 - `dist/client/` via Vite
 - `dist/openscout-web-server.mjs` via `bun build`
 - `dist/pair-supervisor.mjs` for the pairing runtime
+- `dist/openscout-terminal-relay.mjs` for the Node-hosted PTY relay
 
 ## Local dev (UI only)
 

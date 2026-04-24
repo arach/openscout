@@ -25,12 +25,97 @@ const BROKER_EVENT_NAMES = [
   "scout.dispatched",
 ] as const;
 
+type BrokerEventSubscription = (event: BrokerEvent) => void;
+
+const subscribers = new Set<BrokerEventSubscription>();
+
+let eventSource: EventSource | null = null;
+let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+let failures = 0;
+
 function parseBrokerEvent(data: string): BrokerEvent {
   try {
     return JSON.parse(data) as BrokerEvent;
   } catch {
     return { kind: "unknown" };
   }
+}
+
+function closeEventSource(): void {
+  eventSource?.close();
+  eventSource = null;
+}
+
+function scheduleReconnect(): void {
+  if (retryTimeout || subscribers.size === 0) {
+    return;
+  }
+  failures++;
+  const delay = Math.min(3000 * 2 ** (failures - 1), 60_000);
+  retryTimeout = setTimeout(() => {
+    retryTimeout = null;
+    if (subscribers.size > 0) {
+      connectToBrokerEvents();
+    }
+  }, delay);
+}
+
+function dispatchBrokerEvent(event: BrokerEvent): void {
+  for (const subscriber of [...subscribers]) {
+    subscriber(event);
+  }
+}
+
+function connectToBrokerEvents(): void {
+  if (eventSource || subscribers.size === 0) {
+    return;
+  }
+
+  const es = new EventSource("/api/events");
+  eventSource = es;
+
+  const forward = (event: MessageEvent<string>) => {
+    dispatchBrokerEvent(parseBrokerEvent(event.data));
+  };
+
+  es.onopen = () => {
+    failures = 0;
+  };
+  es.onmessage = forward;
+  for (const eventName of BROKER_EVENT_NAMES) {
+    es.addEventListener(eventName, forward as EventListener);
+  }
+
+  es.onerror = () => {
+    if (eventSource === es) {
+      closeEventSource();
+    } else {
+      es.close();
+    }
+    scheduleReconnect();
+  };
+}
+
+function subscribeBrokerEvents(handler: BrokerEventSubscription): () => void {
+  subscribers.add(handler);
+  if (retryTimeout) {
+    clearTimeout(retryTimeout);
+    retryTimeout = null;
+  }
+  connectToBrokerEvents();
+
+  return () => {
+    subscribers.delete(handler);
+    if (subscribers.size > 0) {
+      return;
+    }
+    if (retryTimeout) {
+      clearTimeout(retryTimeout);
+      retryTimeout = null;
+    }
+    failures = 0;
+    closeEventSource();
+  };
 }
 
 /**
@@ -43,35 +128,8 @@ export function useBrokerEvents(onEvent: (event: BrokerEvent) => void) {
   cbRef.current = onEvent;
 
   useEffect(() => {
-    let es: EventSource | null = null;
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-    let failures = 0;
-
-    function connect() {
-      es = new EventSource("/api/events");
-
-      const forward = (event: MessageEvent<string>) => {
-        cbRef.current(parseBrokerEvent(event.data));
-      };
-
-      es.onopen = () => { failures = 0; };
-      es.onmessage = forward;
-      for (const eventName of BROKER_EVENT_NAMES) {
-        es.addEventListener(eventName, forward as EventListener);
-      }
-
-      es.onerror = () => {
-        es?.close();
-        failures++;
-        const delay = Math.min(3000 * 2 ** (failures - 1), 60_000);
-        retryTimeout = setTimeout(connect, delay);
-      };
-    }
-
-    connect();
-    return () => {
-      es?.close();
-      if (retryTimeout) clearTimeout(retryTimeout);
-    };
+    return subscribeBrokerEvents((event) => {
+      cbRef.current(event);
+    });
   }, []);
 }

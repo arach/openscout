@@ -75,6 +75,7 @@ export function buildScoutAgentCard(
   const selector = binding.agent.selector?.trim() || metadataString(binding.agent.metadata, "selector");
   const defaultSelector = binding.agent.defaultSelector?.trim() || metadataString(binding.agent.metadata, "defaultSelector");
   const branch = metadataString(binding.agent.metadata, "branch") || metadataString(binding.endpoint.metadata, "branch");
+  const model = metadataString(binding.endpoint.metadata, "model") || metadataString(binding.agent.metadata, "model");
   const description = metadataString(binding.agent.metadata, "description");
   const version = metadataString(binding.agent.metadata, "version");
   const documentationUrl = metadataString(binding.agent.metadata, "documentationUrl")
@@ -141,6 +142,7 @@ export function buildScoutAgentCard(
       actorId: binding.actor.id,
       endpointId: binding.endpoint.id,
       wakePolicy: binding.agent.wakePolicy,
+      ...(model ? { model } : {}),
     },
   };
 }

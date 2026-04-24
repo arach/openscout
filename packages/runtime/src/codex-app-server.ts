@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 
 import {
@@ -39,6 +40,129 @@ type CodexServerRequest = {
   method: string;
   params?: Record<string, unknown>;
 };
+
+function normalizeCodexModelValue(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function encodeCodexModelConfig(model: string): string {
+  return `model=${JSON.stringify(model)}`;
+}
+
+function parseCodexModelConfig(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const separatorIndex = trimmed.indexOf("=");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const key = trimmed.slice(0, separatorIndex).trim();
+  if (key !== "model") {
+    return null;
+  }
+
+  const rawValue = trimmed.slice(separatorIndex + 1).trim();
+  if (!rawValue) {
+    return null;
+  }
+
+  if (
+    (rawValue.startsWith("\"") && rawValue.endsWith("\""))
+    || (rawValue.startsWith("'") && rawValue.endsWith("'"))
+  ) {
+    return rawValue.slice(1, -1) || null;
+  }
+
+  return rawValue;
+}
+
+export function normalizeCodexAppServerLaunchArgs(launchArgs?: string[]): string[] {
+  const args = Array.isArray(launchArgs)
+    ? launchArgs.map((entry) => String(entry).trim()).filter(Boolean)
+    : [];
+  const normalized: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index] ?? "";
+    if (current === "--model" || current === "-m") {
+      const model = normalizeCodexModelValue(args[index + 1]);
+      if (model) {
+        normalized.push("-c", encodeCodexModelConfig(model));
+        index += 1;
+        continue;
+      }
+      normalized.push(current);
+      continue;
+    }
+
+    if (current.startsWith("--model=")) {
+      const model = normalizeCodexModelValue(current.slice("--model=".length));
+      if (model) {
+        normalized.push("-c", encodeCodexModelConfig(model));
+        continue;
+      }
+    }
+
+    if (current.startsWith("-m=")) {
+      const model = normalizeCodexModelValue(current.slice(3));
+      if (model) {
+        normalized.push("-c", encodeCodexModelConfig(model));
+        continue;
+      }
+    }
+
+    if (current === "-c" || current === "--config") {
+      const next = args[index + 1];
+      if (typeof next === "string") {
+        const model = parseCodexModelConfig(next);
+        normalized.push(current === "--config" ? "--config" : "-c", model ? encodeCodexModelConfig(model) : next);
+        index += 1;
+        continue;
+      }
+    }
+
+    if (current.startsWith("--config=")) {
+      const value = current.slice("--config=".length);
+      const model = parseCodexModelConfig(value);
+      normalized.push(model ? `--config=${encodeCodexModelConfig(model)}` : current);
+      continue;
+    }
+
+    normalized.push(current);
+  }
+
+  return normalized;
+}
+
+export function readCodexAppServerModelFromLaunchArgs(launchArgs?: string[]): string | null {
+  const normalized = normalizeCodexAppServerLaunchArgs(launchArgs);
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = normalized[index] ?? "";
+    if (current === "-c" || current === "--config") {
+      const model = parseCodexModelConfig(normalized[index + 1]);
+      if (model) {
+        return model;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (current.startsWith("--config=")) {
+      const model = parseCodexModelConfig(current.slice("--config=".length));
+      if (model) {
+        return model;
+      }
+    }
+  }
+
+  return null;
+}
 
 type CodexErrorResponse = {
   code: number;
@@ -100,6 +224,8 @@ type ActiveTurn = {
   turnId: string;
   startedAt: number;
   timer: NodeJS.Timeout | null;
+  graceTimer: NodeJS.Timeout | null;
+  timedOutAt: number | null;
   messageOrder: string[];
   messageByItemId: Map<string, string>;
   resolve: (output: string) => void;
@@ -1117,6 +1243,14 @@ function isMissingCodexRolloutError(error: unknown): boolean {
   return message.includes("no rollout found for thread id");
 }
 
+function resolveCodexCompletionGraceMs(): number {
+  const parsed = Number.parseInt(process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS ?? "", 10);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+  return 60_000;
+}
+
 class CodexAppServerSession {
   private readonly key: string;
 
@@ -1343,7 +1477,7 @@ class CodexAppServerSession {
       systemPrompt: options.systemPrompt,
       threadId: options.threadId ?? null,
       requireExistingThread: options.requireExistingThread === true,
-      launchArgs: Array.isArray(options.launchArgs) ? options.launchArgs : [],
+      launchArgs: normalizeCodexAppServerLaunchArgs(options.launchArgs),
     });
   }
 
@@ -1370,6 +1504,7 @@ class CodexAppServerSession {
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
 
     const codexExecutable = await resolveCodexExecutable();
+    const launchArgs = normalizeCodexAppServerLaunchArgs(this.options.launchArgs);
     const env = buildManagedAgentEnvironment({
       agentName: this.options.agentName,
       currentDirectory: this.options.cwd,
@@ -1381,6 +1516,7 @@ class CodexAppServerSession {
         currentDirectory: this.options.cwd,
         env,
       }),
+      ...launchArgs,
     ], {
       cwd: this.options.cwd,
       env,
@@ -1494,6 +1630,8 @@ class CodexAppServerSession {
       turnId: "",
       startedAt: Date.now(),
       timer: null,
+      graceTimer: null,
+      timedOutAt: null,
       messageOrder: [],
       messageByItemId: new Map<string, string>(),
       resolve,
@@ -1501,18 +1639,48 @@ class CodexAppServerSession {
       watchers: [],
     };
     turn.timer = setTimeout(() => {
-      void this.interrupt().catch(() => undefined);
-      if (this.activeTurn === turn) {
-        this.activeTurn = null;
-      }
-      for (const watcher of this.drainTurnWatchers(turn)) {
-        watcher.reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
-      }
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
+      this.scheduleTurnTimeout(turn, timeoutMs);
     }, timeoutMs);
 
     this.activeTurn = turn;
     return turn;
+  }
+
+  private buildTurnTimeoutError(timeoutMs: number): Error {
+    return new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`);
+  }
+
+  private scheduleTurnTimeout(turn: ActiveTurn, timeoutMs: number): void {
+    if (turn.timedOutAt !== null) {
+      return;
+    }
+
+    turn.timedOutAt = Date.now();
+    void this.interrupt().catch(() => undefined);
+
+    const graceMs = resolveCodexCompletionGraceMs();
+    if (graceMs <= 0) {
+      this.rejectTimedOutTurn(turn, timeoutMs);
+      return;
+    }
+
+    turn.graceTimer = setTimeout(() => {
+      this.rejectTimedOutTurn(turn, timeoutMs);
+    }, graceMs);
+  }
+
+  private rejectTimedOutTurn(turn: ActiveTurn, timeoutMs: number): void {
+    if (this.activeTurn !== turn) {
+      this.clearActiveTurn(turn);
+      return;
+    }
+
+    this.clearActiveTurn(turn);
+    const error = this.buildTurnTimeoutError(timeoutMs);
+    for (const watcher of this.drainTurnWatchers(turn)) {
+      watcher.reject(error);
+    }
+    turn.reject(error);
   }
 
   private addTurnWatcher(
@@ -1555,6 +1723,9 @@ class CodexAppServerSession {
   private clearActiveTurn(turn: ActiveTurn): void {
     if (turn.timer) {
       clearTimeout(turn.timer);
+    }
+    if (turn.graceTimer) {
+      clearTimeout(turn.graceTimer);
     }
     if (this.activeTurn === turn) {
       this.activeTurn = null;

@@ -23,6 +23,7 @@ import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { HeroIntentForm } from "@/components/hero-intent-form";
 import { LandingProductShowcase } from "@/components/landing-product-showcase";
+import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCtaClick, trackNavigationClick } from "@/lib/analytics";
 
@@ -516,7 +517,7 @@ export default function Home() {
     });
   };
   return (
-    <div className="relative isolate min-h-screen overflow-x-clip bg-[#f5f4ef] text-[#111110]">
+    <div className="site-marketing relative isolate min-h-screen overflow-x-clip bg-[var(--site-page-bg)] text-[var(--site-ink)]">
       {/* ── hero background layers ── */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[40rem] overflow-hidden">
         <div className="hero-glow absolute inset-0" />
@@ -524,7 +525,7 @@ export default function Home() {
       </div>
 
       {/* ── nav ── */}
-      <nav className="sticky top-0 z-50 border-b border-[#ded9cf] bg-[#f5f4ef]/95">
+      <nav className="sticky top-0 z-50 border-b border-[var(--site-border)] bg-[var(--site-page-bg-strong)] backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[90rem] items-center justify-between px-6">
           <Link
             href="/"
@@ -532,18 +533,18 @@ export default function Home() {
             className="flex items-center gap-3"
           >
             <LogoMark />
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
+            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
             </span>
           </Link>
 
-          <div className="hidden items-center gap-8 text-[11px] font-medium uppercase tracking-[0.12em] text-[#69675f] md:flex">
+          <div className="hidden items-center gap-8 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--site-copy)] md:flex">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
                 onClick={onNavigationClick(link.label, link.href, "header_nav")}
-                className="transition-colors hover:text-[#111110]"
+                className="transition-colors hover:text-[var(--site-ink)]"
               >
                 {link.label}
               </a>
@@ -551,6 +552,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
+            <SiteThemeToggle />
             <a
               href="https://github.com/arach/openscout"
               target="_blank"
@@ -561,14 +563,14 @@ export default function Home() {
                 "header_nav",
                 "repo",
               )}
-              className="hidden text-[11px] font-medium uppercase tracking-[0.12em] text-[#69675f] transition-colors hover:text-[#111110] sm:inline-flex"
+              className="hidden text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)] sm:inline-flex"
             >
               GitHub
             </a>
             <Link
               href="/docs"
               onClick={onCtaClick("Read the docs", "/docs", "header_nav", "docs")}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--site-ink)] px-4 text-sm font-medium text-[var(--site-ink-contrast)] transition-colors hover:bg-[var(--site-ink-hover)]"
             >
               <span>Read the docs</span>
               <ArrowUpRight className="h-3.5 w-3.5" />
@@ -585,14 +587,14 @@ export default function Home() {
               <div className="mx-auto grid max-w-[90rem] gap-16 px-6 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] lg:items-start">
                 <div className="max-w-xl">
                   <div
-                    className="hero-animate landing-label text-[#2a57cb]"
+                    className="hero-animate landing-label text-[var(--site-accent)]"
                     style={{ animationDelay: "0s" }}
                   >
                     {copy.heroEyebrow}
                   </div>
 
                   <h1
-                    className="hero-animate mt-8 min-h-[7.5rem] tracking-[-0.04em] text-[#111110] sm:min-h-[9rem] lg:min-h-[10.5rem]"
+                    className="hero-animate mt-8 min-h-[7.5rem] tracking-[-0.04em] text-[var(--site-ink)] sm:min-h-[9rem] lg:min-h-[10.5rem]"
                     style={{ animationDelay: "0.04s" }}
                   >
                     <span className="block font-[family-name:var(--font-display)] text-5xl italic sm:text-6xl lg:text-[4.5rem] lg:leading-[1.05]">
@@ -604,7 +606,7 @@ export default function Home() {
                   </h1>
 
                   <p
-                    className="hero-animate mt-6 min-h-[5.5rem] max-w-lg text-[17px] leading-relaxed text-[#4a4843]"
+                    className="hero-animate mt-6 min-h-[5.5rem] max-w-lg text-[17px] leading-relaxed text-[var(--site-copy)]"
                     style={{ animationDelay: "0.1s" }}
                   >
                     {copy.heroDescription}
@@ -619,7 +621,7 @@ export default function Home() {
                       <Link
                         href="#get-started"
                         onClick={onCtaClick("Get started", "#get-started", "hero", "scroll")}
-                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-5 text-sm font-medium text-[#111110] shadow-sm transition-all hover:bg-[#faf9f4] hover:shadow"
+                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-surface-strong)] px-5 text-sm font-medium text-[var(--site-ink)] shadow-sm transition-all hover:bg-[var(--site-panel)] hover:shadow"
                       >
                         <span>Get started</span>
                         <ArrowRight className="h-3.5 w-3.5" />
@@ -634,7 +636,7 @@ export default function Home() {
                   </div>
 
                   <p
-                    className="hero-animate mt-6 text-[13px] text-[#9a978f]"
+                    className="hero-animate mt-6 text-[13px] text-[var(--site-muted-soft)]"
                     style={{ animationDelay: "0.22s" }}
                   >
                     {copy.heroFootnote}
@@ -650,17 +652,17 @@ export default function Home() {
             {/* ── Problem ── */}
             <section
               id="mesh"
-              className="relative border-y border-[#eae6dd] bg-white py-24"
+              className="relative border-y border-[var(--site-border)] bg-[var(--site-surface-strong)] py-24"
             >
               <div className="mx-auto max-w-6xl px-6">
                 <div className="reveal mx-auto max-w-3xl text-center">
-                  <div className="landing-label text-[#2a57cb]">
+                  <div className="landing-label text-[var(--site-accent)]">
                     The Problem
                   </div>
-                  <h2 className="mt-4 min-h-[3.5rem] text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
+                  <h2 className="mt-4 min-h-[3.5rem] text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)] sm:text-4xl">
                     {problemContent.meshTitle}
                   </h2>
-                  <p className="mt-4 min-h-[3.5rem] text-lg leading-relaxed text-[#4d4b45]">
+                  <p className="mt-4 min-h-[3.5rem] text-lg leading-relaxed text-[var(--site-copy)]">
                     {problemContent.meshDescription}
                   </p>
 
@@ -674,16 +676,16 @@ export default function Home() {
                         className="reveal landing-card rounded-xl p-6"
                         style={{ "--reveal-i": i } as React.CSSProperties}
                       >
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#eae6dd] bg-[#faf9f6] text-[#111110]">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--site-border)] bg-[var(--site-panel)] text-[var(--site-ink)]">
                           <Icon
                             className="h-[18px] w-[18px]"
                             strokeWidth={1.6}
                           />
                         </div>
-                        <h3 className="mt-5 text-lg font-semibold tracking-tight text-[#111110]">
+                        <h3 className="mt-5 text-lg font-semibold tracking-tight text-[var(--site-ink)]">
                           {title}
                         </h3>
-                        <p className="mt-2 text-[15px] leading-relaxed text-[#504d47]">
+                        <p className="mt-2 text-[15px] leading-relaxed text-[var(--site-copy)]">
                           {description}
                         </p>
                       </div>
@@ -697,19 +699,19 @@ export default function Home() {
             <section id="capabilities" className="py-24">
               <div className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
-                  <div className="landing-label text-[#2a57cb]">
+                  <div className="landing-label text-[var(--site-accent)]">
                     Capabilities
                   </div>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110]">
+                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)]">
                     {copy.capabilitiesTitle}
                   </h2>
-                  <p className="mt-4 text-[15px] leading-relaxed text-[#4d4b45]">
+                  <p className="mt-4 text-[15px] leading-relaxed text-[var(--site-copy)]">
                     {copy.capabilitiesDescription}
                   </p>
                   <Link
                     href="/docs"
                     onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
-                    className="group mt-6 inline-flex items-center gap-2 text-sm font-medium text-[#111110] transition-colors hover:text-[#2a57cb]"
+                    className="group mt-6 inline-flex items-center gap-2 text-sm font-medium text-[var(--site-ink)] transition-colors hover:text-[var(--site-accent)]"
                   >
                     <span>Browse the docs</span>
                     <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
@@ -724,19 +726,19 @@ export default function Home() {
                         className="reveal landing-card rounded-xl p-5"
                         style={{ "--reveal-i": i } as React.CSSProperties}
                       >
-                        <div className="landing-label text-[#9a978f]">
+                        <div className="landing-label text-[var(--site-muted-soft)]">
                           {label}
                         </div>
-                        <div className="mt-3 flex h-10 w-10 items-center justify-center rounded-lg border border-[#dce4ff] bg-[#f2f5ff] text-[#2657c6]">
+                        <div className="mt-3 flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--site-accent-border)] bg-[var(--site-accent-soft-strong)] text-[var(--site-accent)]">
                           <Icon
                             className="h-[18px] w-[18px]"
                             strokeWidth={1.6}
                           />
                         </div>
-                        <h3 className="mt-4 text-base font-semibold tracking-tight text-[#111110]">
+                        <h3 className="mt-4 text-base font-semibold tracking-tight text-[var(--site-ink)]">
                           {title}
                         </h3>
-                        <p className="mt-2 text-[14px] leading-relaxed text-[#504d47]">
+                        <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-copy)]">
                           {description}
                         </p>
                       </div>
@@ -749,24 +751,24 @@ export default function Home() {
             {/* ── Surfaces ── */}
             <section
               id="surfaces"
-              className="relative border-y border-[#eae6dd] bg-[#faf9f6] py-24"
+              className="relative border-y border-[var(--site-border)] bg-[var(--site-panel)] py-24"
             >
               <div className="dot-grid pointer-events-none absolute inset-0" />
               <div className="relative mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] lg:items-start">
                 <div className="reveal max-w-xl">
-                  <div className="landing-label text-[#2a57cb]">Apps</div>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
+                  <div className="landing-label text-[var(--site-accent)]">Apps</div>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)] sm:text-4xl">
                     {copy.surfacesTitle}
                   </h2>
-                  <p className="mt-4 text-[15px] leading-relaxed text-[#4d4b45]">
+                  <p className="mt-4 text-[15px] leading-relaxed text-[var(--site-copy)]">
                     {copy.surfacesDescription}
                   </p>
 
-                  <div className="mt-8 rounded-xl border border-[#eae6dd] bg-white p-5">
-                    <div className="landing-label text-[#9a978f]">
+                  <div className="mt-8 rounded-xl border border-[var(--site-border)] bg-[var(--site-surface-strong)] p-5">
+                    <div className="landing-label text-[var(--site-muted-soft)]">
                       {copy.surfacesNoteTitle}
                     </div>
-                    <p className="mt-2 text-sm leading-relaxed text-[#504d47]">
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--site-copy)]">
                       {copy.surfacesNoteDescription}
                     </p>
                   </div>
@@ -791,14 +793,14 @@ export default function Home() {
                           "aspect-[1552/1092] w-full object-cover object-top"
                         }
                       />
-                      <figcaption className="border-t border-[#eae6dd] bg-[#faf9f6] px-4 py-3.5">
-                        <div className="landing-label text-[#2657c6]">
+                      <figcaption className="border-t border-[var(--site-border)] bg-[var(--site-panel)] px-4 py-3.5">
+                        <div className="landing-label text-[var(--site-accent)]">
                           {shot.eyebrow}
                         </div>
-                        <h3 className="mt-1.5 text-base font-semibold tracking-tight text-[#111110]">
+                        <h3 className="mt-1.5 text-base font-semibold tracking-tight text-[var(--site-ink)]">
                           {shot.title}
                         </h3>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-[#504d47]">
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--site-copy)]">
                           {shot.description}
                         </p>
                       </figcaption>
@@ -814,21 +816,21 @@ export default function Home() {
                 <div className="reveal landing-panel rounded-2xl p-8 sm:p-10 lg:p-12">
                   <div className="grid gap-12 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                     <div className="max-w-sm">
-                      <div className="landing-label text-[#2a57cb]">
+                      <div className="landing-label text-[var(--site-accent)]">
                         Get Started
                       </div>
-                      <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#111110] sm:text-4xl">
+                      <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)] sm:text-4xl">
                         {copy.getStartedTitle}
                       </h2>
-                      <p className="mt-4 text-[15px] leading-relaxed text-[#4d4b45]">
+                      <p className="mt-4 text-[15px] leading-relaxed text-[var(--site-copy)]">
                         {copy.getStartedDescription}
                       </p>
 
-                      <div className="mt-8 rounded-xl border border-[#eae6dd] bg-[#faf9f6] p-5">
-                        <div className="landing-label text-[#9a978f]">
+                      <div className="mt-8 rounded-xl border border-[var(--site-border)] bg-[var(--site-panel)] p-5">
+                        <div className="landing-label text-[var(--site-muted-soft)]">
                           Optional: Desktop App
                         </div>
-                        <p className="mt-2 text-sm leading-relaxed text-[#504d47]">
+                        <p className="mt-2 text-sm leading-relaxed text-[var(--site-copy)]">
                           The CLI is the complete runtime. The desktop app adds a
                           visual dashboard for conversations, agents, and machines.
                         </p>
@@ -841,7 +843,7 @@ export default function Home() {
                               "get_started",
                               "download",
                             )}
-                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
+                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--site-ink)] px-4 text-sm font-medium text-[var(--site-ink-contrast)] transition-colors hover:bg-[var(--site-ink-hover)]"
                           >
                             <Download className="h-3.5 w-3.5" />
                             <span>Download for macOS</span>
@@ -856,7 +858,7 @@ export default function Home() {
                               "get_started",
                               "repo",
                             )}
-                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dad6cd] bg-white px-4 text-sm font-medium text-[#111110] transition-colors hover:bg-[#faf9f4]"
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-surface-strong)] px-4 text-sm font-medium text-[var(--site-ink)] transition-colors hover:bg-[var(--site-panel)]"
                           >
                             <span>Open on GitHub</span>
                             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -877,24 +879,24 @@ export default function Home() {
 
           {/* ── Footer ── */}
           <footer className="px-6 pb-20">
-            <div className="mx-auto max-w-[90rem] border-t border-[#eae6dd]">
+            <div className="mx-auto max-w-[90rem] border-t border-[var(--site-border)]">
               <div className="flex items-center justify-between py-4">
-                <div className="flex items-center gap-2.5 text-[#9a978f]">
+                <div className="flex items-center gap-2.5 text-[var(--site-muted-soft)]">
                   <LogoMark />
                   <span className="font-[family-name:var(--font-spectral)] text-sm font-semibold tracking-tight">Scout</span>
                 </div>
-                <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[#9a978f]">
+                <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--site-muted-soft)]">
                   <a
                     href="/docs"
                     onClick={onNavigationClick("Docs", "/docs", "footer")}
-                    className="transition-colors hover:text-[#111110]"
+                    className="transition-colors hover:text-[var(--site-ink)]"
                   >
                     Docs
                   </a>
                   <a
                     href="/privacy"
                     onClick={onNavigationClick("Privacy", "/privacy", "footer")}
-                    className="transition-colors hover:text-[#111110]"
+                    className="transition-colors hover:text-[var(--site-ink)]"
                   >
                     Privacy
                   </a>
@@ -906,7 +908,7 @@ export default function Home() {
                       "footer",
                       "repo",
                     )}
-                    className="transition-colors hover:text-[#111110]"
+                    className="transition-colors hover:text-[var(--site-ink)]"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -915,7 +917,7 @@ export default function Home() {
                   <a
                     href="https://x.com/arach"
                     onClick={onCtaClick("Twitter", "https://x.com/arach", "footer", "social")}
-                    className="transition-colors hover:text-[#111110]"
+                    className="transition-colors hover:text-[var(--site-ink)]"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -929,7 +931,7 @@ export default function Home() {
 
       {/* ── Floating bottom nav ── */}
       <nav className="fixed bottom-5 left-1/2 z-[60] hidden -translate-x-1/2 animate-in md:flex" style={{ animationDelay: "0.4s" }}>
-        <div className="flex items-center gap-0.5 rounded-full border border-[#2a2a28] bg-[#111110]/96 p-1 shadow-lg">
+        <div className="flex items-center gap-0.5 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] p-1 shadow-lg backdrop-blur-xl">
           {[
             ["How it works", "#mesh"],
             ["Features", "#capabilities"],
@@ -948,7 +950,7 @@ export default function Home() {
                   : onNavigationClick(label, href, "floating_nav")
               }
               {...(href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              className="rounded-full px-3.5 py-1.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.08em] text-[#8b887f] transition-colors hover:bg-[#2a2a28] hover:text-[#f5f4ef]"
+              className="rounded-full px-3.5 py-1.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.08em] text-[var(--site-muted)] transition-colors hover:bg-[var(--site-ink)] hover:text-[var(--site-ink-contrast)]"
             >
               {label}
             </a>

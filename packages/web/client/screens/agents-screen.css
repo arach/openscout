@@ -543,7 +543,8 @@
   flex-direction: column;
 }
 
-.s-profile-tab-conversation:has(.s-observe) {
+.s-profile-tab-conversation:has(.s-observe),
+.s-profile-tab-conversation:has(.s-thread-layout) {
   margin: 0 -40px;
 }
 

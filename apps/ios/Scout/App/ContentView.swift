@@ -9,6 +9,7 @@ struct ContentView: View {
 
     @Environment(SessionStore.self) private var sessionStore
     @Environment(ConnectionManager.self) private var connectionManager
+    @Environment(InboxStore.self) private var inboxStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var reconnectTriggered = false
     @State private var router = ScoutRouter()
@@ -41,8 +42,11 @@ struct ContentView: View {
                   connectionManager.state != .connected else { return }
             Task { await connectionManager.reconnect() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .scoutOpenInbox)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .scoutOpenInbox)) { notification in
             guard connectionManager.hasTrustedBridge else { return }
+            if let itemId = notification.userInfo?["itemId"] as? String {
+                inboxStore.focusItem(id: itemId)
+            }
             router.push(.inbox)
         }
     }

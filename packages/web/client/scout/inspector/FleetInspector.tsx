@@ -18,11 +18,13 @@ export function FleetInspector() {
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   if (!fleet) {
     return (
-      <div className="flex items-center justify-center h-full text-[11px] font-mono uppercase tracking-[0.15em] text-white/25">
+      <div className="flex h-full items-center justify-center text-[11px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-ghost)]">
         Loading fleet…
       </div>
     );
@@ -32,7 +34,7 @@ export function FleetInspector() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-white/30">
+      <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         Updated {timeAgo(fleet.generatedAt)}
       </div>
 
@@ -59,16 +61,16 @@ function Metric({
       : emphasis === "warn"
         ? "text-amber-300/90"
         : emphasis === "muted"
-          ? "text-white/40"
-          : "text-white/80";
+          ? "text-[var(--scout-chrome-ink-faint)]"
+          : "text-[var(--scout-chrome-ink)]";
   return (
-    <div className="flex flex-col pb-3 border-b border-white/[0.04] last:border-b-0">
+    <div className="flex flex-col border-b border-[var(--scout-chrome-border-soft)] pb-3 last:border-b-0">
       <span
         className={`text-[24px] font-mono tabular-nums leading-none ${valueColor}`}
       >
         {value}
       </span>
-      <span className="text-[9px] font-mono uppercase tracking-[0.15em] text-white/30 mt-1">
+      <span className="mt-1 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
         {label}
       </span>
     </div>

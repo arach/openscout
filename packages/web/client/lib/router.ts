@@ -35,9 +35,19 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
+    const agentId = decodeURIComponent(parts[1]);
+    // When tab=message, the DM conversation is implied from the agentId.
+    if (agentTab === "message") {
+      return {
+        view: "agents",
+        agentId,
+        conversationId: conversationForAgent(agentId),
+        tab: "message",
+      };
+    }
     return {
       view: "agents",
-      agentId: decodeURIComponent(parts[1]),
+      agentId,
       ...(agentTab ? { tab: agentTab } : {}),
     };
   }
@@ -61,6 +71,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return { view: "work", workId: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "settings") return { view: "settings" };
+  if (parts[0] === "terminal") {
+    return { view: "terminal", ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}) };
+  }
   if (parts[0] === "ops") {
     if (!isOpsEnabled()) {
       return { view: "inbox" };
@@ -94,15 +107,28 @@ export function routePath(r: Route): string {
       return `/agent/${encodeURIComponent(r.conversationId)}`;
     case "agents": {
       const params = new URLSearchParams();
-      const defaultTab = r.conversationId ? "message" : "profile";
-      if (r.tab && r.tab !== defaultTab) {
+      const isDmConv =
+        !!r.agentId &&
+        !!r.conversationId &&
+        r.conversationId === conversationForAgent(r.agentId);
+      const defaultTab = isDmConv
+        ? "profile"
+        : r.conversationId
+          ? "message"
+          : "profile";
+      if (isDmConv) {
+        // DM conversation is implied by `?tab=message`; omit /c/ segment.
+        params.set("tab", "message");
+      } else if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
       const search = params.toString();
       const path = r.agentId
-        ? r.conversationId
-          ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
-          : `/agents/${encodeURIComponent(r.agentId)}`
+        ? isDmConv
+          ? `/agents/${encodeURIComponent(r.agentId)}`
+          : r.conversationId
+            ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
+            : `/agents/${encodeURIComponent(r.agentId)}`
         : "/agents";
       return `${path}${search ? `?${search}` : ""}`;
     }
@@ -122,6 +148,8 @@ export function routePath(r: Route): string {
       return "/settings";
     case "ops":
       return r.mode && r.mode !== "plan" ? `/ops/${r.mode}` : "/ops";
+    case "terminal":
+      return r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal";
   }
 }
 

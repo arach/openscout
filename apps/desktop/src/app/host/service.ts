@@ -1,3 +1,5 @@
+import { readTailscaleStatusSummary } from "@openscout/runtime/mesh/tailscale";
+
 import {
   createScoutDesktopAppInfo,
   loadScoutDesktopHomeState,
@@ -47,9 +49,10 @@ export async function getScoutDesktopServicesState(
   options: ScoutDesktopServiceOptions = {},
 ): Promise<ScoutDesktopServicesState> {
   const currentDirectory = resolveCurrentDirectory(options.currentDirectory);
-  const [servicesState, pairingState] = await Promise.all([
+  const [servicesState, pairingState, tailscale] = await Promise.all([
     loadScoutDesktopServicesState(),
     getScoutDesktopPairingState(currentDirectory),
+    readTailscaleStatusSummary(),
   ]);
 
   const pairingService = {
@@ -73,7 +76,32 @@ export async function getScoutDesktopServicesState(
     url: pairingState.relay,
     nodeId: null,
   };
-  const nextServices = [...servicesState.services, pairingService];
+  const tailscaleService = {
+    id: "tailscale" as const,
+    title: "Tailscale",
+    status: tailscale === null
+      ? "offline" as const
+      : tailscale.running
+        ? "running" as const
+        : "degraded" as const,
+    statusLabel: tailscale === null
+      ? "Unavailable"
+      : tailscale.running
+        ? "Running"
+        : "Stopped",
+    healthy: Boolean(tailscale?.running),
+    reachable: Boolean(tailscale?.running),
+    detail: tailscale === null
+      ? "Tailscale status is unavailable on this machine."
+      : tailscale.running
+        ? `${tailscale.peers.filter((peer) => peer.online).length}/${tailscale.peers.length} visible peers online`
+        : (tailscale.health[0] ?? `Backend state: ${tailscale.backendState ?? "unknown"}`),
+    lastHeartbeatLabel: null,
+    updatedAtLabel: servicesState.updatedAtLabel,
+    url: tailscale?.self?.dnsName?.replace(/\.$/, "") ?? tailscale?.self?.addresses[0] ?? null,
+    nodeId: tailscale?.self?.id ?? null,
+  };
+  const nextServices = [...servicesState.services, tailscaleService, pairingService];
   const runningCount = nextServices.filter((service) => service.status === "running").length;
 
   return {

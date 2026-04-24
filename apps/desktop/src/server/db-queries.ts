@@ -192,6 +192,13 @@ function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: Web
 const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
 const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
+function staleFlightActivityPredicate(alias: string): string {
+  return `NOT (
+    ${alias}.kind = 'flight_updated'
+    AND COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
+  )`;
+}
+
 function workPhaseFromFlightState(state: string | null): string | null {
   switch (state) {
     case "queued":
@@ -403,10 +410,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
        WHERE ai.kind != 'ask_replied'
-         AND NOT (
-           ai.kind = 'flight_updated'
-           AND COALESCE(ai.summary, '') LIKE 'Stale running flight reconciled:%'
-         )
+         AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ai.ts DESC
        LIMIT ?`,
     )
@@ -717,6 +721,7 @@ function queryFleetActivity(opts?: {
     params.push(opts.conversationId);
   }
 
+  const scopedFilters = sqlJoinClauses(filters, "OR");
   const sql = `SELECT
     ai.id,
     ai.kind,
@@ -735,7 +740,10 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  ${sqlWhereClause(filters, "OR")}
+  ${sqlWhereClause([
+    staleFlightActivityPredicate("ai"),
+    scopedFilters ? `(${scopedFilters})` : null,
+  ])}
   ORDER BY ai.ts DESC
   LIMIT ?`;
 
@@ -760,6 +768,10 @@ function queryFleetFlightRows(agentId: string): FleetFlightRow[] {
      JOIN invocations inv ON inv.id = f.invocation_id
      LEFT JOIN actors ac ON ac.id = f.target_agent_id
      WHERE f.target_agent_id = ?
+       AND NOT (
+         COALESCE(f.state, '') = 'failed'
+         AND COALESCE(f.error, '') LIKE 'Stale running flight reconciled:%'
+       )
      ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
      LIMIT 100`,
   ).all(agentId) as Array<FleetFlightRow>;

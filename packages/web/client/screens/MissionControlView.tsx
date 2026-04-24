@@ -28,6 +28,32 @@ const CANVAS_PAD = 40;
 const MINIMAP_W = 180;
 const MINIMAP_MAX_H = 140;
 
+/* ── Viewport persistence ── */
+
+const VP_KEY = "scout_mc_vp";
+
+function saveViewport(vp: { pan: { x: number; y: number }; zoom: number }) {
+  try {
+    localStorage.setItem(VP_KEY, JSON.stringify(vp));
+  } catch {}
+}
+
+function loadViewport(): { pan: { x: number; y: number }; zoom: number } | null {
+  try {
+    const raw = localStorage.getItem(VP_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (
+      typeof v?.zoom === "number" &&
+      typeof v?.pan?.x === "number" &&
+      typeof v?.pan?.y === "number"
+    ) {
+      return v;
+    }
+  } catch {}
+  return null;
+}
+
 /* ── Layout engine ── */
 
 type LayoutTile = { agentId: string; x: number; y: number };
@@ -135,8 +161,10 @@ export function MissionControlView({
   const [vpSize, setVpSize] = useState({ w: 0, h: 0 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const hasAnimated = useRef(false);
 
   useEffect(() => {
     const vp = viewportRef.current;
@@ -150,16 +178,51 @@ export function MissionControlView({
 
   const layout = useMemo(() => computeLayout(agents), [agents]);
 
+  const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const triggerEntry = useCallback((useSaved = true) => {
+    if (layout.canvasW === 0 || vpSize.w === 0) return;
+    animTimers.current.forEach(clearTimeout);
+
+    const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
+    const overviewZoom = Math.max(0.15, Math.min(1, fitZoom * 0.92));
+    setIsTransitioning(false);
+    setZoom(overviewZoom);
+    setPan({
+      x: (vpSize.w - layout.canvasW * overviewZoom) / 2,
+      y: Math.max(8, (vpSize.h - layout.canvasH * overviewZoom) / 2),
+    });
+
+    const t1 = setTimeout(() => {
+      setIsTransitioning(true);
+      const saved = useSaved ? loadViewport() : null;
+      if (saved) {
+        setPan(saved.pan);
+        setZoom(saved.zoom);
+      } else {
+        setPan({ x: 24, y: 24 });
+        setZoom(0.55);
+      }
+    }, 700);
+
+    const t2 = setTimeout(() => setIsTransitioning(false), 1700);
+    animTimers.current = [t1, t2];
+  }, [layout, vpSize]);
+
   useEffect(() => {
     if (layout.canvasW === 0 || vpSize.w === 0) return;
-    const fitZoom = Math.min(1, vpSize.w / layout.canvasW, vpSize.h / layout.canvasH);
-    const z = Math.max(0.15, Math.min(1, fitZoom * 0.92));
-    setPan({
-      x: (vpSize.w - layout.canvasW * z) / 2,
-      y: Math.max(8, (vpSize.h - layout.canvasH * z) / 2),
-    });
-    setZoom(z);
-  }, [layout, vpSize]);
+    if (hasAnimated.current) return;
+    hasAnimated.current = true;
+    triggerEntry(true);
+  }, [layout, vpSize, triggerEntry]);
+
+  /* ── Passive viewport save ── */
+  useEffect(() => {
+    const id = setInterval(() => {
+      saveViewport({ pan, zoom });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [pan, zoom]);
 
   const onPointerDown = useCallback(
     (e: ReactMouseEvent) => {
@@ -203,16 +266,17 @@ export function MissionControlView({
     return () => vp.removeEventListener("wheel", onWheel);
   }, [zoom]);
 
-  /* ── Escape to close overlay ── */
+  /* ── Keyboard shortcuts ── */
   const focusedAgent = focusedId ? agents.find((a) => a.id === focusedId) : null;
   useEffect(() => {
-    if (!focusedAgent) return;
     const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
       if (e.key === "Escape") setFocusedId(null);
+      if (e.key === "h" || e.key === "H") triggerEntry(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedAgent]);
+  }, [focusedAgent, triggerEntry]);
 
   /* ── Minimap click ── */
   const onMinimapClick = useCallback(
@@ -257,6 +321,13 @@ export function MissionControlView({
           </span>
         )}
         <div className="s-mission-hotkeys">
+          <button
+            className="s-mission-hotkey s-mission-hotkey--btn"
+            onClick={() => triggerEntry(false)}
+            title="Reset to overview"
+          >
+            <kbd>H</kbd> Home
+          </button>
           <span className="s-mission-hotkey"><kbd>Esc</kbd> Close focus</span>
         </div>
       </div>
@@ -279,7 +350,12 @@ export function MissionControlView({
         ) : (
           <div
             className="s-mission-canvas"
-            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transition: isTransitioning
+                ? "transform 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94)"
+                : "none",
+            }}
           >
             {layout.groups.map((g) => (
               <div

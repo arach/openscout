@@ -48,7 +48,7 @@ export type ScoutDesktopLoadTrace = {
 export type ScoutDesktopServiceStatus = "running" | "degraded" | "offline";
 
 export type ScoutDesktopService = {
-  id: "broker" | "pairing" | "helper";
+  id: "broker" | "pairing" | "helper" | "tailscale";
   title: string;
   status: ScoutDesktopServiceStatus;
   statusLabel: string;

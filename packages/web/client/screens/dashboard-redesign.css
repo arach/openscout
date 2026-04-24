@@ -64,9 +64,10 @@
 }
 
 .s-dashboard-activity-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 24px 1fr auto auto;
+  align-items: baseline;
+  gap: 0 8px;
   padding: 8px 0;
 }
 
@@ -90,40 +91,55 @@
   background: color-mix(in srgb, var(--border) 35%, transparent);
 }
 
-.s-dashboard-activity-time {
-  flex-shrink: 0;
-  width: 36px;
-  padding-top: 2px;
-  font-size: 10px;
-  color: var(--dim);
-  font-family: var(--font-mono);
-  text-align: right;
+.s-dashboard-activity-row .s-avatar {
+  align-self: center;
 }
 
-.s-dashboard-activity-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.s-dashboard-activity-header {
+.s-dashboard-activity-actors {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 6px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .s-dashboard-activity-actor {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
+  white-space: nowrap;
+}
+
+.s-dashboard-activity-arrow {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.s-dashboard-activity-recipient {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .s-dashboard-activity-kind {
   font-size: 11px;
   color: var(--dim);
+  white-space: nowrap;
+}
+
+.s-dashboard-activity-time {
+  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+  justify-self: end;
 }
 
 .s-dashboard-activity-summary {
+  grid-column: 2 / -1;
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.45;

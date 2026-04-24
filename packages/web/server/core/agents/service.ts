@@ -23,6 +23,7 @@ export type CreateScoutAgentCardInput = {
   agentName?: string;
   displayName?: string;
   harness?: AgentHarness;
+  model?: string;
   currentDirectory?: string;
   createdById?: string;
 };

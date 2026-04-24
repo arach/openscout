@@ -1,5 +1,9 @@
 import type { NodeDefinition } from "@openscout/protocol";
-import { readTailscalePeers, type TailscalePeerCandidate } from "@openscout/runtime/mesh/tailscale";
+import {
+  readTailscalePeers,
+  readTailscaleStatusSummary,
+  type TailscalePeerCandidate,
+} from "@openscout/runtime/mesh/tailscale";
 
 import {
   readScoutBrokerHealth,
@@ -45,6 +49,9 @@ export type MeshPingReport = {
 
 export type TailscaleStatus = {
   available: boolean;
+  running: boolean;
+  backendState: string | null;
+  health: string[];
   peers: TailscalePeerCandidate[];
   onlineCount: number;
 };
@@ -87,9 +94,13 @@ function readMeshEnvVars(): MeshEnvVars {
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus> {
-  const peers = await readTailscalePeers();
+  const summary = await readTailscaleStatusSummary();
+  const peers = summary?.peers ?? [];
   return {
-    available: peers.length > 0,
+    available: summary !== null,
+    running: summary?.running ?? false,
+    backendState: summary?.backendState ?? null,
+    health: summary?.health ?? [],
     peers,
     onlineCount: peers.filter((p) => p.online).length,
   };
@@ -117,6 +128,13 @@ function computeWarnings(
     warnings.push(
       "Broker advertises mesh scope but is bound to loopback — peers cannot reach it. " +
       "Unset OPENSCOUT_BROKER_HOST (mesh default is 0.0.0.0) or use your Tailscale IP.",
+    );
+  }
+
+  if (tailscale.available && !tailscale.running) {
+    warnings.push(
+      "Tailscale is installed but currently stopped on this machine. " +
+      "Cached peers may appear, but the broker cannot reach them until Tailscale is running.",
     );
   }
 

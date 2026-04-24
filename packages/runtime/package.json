@@ -1,3 +1,116 @@
-  "version": "0.2.59",
-    "@openscout/agent-sessions": "0.2.59",
-    "@openscout/protocol": "0.2.59",
+{
+  "name": "@openscout/runtime",
+  "version": "0.2.60",
+  "description": "Local runtime foundation for the OpenScout control plane",
+  "type": "module",
+  "bin": {
+    "openscout-runtime": "./bin/openscout-runtime.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./setup": {
+      "types": "./src/setup.ts",
+      "bun": "./src/setup.ts",
+      "default": "./dist/setup.js"
+    },
+    "./local-agents": {
+      "types": "./src/local-agents.ts",
+      "bun": "./src/local-agents.ts",
+      "default": "./dist/local-agents.js"
+    },
+    "./local-agent-template": {
+      "types": "./src/local-agent-template.ts",
+      "bun": "./src/local-agent-template.ts",
+      "default": "./src/local-agent-template.ts"
+    },
+    "./broker-service": {
+      "types": "./src/broker-service.ts",
+      "bun": "./src/broker-service.ts",
+      "default": "./dist/broker-service.js"
+    },
+    "./registry": {
+      "types": "./src/registry.ts",
+      "bun": "./src/registry.ts",
+      "default": "./dist/registry.js"
+    },
+    "./harness-catalog": {
+      "types": "./src/harness-catalog.ts",
+      "bun": "./src/harness-catalog.ts",
+      "default": "./dist/harness-catalog.js"
+    },
+    "./support-paths": {
+      "types": "./src/support-paths.ts",
+      "bun": "./src/support-paths.ts",
+      "default": "./dist/support-paths.js"
+    },
+    "./claude-stream-json": {
+      "types": "./src/claude-stream-json.ts",
+      "bun": "./src/claude-stream-json.ts",
+      "default": "./dist/claude-stream-json.js"
+    },
+    "./codex-app-server": {
+      "types": "./src/codex-app-server.ts",
+      "bun": "./src/codex-app-server.ts",
+      "default": "./dist/codex-app-server.js"
+    },
+    "./scout-agent-cards": {
+      "types": "./src/scout-agent-cards.ts",
+      "bun": "./src/scout-agent-cards.ts",
+      "default": "./dist/scout-agent-cards.js"
+    },
+    "./mesh/tailscale": {
+      "types": "./src/tailscale.ts",
+      "bun": "./src/tailscale.ts",
+      "default": "./dist/tailscale.js"
+    },
+    "./user-config": {
+      "types": "./src/user-config.ts",
+      "bun": "./src/user-config.ts",
+      "default": "./dist/user-config.js"
+    },
+    "./local-config": {
+      "types": "./src/local-config.ts",
+      "bun": "./src/local-config.ts",
+      "default": "./dist/local-config.js"
+    }
+  },
+  "types": "./src/index.ts",
+  "files": [
+    "bin",
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm --prefix ../agent-sessions run build && rm -rf dist && node_modules/.bin/tsc -p tsconfig.json",
+    "broker": "node ./bin/openscout-runtime.mjs broker",
+    "service": "node ./bin/openscout-runtime.mjs service",
+    "discover": "node ./bin/openscout-runtime.mjs discover",
+    "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "bun ./src/drizzle-migrate.ts",
+    "check": "npm --prefix ../agent-sessions run build && tsc --noEmit -p tsconfig.json",
+    "test": "bun test src/*.test.ts",
+    "test:scenarios": "bun test src/scenario-suite.test.ts",
+    "test:live:codex-app-server": "bun test src/codex-app-server-live.test.ts",
+    "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
+  },
+  "dependencies": {
+    "@openscout/agent-sessions": "0.2.60",
+    "@openscout/protocol": "0.2.60",
+    "drizzle-orm": "^0.45.2",
+    "smol-toml": "^1.6.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5"
+  }
+}

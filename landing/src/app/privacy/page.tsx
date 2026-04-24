@@ -9,6 +9,7 @@ import {
   Shield,
   Speech,
 } from "lucide-react";
+import { SiteThemeToggle } from "@/components/site-theme-toggle";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — OpenScout",
@@ -63,44 +64,45 @@ const appPractices = [
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-[#fafafa] text-[#111110]">
-      <header className="border-b border-black/[0.08] bg-[#fafafa]/90 backdrop-blur-xl">
+    <div className="site-docs min-h-screen bg-[var(--site-docs-bg)] text-[var(--site-ink)]">
+      <header className="border-b border-[var(--site-border-soft)] bg-[var(--site-docs-bg-strong)] backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
+            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
             </span>
           </Link>
-          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
-            <Link href="/docs" className="transition-colors hover:text-[#111110]">
+          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+            <Link href="/docs" className="transition-colors hover:text-[var(--site-ink)]">
               Docs
             </Link>
-            <span className="text-[#111110]">Privacy</span>
+            <span className="text-[var(--site-ink)]">Privacy</span>
+            <SiteThemeToggle />
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-6 pb-20 pt-16">
-        <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+        <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
           OpenScout
         </p>
-        <h1 className="mt-3 font-[family-name:var(--font-spectral)] text-4xl font-semibold tracking-[-0.02em] text-[#111110] sm:text-5xl">
+        <h1 className="mt-3 font-[family-name:var(--font-spectral)] text-4xl font-semibold tracking-[-0.02em] text-[var(--site-ink)] sm:text-5xl">
           Privacy Policy
         </h1>
-        <p className="mt-5 max-w-3xl text-[16px] leading-relaxed text-[#5e5a52]">
+        <p className="mt-5 max-w-3xl text-[16px] leading-relaxed text-[var(--site-copy)]">
           Last updated April 23, 2026. This policy covers the OpenScout marketing
-          site at <span className="font-medium text-[#111110]">openscout.app</span>,
-          the early-access endpoint at <span className="font-medium text-[#111110]">api.openscout.app</span>,
+          site at <span className="font-medium text-[var(--site-ink)]">openscout.app</span>,
+          the early-access endpoint at <span className="font-medium text-[var(--site-ink)]">api.openscout.app</span>,
           and the Scout desktop and iOS apps.
         </p>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-black/[0.08] bg-white/60 p-6">
-            <Shield className="h-5 w-5 text-[#2657c6]" strokeWidth={1.7} />
-            <h2 className="mt-4 text-[15px] font-semibold text-[#111110]">
+          <div className="rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6">
+            <Shield className="h-5 w-5 text-[var(--site-accent)]" strokeWidth={1.7} />
+            <h2 className="mt-4 text-[15px] font-semibold text-[var(--site-ink)]">
               Local-first by default
             </h2>
-            <p className="mt-2 text-[14px] leading-relaxed text-[#5e5a52]">
+            <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-copy)]">
               OpenScout is designed so conversations, broker state, local databases,
               paired-device state, and day-to-day agent activity primarily live on
               your own machines and paired bridge rather than in a developer-run
@@ -108,12 +110,12 @@ export default function PrivacyPage() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-black/[0.08] bg-white/60 p-6">
-            <Database className="h-5 w-5 text-[#2657c6]" strokeWidth={1.7} />
-            <h2 className="mt-4 text-[15px] font-semibold text-[#111110]">
+          <div className="rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6">
+            <Database className="h-5 w-5 text-[var(--site-accent)]" strokeWidth={1.7} />
+            <h2 className="mt-4 text-[15px] font-semibold text-[var(--site-ink)]">
               Limited website collection
             </h2>
-            <p className="mt-2 text-[14px] leading-relaxed text-[#5e5a52]">
+            <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-copy)]">
               If you only use the website, the data we receive is limited to website
               analytics and anything you choose to send through the early-access form.
             </p>
@@ -121,20 +123,20 @@ export default function PrivacyPage() {
         </div>
 
         <section className="pt-14">
-          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
             Website Data We Collect
           </h2>
           <div className="mt-4 grid gap-4">
             {websitePractices.map((practice) => (
               <div
                 key={practice.title}
-                className="rounded-xl border border-black/[0.08] bg-white/60 p-6"
+                className="rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6"
               >
-                <practice.icon className="h-5 w-5 text-[#2657c6]" strokeWidth={1.7} />
-                <h3 className="mt-4 text-[15px] font-semibold text-[#111110]">
+                <practice.icon className="h-5 w-5 text-[var(--site-accent)]" strokeWidth={1.7} />
+                <h3 className="mt-4 text-[15px] font-semibold text-[var(--site-ink)]">
                   {practice.title}
                 </h3>
-                <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-[#5e5a52]">
+                <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-[var(--site-copy)]">
                   {practice.description}
                 </p>
               </div>
@@ -143,20 +145,20 @@ export default function PrivacyPage() {
         </section>
 
         <section className="pt-14">
-          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
             App Permissions And Local Processing
           </h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             {appPractices.map((practice) => (
               <div
                 key={practice.title}
-                className="rounded-xl border border-black/[0.08] bg-white/60 p-6"
+                className="rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6"
               >
-                <practice.icon className="h-5 w-5 text-[#2657c6]" strokeWidth={1.7} />
-                <h3 className="mt-4 text-[15px] font-semibold text-[#111110]">
+                <practice.icon className="h-5 w-5 text-[var(--site-accent)]" strokeWidth={1.7} />
+                <h3 className="mt-4 text-[15px] font-semibold text-[var(--site-ink)]">
                   {practice.title}
                 </h3>
-                <p className="mt-2 text-[14px] leading-relaxed text-[#5e5a52]">
+                <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-copy)]">
                   {practice.description}
                 </p>
               </div>
@@ -165,11 +167,11 @@ export default function PrivacyPage() {
         </section>
 
         <section className="pt-14">
-          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
             How We Use Information
           </h2>
-          <div className="mt-4 rounded-xl border border-black/[0.08] bg-white/60 p-6">
-            <ul className="grid gap-3 text-[14px] leading-relaxed text-[#5e5a52]">
+          <div className="mt-4 rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6">
+            <ul className="grid gap-3 text-[14px] leading-relaxed text-[var(--site-copy)]">
               <li>
                 We use website analytics to understand how people find and use the
                 marketing site.
@@ -187,11 +189,11 @@ export default function PrivacyPage() {
         </section>
 
         <section className="pt-14">
-          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
             Infrastructure And Retention
           </h2>
-          <div className="mt-4 rounded-xl border border-black/[0.08] bg-white/60 p-6">
-            <p className="text-[14px] leading-relaxed text-[#5e5a52]">
+          <div className="mt-4 rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6">
+            <p className="text-[14px] leading-relaxed text-[var(--site-copy)]">
               The public marketing site is served from GitHub Pages. Early-access
               submissions are written to private blob storage. Local app state stays
               on your own devices unless you explicitly send information through a
@@ -202,11 +204,11 @@ export default function PrivacyPage() {
         </section>
 
         <section className="pt-14">
-          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+          <h2 className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
             Questions
           </h2>
-          <div className="mt-4 flex flex-col gap-4 rounded-xl border border-black/[0.08] bg-white/60 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="max-w-2xl text-[14px] leading-relaxed text-[#5e5a52]">
+          <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-2xl text-[14px] leading-relaxed text-[var(--site-copy)]">
               If you have a privacy question or want us to remove an early-access
               submission, contact us through the OpenScout support channel.
             </p>
@@ -214,7 +216,7 @@ export default function PrivacyPage() {
               href="https://github.com/arach/openscout/issues"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#111110] px-4 text-sm font-medium text-[#f5f4ef] transition-colors hover:bg-[#2a2a28]"
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--site-ink)] px-4 text-sm font-medium text-[var(--site-ink-contrast)] transition-colors hover:bg-[var(--site-ink-hover)]"
             >
               <span>Open support</span>
               <ArrowUpRight className="h-3.5 w-3.5" />

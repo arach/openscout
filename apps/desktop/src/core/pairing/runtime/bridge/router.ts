@@ -36,6 +36,11 @@ import {
   queryMobileWorkspaces,
 } from "../../../../server/db-queries.ts";
 import { interruptLocalAgent, restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
+import {
+  issueWebHandoff,
+  pathForWebHandoffScope,
+  type WebHandoffScope,
+} from "./web-handoff.ts";
 
 import { readFileSync, readdirSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
@@ -726,6 +731,73 @@ const mobileRouter = t.router({
       );
     }),
 
+  webHandoff: procedure
+    .input(
+      z.object({
+        kind: z.enum(["session", "file_change"]),
+        sessionId: z.string(),
+        turnId: z.string().optional(),
+        blockId: z.string().optional(),
+      }),
+    )
+    .mutation(({ input, ctx }) => {
+      if (!ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Secure web handoff requires a paired mobile device",
+        });
+      }
+
+      const snapshot = ctx.bridge.getSessionSnapshot(input.sessionId);
+      if (!snapshot) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `No session: ${input.sessionId}`,
+        });
+      }
+
+      let scope: WebHandoffScope;
+      let title = snapshot.session.name || snapshot.session.id;
+
+      if (input.kind === "file_change") {
+        if (!input.turnId || !input.blockId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "turnId and blockId are required for file_change handoffs",
+          });
+        }
+        const turn = snapshot.turns.find((candidate) => candidate.id === input.turnId);
+        const block = turn?.blocks.find((candidate) => candidate.block.id === input.blockId)?.block;
+        if (!turn || !block || block.type !== "action" || block.action.kind !== "file_change") {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "File change block not found",
+          });
+        }
+        scope = {
+          kind: "file_change",
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          blockId: input.blockId,
+        };
+        title = block.action.path || title;
+      } else {
+        scope = {
+          kind: "session",
+          sessionId: input.sessionId,
+        };
+      }
+
+      const issued = issueWebHandoff(scope, ctx.deviceId);
+      return {
+        kind: input.kind,
+        path: pathForWebHandoffScope(scope),
+        token: issued.token,
+        expiresAt: issued.expiresAt,
+        title,
+      };
+    }),
+
   createSession: procedure
     .input(
       z.object({
@@ -1044,20 +1116,56 @@ function readSyncStatus(
   };
 }
 
+function resolveSyncSessionId(
+  bridge: Bridge,
+  preferredSessionId?: string,
+): string | null {
+  if (preferredSessionId) {
+    return preferredSessionId;
+  }
+
+  let latestSessionId: string | null = null;
+  let latestActivityAt = Number.NEGATIVE_INFINITY;
+
+  for (const session of bridge.getSessionSummaries()) {
+    if (session.lastActivityAt > latestActivityAt) {
+      latestActivityAt = session.lastActivityAt;
+      latestSessionId = session.sessionId;
+    }
+  }
+
+  return latestSessionId;
+}
+
 const syncRouter = t.router({
   replay: procedure
-    .input(z.object({ lastSeq: z.number(), sessionId: z.string() }))
+    .input(z.object({ lastSeq: z.number(), sessionId: z.string().optional() }))
     .query(({ input, ctx }) => {
-      const events = replaySyncEvents(ctx.bridge, input.sessionId, input.lastSeq);
+      const sessionId = resolveSyncSessionId(ctx.bridge, input.sessionId);
+      if (!sessionId) {
+        return { events: [] };
+      }
+
+      const events = replaySyncEvents(ctx.bridge, sessionId, input.lastSeq);
       return { events };
     }),
 
   status: procedure
-    .input(z.object({ sessionId: z.string() }))
+    .input(z.object({ sessionId: z.string().optional() }).optional())
     .query(({ input, ctx }) => {
+      const sessionCount = ctx.bridge.listSessions().length;
+      const sessionId = resolveSyncSessionId(ctx.bridge, input?.sessionId);
+      if (!sessionId) {
+        return {
+          currentSeq: 0,
+          oldestBufferedSeq: 0,
+          sessionCount,
+        };
+      }
+
       return {
-        ...readSyncStatus(ctx.bridge, input.sessionId),
-        sessionCount: ctx.bridge.listSessions().length,
+        ...readSyncStatus(ctx.bridge, sessionId),
+        sessionCount,
       };
     }),
 });

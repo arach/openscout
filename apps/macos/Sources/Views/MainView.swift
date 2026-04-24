@@ -168,6 +168,7 @@ struct MainView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 10) {
                         brokerCard
+                        tailscaleCard
                         pairingCard
                         utilitiesCard
                     }
@@ -204,7 +205,7 @@ struct MainView: View {
                         .font(MenuType.title(19))
                         .foregroundStyle(ShellPalette.ink)
 
-                    Text("Broker, pairing, and the local operator surface.")
+                    Text("Broker, Tailscale, pairing, and the local operator surface.")
                         .font(MenuType.body(11.5))
                         .foregroundStyle(ShellPalette.copy)
                 }
@@ -235,6 +236,7 @@ struct MainView: View {
 
             HStack(spacing: 6) {
                 headerStatusPill(label: "Broker", value: brokerSummaryValue(), tone: brokerTone())
+                headerStatusPill(label: "Mesh", value: tailscaleSummaryValue(), tone: tailscaleTone())
                 headerStatusPill(label: "Pairing", value: pairingSummaryValue(), tone: pairingTone())
                 headerStatusPill(
                     label: "Web",
@@ -303,6 +305,44 @@ struct MainView: View {
             }
             .disabled(controller.brokerActionPending)
             .opacity(controller.brokerActionPending ? 0.55 : 1)
+        }
+    }
+
+    private var tailscaleCard: some View {
+        sectionCard(
+            eyebrow: "Mesh",
+            title: tailscaleHeadline(),
+            detail: tailscaleDetailSummary(),
+            badge: tailscaleSummaryValue(),
+            tone: tailscaleTone()
+        ) {
+            detailRows([
+                ("Status", controller.tailscale.statusLabel),
+                ("Backend", controller.tailscale.backendState ?? "—"),
+                ("Identity", controller.tailscale.dnsName ?? controller.tailscale.address ?? "—"),
+                ("Peers", "\(controller.tailscale.onlinePeerCount)/\(controller.tailscale.peerCount) online"),
+            ])
+
+            if let controlHint = controller.tailscale.controlHint, !controlHint.isEmpty {
+                noteRow(controlHint)
+            } else if let health = controller.tailscale.health.first, !health.isEmpty {
+                noteRow(health)
+            }
+
+            HStack(spacing: 6) {
+                Button(controller.tailscale.running ? "Open App" : "Open Tailscale") {
+                    controller.openTailscale()
+                }
+                .buttonStyle(PrimaryPillStyle())
+                .disabled(!controller.tailscale.controlAvailable || controller.tailscaleActionPending)
+
+                Button("Refresh") {
+                    controller.refresh()
+                }
+                .buttonStyle(SecondaryPillStyle())
+                .disabled(controller.isRefreshing)
+            }
+            .opacity((controller.tailscaleActionPending || controller.isRefreshing) ? 0.55 : 1)
         }
     }
 
@@ -738,6 +778,16 @@ struct MainView: View {
         }
     }
 
+    private func tailscaleHeadline() -> String {
+        if !controller.tailscale.available {
+            return "Tailscale status unavailable"
+        }
+        if controller.tailscale.running {
+            return "Mesh transport is available"
+        }
+        return "Tailscale is stopped"
+    }
+
     private func brokerSummaryValue() -> String {
         if controller.broker.reachable {
             return "Online"
@@ -761,6 +811,13 @@ struct MainView: View {
         }
     }
 
+    private func tailscaleSummaryValue() -> String {
+        if !controller.tailscale.available {
+            return "Unknown"
+        }
+        return controller.tailscale.running ? "Connected" : "Local"
+    }
+
     private func brokerTone() -> StatusTone {
         if controller.broker.reachable {
             return StatusTone(fill: ShellPalette.accent, soft: ShellPalette.accentSoft)
@@ -769,6 +826,16 @@ struct MainView: View {
             return StatusTone(fill: ShellPalette.warning, soft: ShellPalette.warningSoft)
         }
         return neutralTone()
+    }
+
+    private func tailscaleTone() -> StatusTone {
+        if !controller.tailscale.available {
+            return neutralTone()
+        }
+        if controller.tailscale.running {
+            return StatusTone(fill: ShellPalette.success, soft: ShellPalette.successSoft)
+        }
+        return StatusTone(fill: ShellPalette.warning, soft: ShellPalette.warningSoft)
     }
 
     private func pairingTone() -> StatusTone {
@@ -782,6 +849,16 @@ struct MainView: View {
         default:
             return neutralTone()
         }
+    }
+
+    private func tailscaleDetailSummary() -> String {
+        if !controller.tailscale.available {
+            return controller.tailscale.statusDetail
+        }
+        if controller.tailscale.running {
+            return "This machine can see tailnet peers and is ready for cross-machine mesh traffic."
+        }
+        return "Cached peers may still appear, but cross-machine broker traffic is blocked until Tailscale starts."
     }
 
     private func neutralTone() -> StatusTone {

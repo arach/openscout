@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, MessageSquare, Monitor, Smartphone } from "lucide-react";
+import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { getAllDocs } from "@/lib/docs";
 
 const pillars = [
@@ -33,19 +34,20 @@ export default function DocsIndex() {
   }
 
   return (
-    <div className="min-h-screen bg-[#fafafa] text-[#111110]">
-      <header className="border-b border-black/[0.08] bg-[#fafafa]/90 backdrop-blur-xl">
+    <div className="site-docs min-h-screen bg-[var(--site-docs-bg)] text-[var(--site-ink)]">
+      <header className="border-b border-[var(--site-border-soft)] bg-[var(--site-docs-bg-strong)] backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
+            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
             </span>
           </Link>
-          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
-            <Link href="/privacy" className="transition-colors hover:text-[#111110]">
+          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+            <Link href="/privacy" className="transition-colors hover:text-[var(--site-ink)]">
               Privacy
             </Link>
-            <span className="text-[#111110]">Docs</span>
+            <span className="text-[var(--site-ink)]">Docs</span>
+            <SiteThemeToggle />
           </div>
         </div>
       </header>
@@ -53,13 +55,13 @@ export default function DocsIndex() {
       <main className="mx-auto max-w-5xl px-6">
         {/* Introduction */}
         <div className="pt-16 pb-6">
-          <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
             OpenScout
           </p>
-          <h1 className="mt-3 font-[family-name:var(--font-spectral)] text-4xl font-semibold tracking-[-0.02em] text-[#111110] sm:text-5xl">
+          <h1 className="mt-3 font-[family-name:var(--font-spectral)] text-4xl font-semibold tracking-[-0.02em] text-[var(--site-ink)] sm:text-5xl">
             Documentation
           </h1>
-          <p className="mt-5 max-w-2xl text-[16px] leading-relaxed text-[#5e5a52]">
+          <p className="mt-5 max-w-2xl text-[16px] leading-relaxed text-[var(--site-copy)]">
             OpenScout connects your AI agents so they can find each other, exchange
             messages, and hand work off — without you being the one in the middle.
             You stay in the loop from your desktop or your phone, without losing
@@ -72,27 +74,27 @@ export default function DocsIndex() {
           {pillars.map((pillar) => (
             <div
               key={pillar.title}
-              className="rounded-xl border border-black/[0.08] bg-white/60 p-6"
+              className="rounded-xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6"
             >
-              <pillar.icon className="h-5 w-5 text-[#8b8579]" strokeWidth={1.5} />
-              <h2 className="mt-4 text-[15px] font-semibold text-[#111110]">
+              <pillar.icon className="h-5 w-5 text-[var(--site-muted)]" strokeWidth={1.5} />
+              <h2 className="mt-4 text-[15px] font-semibold text-[var(--site-ink)]">
                 {pillar.title}
               </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-[#5e5a52]">
+              <p className="mt-2 text-[13px] leading-relaxed text-[var(--site-copy)]">
                 {pillar.description}
               </p>
             </div>
           ))}
         </div>
 
-        <div className="border-t border-black/[0.08]" />
+        <div className="border-t border-[var(--site-border-soft)]" />
 
         {/* Doc directory */}
         <div className="pt-12 pb-20">
           <div className="space-y-10">
             {Array.from(groups).map(([group, items]) => (
               <section key={group}>
-                <h2 className="mb-4 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+                <h2 className="mb-4 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
                   {group}
                 </h2>
                 <div className="grid gap-3">
@@ -100,17 +102,17 @@ export default function DocsIndex() {
                     <Link
                       key={doc.slug}
                       href={`/docs/${doc.slug}`}
-                      className="group flex items-start justify-between rounded-xl border border-black/[0.08] bg-white/60 p-5 transition-all hover:border-black/[0.15] hover:bg-white"
+                      className="group flex items-start justify-between rounded-xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-5 transition-all hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)]"
                     >
                       <div>
-                        <h3 className="text-[14px] font-medium text-[#111110]">
+                        <h3 className="text-[14px] font-medium text-[var(--site-ink)]">
                           {doc.title}
                         </h3>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-[#5e5a52]">
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--site-copy)]">
                           {doc.description}
                         </p>
                       </div>
-                      <ArrowRight className="mt-1 ml-4 h-4 w-4 shrink-0 text-[#c4c0b8] transition-colors group-hover:text-[#111110]" />
+                      <ArrowRight className="mt-1 ml-4 h-4 w-4 shrink-0 text-[var(--site-muted-soft)] transition-colors group-hover:text-[var(--site-ink)]" />
                     </Link>
                   ))}
                 </div>

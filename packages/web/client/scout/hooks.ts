@@ -1,10 +1,16 @@
-import { createElement, useCallback, useMemo, type ReactNode } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CommandOption, StatusColor, TakeoverState } from "@hudson/sdk";
 import { api } from "../lib/api.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
-import type { Route } from "../lib/types.ts";
+import type { MeshStatus, Route } from "../lib/types.ts";
+
+export type ScoutStatusBarState = {
+  status: { label: string; color: StatusColor };
+  activeAgents: { label: string; count: number };
+  mesh: { label: string; value: string; color: StatusColor };
+};
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
@@ -120,13 +126,63 @@ export function useScoutCommands(): CommandOption[] {
   }, [agents, interruptAgent, navigate, opsEnabled, reload]);
 }
 
-/* ── useStatus — online indicator ──────────────────────────────────────── */
+export function useScoutStatusBarState(): ScoutStatusBarState {
+  const { onlineCount } = useScout();
+  const [mesh, setMesh] = useState<MeshStatus | null>(null);
+  const requestIdRef = useRef(0);
+
+  const loadMesh = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    try {
+      const data = await api<MeshStatus>("/api/mesh");
+      if (requestId !== requestIdRef.current) return;
+      setMesh(data);
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      setMesh(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMesh();
+    const timer = setInterval(() => {
+      void loadMesh();
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [loadMesh]);
+
+  return {
+    status: mesh === null
+      ? { label: "Broker: …", color: "neutral" }
+      : mesh.health.reachable
+        ? { label: "Broker: UP", color: "emerald" }
+        : { label: "Broker: DOWN", color: "red" },
+    activeAgents: {
+      label: "Active Agents",
+      count: onlineCount,
+    },
+    mesh: (() => {
+      if (mesh === null) {
+        return { label: "Mesh", value: "checking", color: "neutral" as StatusColor };
+      }
+      if (!mesh.health.reachable) {
+        return { label: "Mesh", value: "offline", color: "neutral" as StatusColor };
+      }
+      const remoteNodes = Object.values(mesh.nodes).filter((node) => node.id !== mesh.localNode?.id);
+      if (remoteNodes.length > 0) {
+        return { label: "Mesh", value: "connected", color: "neutral" as StatusColor };
+      }
+      if (mesh.identity.discoverable) {
+        return { label: "Mesh", value: "discoverable", color: "neutral" as StatusColor };
+      }
+      return { label: "Mesh", value: "local", color: "amber" as StatusColor };
+    })(),
+  };
+}
+
+/* ── useStatus — shell compatibility ───────────────────────────────────── */
 export function useScoutStatus(): { label: string; color: StatusColor } {
-  const { agents, onlineCount } = useScout();
-  if (agents.length === 0) return { label: "offline", color: "neutral" };
-  if (onlineCount === 0)
-    return { label: `0/${agents.length} agents`, color: "amber" };
-  return { label: `${onlineCount}/${agents.length} agents`, color: "emerald" };
+  return useScoutStatusBarState().status;
 }
 
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
@@ -186,19 +242,14 @@ export function useScoutNavActions(): ReactNode | null {
     "button",
     {
       onClick: () => openSettings(),
-      className:
-        "px-2 py-1 rounded-sm text-[11px] font-mono uppercase tracking-wider text-white/60 hover:text-white/90 hover:bg-white/[0.04] border border-white/[0.06] transition-colors",
+      className: "scout-nav-action",
     },
     "Pair device",
   );
 }
 
 /* ── useLayoutMode ─────────────────────────────────────────────────────── */
-export function useScoutLayoutMode(): "canvas" | "panel" | "focus" {
-  const { route } = useScout();
-  if (route.view === "ops" || route.view === "work") {
-    return "focus";
-  }
+export function useScoutLayoutMode(): "canvas" | "panel" {
   return "panel";
 }
 

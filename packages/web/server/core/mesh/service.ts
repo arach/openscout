@@ -5,6 +5,9 @@
  * broker helpers already available in the web server package.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import type { NodeDefinition } from "@openscout/protocol";
 import {
   buildDefaultBrokerUrl,
@@ -14,7 +17,7 @@ import {
   restartBrokerService,
 } from "@openscout/runtime/broker-service";
 import {
-  readTailscalePeers,
+  readTailscaleStatusSummary,
   readTailscaleSelf,
   type TailscalePeerCandidate,
   type TailscaleSelfCandidate,
@@ -28,16 +31,22 @@ import {
   type ScoutBrokerNodeRecord,
 } from "../broker/service.ts";
 
+const execFileAsync = promisify(execFile);
+
 /* ── Types ── */
 
 export type TailscaleStatus = {
   available: boolean;
+  running: boolean;
+  backendState: string | null;
+  health: string[];
   peers: TailscalePeerCandidate[];
   onlineCount: number;
 };
 
 export type MeshIssueCode =
   | "broker_unreachable"
+  | "tailscale_stopped"
   | "local_only"
   | "mesh_loopback"
   | "discovery_unconfigured";
@@ -72,6 +81,8 @@ export type MeshStatusReport = {
   issues: MeshIssue[];
   warnings: string[];
 };
+
+export type TailscaleControlAction = "open_app";
 
 /* ── Helpers ── */
 
@@ -111,9 +122,13 @@ function stripTrailingDot(value: string | null | undefined): string | null {
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus> {
-  const peers = await readTailscalePeers();
+  const summary = await readTailscaleStatusSummary();
+  const peers = summary?.peers ?? [];
   return {
-    available: peers.length > 0,
+    available: summary !== null,
+    running: summary?.running ?? false,
+    backendState: summary?.backendState ?? null,
+    health: summary?.health ?? [],
     peers,
     onlineCount: peers.filter((p) => p.online).length,
   };
@@ -143,6 +158,18 @@ function computeIssues(
       actionCommand: null,
     });
     return issues;
+  }
+
+  if (tailscale.available && !tailscale.running) {
+    issues.push({
+      code: "tailscale_stopped",
+      severity: "warning",
+      title: "Tailscale is stopped",
+      summary:
+        "This machine can still show cached Tailnet peers, but the local Tailscale backend is not running, so the broker cannot reach them.",
+      action: "Start Tailscale on this machine, then refresh mesh discovery.",
+      actionCommand: null,
+    });
   }
 
   if (localNode?.advertiseScope === "local") {
@@ -353,4 +380,32 @@ export async function announceMeshVisibility(): Promise<MeshStatusReport> {
   }
 
   return loadMeshStatus();
+}
+
+async function openTailscaleApp(): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error(
+      "Opening Tailscale from Scout is only supported on macOS right now.",
+    );
+  }
+
+  try {
+    await execFileAsync("open", ["-a", "Tailscale"]);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Scout could not open Tailscale.app on this machine. ${detail}`,
+    );
+  }
+}
+
+export async function controlTailscale(
+  action: TailscaleControlAction,
+): Promise<MeshStatusReport> {
+  if (action === "open_app") {
+    await openTailscaleApp();
+    return loadMeshStatus();
+  }
+
+  throw new Error(`Unsupported Tailscale action: ${action}`);
 }

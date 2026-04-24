@@ -55,6 +55,7 @@ export type ScoutDesktopCreateAgentInput = {
   projectPath: string;
   agentName?: string | null;
   harness?: AgentHarness | null;
+  model?: string | null;
 };
 
 export type ScoutDesktopCreateAgentResult = {
@@ -652,6 +653,7 @@ export async function createScoutDesktopAgent(
     projectPath,
     agentName: input.agentName?.trim() || undefined,
     harness: parseRequestedHarness(input.harness),
+    model: input.model?.trim() || undefined,
     currentDirectory,
   });
 

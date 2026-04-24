@@ -119,6 +119,7 @@ struct WorkspaceBrowserView: View {
                                 } onNavigate: {
                                     navigateInto(entry)
                                 }
+                                .listRowInsets(EdgeInsets(top: 0, leading: ScoutSpacing.lg, bottom: 0, trailing: ScoutSpacing.lg))
                             }
                         } header: {
                             Text("PROJECTS  \(projects.count)")
@@ -133,6 +134,7 @@ struct WorkspaceBrowserView: View {
                                 DirectoryRow(entry: entry) {
                                     navigateInto(entry)
                                 }
+                                .listRowInsets(EdgeInsets(top: 0, leading: ScoutSpacing.lg, bottom: 0, trailing: ScoutSpacing.lg))
                             }
                         } header: {
                             Text("FOLDERS  \(dirs.count)")
@@ -439,7 +441,8 @@ private struct ProjectRow: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.vertical, 3)
+            .padding(.vertical, 4)
+            .frame(minHeight: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -471,7 +474,8 @@ private struct DirectoryRow: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(ScoutColors.textMuted)
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
+            .frame(minHeight: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

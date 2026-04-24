@@ -602,6 +602,29 @@ describe("desktop db query fleet", () => {
         cwd: join(tmpdir(), "openscout-agent-3", "cwd"),
         projectRoot: join(tmpdir(), "openscout-agent-3"),
       });
+      store.recordInvocation({
+        id: "inv-4",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-2",
+        action: "consult",
+        task: "Synthetic stale failure",
+        conversationId: "conv-2",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 143,
+      });
+      store.recordFlight({
+        id: "flight-4",
+        invocationId: "inv-4",
+        requesterId: "operator",
+        targetAgentId: "agent-2",
+        state: "failed",
+        summary: "Agent Two did not finish cleanly.",
+        error: "Stale running flight reconciled: endpoint endpoint-2 started newer work at 1234567890",
+        startedAt: 144,
+        completedAt: 145,
+      });
 
       const fleet = queryFleet({ limit: 10, activityLimit: 20 });
 
@@ -674,6 +697,7 @@ describe("desktop db query fleet", () => {
         "collaboration_event",
         "ask_opened",
       ]));
+      expect(fleet.activity.some((item) => item.id === "activity:flight:flight-4")).toBe(false);
     } finally {
       store.close();
     }

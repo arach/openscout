@@ -36,6 +36,9 @@
 .openscout/relay/
 .openscout/relay.json
 
+# local review/audit artifacts (PM/engineer reports, screenshots, logs)
+/reviews/
+
 # package build artifacts
 packages/*/dist/
 apps/*/dist/

@@ -14,7 +14,7 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 
 export function renderCardCommandHelp(): string {
   return [
-    "Usage: scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex>] [--as <requester>] [--no-input] [--path <path>]",
+    "Usage: scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex>] [--model <model>] [--as <requester>] [--no-input] [--path <path>]",
     "",
     "Create a dedicated Scout agent card with a reply-ready return address.",
     "",
@@ -23,7 +23,7 @@ export function renderCardCommandHelp(): string {
     "",
     "Examples:",
     "  scout card create",
-    '  scout card create ~/dev/openscout-worktrees/shell-fix --name shellfix --harness claude',
+    '  scout card create ~/dev/openscout-worktrees/shell-fix --name shellfix --harness claude --model claude-sonnet-4-6',
   ].join("\n");
 }
 
@@ -96,6 +96,7 @@ export async function runCardCommand(context: ScoutCommandContext, args: string[
     agentName: agentName,
     displayName: displayName,
     harness: parseScoutHarness(options.harness),
+    model: options.model,
     currentDirectory: options.currentDirectory,
     createdById: resolveScoutAgentName(options.requesterId),
   });

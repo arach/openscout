@@ -39,8 +39,26 @@ final class OpenScoutAppController: ObservableObject {
         var controlHint: String? = nil
     }
 
+    struct TailscaleViewState: Sendable {
+        var status: String = "checking"
+        var statusLabel: String = "Checking"
+        var statusDetail: String = "Checking Tailscale..."
+        var backendState: String? = nil
+        var dnsName: String? = nil
+        var address: String? = nil
+        var peerCount: Int = 0
+        var onlinePeerCount: Int = 0
+        var health: [String] = []
+        var cliPath: String? = nil
+        var available: Bool = false
+        var running: Bool = false
+        var controlAvailable: Bool = false
+        var controlHint: String? = nil
+    }
+
     @Published private(set) var broker = BrokerState()
     @Published private(set) var pairing = PairingViewState()
+    @Published private(set) var tailscale = TailscaleViewState()
     @Published private(set) var webReachable = false
     @Published private(set) var lastError: String? = nil
     @Published private(set) var menuBarSymbolName = "bolt.horizontal.circle"
@@ -48,11 +66,13 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var brokerActionPending = false
     @Published private(set) var pairingActionPending = false
+    @Published private(set) var tailscaleActionPending = false
     @Published private(set) var webActionPending = false
     @Published private(set) var webServerStartedByApp = false
 
     private let brokerService = BrokerService()
     private let pairingService = PairingService()
+    private let tailscaleService = TailscaleService()
     private let toolchain = OpenScoutToolchain()
     private var refreshTimer: Timer?
     private var webServerProcess: Process?
@@ -113,6 +133,29 @@ final class OpenScoutAppController: ObservableObject {
 
     func restartPairing() {
         runPairingAction(.restart)
+    }
+
+    func openTailscale() {
+        guard !tailscaleActionPending else {
+            return
+        }
+
+        tailscaleActionPending = true
+        lastError = nil
+
+        Task {
+            defer {
+                tailscaleActionPending = false
+            }
+
+            do {
+                tailscale = try await tailscaleService.openApp()
+            } catch {
+                lastError = error.localizedDescription
+            }
+
+            await refreshNow()
+        }
     }
 
     func openWebApp() {
@@ -217,12 +260,15 @@ final class OpenScoutAppController: ObservableObject {
         }
 
         pairing = await pairingService.loadState()
+        tailscale = await tailscaleService.loadState()
         webReachable = await isWebSurfaceReachable()
         updateMenuBarPresentation()
     }
 
     private func updateMenuBarPresentation() {
-        if pairing.status == "paired" {
+        if tailscale.available && !tailscale.running {
+            menuBarSymbolName = "exclamationmark.triangle"
+        } else if pairing.status == "paired" {
             menuBarSymbolName = "checkmark.circle"
         } else if broker.reachable {
             menuBarSymbolName = "dot.radiowaves.left.and.right"
@@ -236,7 +282,10 @@ final class OpenScoutAppController: ObservableObject {
             ? "Broker online"
             : (broker.installed ? "Broker installed, not reachable" : "Broker not installed")
         let pairingLine = "Pairing \(pairing.statusLabel.lowercased())"
-        menuBarTooltip = "\(brokerLine)\n\(pairingLine)"
+        let tailscaleLine = tailscale.available
+            ? "Tailscale \(tailscale.statusLabel.lowercased())"
+            : "Tailscale unavailable"
+        menuBarTooltip = "\(brokerLine)\n\(pairingLine)\n\(tailscaleLine)"
     }
 
     private func openWebAppNow() async {

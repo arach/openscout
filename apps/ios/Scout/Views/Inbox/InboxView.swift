@@ -8,53 +8,66 @@ struct InboxView: View {
     @State private var decisionError: String?
     @State private var decisionErrorItemId: String?
     @State private var isLoading = false
+    @State private var highlightedItemId: String?
 
     private var isConnected: Bool {
         connection.state == .connected
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: ScoutSpacing.md) {
-                Color.clear.frame(height: 24)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: ScoutSpacing.md) {
+                    Color.clear.frame(height: 24)
 
-                headerCard
-                    .padding(.horizontal, ScoutSpacing.lg)
+                    headerCard
+                        .padding(.horizontal, ScoutSpacing.lg)
 
-                if isLoading && inbox.items.isEmpty {
-                    loadingState
-                        .padding(.top, ScoutSpacing.xl)
-                } else if inbox.items.isEmpty {
-                    emptyState
-                        .padding(.top, ScoutSpacing.xl)
-                } else {
-                    ForEach(inbox.items) { item in
-                        approvalCard(item)
-                            .padding(.horizontal, ScoutSpacing.lg)
+                    if isLoading && inbox.items.isEmpty {
+                        loadingState
+                            .padding(.top, ScoutSpacing.xl)
+                    } else if inbox.items.isEmpty {
+                        emptyState
+                            .padding(.top, ScoutSpacing.xl)
+                    } else {
+                        ForEach(inbox.items) { item in
+                            approvalCard(item)
+                                .padding(.horizontal, ScoutSpacing.lg)
+                                .id(item.id)
+                        }
                     }
-                }
 
-                Color.clear.frame(height: 100)
+                    Color.clear.frame(height: 100)
+                }
             }
-        }
-        .background(ScoutColors.backgroundAdaptive)
-        .refreshable {
-            await refreshInbox()
-        }
-        .task {
-            inbox.markInboxOpened()
-            await refreshInbox()
-        }
-        .task(id: isConnected) {
-            guard isConnected else { return }
-            await refreshInbox()
-        }
-        .onAppear {
-            inbox.markInboxOpened()
-        }
-        .onChange(of: inbox.unreadCount) { _, newValue in
-            guard newValue > 0 else { return }
-            inbox.markInboxOpened()
+            .background(ScoutColors.backgroundAdaptive)
+            .refreshable {
+                await refreshInbox()
+            }
+            .task {
+                inbox.markInboxOpened()
+                await refreshInbox()
+            }
+            .task(id: isConnected) {
+                guard isConnected else { return }
+                await refreshInbox()
+            }
+            .onAppear {
+                inbox.markInboxOpened()
+            }
+            .onChange(of: inbox.unreadCount) { _, newValue in
+                guard newValue > 0 else { return }
+                inbox.markInboxOpened()
+            }
+            .onChange(of: inbox.focusedItemId) { _, itemId in
+                guard let itemId else { return }
+                handleFocusedItem(itemId, proxy: proxy)
+            }
+            .onChange(of: inbox.items.map(\.id)) { _, _ in
+                if let itemId = inbox.focusedItemId {
+                    handleFocusedItem(itemId, proxy: proxy)
+                }
+            }
         }
     }
 
@@ -195,6 +208,13 @@ struct InboxView: View {
             }
         }
         .scoutCard(padding: ScoutSpacing.lg, cornerRadius: ScoutRadius.lg)
+        .overlay {
+            RoundedRectangle(cornerRadius: ScoutRadius.lg, style: .continuous)
+                .stroke(
+                    highlightedItemId == item.id ? ScoutColors.accent : .clear,
+                    lineWidth: highlightedItemId == item.id ? 1.5 : 0
+                )
+        }
     }
 
     @MainActor
@@ -241,6 +261,26 @@ struct InboxView: View {
         case .low: return ScoutColors.statusActive
         case .medium: return ScoutColors.statusStreaming
         case .high: return ScoutColors.statusError
+        }
+    }
+
+    private func handleFocusedItem(_ itemId: String, proxy: ScrollViewProxy) {
+        guard inbox.items.contains(where: { $0.id == itemId }) else { return }
+
+        highlightedItemId = itemId
+        inbox.clearFocusedItem()
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            proxy.scrollTo(itemId, anchor: .top)
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            if highlightedItemId == itemId {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    highlightedItemId = nil
+                }
+            }
         }
     }
 }

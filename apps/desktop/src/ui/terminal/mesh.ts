@@ -54,9 +54,11 @@ export function renderMeshStatus(report: MeshStatusReport): string {
   lines.push(`  Broker: ${report.brokerUrl}`);
   lines.push(`  Scope: ${report.localNode?.advertiseScope === "mesh" ? "mesh-reachable" : "local-only"}`);
 
-  const tsLabel = report.tailscale.available
-    ? `available (${report.tailscale.onlineCount} peer${report.tailscale.onlineCount === 1 ? "" : "s"} online)`
-    : "not available";
+  const tsLabel = !report.tailscale.available
+    ? "not available"
+    : report.tailscale.running
+      ? `running (${report.tailscale.onlineCount} peer${report.tailscale.onlineCount === 1 ? "" : "s"} online)`
+      : `not running (${report.tailscale.backendState ?? "unknown"})`;
   lines.push(`  Tailscale: ${tsLabel}`);
 
   const allNodes = Object.values(report.nodes);
@@ -99,7 +101,8 @@ export function renderMeshDoctor(report: MeshDoctorReport): string {
     lines.push(`  ID: ${report.localNode.id}`);
     lines.push(`  Name: ${report.localNode.name}`);
     lines.push(`  Mesh: ${report.localNode.meshId}`);
-    lines.push(`  Broker URL: ${report.brokerUrl}`);
+    lines.push(`  Control URL: ${report.brokerUrl}`);
+    lines.push(`  Announced URL: ${report.localNode.brokerUrl ?? report.brokerUrl}`);
     lines.push(`  Advertise scope: ${report.localNode.advertiseScope}`);
     if (report.localNode.hostName) {
       lines.push(`  Hostname: ${report.localNode.hostName}`);
@@ -112,7 +115,13 @@ export function renderMeshDoctor(report: MeshDoctorReport): string {
   lines.push("");
   lines.push("Tailscale:");
   if (report.tailscale.available) {
-    lines.push(`  Status: available (${report.tailscale.peers.length} peer${report.tailscale.peers.length === 1 ? "" : "s"})`);
+    const state = report.tailscale.backendState ?? "unknown";
+    lines.push(
+      `  Status: ${report.tailscale.running ? `running (${state})` : `not running (${state})`} (${report.tailscale.peers.length} peer${report.tailscale.peers.length === 1 ? "" : "s"})`,
+    );
+    for (const detail of report.tailscale.health) {
+      lines.push(`  ! ${detail}`);
+    }
     for (const peer of report.tailscale.peers) {
       const ips = peer.addresses.join(", ");
       const status = peer.online ? "online" : "offline";
@@ -146,7 +155,7 @@ export function renderMeshDoctor(report: MeshDoctorReport): string {
 
   // Environment
   lines.push("");
-  lines.push("Configuration:");
+  lines.push("Client environment (this shell):");
   const env = report.envVars;
   lines.push(`  OPENSCOUT_MESH_ID: ${env.meshId ?? "(default: openscout)"}`);
   lines.push(`  OPENSCOUT_MESH_SEEDS: ${env.meshSeeds || "(not set)"}`);

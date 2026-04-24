@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Instrument_Serif, Fraunces, Spectral } from "next/font/google";
 import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
+import { SITE_THEME_INIT_SCRIPT } from "@/lib/site-theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -78,7 +79,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html
+      lang="en"
+      data-site-theme="light"
+      data-site-theme-preference="auto"
+      suppressHydrationWarning
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: SITE_THEME_INIT_SCRIPT }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${fraunces.variable} ${spectral.variable} antialiased bg-background text-foreground`}
       >

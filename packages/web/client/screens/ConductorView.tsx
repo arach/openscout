@@ -243,7 +243,9 @@ export function ConductorView({
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useBrokerEvents(load);
+  useBrokerEvents(() => {
+    void load();
+  });
 
   const tasksByAgent = useMemo(() => {
     const map: Record<string, AgentTask> = {};
