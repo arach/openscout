@@ -42,6 +42,9 @@ export default function DocsIndex() {
             </span>
           </Link>
           <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[#8b8579]">
+            <Link href="/privacy" className="transition-colors hover:text-[#111110]">
+              Privacy
+            </Link>
             <span className="text-[#111110]">Docs</span>
           </div>
         </div>
