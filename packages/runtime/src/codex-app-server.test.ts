@@ -14,12 +14,19 @@ import {
 
 const tempPaths = new Set<string>();
 const originalCodexBin = process.env.OPENSCOUT_CODEX_BIN;
+const originalCompletionGraceMs = process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS;
 
 afterEach(() => {
   if (originalCodexBin === undefined) {
     delete process.env.OPENSCOUT_CODEX_BIN;
   } else {
     process.env.OPENSCOUT_CODEX_BIN = originalCodexBin;
+  }
+
+  if (originalCompletionGraceMs === undefined) {
+    delete process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS;
+  } else {
+    process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS = originalCompletionGraceMs;
   }
 
   for (const path of tempPaths) {
@@ -133,6 +140,67 @@ for await (const line of rl) {
     console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId: activeThreadId, turnId: activeTurnId, itemId: "msg-1", delta: "Steered current session reply" } }));
     console.log(JSON.stringify({ method: "item/completed", params: { threadId: activeThreadId, turnId: activeTurnId, item: { type: "agentMessage", id: "msg-1", text: "Steered current session reply" } } }));
     console.log(JSON.stringify({ method: "turn/completed", params: { threadId: activeThreadId, turn: { id: activeTurnId, status: "completed", error: null } } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return executablePath;
+}
+
+function writeLateCompletionFakeCodexExecutable(baseDirectory: string): string {
+  const executablePath = join(baseDirectory, "fake-codex-late-completion");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+let activeThreadId = "thread-unknown";
+let activeTurnId = "turn-1";
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    activeThreadId = String(params.threadId ?? "thread-unknown");
+    const cwd = typeof params.cwd === "string" ? params.cwd : null;
+    const thread = { id: activeThreadId, path: \`/tmp/\${activeThreadId}.jsonl\`, cwd };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  if (method === "turn/start") {
+    activeThreadId = String(params.threadId ?? activeThreadId);
+    activeTurnId = "turn-1";
+    console.log(JSON.stringify({ id, result: { turn: { id: activeTurnId } } }));
+    console.log(JSON.stringify({ method: "turn/started", params: { threadId: activeThreadId, turn: { id: activeTurnId, status: "inProgress", items: [] } } }));
+    setTimeout(() => {
+      console.log(JSON.stringify({ method: "item/started", params: { threadId: activeThreadId, turnId: activeTurnId, item: { type: "agentMessage", id: "msg-1", text: "" } } }));
+      console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId: activeThreadId, turnId: activeTurnId, itemId: "msg-1", delta: "Late completion reply" } }));
+      console.log(JSON.stringify({ method: "item/completed", params: { threadId: activeThreadId, turnId: activeTurnId, item: { type: "agentMessage", id: "msg-1", text: "Late completion reply" } } }));
+      console.log(JSON.stringify({ method: "turn/completed", params: { threadId: activeThreadId, turn: { id: activeTurnId, status: "completed", error: null } } }));
+    }, 150);
+    continue;
+  }
+
+  if (method === "turn/interrupt") {
+    console.log(JSON.stringify({ id, result: {} }));
     continue;
   }
 
@@ -660,6 +728,39 @@ describe("ensureCodexAppServerAgentOnline", () => {
     const [firstResult, secondResult] = await Promise.all([first, second]);
     expect(firstResult.output).toBe("Steered current session reply");
     expect(secondResult.output).toBe("Steered current session reply");
+
+    await shutdownCodexAppServerAgent(options);
+  });
+
+  test("accepts a late completion that arrives shortly after the timeout deadline", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-late-completion-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    process.env.OPENSCOUT_CODEX_BIN = writeLateCompletionFakeCodexExecutable(tempRoot);
+    process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS = "400";
+
+    const options = {
+      agentName: "codex-late",
+      sessionId: "attached-codex-late",
+      cwd: "/Users/arach/dev/openscout",
+      systemPrompt: "Resume the existing session without changing its identity or prior context.",
+      runtimeDirectory,
+      logsDirectory,
+      threadId: "thread-late-1",
+      requireExistingThread: true,
+      launchArgs: [],
+    } as const;
+
+    const startedAt = Date.now();
+    const result = await invokeCodexAppServerAgent({
+      ...options,
+      prompt: "late prompt",
+      timeoutMs: 50,
+    });
+
+    expect(result.output).toBe("Late completion reply");
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(125);
 
     await shutdownCodexAppServerAgent(options);
   });

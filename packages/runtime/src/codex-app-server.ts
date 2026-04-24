@@ -100,6 +100,8 @@ type ActiveTurn = {
   turnId: string;
   startedAt: number;
   timer: NodeJS.Timeout | null;
+  graceTimer: NodeJS.Timeout | null;
+  timedOutAt: number | null;
   messageOrder: string[];
   messageByItemId: Map<string, string>;
   resolve: (output: string) => void;
@@ -1117,6 +1119,14 @@ function isMissingCodexRolloutError(error: unknown): boolean {
   return message.includes("no rollout found for thread id");
 }
 
+function resolveCodexCompletionGraceMs(): number {
+  const parsed = Number.parseInt(process.env.OPENSCOUT_CODEX_COMPLETION_GRACE_MS ?? "", 10);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+  return 60_000;
+}
+
 class CodexAppServerSession {
   private readonly key: string;
 
@@ -1494,6 +1504,8 @@ class CodexAppServerSession {
       turnId: "",
       startedAt: Date.now(),
       timer: null,
+      graceTimer: null,
+      timedOutAt: null,
       messageOrder: [],
       messageByItemId: new Map<string, string>(),
       resolve,
@@ -1501,18 +1513,48 @@ class CodexAppServerSession {
       watchers: [],
     };
     turn.timer = setTimeout(() => {
-      void this.interrupt().catch(() => undefined);
-      if (this.activeTurn === turn) {
-        this.activeTurn = null;
-      }
-      for (const watcher of this.drainTurnWatchers(turn)) {
-        watcher.reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
-      }
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`));
+      this.scheduleTurnTimeout(turn, timeoutMs);
     }, timeoutMs);
 
     this.activeTurn = turn;
     return turn;
+  }
+
+  private buildTurnTimeoutError(timeoutMs: number): Error {
+    return new Error(`Timed out after ${timeoutMs}ms waiting for ${this.options.agentName}.`);
+  }
+
+  private scheduleTurnTimeout(turn: ActiveTurn, timeoutMs: number): void {
+    if (turn.timedOutAt !== null) {
+      return;
+    }
+
+    turn.timedOutAt = Date.now();
+    void this.interrupt().catch(() => undefined);
+
+    const graceMs = resolveCodexCompletionGraceMs();
+    if (graceMs <= 0) {
+      this.rejectTimedOutTurn(turn, timeoutMs);
+      return;
+    }
+
+    turn.graceTimer = setTimeout(() => {
+      this.rejectTimedOutTurn(turn, timeoutMs);
+    }, graceMs);
+  }
+
+  private rejectTimedOutTurn(turn: ActiveTurn, timeoutMs: number): void {
+    if (this.activeTurn !== turn) {
+      this.clearActiveTurn(turn);
+      return;
+    }
+
+    this.clearActiveTurn(turn);
+    const error = this.buildTurnTimeoutError(timeoutMs);
+    for (const watcher of this.drainTurnWatchers(turn)) {
+      watcher.reject(error);
+    }
+    turn.reject(error);
   }
 
   private addTurnWatcher(
@@ -1555,6 +1597,9 @@ class CodexAppServerSession {
   private clearActiveTurn(turn: ActiveTurn): void {
     if (turn.timer) {
       clearTimeout(turn.timer);
+    }
+    if (turn.graceTimer) {
+      clearTimeout(turn.graceTimer);
     }
     if (this.activeTurn === turn) {
       this.activeTurn = null;
