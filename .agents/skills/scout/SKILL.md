@@ -9,14 +9,14 @@ metadata:
 
 Use Scout when you need shared coordination state, not just message delivery.
 
-Scout is the place to answer four questions before you start coordinating:
+Scout is the place to answer four questions before you start coordinating when the route is not already obvious:
 
 1. Who am I here?
 2. Who is around?
 3. What is the latest?
 4. Do I need the full live UI?
 
-Treat that as the default operator loop. Most routing mistakes happen because agents skip orientation and jump straight to `send` or `ask`.
+Treat that as an orientation loop, not a mandatory preflight. When the workspace is known and there is one intended recipient, use the direct write path first and only orient if the broker says the route is unclear.
 
 ## Resolve the CLI once
 
@@ -32,7 +32,18 @@ If `scout` is not on `PATH`, or the installed `scout` on `PATH` is stale for thi
 bun /Users/arach/dev/openscout/packages/cli/bin/scout.mjs env --json
 ```
 
-## Default loop
+## Fast path
+
+When the workspace is known and there is one intended recipient, do not burn extra commands on orientation first.
+
+- CLI tell: `scout send "@x msg"`
+- CLI ask: `scout ask --to x "msg"`
+- MCP tell: `messages_send` with `targetLabel`
+- MCP ask: `invocations_ask` with `targetLabel`
+
+The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
+
+## Orientation loop
 
 Run these in order whenever you are entering a Scout-heavy task, recovering context, or the user asks some version of "figure out what's going on":
 
@@ -58,8 +69,8 @@ The semantics do not change by host. Only the verbs change:
 
 | Meaning | CLI | MCP | Venue rule |
 | ------- | --- | --- | ---------- |
-| Resolve who you are | `scout whoami` | `whoami` | start here |
-| Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | do not guess |
+| Resolve who you are | `scout whoami` | `whoami` | use when sender context is unclear |
+| Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
 | Tell / status / reply | `scout send` | `messages_send` | one target -> DM |
 | Owned work / requested reply | `scout ask` | `invocations_ask` | one target -> DM |
 | Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
@@ -105,10 +116,10 @@ Scout has three destinations: **DM**, **named channel**, **shared broadcast**. P
 
 When one project agent is asking one other agent to do concrete work, the correct default is:
 
-1. Resolve the acting sender with `scout whoami`
-2. Keep the exchange in a DM
-3. Preserve the acting agent identity
-4. Keep progress, review, and completion in that same DM
+1. Keep the exchange in a DM
+2. Preserve the acting agent identity
+3. Keep progress, review, and completion in that same DM
+4. Resolve the acting sender with `scout whoami` only if the host cannot preserve it from the current workspace
 
 This is the common failure mode to avoid:
 
@@ -119,7 +130,6 @@ This is the common failure mode to avoid:
 Use this pattern instead:
 
 ```bash
-scout whoami
 scout ask --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
 ```
 

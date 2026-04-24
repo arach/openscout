@@ -1889,6 +1889,7 @@ async function ensureBrokerDirectConversationBetween(
 export async function sendScoutMessage(input: {
   senderId: string;
   body: string;
+  targetLabel?: string;
   channel?: string;
   shouldSpeak?: boolean;
   createdAtMs?: number;
@@ -1902,16 +1903,113 @@ export async function sendScoutMessage(input: {
 
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const createdAtMs = input.createdAtMs ?? Date.now();
-  const mentionResolution = await resolveMentionTargets(
-    broker.snapshot,
-    input.body,
-    currentDirectory,
-  );
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
     broker.node.id,
     input.senderId,
+    currentDirectory,
+  );
+
+  const requestedTargetLabel = input.targetLabel?.trim();
+  if (requestedTargetLabel) {
+    const targetResolution = await resolveSingleBrokerTarget(
+      broker.snapshot,
+      requestedTargetLabel,
+      currentDirectory,
+    );
+    if (targetResolution.kind !== "resolved") {
+      return {
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [requestedTargetLabel],
+      };
+    }
+
+    const target = targetResolution.target;
+    const targetReady = await ensureTargetRelayAgentRegistered(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      target.agentId,
+      currentDirectory,
+    );
+    if (!targetReady || target.agentId === senderId) {
+      return {
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [requestedTargetLabel],
+      };
+    }
+
+    let conversation: ScoutBrokerConversationRecord;
+    if (!input.channel) {
+      const dm = await ensureBrokerDirectConversationBetween(
+        broker.baseUrl,
+        broker.snapshot,
+        broker.node.id,
+        senderId,
+        target.agentId,
+      );
+      conversation = dm.conversation;
+    } else {
+      conversation = await ensureBrokerConversation(
+        broker.baseUrl,
+        broker.snapshot,
+        broker.node.id,
+        input.channel,
+        senderId,
+        [target.agentId],
+      );
+    }
+
+    const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const speechText = input.shouldSpeak
+      ? stripScoutAgentSelectorLabels(input.body)
+      : "";
+    const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
+      conversationId: conversation.id,
+      replyToMessageId: messageId,
+    });
+
+    await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
+      id: messageId,
+      conversationId: conversation.id,
+      actorId: senderId,
+      originNodeId: broker.node.id,
+      class: conversation.kind === "system" ? "system" : "agent",
+      body: input.body,
+      mentions: [{ actorId: target.agentId, label: target.label }],
+      speech: speechText ? { text: speechText } : undefined,
+      audience: {
+        notify: [target.agentId],
+        reason: relayAudienceReason(conversation),
+      },
+      visibility: conversation.visibility,
+      policy: "durable",
+      createdAt: createdAtMs,
+      metadata: {
+        source: "scout-cli",
+        relayChannel: relayChannelMetadata(conversation, input.channel),
+        relayTargetIds: [target.agentId],
+        relayMessageId: messageId,
+        returnAddress,
+      },
+    });
+
+    return {
+      usedBroker: true,
+      conversationId: conversation.id,
+      messageId,
+      invokedTargets: [target.agentId],
+      unresolvedTargets: [],
+      routeKind: relayRouteKind(conversation),
+    };
+  }
+
+  const mentionResolution = await resolveMentionTargets(
+    broker.snapshot,
+    input.body,
     currentDirectory,
   );
   const availableTargets = (
