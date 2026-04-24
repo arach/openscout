@@ -942,6 +942,55 @@ describe("web db query fleet", () => {
         createdAt: now - 20_000,
         updatedAt: now - 10_000,
       });
+      store.upsertActor({
+        id: "agent-4",
+        kind: "agent",
+        displayName: "Agent Four",
+      });
+      store.upsertAgent({
+        id: "agent-4",
+        kind: "agent",
+        definitionId: "agent-4",
+        displayName: "Agent Four",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "conv-4",
+        kind: "direct",
+        title: "Direct Four",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-4", "operator"],
+      });
+      store.recordInvocation({
+        id: "inv-4",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-4",
+        action: "consult",
+        task: "Synthetic stale failure",
+        conversationId: "conv-4",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 45_000,
+      });
+      store.recordFlight({
+        id: "flight-4",
+        invocationId: "inv-4",
+        requesterId: "operator",
+        targetAgentId: "agent-4",
+        state: "failed",
+        summary: "Agent Four did not finish cleanly.",
+        error: "Stale running flight reconciled: endpoint endpoint-4 started newer work at 1234567890",
+        startedAt: now - 44_000,
+        completedAt: now - 43_000,
+      });
 
       const fleet = queryFleet({ limit: 10, activityLimit: 20 });
 
@@ -978,6 +1027,8 @@ describe("web db query fleet", () => {
         }),
       ]);
       expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
+      expect(fleet.recentCompleted.some((ask) => ask.agentId === "agent-4")).toBe(false);
+      expect(fleet.activity.some((item) => item.id === "activity:flight:flight-4")).toBe(false);
     } finally {
       store.close();
     }

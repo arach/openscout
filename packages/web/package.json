@@ -15,7 +15,7 @@
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "build:client": "vite build",
-    "build:server": "bun build ./server/index.ts --target=bun --format=esm --outfile ./dist/openscout-web-server.mjs && bun build ./server/pair-supervisor.ts --target=bun --format=esm --outfile ./dist/pair-supervisor.mjs",
+    "build:server": "bun build ./server/index.ts --target=bun --format=esm --outfile ./dist/openscout-web-server.mjs && bun build ./server/pair-supervisor.ts --target=bun --format=esm --outfile ./dist/pair-supervisor.mjs && bun build ./server/terminal-relay-node.ts --target=node --format=esm --outfile ./dist/openscout-terminal-relay.mjs --external node-pty",
     "dev": "node ./scripts/dev.mjs",
     "dev:client": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "dev:server": "OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun run --hot server/index.ts",
@@ -34,7 +34,8 @@
     "node-pty": "1.2.0-beta.12",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "uqr": "^0.1.2"
+    "uqr": "^0.1.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@hono/trpc-server": "^0.4.2",

@@ -39,6 +39,11 @@ import {
   queryMobileWorkspaces,
 } from "../../../../db-queries.ts";
 import { interruptLocalAgent, restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
+import {
+  issueWebHandoff,
+  pathForWebHandoffScope,
+  type WebHandoffScope,
+} from "./web-handoff.ts";
 
 import { readFileSync, readdirSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
@@ -730,6 +735,73 @@ const mobileRouter = t.router({
         },
         resolveMobileCurrentDirectory(),
       );
+    }),
+
+  webHandoff: procedure
+    .input(
+      z.object({
+        kind: z.enum(["session", "file_change"]),
+        sessionId: z.string(),
+        turnId: z.string().optional(),
+        blockId: z.string().optional(),
+      }),
+    )
+    .mutation(({ input, ctx }) => {
+      if (!ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Secure web handoff requires a paired mobile device",
+        });
+      }
+
+      const snapshot = ctx.bridge.getSessionSnapshot(input.sessionId);
+      if (!snapshot) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `No session: ${input.sessionId}`,
+        });
+      }
+
+      let scope: WebHandoffScope;
+      let title = snapshot.session.name || snapshot.session.id;
+
+      if (input.kind === "file_change") {
+        if (!input.turnId || !input.blockId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "turnId and blockId are required for file_change handoffs",
+          });
+        }
+        const turn = snapshot.turns.find((candidate) => candidate.id === input.turnId);
+        const block = turn?.blocks.find((candidate) => candidate.block.id === input.blockId)?.block;
+        if (!turn || !block || block.type !== "action" || block.action.kind !== "file_change") {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "File change block not found",
+          });
+        }
+        scope = {
+          kind: "file_change",
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          blockId: input.blockId,
+        };
+        title = block.action.path || title;
+      } else {
+        scope = {
+          kind: "session",
+          sessionId: input.sessionId,
+        };
+      }
+
+      const issued = issueWebHandoff(scope, ctx.deviceId);
+      return {
+        kind: input.kind,
+        path: pathForWebHandoffScope(scope),
+        token: issued.token,
+        expiresAt: issued.expiresAt,
+        title,
+      };
     }),
 
   createSession: procedure

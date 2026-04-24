@@ -24,17 +24,35 @@ const entries = [
   {
     input: resolve(packageDirectory, "server", "index.ts"),
     output: resolve(outputDirectory, "openscout-web-server.mjs"),
+    target: "bun",
   },
   {
     input: resolve(packageDirectory, "server", "pair-supervisor.ts"),
     output: resolve(outputDirectory, "pair-supervisor.mjs"),
+    target: "bun",
+  },
+  {
+    input: resolve(packageDirectory, "server", "terminal-relay-node.ts"),
+    output: resolve(outputDirectory, "openscout-terminal-relay.mjs"),
+    target: "node",
   },
 ];
 
 for (const entry of entries) {
   const result = spawnSync(
     "bun",
-    ["build", entry.input, "--target=bun", "--format=esm", "--outfile", entry.output, "--external", "vite"],
+    [
+      "build",
+      entry.input,
+      "--target",
+      entry.target,
+      "--format=esm",
+      "--outfile",
+      entry.output,
+      "--external",
+      "vite",
+      ...(entry.target === "node" ? ["--external", "node-pty"] : []),
+    ],
     {
       cwd: packageDirectory,
       stdio: "inherit",

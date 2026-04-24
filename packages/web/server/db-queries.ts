@@ -293,6 +293,13 @@ function transientBrokerWorkingStatusPredicate(alias: string): string {
   )`;
 }
 
+function staleFlightActivityPredicate(alias: string): string {
+  return `NOT (
+    ${alias}.kind = 'flight_updated'
+    AND COALESCE(${alias}.summary, '') LIKE 'Stale running flight reconciled:%'
+  )`;
+}
+
 function workPhaseFromFlightState(state: string | null): string | null {
   switch (state) {
     case "queued":
@@ -514,10 +521,7 @@ export function queryActivity(limit = 60): WebActivityItem[] {
        FROM activity_items ai
        LEFT JOIN actors ac ON ac.id = ai.actor_id
        WHERE ai.kind != 'ask_replied'
-         AND NOT (
-           ai.kind = 'flight_updated'
-           AND COALESCE(ai.summary, '') LIKE 'Stale running flight reconciled:%'
-         )
+         AND ${staleFlightActivityPredicate("ai")}
        ORDER BY ai.ts DESC
        LIMIT ?`,
     )
@@ -2142,6 +2146,7 @@ function queryFleetActivity(opts?: {
     params.push(opts.conversationId);
   }
 
+  const scopedFilters = sqlJoinClauses(filters, "OR");
   const sql = `SELECT
     ai.id,
     ai.kind,
@@ -2160,7 +2165,10 @@ function queryFleetActivity(opts?: {
     ai.session_id
   FROM activity_items ai
   LEFT JOIN actors ac ON ac.id = ai.actor_id
-  ${sqlWhereClause(filters, "OR")}
+  ${sqlWhereClause([
+    staleFlightActivityPredicate("ai"),
+    scopedFilters ? `(${scopedFilters})` : null,
+  ])}
   ORDER BY ai.ts DESC
   LIMIT ?`;
 
@@ -2249,6 +2257,10 @@ function queryFleetAskRows(requesterIds: string[], limit: number): FleetAskRow[]
      )
      LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
      WHERE inv.requester_id IN (${requesterClause})
+       AND NOT (
+         COALESCE(f.state, '') = 'failed'
+         AND COALESCE(f.error, '') LIKE 'Stale running flight reconciled:%'
+       )
      ORDER BY COALESCE(f.completed_at, f.started_at, inv.created_at) DESC
      LIMIT ?`,
   ).all(...requesterIds, limit) as Array<FleetAskRow>;

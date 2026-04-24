@@ -9,6 +9,7 @@ function relayUrl(): string {
 export function ScoutTerminal() {
   const relay = useTerminalRelay({
     url: relayUrl(),
+    autoConnect: true,
     sessionKey: "scout-terminal",
   });
 

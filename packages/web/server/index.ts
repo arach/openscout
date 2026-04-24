@@ -5,11 +5,11 @@ import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
 import {
-  relayWebSocket,
+  createRelayWebSocketProxy,
   handleRelayUpload,
-  destroyAllRelaySessions,
   type RelayWSData,
 } from "./relay.ts";
+import { startManagedTerminalRelay } from "./managed-terminal-relay.ts";
 
 const port = Number(
   process.env.OPENSCOUT_WEB_PORT
@@ -47,27 +47,34 @@ const idleTimeoutSeconds = Number.parseInt(
   10,
 );
 
+const terminalRelay = await startManagedTerminalRelay({
+  hostname,
+  webPort: port,
+});
+
 const { app, warmupCaches } = await createOpenScoutWebServer({
   currentDirectory,
   shellStateCacheTtlMs,
   assetMode: useViteProxy ? "vite-proxy" : "static",
   viteDevUrl,
   staticRoot,
+  runTerminalCommand: terminalRelay.queueCommand,
 });
 
 const honoFetch = app.fetch;
+const relayWebSocket = createRelayWebSocketProxy(terminalRelay.targetWebSocketUrl);
 
 const server = Bun.serve<RelayWSData>({
   port,
   hostname,
   idleTimeout: idleTimeoutSeconds,
 
-  fetch(req, server) {
+  async fetch(req, server) {
     const url = new URL(req.url);
 
     // WebSocket upgrade — relay protocol
     if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      const ok = server.upgrade(req, { data: { sessionId: null } });
+      const ok = server.upgrade(req, { data: { upstream: null, pending: [] } });
       return ok
         ? (undefined as unknown as Response)
         : new Response("WebSocket upgrade failed", { status: 500 });
@@ -75,7 +82,11 @@ const server = Bun.serve<RelayWSData>({
 
     // Relay HTTP routes
     if (req.method === "GET" && url.pathname === "/health") {
-      return Response.json({ ok: true });
+      const relayOk = await terminalRelay.healthcheck();
+      return Response.json(
+        { ok: relayOk, relay: relayOk ? "up" : "down" },
+        { status: relayOk ? 200 : 503 },
+      );
     }
     if (req.method === "POST" && (url.pathname === "/api/upload" || url.pathname === "/api/relay/upload")) {
       return handleRelayUpload(req);
@@ -90,8 +101,8 @@ const server = Bun.serve<RelayWSData>({
 
 // Graceful shutdown
 const shutdown = () => {
-  console.log("\n[scout] Shutting down relay sessions...");
-  destroyAllRelaySessions();
+  console.log("\n[scout] Shutting down terminal relay...");
+  terminalRelay.shutdown();
   server.stop();
   process.exit(0);
 };

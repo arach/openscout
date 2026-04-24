@@ -14,7 +14,7 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
-import type { Agent, Message, Route } from "../lib/types.ts";
+import type { Agent, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 
 export interface OnboardingState {
@@ -33,7 +33,6 @@ export interface ScoutContextValue {
   navigate: (r: Route) => void;
 
   agents: Agent[];
-  messages: Message[];
   onlineCount: number;
 
   reload: () => Promise<void>;
@@ -50,7 +49,22 @@ export interface ScoutContextValue {
 
 const ScoutContext = createContext<ScoutContextValue | null>(null);
 
-const DARK_THEME_VARS: CSSProperties = {
+const AGENT_REFRESH_EVENT_KINDS = [
+  "hello",
+  "node.upserted",
+  "actor.registered",
+  "agent.registered",
+  "agent.endpoint.upserted",
+  "invocation.requested",
+  "flight.updated",
+  "delivery.state.changed",
+  "scout.dispatched",
+] as const;
+const AGENT_REFRESH_EVENT_KIND_SET = new Set<string>(AGENT_REFRESH_EVENT_KINDS);
+
+type ThemeVars = CSSProperties & Record<`--${string}`, string>;
+
+const DARK_THEME_VARS: ThemeVars = {
   "--hud-bg": "oklch(0.14 0.008 80)",
   "--hud-surface": "oklch(0.18 0.009 80)",
   "--hud-ink": "oklch(0.96 0.008 80)",
@@ -77,7 +91,7 @@ const DARK_THEME_VARS: CSSProperties = {
   "--hud-font-serif": "'Instrument Serif', 'Spectral', Georgia, serif",
 };
 
-const LIGHT_THEME_VARS: CSSProperties = {
+const LIGHT_THEME_VARS: ThemeVars = {
   "--hud-bg": "oklch(0.978 0.004 85)",
   "--hud-surface": "oklch(0.992 0.003 85)",
   "--hud-ink": "oklch(0.24 0.01 80)",
@@ -119,7 +133,6 @@ export function ScoutProvider({
 }) {
   const { route, navigate } = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
   const skipOnboarding = useCallback(() => setOnboardingSkipped(true), []);
@@ -129,12 +142,10 @@ export function ScoutProvider({
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
 
   const reload = useCallback(async () => {
-    const [agentsResult, messagesResult] = await Promise.allSettled([
-      api<Agent[]>("/api/agents"),
-      api<Message[]>("/api/messages"),
-    ]);
-    if (agentsResult.status === "fulfilled") setAgents(agentsResult.value);
-    if (messagesResult.status === "fulfilled") setMessages(messagesResult.value);
+    const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
+    if (agentsResult) {
+      setAgents(agentsResult);
+    }
   }, []);
 
   const refreshOnboarding = useCallback(async () => {
@@ -159,7 +170,12 @@ export function ScoutProvider({
     void reload();
     void refreshOnboarding();
   }, [reload, refreshOnboarding]);
-  useBrokerEvents(reload);
+  useBrokerEvents((event) => {
+    if (!AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
+      return;
+    }
+    void reload();
+  });
 
   const onlineCount = useMemo(
     () => agents.filter((a) => isAgentOnline(a.state)).length,
@@ -168,12 +184,12 @@ export function ScoutProvider({
 
   const value = useMemo<ScoutContextValue>(
     () => ({
-      route, navigate, agents, messages, onlineCount, reload,
+      route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
     }),
     [
-      route, navigate, agents, messages, onlineCount, reload,
+      route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
     ],

@@ -71,8 +71,6 @@ import {
 import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import { buildHarnessResumeCommand, findHarnessEntry } from "@openscout/runtime/harness-catalog";
-import { queueTerminalCommand } from "./relay.ts";
-
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
 export type CreateOpenScoutWebServerOptions = {
@@ -81,6 +79,7 @@ export type CreateOpenScoutWebServerOptions = {
   assetMode: ScoutWebAssetMode;
   viteDevUrl?: string;
   staticRoot?: string;
+  runTerminalCommand?: (command: string) => Promise<void>;
 };
 
 export type OpenScoutWebServer = {
@@ -534,7 +533,15 @@ export async function createOpenScoutWebServer(
   app.post("/api/terminal/run", async (c) => {
     const body = await c.req.json<{ command?: string }>();
     if (!body.command) return c.json({ error: "missing command" }, 400);
-    queueTerminalCommand(body.command);
+    if (!options.runTerminalCommand) {
+      return c.json({ error: "terminal relay is unavailable" }, 503);
+    }
+    try {
+      await options.runTerminalCommand(body.command);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to queue command";
+      return c.json({ error: message }, 503);
+    }
     return c.json({ ok: true });
   });
 
