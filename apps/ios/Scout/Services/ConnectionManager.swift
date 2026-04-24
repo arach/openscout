@@ -1099,6 +1099,22 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(MobileAgentDetail.self, from: data)
     }
 
+    func createWebHandoff(
+        kind: MobileWebHandoffKind,
+        sessionId: String,
+        turnId: String? = nil,
+        blockId: String? = nil
+    ) async throws -> MobileWebHandoff {
+        let params = MobileWebHandoffParams(
+            kind: kind,
+            sessionId: sessionId,
+            turnId: turnId,
+            blockId: blockId
+        )
+        let data = try await sendRPC(method: "mobile/web/handoff", params: params)
+        return try decodeResult(MobileWebHandoff.self, from: data)
+    }
+
     func restartAgent(agentId: String) async throws -> AgentActionResult {
         let params = AgentIdParams(agentId: agentId)
         let data = try await sendRPC(method: "mobile/agent/restart", params: params)
@@ -1637,7 +1653,7 @@ final class ConnectionManager: @unchecked Sendable {
     /// Run the reconnect recovery algorithm from PROTOCOL.md §4.
     private func runRecovery() async {
         await refreshRelaySessions()
-        await inboxStore.refresh(using: self)
+        await inboxStore.refresh(using: self, presentNotifications: true)
         await syncPushRegistrationIfPossible()
     }
 
@@ -1827,7 +1843,7 @@ extension ConnectionManager {
         manager.state = trustedBridge ? .connected : .disconnected
         manager.health = trustedBridge ? .healthy : .offline
         manager.connectionInfo = trustedBridge ? BridgeConnectionInfo(
-            relayURL: "https://relay.openscout.dev",
+            relayURL: "https://relay.openscout.app",
             roomId: "preview-room",
             publicKeyHex: String(repeating: "ab", count: 32)
         ) : nil

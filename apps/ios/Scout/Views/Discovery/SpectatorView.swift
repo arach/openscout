@@ -17,6 +17,7 @@ struct SpectatorView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var isLoading = true
+    @State private var loadError: String?
     @State private var isResuming = false
 
     private var canResume: Bool {
@@ -28,30 +29,25 @@ struct SpectatorView: View {
             ZStack {
                 ScoutColors.backgroundAdaptive.ignoresSafeArea()
 
-                if let url = viewerURL {
-                    BridgeWebView(url: url, isLoading: $isLoading)
+                if let request = viewerRequest {
+                    BridgeWebView(
+                        request: request,
+                        isLoading: $isLoading,
+                        errorMessage: $loadError
+                    )
                         .ignoresSafeArea(edges: .bottom)
 
-                    if isLoading {
-                        VStack(spacing: ScoutSpacing.lg) {
-                            ProgressView()
-                                .controlSize(.regular)
-                            Text("Loading viewer...")
-                                .font(ScoutTypography.body(14))
-                                .foregroundStyle(ScoutColors.textMuted)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(ScoutColors.backgroundAdaptive.opacity(0.9))
-                    }
+                    BridgeWebSurfaceStateView(
+                        isLoading: isLoading,
+                        errorMessage: loadError,
+                        loadingLabel: "Loading viewer..."
+                    )
                 } else {
-                    VStack(spacing: ScoutSpacing.lg) {
-                        Image(systemName: "wifi.slash")
-                            .font(.system(size: 36))
-                            .foregroundStyle(ScoutColors.textMuted)
-                        Text("Not connected to bridge")
-                            .font(ScoutTypography.body(16, weight: .medium))
-                            .foregroundStyle(ScoutColors.textSecondary)
-                    }
+                    BridgeWebUnavailableView(
+                        icon: "wifi.slash",
+                        title: "Not connected to bridge",
+                        subtitle: "Reconnect to open this web surface."
+                    )
                 }
 
                 // Resuming overlay
@@ -97,11 +93,14 @@ struct SpectatorView: View {
         }
     }
 
-    private var viewerURL: URL? {
+    private var viewerRequest: URLRequest? {
         guard let host = connection.bridgeHost,
               let port = connection.bridgePort else { return nil }
         let encoded = sessionPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionPath
-        return URL(string: "http://\(host):\(port)/#/session?path=\(encoded)")
+        guard let url = URL(string: "http://\(host):\(port)/#/session?path=\(encoded)") else {
+            return nil
+        }
+        return URLRequest(url: url)
     }
 
     private func resumeSession() {
@@ -126,11 +125,74 @@ struct SpectatorView: View {
     }
 }
 
+struct SecureBridgeWebSurface: Identifiable {
+    let id: String
+    let title: String
+    let request: URLRequest
+
+    init?(handoff: MobileWebHandoff, host: String, port: Int) {
+        guard let url = URL(string: "http://\(host):\(port)\(handoff.path)") else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue(handoff.token, forHTTPHeaderField: "X-Scout-Handoff-Token")
+
+        self.id = handoff.id
+        self.title = handoff.title
+        self.request = request
+    }
+}
+
+struct SecureBridgeHandoffView: View {
+    let surface: SecureBridgeWebSurface
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var isLoading = true
+    @State private var loadError: String?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                ScoutColors.backgroundAdaptive.ignoresSafeArea()
+
+                BridgeWebView(
+                    request: surface.request,
+                    isLoading: $isLoading,
+                    errorMessage: $loadError
+                )
+                .ignoresSafeArea(edges: .bottom)
+
+                BridgeWebSurfaceStateView(
+                    isLoading: isLoading,
+                    errorMessage: loadError,
+                    loadingLabel: "Opening secure web surface..."
+                )
+            }
+            .navigationTitle(surface.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(ScoutColors.textMuted)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Reusable bridge WebView
 
 struct BridgeWebView: UIViewRepresentable {
-    let url: URL
+    let request: URLRequest
     @Binding var isLoading: Bool
+    @Binding var errorMessage: String?
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -142,21 +204,134 @@ struct BridgeWebView: UIViewRepresentable {
         webView.scrollView.backgroundColor = .clear
         webView.underPageBackgroundColor = UIColor(ScoutColors.backgroundAdaptive)
         webView.scrollView.bounces = false
-        webView.load(URLRequest(url: url))
+        context.coordinator.lastRequestFingerprint = requestFingerprint(for: request)
+        webView.load(request)
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        let fingerprint = requestFingerprint(for: request)
+        guard context.coordinator.lastRequestFingerprint != fingerprint else { return }
+        context.coordinator.lastRequestFingerprint = fingerprint
+        webView.load(request)
+    }
+
+    private func requestFingerprint(for request: URLRequest) -> String {
+        let url = request.url?.absoluteString ?? ""
+        let token = request.value(forHTTPHeaderField: "X-Scout-Handoff-Token") ?? ""
+        return "\(url)|\(token)"
+    }
 
     class Coordinator: NSObject, WKNavigationDelegate {
         let parent: BridgeWebView
+        var lastRequestFingerprint: String?
+
         init(parent: BridgeWebView) { self.parent = parent }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            Task { @MainActor in parent.isLoading = false }
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            Task { @MainActor in
+                parent.isLoading = true
+                parent.errorMessage = nil
+            }
         }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                parent.isLoading = false
+                parent.errorMessage = nil
+            }
+        }
+
+        @MainActor
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+        ) {
+            if let response = navigationResponse.response as? HTTPURLResponse,
+               !(200..<400).contains(response.statusCode) {
+                Task { @MainActor in
+                    parent.isLoading = false
+                    parent.errorMessage = response.statusCode == 401
+                        ? "The secure handoff expired. Stay on the native surface and try again if needed."
+                        : "Scout couldn't load this web surface right now."
+                }
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            Task { @MainActor in parent.isLoading = false }
+            guard !shouldIgnoreNavigationError(error) else { return }
+            Task { @MainActor in
+                parent.isLoading = false
+                parent.errorMessage = "Scout couldn't load this web surface right now."
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            guard !shouldIgnoreNavigationError(error) else { return }
+            Task { @MainActor in
+                parent.isLoading = false
+                parent.errorMessage = "Scout couldn't load this web surface right now."
+            }
+        }
+
+        private func shouldIgnoreNavigationError(_ error: Error) -> Bool {
+            let nsError = error as NSError
+            return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+        }
+    }
+}
+
+private struct BridgeWebSurfaceStateView: View {
+    let isLoading: Bool
+    let errorMessage: String?
+    let loadingLabel: String
+
+    var body: some View {
+        if isLoading || errorMessage != nil {
+            VStack(spacing: ScoutSpacing.lg) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.regular)
+                } else {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundStyle(ScoutColors.textMuted)
+                }
+
+                Text(errorMessage ?? loadingLabel)
+                    .font(ScoutTypography.body(14))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, ScoutSpacing.xxl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ScoutColors.backgroundAdaptive.opacity(0.9))
+        }
+    }
+}
+
+private struct BridgeWebUnavailableView: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: ScoutSpacing.lg) {
+            Image(systemName: icon)
+                .font(.system(size: 36))
+                .foregroundStyle(ScoutColors.textMuted)
+            Text(title)
+                .font(ScoutTypography.body(16, weight: .medium))
+                .foregroundStyle(ScoutColors.textSecondary)
+            Text(subtitle)
+                .font(ScoutTypography.body(14))
+                .foregroundStyle(ScoutColors.textMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, ScoutSpacing.xxl)
         }
     }
 }

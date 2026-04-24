@@ -76,6 +76,9 @@ struct ScoutNavigationShell: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Previous surface — pre-rendered; revealed during drag or entrance animation.
+            // Opacity/offset/dim all animate with the parent push/drag transaction so
+            // the entrance reads as a single coherent motion instead of a fast opacity
+            // fade layered under a slower slide-in.
             if let previousSurface {
                 surfaceView(for: previousSurface)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -85,7 +88,6 @@ struct ScoutNavigationShell: View {
                             .allowsHitTesting(false)
                     }
                     .opacity(isShowingPrevious ? 1 : 0)
-                    .animation(.easeOut(duration: 0.1), value: isShowingPrevious)
                     .allowsHitTesting(false)
                     .compositingGroup()
             }
@@ -153,9 +155,22 @@ struct ScoutNavigationShell: View {
             isDragging = false
 
             if isPush {
-                isEntering = true
-                entranceOffset = screenWidth
-                withAnimation(.interpolatingSpring(stiffness: 350, damping: 32)) {
+                // Commit the starting state in a non-animated transaction so SwiftUI
+                // can't coalesce it with the spring block below. Without this, the
+                // "set offset = screenWidth, then animate to 0" pair can collapse
+                // into a net-zero diff and the spring animates from the wrong origin
+                // — visible as the surface settling into place in two distinct beats.
+                var start = Transaction()
+                start.disablesAnimations = true
+                withTransaction(start) {
+                    isEntering = true
+                    entranceOffset = screenWidth
+                }
+
+                // One critically-damped spring drives the whole entrance: current
+                // surface slide-in, previous surface parallax retreat + opacity fade,
+                // dim overlay, and shadow — a single smooth motion with no overshoot.
+                withAnimation(.spring(response: 0.38, dampingFraction: 1.0)) {
                     entranceOffset = 0
                 } completion: {
                     isEntering = false

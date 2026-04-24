@@ -117,21 +117,29 @@ struct HomeView: View {
                 if homeSearchText.isEmpty {
                     shortcutsSection
 
+                    if inbox.pendingCount > 0 {
+                        inboxAttentionSection
+                    }
+
                     let stillLoading = isConnected && !store.hasReceivedLiveList
                     if !stillLoading {
                         if !activeSummaries.isEmpty {
                             activeSessionsSection
+                                .transition(.opacity)
                         }
 
                         if !recentSummaries.isEmpty {
                             recentSessionsSection
+                                .transition(.opacity)
                         }
 
                         if surfacedSummaries.isEmpty {
                             emptyState
+                                .transition(.opacity)
                         }
                     } else if surfacedSummaries.isEmpty {
                         emptyState
+                            .transition(.opacity)
                     }
                 } else {
                     searchResultsSection
@@ -141,6 +149,7 @@ struct HomeView: View {
             }
         }
         .background(ScoutColors.pageBg)
+        .animation(.easeInOut(duration: 0.3), value: store.hasReceivedLiveList)
         .safeAreaInset(edge: .bottom) {
             if searchKeyboardActive {
                 ScoutKeyboardView(
@@ -348,7 +357,7 @@ struct HomeView: View {
                         Button {
                             router.push(.sessionDetail(sessionId: summary.sessionId))
                         } label: {
-                            SessionRowView(summary: summary)
+                            SessionRowView(summary: summary, compact: true)
                                 .padding(.horizontal, ScoutSpacing.lg)
                                 .padding(.vertical, ScoutSpacing.xs)
                                 .contentShape(Rectangle())
@@ -443,6 +452,71 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+
+    // MARK: - Inbox Attention
+
+    private var inboxAttentionSection: some View {
+        VStack(alignment: .leading, spacing: ScoutSpacing.sm) {
+            sectionHeader("Inbox")
+                .padding(.horizontal, ScoutSpacing.lg)
+
+            Button {
+                let impact = UIImpactFeedbackGenerator(style: .light)
+                impact.impactOccurred()
+                router.push(.inbox)
+            } label: {
+                HStack(alignment: .top, spacing: ScoutSpacing.md) {
+                    Image(systemName: inbox.unreadCount > 0 ? "bell.badge.fill" : "tray.full.fill")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(ScoutColors.accent)
+                        .frame(width: 24, height: 24)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(inboxAttentionTitle)
+                            .font(ScoutTypography.body(15, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text(inboxAttentionSubtitle)
+                            .font(ScoutTypography.body(13))
+                            .foregroundStyle(ScoutColors.textSecondary)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ScoutColors.textMuted)
+                        .padding(.top, 2)
+                }
+                .padding(ScoutSpacing.lg)
+                .darkCard(padding: 0, cornerRadius: ScoutRadius.lg)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, ScoutSpacing.lg)
+        }
+        .padding(.top, ScoutSpacing.lg)
+    }
+
+    private var inboxAttentionTitle: String {
+        if inbox.pendingCount == 1 {
+            return "1 approval is waiting on you"
+        }
+        return "\(inbox.pendingCount) approvals are waiting on you"
+    }
+
+    private var inboxAttentionSubtitle: String {
+        guard let item = inbox.items.first else {
+            return inbox.unreadCount > 0
+                ? "\(inbox.unreadCount) new inbox item\(inbox.unreadCount == 1 ? "" : "s")."
+                : "Open Inbox to review pending approvals."
+        }
+
+        let prefix = inbox.unreadCount > 0
+            ? "\(inbox.unreadCount) new · \(item.sessionName)"
+            : item.sessionName
+        return "\(prefix) — \(item.description)"
     }
 
     // MARK: - Active Sessions (grid)

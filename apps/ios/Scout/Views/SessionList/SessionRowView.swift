@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SessionRowView: View {
     let summary: SessionSummary
+    var compact: Bool = false
 
     private var sessionStatus: SessionStatus {
         SessionStatus(rawValue: summary.status) ?? .idle
@@ -62,13 +63,13 @@ struct SessionRowView: View {
         VStack(alignment: .leading, spacing: ScoutSpacing.xxs) {
             HStack(spacing: ScoutSpacing.sm) {
                 Text(summary.name)
-                    .font(ScoutTypography.body(15, weight: .semibold))
+                    .font(ScoutTypography.body(15, weight: compact ? .regular : .semibold))
                     .foregroundStyle(ScoutColors.textPrimary)
                     .lineLimit(1)
 
                 if summary.isCachedOnly {
                     Image(systemName: "internaldrive")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 11, weight: compact ? .medium : .semibold))
                         .foregroundStyle(ScoutColors.textMuted)
                 } else {
                     StatusDot(sessionStatus, size: 7)
@@ -93,7 +94,7 @@ struct SessionRowView: View {
 
             if let modelDescriptor {
                 Text(modelDescriptor.inlineLabel)
-                    .font(ScoutTypography.caption(11, weight: .medium))
+                    .font(ScoutTypography.caption(11, weight: compact ? .regular : .medium))
                     .foregroundStyle(ScoutColors.accent)
                     .lineLimit(1)
             }
@@ -110,7 +111,7 @@ struct SessionRowView: View {
 
             if summary.turnCount > 0 {
                 Text("\(summary.turnCount)")
-                    .font(ScoutTypography.caption(11, weight: .semibold))
+                    .font(ScoutTypography.caption(11, weight: compact ? .medium : .semibold))
                     .foregroundStyle(ScoutColors.textSecondary)
                     .padding(.horizontal, ScoutSpacing.sm)
                     .padding(.vertical, ScoutSpacing.xxs)
