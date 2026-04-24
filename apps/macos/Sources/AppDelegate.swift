@@ -93,6 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openTailscaleItem.target = self
         menu.addItem(openTailscaleItem)
 
+        let logsItem = NSMenuItem(title: "Open Logs View", action: #selector(openLogsView), keyEquivalent: "")
+        logsItem.target = self
+        menu.addItem(logsItem)
+
         let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshState), keyEquivalent: "r")
         refreshItem.target = self
         menu.addItem(refreshItem)
@@ -123,6 +127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func openTailscale() {
         controller.openTailscale()
+    }
+
+    @objc
+    private func openLogsView() {
+        controller.openLogsView()
     }
 
     @objc

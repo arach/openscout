@@ -424,6 +424,16 @@ struct MainView: View {
                 }
 
                 utilityRow(
+                    title: "Logs view",
+                    subtitle: "Jump into recent activity and session diagnostics.",
+                    symbol: "doc.text.magnifyingglass",
+                    emphasized: false,
+                    disabled: controller.webActionPending
+                ) {
+                    controller.openLogsView()
+                }
+
+                utilityRow(
                     title: controller.webServerStartedByApp ? "Stop web server" : "Refresh state",
                     subtitle: controller.webServerStartedByApp
                         ? "Terminate the local web process started from this menu."

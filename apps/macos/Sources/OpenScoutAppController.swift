@@ -160,7 +160,13 @@ final class OpenScoutAppController: ObservableObject {
 
     func openWebApp() {
         Task {
-            await openWebAppNow()
+            await openWebSurfaceNow(path: "/fleet")
+        }
+    }
+
+    func openLogsView() {
+        Task {
+            await openWebSurfaceNow(path: "/activity")
         }
     }
 
@@ -288,7 +294,7 @@ final class OpenScoutAppController: ObservableObject {
         menuBarTooltip = "\(brokerLine)\n\(pairingLine)\n\(tailscaleLine)"
     }
 
-    private func openWebAppNow() async {
+    private func openWebSurfaceNow(path: String) async {
         guard !webActionPending else {
             return
         }
@@ -302,7 +308,8 @@ final class OpenScoutAppController: ObservableObject {
 
         do {
             try await ensureWebServerRunning()
-            if var components = URLComponents(string: "http://127.0.0.1:3200/fleet") {
+            let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+            if var components = URLComponents(string: "http://127.0.0.1:3200\(normalizedPath)") {
                 components.queryItems = [
                     URLQueryItem(name: "openedAt", value: String(Int(Date().timeIntervalSince1970)))
                 ]
