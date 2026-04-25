@@ -1585,6 +1585,52 @@ export async function readOpenScoutSettings(options: { currentDirectory?: string
   });
 }
 
+export function resolveOpenScoutSetupContextRoot(options: {
+  env?: NodeJS.ProcessEnv;
+  fallbackDirectory?: string | null;
+} = {}): string {
+  const env = options.env ?? process.env;
+  const explicit = env.OPENSCOUT_SETUP_CWD?.trim();
+  if (explicit) {
+    return normalizePath(explicit);
+  }
+
+  const home = env.HOME?.trim() || homedir();
+  const supportDirectory = env.OPENSCOUT_SUPPORT_DIRECTORY?.trim()
+    || join(home, "Library", "Application Support", "OpenScout");
+  const settingsPath = join(supportDirectory, "settings.json");
+  if (existsSync(settingsPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+        discovery?: {
+          contextRoot?: unknown;
+          workspaceRoots?: unknown;
+        };
+      };
+      const discovery = raw.discovery;
+      if (typeof discovery?.contextRoot === "string" && discovery.contextRoot.trim()) {
+        return normalizePath(discovery.contextRoot);
+      }
+      if (Array.isArray(discovery?.workspaceRoots)) {
+        const workspaceRoot = discovery.workspaceRoots.find(
+          (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+        );
+        if (workspaceRoot) {
+          return normalizePath(workspaceRoot);
+        }
+      }
+    } catch {
+      // Ignore malformed settings and fall back below.
+    }
+  }
+
+  if (options.fallbackDirectory?.trim()) {
+    return normalizePath(options.fallbackDirectory);
+  }
+
+  return normalizePath(process.cwd());
+}
+
 export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsInput, options: { currentDirectory?: string } = {}): Promise<OpenScoutSettings> {
   ensureOpenScoutCleanSlateSync();
   const current = await readOpenScoutSettings(options);

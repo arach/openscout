@@ -3,13 +3,14 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { initializeOpenScoutSetup, writeOpenScoutSettings } from "./setup.js";
+import { initializeOpenScoutSetup, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
 import { encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
+const originalSetupCwd = process.env.OPENSCOUT_SETUP_CWD;
 const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
 const testDirectories = new Set<string>();
 
@@ -30,6 +31,11 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_RELAY_HUB = originalRelayHub;
   }
+  if (originalSetupCwd === undefined) {
+    delete process.env.OPENSCOUT_SETUP_CWD;
+  } else {
+    process.env.OPENSCOUT_SETUP_CWD = originalSetupCwd;
+  }
   if (originalSkipUserProjectHints === undefined) {
     delete process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
   } else {
@@ -43,6 +49,66 @@ afterEach(() => {
 });
 
 describe("setup inventory", () => {
+  test("resolves the configured setup context root from persisted settings when no env override is present", async () => {
+    const home = join(tmpdir(), `openscout-setup-context-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const sourceRoot = join(home, "dev");
+    const configuredRoot = join(sourceRoot, "alpha");
+    const unrelatedCwd = join(home, "scratch");
+
+    testDirectories.add(home);
+    mkdirSync(configuredRoot, { recursive: true });
+    mkdirSync(unrelatedCwd, { recursive: true });
+
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
+    delete process.env.OPENSCOUT_SETUP_CWD;
+
+    await writeOpenScoutSettings({
+      discovery: {
+        contextRoot: configuredRoot,
+        workspaceRoots: [sourceRoot],
+        includeCurrentRepo: true,
+      },
+    }, {
+      currentDirectory: configuredRoot,
+    });
+
+    expect(resolveOpenScoutSetupContextRoot({ fallbackDirectory: unrelatedCwd })).toBe(configuredRoot);
+  });
+
+  test("prefers OPENSCOUT_SETUP_CWD over persisted settings when explicitly provided", async () => {
+    const home = join(tmpdir(), `openscout-setup-context-env-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const sourceRoot = join(home, "dev");
+    const configuredRoot = join(sourceRoot, "alpha");
+    const overrideRoot = join(home, "override");
+
+    testDirectories.add(home);
+    mkdirSync(configuredRoot, { recursive: true });
+    mkdirSync(overrideRoot, { recursive: true });
+
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
+
+    await writeOpenScoutSettings({
+      discovery: {
+        contextRoot: configuredRoot,
+        workspaceRoots: [sourceRoot],
+        includeCurrentRepo: true,
+      },
+    }, {
+      currentDirectory: configuredRoot,
+    });
+
+    process.env.OPENSCOUT_SETUP_CWD = overrideRoot;
+    expect(resolveOpenScoutSetupContextRoot()).toBe(overrideRoot);
+  });
+
   test("walks source roots recursively and records harness evidence per project", async () => {
     const home = join(tmpdir(), `openscout-setup-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const sourceRoot = join(home, "dev");

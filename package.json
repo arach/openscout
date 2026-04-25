@@ -24,6 +24,7 @@
     "runtime:broker": "npm --prefix packages/runtime run broker",
     "runtime:discover": "npm --prefix packages/runtime run discover",
     "runtime:service": "npm --prefix packages/runtime run service",
+    "dev:cleanup": "bash scripts/dev-cleanup.sh",
     "cloud:build": "cd apps/cloud && bun run build",
     "cloud:check": "cd apps/cloud && bun run check",
     "cloud:dev": "cd apps/cloud && bun run dev",

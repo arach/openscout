@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveHost, resolveWebPort } from "@openscout/runtime/local-config";
+import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
 import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
@@ -14,15 +16,19 @@ import {
   type ManagedTerminalRelay,
 } from "./managed-terminal-relay.ts";
 
-const port = Number(
+const port = Number.parseInt(
   process.env.OPENSCOUT_WEB_PORT
     ?? process.env.SCOUT_WEB_PORT
-    ?? "3200",
+    ?? String(resolveWebPort()),
+  10,
 );
 const hostname = process.env.OPENSCOUT_WEB_HOST?.trim()
   || process.env.SCOUT_WEB_HOST?.trim()
-  || "127.0.0.1";
-const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
+  || resolveHost();
+const currentDirectory = resolveOpenScoutSetupContextRoot({
+  env: process.env,
+  fallbackDirectory: process.cwd(),
+});
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
 
 function resolveStaticRoot(): string | undefined {

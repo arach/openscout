@@ -35,8 +35,8 @@ Usage:
   openscout-web [options]
 
 Options:
-  --port <n>         Listen port (default 3200; env OPENSCOUT_WEB_PORT)
-  --cwd <dir>        Workspace root (env OPENSCOUT_SETUP_CWD)
+  --port <n>         Listen port (default 3200; optional override OPENSCOUT_WEB_PORT)
+  --cwd <dir>        Workspace root (optional override OPENSCOUT_SETUP_CWD)
   --vite-url <url>   Proxy non-API requests to a Vite dev server
   --static-root <d>  Override the static client directory
 

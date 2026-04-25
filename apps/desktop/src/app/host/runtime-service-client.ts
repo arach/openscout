@@ -4,94 +4,31 @@
  * Scout core domain logic.
  */
 import { spawn } from "node:child_process";
-import { basename, dirname, join } from "node:path";
-import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import {
+  resolveExecutableFromSearch,
+  resolveJavaScriptRuntime,
+  resolveNodeModulesPackageEntrypoint,
+  resolveOpenScoutRepoRoot,
+  resolveRepoEntrypoint,
+} from "@openscout/runtime/tool-resolution";
 
 const BROKER_STATUS_CACHE_TTL_MS = 2_000;
 
 let cachedBrokerStatus: { value: BrokerServiceStatus; expiresAt: number } | null = null;
 let inflightBrokerStatus: Promise<BrokerServiceStatus> | null = null;
 
-function tryWhich(executableName: string): string | null {
-  const pathEnv = process.env.PATH ?? "";
-  const sep = process.platform === "win32" ? ";" : ":";
-  for (const dir of pathEnv.split(sep)) {
-    if (!dir) continue;
-    const candidate = join(dir, executableName);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-    if (process.platform === "win32") {
-      for (const ext of [".cmd", ".exe", ".bat"]) {
-        const withExt = candidate + ext;
-        if (existsSync(withExt)) return withExt;
-      }
-    }
-  }
-  return null;
-}
-
-/** Walk up from this module to find @openscout/runtime in node_modules (covers npm/bun dep installs). */
-function findNodeModulesRuntimeBin(): string | null {
-  const runtimeBinRel = join("node_modules", "@openscout", "runtime", "bin", "openscout-runtime.mjs");
-  // Start from the directory of this script (handles bundled CLI context)
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 24; i++) {
-    const candidate = join(dir, runtimeBinRel);
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  // Also check bun global install locations
-  const bunGlobal = join(homedir(), ".bun", "install", "global", "node_modules", "@openscout", "runtime", "bin", "openscout-runtime.mjs");
-  if (existsSync(bunGlobal)) return bunGlobal;
-  return null;
-}
-
-function findMonorepoOpenscoutRuntimeBin(): string | null {
-  let dir = process.cwd();
-  for (let i = 0; i < 24; i++) {
-    const candidate = join(dir, "packages", "runtime", "bin", "openscout-runtime.mjs");
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-
 function resolveJavaScriptRuntimeExecutable(): string {
-  const explicit = process.env.OPENSCOUT_RUNTIME_NODE_BIN?.trim();
-  if (explicit) {
-    if (existsSync(explicit)) {
-      return explicit;
-    }
-    const found = tryWhich(explicit);
-    if (found) {
-      return found;
-    }
-    throw new Error(`OPENSCOUT_RUNTIME_NODE_BIN is set but not found: ${explicit}`);
-  }
-
-  const execBase = basename(process.execPath).toLowerCase();
-  if (execBase.startsWith("node") || execBase.startsWith("bun")) {
-    return process.execPath;
-  }
-
-  const nodeOnPath = tryWhich("node");
-  if (nodeOnPath) {
-    return nodeOnPath;
-  }
-
-  const bunOnPath = tryWhich("bun");
-  if (bunOnPath) {
-    return bunOnPath;
+  const runtime = resolveJavaScriptRuntime({
+    env: process.env,
+    explicitEnvKeys: ["OPENSCOUT_RUNTIME_NODE_BIN"],
+    allowNode: true,
+    allowBun: true,
+  });
+  if (runtime) {
+    return runtime.path;
   }
 
   throw new Error(
@@ -104,31 +41,34 @@ function resolveJavaScriptRuntimeExecutable(): string {
  * Does not import broker logic; it only locates the runtime control entrypoint.
  */
 export function resolveRuntimeServiceEntrypoint(): string {
-  const explicit = process.env.OPENSCOUT_RUNTIME_BIN?.trim();
-  if (explicit) {
-    if (existsSync(explicit)) {
-      return explicit;
-    }
-    const found = tryWhich(explicit);
-    if (found) {
-      return found;
-    }
-    throw new Error(`OPENSCOUT_RUNTIME_BIN is set but not found: ${explicit}`);
+  const installedExecutable = resolveExecutableFromSearch({
+    env: process.env,
+    envKeys: ["OPENSCOUT_RUNTIME_BIN"],
+    names: ["openscout-runtime"],
+  });
+  if (installedExecutable) {
+    return installedExecutable.path;
   }
 
-  const onPath = tryWhich("openscout-runtime");
-  if (onPath) {
-    return onPath;
-  }
-
-  const fromNodeModules = findNodeModulesRuntimeBin();
+  const fromNodeModules = resolveNodeModulesPackageEntrypoint(
+    import.meta.url,
+    ["@openscout", "runtime"],
+    "bin/openscout-runtime.mjs",
+  );
   if (fromNodeModules) {
     return fromNodeModules;
   }
 
-  const monorepo = findMonorepoOpenscoutRuntimeBin();
-  if (monorepo) {
-    return monorepo;
+  const repoRoot = resolveOpenScoutRepoRoot({
+    startDirectories: [
+      process.env.OPENSCOUT_SETUP_CWD,
+      process.cwd(),
+      dirname(fileURLToPath(import.meta.url)),
+    ],
+  });
+  const repoEntrypoint = resolveRepoEntrypoint(repoRoot, "packages/runtime/bin/openscout-runtime.mjs");
+  if (repoEntrypoint) {
+    return repoEntrypoint;
   }
 
   throw new Error(

@@ -1,10 +1,18 @@
 import { createScoutControlPlaneServer } from "./create-scout-control-plane-server.ts";
+import { resolveHost, resolveWebPort } from "@openscout/runtime/local-config";
+import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
 
-const port = Number(process.env.OPENSCOUT_WEB_PORT ?? process.env.SCOUT_WEB_PORT ?? "3200");
+const port = Number.parseInt(
+  process.env.OPENSCOUT_WEB_PORT ?? process.env.SCOUT_WEB_PORT ?? String(resolveWebPort()),
+  10,
+);
 const hostname = process.env.SCOUT_WEB_HOST?.trim()
   || process.env.OPENSCOUT_WEB_HOST?.trim()
-  || "127.0.0.1";
-const currentDirectory = process.env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd();
+  || resolveHost();
+const currentDirectory = resolveOpenScoutSetupContextRoot({
+  env: process.env,
+  fallbackDirectory: process.cwd(),
+});
 
 const { app, warmupCaches } = createScoutControlPlaneServer({
   currentDirectory,

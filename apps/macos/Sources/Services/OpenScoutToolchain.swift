@@ -4,16 +4,19 @@ enum OpenScoutToolchainError: LocalizedError {
     case missingRuntime
     case missingScoutCLI
     case missingPairSupervisor
+    case missingJavaScriptRuntime
     case missingBun
 
     var errorDescription: String? {
         switch self {
         case .missingRuntime:
-            return "Unable to locate `openscout-runtime`. Set OPENSCOUT_RUNTIME_BIN or run from the OpenScout repo."
+            return "Unable to locate `openscout-runtime`. Set OPENSCOUT_RUNTIME_BIN, install @openscout/runtime, or run from the OpenScout repo."
         case .missingScoutCLI:
-            return "Unable to locate `scout`. Set OPENSCOUT_CLI_BIN or run from the OpenScout repo."
+            return "Unable to locate `scout`. Set OPENSCOUT_CLI_BIN, install @openscout/scout, or run from the OpenScout repo."
         case .missingPairSupervisor:
-            return "Unable to locate the pair supervisor. Set OPENSCOUT_PAIR_SUPERVISOR_BIN or build from the OpenScout repo."
+            return "Unable to locate the pair supervisor. Set OPENSCOUT_PAIR_SUPERVISOR_BIN, install a pair supervisor entrypoint, or build from the OpenScout repo."
+        case .missingJavaScriptRuntime:
+            return "Unable to locate Node.js or Bun for the runtime service script. Set OPENSCOUT_RUNTIME_NODE_BIN or install Node.js/Bun."
         case .missingBun:
             return "Unable to locate Bun. Set OPENSCOUT_BUN_BIN or install Bun."
         }
@@ -21,80 +24,67 @@ enum OpenScoutToolchainError: LocalizedError {
 }
 
 struct OpenScoutToolchain {
-    private let fileManager = FileManager.default
-    private let environment: [String: String]
+    private let resolver: OpenScoutPathResolver
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.environment = environment
+        self.resolver = OpenScoutPathResolver(environment: environment)
     }
 
     func runtimeServiceCommand(subcommand: String) throws -> CommandDescriptor {
-        if let runtimeExecutable = resolveExecutable(
+        if let runtimeExecutable = resolver.resolveExecutable(
             envKeys: ["OPENSCOUT_RUNTIME_BIN"],
             names: ["openscout-runtime"]
         ) {
             return CommandDescriptor(
-                executableURL: runtimeExecutable,
+                executableURL: runtimeExecutable.url,
                 arguments: ["service", subcommand, "--json"],
                 environment: defaultEnvironment(),
                 currentDirectoryURL: workspaceContextRoot()
             )
         }
 
-        guard let repoRoot = resolveRepoRoot() else {
+        guard let script = resolver.resolveRepoEntrypoint(relativePath: "packages/runtime/bin/openscout-runtime.mjs") else {
             throw OpenScoutToolchainError.missingRuntime
         }
-        guard let bun = resolveBunExecutable() else {
-            throw OpenScoutToolchainError.missingBun
-        }
-
-        let script = repoRoot.appending(path: "packages/runtime/bin/openscout-runtime.mjs")
-        guard fileManager.fileExists(atPath: script.path) else {
-            throw OpenScoutToolchainError.missingRuntime
+        guard let runtime = resolver.resolveJavaScriptRuntime(
+            explicitEnvKeys: ["OPENSCOUT_RUNTIME_NODE_BIN"],
+            allowNode: true,
+            allowBun: true
+        ) else {
+            throw OpenScoutToolchainError.missingJavaScriptRuntime
         }
 
         return CommandDescriptor(
-            executableURL: bun,
+            executableURL: runtime.url,
             arguments: [script.path, "service", subcommand, "--json"],
             environment: defaultEnvironment(),
-            currentDirectoryURL: repoRoot
+            currentDirectoryURL: workspaceContextRoot() ?? resolver.resolveRepoRoot()
         )
     }
 
     func scoutCommand(arguments: [String]) throws -> CommandDescriptor {
-        if let scoutExecutable = resolveExplicitExecutable(envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"]) {
+        if let scoutExecutable = resolver.resolveExecutable(
+            envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"],
+            names: ["scout"]
+        ) {
             return CommandDescriptor(
-                executableURL: scoutExecutable,
+                executableURL: scoutExecutable.url,
                 arguments: arguments,
                 environment: defaultEnvironment(),
                 currentDirectoryURL: workspaceContextRoot()
             )
         }
 
-        if let repoRoot = resolveRepoRoot() {
-            guard let bun = resolveBunExecutable() else {
+        if let script = resolver.resolveRepoEntrypoint(relativePath: "apps/desktop/bin/scout.ts") {
+            guard let bun = resolver.resolveBunExecutable() else {
                 throw OpenScoutToolchainError.missingBun
             }
 
-            let script = repoRoot.appending(path: "apps/desktop/bin/scout.ts")
-            guard fileManager.fileExists(atPath: script.path) else {
-                throw OpenScoutToolchainError.missingScoutCLI
-            }
-
             return CommandDescriptor(
-                executableURL: bun,
+                executableURL: bun.url,
                 arguments: [script.path] + arguments,
                 environment: defaultEnvironment(),
-                currentDirectoryURL: repoRoot
-            )
-        }
-
-        if let scoutExecutable = resolveExecutable(envKeys: [], names: ["scout"]) {
-            return CommandDescriptor(
-                executableURL: scoutExecutable,
-                arguments: arguments,
-                environment: defaultEnvironment(),
-                currentDirectoryURL: workspaceContextRoot()
+                currentDirectoryURL: resolver.resolveRepoRoot()
             )
         }
 
@@ -102,26 +92,30 @@ struct OpenScoutToolchain {
     }
 
     func pairSupervisorCommand() throws -> CommandDescriptor {
-        if let explicit = resolvePath(fromEnvironmentKey: "OPENSCOUT_PAIR_SUPERVISOR_BIN") {
-            return try command(forSupervisorAt: explicit)
+        if let explicit = resolver.resolvePath(fromEnvironmentKey: "OPENSCOUT_PAIR_SUPERVISOR_BIN") {
+            return try command(forSupervisorAt: explicit.standardizedFileURL)
         }
 
-        for candidate in installedPairSupervisorCandidates() where fileManager.fileExists(atPath: candidate.path) {
-            return try command(forSupervisorAt: candidate)
+        if let installedBinary = resolver.resolveExecutable(envKeys: [], names: ["pair-supervisor"]) {
+            return try command(forSupervisorAt: installedBinary.url)
         }
 
-        guard let repoRoot = resolveRepoRoot() else {
-            throw OpenScoutToolchainError.missingPairSupervisor
+        for candidate in installedPairSupervisorCandidates() {
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try command(forSupervisorAt: candidate.standardizedFileURL)
+            }
         }
 
         let repoCandidates = [
-            repoRoot.appending(path: "packages/cli/dist/pair-supervisor.mjs"),
-            repoRoot.appending(path: "packages/web/dist/pair-supervisor.mjs"),
-            repoRoot.appending(path: "apps/desktop/bin/pair-supervisor.ts"),
+            "packages/cli/dist/pair-supervisor.mjs",
+            "packages/web/dist/pair-supervisor.mjs",
+            "apps/desktop/bin/pair-supervisor.ts",
         ]
 
-        for candidate in repoCandidates where fileManager.fileExists(atPath: candidate.path) {
-            return try command(forSupervisorAt: candidate, currentDirectoryURL: repoRoot)
+        for relativePath in repoCandidates {
+            if let candidate = resolver.resolveRepoEntrypoint(relativePath: relativePath) {
+                return try command(forSupervisorAt: candidate, currentDirectoryURL: resolver.resolveRepoRoot())
+            }
         }
 
         throw OpenScoutToolchainError.missingPairSupervisor
@@ -142,12 +136,12 @@ struct OpenScoutToolchain {
     ) throws -> CommandDescriptor {
         let ext = url.pathExtension.lowercased()
         if ext == "ts" || ext == "js" || ext == "mjs" || ext == "cjs" {
-            guard let bun = resolveBunExecutable() else {
+            guard let bun = resolver.resolveBunExecutable() else {
                 throw OpenScoutToolchainError.missingBun
             }
 
             return CommandDescriptor(
-                executableURL: bun,
+                executableURL: bun.url,
                 arguments: [url.path],
                 environment: defaultEnvironment(),
                 currentDirectoryURL: currentDirectoryURL ?? workspaceContextRoot()
@@ -167,152 +161,32 @@ struct OpenScoutToolchain {
         if let workspaceRoot = workspaceContextRoot() {
             env["OPENSCOUT_SETUP_CWD"] = workspaceRoot.path
         }
-        if let scoutCLI = resolveExplicitExecutable(envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"]) {
-            env["OPENSCOUT_CLI_BIN"] = scoutCLI.path
+        if let scoutCLI = resolver.resolveExecutable(
+            envKeys: ["OPENSCOUT_CLI_BIN", "SCOUT_CLI_BIN"],
+            names: ["scout"]
+        ) {
+            env["OPENSCOUT_CLI_BIN"] = scoutCLI.url.path
         }
-        if let bun = resolveBunExecutable() {
-            env["OPENSCOUT_BUN_BIN"] = bun.path
+        if let bun = resolver.resolveBunExecutable() {
+            env["OPENSCOUT_BUN_BIN"] = bun.url.path
         }
         return env
     }
 
     private func workspaceContextRoot() -> URL? {
-        if let explicit = resolvePath(fromEnvironmentKey: "OPENSCOUT_SETUP_CWD") {
+        if let explicit = resolver.resolvePath(fromEnvironmentKey: "OPENSCOUT_SETUP_CWD") {
             return explicit
         }
-        return resolveRepoRoot()
-    }
-
-    private func resolveRepoRoot() -> URL? {
-        let sourcePath = URL(fileURLWithPath: #filePath)
-        let candidateStarts = [
-            URL(fileURLWithPath: fileManager.currentDirectoryPath),
-            sourcePath.deletingLastPathComponent(),
-        ]
-
-        for start in candidateStarts {
-            for candidate in ancestorChain(startingAt: start) {
-                let scoutPath = candidate.appending(path: "apps/desktop/bin/scout.ts").path
-                let runtimePath = candidate.appending(path: "packages/runtime/bin/openscout-runtime.mjs").path
-                if fileManager.fileExists(atPath: scoutPath) && fileManager.fileExists(atPath: runtimePath) {
-                    return candidate
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func ancestorChain(startingAt start: URL) -> [URL] {
-        var result: [URL] = []
-        var current = start.standardizedFileURL
-
-        while true {
-            result.append(current)
-            let parent = current.deletingLastPathComponent()
-            if parent == current {
-                break
-            }
-            current = parent
-        }
-
-        return result
-    }
-
-    private func resolveExecutable(envKeys: [String], names: [String]) -> URL? {
-        for key in envKeys {
-            if let explicit = resolvePath(fromEnvironmentKey: key), isExecutable(explicit) {
-                return explicit
-            }
-        }
-
-        for directory in searchDirectories() {
-            for name in names {
-                let candidate = directory.appending(path: name)
-                if isExecutable(candidate) {
-                    return candidate
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func resolveExplicitExecutable(envKeys: [String]) -> URL? {
-        for key in envKeys {
-            if let explicit = resolvePath(fromEnvironmentKey: key), isExecutable(explicit) {
-                return explicit
-            }
-        }
-
-        return nil
-    }
-
-    private func resolveBunExecutable() -> URL? {
-        resolveExecutable(
-            envKeys: ["OPENSCOUT_BUN_BIN", "SCOUT_BUN_BIN", "BUN_BIN"],
-            names: ["bun"]
-        )
-    }
-
-    private func searchDirectories() -> [URL] {
-        var directories: [URL] = []
-        let pathEntries = (environment["PATH"] ?? "")
-            .split(separator: ":")
-            .map(String.init)
-
-        for entry in pathEntries {
-            directories.append(expandPath(entry))
-        }
-
-        directories.append(fileManager.homeDirectoryForCurrentUser.appending(path: ".bun/bin"))
-        directories.append(URL(fileURLWithPath: "/opt/homebrew/bin"))
-        directories.append(URL(fileURLWithPath: "/usr/local/bin"))
-
-        var seen = Set<String>()
-        return directories.filter { directory in
-            let key = directory.path
-            if seen.contains(key) {
-                return false
-            }
-            seen.insert(key)
-            return true
-        }
+        return resolver.resolveRepoRoot()
     }
 
     private func installedPairSupervisorCandidates() -> [URL] {
-        let home = fileManager.homeDirectoryForCurrentUser
+        let home = FileManager.default.homeDirectoryForCurrentUser
         return [
             home.appending(path: ".bun/install/global/node_modules/@openscout/web/dist/pair-supervisor.mjs"),
             home.appending(path: ".bun/node_modules/@openscout/web/dist/pair-supervisor.mjs"),
             home.appending(path: ".bun/install/global/node_modules/@openscout/scout/dist/pair-supervisor.mjs"),
             home.appending(path: ".bun/node_modules/@openscout/scout/dist/pair-supervisor.mjs"),
         ]
-    }
-
-    private func resolvePath(fromEnvironmentKey key: String) -> URL? {
-        guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-
-        return expandPath(value)
-    }
-
-    private func expandPath(_ value: String) -> URL {
-        if value == "~" {
-            return fileManager.homeDirectoryForCurrentUser
-        }
-
-        if value.hasPrefix("~/") {
-            let suffix = String(value.dropFirst(2))
-            return fileManager.homeDirectoryForCurrentUser.appendingPathComponent(suffix)
-        }
-
-        return URL(fileURLWithPath: value)
-    }
-
-    private func isExecutable(_ url: URL) -> Bool {
-        fileManager.isExecutableFile(atPath: url.path)
     }
 }

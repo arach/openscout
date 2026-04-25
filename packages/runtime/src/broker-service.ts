@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
+import { resolveBunExecutable as resolveResolvedBunExecutable } from "./tool-resolution.js";
 
 /** True for paths under /tmp or /private/tmp — transient remote-install dirs. */
 function isTmpPath(p: string): boolean {
@@ -187,29 +188,12 @@ function findWorkspaceRuntimeDir(startDir: string): string | null {
 }
 
 function resolveBunExecutable(): string {
-  const explicit = process.env.OPENSCOUT_BUN_BIN ?? process.env.BUN_BIN;
-  if (explicit && explicit.trim().length > 0) {
-    return explicit;
+  const bun = resolveResolvedBunExecutable(process.env);
+  if (bun) {
+    return bun.path;
   }
 
-  if (basename(process.execPath).startsWith("bun") && existsSync(process.execPath)) {
-    return process.execPath;
-  }
-
-  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
-  for (const entry of pathEntries) {
-    const candidate = join(entry, "bun");
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const homeBun = join(homedir(), ".bun", "bin", "bun");
-  if (existsSync(homeBun)) {
-    return homeBun;
-  }
-
-  return "bun";
+  throw new Error("Unable to locate Bun for broker service management. Install Bun or set OPENSCOUT_BUN_BIN.");
 }
 
 function resolveBrokerServiceMode(): BrokerServiceMode {

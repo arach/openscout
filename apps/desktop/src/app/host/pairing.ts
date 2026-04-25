@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
 import {
-  accessSync,
-  constants,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -19,6 +17,7 @@ import {
   type SessionSummary,
 } from "@openscout/agent-sessions";
 import { findNearestProjectRoot } from "@openscout/runtime/setup";
+import { resolveBunExecutable as resolveResolvedBunExecutable } from "@openscout/runtime/tool-resolution";
 
 import { resolveScoutAppRoot } from "../../shared/paths.ts";
 
@@ -664,44 +663,10 @@ function formatScoutPairingLogTimestamp(date: Date | number): string {
   }).format(date);
 }
 
-function isExecutable(filePath: string | undefined | null): filePath is string {
-  if (!filePath) {
-    return false;
-  }
-
-  try {
-    accessSync(filePath, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function resolveScoutBunExecutable(): string {
-  const explicitPaths = [
-    process.env.SCOUT_BUN_BIN,
-    process.env.OPENSCOUT_BUN_BIN,
-    process.env.BUN_BIN,
-  ].filter((candidate): candidate is string => Boolean(candidate?.trim()));
-
-  for (const candidate of explicitPaths) {
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
-  const commonDirectories = [
-    join(homedir(), ".bun", "bin"),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ];
-
-  for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = join(directory.replace(/^~(?=$|\/)/, homedir()), "bun");
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
+  const bun = resolveResolvedBunExecutable(process.env);
+  if (bun) {
+    return bun.path;
   }
 
   throw new Error("Unable to locate Bun for Scout pair mode.");

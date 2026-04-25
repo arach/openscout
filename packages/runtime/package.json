@@ -47,6 +47,11 @@
       "bun": "./src/support-paths.ts",
       "default": "./dist/support-paths.js"
     },
+    "./tool-resolution": {
+      "types": "./src/tool-resolution.ts",
+      "bun": "./src/tool-resolution.ts",
+      "default": "./dist/tool-resolution.js"
+    },
     "./claude-stream-json": {
       "types": "./src/claude-stream-json.ts",
       "bun": "./src/claude-stream-json.ts",

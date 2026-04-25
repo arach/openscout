@@ -1,10 +1,15 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadLocalConfig } from "@openscout/runtime/local-config";
+import { resolveWebPort } from "@openscout/runtime/local-config";
+import {
+  resolveBunExecutable as resolveResolvedBunExecutable,
+  resolveBundledEntrypoint,
+  resolveOpenScoutRepoRoot,
+  resolveRepoEntrypoint,
+} from "@openscout/runtime/tool-resolution";
+import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
 
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
@@ -42,11 +47,11 @@ export function renderServerCommandHelp(): string {
     "  open               Open the Scout web UI (starts server on demand if needed).",
     "",
     "Options:",
-    "  --port <n>        Listen port (default 3200; env OPENSCOUT_WEB_PORT)",
+    "  --port <n>        Listen port (default 3200; optional override OPENSCOUT_WEB_PORT)",
     "  --static          Serve built UI from disk",
-    "  --static-root DIR Static client root (env OPENSCOUT_WEB_STATIC_ROOT)",
-    "  --vite-url URL    Dev proxy target for non-API routes (env OPENSCOUT_WEB_VITE_URL)",
-    "  --cwd DIR         Workspace / setup root (env OPENSCOUT_SETUP_CWD)",
+    "  --static-root DIR Static client root (optional override OPENSCOUT_WEB_STATIC_ROOT)",
+    "  --vite-url URL    Dev proxy target for non-API routes (optional override OPENSCOUT_WEB_VITE_URL)",
+    "  --cwd DIR         Workspace / setup root (optional override OPENSCOUT_SETUP_CWD)",
     "  --path PATH       Browser path for `open` (default /)",
     "",
     "Requires `bun` on PATH.",
@@ -62,19 +67,23 @@ export function resolveScoutWebServerEntry(): string {
 }
 
 export function resolveScoutControlPlaneWebServerEntry(): string {
-  const mainDir = dirname(fileURLToPath(import.meta.url));
-  const bundled = join(mainDir, "scout-control-plane-web.mjs");
-  if (existsSync(bundled)) {
+  const bundled = resolveBundledEntrypoint(import.meta.url, "scout-control-plane-web.mjs");
+  if (bundled) {
     return bundled;
   }
-  const source = fileURLToPath(new URL("../../../../../packages/web/server/index.ts", import.meta.url).href);
-  if (existsSync(source)) {
+
+  const repoRoot = resolveOpenScoutRepoRoot({
+    startDirectories: [
+      process.env.OPENSCOUT_SETUP_CWD,
+      process.cwd(),
+      dirname(fileURLToPath(import.meta.url)),
+    ],
+  });
+  const source = resolveRepoEntrypoint(repoRoot, "packages/web/server/index.ts");
+  if (source) {
     return source;
   }
-  const legacySource = fileURLToPath(new URL("../../server/control-plane-index.ts", import.meta.url).href);
-  if (existsSync(legacySource)) {
-    return legacySource;
-  }
+
   throw new ScoutCliError(
     "Could not find Scout web server entry. Rebuild @openscout/scout or run from the OpenScout repository.",
   );
@@ -156,47 +165,13 @@ function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): 
   return existsSync(indexPath) ? clientDirectory : null;
 }
 
-function isExecutable(filePath: string | undefined | null): filePath is string {
-  if (!filePath) {
-    return false;
-  }
-
-  try {
-    accessSync(filePath, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function resolveBunExecutable(env: NodeJS.ProcessEnv): string {
-  const explicitPaths = [
-    env.SCOUT_BUN_BIN,
-    env.OPENSCOUT_BUN_BIN,
-    env.BUN_BIN,
-  ].filter((candidate): candidate is string => Boolean(candidate?.trim()));
-
-  for (const candidate of explicitPaths) {
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
+  const bun = resolveResolvedBunExecutable(env);
+  if (bun) {
+    return bun.path;
   }
 
-  const pathEntries = (env.PATH ?? "").split(":").filter(Boolean);
-  const commonDirectories = [
-    join(homedir(), ".bun", "bin"),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ];
-
-  for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = join(directory.replace(/^~(?=$|\/)/, homedir()), "bun");
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "bun";
+  throw new ScoutCliError("Unable to locate Bun. Install Bun (https://bun.sh) or set OPENSCOUT_BUN_BIN.");
 }
 
 function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Record<string, string>): NodeJS.ProcessEnv {
@@ -275,13 +250,14 @@ function resolveServerPort(env: NodeJS.ProcessEnv): number {
     }
     return port;
   }
-  const fromFile = loadLocalConfig().ports?.web;
-  if (fromFile) return fromFile;
-  return 3200;
+  return resolveWebPort();
 }
 
 function resolveExpectedCurrentDirectory(env: NodeJS.ProcessEnv): string {
-  return resolve(env.OPENSCOUT_SETUP_CWD?.trim() || process.cwd());
+  return resolveOpenScoutSetupContextRoot({
+    env,
+    fallbackDirectory: process.cwd(),
+  });
 }
 
 function renderModeLabel(mode: ScoutServerMode): string {
