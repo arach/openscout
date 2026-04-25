@@ -13,6 +13,7 @@ import {
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
+import { BroadcastTicker } from "./screens/BroadcastTicker.tsx";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -369,7 +370,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
     top: navTotalHeight,
-    bottom: 28,
+    bottom: 50,
     left: leftCollapsed ? 0 : leftWidth,
     right: rightInset,
     overflow: "auto",
@@ -446,6 +447,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   {rightContent}
                 </div>
               </SidePanel>
+
+              <BroadcastTicker />
 
               <StatusBar
                 status={statusBar.status}
