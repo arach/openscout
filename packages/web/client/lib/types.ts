@@ -1126,6 +1126,21 @@ export type TailDiscoverySnapshot = {
   };
 };
 
+/* ── Broadcast (fleet ticker) types ── */
+
+export type BroadcastTier = "info" | "warn" | "error";
+
+export type Broadcast = {
+  id: string;
+  tier: BroadcastTier;
+  text: string;
+  agent?: string;
+  project?: string;
+  ts: number;
+  ruleId: string;
+  key: string;
+};
+
 /* ── Ops types (Plan view) ── */
 
 export type MissionBrief = {
