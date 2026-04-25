@@ -26,7 +26,16 @@ implementation specs.
 - [sco-005-trace-first-session-observability-proposal.md](./sco-005-trace-first-session-observability-proposal.md)
 - [sco-006-integration-layer-and-boundary-proposal.md](./sco-006-integration-layer-and-boundary-proposal.md)
 - [sco-007-concierge-routing-and-delegation-proposal.md](./sco-007-concierge-routing-and-delegation-proposal.md)
+- [sco-007-run-graphs-and-recipes-proposal.md](./sco-007-run-graphs-and-recipes-proposal.md)
+- [sco-008-context-blocks-and-skills-proposal.md](./sco-008-context-blocks-and-skills-proposal.md)
+- [sco-009-activation-lifecycle-and-wake-triggers-proposal.md](./sco-009-activation-lifecycle-and-wake-triggers-proposal.md)
+- [sco-010-public-relay-connectivity-and-rendezvous-proposal.md](./sco-010-public-relay-connectivity-and-rendezvous-proposal.md)
+- [sco-011-external-runtime-integration-and-handoff-proposal.md](./sco-011-external-runtime-integration-and-handoff-proposal.md)
 
 ## Operations
 
 - [releasing.md](./releasing.md) — npm package and macOS DMG release flow
+
+## Research Notes
+
+- [external-runtime-inventory-and-handoff.md](./external-runtime-inventory-and-handoff.md)
