@@ -7,6 +7,7 @@ import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudson
 import { CommandPalette, TerminalDrawer } from "@hudson/sdk/overlays";
 
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
+import { BroadcastTicker } from "./screens/BroadcastTicker.tsx";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -281,7 +282,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
     top: navTotalHeight,
-    bottom: 28,
+    bottom: 50,
     left: leftCollapsed ? 0 : leftWidth,
     right: rightCollapsed ? 0 : rightWidth,
     overflow: "auto",
@@ -332,6 +333,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               >
                 {rightContent}
               </SidePanel>
+
+              <BroadcastTicker />
 
               <StatusBar
                 status={statusBar.status}
