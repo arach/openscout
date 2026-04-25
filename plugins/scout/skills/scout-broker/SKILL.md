@@ -9,13 +9,11 @@ metadata:
 
 Use this plugin when the task is about Scout-native coordination rather than local shell delegation.
 
-Default loop:
+Fast path:
 
-1. Orient with `whoami` when sender identity or workspace routing matters.
-2. Use `agents_search` to see who is around.
-3. Use `agents_resolve` before targeted actions when a short `@name` may be ambiguous.
-4. Use `messages_send` for tell-style updates.
-5. Use `invocations_ask` for ask-style requests that need a reply or judgment.
+1. If you know the repo/worktree, pass `currentDirectory`.
+2. If you know one target handle, call `messages_send` with `targetLabel` for tell-style writes or `invocations_ask` with `targetLabel` for ask-style handoffs.
+3. Use `whoami`, `agents_search`, or `agents_resolve` only when sender context is unclear, the target is ambiguous, or the broker says the route failed.
 
 ## Working directory
 
@@ -26,21 +24,25 @@ Default loop:
 ## Tell vs ask
 
 Use `messages_send` when the user is notifying or updating another agent.
+When there is one intended recipient and you only know a handle such as `@hudson`, prefer a single `messages_send` call with `targetLabel` over a separate resolve round-trip.
 
 Use `invocations_ask` when the user wants another agent to investigate, review, decide, or report back.
+When there is one intended recipient and you know a handle such as `@hudson`, prefer a single `invocations_ask` call with `targetLabel`.
 
 - Set `awaitReply: true` only when the parent task is blocked on the answer now.
 - Leave `awaitReply` false when the request is background work or the user only asked you to hand it off.
 
 ## Targeting rules
 
-- Prefer `agents_resolve` before sending when the user names one specific agent and there is any risk of ambiguity.
+- Prefer `targetLabel` for one known target when the write can go straight through.
+- Use `agents_resolve` before sending only when the user names one specific agent and there is real risk of ambiguity.
 - When you already have exact target agent IDs, pass them via `mentionAgentIds` to `messages_send` or `targetAgentId` to `invocations_ask`.
 - If the user names multiple agents, fan out one action per target unless they explicitly want a shared broadcast-style update.
 
 ## Practical defaults
 
 - Start with `agents_search` when the user asks who is online, available, or routable.
-- Start with `agents_resolve` when the user names a handle such as `@hudson`.
+- Start with a direct write when the user already told you the single target and the relevant workspace is known.
+- Start with `agents_resolve` when the user names a handle such as `@hudson` and the direct write path reports ambiguity.
 - Use `messages_send` for "tell", "notify", "let them know", or status updates.
 - Use `invocations_ask` for "ask", "review", "investigate", "check", or anything that clearly expects a reply.

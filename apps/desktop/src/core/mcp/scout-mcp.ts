@@ -133,6 +133,7 @@ type ScoutMcpDependencies = {
   sendMessage: (input: {
     senderId: string;
     body: string;
+    targetLabel?: string;
     channel?: string;
     shouldSpeak?: boolean;
     currentDirectory: string;
@@ -336,7 +337,7 @@ const resolveResultSchema = z.object({
 const sendResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
-  mode: z.enum(["body_mentions", "explicit_targets"]),
+  mode: z.enum(["body_mentions", "explicit_targets", "target_label"]),
   usedBroker: z.boolean(),
   conversationId: z.string().nullable(),
   messageId: z.string().nullable(),
@@ -920,10 +921,18 @@ function defaultScoutMcpDependencies(
         currentDirectory,
         createdById,
       }),
-    sendMessage: ({ senderId, body, channel, shouldSpeak, currentDirectory }) =>
+    sendMessage: ({
+      senderId,
+      body,
+      targetLabel,
+      channel,
+      shouldSpeak,
+      currentDirectory,
+    }) =>
       sendScoutMessage({
         senderId,
         body,
+        targetLabel,
         channel,
         shouldSpeak,
         currentDirectory,
@@ -1203,11 +1212,12 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. One explicit target without a channel becomes a DM. Group delivery requires an explicit channel. Use broadcast or channel='shared' for shared updates. For owned work or a reply lifecycle, use invocations_ask instead. Prefer mentionAgentIds for first-class targeting.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. One explicit target without a channel becomes a DM. Group delivery requires an explicit channel. Use broadcast or channel='shared' for shared updates. Pass targetLabel for the single-call broker-resolved path when you know who to contact but do not have an exact id. For owned work or a reply lifecycle, use invocations_ask instead. Prefer mentionAgentIds for first-class targeting when you already have exact ids.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
+        targetLabel: z.string().optional(),
         channel: z.string().optional(),
         shouldSpeak: z.boolean().optional(),
         mentionAgentIds: z.array(z.string()).optional(),
@@ -1224,6 +1234,7 @@ export function createScoutMcpServer(options: {
       body,
       currentDirectory,
       senderId,
+      targetLabel,
       channel,
       shouldSpeak,
       mentionAgentIds,
@@ -1262,6 +1273,33 @@ export function createScoutMcpServer(options: {
           messageId: result.messageId ?? null,
           invokedTargetIds: result.invokedTargetIds,
           unresolvedTargetIds: result.unresolvedTargetIds,
+          routeKind: result.routeKind ?? null,
+          routingError: result.routingError ?? null,
+        };
+        return {
+          content: createTextContent(structuredContent),
+          structuredContent,
+        };
+      }
+
+      if (targetLabel?.trim()) {
+        const result = await deps.sendMessage({
+          senderId: resolvedSenderId,
+          body,
+          targetLabel: targetLabel.trim(),
+          channel,
+          shouldSpeak,
+          currentDirectory: resolvedCurrentDirectory,
+        });
+        const structuredContent = {
+          currentDirectory: resolvedCurrentDirectory,
+          senderId: resolvedSenderId,
+          mode: "target_label" as const,
+          usedBroker: result.usedBroker,
+          conversationId: result.conversationId ?? null,
+          messageId: result.messageId ?? null,
+          invokedTargetIds: result.invokedTargets,
+          unresolvedTargetIds: result.unresolvedTargets,
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
         };

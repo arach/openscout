@@ -420,4 +420,67 @@ describe("createScoutMcpServer", () => {
     expect(structured.workItem?.state).toBe("review");
     expect(structured.workItem?.summary).toBe("Ready for review");
   });
+
+  test("sends to a target label in one MCP call", async () => {
+    let receivedTargetLabel: string | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async ({ targetLabel }) => {
+        receivedTargetLabel = targetLabel;
+        return {
+          usedBroker: true,
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          invokedTargets: ["hudson.main"],
+          unresolvedTargets: [],
+          routeKind: "dm",
+        };
+      },
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Take a look at the auth module.",
+        targetLabel: "@hudson",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      mode: string;
+      conversationId: string | null;
+      messageId: string | null;
+      invokedTargetIds: string[];
+      unresolvedTargetIds: string[];
+      routeKind: string | null;
+    };
+
+    expect(receivedTargetLabel).toBe("@hudson");
+    expect(structured.mode).toBe("target_label");
+    expect(structured.conversationId).toBe("dm.operator.hudson");
+    expect(structured.messageId).toBe("msg-1");
+    expect(structured.invokedTargetIds).toEqual(["hudson.main"]);
+    expect(structured.unresolvedTargetIds).toEqual([]);
+    expect(structured.routeKind).toBe("dm");
+  });
 });

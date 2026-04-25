@@ -138,6 +138,7 @@
         "react": "19.2.3",
         "react-dom": "19.2.3",
         "uqr": "^0.1.2",
+        "ws": "^8.18.3",
       },
       "devDependencies": {
         "@hono/trpc-server": "^0.4.2",
