@@ -134,6 +134,8 @@ export type StartLocalAgentInput = {
   branch?: string;
   /** Override the agent's working directory (e.g., for git worktrees). */
   cwdOverride?: string;
+  /** When false, only register/update the agent identity without warming a live session. */
+  ensureOnline?: boolean;
 };
 
 interface BrokerSnapshotMessage {
@@ -1945,17 +1947,58 @@ export type ResolvedAgentName = {
   projectRoot: string;
 };
 
-export async function resolveLocalAgentByName(name: string): Promise<ResolvedAgentName | null> {
+export type ResolveLocalAgentByNameOptions = {
+  matchProjectName?: boolean;
+};
+
+function resolvedAgentNameFromOverride(
+  agentId: string,
+  override: RelayAgentOverride,
+): ResolvedAgentName {
+  return {
+    agentId,
+    definitionId: override.definitionId ?? agentId,
+    projectRoot: override.projectRoot,
+  };
+}
+
+export async function resolveLocalAgentByName(
+  name: string,
+  options: ResolveLocalAgentByNameOptions = {},
+): Promise<ResolvedAgentName | null> {
   const normalized = normalizeAgentSelectorSegment(name);
   if (!normalized) return null;
 
   const overrides = await readRelayAgentOverrides();
-  for (const [id, override] of Object.entries(overrides)) {
-    if (BUILT_IN_AGENT_DEFINITION_IDS.has(id)) continue;
-    const defId = override.definitionId ?? id;
-    if (defId === normalized || normalizeAgentSelectorSegment(override.projectName ?? "") === normalized) {
-      return { agentId: id, definitionId: defId, projectRoot: override.projectRoot };
+  const entries = Object.entries(overrides)
+    .filter(([agentId]) => !BUILT_IN_AGENT_DEFINITION_IDS.has(agentId));
+
+  const exactAgentIdMatch = entries.find(([agentId]) => normalizeAgentSelectorSegment(agentId) === normalized);
+  if (exactAgentIdMatch) {
+    return resolvedAgentNameFromOverride(exactAgentIdMatch[0], exactAgentIdMatch[1]);
+  }
+
+  const definitionMatches = entries.filter(([agentId, override]) => (override.definitionId ?? agentId) === normalized);
+  if (definitionMatches.length === 1) {
+    const [agentId, override] = definitionMatches[0]!;
+    return resolvedAgentNameFromOverride(agentId, override);
+  }
+  if (definitionMatches.length > 1) {
+    const preferredMatch = definitionMatches.find(([agentId]) => /\.(main|master)\./.test(agentId))
+      ?? definitionMatches[0];
+    if (preferredMatch) {
+      return resolvedAgentNameFromOverride(preferredMatch[0], preferredMatch[1]);
     }
+  }
+
+  if (!options.matchProjectName) {
+    return null;
+  }
+
+  const projectMatches = entries.filter(([, override]) => normalizeAgentSelectorSegment(override.projectName ?? "") === normalized);
+  if (projectMatches.length === 1) {
+    const [agentId, override] = projectMatches[0]!;
+    return resolvedAgentNameFromOverride(agentId, override);
   }
   return null;
 }
@@ -2093,6 +2136,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
   const currentDirectory = input.currentDirectory ?? projectPath;
   const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
+  const shouldEnsureOnline = input.ensureOnline !== false;
   const requestedDefinitionId = input.agentName?.trim()
     ? normalizeAgentSelectorSegment(input.agentName.trim())
     : "";
@@ -2301,12 +2345,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     targetAgentId = matchingAgentId!;
   }
 
-  await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
-    includeDiscovered: false,
-    currentDirectory,
-    ensureCurrentProjectConfig: false,
-    harness: preferredHarness,
-  });
+  if (shouldEnsureOnline) {
+    await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
+      includeDiscovered: false,
+      currentDirectory,
+      ensureCurrentProjectConfig: false,
+      harness: preferredHarness,
+    });
+  }
 
   const finalOverrides = await readRelayAgentOverrides();
   const finalOverride = finalOverrides[targetAgentId];

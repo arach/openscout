@@ -259,7 +259,7 @@ export async function resolveScoutSenderId(agentName: string | null | undefined,
   const { resolveLocalAgentByName } = await import("@openscout/runtime/local-agents");
   const projectRoot = await findNearestProjectRoot(currentDirectory) ?? currentDirectory;
   const projectName = basename(projectRoot);
-  const agent = await resolveLocalAgentByName(projectName);
+  const agent = await resolveLocalAgentByName(projectName, { matchProjectName: true });
   return agent?.agentId ?? projectName;
 }
 

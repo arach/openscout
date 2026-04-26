@@ -13,6 +13,17 @@ import type {
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
 
+type ClaudeObserveUsageEntry = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  webSearchRequests: number;
+  webFetchRequests: number;
+  serviceTier?: string;
+  speed?: string;
+};
+
 export type HistorySessionEvent = {
   capturedAt: number;
   event: PairingEvent;
@@ -134,6 +145,18 @@ function stringifyUnknown(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function maybeString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function maybeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function renderToolResultContent(content: unknown): string {
@@ -280,6 +303,7 @@ class ClaudeCodeHistoryParser {
   private blockById = new Map<string, Block>();
   private activeStreamBlocks = new Map<number, TextualBlock>();
   private sawStreamTextThisTurn = false;
+  private assistantUsageByMessageId = new Map<string, ClaudeObserveUsageEntry>();
 
   constructor(
     private readonly session: Session,
@@ -296,6 +320,7 @@ class ClaudeCodeHistoryParser {
     let parsedLineCount = 0;
     let skippedLineCount = 0;
     let lineCount = 0;
+    let lastCapturedAt = this.baseTimestampMs;
 
     for (let index = 0; index < lines.length; index += 1) {
       const rawLine = lines[index];
@@ -320,11 +345,19 @@ class ClaudeCodeHistoryParser {
       }
 
       const capturedAt = extractRecordTimestamp(record) ?? (this.baseTimestampMs + index);
+      lastCapturedAt = capturedAt;
       if (this.handleRecord(record, capturedAt)) {
         parsedLineCount += 1;
       } else {
         skippedLineCount += 1;
       }
+    }
+
+    if (this.persistObserveUsageMetadata()) {
+      this.emitEvent(lastCapturedAt, {
+        event: "session:update",
+        session: { ...this.session },
+      });
     }
 
     return {
@@ -336,6 +369,8 @@ class ClaudeCodeHistoryParser {
   }
 
   private handleRecord(record: Record<string, unknown>, capturedAt: number): boolean {
+    this.captureRecordMetadata(record);
+
     const type = typeof record.type === "string" ? record.type : null;
     if (!type) {
       return false;
@@ -346,7 +381,7 @@ class ClaudeCodeHistoryParser {
         this.handleSystem(record, capturedAt);
         return true;
       case "user":
-        this.startTurn(capturedAt);
+        this.handleUser(record, capturedAt);
         return true;
       case "assistant":
         this.handleAssistant(record, capturedAt);
@@ -368,6 +403,153 @@ class ClaudeCodeHistoryParser {
         return true;
       default:
         return false;
+    }
+  }
+
+  private captureRecordMetadata(record: Record<string, unknown>): void {
+    const runtime = this.ensureObserveMetaRecord("observeRuntime");
+    this.assignObserveString(runtime, "entrypoint", record.entrypoint);
+    this.assignObserveString(runtime, "cliVersion", record.version);
+    this.assignObserveString(runtime, "gitBranch", record.gitBranch);
+    this.assignObserveString(runtime, "permissionMode", record.permissionMode);
+    this.assignObserveString(runtime, "userType", record.userType);
+
+    const recordCwd = maybeString(record.cwd);
+    if (recordCwd && !this.session.cwd) {
+      this.session.cwd = recordCwd;
+    }
+
+    const message = isRecord(record.message) ? record.message : null;
+    const model = maybeString(message?.model);
+    if (model && !this.session.model) {
+      this.session.model = model;
+    }
+
+    const usage = this.readClaudeUsageEntry(record);
+    if (!usage) {
+      return;
+    }
+
+    const messageId = maybeString(message?.id)
+      ?? maybeString(record.requestId)
+      ?? maybeString(record.uuid);
+    if (!messageId) {
+      return;
+    }
+
+    this.assistantUsageByMessageId.set(messageId, usage);
+  }
+
+  private readClaudeUsageEntry(record: Record<string, unknown>): ClaudeObserveUsageEntry | null {
+    const type = maybeString(record.type);
+    const message = isRecord(record.message) ? record.message : null;
+    const role = maybeString(message?.role);
+    if (type !== "assistant" && role !== "assistant") {
+      return null;
+    }
+
+    const usage = isRecord(message?.usage) ? message.usage : null;
+    const serverToolUse = isRecord(usage?.server_tool_use) ? usage.server_tool_use : null;
+    const entry: ClaudeObserveUsageEntry = {
+      inputTokens: maybeNumber(usage?.input_tokens) ?? 0,
+      outputTokens: maybeNumber(usage?.output_tokens) ?? 0,
+      cacheReadInputTokens: maybeNumber(usage?.cache_read_input_tokens) ?? 0,
+      cacheCreationInputTokens: maybeNumber(usage?.cache_creation_input_tokens) ?? 0,
+      webSearchRequests: maybeNumber(serverToolUse?.web_search_requests) ?? 0,
+      webFetchRequests: maybeNumber(serverToolUse?.web_fetch_requests) ?? 0,
+      ...(maybeString(message?.service_tier) ? { serviceTier: maybeString(message?.service_tier) } : {}),
+      ...(maybeString(message?.speed) ? { speed: maybeString(message?.speed) } : {}),
+    };
+
+    const hasUsage = entry.inputTokens > 0
+      || entry.outputTokens > 0
+      || entry.cacheReadInputTokens > 0
+      || entry.cacheCreationInputTokens > 0
+      || entry.webSearchRequests > 0
+      || entry.webFetchRequests > 0
+      || Boolean(entry.serviceTier)
+      || Boolean(entry.speed);
+    return hasUsage ? entry : null;
+  }
+
+  private persistObserveUsageMetadata(): boolean {
+    if (this.assistantUsageByMessageId.size === 0) {
+      return false;
+    }
+
+    const usage = this.ensureObserveMetaRecord("observeUsage");
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheReadInputTokens = 0;
+    let cacheCreationInputTokens = 0;
+    let webSearchRequests = 0;
+    let webFetchRequests = 0;
+    let serviceTier: string | undefined;
+    let speed: string | undefined;
+
+    for (const entry of this.assistantUsageByMessageId.values()) {
+      inputTokens += entry.inputTokens;
+      outputTokens += entry.outputTokens;
+      cacheReadInputTokens += entry.cacheReadInputTokens;
+      cacheCreationInputTokens += entry.cacheCreationInputTokens;
+      webSearchRequests += entry.webSearchRequests;
+      webFetchRequests += entry.webFetchRequests;
+      if (entry.serviceTier) {
+        serviceTier = entry.serviceTier;
+      }
+      if (entry.speed) {
+        speed = entry.speed;
+      }
+    }
+
+    let changed = false;
+    const assignNumber = (key: string, value: number): void => {
+      if (usage[key] !== value) {
+        usage[key] = value;
+        changed = true;
+      }
+    };
+    const assignString = (key: string, value: string): void => {
+      if (usage[key] !== value) {
+        usage[key] = value;
+        changed = true;
+      }
+    };
+
+    assignNumber("assistantMessages", this.assistantUsageByMessageId.size);
+    if (inputTokens > 0) assignNumber("inputTokens", inputTokens);
+    if (outputTokens > 0) assignNumber("outputTokens", outputTokens);
+    if (cacheReadInputTokens > 0) assignNumber("cacheReadInputTokens", cacheReadInputTokens);
+    if (cacheCreationInputTokens > 0) assignNumber("cacheCreationInputTokens", cacheCreationInputTokens);
+    if (webSearchRequests > 0) assignNumber("webSearchRequests", webSearchRequests);
+    if (webFetchRequests > 0) assignNumber("webFetchRequests", webFetchRequests);
+    if (serviceTier) assignString("serviceTier", serviceTier);
+    if (speed) assignString("speed", speed);
+    return changed;
+  }
+
+  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage"): Record<string, unknown> {
+    const providerMeta = isRecord(this.session.providerMeta) ? this.session.providerMeta : {};
+    this.session.providerMeta = providerMeta;
+
+    const existing = providerMeta[key];
+    if (isRecord(existing)) {
+      return existing;
+    }
+
+    const next: Record<string, unknown> = {};
+    providerMeta[key] = next;
+    return next;
+  }
+
+  private assignObserveString(
+    target: Record<string, unknown>,
+    key: string,
+    value: unknown,
+  ): void {
+    const next = maybeString(value);
+    if (next) {
+      target[key] = next;
     }
   }
 
@@ -409,23 +591,55 @@ class ClaudeCodeHistoryParser {
     }
   }
 
-  private handleAssistant(record: Record<string, unknown>, capturedAt: number): void {
-    const turn = this.ensureTurn(capturedAt);
-    if (this.sawStreamTextThisTurn) {
-      return;
+  private handleUser(record: Record<string, unknown>, capturedAt: number): void {
+    const message = record.message && typeof record.message === "object"
+      ? record.message as Record<string, unknown>
+      : null;
+    const content = message?.content;
+
+    if (Array.isArray(content) && content.length > 0) {
+      const toolResults = content.filter((entry) => {
+        return !!entry
+          && typeof entry === "object"
+          && !Array.isArray(entry)
+          && (entry as Record<string, unknown>).type === "tool_result";
+      }) as Record<string, unknown>[];
+
+      if (toolResults.length === content.length) {
+        for (const toolResult of toolResults) {
+          this.handleToolResult({
+            ...toolResult,
+            tool_use_id: typeof toolResult.tool_use_id === "string"
+              ? toolResult.tool_use_id
+              : toolResult.id,
+            is_error: toolResult.is_error === true,
+          }, capturedAt);
+        }
+        return;
+      }
     }
 
+    this.startTurn(capturedAt);
+  }
+
+  private handleAssistant(record: Record<string, unknown>, capturedAt: number): void {
+    const turn = this.ensureTurn(capturedAt);
     const content = record.message && typeof record.message === "object"
       ? (record.message as Record<string, unknown>).content
       : record.content;
     if (!Array.isArray(content)) {
+      this.maybeEndTurnFromAssistant(record, capturedAt);
       return;
     }
 
+    const skipTextBlocks = this.sawStreamTextThisTurn;
     for (const part of content) {
       const contentPart = part as Record<string, unknown>;
       const contentType = typeof contentPart.type === "string" ? contentPart.type : "";
       if (contentType === "thinking" || contentType === "reasoning") {
+        if (skipTextBlocks) {
+          continue;
+        }
         const block = this.startBlock<Extract<Block, { type: "reasoning" }>>(turn, capturedAt, {
           type: "reasoning",
           text: typeof contentPart.thinking === "string"
@@ -437,14 +651,21 @@ class ClaudeCodeHistoryParser {
         });
         this.emitBlockEnd(capturedAt, turn, block, "completed");
       } else if (contentType === "text") {
+        if (skipTextBlocks) {
+          continue;
+        }
         const block = this.startBlock<Extract<Block, { type: "text" }>>(turn, capturedAt, {
           type: "text",
           text: typeof contentPart.text === "string" ? contentPart.text : "",
           status: "completed",
         });
         this.emitBlockEnd(capturedAt, turn, block, "completed");
+      } else if (contentType === "tool_use") {
+        this.handleToolUse(contentPart, capturedAt);
       }
     }
+
+    this.maybeEndTurnFromAssistant(record, capturedAt);
   }
 
   private handleStreamEvent(record: Record<string, unknown>, capturedAt: number): void {
@@ -720,6 +941,15 @@ class ClaudeCodeHistoryParser {
         : "Unknown error";
     this.emitError(turn, capturedAt, message);
     this.endTurn("failed", capturedAt);
+  }
+
+  private maybeEndTurnFromAssistant(record: Record<string, unknown>, capturedAt: number): void {
+    const stopReason = record.message && typeof record.message === "object"
+      ? (record.message as Record<string, unknown>).stop_reason
+      : record.stop_reason;
+    if (stopReason === "end_turn") {
+      this.endTurn("completed", capturedAt);
+    }
   }
 
   private startTurn(capturedAt: number): Turn {

@@ -81,9 +81,18 @@ export async function runUpCommand(context: ScoutCommandContext, args: string[])
   } else {
     const resolved = await resolveLocalAgentByName(target);
     if (!resolved) {
-      throw new ScoutCliError(`unknown agent "${target}" — not a registered name or valid path`);
+      const projectMatch = await resolveLocalAgentByName(target, { matchProjectName: true });
+      if (projectMatch) {
+        throw new ScoutCliError(
+          `unknown agent "${target}" — that matches project "${projectMatch.projectRoot}", `
+            + `but the registered agent is "${projectMatch.agentId}". `
+            + `Use \`scout up ${projectMatch.agentId}\` or \`scout up "${projectMatch.projectRoot}"\`.`,
+        );
+      }
+      throw new ScoutCliError(`unknown agent "${target}" — not a registered agent name or valid path`);
     }
     projectPath = resolved.projectRoot;
+    agentName ??= resolved.definitionId;
   }
 
   const agent = await upScoutAgent({

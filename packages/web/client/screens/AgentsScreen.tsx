@@ -5,6 +5,7 @@ import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
+import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import type {
@@ -24,7 +25,7 @@ import "./agents-screen.css";
 import "./ops-screen.css";
 
 async function queueTakeover(command: string) {
-  await fetch("/api/terminal/run", {
+  await fetch(resolveScoutRoutePath("terminalRunPath"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command }),

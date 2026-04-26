@@ -9,7 +9,12 @@ import {
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
 } from "./local-agents.js";
-import { writeOpenScoutSettings, writeRelayAgentOverrides, type OpenScoutProjectConfig } from "./setup.js";
+import {
+  buildRelayAgentInstance,
+  writeOpenScoutSettings,
+  writeRelayAgentOverrides,
+  type OpenScoutProjectConfig,
+} from "./setup.js";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -152,6 +157,51 @@ describe("local agent lifecycle", () => {
         harness: "codex",
         transport: "codex_app_server",
       },
+    });
+  });
+
+  test("does not treat a project name as an agent name unless explicitly requested", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const openscoutRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(openscoutRoot, { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "smoke.main.mini": {
+        agentId: "smoke.main.mini",
+        definitionId: "smoke",
+        displayName: "Smoke",
+        projectName: "Openscout",
+        projectRoot: openscoutRoot,
+        source: "manual",
+        runtime: {
+          cwd: openscoutRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-openscout.main.mini-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const concreteAgentId = buildRelayAgentInstance("smoke", openscoutRoot).id;
+
+    expect(await resolveLocalAgentByName(concreteAgentId)).toMatchObject({
+      agentId: concreteAgentId,
+      definitionId: "smoke",
+      projectRoot: openscoutRoot,
+    });
+    expect(await resolveLocalAgentByName("smoke")).toMatchObject({
+      agentId: concreteAgentId,
+      definitionId: "smoke",
+      projectRoot: openscoutRoot,
+    });
+    expect(await resolveLocalAgentByName("openscout")).toBeNull();
+    expect(await resolveLocalAgentByName("openscout", { matchProjectName: true })).toMatchObject({
+      agentId: concreteAgentId,
+      definitionId: "smoke",
+      projectRoot: openscoutRoot,
     });
   });
 

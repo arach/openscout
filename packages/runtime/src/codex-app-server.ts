@@ -265,6 +265,11 @@ function metadataRecord(metadata: Record<string, unknown> | undefined, key: stri
   return value as Record<string, unknown>;
 }
 
+function metadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 async function isExecutable(filePath: string | undefined): Promise<boolean> {
   if (!filePath) {
     return false;
@@ -645,6 +650,37 @@ function setCodexProviderMeta(
     ...(threadId ? { threadId } : {}),
     ...(threadPath ? { threadPath } : {}),
   };
+}
+
+function ensureCodexProviderMetaRecord(
+  snapshot: SessionState,
+  key: string,
+): Record<string, unknown> {
+  const providerMeta = snapshot.session.providerMeta && typeof snapshot.session.providerMeta === "object"
+    ? snapshot.session.providerMeta
+    : {};
+  snapshot.session.providerMeta = providerMeta;
+
+  const existing = metadataRecord(providerMeta, key);
+  if (existing) {
+    return existing;
+  }
+
+  const next: Record<string, unknown> = {};
+  providerMeta[key] = next;
+  return next;
+}
+
+function setObserveString(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (typeof value === "string" && value.trim().length > 0) {
+    target[key] = value.trim();
+  }
+}
+
+function setObserveNumber(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    target[key] = value;
+  }
 }
 
 export function buildCodexAppServerSessionSnapshot(
@@ -1082,6 +1118,14 @@ export function buildCodexRolloutSessionSnapshot(
       }
       setCodexProviderMeta(snapshot, resolvedThreadId, rolloutPath ?? null);
       snapshot.session.status = resolvedThreadId ? "idle" : snapshot.session.status;
+
+      const runtime = ensureCodexProviderMetaRecord(snapshot, "observeRuntime");
+      setObserveString(runtime, "originator", payload.originator);
+      setObserveString(runtime, "cliVersion", payload.cli_version);
+      setObserveString(runtime, "modelProvider", payload.model_provider);
+      setObserveString(runtime, "source", typeof payload.source === "string" ? payload.source : undefined);
+      const git = metadataRecord(payload, "git");
+      setObserveString(runtime, "gitBranch", git?.branch);
       continue;
     }
 
@@ -1092,6 +1136,13 @@ export function buildCodexRolloutSessionSnapshot(
       if (typeof payload.model === "string" && payload.model.trim()) {
         snapshot.session.model = payload.model;
       }
+
+      const runtime = ensureCodexProviderMetaRecord(snapshot, "observeRuntime");
+      setObserveString(runtime, "approvalPolicy", payload.approval_policy);
+      setObserveString(runtime, "effort", payload.effort);
+      setObserveString(runtime, "timezone", payload.timezone);
+      const sandboxPolicy = metadataRecord(payload, "sandbox_policy");
+      setObserveString(runtime, "sandbox", sandboxPolicy?.type);
       continue;
     }
 
@@ -1106,7 +1157,25 @@ export function buildCodexRolloutSessionSnapshot(
         ensureTurn(turnId, parseCodexTimestamp(payload.started_at) ?? timestamp);
         snapshot.currentTurnId = turnId;
         snapshot.session.status = "active";
+
+        const usage = ensureCodexProviderMetaRecord(snapshot, "observeUsage");
+        setObserveNumber(usage, "contextWindowTokens", payload.model_context_window);
         continue;
+      }
+
+      if (payloadType === "token_count") {
+        const usage = ensureCodexProviderMetaRecord(snapshot, "observeUsage");
+        const info = metadataRecord(payload, "info");
+        const totalTokenUsage = metadataRecord(info, "total_token_usage");
+        setObserveNumber(usage, "inputTokens", totalTokenUsage?.input_tokens);
+        setObserveNumber(usage, "cacheReadInputTokens", totalTokenUsage?.cached_input_tokens);
+        setObserveNumber(usage, "outputTokens", totalTokenUsage?.output_tokens);
+        setObserveNumber(usage, "reasoningOutputTokens", totalTokenUsage?.reasoning_output_tokens);
+        setObserveNumber(usage, "totalTokens", totalTokenUsage?.total_tokens);
+        setObserveNumber(usage, "contextWindowTokens", info?.model_context_window);
+
+        const rateLimits = metadataRecord(payload, "rate_limits");
+        setObserveString(usage, "planType", rateLimits?.plan_type);
       }
 
       if (payloadType === "task_complete" || payloadType === "turn_aborted") {

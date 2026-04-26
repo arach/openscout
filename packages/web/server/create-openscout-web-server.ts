@@ -71,6 +71,10 @@ import {
 import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import { buildHarnessResumeCommand, findHarnessEntry } from "@openscout/runtime/harness-catalog";
+import {
+  resolveOpenScoutWebRoutes,
+  serializeOpenScoutWebBootstrap,
+} from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
 export type CreateOpenScoutWebServerOptions = {
@@ -80,6 +84,7 @@ export type CreateOpenScoutWebServerOptions = {
   viteDevUrl?: string;
   staticRoot?: string;
   runTerminalCommand?: (command: string) => Promise<void>;
+  terminalRelayHealthcheck?: () => Promise<boolean>;
 };
 
 export type OpenScoutWebServer = {
@@ -216,6 +221,7 @@ export async function createOpenScoutWebServer(
 ): Promise<OpenScoutWebServer> {
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
+  const routes = resolveOpenScoutWebRoutes(process.env);
   const app = new Hono();
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
@@ -224,13 +230,31 @@ export async function createOpenScoutWebServer(
 
   installScoutApiMiddleware(app, "openscout-web api");
 
-  app.get("/api/health", (c) =>
+  app.get(routes.bootstrapScriptPath, (c) =>
+    new Response(serializeOpenScoutWebBootstrap(process.env), {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/javascript; charset=utf-8",
+      },
+    }),
+  );
+  app.get(routes.healthPath, (c) =>
     c.json({
       ok: true,
       surface: "openscout-web",
       currentDirectory,
     }),
   );
+  app.get(routes.terminalRelayHealthPath, async (c) => {
+    const ok = await (options.terminalRelayHealthcheck?.() ?? Promise.resolve(false));
+    return c.json(
+      {
+        ok,
+        surface: "openscout-terminal-relay",
+      },
+      ok ? 200 : 503,
+    );
+  });
   app.get("/api/pairing-state", async (c) =>
     c.json(await loadPairingState(currentDirectory, false)),
   );
@@ -400,8 +424,8 @@ export async function createOpenScoutWebServer(
     const hasLocalConfig = localConfigExists();
     const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
     const configuredContextRoot = settings?.discovery.contextRoot ?? null;
-    const discoveryStart = configuredContextRoot ?? currentDirectory;
-    const projectRoot = await findNearestProjectRoot(discoveryStart).catch(() => null);
+    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null)
+      ?? await findNearestProjectRoot(configuredContextRoot ?? "").catch(() => null);
     const hasProjectConfig = projectRoot !== null;
     const userName = loadUserConfig().name?.trim() ?? "";
     return c.json({
@@ -530,7 +554,7 @@ export async function createOpenScoutWebServer(
     });
   });
 
-  app.post("/api/terminal/run", async (c) => {
+  app.post(routes.terminalRunPath, async (c) => {
     const body = await c.req.json<{ command?: string }>();
     if (!body.command) return c.json({ error: "missing command" }, 400);
     if (!options.runTerminalCommand) {

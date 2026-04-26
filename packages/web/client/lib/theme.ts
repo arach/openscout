@@ -1,14 +1,6 @@
+import { readScoutBootstrapTheme } from "./runtime-config.ts";
+
 export type ScoutTheme = "dark" | "light";
-
-type ScoutBootstrap = {
-  theme?: ScoutTheme;
-};
-
-declare global {
-  interface Window {
-    __OPENSCOUT_WEB_BOOTSTRAP__?: ScoutBootstrap;
-  }
-}
 
 function normalizeScoutTheme(value: string | null | undefined): ScoutTheme | null {
   if (value === "dark" || value === "light") {
@@ -23,7 +15,7 @@ export function resolveScoutStartupTheme(): ScoutTheme {
     return "dark";
   }
 
-  const bootstrapTheme = normalizeScoutTheme(window.__OPENSCOUT_WEB_BOOTSTRAP__?.theme);
+  const bootstrapTheme = normalizeScoutTheme(readScoutBootstrapTheme());
   if (bootstrapTheme) {
     return bootstrapTheme;
   }

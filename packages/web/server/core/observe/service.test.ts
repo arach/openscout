@@ -178,4 +178,58 @@ describe("buildObserveDataFromSnapshot", () => {
     }));
     expect(data.contextUsage?.length).toBeGreaterThanOrEqual(2);
   });
+
+  test("surfaces observe metadata from session provider meta", () => {
+    const snapshot: SessionState = {
+      session: {
+        id: "session-3",
+        name: "Claude Session",
+        adapterType: "claude-code",
+        status: "idle",
+        cwd: "/Users/arach/dev/openscout",
+        model: "claude-opus-test",
+        providerMeta: {
+          externalSessionId: "upstream-123",
+          observeRuntime: {
+            gitBranch: "master",
+            cliVersion: "2.1.119",
+            entrypoint: "sdk-cli",
+            permissionMode: "bypassPermissions",
+          },
+          observeUsage: {
+            assistantMessages: 2,
+            inputTokens: 12,
+            outputTokens: 24,
+            cacheReadInputTokens: 125,
+            cacheCreationInputTokens: 60,
+            serviceTier: "standard",
+          },
+        },
+      },
+      turns: [],
+    };
+
+    const data = buildObserveDataFromSnapshot(snapshot, [], false);
+
+    expect(data.metadata).toEqual({
+      session: {
+        adapterType: "claude-code",
+        model: "claude-opus-test",
+        cwd: "/Users/arach/dev/openscout",
+        externalSessionId: "upstream-123",
+        gitBranch: "master",
+        cliVersion: "2.1.119",
+        entrypoint: "sdk-cli",
+        permissionMode: "bypassPermissions",
+      },
+      usage: {
+        assistantMessages: 2,
+        inputTokens: 12,
+        outputTokens: 24,
+        cacheReadInputTokens: 125,
+        cacheCreationInputTokens: 60,
+        serviceTier: "standard",
+      },
+    });
+  });
 });

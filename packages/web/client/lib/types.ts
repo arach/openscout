@@ -214,11 +214,55 @@ export type ObserveFile = {
   lastT: number;
 };
 
+export type ObserveUsageMeta = {
+  assistantMessages?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  totalTokens?: number;
+  contextWindowTokens?: number;
+  webSearchRequests?: number;
+  webFetchRequests?: number;
+  serviceTier?: string;
+  speed?: string;
+  planType?: string;
+};
+
+export type ObserveSessionMeta = {
+  adapterType?: string;
+  model?: string;
+  cwd?: string;
+  turnCount?: number;
+  externalSessionId?: string;
+  threadId?: string;
+  threadPath?: string;
+  gitBranch?: string;
+  cliVersion?: string;
+  entrypoint?: string;
+  originator?: string;
+  source?: string;
+  permissionMode?: string;
+  approvalPolicy?: string;
+  sandbox?: string;
+  userType?: string;
+  effort?: string;
+  modelProvider?: string;
+  timezone?: string;
+};
+
+export type ObserveMetadata = {
+  session?: ObserveSessionMeta;
+  usage?: ObserveUsageMeta;
+};
+
 export type ObserveData = {
   events: ObserveEvent[];
   files: ObserveFile[];
   contextUsage?: number[];
   live?: boolean;
+  metadata?: ObserveMetadata;
 };
 
 export type AgentObservePayload = {

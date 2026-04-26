@@ -6,9 +6,11 @@ set -o pipefail
 DRY_RUN=0
 VERBOSE=0
 FAILURES=0
+PORTS_ONLY=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+COMMON_ROOT="${REPO_ROOT}"
 HOME_DIR="${HOME:?HOME is required}"
 USER_ID="$(id -u)"
 
@@ -41,9 +43,12 @@ record_failure() {
 
 usage() {
   cat <<'EOF'
-Usage: scripts/dev-cleanup.sh [--dry-run] [--verbose]
+Usage: scripts/dev-cleanup.sh [--dry-run] [--verbose] [--ports-only]
 
 Removes installed OpenScout state without deleting the repo checkout.
+
+Options:
+  --ports-only   Only stop Scout-owned web dev processes and recorded ports.
 EOF
 }
 
@@ -166,6 +171,39 @@ resolve_repo_root() {
   fi
 
   return 1
+}
+
+resolve_common_root() {
+  local common_git_dir=""
+  local candidate=""
+
+  if ! command -v git >/dev/null 2>&1; then
+    COMMON_ROOT="${REPO_ROOT}"
+    return 0
+  fi
+
+  common_git_dir="$(git -C "${REPO_ROOT}" rev-parse --git-common-dir 2>/dev/null || true)"
+  if [ -z "${common_git_dir}" ]; then
+    COMMON_ROOT="${REPO_ROOT}"
+    return 0
+  fi
+
+  if [[ "${common_git_dir}" = /* ]]; then
+    candidate="$(cd "${common_git_dir}/.." 2>/dev/null && pwd || true)"
+  else
+    candidate="$(cd "${REPO_ROOT}/${common_git_dir}/.." 2>/dev/null && pwd || true)"
+  fi
+  if [ -n "${candidate}" ]; then
+    COMMON_ROOT="${candidate}"
+    return 0
+  fi
+
+  COMMON_ROOT="${REPO_ROOT}"
+  return 0
+}
+
+scout_dev_state_root() {
+  printf '%s\n' "${COMMON_ROOT}/.openscout/dev/web"
 }
 
 resolve_scout_command() {
@@ -464,6 +502,233 @@ kill_port_listener() {
   done < <(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null || true)
 }
 
+process_command_line() {
+  local pid=""
+
+  pid="${1:-}"
+  if [ -z "${pid}" ] || ! [[ "${pid}" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+
+  ps -p "${pid}" -o command= 2>/dev/null || true
+}
+
+command_matches_scout_dev() {
+  local command_line="${1:-}"
+  local worktree_root="${2:-}"
+  local package_dir="${3:-}"
+  local target=""
+
+  if [ -z "${command_line}" ]; then
+    return 1
+  fi
+
+  if [ -n "${worktree_root}" ] && [[ "${command_line}" == *"${worktree_root}"* ]]; then
+    return 0
+  fi
+
+  if [ -n "${package_dir}" ] && [[ "${command_line}" == *"${package_dir}"* ]]; then
+    return 0
+  fi
+
+  for target in "${PROCESS_TARGETS[@]:-}"; do
+    if [ -n "${target}" ] && [[ "${command_line}" == *"${target}"* ]]; then
+      return 0
+    fi
+  done
+
+  case "${command_line}" in
+    *"/packages/web/scripts/dev.mjs"*|\
+    *"node ./scripts/dev.mjs"*|\
+    *"node scripts/dev.mjs"*|\
+    *"/packages/web/server/index.ts"*|\
+    *"bun run --hot ./server/index.ts"*|\
+    *"bun run --hot server/index.ts"*|\
+    *"/packages/web/dist/openscout-web-server.mjs"*|\
+    *"/packages/web/node_modules/vite/bin/vite.js"*|\
+    *"/packages/web/server/terminal-relay-node.ts"*|\
+    *"/packages/web/dist/openscout-terminal-relay.mjs"*|\
+    *"/packages/web/server/pair-supervisor.ts"*|\
+    *"/packages/web/dist/pair-supervisor.mjs"*|\
+    *"openscout-terminal-relay.mjs"*|\
+    *"pair-supervisor.mjs"*)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+kill_pid_if_scout_dev() {
+  local pid="${1:-}"
+  local description="${2:-process}"
+  local worktree_root="${3:-}"
+  local package_dir="${4:-}"
+  local command_line=""
+
+  if [ -z "${pid}" ] || ! [[ "${pid}" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+
+  command_line="$(process_command_line "${pid}")"
+  if ! command_matches_scout_dev "${command_line}" "${worktree_root}" "${package_dir}"; then
+    debug "skipping pid ${pid}; not recognized as Scout dev: ${command_line}"
+    return 0
+  fi
+
+  kill_pid "${pid}" "${description}"
+}
+
+kill_port_listener_if_scout_dev() {
+  local port="${1:-}"
+  local worktree_root="${2:-}"
+  local package_dir="${3:-}"
+  local pid=""
+
+  if [ -z "${port}" ] || ! command -v lsof >/dev/null 2>&1; then
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    kill_pid_if_scout_dev "${pid}" "listener on tcp:${port}" "${worktree_root}" "${package_dir}"
+  done < <(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null || true)
+}
+
+kill_pairing_runtime_pid_file() {
+  local runtime_pid_file="${1:-}"
+  local worktree_root="${2:-}"
+  local package_dir="${3:-}"
+  local pid=""
+
+  if [ -z "${runtime_pid_file}" ] || [ ! -f "${runtime_pid_file}" ]; then
+    return 0
+  fi
+
+  pid="$(tr -d '[:space:]' < "${runtime_pid_file}" 2>/dev/null || true)"
+  kill_pid_if_scout_dev "${pid}" "${runtime_pid_file}" "${worktree_root}" "${package_dir}"
+}
+
+emit_scout_dev_state_records() {
+  local state_root="${1:-}"
+  local js_runtime=""
+
+  if [ -z "${state_root}" ] || [ ! -d "${state_root}/runs" ]; then
+    return 0
+  fi
+
+  js_runtime="$(resolve_js_runtime_bin || true)"
+  if [ -z "${js_runtime}" ]; then
+    debug "no JS runtime resolved; skipping Scout dev state scan"
+    return 0
+  fi
+
+  "${js_runtime}" -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const stateRoot = process.argv[1];
+    const runsDir = path.join(stateRoot, "runs");
+    if (!fs.existsSync(runsDir)) {
+      process.exit(0);
+    }
+    for (const entry of fs.readdirSync(runsDir)) {
+      if (!entry.endsWith(".json")) {
+        continue;
+      }
+      const file = path.join(runsDir, entry);
+      try {
+        const record = JSON.parse(fs.readFileSync(file, "utf8"));
+        const values = [
+          file,
+          record.worktreeRoot ?? "",
+          record.packageDirectory ?? "",
+          record.pairingHome ?? "",
+          record.ports?.web ?? "",
+          record.ports?.relay ?? "",
+          record.ports?.vite ?? "",
+          record.ports?.pairing ?? "",
+          record.processes?.manager ?? "",
+          record.processes?.vite ?? "",
+          record.processes?.server ?? "",
+        ];
+        console.log(values.join("\t"));
+      } catch {}
+    }
+  ' "${state_root}"
+}
+
+remove_state_file() {
+  local state_file="${1:-}"
+
+  if [ -z "${state_file}" ] || [ ! -e "${state_file}" ]; then
+    return 0
+  fi
+
+  if [ "${DRY_RUN}" -eq 1 ]; then
+    log "[dry-run] rm -f ${state_file}"
+    return 0
+  fi
+
+  rm -f "${state_file}" || record_failure "failed to remove ${state_file}"
+}
+
+cleanup_scout_dev_state() {
+  local state_root=""
+  local state_file=""
+  local worktree_root=""
+  local package_dir=""
+  local pairing_home=""
+  local web_port=""
+  local relay_port=""
+  local vite_port=""
+  local pairing_port=""
+  local manager_pid=""
+  local vite_pid=""
+  local server_pid=""
+
+  state_root="$(scout_dev_state_root)"
+  while IFS=$'\t' read -r \
+    state_file \
+    worktree_root \
+    package_dir \
+    pairing_home \
+    web_port \
+    relay_port \
+    vite_port \
+    pairing_port \
+    manager_pid \
+    vite_pid \
+    server_pid
+  do
+    if [ -z "${state_file}" ]; then
+      continue
+    fi
+
+    kill_pid_if_scout_dev "${manager_pid}" "${state_file}" "${worktree_root}" "${package_dir}"
+    kill_pid_if_scout_dev "${server_pid}" "${state_file}" "${worktree_root}" "${package_dir}"
+    kill_pid_if_scout_dev "${vite_pid}" "${state_file}" "${worktree_root}" "${package_dir}"
+    if [ -n "${pairing_home}" ]; then
+      kill_pairing_runtime_pid_file "${pairing_home}/runtime.pid" "${worktree_root}" "${package_dir}"
+    fi
+    kill_port_listener_if_scout_dev "${web_port}" "${worktree_root}" "${package_dir}"
+    kill_port_listener_if_scout_dev "${relay_port}" "${worktree_root}" "${package_dir}"
+    kill_port_listener_if_scout_dev "${vite_port}" "${worktree_root}" "${package_dir}"
+    kill_port_listener_if_scout_dev "${pairing_port}" "${worktree_root}" "${package_dir}"
+    remove_state_file "${state_file}"
+  done < <(emit_scout_dev_state_records "${state_root}")
+}
+
+cleanup_scout_dev_fallback_ports() {
+  local port=""
+
+  for port in \
+    3200 3201 3202 3203 3204 3205 3206 3207 3208 3209 3210 \
+    5180 5181 5182 5183 5184 5185 5186 5187 5188 5189 5190 \
+    7888 7889 7890 7891 7892 7893 7894 7895 7896 7897 7898
+  do
+    kill_port_listener_if_scout_dev "${port}" "" "${REPO_ROOT}/packages/web"
+  done
+}
+
 quit_menu_app() {
   if [ "${DRY_RUN}" -eq 1 ]; then
     log "[dry-run] quit OpenScoutMenu"
@@ -556,20 +821,22 @@ stop_pairing_runtime() {
 
   if [ -f "${SCOUT_PAIRING_PID_FILE}" ]; then
     pid="$(tr -d '[:space:]' < "${SCOUT_PAIRING_PID_FILE}" 2>/dev/null || true)"
-    kill_pid "${pid}" "pair supervisor pid file"
+    kill_pid_if_scout_dev "${pid}" "pair supervisor pid file" "${REPO_ROOT}" "${REPO_ROOT}/packages/web"
   fi
 }
 
 stop_known_processes() {
   local target=""
 
-  for target in "${PROCESS_TARGETS[@]:-}"; do
-    kill_processes_matching_literal "${target}"
-  done
+  if [ "${PORTS_ONLY}" -eq 0 ]; then
+    for target in "${PROCESS_TARGETS[@]:-}"; do
+      kill_processes_matching_literal "${target}"
+    done
+  fi
 
-  kill_port_listener 3200
-  kill_port_listener 65535
-  kill_port_listener 7888
+  cleanup_scout_dev_state
+  cleanup_scout_dev_fallback_ports
+  kill_port_listener_if_scout_dev 65535 "" "${REPO_ROOT}/packages/web"
 }
 
 parse_args() {
@@ -580,6 +847,9 @@ parse_args() {
         ;;
       --verbose)
         VERBOSE=1
+        ;;
+      --ports-only)
+        PORTS_ONLY=1
         ;;
       --help|-h)
         usage
@@ -597,8 +867,22 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  resolve_common_root
+
   discover_global_roots
   build_process_targets
+
+  if [ "${PORTS_ONLY}" -eq 1 ]; then
+    stop_known_processes
+
+    if [ "${FAILURES}" -gt 0 ]; then
+      warn "cleanup completed with ${FAILURES} failure(s)"
+      exit 1
+    fi
+
+    log "OpenScout dev state cleaned up."
+    exit 0
+  fi
 
   stop_local_agents
   quit_menu_app

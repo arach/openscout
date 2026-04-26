@@ -1,14 +1,13 @@
 import { useTerminalRelay, TerminalRelay } from "@hudson/sdk";
-
-function relayUrl(): string {
-  if (typeof window === "undefined") return "ws://localhost:3200";
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}`;
-}
+import {
+  resolveScoutTerminalRelayHealthUrl,
+  resolveScoutTerminalRelayUrl,
+} from "../../lib/runtime-config.ts";
 
 export function ScoutTerminal() {
   const relay = useTerminalRelay({
-    url: relayUrl(),
+    url: resolveScoutTerminalRelayUrl(),
+    healthUrl: resolveScoutTerminalRelayHealthUrl(),
     autoConnect: true,
     sessionKey: "scout-terminal",
   });

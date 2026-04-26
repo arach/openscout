@@ -4,20 +4,23 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
+import type { WebSocket as NodeWebSocket } from "ws";
 import {
-  sessions,
-  createSession,
   attachSession,
-  detachSession,
+  createSession,
   destroy,
+  detachSession,
+  resizeSession,
   send,
-} from "../../../../hudson/packages/hudson-relay/src/relay/session";
-import type { Session } from "../../../../hudson/packages/hudson-relay/src/relay/session";
+  sessionOwnsSocket,
+  sessions,
+  writeSession,
+} from "./terminal-relay-session.ts";
 import type {
   ClientMessage,
   RelaySocket,
-} from "../../../../hudson/packages/hudson-relay/src/relay/types";
-import type { WebSocket as NodeWebSocket } from "ws";
+  Session,
+} from "./terminal-relay-session.ts";
 
 const require = createRequire(import.meta.url);
 const { WebSocketServer } = require("ws") as typeof import("ws");
@@ -34,38 +37,6 @@ const port = Number.parseInt(
 const UPLOAD_DIR = "/tmp/scout-uploads";
 
 let pendingCommand: string | null = null;
-
-function sessionOwnsSocket(session: Session, socket: RelaySocket): boolean {
-  return session.ws === socket;
-}
-
-function writeSession(session: Session, data: string): boolean {
-  if (session.exited) {
-    return false;
-  }
-
-  try {
-    session.pty.write(data);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function resizeSession(session: Session, cols: number, rows: number): boolean {
-  if (session.exited) {
-    return false;
-  }
-
-  try {
-    session.pty.resize(cols, rows);
-    session.cols = cols;
-    session.rows = rows;
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function queueTerminalCommand(command: string): void {
   for (const [, session] of sessions) {
