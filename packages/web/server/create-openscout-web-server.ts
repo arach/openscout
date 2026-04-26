@@ -41,6 +41,11 @@ import {
   loadAgentObserveSummaries,
 } from "./core/observe/service.ts";
 import {
+  getTailDiscovery,
+  snapshotRecentEvents,
+  subscribeTail,
+} from "./core/tail/service.ts";
+import {
   announceMeshVisibility,
   controlTailscale,
   loadMeshStatus,
@@ -670,6 +675,74 @@ export async function createOpenScoutWebServer(
     } catch {
       return c.text("Broker unreachable", 502);
     }
+  });
+
+  app.get("/api/tail/discover", async (c) => {
+    const force = c.req.query("force") === "true";
+    const snapshot = await getTailDiscovery(force);
+    return c.json(snapshot);
+  });
+
+  app.get("/api/tail/recent", (c) => {
+    const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
+    return c.json({ events: snapshotRecentEvents(limitParam) });
+  });
+
+  app.get("/api/tail/stream", (c) => {
+    const encoder = new TextEncoder();
+    const signal = c.req.raw.signal;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+        const safeEnqueue = (chunk: Uint8Array) => {
+          if (closed) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            closed = true;
+          }
+        };
+
+        // Replay recent buffer first so a new client sees context immediately.
+        const recent = snapshotRecentEvents(200);
+        for (const event of recent) {
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+        safeEnqueue(encoder.encode(`event: ready\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`));
+
+        const unsubscribe = subscribeTail((event) => {
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        });
+
+        const heartbeat = setInterval(() => {
+          safeEnqueue(encoder.encode(`: keep-alive ${Date.now()}\n\n`));
+        }, 15_000);
+
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        };
+
+        signal.addEventListener("abort", close, { once: true });
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+      },
+    });
   });
 
   await registerScoutWebAssets(app, {

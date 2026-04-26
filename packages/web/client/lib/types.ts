@@ -443,7 +443,55 @@ export type Route =
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "plan" | "conductor" | "warroom" | "mission";
+export type OpsMode = "plan" | "conductor" | "warroom" | "mission" | "tail";
+
+/* ── Tail (Ops > Tail) types ── */
+
+export type TailHarness = "scout-managed" | "hudson-managed" | "unattributed";
+export type TailEventKind =
+  | "user"
+  | "assistant"
+  | "tool"
+  | "tool-result"
+  | "system"
+  | "other";
+
+export type TailEvent = {
+  id: string;
+  ts: number;
+  source: string;
+  sessionId: string;
+  pid: number;
+  parentPid: number | null;
+  project: string;
+  cwd: string;
+  harness: TailHarness;
+  kind: TailEventKind;
+  summary: string;
+  raw?: unknown;
+};
+
+export type TailDiscoveredProcess = {
+  pid: number;
+  ppid: number;
+  command: string;
+  etime: string;
+  cwd: string | null;
+  harness: TailHarness;
+  parentChain: { pid: number; command: string }[];
+  source: string;
+};
+
+export type TailDiscoverySnapshot = {
+  generatedAt: number;
+  processes: TailDiscoveredProcess[];
+  totals: {
+    total: number;
+    scoutManaged: number;
+    hudsonManaged: number;
+    unattributed: number;
+  };
+};
 
 /* ── Ops types (Plan view) ── */
 
