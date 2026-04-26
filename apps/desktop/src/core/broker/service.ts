@@ -354,7 +354,9 @@ export function resolveScoutAgentName(agentName?: string | null): string {
 function resolveConfiguredSenderIdForProjectRoot(
   overrides: Awaited<ReturnType<typeof readRelayAgentOverrides>>,
   projectRoot: string,
+  preferredDefinitionId?: string,
 ): string | null {
+  let fallbackSenderId: string | null = null;
   for (const [agentId, override] of Object.entries(overrides)) {
     if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
       continue;
@@ -362,27 +364,31 @@ function resolveConfiguredSenderIdForProjectRoot(
     if (!override.projectRoot || override.projectRoot !== projectRoot) {
       continue;
     }
-    return agentId;
+    if (preferredDefinitionId && override.definitionId === preferredDefinitionId) {
+      return agentId;
+    }
+    fallbackSenderId ??= agentId;
   }
-  return null;
+  return fallbackSenderId;
 }
 
 async function inferSenderIdForProjectRoot(
   projectRoot: string,
 ): Promise<string> {
   const overrides = await readRelayAgentOverrides();
+  const projectConfig = await readProjectConfig(projectRoot);
+  const configuredDefinitionId = normalizeAgentSelectorSegment(
+    projectConfig?.agent?.id?.trim() ?? "",
+  );
   const configuredSenderId = resolveConfiguredSenderIdForProjectRoot(
     overrides,
     projectRoot,
+    configuredDefinitionId,
   );
   if (configuredSenderId) {
     return configuredSenderId;
   }
 
-  const projectConfig = await readProjectConfig(projectRoot);
-  const configuredDefinitionId = normalizeAgentSelectorSegment(
-    projectConfig?.agent?.id?.trim() ?? "",
-  );
   const definitionId =
     configuredDefinitionId ||
     normalizeAgentSelectorSegment(basename(projectRoot)) ||

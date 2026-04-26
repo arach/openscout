@@ -8,6 +8,7 @@ import {
   listLocalAgents,
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
+  startLocalAgent,
 } from "./local-agents.js";
 import {
   buildRelayAgentInstance,
@@ -292,5 +293,55 @@ describe("local agent lifecycle", () => {
     });
     expect(resolved.instanceId).toContain("build-master");
     expect(resolved.instanceId).toContain("test-node");
+  });
+
+  test("forks a same-root probe without replacing the configured main agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      ranger: {
+        agentId: "ranger",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const probe = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "ranger-probe",
+      displayName: "Ranger Probe",
+      harness: "codex",
+      model: "gpt-5.4-mini",
+      ensureOnline: false,
+    });
+
+    expect(probe.definitionId).toBe("ranger-probe");
+    expect(await resolveLocalAgentByName("ranger")).toMatchObject({
+      definitionId: "ranger",
+      projectRoot,
+    });
+    expect(await resolveLocalAgentByName("ranger-probe")).toMatchObject({
+      definitionId: "ranger-probe",
+      projectRoot,
+    });
+    expect((await listLocalAgents()).map((agent) => agent.definitionId).sort()).toEqual([
+      "ranger",
+      "ranger-probe",
+    ]);
   });
 });

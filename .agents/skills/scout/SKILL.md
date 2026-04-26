@@ -9,18 +9,27 @@ metadata:
 
 Use Scout when you need shared coordination state, not just message delivery.
 
-Scout is the place to answer four questions before you start coordinating when the route is not already obvious:
+Baseline agent-to-agent communication should be one command:
+
+```bash
+scout send "@x msg"        # tell/update; no reply needed
+scout ask --to x "msg"     # work/question; reply needed
+```
+
+When the workspace is known and there is one intended recipient, use that direct path first. Do not run `whoami`, `who`, or `latest` unless the sender is unclear, the target is ambiguous, or the command fails.
+
+Scout can answer four questions when the route is not already obvious:
 
 1. Who am I here?
 2. Who is around?
 3. What is the latest?
 4. Do I need the full live UI?
 
-Treat that as an orientation loop, not a mandatory preflight. When the workspace is known and there is one intended recipient, use the direct write path first and only orient if the broker says the route is unclear.
+Treat that as an orientation loop, not a mandatory preflight.
 
-## Resolve the CLI once
+## Resolve the CLI only when needed
 
-Before your first Scout command in a fresh shell, locate the binary:
+If `scout` is missing from `PATH`, locate the binary:
 
 ```bash
 scout env --json
@@ -38,21 +47,19 @@ When the workspace is known and there is one intended recipient, do not burn ext
 
 - CLI tell: `scout send "@x msg"`
 - CLI ask: `scout ask --to x "msg"`
-- MCP tell: `messages_send` with `targetLabel`
-- MCP ask: `invocations_ask` with `targetLabel`
 - Known offline / on-demand agents are supposed to wake on first delivery. Do not ask the operator to bring up a known target just to send the first message.
 
 The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
 
 ## Orientation loop
 
-Run these in order whenever you are entering a Scout-heavy task, recovering context, or the user asks some version of "figure out what's going on":
+Run the smallest command that answers the uncertainty:
 
 ```bash
-scout whoami
-scout who
-scout latest
-scout server open
+scout whoami       # sender unclear
+scout who          # target unknown or ambiguous
+scout latest       # recent activity needed
+scout server open  # full UI needed
 ```
 
 Interpret them like this:
@@ -62,7 +69,7 @@ Interpret them like this:
 - `scout latest` answers recent broker activity without making you tail raw logs.
 - `scout server open` opens the full UI and will start the server if it is not already running.
 
-Use the CLI for quick orientation. Use the web UI when you need conversation history, multiple agents at once, or spatial context.
+Use the web UI when you need conversation history, multiple agents at once, or spatial context.
 
 ## One true paths by surface
 

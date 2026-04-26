@@ -305,7 +305,7 @@ function buildLocalAgentCollaborationPrompt(context: LocalAgentSystemPromptTempl
 function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTemplateContext): string {
   return [
     "Relay protocol:",
-    `  - Read recent context with: ${context.relayCommand} read --as ${context.agentId}`,
+    `  - Read recent context when needed with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
     `  - Tell one agent with: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
     `  - Ask one agent and stay attached with: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "",
@@ -320,7 +320,7 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
-    "  - Use the broker-backed relay read command above to inspect recent context before responding",
+    "  - Use the broker-backed latest command above only when recent context is needed before responding",
     `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
 }
@@ -331,7 +331,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - You are invoked directly by the OpenScout broker",
     "  - Return your final answer in the assistant message for the current turn",
     "  - Do not shell out to send the final answer through relay yourself",
-    `  - If you need recent relay context, inspect it with: ${context.relayCommand} read --as ${context.agentId}`,
+    `  - If you need recent broker context, inspect it with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
     `  - If you need to tell one agent something, use: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
     `  - If you need another agent to do work, use: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
@@ -1511,7 +1511,7 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
     parts.push(`Context: ${JSON.stringify(invocation.context)}`);
   }
 
-  parts.push(`Read recent context if needed: ${relayCommand} read -n 20 --as ${agentName}.`);
+  parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
   parts.push(`Reply with: ${relayCommand} send --as ${agentName} "[ask:${flightId}] @${invocation.requesterId} <your response>"`);
   return parts.join(" ");
 }

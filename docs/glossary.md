@@ -12,6 +12,7 @@ Scout is aware of adjacent standards such as A2A, but these definitions are for 
 | `runtime` | The layer that starts, resumes, stops, and health-checks sessions across harnesses. | Scout-specific. |
 | `harness` | The execution backend for a session, such as Codex or Claude. | Roughly analogous to an implementation choice behind an A2A agent, not an A2A core noun. |
 | `agent` | A durable autonomous target Scout can address. The agent may be defined outside Scout. | Broadly compatible. |
+| `Ranger` | The preferred top-level orchestration agent for a workspace, project, or fleet. Ranger is Codex-backed by default and coordinates through Scout rather than replacing Scout primitives. | Scout-specific role. |
 | `endpoint` | A concrete reachable location for one agent on one node and transport. | Roughly analogous to an advertised interface endpoint. |
 | `session` | A live runtime connection or process Scout can observe or steer. | Scout-specific. |
 | `Scout address` | Scout's canonical routing address for an agent target, including qualifiers such as workspace, harness, and node when needed. | Richer than A2A identity. |

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   writeOpenScoutSettings,
   writeProjectConfig,
+  writeRelayAgentOverrides,
 } from "@openscout/runtime/setup";
 
 import {
@@ -884,6 +885,44 @@ describe("resolveScoutSenderId", () => {
     expect(senderA).toMatch(/^alpha\./);
     expect(senderB).toMatch(/^beta\./);
     expect(senderA).not.toBe(senderB);
+  });
+
+  test("prefers the project-configured agent when multiple local cards share the root", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const repo = join(home, "dev", "openscout");
+
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    await writeProjectConfig(repo, {
+      version: 1,
+      project: {
+        id: "openscout",
+        name: "OpenScout",
+      },
+      agent: {
+        id: "ranger",
+      },
+    });
+    await writeRelayAgentOverrides({
+      "openscout-canvas-nav.main.mini": {
+        agentId: "openscout-canvas-nav.main.mini",
+        definitionId: "openscout-canvas-nav",
+        projectName: "OpenScout",
+        projectRoot: repo,
+        source: "manual",
+      },
+      "ranger.main.mini": {
+        agentId: "ranger.main.mini",
+        definitionId: "ranger",
+        projectName: "OpenScout",
+        projectRoot: repo,
+        source: "manual",
+      },
+    });
+
+    const senderId = await resolveScoutSenderId(null, repo);
+
+    expect(senderId.startsWith("ranger.")).toBe(true);
+    expect(senderId.startsWith("openscout-canvas-nav.")).toBe(false);
   });
 });
 
