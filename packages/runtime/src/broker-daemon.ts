@@ -22,6 +22,10 @@ import {
   type NodeDefinition,
   type ScoutDispatchEnvelope,
   type ScoutDispatchRecord,
+  type ScoutDispatchUnavailableTarget,
+  type ScoutDeliverRequest,
+  type ScoutDeliverResponse,
+  type ScoutDeliverRouteKind,
   type ThreadWatchCloseRequest,
   type ThreadWatchOpenRequest,
   type ThreadWatchRenewRequest,
@@ -181,6 +185,9 @@ const activeInvocationTasks = new Map<string, Promise<void>>();
 const knownInvocations = new Map<string, InvocationRequest>();
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
 const operatorActorId = "operator";
+const BROKER_SHARED_CHANNEL_ID = "channel.shared";
+const BROKER_VOICE_CHANNEL_ID = "channel.voice";
+const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 
 type LegacyRelayMessage = {
   id: string;
@@ -981,6 +988,323 @@ function brokerConversationChannel(snapshot: ReturnType<typeof runtime.snapshot>
   return conversation.id.startsWith("channel.")
     ? conversation.id.replace(/^channel\./, "")
     : null;
+}
+
+function titleCaseName(value: string): string {
+  return value
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function sanitizeConversationSegment(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
+}
+
+function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function brokerTargetProjectRoot(agent: AgentDefinition, endpoint: AgentEndpoint | null): string | null {
+  return endpoint?.projectRoot
+    ?? endpoint?.cwd
+    ?? metadataStringValue(agent.metadata, "projectRoot");
+}
+
+function brokerTargetLabel(agent: AgentDefinition): string {
+  const selector = agent.selector
+    ?? agent.defaultSelector
+    ?? metadataStringValue(agent.metadata, "selector")
+    ?? metadataStringValue(agent.metadata, "defaultSelector");
+  if (selector) {
+    return selector;
+  }
+  const handle = agent.handle?.trim();
+  return `@${handle && handle.length > 0 ? handle : agent.id}`;
+}
+
+function brokerRouteKind(conversation: Pick<ConversationDefinition, "id" | "kind">): ScoutDeliverRouteKind {
+  if (conversation.kind === "direct") {
+    return "dm";
+  }
+  return conversation.id === BROKER_SHARED_CHANNEL_ID ? "broadcast" : "channel";
+}
+
+function resolveConversationShareMode(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  participantIds: string[],
+  fallback: "local" | "shared",
+): "local" | "shared" {
+  if (fallback === "shared") {
+    return "shared";
+  }
+
+  const hasRemoteParticipant = participantIds.some((participantId) => {
+    const participant = snapshot.agents[participantId];
+    return Boolean(participant?.authorityNodeId && participant.authorityNodeId !== nodeId);
+  });
+  return hasRemoteParticipant ? "shared" : fallback;
+}
+
+function directConversationIdForActors(sourceId: string, targetId: string): string {
+  if (sourceId === targetId) {
+    return `dm.${sourceId}.${targetId}`;
+  }
+  if (sourceId === operatorActorId || targetId === operatorActorId) {
+    const peerId = sourceId === operatorActorId ? targetId : sourceId;
+    return `dm.${operatorActorId}.${peerId}`;
+  }
+  return `dm.${[sourceId, targetId].sort().join(".")}`;
+}
+
+async function ensureBrokerActorForDelivery(actorId: string): Promise<void> {
+  const snapshot = runtime.snapshot();
+  if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
+    return;
+  }
+  await upsertActorDurably({
+    id: actorId,
+    kind: actorId === operatorActorId ? "person" : "agent",
+    displayName: titleCaseName(actorId),
+    handle: actorId,
+    labels: ["scout"],
+    metadata: { source: "broker-deliver" },
+  });
+}
+
+async function ensureBrokerDeliveryConversation(input: {
+  requesterId: string;
+  targetAgentId?: string;
+  channel?: string;
+}): Promise<ConversationDefinition> {
+  const snapshot = runtime.snapshot();
+  const normalizedChannel = input.channel?.trim();
+  const targetAgentId = input.targetAgentId?.trim();
+
+  if (!normalizedChannel && targetAgentId) {
+    const conversationId = targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId
+      ? BROKER_SHARED_CHANNEL_ID
+      : directConversationIdForActors(input.requesterId, targetAgentId);
+    const participantIds = [...new Set([input.requesterId, targetAgentId])].sort();
+    const shareMode = resolveConversationShareMode(snapshot, participantIds, "local");
+    const existing = snapshot.conversations[conversationId];
+    const alreadyMatches = existing
+      && existing.kind === "direct"
+      && existing.visibility === "private"
+      && existing.shareMode === shareMode
+      && existing.participantIds.join("\u0000") === participantIds.join("\u0000");
+    if (alreadyMatches) {
+      return existing;
+    }
+
+    const nonOperatorParticipants = participantIds.filter((participantId) => participantId !== operatorActorId);
+    const conversationTitle = input.requesterId === operatorActorId || targetAgentId === operatorActorId
+      ? brokerActorDisplayName(snapshot, nonOperatorParticipants[0] ?? targetAgentId)
+      : `${brokerActorDisplayName(snapshot, input.requesterId)} <> ${brokerActorDisplayName(snapshot, targetAgentId)}`;
+    const conversation: ConversationDefinition = {
+      id: conversationId,
+      kind: "direct",
+      title: targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId ? "Scout" : conversationTitle,
+      visibility: "private",
+      shareMode,
+      authorityNodeId: nodeId,
+      participantIds,
+      metadata: {
+        surface: "broker",
+        ...(targetAgentId === SCOUT_DISPATCHER_AGENT_ID && input.requesterId === operatorActorId ? { role: "partner" } : {}),
+      },
+    };
+    await upsertConversationDurably(conversation);
+    return conversation;
+  }
+
+  const channel = normalizedChannel || "shared";
+  const sharedParticipants = [...new Set([operatorActorId, input.requesterId, ...Object.keys(snapshot.agents)])].sort();
+  const scopedParticipants = [...new Set([
+    operatorActorId,
+    input.requesterId,
+    ...(targetAgentId ? [targetAgentId] : []),
+  ])].sort();
+
+  let definition: ConversationDefinition;
+  if (channel === "voice") {
+    definition = {
+      id: BROKER_VOICE_CHANNEL_ID,
+      kind: "channel",
+      title: "voice",
+      visibility: "workspace",
+      shareMode: resolveConversationShareMode(snapshot, scopedParticipants, "local"),
+      authorityNodeId: nodeId,
+      participantIds: scopedParticipants,
+      metadata: { surface: "broker", channel: "voice" },
+    };
+  } else if (channel === "system") {
+    definition = {
+      id: BROKER_SYSTEM_CHANNEL_ID,
+      kind: "system",
+      title: "system",
+      visibility: "system",
+      shareMode: "local",
+      authorityNodeId: nodeId,
+      participantIds: [operatorActorId, input.requesterId].sort(),
+      metadata: { surface: "broker", channel: "system" },
+    };
+  } else if (channel === "shared") {
+    definition = {
+      id: BROKER_SHARED_CHANNEL_ID,
+      kind: "channel",
+      title: "shared-channel",
+      visibility: "workspace",
+      shareMode: "shared",
+      authorityNodeId: nodeId,
+      participantIds: sharedParticipants,
+      metadata: { surface: "broker", channel: "shared" },
+    };
+  } else {
+    definition = {
+      id: `channel.${sanitizeConversationSegment(channel)}`,
+      kind: "channel",
+      title: channel,
+      visibility: "workspace",
+      shareMode: resolveConversationShareMode(snapshot, scopedParticipants, "local"),
+      authorityNodeId: nodeId,
+      participantIds: scopedParticipants,
+      metadata: { surface: "broker", channel },
+    };
+  }
+
+  const existing = snapshot.conversations[definition.id];
+  const nextParticipants = [...new Set([...(existing?.participantIds ?? []), ...definition.participantIds])].sort();
+  if (
+    existing
+    && existing.kind === definition.kind
+    && existing.visibility === definition.visibility
+    && existing.shareMode === definition.shareMode
+    && existing.participantIds.join("\u0000") === nextParticipants.join("\u0000")
+  ) {
+    return existing;
+  }
+
+  const conversation: ConversationDefinition = {
+    ...definition,
+    participantIds: nextParticipants,
+  };
+  await upsertConversationDurably(conversation);
+  return conversation;
+}
+
+function buildBrokerReturnAddressForActor(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  actorId: string,
+  options: {
+    conversationId?: string;
+    replyToMessageId?: string;
+  } = {},
+) {
+  const agent = snapshot.agents[actorId];
+  const actor = snapshot.actors[actorId];
+  const endpoint = homeEndpointForAgent(snapshot, actorId);
+  return buildScoutReturnAddress({
+    actorId,
+    handle: agent?.handle?.trim() || actor?.handle?.trim() || actorId,
+    displayName: agent?.displayName || actor?.displayName,
+    selector: agent?.selector ?? metadataStringValue(agent?.metadata, "selector") ?? metadataStringValue(actor?.metadata, "selector") ?? undefined,
+    defaultSelector: agent?.defaultSelector
+      ?? metadataStringValue(agent?.metadata, "defaultSelector")
+      ?? metadataStringValue(actor?.metadata, "defaultSelector")
+      ?? undefined,
+    conversationId: options.conversationId,
+    replyToMessageId: options.replyToMessageId,
+    nodeId: endpoint?.nodeId || agent?.authorityNodeId || agent?.homeNodeId,
+    projectRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? metadataStringValue(agent?.metadata, "projectRoot") ?? undefined,
+    sessionId: endpoint?.sessionId,
+  });
+}
+
+function describeUnavailableDeliveryTarget(
+  snapshot: ReturnType<typeof runtime.snapshot>,
+  agent: AgentDefinition,
+): ScoutDispatchUnavailableTarget | null {
+  const endpoint = homeEndpointForAgent(snapshot, agent.id);
+  const projectRoot = brokerTargetProjectRoot(agent, endpoint);
+
+  if (agent.metadata?.retiredFromFleet === true) {
+    return {
+      agentId: agent.id,
+      displayName: agent.displayName ?? agent.id,
+      reason: "retired",
+      detail: `${agent.displayName ?? agent.id} is retired from the fleet and cannot receive new broker deliveries.`,
+      wakePolicy: agent.wakePolicy,
+      endpointState: endpoint?.state === "offline" ? "offline" : "unknown",
+      transport: endpoint?.transport ?? null,
+      projectRoot,
+    };
+  }
+
+  if (agent.metadata?.staleLocalRegistration === true) {
+    return {
+      agentId: agent.id,
+      displayName: agent.displayName ?? agent.id,
+      reason: "stale_registration",
+      detail: `${agent.displayName ?? agent.id} has a stale registration and needs operator follow-up before the broker can route to it again.`,
+      wakePolicy: agent.wakePolicy,
+      endpointState: endpoint?.state === "offline" ? "offline" : "unknown",
+      transport: endpoint?.transport ?? null,
+      projectRoot,
+    };
+  }
+
+  if (agent.authorityNodeId && agent.authorityNodeId !== nodeId) {
+    return null;
+  }
+
+  if (agent.wakePolicy !== "manual") {
+    return null;
+  }
+
+  if (endpoint && (endpoint.state === "active" || endpoint.state === "idle" || endpoint.state === "waiting")) {
+    return null;
+  }
+
+  if (
+    endpoint
+    && isManagedLocalSessionMetadata(endpoint.metadata)
+    && (endpoint.transport === "codex_app_server" || endpoint.transport === "claude_stream_json")
+  ) {
+    return null;
+  }
+
+  return {
+    agentId: agent.id,
+    displayName: agent.displayName ?? agent.id,
+    reason: "manual_wake_required",
+    detail: `${agent.displayName ?? agent.id} is currently offline with a manual wake policy, so the broker cannot bring it online without operator help.`,
+    wakePolicy: agent.wakePolicy,
+    endpointState: endpoint?.state === "offline"
+      ? "offline"
+      : endpoint?.state === "active" || endpoint?.state === "idle" || endpoint?.state === "waiting"
+      ? "online"
+      : "unknown",
+    transport: endpoint?.transport ?? null,
+    projectRoot,
+  };
+}
+
+function buildUnavailableDispatchEnvelope(
+  askedLabel: string,
+  target: ScoutDispatchUnavailableTarget,
+): ScoutDispatchEnvelope {
+  return {
+    kind: "unavailable",
+    askedLabel,
+    detail: target.detail,
+    candidates: [],
+    target,
+    dispatchedAt: Date.now(),
+    dispatcherNodeId: nodeId,
+  };
 }
 
 function summarizeHomeAgent(endpoint: AgentEndpoint | null): {
@@ -3764,6 +4088,21 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if (method === "POST" && url.pathname === "/v1/deliver") {
+    try {
+      const payload = await readRequestBody<ScoutDeliverRequest>(request);
+      const result = await acceptBrokerDelivery(payload);
+      json(
+        response,
+        result.kind === "delivery" ? 202 : result.kind === "question" ? 409 : 422,
+        result,
+      );
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
   if (method === "POST" && url.pathname === "/v1/invocations") {
     try {
       const payload = await readRequestBody<InvocationRequest & { targetLabel?: string }>(request);
@@ -3817,11 +4156,12 @@ type InvocationResolution =
   | { kind: "resolved"; agent: AgentDefinition }
   | BrokerLabelResolution;
 
-function resolveInvocationTarget(
-  payload: InvocationRequest & { targetLabel?: string },
+function resolveBrokerDeliveryTarget(
+  targetAgentId: string | null | undefined,
+  targetLabel: string | null | undefined,
 ): InvocationResolution {
   const snapshot = runtime.snapshot();
-  const directId = payload.targetAgentId?.trim();
+  const directId = targetAgentId?.trim();
   if (directId) {
     const agent = snapshot.agents[directId];
     if (agent && !isStaleLocalAgent(agent)) {
@@ -3829,7 +4169,7 @@ function resolveInvocationTarget(
     }
   }
 
-  const label = payload.targetLabel?.trim() || directId || "";
+  const label = targetLabel?.trim() || directId || "";
   if (!label) {
     return { kind: "unparseable", label: "" };
   }
@@ -3838,6 +4178,154 @@ function resolveInvocationTarget(
     preferLocalNodeId: nodeId,
     helpers: { isStale: isStaleLocalAgent },
   });
+}
+
+function resolveInvocationTarget(
+  payload: InvocationRequest & { targetLabel?: string },
+): InvocationResolution {
+  return resolveBrokerDeliveryTarget(payload.targetAgentId, payload.targetLabel);
+}
+
+async function acceptBrokerDelivery(
+  payload: ScoutDeliverRequest,
+): Promise<ScoutDeliverResponse> {
+  const requesterId = payload.requesterId?.trim() || operatorActorId;
+  const requesterNodeId = payload.requesterNodeId?.trim() || nodeId;
+  const askedLabel = payload.targetLabel?.trim() || payload.targetAgentId?.trim() || "";
+  const resolved = resolveBrokerDeliveryTarget(payload.targetAgentId, payload.targetLabel);
+
+  if (resolved.kind !== "resolved") {
+    const { record } = await recordScoutDispatchDurably(
+      buildDispatchEnvelope(
+        resolved,
+        askedLabel,
+        nodeId,
+        runtime.snapshot(),
+        { homeEndpointFor: homeEndpointForAgent },
+      ),
+      {
+        requesterId,
+      },
+    );
+    return {
+      kind: "rejected",
+      accepted: false,
+      reason: resolved.kind === "ambiguous"
+        ? "ambiguous_target"
+        : resolved.kind === "unknown"
+        ? "unknown_target"
+        : askedLabel.trim().length > 0
+        ? "invalid_target"
+        : "missing_target",
+      rejection: record,
+    };
+  }
+
+  const unavailable = describeUnavailableDeliveryTarget(runtime.snapshot(), resolved.agent);
+  if (unavailable) {
+    const { record } = await recordScoutDispatchDurably(
+      buildUnavailableDispatchEnvelope(askedLabel || brokerTargetLabel(resolved.agent), unavailable),
+      {
+        requesterId,
+      },
+    );
+    return {
+      kind: "question",
+      accepted: false,
+      question: record,
+    };
+  }
+
+  await ensureBrokerActorForDelivery(requesterId);
+  const conversation = await ensureBrokerDeliveryConversation({
+    requesterId,
+    targetAgentId: resolved.agent.id,
+    channel: payload.channel,
+  });
+  const snapshot = runtime.snapshot();
+  const messageId = createRuntimeId("msg");
+  const targetLabel = brokerTargetLabel(resolved.agent);
+  const routeKind = brokerRouteKind(conversation);
+  const message: MessageRecord = {
+    id: messageId,
+    conversationId: conversation.id,
+    actorId: requesterId,
+    originNodeId: requesterNodeId,
+    class: conversation.kind === "system" ? "system" : "agent",
+    body: payload.body.trim(),
+    ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
+    mentions: [{ actorId: resolved.agent.id, label: targetLabel }],
+    ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
+    audience: {
+      notify: [resolved.agent.id],
+      reason: conversation.kind === "direct" ? "direct_message" : "mention",
+    },
+    visibility: messageVisibilityForConversation(conversation),
+    policy: "durable",
+    createdAt: payload.createdAt,
+    metadata: {
+      ...(payload.messageMetadata ?? {}),
+      relayChannel: payload.channel?.trim() || (conversation.kind === "direct" ? "dm" : "shared"),
+      relayTarget: resolved.agent.id,
+      relayTargetIds: [resolved.agent.id],
+      relayMessageId: messageId,
+      returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
+        conversationId: conversation.id,
+        replyToMessageId: messageId,
+      }),
+    },
+  };
+  await postConversationMessage(message);
+
+  if (payload.intent !== "consult") {
+    return {
+      kind: "delivery",
+      accepted: true,
+      routeKind,
+      conversation,
+      message,
+      targetAgentId: resolved.agent.id,
+    };
+  }
+
+  const invocation: InvocationRequest = {
+    id: createRuntimeId("inv"),
+    requesterId,
+    requesterNodeId,
+    targetAgentId: resolved.agent.id,
+    action: "consult",
+    task: payload.body.trim(),
+    ...(payload.collaborationRecordId ? { collaborationRecordId: payload.collaborationRecordId } : {}),
+    conversationId: conversation.id,
+    messageId,
+    execution: payload.execution,
+    ensureAwake: payload.ensureAwake ?? true,
+    stream: false,
+    createdAt: payload.createdAt,
+    metadata: {
+      ...(payload.invocationMetadata ?? {}),
+      relayChannel: payload.channel?.trim() || (conversation.kind === "direct" ? "dm" : "shared"),
+      relayTarget: resolved.agent.id,
+      ...(payload.collaborationRecordId ? { collaborationRecordId: payload.collaborationRecordId } : {}),
+      returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
+        conversationId: conversation.id,
+        replyToMessageId: messageId,
+      }),
+    },
+  };
+  const flight = await acceptInvocationDurably(invocation);
+  dispatchAcceptedInvocation(invocation).catch((error) => {
+    console.error(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
+  });
+  return {
+    kind: "delivery",
+    accepted: true,
+    routeKind,
+    conversation,
+    message,
+    targetAgentId: resolved.agent.id,
+    flight,
+  };
 }
 
 const server = createServer((request, response) => {

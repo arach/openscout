@@ -31,6 +31,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Keep one-to-one handoffs in a DM");
     expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
     expect(prompt).toContain("Do not use channel.shared for ordinary delegation or follow-up");
+    expect(prompt).toContain("Treat known offline / on-demand agents as wakeable");
     expect(prompt).toContain("Use send for tells and status; use ask when the meaning is 'do this and get back to me'");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
   });
@@ -98,6 +99,7 @@ describe("local agent prompts", () => {
     expect(prompt).toContain("Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue");
     expect(prompt).toContain("Keep one-to-one handoffs in a DM");
     expect(prompt).toContain("If you need multiple agents, use separate DMs or an explicit channel");
+    expect(prompt).toContain("Treat known offline / on-demand agents as wakeable");
     expect(prompt).toContain("Use send for tells and status; use ask when the meaning is 'do this and get back to me'");
     expect(prompt).toContain("/Users/arach/dev/openscout/.agents/skills/scout/SKILL.md");
     expect(prompt).toContain("Flag: broker-ready");

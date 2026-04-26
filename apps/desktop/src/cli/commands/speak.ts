@@ -45,7 +45,7 @@ export async function runSpeakCommand(context: ScoutCommandContext, args: string
     throw new Error("broker is not reachable");
   }
   if (result.unresolvedTargets.length > 0) {
-    throw new Error(formatScoutSendRoutingError(result.unresolvedTargets));
+    throw new Error(formatScoutSendRoutingError(result));
   }
 
   context.output.writeValue(

@@ -170,22 +170,46 @@ describe("askScoutQuestion", () => {
       if (request.method === "POST" && url.pathname === "/v1/conversations") {
         return jsonResponse({ ok: true });
       }
-      if (request.method === "POST" && url.pathname === "/v1/invocations") {
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
         const body = (await request.json()) as {
-          id: string;
           requesterId: string;
-          targetAgentId: string;
-          conversationId: string;
-          metadata?: { relayChannel?: string; relayTarget?: string };
+          body: string;
         };
-        captured.postedInvocation = body as NonNullable<typeof captured.postedInvocation>;
         return jsonResponse({
-          ok: true,
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: body.requesterId,
+            originNodeId: "node-1",
+            class: "agent",
+            body: body.body,
+            audience: {
+              notify: ["talkie"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+            metadata: {
+              relayChannel: "dm",
+            },
+          },
           flight: {
             id: "flt-1",
-            invocationId: body.id,
+            invocationId: "inv-1",
             requesterId: body.requesterId,
-            targetAgentId: body.targetAgentId,
+            targetAgentId: "talkie",
             state: "waking",
             summary: "Talkie waking.",
             startedAt: Date.now(),
@@ -210,20 +234,17 @@ describe("askScoutQuestion", () => {
     expect(result.flight?.state).toBe("waking");
     expect(result.unresolvedTarget).toBeUndefined();
     expect(result.targetDiagnostic).toBeUndefined();
-    expect(captured.postedMessage?.conversationId).toBe(result.conversationId);
-    expect(captured.postedMessage?.audience?.reason).toBe("direct_message");
-    expect(captured.postedMessage?.metadata?.relayChannel).toBe("dm");
-    expect(captured.postedInvocation?.requesterId).toBe("operator");
-    expect(captured.postedInvocation?.conversationId).toBe(result.conversationId);
-    expect(captured.postedInvocation?.metadata?.relayChannel).toBe("dm");
-    expect(requests.some((request) => request.path === "/v1/agents")).toBe(
+    expect(requests.some((request) => request.path === "/v1/deliver")).toBe(
       true,
+    );
+    expect(requests.some((request) => request.path === "/v1/agents")).toBe(
+      false,
     );
     expect(requests.some((request) => request.path === "/v1/messages")).toBe(
-      true,
+      false,
     );
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(
-      true,
+      false,
     );
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(
       false,
@@ -310,8 +331,39 @@ describe("askScoutQuestion", () => {
           flights: {},
         });
       }
-      if (request.method === "POST") {
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
         return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        return jsonResponse({
+          kind: "rejected",
+          accepted: false,
+          reason: "ambiguous_target",
+          rejection: {
+            id: "dispatch-1",
+            kind: "ambiguous",
+            askedLabel: "@vox",
+            detail: "@vox matches multiple agents; pick one",
+            candidates: [
+              {
+                agentId: "vox.mini.codex",
+                displayName: "Vox (codex)",
+                label: "@vox.harness:codex",
+                endpointState: "online",
+                transport: "local_socket",
+              },
+              {
+                agentId: "vox.mini.claude",
+                displayName: "Vox (claude)",
+                label: "@vox.harness:claude",
+                endpointState: "online",
+                transport: "local_socket",
+              },
+            ],
+            dispatchedAt: Date.now(),
+            dispatcherNodeId: "node-1",
+          },
+        });
       }
       return jsonResponse({ error: "not found" }, 404);
     }) as typeof fetch;
@@ -428,15 +480,6 @@ describe("askScoutQuestion", () => {
       state: "idle",
       projectRoot: currentRoot,
     };
-    const captured = {
-      postedMessage: null as {
-        mentions?: Array<{ actorId: string }>;
-      } | null,
-      postedInvocation: null as {
-        targetAgentId?: string;
-      } | null,
-    };
-
     globalThis.fetch = (async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input, init);
@@ -464,18 +507,32 @@ describe("askScoutQuestion", () => {
           flights: {},
         });
       }
-      if (request.method === "POST" && url.pathname === "/v1/messages") {
-        captured.postedMessage = await request.json();
-        return jsonResponse({ ok: true });
-      }
-      if (request.method === "POST" && url.pathname === "/v1/invocations") {
-        captured.postedInvocation = await request.json();
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        const body = await request.json() as { requesterId: string; body: string };
         return jsonResponse({
+          kind: "delivery",
           accepted: true,
-          invocationId: "inv-current",
-          flightId: "flt-current",
+          routeKind: "dm",
+          conversation: {
+            id: `dm.operator.${currentAgent.id}`,
+            kind: "direct",
+            title: "Openscout 4",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", currentAgent.id],
+          },
+          message: {
+            id: "msg-current",
+            conversationId: `dm.operator.${currentAgent.id}`,
+            actorId: body.requesterId,
+            originNodeId: "node-1",
+            class: "agent",
+            body: body.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
           targetAgentId: currentAgent.id,
-          state: "waking",
           flight: {
             id: "flt-current",
             invocationId: "inv-current",
@@ -502,10 +559,6 @@ describe("askScoutQuestion", () => {
     expect(result.unresolvedTarget).toBeUndefined();
     expect(result.targetDiagnostic).toBeUndefined();
     expect(result.flight?.targetAgentId).toBe(currentAgent.id);
-    expect(captured.postedMessage?.mentions?.map((mention) => mention.actorId)).toEqual([
-      currentAgent.id,
-    ]);
-    expect(captured.postedInvocation?.targetAgentId).toBe(currentAgent.id);
   }, 15000);
 
   test("creates a durable work item beyond the message and flight ids", async () => {
@@ -535,16 +588,6 @@ describe("askScoutQuestion", () => {
         kind: string;
         actorId: string;
         summary?: string;
-      } | null,
-      postedMessage: null as {
-        metadata?: { collaborationRecordId?: string };
-      } | null,
-      postedInvocation: null as {
-        id: string;
-        requesterId: string;
-        targetAgentId: string;
-        collaborationRecordId?: string;
-        metadata?: { collaborationRecordId?: string };
       } | null,
     };
 
@@ -579,6 +622,41 @@ describe("askScoutQuestion", () => {
       if (request.method === "POST" && url.pathname === "/v1/conversations") {
         return jsonResponse({ ok: true });
       }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        const body = (await request.json()) as { requesterId: string; body: string };
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: body.requesterId,
+            originNodeId: "node-1",
+            class: "agent",
+            body: body.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "talkie.main.mini",
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: body.requesterId,
+            targetAgentId: "talkie.main.mini",
+            state: "running",
+          },
+        });
+      }
       if (
         request.method === "POST" &&
         url.pathname === "/v1/collaboration/records"
@@ -595,33 +673,6 @@ describe("askScoutQuestion", () => {
         captured.postedEvent = (await request.json()) as NonNullable<typeof captured.postedEvent>;
         return jsonResponse({ ok: true, eventId: captured.postedEvent.recordId });
       }
-      if (request.method === "POST" && url.pathname === "/v1/messages") {
-        captured.postedMessage = (await request.json()) as NonNullable<
-          typeof captured.postedMessage
-        >;
-        return jsonResponse({ ok: true });
-      }
-      if (request.method === "POST" && url.pathname === "/v1/invocations") {
-        const body = (await request.json()) as {
-          id: string;
-          requesterId: string;
-          targetAgentId: string;
-          collaborationRecordId?: string;
-          metadata?: { collaborationRecordId?: string };
-        };
-        captured.postedInvocation = body as NonNullable<typeof captured.postedInvocation>;
-        return jsonResponse({
-          ok: true,
-          flight: {
-            id: "flt-1",
-            invocationId: body.id,
-            requesterId: body.requesterId,
-            targetAgentId: body.targetAgentId,
-            state: "running",
-          },
-        });
-      }
-
       return jsonResponse({ error: "not found" }, 404);
     }) as typeof fetch;
 
@@ -640,16 +691,9 @@ describe("askScoutQuestion", () => {
     expect(result.workItem?.id.startsWith("work-")).toBe(true);
     expect(result.workItem?.title).toBe("Build the talkie feature");
     expect(captured.postedRecord?.kind).toBe("work_item");
-    expect(captured.postedRecord?.ownerId?.startsWith("talkie")).toBe(true);
+    expect(captured.postedRecord?.ownerId).toBe("talkie.main.mini");
     expect(captured.postedEvent?.recordId).toBe(result.workItem?.id);
     expect(captured.postedEvent?.kind).toBe("created");
-    expect(captured.postedMessage?.metadata?.collaborationRecordId).toBe(
-      result.workItem?.id,
-    );
-    expect(captured.postedInvocation?.collaborationRecordId).toBe(result.workItem?.id);
-    expect(captured.postedInvocation?.metadata?.collaborationRecordId).toBe(
-      result.workItem?.id,
-    );
   }, 15000);
 });
 
@@ -907,11 +951,40 @@ describe("sendScoutMessage", () => {
         snapshot.conversations[body.id] = body;
         return jsonResponse({ ok: true });
       }
-      if (request.method === "POST" && url.pathname === "/v1/messages") {
-        const body = (await request.json()) as NonNullable<typeof captured.postedMessage>;
-        captured.postedMessage = body as NonNullable<typeof captured.postedMessage>;
-        snapshot.messages[body.id] = body;
-        return jsonResponse({ ok: true });
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        const body = (await request.json()) as { requesterId: string; body: string };
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: body.requesterId,
+            originNodeId: "node-1",
+            class: "agent",
+            body: body.body,
+            audience: {
+              notify: ["talkie"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+            metadata: {
+              relayChannel: "dm",
+            },
+          },
+          targetAgentId: "talkie",
+        });
       }
 
       return jsonResponse({ error: "not found" }, 404);
@@ -928,11 +1001,11 @@ describe("sendScoutMessage", () => {
     expect(result.messageId).toBeTruthy();
     expect(result.unresolvedTargets).toEqual([]);
     expect(result.invokedTargets).toHaveLength(1);
-    expect(captured.postedMessage?.conversationId).toBe(result.conversationId);
-    expect(captured.postedMessage?.audience?.reason).toBe("direct_message");
-    expect(captured.postedMessage?.metadata?.relayChannel).toBe("dm");
-    expect(requests.some((request) => request.path === "/v1/messages")).toBe(
+    expect(requests.some((request) => request.path === "/v1/deliver")).toBe(
       true,
+    );
+    expect(requests.some((request) => request.path === "/v1/messages")).toBe(
+      false,
     );
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(
       false,
@@ -968,6 +1041,22 @@ describe("sendScoutMessage", () => {
       if (request.method === "POST" && url.pathname === "/v1/actors") {
         return jsonResponse({ ok: true });
       }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        return jsonResponse({
+          kind: "rejected",
+          accepted: false,
+          reason: "unknown_target",
+          rejection: {
+            id: "dispatch-unknown",
+            kind: "unknown",
+            askedLabel: "@missing",
+            detail: "no agent matches @missing",
+            candidates: [],
+            dispatchedAt: Date.now(),
+            dispatcherNodeId: "node-1",
+          },
+        });
+      }
 
       return jsonResponse({ ok: true });
     }) as typeof fetch;
@@ -981,6 +1070,10 @@ describe("sendScoutMessage", () => {
     expect(result.usedBroker).toBe(true);
     expect(result.invokedTargets).toEqual([]);
     expect(result.unresolvedTargets).toEqual(["@missing"]);
+    expect(result.targetDiagnostic?.state).toBe("unknown");
+    expect(requests.some((request) => request.path === "/v1/deliver")).toBe(
+      true,
+    );
     expect(requests.some((request) => request.path === "/v1/messages")).toBe(
       false,
     );

@@ -35,6 +35,38 @@ describe("formatScoutAskRoutingError", () => {
     );
   });
 
+  test("says plainly when there is no such target", () => {
+    expect(formatScoutAskRoutingError(
+      {
+        targetDiagnostic: {
+          agentId: "@mars",
+          state: "unknown",
+          registrationKind: null,
+          projectRoot: null,
+        },
+      },
+      "mars",
+    )).toBe(
+      "there is no @mars; nothing was sent.",
+    );
+  });
+
+  test("calls out known but unavailable targets directly", () => {
+    expect(formatScoutAskRoutingError(
+      {
+        targetDiagnostic: {
+          agentId: "newell",
+          state: "unavailable",
+          detail: "Newell is currently offline with a manual wake policy, so the broker cannot bring it online without operator help.",
+          wakePolicy: "manual",
+          transport: "pairing_bridge",
+          projectRoot: null,
+        },
+      },
+      "newell",
+    )).toContain("known but currently unavailable");
+  });
+
   test("lists candidates when the short @name matches multiple agents", () => {
     const message = formatScoutAskRoutingError(
       {

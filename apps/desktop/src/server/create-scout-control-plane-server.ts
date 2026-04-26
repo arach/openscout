@@ -51,6 +51,23 @@ export type ScoutControlPlaneServer = {
   warmupCaches: () => Promise<void>;
 };
 
+function renderSendError(result: Awaited<ReturnType<typeof sendScoutMessage>>): string {
+  const diagnostic = result.targetDiagnostic;
+  if (diagnostic?.state === "unknown") {
+    return `there is no ${diagnostic.agentId.startsWith("@") ? diagnostic.agentId : `@${diagnostic.agentId}`}`;
+  }
+  if (diagnostic?.state === "ambiguous") {
+    return `target ${result.unresolvedTargets[0] ?? "@"} matches multiple agents`;
+  }
+  if (diagnostic?.state === "unavailable") {
+    return `target ${result.unresolvedTargets[0] ?? diagnostic.agentId} is known but currently unavailable. ${diagnostic.detail}`;
+  }
+  if (diagnostic?.state === "invalid" || diagnostic?.state === "missing") {
+    return diagnostic.detail;
+  }
+  return `unresolved targets: ${result.unresolvedTargets.join(", ")}`;
+}
+
 function parseOptionalPositiveInt(
   value: string | undefined,
   fallback?: number,
@@ -299,10 +316,7 @@ export function createScoutControlPlaneServer(
     });
     if (!result.usedBroker) return c.json({ error: "broker unreachable" }, 502);
     if (result.unresolvedTargets.length > 0) {
-      return c.json(
-        { error: `unresolved targets: ${result.unresolvedTargets.join(", ")}` },
-        409,
-      );
+      return c.json({ error: renderSendError(result) }, 409);
     }
     return c.json(result);
   });

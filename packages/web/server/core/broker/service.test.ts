@@ -121,15 +121,36 @@ describe("askScoutQuestion", () => {
       if (request.method === "POST" && url.pathname === "/v1/conversations") {
         return jsonResponse({ ok: true });
       }
-      if (request.method === "POST" && url.pathname === "/v1/invocations") {
-        const body = await request.json() as { id: string; requesterId: string; targetAgentId: string };
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        const body = await request.json() as { requesterId: string; targetLabel: string; body: string };
         return jsonResponse({
-          ok: true,
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.talkie",
+            kind: "direct",
+            title: "Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "talkie"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.talkie",
+            actorId: body.requesterId,
+            originNodeId: "node-1",
+            class: "agent",
+            body: body.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
           flight: {
             id: "flt-1",
-            invocationId: body.id,
+            invocationId: "inv-1",
             requesterId: body.requesterId,
-            targetAgentId: body.targetAgentId,
+            targetAgentId: "talkie",
             state: "waking",
             summary: "Talkie waking.",
             startedAt: Date.now(),
@@ -152,9 +173,10 @@ describe("askScoutQuestion", () => {
     expect(result.flight?.state).toBe("waking");
     expect(result.unresolvedTarget).toBeUndefined();
     expect(result.targetDiagnostic).toBeUndefined();
-    expect(requests.some((request) => request.path === "/v1/agents")).toBe(true);
-    expect(requests.some((request) => request.path === "/v1/messages")).toBe(true);
-    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(true);
+    expect(requests.some((request) => request.path === "/v1/agents")).toBe(false);
+    expect(requests.some((request) => request.path === "/v1/messages")).toBe(false);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+    expect(requests.some((request) => request.path === "/v1/deliver")).toBe(true);
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(false);
   }, 15000);
 });

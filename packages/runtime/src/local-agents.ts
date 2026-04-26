@@ -317,6 +317,7 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "  - If you need multiple agents, use separate DMs or an explicit channel; do not guess a venue from multiple mentions",
     "  - Do not use channel.shared for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
+    "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
     "  - Use the broker-backed relay read command above to inspect recent context before responding",
@@ -338,6 +339,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - If you need multiple agents, use separate DMs or an explicit channel; do not guess a venue from multiple mentions",
     "  - Do not use channel.shared for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
+    "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
     `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");

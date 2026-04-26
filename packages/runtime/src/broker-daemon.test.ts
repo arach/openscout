@@ -964,6 +964,153 @@ describe("broker daemon comms layer", () => {
     ).toBe(true);
   }, 15_000);
 
+  test("accepts broker-owned delivery for a known wakeable target", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ghost",
+      kind: "agent",
+      definitionId: "ghost",
+      displayName: "Ghost",
+      handle: "ghost",
+      labels: ["test"],
+      selector: "@ghost",
+      defaultSelector: "@ghost",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      routeKind: string;
+      targetAgentId?: string;
+      conversation?: { id: string; kind: string };
+      message?: { id: string; conversationId: string; actorId: string; body: string };
+      flight?: { id: string; state: string; targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-test-1",
+      requesterId: "operator",
+      requesterNodeId: harness.nodeId,
+      targetLabel: "@ghost",
+      body: "@ghost are you there?",
+      intent: "consult",
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.routeKind).toBe("dm");
+    expect(response.targetAgentId).toBe("ghost");
+    expect(response.conversation?.kind).toBe("direct");
+    expect(response.message?.conversationId).toBe(response.conversation?.id);
+    expect(response.flight?.state).toBe("waking");
+    expect(response.flight?.targetAgentId).toBe("ghost");
+  }, 15_000);
+
+  test("returns a broker question for manual offline targets it cannot wake", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "newell",
+      kind: "agent",
+      definitionId: "newell",
+      displayName: "Newell",
+      handle: "newell",
+      labels: ["test"],
+      selector: "@newell",
+      defaultSelector: "@newell",
+      metadata: { source: "test" },
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "manual",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        id: "deliver-test-2",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        targetLabel: "@newell",
+        body: "@newell hello",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      question?: {
+        kind: string;
+        askedLabel: string;
+        target?: {
+          agentId: string;
+          reason: string;
+        };
+      };
+    };
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.kind).toBe("unavailable");
+    expect(body.question?.askedLabel).toBe("@newell");
+    expect(body.question?.target?.agentId).toBe("newell");
+    expect(body.question?.target?.reason).toBe("manual_wake_required");
+  }, 15_000);
+
+  test("rejects unknown delivery targets explicitly", async () => {
+    const harness = await startBroker();
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        id: "deliver-test-unknown",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        targetLabel: "@mars",
+        body: "@mars finish the job",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      reason?: string;
+      rejection?: {
+        kind: string;
+        askedLabel: string;
+        detail: string;
+      };
+    };
+    expect(body.kind).toBe("rejected");
+    expect(body.accepted).toBe(false);
+    expect(body.reason).toBe("unknown_target");
+    expect(body.rejection?.kind).toBe("unknown");
+    expect(body.rejection?.askedLabel).toBe("@mars");
+    expect(body.rejection?.detail).toContain("@mars");
+  }, 15_000);
+
   test("attaches and detaches pairing sessions as Scout-managed fleet identities", async () => {
     const pairing = startPairingBridgeServer({
       sessions: [

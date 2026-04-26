@@ -343,6 +343,7 @@ const sendResultSchema = z.object({
   messageId: z.string().nullable(),
   invokedTargetIds: z.array(z.string()),
   unresolvedTargetIds: z.array(z.string()),
+  targetDiagnostic: z.object({}).catchall(z.unknown()).nullable(),
   routeKind: z.enum(MESSAGE_ROUTE_KIND_VALUES).nullable(),
   routingError: z.enum(MESSAGE_ROUTING_ERROR_VALUES).nullable(),
 });
@@ -1273,6 +1274,7 @@ export function createScoutMcpServer(options: {
           messageId: result.messageId ?? null,
           invokedTargetIds: result.invokedTargetIds,
           unresolvedTargetIds: result.unresolvedTargetIds,
+          targetDiagnostic: result.targetDiagnostic ?? null,
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
         };
@@ -1300,6 +1302,7 @@ export function createScoutMcpServer(options: {
           messageId: result.messageId ?? null,
           invokedTargetIds: result.invokedTargets,
           unresolvedTargetIds: result.unresolvedTargets,
+          targetDiagnostic: result.targetDiagnostic ?? null,
           routeKind: result.routeKind ?? null,
           routingError: result.routingError ?? null,
         };
@@ -1325,6 +1328,7 @@ export function createScoutMcpServer(options: {
         messageId: result.messageId ?? null,
         invokedTargetIds: result.invokedTargets,
         unresolvedTargetIds: result.unresolvedTargets,
+        targetDiagnostic: result.targetDiagnostic ?? null,
         routeKind: result.routeKind ?? null,
         routingError: result.routingError ?? null,
       };

@@ -1,5 +1,6 @@
 import {
   diagnoseAgentIdentity,
+  formatMinimalAgentIdentity,
   parseAgentIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -41,22 +42,27 @@ export function buildAgentLabelCandidates(
 ): BrokerAgentCandidate[] {
   return Object.values(snapshot.agents)
     .filter((agent) => !helpers.isStale(agent))
-    .map((agent) => {
-      const metadata = agent.metadata ?? {};
-      const aliases = [
-        metadataStringValue(metadata, "selector"),
-        metadataStringValue(metadata, "defaultSelector"),
-      ].filter((value): value is string => Boolean(value));
+    .map((agent) => buildAgentLabelCandidate(snapshot, agent));
+}
 
-      return {
-        agentId: agent.id,
-        agent,
-        definitionId: metadataStringValue(metadata, "definitionId") ?? agent.id,
-        nodeQualifier: metadataStringValue(metadata, "nodeQualifier"),
-        workspaceQualifier: metadataStringValue(metadata, "workspaceQualifier"),
-        aliases,
-      };
-    });
+function buildAgentLabelCandidate(
+  _snapshot: RuntimeSnapshot,
+  agent: AgentDefinition,
+): BrokerAgentCandidate {
+  const metadata = agent.metadata ?? {};
+  const aliases = [
+    metadataStringValue(metadata, "selector"),
+    metadataStringValue(metadata, "defaultSelector"),
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    agentId: agent.id,
+    agent,
+    definitionId: metadataStringValue(metadata, "definitionId") ?? agent.id,
+    nodeQualifier: metadataStringValue(metadata, "nodeQualifier"),
+    workspaceQualifier: metadataStringValue(metadata, "workspaceQualifier"),
+    aliases,
+  };
 }
 
 export function resolveAgentLabel(
@@ -123,11 +129,13 @@ export function summarizeDispatchCandidate(
   agent: AgentDefinition,
   snapshot: RuntimeSnapshot,
   helpers: Pick<DispatcherHelpers, "homeEndpointFor">,
+  label: string,
 ): ScoutDispatchCandidate {
   const endpoint = helpers.homeEndpointFor(snapshot, agent.id);
   return {
     agentId: agent.id,
     displayName: agent.displayName ?? agent.id,
+    label,
     authorityNodeId: agent.authorityNodeId,
     homeNodeId: agent.homeNodeId,
     advertiseScope: agent.advertiseScope,
@@ -179,12 +187,21 @@ export function buildDispatchEnvelope(
     };
   }
 
+  const candidates = resolution.candidates.map((agent) =>
+    buildAgentLabelCandidate(snapshot, agent)
+  );
+
   return {
     kind,
     askedLabel: resolution.label,
     detail: `${resolution.label} matches ${resolution.candidates.length} agents; pick one`,
-    candidates: resolution.candidates.map((agent) =>
-      summarizeDispatchCandidate(agent, snapshot, helpers),
+    candidates: resolution.candidates.map((agent, index) =>
+      summarizeDispatchCandidate(
+        agent,
+        snapshot,
+        helpers,
+        formatMinimalAgentIdentity(candidates[index]!, candidates),
+      ),
     ),
     dispatchedAt,
     dispatcherNodeId,

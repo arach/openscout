@@ -5,6 +5,7 @@ import {
   parseScoutHarness,
   resolveScoutSenderId,
   sendScoutMessage,
+  type ScoutMessagePostResult,
 } from "../../core/broker/service.ts";
 import { renderScoutMessagePostResult } from "../../ui/terminal/broker.ts";
 
@@ -40,10 +41,37 @@ function renderTargetLabel(label: string): string {
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 
+function renderAmbiguousCandidate(label: string): string {
+  const rendered = renderTargetLabel(label);
+  return rendered || label.trim();
+}
+
 export function formatScoutSendRoutingError(
-  unresolvedTargets: string[],
+  result: Pick<ScoutMessagePostResult, "targetDiagnostic" | "unresolvedTargets">,
 ): string {
-  const rendered = unresolvedTargets
+  const diagnostic = result.targetDiagnostic;
+  if (diagnostic?.state === "unknown") {
+    return `there is no ${renderTargetLabel(diagnostic.agentId)}; nothing was sent.`;
+  }
+  if (diagnostic?.state === "ambiguous") {
+    const renderedCandidates = diagnostic.candidates
+      .map((candidate) => renderAmbiguousCandidate(candidate.label || candidate.agentId))
+      .filter((label) => label.length > 0);
+    if (renderedCandidates.length > 0) {
+      return `target ${renderTargetLabel(result.unresolvedTargets[0] ?? "")} matches multiple agents: ${renderedCandidates.join(", ")}. Re-run with the fully qualified form (e.g. \`scout send "${renderedCandidates[0]} ..."\`).`;
+    }
+    return `target ${renderTargetLabel(result.unresolvedTargets[0] ?? "")} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
+  }
+  if (diagnostic?.state === "unavailable") {
+    const runtime = diagnostic.transport ? ` (${diagnostic.transport})` : "";
+    const wakePolicy = diagnostic.wakePolicy ? ` [wake:${diagnostic.wakePolicy}]` : "";
+    return `target ${renderTargetLabel(result.unresolvedTargets[0] ?? diagnostic.agentId)} is known but currently unavailable${runtime}${wakePolicy}; nothing was sent. ${diagnostic.detail}`;
+  }
+  if (diagnostic?.state === "invalid" || diagnostic?.state === "missing") {
+    return `${diagnostic.detail}; nothing was sent.`;
+  }
+
+  const rendered = result.unresolvedTargets
     .map(renderTargetLabel)
     .filter((label) => label.length > 0);
   if (rendered.length === 1) {
@@ -96,7 +124,7 @@ export async function runSendCommand(
     throw new Error("broker is not reachable");
   }
   if (result.unresolvedTargets.length > 0) {
-    throw new Error(formatScoutSendRoutingError(result.unresolvedTargets));
+    throw new Error(formatScoutSendRoutingError(result));
   }
   if (result.routingError) {
     throw new Error(formatScoutRouteChoiceError(result.routingError));

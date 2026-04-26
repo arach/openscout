@@ -47,7 +47,7 @@ export async function runBroadcastCommand(context: ScoutCommandContext, args: st
     throw new Error("broker is not reachable");
   }
   if (result.unresolvedTargets.length > 0) {
-    throw new Error(formatScoutSendRoutingError(result.unresolvedTargets));
+    throw new Error(formatScoutSendRoutingError(result));
   }
 
   context.output.writeValue(

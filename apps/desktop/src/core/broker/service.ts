@@ -28,6 +28,9 @@ import {
   type CollaborationRecord,
   type CollaborationWaitingOn,
   type MessageRecord,
+  type ScoutDeliverResponse,
+  type ScoutDispatchRecord,
+  type WakePolicy,
   type WorkItemRecord,
   type WorkItemState,
   normalizeAgentSelectorSegment,
@@ -131,12 +134,38 @@ export type ScoutMentionTarget = {
   selector: AgentSelector;
 };
 
+export type ScoutTargetDiagnostic =
+  | {
+      agentId: string;
+      state: AgentState | "discovered" | "unknown";
+      registrationKind: ScoutWhoRegistrationKind | null;
+      projectRoot: string | null;
+    }
+  | {
+      agentId: string;
+      state: "unavailable";
+      detail: string;
+      wakePolicy: WakePolicy | null;
+      transport: string | null;
+      projectRoot: string | null;
+    }
+  | {
+      state: "ambiguous";
+      candidates: ScoutAskAmbiguousCandidate[];
+    }
+  | {
+      state: "invalid" | "missing";
+      askedLabel: string;
+      detail: string;
+    };
+
 export type ScoutMessagePostResult = {
   usedBroker: boolean;
   conversationId?: string;
   messageId?: string;
   invokedTargets: string[];
   unresolvedTargets: string[];
+  targetDiagnostic?: ScoutTargetDiagnostic;
   routeKind?: "dm" | "channel" | "broadcast";
   routingError?:
     | "missing_destination"
@@ -149,6 +178,7 @@ export type ScoutStructuredMessagePostResult = {
   messageId?: string;
   invokedTargetIds: string[];
   unresolvedTargetIds: string[];
+  targetDiagnostic?: ScoutTargetDiagnostic;
   routeKind?: "dm" | "channel" | "broadcast";
   routingError?:
     | "missing_destination"
@@ -230,17 +260,7 @@ export type ScoutWorkItemUpdate = {
   source?: string;
 };
 
-export type ScoutAskTargetDiagnostic =
-  | {
-      agentId: string;
-      state: AgentState | "discovered" | "unknown";
-      registrationKind: ScoutWhoRegistrationKind | null;
-      projectRoot: string | null;
-    }
-  | {
-      state: "ambiguous";
-      candidates: ScoutAskAmbiguousCandidate[];
-    };
+export type ScoutAskTargetDiagnostic = ScoutTargetDiagnostic;
 
 export type ScoutAskAmbiguousCandidate = {
   agentId: string;
@@ -576,6 +596,58 @@ async function brokerPostJson<T>(
     );
   }
   return response.json() as Promise<T>;
+}
+
+function renderScoutTargetLabel(targetLabel: string): string {
+  const trimmed = targetLabel.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+}
+
+function scoutTargetDiagnosticFromDeliveryFailure(
+  delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>,
+): ScoutTargetDiagnostic | undefined {
+  const dispatch: ScoutDispatchRecord = delivery.kind === "question"
+    ? delivery.question
+    : delivery.rejection;
+
+  if (dispatch.kind === "ambiguous") {
+    return {
+      state: "ambiguous",
+      candidates: dispatch.candidates.map((candidate) => ({
+        agentId: candidate.agentId,
+        label: candidate.label,
+      })),
+    };
+  }
+  if (dispatch.kind === "unavailable" && dispatch.target) {
+    return {
+      agentId: dispatch.target.agentId,
+      state: "unavailable",
+      detail: dispatch.target.detail,
+      wakePolicy: dispatch.target.wakePolicy ?? null,
+      transport: dispatch.target.transport ?? null,
+      projectRoot: dispatch.target.projectRoot ?? null,
+    };
+  }
+  if (dispatch.kind === "unknown") {
+    return {
+      agentId: dispatch.askedLabel,
+      state: "unknown",
+      registrationKind: null,
+      projectRoot: null,
+    };
+  }
+  if (delivery.kind === "rejected" && dispatch.kind === "unparseable") {
+    return {
+      state: delivery.reason === "missing_target" ? "missing" : "invalid",
+      askedLabel: dispatch.askedLabel,
+      detail: dispatch.detail,
+    };
+  }
+  return undefined;
 }
 
 export async function readScoutBrokerHealth(
@@ -1910,108 +1982,84 @@ export async function sendScoutMessage(input: {
     input.senderId,
     currentDirectory,
   );
-
-  const requestedTargetLabel = input.targetLabel?.trim();
-  if (requestedTargetLabel) {
-    const targetResolution = await resolveSingleBrokerTarget(
-      broker.snapshot,
-      requestedTargetLabel,
-      currentDirectory,
-    );
-    if (targetResolution.kind !== "resolved") {
-      return {
-        usedBroker: true,
-        invokedTargets: [],
-        unresolvedTargets: [requestedTargetLabel],
-      };
-    }
-
-    const target = targetResolution.target;
-    const targetReady = await ensureTargetRelayAgentRegistered(
-      broker.baseUrl,
-      broker.snapshot,
-      broker.node.id,
-      target.agentId,
-      currentDirectory,
-    );
-    if (!targetReady || target.agentId === senderId) {
-      return {
-        usedBroker: true,
-        invokedTargets: [],
-        unresolvedTargets: [requestedTargetLabel],
-      };
-    }
-
-    let conversation: ScoutBrokerConversationRecord;
-    if (!input.channel) {
-      const dm = await ensureBrokerDirectConversationBetween(
-        broker.baseUrl,
-        broker.snapshot,
-        broker.node.id,
-        senderId,
-        target.agentId,
-      );
-      conversation = dm.conversation;
-    } else {
-      conversation = await ensureBrokerConversation(
-        broker.baseUrl,
-        broker.snapshot,
-        broker.node.id,
-        input.channel,
-        senderId,
-        [target.agentId],
-      );
-    }
-
-    const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const speechText = input.shouldSpeak
-      ? stripScoutAgentSelectorLabels(input.body)
-      : "";
-    const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
-      conversationId: conversation.id,
-      replyToMessageId: messageId,
-    });
-
-    await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
-      id: messageId,
-      conversationId: conversation.id,
-      actorId: senderId,
-      originNodeId: broker.node.id,
-      class: conversation.kind === "system" ? "system" : "agent",
-      body: input.body,
-      mentions: [{ actorId: target.agentId, label: target.label }],
-      speech: speechText ? { text: speechText } : undefined,
-      audience: {
-        notify: [target.agentId],
-        reason: relayAudienceReason(conversation),
-      },
-      visibility: conversation.visibility,
-      policy: "durable",
-      createdAt: createdAtMs,
-      metadata: {
-        source: "scout-cli",
-        relayChannel: relayChannelMetadata(conversation, input.channel),
-        relayTargetIds: [target.agentId],
-        relayMessageId: messageId,
-        returnAddress,
-      },
-    });
-
-    return {
-      usedBroker: true,
-      conversationId: conversation.id,
-      messageId,
-      invokedTargets: [target.agentId],
-      unresolvedTargets: [],
-      routeKind: relayRouteKind(conversation),
-    };
-  }
-
   const mentionResolution = await resolveMentionTargets(
     broker.snapshot,
     input.body,
     currentDirectory,
   );
+  const selectors = extractAgentSelectors(input.body);
+
+  const requestedTargetLabel = input.targetLabel?.trim();
+  if (requestedTargetLabel) {
+    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+      id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      requesterId: senderId,
+      requesterNodeId: broker.node.id,
+      targetLabel: requestedTargetLabel,
+      body: input.body,
+      intent: "tell",
+      channel: input.channel,
+      speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
+      createdAt: createdAtMs,
+      messageMetadata: {
+        source: "scout-cli",
+      },
+    });
+    if (delivery.kind !== "delivery") {
+      return {
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [requestedTargetLabel],
+        targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
+      };
+    }
+    return {
+      usedBroker: true,
+      conversationId: delivery.conversation.id,
+      messageId: delivery.message.id,
+      invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
+      unresolvedTargets: [],
+      routeKind: delivery.routeKind,
+    };
+  }
+
+  if (
+    selectors.length === 1
+    && mentionResolution.resolved.length + mentionResolution.unresolved.length + mentionResolution.ambiguous.length === 1
+  ) {
+    const targetLabel = selectors[0]!.label;
+    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+      id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      requesterId: senderId,
+      requesterNodeId: broker.node.id,
+      targetLabel,
+      body: input.body,
+      intent: "tell",
+      channel: input.channel,
+      speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
+      createdAt: createdAtMs,
+      messageMetadata: {
+        source: "scout-cli",
+      },
+    });
+    if (delivery.kind !== "delivery") {
+      return {
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [targetLabel],
+        targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
+      };
+    }
+    return {
+      usedBroker: true,
+      conversationId: delivery.conversation.id,
+      messageId: delivery.message.id,
+      invokedTargets: delivery.targetAgentId ? [delivery.targetAgentId] : [],
+      unresolvedTargets: [],
+      routeKind: delivery.routeKind,
+    };
+  }
+
   const availableTargets = (
     await Promise.all(
       mentionResolution.resolved.map(async (target) =>
@@ -2369,88 +2417,47 @@ export async function sendScoutDirectMessage(input: {
   source?: string;
   deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
-  const currentDirectory = input.currentDirectory ?? process.cwd();
-  const directSession = await openScoutPeerSession({
-    sourceId: OPERATOR_ID,
-    targetId: input.agentId,
-    currentDirectory,
-  });
   const broker = await requireScoutBrokerContext();
   const createdAt = Date.now();
-  const messageId = `msg-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const source = input.source?.trim() || "scout-mobile";
-  const targetAgentId = directSession.targetId;
-  const targetAgent =
-    broker.snapshot.agents[targetAgentId] ??
-    ("agent" in directSession ? directSession.agent : undefined);
-  const targetLabel = `@${targetAgent?.handle?.trim() || targetAgent?.displayName?.trim() || targetAgentId}`;
-  const returnAddress = buildScoutReturnAddress(broker.snapshot, OPERATOR_ID, {
-    conversationId: directSession.conversation.id,
-    replyToMessageId: messageId,
-  });
-
-  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
-    id: messageId,
-    conversationId: directSession.conversation.id,
-    replyToMessageId: input.replyToMessageId ?? undefined,
-    actorId: OPERATOR_ID,
-    originNodeId: broker.node.id,
-    class: "agent",
-    body: input.body.trim(),
-    mentions: [{ actorId: targetAgentId, label: targetLabel }],
-    audience: {
-      notify: [targetAgentId],
-      reason: "direct_message",
-    },
-    visibility: "private",
-    policy: "durable",
-    createdAt,
-    metadata: {
-      source,
-      destinationKind: "direct",
-      destinationId: targetAgentId,
-      referenceMessageIds: input.referenceMessageIds ?? [],
-      clientMessageId: input.clientMessageId ?? null,
-      returnAddress,
-      ...(input.deviceId ? { deviceId: input.deviceId } : {}),
-    },
-  });
-
-  const invocationResponse = await brokerPostJson<{
-    accepted: boolean;
-    invocationId: string;
-    flightId: string;
-    targetAgentId: string;
-    state: string;
-    flight: ScoutFlightRecord;
-  }>(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
-    id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: OPERATOR_ID,
     requesterNodeId: broker.node.id,
-    targetAgentId,
-    action: "consult",
-    task: input.body.trim(),
-    conversationId: directSession.conversation.id,
-    messageId,
+    targetAgentId: input.agentId,
+    body: input.body.trim(),
+    intent: "consult",
+    replyToMessageId: input.replyToMessageId ?? undefined,
     execution: input.executionHarness
       ? { harness: input.executionHarness }
       : undefined,
     ensureAwake: true,
-    stream: false,
     createdAt,
-    metadata: {
+    messageMetadata: {
       source,
       destinationKind: "direct",
-      destinationId: targetAgentId,
-      returnAddress,
+      destinationId: input.agentId,
+      referenceMessageIds: input.referenceMessageIds ?? [],
+      clientMessageId: input.clientMessageId ?? null,
+      ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+    },
+    invocationMetadata: {
+      source,
+      destinationKind: "direct",
+      destinationId: input.agentId,
       ...(input.deviceId ? { deviceId: input.deviceId } : {}),
     },
   });
+  if (delivery.kind !== "delivery") {
+    throw new Error(
+      delivery.kind === "question" ? delivery.question.detail : delivery.rejection.detail,
+    );
+  }
 
   return {
-    conversationId: directSession.conversation.id,
-    messageId,
-    flight: invocationResponse.flight,
+    conversationId: delivery.conversation.id,
+    messageId: delivery.message.id,
+    flight: delivery.flight,
   };
 }
 
@@ -2485,155 +2492,51 @@ export async function askScoutAgentById(input: {
   if (!targetAgentId) {
     return { usedBroker: true, unresolvedTargetId: input.targetAgentId };
   }
-
-  const targetLabel = formatBrokerTargetLabel(broker.snapshot, targetAgentId);
-  const target: ScoutMentionTarget = {
-    agentId: targetAgentId,
-    label: targetLabel,
-    selector: {
-      raw: targetLabel.replace(/^@/, ""),
-      label: targetLabel,
-      definitionId:
-        broker.snapshot.agents[targetAgentId]?.definitionId ??
-        metadataString(
-          broker.snapshot.agents[targetAgentId]?.metadata,
-          "definitionId",
-        ) ??
-        targetAgentId,
-      ...(broker.snapshot.agents[targetAgentId]?.workspaceQualifier
-        ? {
-            workspaceQualifier:
-              broker.snapshot.agents[targetAgentId]?.workspaceQualifier,
-          }
-        : {}),
-      ...(broker.snapshot.agents[targetAgentId]?.nodeQualifier
-        ? {
-            nodeQualifier: broker.snapshot.agents[targetAgentId]?.nodeQualifier,
-          }
-        : {}),
-    },
-  };
-
-  const targetReady = await ensureTargetRelayAgentRegistered(
-    broker.baseUrl,
-    broker.snapshot,
-    broker.node.id,
+  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    requesterId: senderId,
+    requesterNodeId: broker.node.id,
     targetAgentId,
-    currentDirectory,
-  );
-  if (!targetReady) {
+    body: input.body.trim(),
+    intent: "consult",
+    channel: input.channel,
+    speechText: input.shouldSpeak ? input.body.trim() : undefined,
+    execution: input.executionHarness
+      ? { harness: input.executionHarness }
+      : undefined,
+    ensureAwake: true,
+    createdAt: createdAtMs,
+    messageMetadata: {
+      source,
+    },
+    invocationMetadata: {
+      source,
+    },
+  });
+  if (delivery.kind !== "delivery") {
     return {
       usedBroker: true,
       unresolvedTargetId: targetAgentId,
-      targetDiagnostic: await describeScoutTargetAvailability(
-        broker.snapshot,
-        target,
-        currentDirectory,
-      ),
+      targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
     };
   }
-
-  let conversation: ScoutBrokerConversationRecord;
-  if (!input.channel) {
-    const dm = await ensureBrokerDirectConversationBetween(
-      broker.baseUrl,
-      broker.snapshot,
-      broker.node.id,
-      senderId,
-      targetAgentId,
-    );
-    conversation = dm.conversation;
-  } else {
-    conversation = await ensureBrokerConversation(
-      broker.baseUrl,
-      broker.snapshot,
-      broker.node.id,
-      input.channel,
-      senderId,
-      [targetAgentId],
-    );
-  }
-
-  const messageId = `m-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const speechText = input.shouldSpeak ? input.body.trim() : "";
-  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
-    conversationId: conversation.id,
-    replyToMessageId: messageId,
-  });
   const workItem = input.workItem
     ? await createScoutTrackedWorkItem({
         baseUrl: broker.baseUrl,
         senderId,
         targetAgentId,
-        conversationId: conversation.id,
+        conversationId: delivery.conversation.id,
         createdAtMs,
         source,
         workItem: input.workItem,
       })
     : undefined;
 
-  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
-    id: messageId,
-    conversationId: conversation.id,
-    actorId: senderId,
-    originNodeId: broker.node.id,
-    class: conversation.kind === "system" ? "system" : "agent",
-    body: input.body.trim(),
-    mentions: [{ actorId: targetAgentId, label: targetLabel }],
-    speech: speechText ? { text: speechText } : undefined,
-    audience: {
-      notify: [targetAgentId],
-      reason: relayAudienceReason(conversation),
-    },
-    visibility: conversation.visibility,
-    policy: "durable",
-    createdAt: createdAtMs,
-    metadata: {
-      source,
-      relayChannel: relayChannelMetadata(conversation, input.channel),
-      relayTarget: targetAgentId,
-      collaborationRecordId: workItem?.id,
-      returnAddress,
-    },
-  });
-
-  const invocationResponse = await brokerPostJson<{
-    accepted: boolean;
-    invocationId: string;
-    flightId: string;
-    targetAgentId: string;
-    state: string;
-    flight: ScoutFlightRecord;
-  }>(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
-    id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    requesterId: senderId,
-    requesterNodeId: broker.node.id,
-    targetAgentId,
-    action: "consult",
-    task: input.body.trim(),
-    collaborationRecordId: workItem?.id,
-    conversationId: conversation.id,
-    messageId,
-    execution: input.executionHarness
-      ? { harness: input.executionHarness }
-      : undefined,
-    ensureAwake: true,
-    stream: false,
-    createdAt: createdAtMs,
-    metadata: {
-      source,
-      relayChannel: relayChannelMetadata(conversation, input.channel),
-      relayTarget: targetAgentId,
-      collaborationRecordId: workItem?.id,
-      returnAddress,
-    },
-  });
-
   return {
     usedBroker: true,
-    flight: invocationResponse.flight,
-    conversationId: conversation.id,
-    messageId,
+    flight: delivery.flight,
+    conversationId: delivery.conversation.id,
+    messageId: delivery.message.id,
     workItem,
   };
 }
@@ -2661,153 +2564,60 @@ export async function askScoutQuestion(input: {
     input.senderId,
     currentDirectory,
   );
-
-  const targetResolution = await resolveSingleBrokerTarget(
-    broker.snapshot,
-    input.targetLabel,
-    currentDirectory,
-  );
-  if (targetResolution.kind === "ambiguous") {
-    return {
-      usedBroker: true,
-      unresolvedTarget: input.targetLabel,
-      targetDiagnostic: {
-        state: "ambiguous",
-        candidates: targetResolution.candidates,
-      },
-    };
-  }
-  if (targetResolution.kind !== "resolved") {
-    return { usedBroker: true, unresolvedTarget: input.targetLabel };
-  }
-  const target = targetResolution.target;
-  const targetReady = await ensureTargetRelayAgentRegistered(
-    broker.baseUrl,
-    broker.snapshot,
-    broker.node.id,
-    target.agentId,
-    currentDirectory,
-  );
-  if (!targetReady) {
-    return {
-      usedBroker: true,
-      unresolvedTarget: input.targetLabel,
-      targetDiagnostic: await describeScoutTargetAvailability(
-        broker.snapshot,
-        target,
-        currentDirectory,
-      ),
-    };
-  }
-
-  // Route to a DM conversation when the caller didn't pin an explicit channel.
-  // `scout ask --to dewey` reads as a pointed two-party exchange, not a broadcast.
-  let conversation: ScoutBrokerConversationRecord;
-  if (!input.channel) {
-    const dm = await ensureBrokerDirectConversationBetween(
-      broker.baseUrl,
-      broker.snapshot,
-      broker.node.id,
-      senderId,
-      target.agentId,
-    );
-    conversation = dm.conversation;
-  } else {
-    conversation = await ensureBrokerConversation(
-      broker.baseUrl,
-      broker.snapshot,
-      broker.node.id,
-      input.channel,
-      senderId,
-      [target.agentId],
-    );
-  }
-  const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const messageBody = input.body.trim().startsWith(target.label)
-    ? input.body.trim()
-    : `${target.label} ${input.body.trim()}`;
-  const speechText = input.shouldSpeak
-    ? stripScoutAgentSelectorLabels(messageBody)
-    : "";
   const createdAt = input.createdAtMs ?? Date.now();
-  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
-    conversationId: conversation.id,
-    replyToMessageId: messageId,
+  const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
+  const messageBody = input.body.trim().startsWith(normalizedTargetLabel)
+    ? input.body.trim()
+    : `${normalizedTargetLabel} ${input.body.trim()}`;
+  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    requesterId: senderId,
+    requesterNodeId: broker.node.id,
+    targetLabel: input.targetLabel,
+    body: messageBody,
+    intent: "consult",
+    channel: input.channel,
+    speechText: input.shouldSpeak
+      ? stripScoutAgentSelectorLabels(messageBody)
+      : undefined,
+    execution: input.executionHarness
+      ? { harness: input.executionHarness }
+      : undefined,
+    ensureAwake: true,
+    createdAt,
+    messageMetadata: {
+      source: "scout-cli",
+    },
+    invocationMetadata: {
+      source: "scout-cli",
+    },
   });
-  const workItem = input.workItem
+
+  if (delivery.kind !== "delivery") {
+    return {
+      usedBroker: true,
+      unresolvedTarget: input.targetLabel,
+      targetDiagnostic: scoutTargetDiagnosticFromDeliveryFailure(delivery),
+    };
+  }
+
+  const workItem = input.workItem && delivery.targetAgentId
     ? await createScoutTrackedWorkItem({
         baseUrl: broker.baseUrl,
         senderId,
-        targetAgentId: target.agentId,
-        conversationId: conversation.id,
+        targetAgentId: delivery.targetAgentId,
+        conversationId: delivery.conversation.id,
         createdAtMs: createdAt,
         source: "scout-cli",
         workItem: input.workItem,
       })
     : undefined;
 
-  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
-    id: messageId,
-    conversationId: conversation.id,
-    actorId: senderId,
-    originNodeId: broker.node.id,
-    class: conversation.kind === "system" ? "system" : "agent",
-    body: messageBody,
-    mentions: [{ actorId: target.agentId, label: target.label }],
-    speech: speechText ? { text: speechText } : undefined,
-    audience: {
-      notify: [target.agentId],
-      reason: relayAudienceReason(conversation),
-    },
-    visibility: conversation.visibility,
-    policy: "durable",
-    createdAt,
-    metadata: {
-      source: "scout-cli",
-      relayChannel: relayChannelMetadata(conversation, input.channel),
-      relayTarget: target.agentId,
-      collaborationRecordId: workItem?.id,
-      returnAddress,
-    },
-  });
-
-  const invocationResponse = await brokerPostJson<{
-    accepted: boolean;
-    invocationId: string;
-    flightId: string;
-    targetAgentId: string;
-    state: string;
-    flight: ScoutFlightRecord;
-  }>(broker.baseUrl, scoutBrokerPaths.v1.invocations, {
-    id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    requesterId: senderId,
-    requesterNodeId: broker.node.id,
-    targetAgentId: target.agentId,
-    action: "consult",
-    task: messageBody,
-    collaborationRecordId: workItem?.id,
-    conversationId: conversation.id,
-    messageId,
-    execution: input.executionHarness
-      ? { harness: input.executionHarness }
-      : undefined,
-    ensureAwake: true,
-    stream: false,
-    createdAt,
-    metadata: {
-      source: "scout-cli",
-      relayChannel: relayChannelMetadata(conversation, input.channel),
-      relayTarget: target.agentId,
-      collaborationRecordId: workItem?.id,
-      returnAddress,
-    },
-  });
-
   return {
     usedBroker: true,
-    flight: invocationResponse.flight,
-    conversationId: conversation.id,
-    messageId,
+    flight: delivery.flight,
+    conversationId: delivery.conversation.id,
+    messageId: delivery.message.id,
     workItem,
   };
 }

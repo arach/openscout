@@ -40,6 +40,7 @@ When the workspace is known and there is one intended recipient, do not burn ext
 - CLI ask: `scout ask --to x "msg"`
 - MCP tell: `messages_send` with `targetLabel`
 - MCP ask: `invocations_ask` with `targetLabel`
+- Known offline / on-demand agents are supposed to wake on first delivery. Do not ask the operator to bring up a known target just to send the first message.
 
 The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
 
@@ -248,16 +249,20 @@ Use typed qualifiers any time the user's request implies a specific harness or p
 
 ## Resolution rule
 
-Short `@name` only resolves when **exactly one matching agent is currently routable**.
+Short `@name` should resolve when the broker can map it to **exactly one known target**.
 
-If `scout send "@x ..."` returns `unresolvedTargets: ["@x"]`, the agent is not online.
+Offline / on-demand is still routable. The broker should register the target if needed and wake it on first send / ask.
 
-If the CLI reports multiple candidates, re-run with a typed qualifier. Options:
+If `scout send "@x ..."` or `scout ask --to x ...` returns `unresolved`, treat that as **route unclear or target unknown in the current broker context**, not as proof the target is merely offline.
 
-- Bring it up: `scout up <name-or-path>`
+If the CLI reports multiple candidates, re-run with a typed qualifier. If the route still fails, options are:
+
+- Inspect the route: `scout who`, `scout latest`, or `scout server open`
 - Disambiguate with a typed qualifier: `@x.harness:codex`
 - Use the full FQN: `@x.host.x-main-abc123`
-- Tell the user the target is offline before silently moving on
+- Create a fresh project-scoped identity when needed: `scout card create`
+- Use `scout up` only when you are explicitly prewarming a target or registering one the broker truly does not know yet
+- Tell the user the route is ambiguous or the target is unknown; do not ask them to manually bring up a known target just to deliver a message
 
 ## Decision rule
 

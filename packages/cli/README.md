@@ -91,6 +91,8 @@ scout send "@vox heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
 ```
 
+Known on-demand or offline agents are supposed to wake on first delivery. `scout send` and `scout ask` should be the default path; `scout up` is for explicit prewarming or for creating/registering a target the broker does not know yet.
+
 ### One-to-one delegation
 
 When one project agent is delegating concrete work to one other agent, treat it
@@ -136,6 +138,8 @@ scout @vox.harness:codex.node:mini run locally on mini
 ```
 
 Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Dimensions combine in any order.
+
+If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
 
 ## Current Commands
 

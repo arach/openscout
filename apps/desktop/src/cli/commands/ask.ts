@@ -93,6 +93,20 @@ export function formatScoutAskRoutingError(
     return `target ${renderedTarget} is offline; nothing was sent. Run \`scout who\` to inspect the target before retrying.`;
   }
 
+  if (diagnostic?.state === "unavailable") {
+    const runtime = diagnostic.transport ? ` (${diagnostic.transport})` : "";
+    const wakePolicy = diagnostic.wakePolicy ? ` [wake:${diagnostic.wakePolicy}]` : "";
+    return `target ${renderedTarget} is known but currently unavailable${runtime}${wakePolicy}; nothing was sent. ${diagnostic.detail}`;
+  }
+
+  if (diagnostic?.state === "unknown") {
+    return `there is no ${renderedTarget}; nothing was sent.`;
+  }
+
+  if (diagnostic?.state === "invalid" || diagnostic?.state === "missing") {
+    return `${diagnostic.detail}; nothing was sent.`;
+  }
+
   return `target ${renderedTarget} is not currently routable; nothing was sent.`;
 }
 
