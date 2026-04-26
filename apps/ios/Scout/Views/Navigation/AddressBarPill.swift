@@ -14,13 +14,13 @@ private func connectionStatusColor(health: BridgeHealthState, state: ConnectionS
     case .connected:
         switch displayHealth {
         case .suspect, .degraded: return ScoutColors.statusStreaming
-        case .healthy, .offline: return ScoutColors.statusActive
+        case .healthy, .tailscaleUnavailable, .offline: return ScoutColors.statusActive
         }
     case .connecting, .handshaking, .reconnecting: return ScoutColors.statusStreaming
     case .disconnected, .failed:
         switch displayHealth {
         case .suspect, .degraded: return ScoutColors.statusStreaming
-        case .healthy, .offline: return ScoutColors.statusError
+        case .healthy, .tailscaleUnavailable, .offline: return ScoutColors.statusError
         }
     }
 }
@@ -31,13 +31,13 @@ private func connectionLEDColor(health: BridgeHealthState, state: ConnectionStat
     case .connected:
         switch displayHealth {
         case .suspect, .degraded: return ScoutColors.ledAmber
-        case .healthy, .offline: return ScoutColors.ledGreen
+        case .healthy, .tailscaleUnavailable, .offline: return ScoutColors.ledGreen
         }
     case .connecting, .handshaking, .reconnecting: return ScoutColors.ledAmber
     case .disconnected, .failed:
         switch displayHealth {
         case .suspect, .degraded: return ScoutColors.ledAmber
-        case .healthy, .offline: return ScoutColors.ledRed
+        case .healthy, .tailscaleUnavailable, .offline: return ScoutColors.ledRed
         }
     }
 }
@@ -202,6 +202,7 @@ struct ConnectionStatusSheet: View {
         case .healthy: "Healthy"
         case .suspect: "Checking"
         case .degraded: "Degraded"
+        case .tailscaleUnavailable: "Tailscale Off"
         case .offline: "Offline"
         }
     }

@@ -1,5 +1,6 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
+import { resolveMessageBody } from "../input-file.ts";
 import { parseSendCommandOptions } from "../options.ts";
 import {
   acquireScoutOnAir,
@@ -21,10 +22,11 @@ export async function runSpeakCommand(context: ScoutCommandContext, args: string
   const senderId = await resolveScoutSenderId(options.agentName, currentDirectory, context.env);
   const config = await loadScoutRelayConfig();
   const voice = getScoutVoiceForChannel(config, "voice");
+  const body = await resolveMessageBody(options);
 
   await acquireScoutOnAir(senderId);
   try {
-    const clean = stripScoutAgentSelectorLabels(options.message);
+    const clean = stripScoutAgentSelectorLabels(body);
     if (clean) {
       await speakScoutText(clean, voice);
     }
@@ -34,7 +36,7 @@ export async function runSpeakCommand(context: ScoutCommandContext, args: string
 
   const result = await sendScoutMessage({
     senderId,
-    body: options.message,
+    body,
     channel: "voice",
     shouldSpeak: true,
     executionHarness: parseScoutHarness(options.harness),
@@ -50,7 +52,7 @@ export async function runSpeakCommand(context: ScoutCommandContext, args: string
 
   context.output.writeValue(
     {
-      message: options.message,
+      message: body,
       invokedTargets: result.invokedTargets,
       unresolvedTargets: result.unresolvedTargets,
     },

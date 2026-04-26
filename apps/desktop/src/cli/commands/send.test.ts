@@ -10,6 +10,7 @@ describe("renderSendCommandHelp", () => {
     expect(help).toContain("one explicit @agent + no channel   -> DM");
     expect(help).toContain("multiple targets + no channel      -> error");
     expect(help).toContain("Use `scout ask` when the meaning is \"do this and get back to me.\"");
+    expect(help).toContain("--message-file <path>");
   });
 });
 

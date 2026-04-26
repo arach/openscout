@@ -55,6 +55,7 @@ import {
   loadOpenScoutWebShellState,
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
+import { synthesizeVoxSpeech } from "./vox.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -661,6 +662,31 @@ export async function createOpenScoutWebServer(
     }
 
     return c.json(result);
+  });
+
+  app.post("/api/voice/speak", async (c) => {
+    const body = (await c.req.json()) as {
+      text?: string;
+      modelId?: string;
+      voiceId?: string;
+      speed?: number;
+    };
+    const text = body.text?.trim();
+    if (!text) {
+      return c.json({ error: "text is required" }, 400);
+    }
+
+    try {
+      return c.json(await synthesizeVoxSpeech({
+        text,
+        modelId: body.modelId,
+        voiceId: body.voiceId,
+        speed: body.speed,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Vox speech failed";
+      return c.json({ error: message }, 503);
+    }
   });
 
   app.get("/api/events", async (c) => {

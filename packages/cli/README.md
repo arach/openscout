@@ -93,6 +93,31 @@ scout ask --to vox "can you confirm the broker fix?"
 
 Known on-demand or offline agents are supposed to wake on first delivery. `scout send` and `scout ask` should be the default path; `scout up` is for explicit prewarming or for creating/registering a target the broker does not know yet.
 
+### File-backed input
+
+Use a file when the primary prompt or message is too large or too structured to
+belong in shell argv.
+
+Nomenclature:
+
+- **Prompt file**: the primary work prompt for `scout ask`; pass it with `--prompt-file <path>`.
+- **Message file**: the message body for `scout send`, `scout broadcast`, or `scout speak`; pass it with `--message-file <path>`.
+- **Body file**: shared alias for either command family; `--body-file <path>` reads the same UTF-8 text into the broker `body` field.
+
+Examples:
+
+```bash
+scout ask --to hudson --prompt-file ./handoff.md
+scout @hudson --prompt-file ./review-request.md
+scout send --channel triage --message-file ./status-update.md
+scout broadcast --message-file ./maintenance-window.md
+```
+
+The file is read locally before dispatch. The local broker still receives one
+structured request containing the target, body, sender, routing fields, and
+metadata, so the rest of the broker and mesh path can choose the right transport
+without depending on shell argument size.
+
 ### One-to-one delegation
 
 When one project agent is delegating concrete work to one other agent, treat it

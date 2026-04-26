@@ -1,6 +1,7 @@
 export * from "./protocol/primitives";
 export * from "./protocol/adapter";
 export * from "./protocol/approval-normalization";
+export * from "./protocol/cost";
 export { StateTracker } from "./state";
 export type { SessionState, SessionSummary, TurnState, BlockState } from "./state";
 export { OutboundBuffer } from "./buffer";

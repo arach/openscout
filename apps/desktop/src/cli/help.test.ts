@@ -11,6 +11,9 @@ describe("renderScoutHelp", () => {
     expect(help).toContain("Lifecycle:");
     expect(help).toContain("one target -> DM");
     expect(help).toContain("multiple targets + no channel");
+    expect(help).toContain("File-backed input:");
+    expect(help).toContain("--prompt-file");
+    expect(help).toContain("--message-file");
     expect(help).toContain("MCP parity:");
     expect(help).toContain("scout card create");
   });

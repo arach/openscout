@@ -208,7 +208,7 @@ struct ScoutBottomBar: View {
         )
         if connection.state != .connected { return true }
         switch displayHealth {
-        case .suspect, .degraded, .offline: return true
+        case .suspect, .degraded, .tailscaleUnavailable, .offline: return true
         case .healthy: return false
         }
     }
@@ -220,7 +220,7 @@ struct ScoutBottomBar: View {
         )
         switch displayHealth {
         case .suspect, .degraded: return ScoutColors.ledAmber
-        case .offline: return ScoutColors.ledRed
+        case .tailscaleUnavailable, .offline: return ScoutColors.ledRed
         default: break
         }
         switch connection.state {

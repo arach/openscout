@@ -60,9 +60,122 @@ const MESSAGE_ROUTING_ERROR_VALUES = [
   "multi_target_requires_explicit_channel",
 ] as const;
 const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex"] as const;
+export const SCOUT_MCP_UI_META_KEY = "openscout/ui";
 
 type SearchableAgentState = (typeof AGENT_STATE_VALUES)[number];
 type SearchRegistrationKind = (typeof REGISTRATION_KIND_VALUES)[number];
+
+type ScoutMcpToolIconMeta = {
+  kind: "semantic";
+  name: "agent";
+  fallbackGlyph: "@";
+};
+
+type ScoutMcpAgentAvatarMeta = {
+  kind: "agent-avatar";
+  monogramField: "displayName";
+  fallbackField: "handle";
+  colorSeedField: "agentId";
+  fallbackGlyph: "@";
+};
+
+export type ScoutMcpAgentPickerFieldMeta = {
+  kind: "agent-picker";
+  selection: "single" | "multiple";
+  sourceTool: "agents_search";
+  resolveTool?: "agents_resolve";
+  sourceArguments: {
+    query: { from: "value" };
+    currentDirectory: { fromToolArgument: "currentDirectory" };
+  };
+  resultPath: ["structuredContent", "candidates"];
+  valueField: "label" | "agentId";
+  labelField: "label";
+  descriptionField: "displayName";
+  badgeFields: ["harness", "workspace", "node"];
+  icon: ScoutMcpAgentAvatarMeta;
+  search: {
+    minQueryLength: 0;
+    debounceMs: 100;
+    cacheBy: ["currentDirectory"];
+  };
+};
+
+export type ScoutMcpToolUiMeta = {
+  icon: ScoutMcpToolIconMeta;
+  fields?: Record<string, ScoutMcpAgentPickerFieldMeta>;
+};
+
+const scoutAgentToolIconMeta: ScoutMcpToolIconMeta = {
+  kind: "semantic",
+  name: "agent",
+  fallbackGlyph: "@",
+};
+
+const scoutAgentAvatarMeta: ScoutMcpAgentAvatarMeta = {
+  kind: "agent-avatar",
+  monogramField: "displayName",
+  fallbackField: "handle",
+  colorSeedField: "agentId",
+  fallbackGlyph: "@",
+};
+
+// Host UIs can use this private extension to power live agent pickers until
+// MCP standardizes dynamic completion directly on tool arguments.
+function createAgentPickerFieldMeta(input: {
+  selection: "single" | "multiple";
+  valueField: "label" | "agentId";
+  resolveTool?: "agents_resolve";
+}): ScoutMcpAgentPickerFieldMeta {
+  return {
+    kind: "agent-picker",
+    selection: input.selection,
+    sourceTool: "agents_search",
+    resolveTool: input.resolveTool,
+    sourceArguments: {
+      query: { from: "value" },
+      currentDirectory: { fromToolArgument: "currentDirectory" },
+    },
+    resultPath: ["structuredContent", "candidates"],
+    valueField: input.valueField,
+    labelField: "label",
+    descriptionField: "displayName",
+    badgeFields: ["harness", "workspace", "node"],
+    icon: scoutAgentAvatarMeta,
+    search: {
+      minQueryLength: 0,
+      debounceMs: 100,
+      cacheBy: ["currentDirectory"],
+    },
+  };
+}
+
+function createToolUiMeta(fields?: Record<string, ScoutMcpAgentPickerFieldMeta>) {
+  const value: ScoutMcpToolUiMeta = {
+    icon: scoutAgentToolIconMeta,
+  };
+  if (fields && Object.keys(fields).length > 0) {
+    value.fields = fields;
+  }
+  return {
+    [SCOUT_MCP_UI_META_KEY]: value,
+  } satisfies Record<string, unknown>;
+}
+
+const targetLabelInputSchema = z
+  .string()
+  .describe("Scout agent handle to contact, such as @talkie")
+  .optional();
+
+const targetAgentIdInputSchema = z
+  .string()
+  .describe("Exact Scout agent id when already known, such as talkie.master.mini")
+  .optional();
+
+const mentionAgentIdsInputSchema = z
+  .array(z.string())
+  .describe("Exact Scout agent ids to target directly when you already know them")
+  .optional();
 
 export type ScoutMcpAgentCandidate = {
   agentId: string;
@@ -1133,7 +1246,10 @@ export function createScoutMcpServer(options: {
       description:
         "Search the live Scout broker and discovered agent inventory for @mention candidates. Use this after whoami when you know roughly who you need but do not yet have an exact handle.",
       inputSchema: z.object({
-        query: z.string().optional(),
+        query: z
+          .string()
+          .describe("Partial handle, label, or display name to search for")
+          .optional(),
         currentDirectory: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
       }),
@@ -1144,6 +1260,7 @@ export function createScoutMcpServer(options: {
         destructiveHint: false,
         openWorldHint: false,
       },
+      _meta: createToolUiMeta(),
     },
     async ({ query, currentDirectory, limit }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
@@ -1174,7 +1291,10 @@ export function createScoutMcpServer(options: {
       description:
         "Resolve one exact Scout agent handle or return ambiguity details. Use this before send or ask when a short handle may be ambiguous.",
       inputSchema: z.object({
-        label: z.string().min(1),
+        label: z
+          .string()
+          .min(1)
+          .describe("Scout agent handle or selector, such as @talkie"),
         currentDirectory: z.string().optional(),
       }),
       outputSchema: resolveResultSchema,
@@ -1184,6 +1304,7 @@ export function createScoutMcpServer(options: {
         destructiveHint: false,
         openWorldHint: false,
       },
+      _meta: createToolUiMeta(),
     },
     async ({ label, currentDirectory }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
@@ -1218,10 +1339,10 @@ export function createScoutMcpServer(options: {
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
-        targetLabel: z.string().optional(),
+        targetLabel: targetLabelInputSchema,
         channel: z.string().optional(),
         shouldSpeak: z.boolean().optional(),
-        mentionAgentIds: z.array(z.string()).optional(),
+        mentionAgentIds: mentionAgentIdsInputSchema,
       }),
       outputSchema: sendResultSchema,
       annotations: {
@@ -1230,6 +1351,17 @@ export function createScoutMcpServer(options: {
         destructiveHint: false,
         openWorldHint: false,
       },
+      _meta: createToolUiMeta({
+        targetLabel: createAgentPickerFieldMeta({
+          selection: "single",
+          valueField: "label",
+          resolveTool: "agents_resolve",
+        }),
+        mentionAgentIds: createAgentPickerFieldMeta({
+          selection: "multiple",
+          valueField: "agentId",
+        }),
+      }),
     },
     async ({
       body,
@@ -1350,8 +1482,8 @@ export function createScoutMcpServer(options: {
           body: z.string().min(1),
           currentDirectory: z.string().optional(),
           senderId: z.string().optional(),
-          targetAgentId: z.string().optional(),
-          targetLabel: z.string().optional(),
+          targetAgentId: targetAgentIdInputSchema,
+          targetLabel: targetLabelInputSchema,
           workItem: workItemInputSchema.optional(),
           channel: z.string().optional(),
           shouldSpeak: z.boolean().optional(),
@@ -1373,6 +1505,17 @@ export function createScoutMcpServer(options: {
         destructiveHint: false,
         openWorldHint: false,
       },
+      _meta: createToolUiMeta({
+        targetAgentId: createAgentPickerFieldMeta({
+          selection: "single",
+          valueField: "agentId",
+        }),
+        targetLabel: createAgentPickerFieldMeta({
+          selection: "single",
+          valueField: "label",
+          resolveTool: "agents_resolve",
+        }),
+      }),
     },
     async ({
       body,

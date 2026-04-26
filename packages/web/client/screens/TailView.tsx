@@ -7,11 +7,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { SlidePanel } from "../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
 import type {
+  Route,
   TailDiscoverySnapshot,
   TailEvent,
   TailEventKind,
@@ -64,7 +66,7 @@ function matchesFilter(event: TailEvent, query: string): boolean {
   return haystack.includes(query.toLowerCase());
 }
 
-export function TailView() {
+export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [filter, setFilter] = useState("");
@@ -165,6 +167,20 @@ export function TailView() {
       setPaused(true);
     }
   }, [paused]);
+
+  const focusFilter = useCallback((seed: string) => {
+    setFilter(seed);
+    setFilterOpen(true);
+    requestAnimationFrame(() => filterInputRef.current?.focus());
+  }, []);
+
+  const navigateToSession = useCallback(
+    (sessionId: string) => {
+      if (!sessionId || !navigate) return;
+      navigate({ view: "sessions", sessionId });
+    },
+    [navigate],
+  );
 
   const jumpToLive = useCallback(() => {
     const body = bodyRef.current;
@@ -271,6 +287,8 @@ export function TailView() {
               event={event}
               selected={selected?.id === event.id}
               onSelect={setSelected}
+              onProjectClick={focusFilter}
+              onSessionClick={navigateToSession}
             />
           ))
         )}
@@ -291,7 +309,12 @@ export function TailView() {
       </div>
 
       {selected && (
-        <TailDetailSheet event={selected} onClose={() => setSelected(null)} />
+        <TailDetailSheet
+          event={selected}
+          onClose={() => setSelected(null)}
+          onProjectClick={focusFilter}
+          onSessionClick={navigateToSession}
+        />
       )}
     </div>
   );
@@ -301,10 +324,14 @@ function TailRow({
   event,
   selected,
   onSelect,
+  onProjectClick,
+  onSessionClick,
 }: {
   event: TailEvent;
   selected: boolean;
   onSelect: (event: TailEvent) => void;
+  onProjectClick?: (project: string) => void;
+  onSessionClick?: (sessionId: string) => void;
 }) {
   const harnessClass = HARNESS_CLASS[event.harness];
   const harnessLabel = HARNESS_LABEL[event.harness];
@@ -326,15 +353,72 @@ function TailRow({
       <span className={`s-tail-chip s-tail-chip--source`}>{event.source}</span>
       <span className={`s-tail-chip ${harnessClass}`}>{harnessLabel}</span>
       <span className="s-tail-cell-context">
-        <strong>{event.project}</strong>
+        <TailLink
+          className="s-tail-link s-tail-link--project"
+          onClick={onProjectClick ? () => onProjectClick(event.project) : undefined}
+          title={`Filter to ${event.project}`}
+        >
+          <strong>{event.project}</strong>
+        </TailLink>
         {" · "}
-        {shortSession(event.sessionId)}
+        <TailLink
+          className="s-tail-link s-tail-link--session"
+          onClick={
+            onSessionClick && event.sessionId
+              ? () => onSessionClick(event.sessionId)
+              : undefined
+          }
+          title={event.sessionId ? `Open session ${event.sessionId}` : undefined}
+        >
+          {shortSession(event.sessionId)}
+        </TailLink>
         {" · "}
-        {event.pid}
+        <span className="s-tail-cell-pid" title={`pid ${event.pid}`}>{event.pid}</span>
       </span>
       <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
       <span className="s-tail-summary">{event.summary}</span>
     </div>
+  );
+}
+
+/**
+ * Inline hyperlink-style span. If `onClick` is provided, the span renders as a
+ * clickable element that swallows row-click propagation; otherwise it renders
+ * as plain text. Used so identifiers in a row (project, session) are
+ * navigable without conflicting with the row's open-detail click.
+ */
+function TailLink({
+  className,
+  onClick,
+  title,
+  children,
+}: {
+  className: string;
+  onClick?: () => void;
+  title?: string;
+  children: ReactNode;
+}) {
+  if (!onClick) return <span className={className} title={title}>{children}</span>;
+  return (
+    <span
+      className={`${className} s-tail-link--active`}
+      role="link"
+      tabIndex={0}
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClick();
+        }
+      }}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -388,7 +472,17 @@ function getContentBlocks(raw: unknown): ContentBlock[] | null {
   return null;
 }
 
-function TailDetailSheet({ event, onClose }: { event: TailEvent; onClose: () => void }) {
+function TailDetailSheet({
+  event,
+  onClose,
+  onProjectClick,
+  onSessionClick,
+}: {
+  event: TailEvent;
+  onClose: () => void;
+  onProjectClick?: (project: string) => void;
+  onSessionClick?: (sessionId: string) => void;
+}) {
   const [showRaw, setShowRaw] = useState(true);
   const harnessClass = HARNESS_CLASS[event.harness];
   const harnessLabel = HARNESS_LABEL[event.harness];
@@ -422,11 +516,31 @@ function TailDetailSheet({ event, onClose }: { event: TailEvent; onClose: () => 
           <section className="s-tail-sheet-section">
             <div className="s-tail-sheet-grid">
               <span className="s-tail-sheet-key">project</span>
-              <span className="s-tail-sheet-val">{event.project}</span>
+              <span className="s-tail-sheet-val">
+                <TailLink
+                  className="s-tail-link s-tail-link--project"
+                  onClick={onProjectClick ? () => onProjectClick(event.project) : undefined}
+                  title={`Filter to ${event.project}`}
+                >
+                  {event.project}
+                </TailLink>
+              </span>
               <span className="s-tail-sheet-key">cwd</span>
               <span className="s-tail-sheet-val s-tail-sheet-val--mono">{event.cwd || "—"}</span>
               <span className="s-tail-sheet-key">session</span>
-              <span className="s-tail-sheet-val s-tail-sheet-val--mono">{event.sessionId || "—"}</span>
+              <span className="s-tail-sheet-val s-tail-sheet-val--mono">
+                <TailLink
+                  className="s-tail-link s-tail-link--session"
+                  onClick={
+                    onSessionClick && event.sessionId
+                      ? () => onSessionClick(event.sessionId)
+                      : undefined
+                  }
+                  title={event.sessionId ? `Open session ${event.sessionId}` : undefined}
+                >
+                  {event.sessionId || "—"}
+                </TailLink>
+              </span>
               <span className="s-tail-sheet-key">pid</span>
               <span className="s-tail-sheet-val s-tail-sheet-val--mono">
                 {event.pid}

@@ -14,8 +14,27 @@ export type ScoutStatusBarState = {
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate, agents, reload, openSettings } = useScout();
+  const { navigate, agents, reload, openSettings, rangerConversationId, applyRangerUiAction } = useScout();
   const opsEnabled = isOpsEnabled();
+
+  const askRangerForState = useCallback(async () => {
+    try {
+      const result = await api<{ conversationId?: string }>("/api/ask", {
+        method: "POST",
+        body: JSON.stringify({
+          conversationId: rangerConversationId,
+          body: "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.",
+        }),
+      });
+      navigate({
+        view: "conversation",
+        conversationId: result.conversationId ?? rangerConversationId,
+        composeMode: "ask",
+      });
+    } catch {
+      navigate({ view: "conversation", conversationId: rangerConversationId, composeMode: "ask" });
+    }
+  }, [navigate, rangerConversationId]);
 
   const interruptAgent = useCallback(async (agentId: string) => {
     await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
@@ -75,6 +94,21 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+,",
       },
       {
+        id: "ranger:open",
+        label: "Open Ranger",
+        action: () => navigate({ view: "conversation", conversationId: rangerConversationId, composeMode: "ask" }),
+      },
+      {
+        id: "ranger:state",
+        label: "Ask Ranger for State",
+        action: () => void askRangerForState(),
+      },
+      {
+        id: "ranger:ops-tail",
+        label: "Ranger: Open Ops Tail",
+        action: () => applyRangerUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } }),
+      },
+      {
         id: "nav:pair",
         label: "Pair Device",
         action: () => openSettings(),
@@ -123,7 +157,7 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, interruptAgent, navigate, opsEnabled, reload]);
+  }, [agents, applyRangerUiAction, askRangerForState, interruptAgent, navigate, opsEnabled, rangerConversationId, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {
@@ -237,14 +271,24 @@ export function useScoutNavCenter(): ReactNode | null {
 
 /* ── useNavActions — "Pair device" button ──────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
-  const { openSettings } = useScout();
-  return createElement(
-    "button",
-    {
-      onClick: () => openSettings(),
-      className: "scout-nav-action",
-    },
-    "Pair device",
+  const { openSettings, navigate, rangerConversationId } = useScout();
+  return createElement("div", { className: "scout-nav-actions" },
+    createElement(
+      "button",
+      {
+        onClick: () => navigate({ view: "conversation", conversationId: rangerConversationId, composeMode: "ask" }),
+        className: "scout-nav-action scout-nav-action--ranger",
+      },
+      "Ranger",
+    ),
+    createElement(
+      "button",
+      {
+        onClick: () => openSettings(),
+        className: "scout-nav-action",
+      },
+      "Pair device",
+    ),
   );
 }
 

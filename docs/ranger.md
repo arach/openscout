@@ -70,3 +70,33 @@ The stable contract is:
 - Scout owns routing, state, and interoperability.
 - Ranger owns orchestration policy and operator-facing judgment.
 - Harness adapters own execution details for Codex, Claude, local shells, rented cloud instances, sandboxes, or clusters.
+
+## Web App Contract
+
+The web app should always offer Ranger as a global operator surface, independent of the current screen. The right inspector hosts the persistent Ranger panel, and top-nav/command-palette actions open the Ranger DM or ask for a state readout.
+
+Ranger can also request UI setup by sending a fenced `scout-ui` JSON action in its reply:
+
+````
+```scout-ui
+{"type":"navigate","route":{"view":"ops","mode":"tail"}}
+```
+````
+
+Supported actions:
+
+- `navigate` with a whitelisted OpenScout route, such as `{"view":"fleet"}` or `{"view":"ops","mode":"tail"}`.
+- `open-ranger` with optional `mode: "ask"` to bring the Ranger DM forward.
+- `refresh` to reload web-visible broker state.
+
+This keeps Ranger's UI control explicit and auditable: natural-language replies do not move the app unless they include the structured action block.
+
+## Voice Mode
+
+OpenScout voice mode uses Vox:
+
+- browser STT calls Vox Companion's local HTTP bridge at `127.0.0.1:43115`
+- web TTS calls the OpenScout server, which talks to Vox's local JSON-RPC runtime and returns playable audio
+- if Vox is unavailable, the UI degrades to launch/settings guidance instead of blocking Ranger
+
+The initial voice path is Ranger-first: speech is transcribed into an Ask, and optional spoken replies synthesize Ranger messages through Vox.

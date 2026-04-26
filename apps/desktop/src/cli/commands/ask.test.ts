@@ -9,6 +9,7 @@ describe("renderAskCommandHelp", () => {
     expect(help).toContain("Ask one agent to do work or return a concrete answer.");
     expect(help).toContain("one target + no channel            -> DM");
     expect(help).toContain("Use ask when the meaning is \"do this and get back to me.\"");
+    expect(help).toContain("--prompt-file <path>");
   });
 });
 

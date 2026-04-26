@@ -213,6 +213,53 @@
   font-weight: 500;
 }
 
+.s-tail-cell-pid {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline hyperlink-style text within rows + sheet meta. Only acquires
+ * hover/click affordances when the wrapping span is interactive
+ * (.s-tail-link--active is added by <TailLink> when a click handler is
+ * present). Static occurrences stay flat so non-clickable values don't
+ * tease the reader. */
+.s-tail-link {
+  display: inline;
+}
+
+.s-tail-link--active {
+  cursor: pointer;
+  border-radius: 2px;
+  transition: color 100ms ease-out, background 100ms ease-out;
+  text-decoration: none;
+}
+
+.s-tail-link--active:hover,
+.s-tail-link--active:focus-visible {
+  outline: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.s-tail-link--project.s-tail-link--active strong,
+.s-tail-link--project.s-tail-link--active {
+  color: color-mix(in srgb, var(--accent) 70%, var(--ink) 30%);
+}
+
+.s-tail-link--project.s-tail-link--active:hover strong,
+.s-tail-link--project.s-tail-link--active:hover {
+  color: var(--accent);
+}
+
+.s-tail-link--session.s-tail-link--active {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted) 30%);
+}
+
+.s-tail-link--session.s-tail-link--active:hover {
+  color: var(--accent);
+}
+
 .s-tail-glyph {
   color: var(--muted);
   text-align: center;

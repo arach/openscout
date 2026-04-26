@@ -3,17 +3,21 @@ import "./ops-screen.css";
 import { useScout } from "../scout/Provider.tsx";
 import { ConductorView } from "./ConductorView.tsx";
 import { MissionControlView } from "./MissionControlView.tsx";
+import { OpsAgentsView } from "./OpsAgentsView.tsx";
 import { PlanView } from "./PlanView.tsx";
+import { AtopView } from "./AtopView.tsx";
 import { TailView } from "./TailView.tsx";
 import { WarRoomView } from "./WarRoomView.tsx";
 import type { OpsMode, Route } from "../lib/types.ts";
 
 const TABS: { id: OpsMode; label: string }[] = [
   { id: "mission", label: "Mission Control" },
+  { id: "agents", label: "Agents" },
   { id: "plan", label: "Plan" },
   { id: "conductor", label: "Conductor" },
   { id: "warroom", label: "War Room" },
   { id: "tail", label: "Tail" },
+  { id: "atop", label: "Atop" },
 ];
 
 export function OpsScreen({
@@ -43,10 +47,12 @@ export function OpsScreen({
       </div>
       <div className="s-ops-body">
         {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
+        {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}
         {mode === "plan" && <PlanView navigate={navigate} agents={agents} />}
         {mode === "conductor" && <ConductorView navigate={navigate} agents={agents} />}
         {mode === "warroom" && <WarRoomView navigate={navigate} agents={agents} />}
-        {mode === "tail" && <TailView />}
+        {mode === "tail" && <TailView navigate={navigate} />}
+        {mode === "atop" && <AtopView />}
       </div>
     </div>
   );

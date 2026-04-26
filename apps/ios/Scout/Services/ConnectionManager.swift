@@ -43,6 +43,7 @@ enum BridgeHealthState: Sendable, Equatable {
     case healthy
     case suspect
     case degraded
+    case tailscaleUnavailable
     case offline
 }
 
@@ -52,12 +53,69 @@ func normalizedConnectionDisplayHealth(
 ) -> BridgeHealthState {
     switch state {
     case .connected:
-        return health == .offline ? .healthy : health
+        return (health == .offline || health == .tailscaleUnavailable) ? .healthy : health
     case .connecting, .handshaking, .reconnecting:
         return health == .offline ? .suspect : health
     case .disconnected, .failed:
         return health
     }
+}
+
+func relayURLIndicatesLocalOnlyTailscaleRoute(_ rawValue: String) -> Bool {
+    guard let host = URLComponents(string: rawValue)?.host?.lowercased() else {
+        return false
+    }
+    return isLocalOnlyRelayHost(host)
+}
+
+func relayURLUsesTailnetRoute(_ rawValue: String) -> Bool {
+    guard let host = URLComponents(string: rawValue)?.host?.lowercased() else {
+        return false
+    }
+    return isTailnetRelayHost(host)
+}
+
+func relayURLDependsOnTailscale(_ rawValue: String) -> Bool {
+    relayURLIndicatesLocalOnlyTailscaleRoute(rawValue) || relayURLUsesTailnetRoute(rawValue)
+}
+
+func isTailscaleRouteNetworkFailure(_ error: Error) -> Bool {
+    guard let urlError = error as? URLError else {
+        return false
+    }
+
+    switch urlError.code {
+    case .cannotFindHost,
+         .cannotConnectToHost,
+         .dnsLookupFailed,
+         .networkConnectionLost,
+         .notConnectedToInternet,
+         .timedOut:
+        return true
+    default:
+        return false
+    }
+}
+
+private func isLocalOnlyRelayHost(_ host: String) -> Bool {
+    host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "0.0.0.0"
+}
+
+private func isTailnetRelayHost(_ host: String) -> Bool {
+    host.hasSuffix(".ts.net") || isTailscaleAddress(host)
+}
+
+private func isTailscaleAddress(_ host: String) -> Bool {
+    let components = host.split(separator: ".")
+    guard components.count == 4,
+          let first = Int(components[0]),
+          let second = Int(components[1]) else {
+        return false
+    }
+    return first == 100 && (64...127).contains(second)
 }
 
 // MARK: - Errors
@@ -70,6 +128,7 @@ enum ConnectionError: LocalizedError, Sendable {
     case invalidQRPayload(String)
     case bridgeOffline
     case relayUnavailable
+    case tailscaleUnavailable
     case reconnectExhausted
     case encodingFailed
     case decodingFailed(String)
@@ -91,6 +150,8 @@ enum ConnectionError: LocalizedError, Sendable {
             return "Scout on your Mac appears to be offline"
         case .relayUnavailable:
             return "Scout can't reach the relay right now"
+        case .tailscaleUnavailable:
+            return "Scout is not connected to Tailscale. Open Tailscale on this iPhone and make sure your Mac is connected to the same tailnet, then retry."
         case .reconnectExhausted:
             return "Reconnect attempts exhausted"
         case .encodingFailed:
@@ -111,6 +172,8 @@ extension Error {
                 return "Your Mac looks offline or asleep. Open Scout on your Mac or wake it, then try again. Cached sessions on this iPhone stay available read-only."
             case .relayUnavailable:
                 return "Scout can't reach the relay right now. Check your network connection and try again."
+            case .tailscaleUnavailable:
+                return "Scout is not connected to Tailscale. Open Tailscale on this iPhone and make sure your Mac is connected to the same tailnet, then retry."
             case .notConnected:
                 return "Scout isn't connected to your Mac right now. Reconnect and try again."
             case .rpcTimeout:
@@ -277,7 +340,7 @@ final class ConnectionManager: @unchecked Sendable {
                     symbol: "exclamationmark.triangle",
                     allowsRetry: true
                 )
-            case .healthy, .offline:
+            case .healthy, .tailscaleUnavailable, .offline:
                 break
             }
             return ConnectionStatusDetails(
@@ -296,6 +359,9 @@ final class ConnectionManager: @unchecked Sendable {
                 allowsRetry: false
             )
         case .reconnecting(let attempt):
+            if displayHealth == .tailscaleUnavailable {
+                return tailscaleUnavailableStatusDetails(allowsRetry: false)
+            }
             let attemptSuffix = attempt > 1 ? " Attempt \(attempt) of \(Self.maxReconnectAttempts)." : ""
             return ConnectionStatusDetails(
                 shortLabel: "Reconnecting",
@@ -322,6 +388,8 @@ final class ConnectionManager: @unchecked Sendable {
                     symbol: "exclamationmark.triangle",
                     allowsRetry: true
                 )
+            case .tailscaleUnavailable:
+                return tailscaleUnavailableStatusDetails()
             case .offline:
                 return ConnectionStatusDetails(
                     shortLabel: "Mac Offline",
@@ -351,6 +419,8 @@ final class ConnectionManager: @unchecked Sendable {
                         symbol: "wifi.exclamationmark",
                         allowsRetry: true
                     )
+                case .tailscaleUnavailable:
+                    return tailscaleUnavailableStatusDetails()
                 case .rpcTimeout:
                     return ConnectionStatusDetails(
                         shortLabel: "Checking Mac",
@@ -396,6 +466,16 @@ final class ConnectionManager: @unchecked Sendable {
                 allowsRetry: hasTrustedBridge
             )
         }
+    }
+
+    private func tailscaleUnavailableStatusDetails(allowsRetry: Bool = true) -> ConnectionStatusDetails {
+        ConnectionStatusDetails(
+            shortLabel: "Tailscale Off",
+            title: "Not Connected to Tailscale",
+            message: "Scout cannot reach the Tailscale route for your Mac. Open Tailscale on this iPhone and make sure your Mac is connected to the same tailnet, then retry.",
+            symbol: "network.slash",
+            allowsRetry: allowsRetry
+        )
     }
 
     private var currentTrustedBridge: TrustedBridge? {
@@ -618,9 +698,23 @@ final class ConnectionManager: @unchecked Sendable {
                 throw ConnectionError.invalidQRPayload("Invalid bridge public key length")
             }
 
+            var roomId = qrPayload.room
+            let resolvedRoom = await resolveRoom(relayURL: qrPayload.relay, publicKeyHex: qrPayload.publicKey)
+            switch resolvedRoom {
+            case .resolved(let resolvedRoomId):
+                roomId = resolvedRoomId
+            case .tailscaleUnavailable:
+                transitionHealth(to: .tailscaleUnavailable)
+                throw ConnectionError.tailscaleUnavailable
+            case .bridgeOffline:
+                throw ConnectionError.bridgeOffline
+            case .relayUnavailable:
+                break
+            }
+
             let remoteKey = try await performConnection(
                 relayURL: qrPayload.relay,
-                roomId: qrPayload.room,
+                roomId: roomId,
                 remoteStaticKey: nil // XX pattern — no prior key
             )
 
@@ -637,7 +731,7 @@ final class ConnectionManager: @unchecked Sendable {
 
             let info = BridgeConnectionInfo(
                 relayURL: qrPayload.relay,
-                roomId: qrPayload.room,
+                roomId: roomId,
                 publicKeyHex: publicKeyHex
             )
             saveConnectionInfo(info)
@@ -659,8 +753,19 @@ final class ConnectionManager: @unchecked Sendable {
             await runRecovery()
 
         } catch {
-            setState(.failed(error))
-            throw error
+            let reportedError: Error = relayURLIndicatesLocalOnlyTailscaleRoute(qrPayload.relay)
+                ? ConnectionError.tailscaleUnavailable
+                : error
+            if let connectionError = reportedError as? ConnectionError {
+                switch connectionError {
+                case .tailscaleUnavailable:
+                    transitionHealth(to: .tailscaleUnavailable)
+                default:
+                    break
+                }
+            }
+            setState(.failed(reportedError))
+            throw reportedError
         }
     }
 
@@ -737,6 +842,16 @@ final class ConnectionManager: @unchecked Sendable {
             let resolvedRoom = await resolveRoom(relayURL: info.relayURL, publicKeyHex: info.publicKeyHex)
 
             switch resolvedRoom {
+            case .tailscaleUnavailable:
+                Self.logger.notice("Resolve could not reach the Tailscale route")
+                transitionHealth(to: .tailscaleUnavailable)
+                if attempt < Self.maxReconnectAttempts {
+                    let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
+                    try? await Task.sleep(for: .seconds(backoff))
+                    continue
+                }
+                setState(.failed(ConnectionError.tailscaleUnavailable))
+                return
             case .bridgeOffline:
                 Self.logger.notice("Resolve returned 404 — bridge offline")
                 transitionHealth(to: .degraded)
@@ -803,12 +918,13 @@ final class ConnectionManager: @unchecked Sendable {
         Self.logger.error("All reconnect attempts exhausted — bridge appears offline")
         let generation = beginHealthProbeGeneration()
         await runHealthProbe(reason: "reconnect_exhausted", generation: generation)
-        setState(.failed(ConnectionError.bridgeOffline))
+        setState(.failed(health == .tailscaleUnavailable ? ConnectionError.tailscaleUnavailable : ConnectionError.bridgeOffline))
     }
 
     /// Resolve the bridge's current room ID via the relay's POST /resolve endpoint.
     private enum ResolveRoomResult: Sendable {
         case resolved(String)
+        case tailscaleUnavailable
         case bridgeOffline
         case relayUnavailable
     }
@@ -822,6 +938,7 @@ final class ConnectionManager: @unchecked Sendable {
     private enum MachineProbeResult: Sendable {
         case bridgeConnected
         case bridgeAbsent
+        case tailscaleUnavailable
         case unreachable
     }
 
@@ -836,6 +953,7 @@ final class ConnectionManager: @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 3
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(["bridgePublicKey": publicKeyHex])
 
@@ -861,6 +979,9 @@ final class ConnectionManager: @unchecked Sendable {
             }
         } catch {
             Self.logger.error("Room resolve request failed: \(error.localizedDescription, privacy: .public)")
+            if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
+                return .tailscaleUnavailable
+            }
             return .relayUnavailable
         }
     }
@@ -899,6 +1020,9 @@ final class ConnectionManager: @unchecked Sendable {
             }
             return .bridgeAbsent
         } catch {
+            if relayURLDependsOnTailscale(info.relayURL) && isTailscaleRouteNetworkFailure(error) {
+                return .tailscaleUnavailable
+            }
             return .unreachable
         }
     }
@@ -938,6 +1062,10 @@ final class ConnectionManager: @unchecked Sendable {
                     Self.logger.notice("Health probe found reachable machine but absent bridge")
                     return
                 }
+            case .tailscaleUnavailable:
+                transitionHealth(to: .tailscaleUnavailable)
+                Self.logger.notice("Health probe could not reach the Tailscale route")
+                return
             case .unreachable:
                 consecutiveMachineProbeFailures += 1
                 if consecutiveMachineProbeFailures >= 2 {

@@ -9,6 +9,7 @@ describe("broadcast command helpers", () => {
 
     expect(help).toContain("Broadcast to channel.shared.");
     expect(help).toContain("Do not use broadcast for ordinary one-to-one delegation");
+    expect(help).toContain("--message-file <path>");
   });
 
   test("rejects an explicit channel override", async () => {

@@ -1,5 +1,6 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
+import { resolveMessageBody } from "../input-file.ts";
 import { parseSendCommandOptions } from "../options.ts";
 import {
   parseScoutHarness,
@@ -13,7 +14,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderSendCommandHelp(): string {
   return [
-    "Usage: scout send [--as <sender>] [--channel <name>] [--speak] [--harness <runtime>] <message>",
+    "Usage: scout send [--as <sender>] [--channel <name>] [--speak] [--harness <runtime>] [--message-file <path> | <message>]",
     "",
     "Tell or update another agent or an explicit channel.",
     "",
@@ -26,8 +27,14 @@ export function renderSendCommandHelp(): string {
     "Use send for heads-up, replies, and status updates.",
     "Use `scout ask` when the meaning is \"do this and get back to me.\"",
     "",
+    "Input:",
+    "  inline message                    -> message body",
+    "  --message-file <path>             -> read the message body from a UTF-8 file",
+    "  --body-file <path>                -> alias for --message-file",
+    "",
     "Examples:",
     '  scout send "@hudson ready for review"',
+    "  scout send --channel triage --message-file ./status.md",
     '  scout send --as premotion.master.mini "@hudson editor branch is green"',
     '  scout send --channel triage "need two reviewers"',
   ].join("\n");
@@ -111,9 +118,10 @@ export async function runSendCommand(
     currentDirectory,
     context.env,
   );
+  const body = await resolveMessageBody(options);
   const result = await sendScoutMessage({
     senderId,
-    body: options.message,
+    body,
     channel: options.channel,
     shouldSpeak: options.shouldSpeak,
     executionHarness: parseScoutHarness(options.harness),
@@ -134,7 +142,7 @@ export async function runSendCommand(
     {
       senderId,
       conversationId: result.conversationId,
-      message: options.message,
+      message: body,
       invokedTargets: result.invokedTargets,
       unresolvedTargets: result.unresolvedTargets,
       routeKind: result.routeKind,

@@ -1,29 +1,48 @@
+import type { ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
 import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
 import { FleetInspector } from "../inspector/FleetInspector.tsx";
 import { HomeAgentsInspector } from "../inspector/HomeAgentsInspector.tsx";
 import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
 import { WorkInspector } from "../inspector/WorkInspector.tsx";
+import { RangerPanel } from "../ranger/RangerPanel.tsx";
 
 export function ScoutInspector() {
   const { route } = useScout();
 
+  let content: ReactNode = null;
+
   switch (route.view) {
     case "inbox":
-      return <HomeAgentsInspector />;
+      content = <HomeAgentsInspector />;
+      break;
     case "agents":
     case "agent-info":
-      return <AgentsInspector />;
+      content = <AgentsInspector />;
+      break;
     case "fleet":
-      return <FleetInspector />;
+      content = <FleetInspector />;
+      break;
     case "sessions":
     case "conversation":
-      return <SessionsInspector />;
+      content = <SessionsInspector />;
+      break;
     case "work":
-      return <WorkInspector />;
+      content = <WorkInspector />;
+      break;
     case "ops":
-      return null;
+      content = null;
+      break;
     default:
-      return null;
+      content = null;
   }
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <RangerPanel />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {content}
+      </div>
+    </div>
+  );
 }

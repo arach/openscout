@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import {
+  SCOUT_MCP_UI_META_KEY,
   createScoutMcpServer,
   type ScoutMcpAgentCandidate,
 } from "./scout-mcp.ts";
@@ -99,6 +100,107 @@ describe("createScoutMcpServer", () => {
       .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)
       .toContain("progress, waiting, review, and done transitions");
+  });
+
+  test("advertises host-consumable agent picker metadata for Scout routing fields", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.listTools();
+    const sendTool = result.tools.find((tool) => tool.name === "messages_send") as
+      | {
+          _meta?: Record<string, unknown>;
+          inputSchema?: {
+            properties?: Record<string, { description?: string }>;
+          };
+        }
+      | undefined;
+    const askTool = result.tools.find((tool) => tool.name === "invocations_ask") as
+      | {
+          _meta?: Record<string, unknown>;
+          inputSchema?: {
+            properties?: Record<string, { description?: string }>;
+          };
+        }
+      | undefined;
+
+    expect(sendTool?._meta).toMatchObject({
+      [SCOUT_MCP_UI_META_KEY]: {
+        icon: {
+          kind: "semantic",
+          name: "agent",
+          fallbackGlyph: "@",
+        },
+        fields: {
+          targetLabel: {
+            kind: "agent-picker",
+            selection: "single",
+            sourceTool: "agents_search",
+            resolveTool: "agents_resolve",
+            valueField: "label",
+            labelField: "label",
+            descriptionField: "displayName",
+          },
+          mentionAgentIds: {
+            kind: "agent-picker",
+            selection: "multiple",
+            sourceTool: "agents_search",
+            valueField: "agentId",
+          },
+        },
+      },
+    });
+    expect(askTool?._meta).toMatchObject({
+      [SCOUT_MCP_UI_META_KEY]: {
+        fields: {
+          targetAgentId: {
+            kind: "agent-picker",
+            selection: "single",
+            sourceTool: "agents_search",
+            valueField: "agentId",
+          },
+          targetLabel: {
+            kind: "agent-picker",
+            selection: "single",
+            sourceTool: "agents_search",
+            resolveTool: "agents_resolve",
+            valueField: "label",
+          },
+        },
+      },
+    });
+    expect(sendTool?.inputSchema?.properties?.targetLabel?.description).toBe(
+      "Scout agent handle to contact, such as @talkie",
+    );
+    expect(askTool?.inputSchema?.properties?.targetAgentId?.description).toBe(
+      "Exact Scout agent id when already known, such as talkie.master.mini",
+    );
   });
 
   test("surfaces broker-backed search results", async () => {

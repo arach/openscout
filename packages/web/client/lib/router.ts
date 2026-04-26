@@ -84,7 +84,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
       mode === "warroom" ||
       mode === "plan" ||
       mode === "mission" ||
-      mode === "tail"
+      mode === "agents" ||
+      mode === "tail" ||
+      mode === "atop"
     ) {
       return { view: "ops", mode };
     }
