@@ -9,6 +9,7 @@ import {
   buildControlPlaneClientAndCopy,
   bundleScoutControlPlaneWebServerBun,
   getOpenScoutRepoRoot,
+  verifyBundleStaticChecks,
 } from "../../../scripts/bundle-scout-web.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -66,3 +67,9 @@ const normalized = built
 
 writeFileSync(outputFile, `#!/usr/bin/env bun\n${normalized}`);
 chmodSync(outputFile, 0o755);
+
+for (const built of [outputFile, pairSupervisorOutput]) {
+  if (!verifyBundleStaticChecks(built)) {
+    process.exit(1);
+  }
+}

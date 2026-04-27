@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, openSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -375,13 +377,21 @@ async function openBrowser(url: string): Promise<void> {
   });
 }
 
+function resolveScoutWebServerLogPath(): string {
+  const dir = join(homedir(), ".scout", "logs");
+  mkdirSync(dir, { recursive: true });
+  return join(dir, "web-server.log");
+}
+
 async function spawnDetachedServer(entry: string, env: NodeJS.ProcessEnv): Promise<void> {
   const bunExecutable = resolveBunExecutable(env);
+  const logPath = resolveScoutWebServerLogPath();
+  const logFd = openSync(logPath, "a");
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn(bunExecutable, ["run", entry], {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
       env,
       windowsHide: true,
     });
@@ -432,7 +442,9 @@ async function waitForScoutServer(
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
   }
 
-  throw new ScoutCliError(`timed out waiting for ${renderModeLabel(mode)} on port ${port}`);
+  throw new ScoutCliError(
+    `timed out waiting for ${renderModeLabel(mode)} on port ${port}; check ${resolveScoutWebServerLogPath()} for the child process output`,
+  );
 }
 
 async function openScoutServer(options: {
