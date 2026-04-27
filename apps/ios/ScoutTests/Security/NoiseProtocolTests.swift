@@ -515,4 +515,15 @@ final class NoiseProtocolTests: XCTestCase {
         XCTAssertTrue(url!.absoluteString.contains("room=my-room-id"))
         XCTAssertTrue(url!.absoluteString.contains("role=client"))
     }
+
+    func testQRPayloadFallbackRelays() throws {
+        let json = """
+        {"v":1,"relay":"ws://192.168.1.10:7889","fallbackRelays":["wss://mac.tailnet.ts.net:7889"],"room":"my-room-id","publicKey":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789","expiresAt":9999999999999}
+        """
+        let payload = try QRPayload.parse(from: json)
+        XCTAssertEqual(payload.orderedRelayURLs, [
+            "ws://192.168.1.10:7889",
+            "wss://mac.tailnet.ts.net:7889"
+        ])
+    }
 }

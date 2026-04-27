@@ -59,6 +59,7 @@
 		A6C0D4FC3028FA5637640C66 /* SessionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51A81D21A37B458E927F61B /* SessionCache.swift */; };
 		A724E9F833E30B8FB02BAE08 /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37636DE22FF7F77AF5813D8D /* AgentDetailView.swift */; };
 		A8FBB96BCACD70C0303EC45D /* RPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D678FD46C36DEE704DF0493 /* RPC.swift */; };
+		B0A1E2C3D4F5061728394A5B /* BonjourRelayDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A1E2C3D4F5061728394A5C /* BonjourRelayDiscovery.swift */; };
 		B9CFB0140672C58FAEFE1006 /* SpectatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4CD2CFB1F49E1F0686A585 /* SpectatorView.swift */; };
 		C4CA05A67798BC75878B8B88 /* HarnessPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1C776B815385FC3B788C76 /* HarnessPickerView.swift */; };
 		C5AAC1B07CC4593997CC7A1E /* ActionBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71846F0D3DB3191ABB98ECAB /* ActionBlockView.swift */; };
@@ -148,6 +149,7 @@
 		9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashCatcher.swift; sourceTree = "<group>"; };
 		9D6165FD7CA7E5F70CAD1284 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		A156270D797264F0441EF34B /* TurnHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnHashTests.swift; sourceTree = "<group>"; };
+		B0A1E2C3D4F5061728394A5C /* BonjourRelayDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourRelayDiscovery.swift; sourceTree = "<group>"; };
 		B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		B99060478E7E956242D977B5 /* InboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxStore.swift; sourceTree = "<group>"; };
 		C06649F0636F0648AB140561 /* Primitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Primitives.swift; sourceTree = "<group>"; };
@@ -218,6 +220,7 @@
 		20420D1AD5DE18B3D0ED20EC /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				B0A1E2C3D4F5061728394A5C /* BonjourRelayDiscovery.swift */,
 				B2EA750A0F55A9FC1B40E156 /* ConnectionManager.swift */,
 				9CF5798C218C705DF9DE1998 /* CrashCatcher.swift */,
 				B99060478E7E956242D977B5 /* InboxStore.swift */,
@@ -584,6 +587,7 @@
 				1BF5B43FCC85EB3FAD07F724 /* AllSessionsGridView.swift in Sources */,
 				CBCE2EADF2F6B1EDB5DF3CC0 /* AppStoreScreenshotMode.swift in Sources */,
 				97F9CF6388F7B35B757675B2 /* BlockView.swift in Sources */,
+				B0A1E2C3D4F5061728394A5B /* BonjourRelayDiscovery.swift in Sources */,
 				105F24BC57F5A44E8AA397E7 /* ComposerView.swift in Sources */,
 				928B8FEA4EA1A6731D9F468F /* ConnectionManager.swift in Sources */,
 				717B115B4EF3038DDA164F8A /* ContentView.swift in Sources */,

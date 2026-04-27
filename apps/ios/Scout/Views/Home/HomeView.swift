@@ -1,6 +1,6 @@
 // HomeView — Landing surface replacing SessionListView.
 //
-// Sections: bridge status bar, shortcuts, active sessions, recent history.
+// Sections: bridge status bar, shortcuts, and live bridge sessions.
 
 import SwiftUI
 
@@ -57,22 +57,15 @@ struct HomeView: View {
     }
 
     private var surfacedSummaries: [SessionSummary] {
-        // Three-state gate:
-        // 1. Disconnected → show everything including cached (best-effort content)
-        // 2. Connected, live list not yet received → show ONLY cached sessions.
-        //    Streaming applyEvent calls add live sessions one-by-one before the
-        //    full reconcileLiveSummaries arrives, causing a single-row flash.
-        //    Keeping those hidden until we have the complete list avoids the jump.
-        // 3. Connected + live list received → show only confirmed-live sessions.
-        let source: [SessionSummary]
-        if !isConnected {
-            source = store.summaries
-        } else if !store.hasReceivedLiveList {
-            source = store.summaries.filter { $0.isCachedOnly }
-        } else {
-            source = store.summaries.filter { !$0.isCachedOnly }
+        // Home mirrors the connected bridge surface. Cached-only sessions belong
+        // in Saved Sessions, not in the primary list that disappears after sync.
+        guard isConnected, store.hasReceivedLiveList else {
+            return []
         }
-        return source.sorted { $0.lastActivityAt > $1.lastActivityAt }
+
+        return store.summaries
+            .filter { !$0.isCachedOnly }
+            .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
     private var filteredSummaries: [SessionSummary] {
@@ -99,10 +92,6 @@ struct HomeView: View {
         surfacedSummaries.filter { summary in
             !activeSummaries.contains(where: { $0.sessionId == summary.sessionId })
         }
-    }
-
-    private var cachedSummaryCount: Int {
-        store.summaries.filter(\.isCachedOnly).count
     }
 
     var body: some View {
@@ -173,11 +162,6 @@ struct HomeView: View {
         }
         .refreshable {
             await refreshSessions()
-        }
-        .task {
-            if !isConnected && store.summaries.isEmpty {
-                await refreshSessions()
-            }
         }
         .task(id: isConnected) {
             guard isConnected else { return }
@@ -271,19 +255,8 @@ struct HomeView: View {
             let count = liveSummaries.count
             return count == 0 ? "connected" : "\(count) session\(count == 1 ? "" : "s")"
         default:
-            if cachedSummaryCount > 0,
-               connection.state != .connecting,
-               connection.state != .handshaking,
-               !matchesReconnectingState(connection.state) {
-                return "\(cachedSummaryCount) cached"
-            }
             return connection.statusDetails.shortLabel.lowercased()
         }
-    }
-
-    private func matchesReconnectingState(_ state: ConnectionState) -> Bool {
-        if case .reconnecting = state { return true }
-        return false
     }
 
     // MARK: - Search Bar

@@ -45,6 +45,18 @@ enum TurnHash {
         }
     }
 
+    static func droppingTrailingLocalOnlyUserTurns(from snapshot: SessionState) -> SessionState {
+        var normalized = normalize(snapshot)
+        while let lastTurn = normalized.turns.last, isLocalOnlyUserTurn(lastTurn) {
+            normalized.turns.removeLast()
+        }
+        return normalized
+    }
+
+    private static func isLocalOnlyUserTurn(_ turn: TurnState) -> Bool {
+        turn.isUserTurn == true && turn.id.hasPrefix("user-")
+    }
+
     private static func canonicalBlockPayload(for block: Block) -> [String: Any] {
         var payload: [String: Any] = [
             "type": block.type.rawValue,

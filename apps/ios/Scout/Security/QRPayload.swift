@@ -14,6 +14,9 @@ struct QRPayload: Codable, Sendable {
     /// Relay WebSocket URL.
     let relay: String
 
+    /// Additional relay WebSocket URLs to try after the primary URL.
+    let fallbackRelays: [String]?
+
     /// Room ID on the relay (UUID).
     let room: String
 
@@ -76,6 +79,11 @@ extension QRPayload {
         queryItems.append(URLQueryItem(name: "role", value: "client"))
         components?.queryItems = queryItems
         return components?.url
+    }
+
+    /// Relay URLs in the order the app should attempt them.
+    var orderedRelayURLs: [String] {
+        deduplicatedRelayURLs(primary: relay, fallbacks: fallbackRelays ?? [])
     }
 
     /// Expiry date.

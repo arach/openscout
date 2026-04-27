@@ -2,6 +2,7 @@ import {
   PAIRING_QR_TTL_MS,
   resolvedPairingConfig,
 } from "./runtime/config.ts";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { renderQRCode } from "./runtime/bridge/qr.ts";
 import { startManagedRelay, type StartedManagedRelay } from "./runtime/relay-runtime.ts";
 import {
@@ -28,6 +29,7 @@ import {
 
 const SCOUT_PAIR_REFRESH_LEEWAY_MS = 30_000;
 const SCOUT_PAIR_RESTART_DELAY_MS = 2_000;
+const BONJOUR_SERVICE_TYPE = "_scout-pair._tcp";
 
 type SupervisorState = {
   current: PairingRuntimeSnapshot;
@@ -36,6 +38,11 @@ type SupervisorState = {
   intentionalStop: boolean;
   runtime: StartedPairingRuntime | null;
   relay: StartedManagedRelay | null;
+  bonjour: BonjourAdvertisement | null;
+};
+
+type BonjourAdvertisement = {
+  stop: () => void;
 };
 
 export async function runScoutPairingSupervisor(): Promise<void> {
@@ -66,6 +73,7 @@ export async function runScoutPairingSupervisor(): Promise<void> {
     intentionalStop: false,
     runtime: null,
     relay: null,
+    bonjour: null,
   };
 
   const shutdown = async () => {
@@ -98,6 +106,8 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
   const config = resolvedPairingConfig();
   const relayPort = config.port + 1;
   const resolvedRelayUrl = config.relay?.trim() || null;
+  const identity = loadOrCreateIdentity();
+  const publicKeyHex = bytesToHex(identity.publicKey);
 
   writeCurrent(state, {
     status: "starting",
@@ -112,13 +122,28 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
   const emitStatus = createStatusWriter(state);
 
   try {
-    const activeRelayUrl = resolvedRelayUrl ?? (() => {
+    const managedRelay = resolvedRelayUrl ? null : (() => {
       state.relay = startManagedRelay(relayPort);
-      return state.relay.relayUrl;
+      return state.relay;
     })();
+    const activeRelayUrl = resolvedRelayUrl ?? managedRelay?.relayUrl;
+    const connectRelayUrl = resolvedRelayUrl ?? managedRelay?.connectUrl ?? managedRelay?.relayUrl;
+    if (!activeRelayUrl || !connectRelayUrl) {
+      throw new Error("Scout pairing relay URL is not configured.");
+    }
+
+    state.bonjour = managedRelay
+      ? startBonjourRelayAdvertisement({
+          port: relayPort,
+          relayUrl: activeRelayUrl,
+          publicKeyHex,
+        })
+      : null;
 
     state.runtime = await startPairingRuntime({
-      relayUrl: activeRelayUrl,
+      relayUrl: connectRelayUrl,
+      advertisedRelayUrl: activeRelayUrl,
+      fallbackRelayUrls: managedRelay?.fallbackRelayUrls,
       relayEvents: {
         onConnecting() {
           emitStatus("connecting", `Connecting to ${activeRelayUrl}`);
@@ -143,7 +168,6 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
       throw new Error("Scout pairing runtime did not produce a QR payload.");
     }
 
-    const identity = loadOrCreateIdentity();
     writeCurrent(state, {
       status: "connecting",
       statusLabel: "Pairing Ready",
@@ -160,7 +184,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
       },
       childPid: null,
     }, {
-      identityFingerprint: bytesToHex(identity.publicKey).slice(0, 16),
+      identityFingerprint: publicKeyHex.slice(0, 16),
       trustedPeerCount: trustedPeerCount(),
     });
 
@@ -248,6 +272,11 @@ function clearRefreshTimer(state: SupervisorState): void {
 
 async function stopSupervisorRuntime(state: SupervisorState): Promise<void> {
   try {
+    state.bonjour?.stop();
+  } catch {
+    // noop
+  }
+  try {
     await state.runtime?.stop();
   } catch {
     // noop
@@ -259,6 +288,66 @@ async function stopSupervisorRuntime(state: SupervisorState): Promise<void> {
   }
   state.runtime = null;
   state.relay = null;
+  state.bonjour = null;
+}
+
+function startBonjourRelayAdvertisement(input: {
+  port: number;
+  relayUrl: string;
+  publicKeyHex: string;
+}): BonjourAdvertisement | null {
+  if (process.platform !== "darwin") {
+    return null;
+  }
+
+  const scheme = relayScheme(input.relayUrl);
+  const fingerprint = input.publicKeyHex.slice(0, 16);
+  const serviceName = `OpenScout ${fingerprint}`;
+  const args = [
+    "-R",
+    serviceName,
+    BONJOUR_SERVICE_TYPE,
+    "local.",
+    String(input.port),
+    "v=1",
+    `pk=${input.publicKeyHex}`,
+    `fp=${fingerprint}`,
+    `scheme=${scheme}`,
+  ];
+
+  let processRef: ChildProcessWithoutNullStreams | null = null;
+  try {
+    processRef = spawn("/usr/bin/dns-sd", args, { stdio: "ignore" });
+    processRef.on("error", (error) => {
+      console.warn(`[pairing] bonjour advertisement failed: ${error.message}`);
+    });
+    processRef.on("exit", (code, signal) => {
+      if (code !== 0 && signal !== "SIGTERM") {
+        console.warn(`[pairing] bonjour advertisement exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
+      }
+    });
+    console.log(`[pairing] bonjour advertising ${serviceName} on ${BONJOUR_SERVICE_TYPE} port ${input.port}`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`[pairing] bonjour advertisement unavailable: ${detail}`);
+    return null;
+  }
+
+  return {
+    stop() {
+      processRef?.kill("SIGTERM");
+      processRef = null;
+    },
+  };
+}
+
+function relayScheme(relayUrl: string): "ws" | "wss" {
+  try {
+    const protocol = new URL(relayUrl).protocol;
+    return protocol === "wss:" ? "wss" : "ws";
+  } catch {
+    return relayUrl.startsWith("wss://") ? "wss" : "ws";
+  }
 }
 
 function writeCurrent(

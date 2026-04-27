@@ -22,7 +22,7 @@ struct TimelineView: View {
     @State private var isHydrating = true
     @State private var isOpeningWebHandoff = false
     @State private var webHandoffError: String?
-    @State private var sessionWebHandoff: SecureBridgeWebSurface?
+    @State private var sessionWebHandoff: BridgeWebSurface?
     @Namespace private var bottomAnchor
 
     private var sessionState: SessionState? {
@@ -172,7 +172,7 @@ struct TimelineView: View {
             requestFocusedRefresh(for: 20, forceRestart: true)
         }
         .fullScreenCover(item: $sessionWebHandoff) { handoff in
-            SecureBridgeHandoffView(surface: handoff)
+            BridgeWebHandoffView(surface: handoff)
         }
     }
 
@@ -181,9 +181,15 @@ struct TimelineView: View {
         do {
             guard try await verifyLatestTurnBeforeSending() else { return }
 
-            let turnId = "user-\(UUID().uuidString)"
+            let prompt = Prompt(
+                sessionId: sessionId,
+                text: request.text,
+                providerOptions: promptProviderOptions(for: request)
+            )
+            let result = try await connection.sendPrompt(prompt)
+            let turnId = result.messageId
             let userBlock = Block(
-                id: UUID().uuidString,
+                id: "\(turnId):body",
                 turnId: turnId,
                 type: .text,
                 status: .completed,
@@ -198,14 +204,8 @@ struct TimelineView: View {
                 isUserTurn: true
             )
             store.appendLocalTurn(userTurn, sessionId: sessionId)
-
-            let prompt = Prompt(
-                sessionId: sessionId,
-                text: request.text,
-                providerOptions: promptProviderOptions(for: request)
-            )
-            try await connection.sendPrompt(prompt)
             shouldAutoScroll = true
+            await refreshTimeline(showSpinner: false, reportErrors: false)
             requestFocusedRefresh(for: 30, forceRestart: true)
             sendError = nil
         } catch {
@@ -222,13 +222,22 @@ struct TimelineView: View {
 
         let localState = store.sessions[sessionId] ?? SessionCache.shared.load(sessionId: sessionId)
         let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
-        guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
-            store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
-            sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
-            return false
+        if TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) {
+            return true
         }
 
-        return true
+        if let localState,
+           TurnHash.latestTurnsMatch(
+               local: TurnHash.droppingTrailingLocalOnlyUserTurns(from: localState),
+               remote: remoteSnapshot
+           ) {
+            store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
+            return true
+        }
+
+        store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
+        sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
+        return false
     }
 
     @MainActor
@@ -255,15 +264,15 @@ struct TimelineView: View {
     private var webHandoffStrip: some View {
         VStack(spacing: 0) {
             HStack(spacing: ScoutSpacing.sm) {
-                Image(systemName: "lock.desktopcomputer")
+                Image(systemName: "macwindow")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(ScoutColors.accent)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("SECURE WEB")
+                    Text("WEB PREVIEW")
                         .font(ScoutTypography.code(10, weight: .semibold))
                         .foregroundStyle(ScoutColors.textMuted)
-                    Text("Open a proxy-backed web playback surface for this session.")
+                    Text("Open this session in a Mac-served web preview.")
                         .font(ScoutTypography.caption(12))
                         .foregroundStyle(ScoutColors.textSecondary)
                 }
@@ -309,7 +318,7 @@ struct TimelineView: View {
         guard connection.state == .connected else { return }
         guard let host = connection.bridgeHost,
               let port = connection.bridgePort else {
-            webHandoffError = "Reconnect to open the secure web surface."
+            webHandoffError = "Reconnect to open the web preview."
             return
         }
 
@@ -321,8 +330,8 @@ struct TimelineView: View {
                 kind: .session,
                 sessionId: sessionId
             )
-            guard let surface = SecureBridgeWebSurface(handoff: handoff, host: host, port: port) else {
-                webHandoffError = "Scout couldn't prepare this web surface right now."
+            guard let surface = BridgeWebSurface(handoff: handoff, host: host, port: port) else {
+                webHandoffError = "Scout couldn't prepare this web preview right now."
                 return
             }
             sessionWebHandoff = surface

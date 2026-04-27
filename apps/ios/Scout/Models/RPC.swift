@@ -274,6 +274,11 @@ struct MobileSendMessageParams: Codable, Sendable {
     var harness: String?
 }
 
+struct MobileSendMessageResult: Codable, Sendable {
+    let conversationId: String
+    let messageId: String
+}
+
 enum MobileWebHandoffKind: String, Codable, Sendable {
     case session
     case fileChange = "file_change"

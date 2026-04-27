@@ -59,6 +59,8 @@ export function createPairingAdapterRegistry(configAdapters?: Record<string, Ada
 
 export async function startPairingRuntime(options?: {
   relayUrl?: string | null;
+  advertisedRelayUrl?: string | null;
+  fallbackRelayUrls?: string[];
   relayEvents?: PairingRuntimeEvents;
 }) : Promise<StartedPairingRuntime> {
   const config = resolveConfig();
@@ -86,6 +88,8 @@ export async function startPairingRuntime(options?: {
 
   const relayConnection = connectToRelay(relayUrl, identity, bridge, {
     secure: true,
+    publicRelayUrl: options?.advertisedRelayUrl ?? undefined,
+    fallbackRelayUrls: options?.fallbackRelayUrls,
     events: options?.relayEvents,
   });
 

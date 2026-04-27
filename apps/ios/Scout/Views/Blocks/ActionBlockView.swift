@@ -15,7 +15,7 @@ struct ActionBlockView: View {
     @State private var decisionError: String?
     @State private var isOpeningWebHandoff = false
     @State private var webHandoffError: String?
-    @State private var fileChangeWebHandoff: SecureBridgeWebSurface?
+    @State private var fileChangeWebHandoff: BridgeWebSurface?
 
     private var action: Action? { block.action }
     private var kind: ActionKind { action?.kind ?? .command }
@@ -112,7 +112,7 @@ struct ActionBlockView: View {
                             ProgressView()
                                 .controlSize(.mini)
                         } else {
-                            Label("Open Secure Web View", systemImage: "lock.desktopcomputer")
+                            Label("Open Web Preview", systemImage: "macwindow")
                         }
                     }
                     .buttonStyle(.bordered)
@@ -132,7 +132,7 @@ struct ActionBlockView: View {
         }
         .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
         .fullScreenCover(item: $fileChangeWebHandoff) { handoff in
-            SecureBridgeHandoffView(surface: handoff)
+            BridgeWebHandoffView(surface: handoff)
         }
     }
 
@@ -489,7 +489,7 @@ struct ActionBlockView: View {
         guard connection.state == .connected else { return }
         guard let host = connection.bridgeHost,
               let port = connection.bridgePort else {
-            webHandoffError = "Reconnect to open the secure web surface."
+            webHandoffError = "Reconnect to open the web preview."
             return
         }
 
@@ -503,8 +503,8 @@ struct ActionBlockView: View {
                 turnId: block.turnId,
                 blockId: block.id
             )
-            guard let surface = SecureBridgeWebSurface(handoff: handoff, host: host, port: port) else {
-                webHandoffError = "Scout couldn't prepare this web surface right now."
+            guard let surface = BridgeWebSurface(handoff: handoff, host: host, port: port) else {
+                webHandoffError = "Scout couldn't prepare this web preview right now."
                 return
             }
             fileChangeWebHandoff = surface

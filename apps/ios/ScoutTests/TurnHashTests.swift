@@ -136,6 +136,60 @@ final class TurnHashTests: XCTestCase {
         XCTAssertTrue(TurnHash.latestTurnsMatch(local: local, remote: sameRemote))
         XCTAssertFalse(TurnHash.latestTurnsMatch(local: local, remote: differentRemote))
     }
+
+    func testDroppingTrailingLocalOnlyUserTurnsRepairsFailedOptimisticSend() {
+        let bridgeTurn = TurnState(
+            id: "turn-a",
+            status: .completed,
+            blocks: [
+                BlockState(
+                    block: Block(
+                        id: "block-a",
+                        turnId: "turn-a",
+                        type: .text,
+                        status: .completed,
+                        index: 0,
+                        text: "Bridge state"
+                    ),
+                    status: .completed
+                ),
+            ],
+            startedAt: 1
+        )
+        let failedLocalTurn = TurnState(
+            id: "user-failed-send",
+            status: .completed,
+            blocks: [
+                BlockState(
+                    block: Block(
+                        id: "block-local",
+                        turnId: "user-failed-send",
+                        type: .text,
+                        status: .completed,
+                        index: 0,
+                        text: "testing 1, 2, 1, 2"
+                    ),
+                    status: .completed
+                ),
+            ],
+            startedAt: 2,
+            isUserTurn: true
+        )
+        let local = SessionState(
+            session: Session(id: "session-1", name: "Test", adapterType: "codex", status: .active),
+            turns: [bridgeTurn, failedLocalTurn],
+            currentTurnId: nil
+        )
+        let remote = SessionState(
+            session: Session(id: "session-1", name: "Test", adapterType: "codex", status: .active),
+            turns: [bridgeTurn],
+            currentTurnId: nil
+        )
+
+        let repairedLocal = TurnHash.droppingTrailingLocalOnlyUserTurns(from: local)
+
+        XCTAssertTrue(TurnHash.latestTurnsMatch(local: repairedLocal, remote: remote))
+    }
 }
 
 final class ScoutMarkdownParserTests: XCTestCase {

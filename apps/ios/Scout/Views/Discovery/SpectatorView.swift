@@ -46,7 +46,7 @@ struct SpectatorView: View {
                     BridgeWebUnavailableView(
                         icon: "wifi.slash",
                         title: "Not connected to bridge",
-                        subtitle: "Reconnect to open this web surface."
+                        subtitle: "Reconnect to open this web preview."
                     )
                 }
 
@@ -125,7 +125,7 @@ struct SpectatorView: View {
     }
 }
 
-struct SecureBridgeWebSurface: Identifiable {
+struct BridgeWebSurface: Identifiable {
     let id: String
     let title: String
     let request: URLRequest
@@ -145,8 +145,8 @@ struct SecureBridgeWebSurface: Identifiable {
     }
 }
 
-struct SecureBridgeHandoffView: View {
-    let surface: SecureBridgeWebSurface
+struct BridgeWebHandoffView: View {
+    let surface: BridgeWebSurface
 
     @Environment(\.dismiss) private var dismiss
 
@@ -168,7 +168,7 @@ struct SecureBridgeHandoffView: View {
                 BridgeWebSurfaceStateView(
                     isLoading: isLoading,
                     errorMessage: loadError,
-                    loadingLabel: "Opening secure web surface..."
+                    loadingLabel: "Opening web preview..."
                 )
             }
             .navigationTitle(surface.title)
@@ -253,8 +253,8 @@ struct BridgeWebView: UIViewRepresentable {
                 Task { @MainActor in
                     parent.isLoading = false
                     parent.errorMessage = response.statusCode == 401
-                        ? "The secure handoff expired. Stay on the native surface and try again if needed."
-                        : "Scout couldn't load this web surface right now."
+                        ? "This web preview link expired. Stay in the app and try again if needed."
+                        : "Scout couldn't load this web preview right now."
                 }
                 decisionHandler(.cancel)
                 return
@@ -266,7 +266,7 @@ struct BridgeWebView: UIViewRepresentable {
             guard !shouldIgnoreNavigationError(error) else { return }
             Task { @MainActor in
                 parent.isLoading = false
-                parent.errorMessage = "Scout couldn't load this web surface right now."
+                parent.errorMessage = "Scout couldn't load this web preview right now."
             }
         }
 
@@ -274,7 +274,7 @@ struct BridgeWebView: UIViewRepresentable {
             guard !shouldIgnoreNavigationError(error) else { return }
             Task { @MainActor in
                 parent.isLoading = false
-                parent.errorMessage = "Scout couldn't load this web surface right now."
+                parent.errorMessage = "Scout couldn't load this web preview right now."
             }
         }
 

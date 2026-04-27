@@ -24,10 +24,10 @@ final class ConnectionStatusPresentationTests: XCTestCase {
         )
     }
 
-    func testLocalOnlyRelayUrlIsReportedAsTailscaleDependent() {
+    func testLocalOnlyRelayUrlIsNotReportedAsTailscaleDependent() {
         XCTAssertTrue(relayURLIndicatesLocalOnlyTailscaleRoute("ws://127.0.0.1:7889"))
         XCTAssertTrue(relayURLIndicatesLocalOnlyTailscaleRoute("ws://localhost:7889"))
-        XCTAssertTrue(relayURLDependsOnTailscale("ws://127.0.0.1:7889"))
+        XCTAssertFalse(relayURLDependsOnTailscale("ws://127.0.0.1:7889"))
     }
 
     func testTailnetRelayUrlIsReportedAsTailscaleDependent() {
@@ -39,6 +39,24 @@ final class ConnectionStatusPresentationTests: XCTestCase {
     func testOrdinaryRelayUrlIsNotReportedAsTailscaleDependent() {
         XCTAssertFalse(relayURLDependsOnTailscale("wss://relay.example.com:443"))
         XCTAssertFalse(relayURLDependsOnTailscale("ws://192.168.1.10:7889"))
+    }
+
+    func testOrderedRelayUrlsPreferPrimaryAndDeduplicateFallbacks() {
+        XCTAssertEqual(
+            deduplicatedRelayURLs(
+                primary: " ws://192.168.1.10:7889 ",
+                fallbacks: [
+                    "wss://mac.tailnet.ts.net:7889",
+                    "ws://192.168.1.10:7889",
+                    "",
+                    "wss://mac.tailnet.ts.net:7889"
+                ]
+            ),
+            [
+                "ws://192.168.1.10:7889",
+                "wss://mac.tailnet.ts.net:7889"
+            ]
+        )
     }
 
     func testCommonTailnetTransportFailuresAreRecognized() {

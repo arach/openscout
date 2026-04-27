@@ -30,6 +30,10 @@ import {
 export interface RelayClientOptions {
   /** Enable Noise encryption on the relay connection. Default: true. */
   secure?: boolean;
+  /** Relay URL advertised to phones. Defaults to the URL used by the bridge. */
+  publicRelayUrl?: string;
+  /** Additional relay URLs phones should try after the advertised primary. */
+  fallbackRelayUrls?: string[];
   /** Optional lifecycle callbacks for status surfaces. */
   events?: RelayEventHandlers;
 }
@@ -91,7 +95,8 @@ export function connectToRelay(
   options: RelayClientOptions = {},
 ): RelayConnection {
   const { secure = true, events } = options;
-  const qrPayload = createQRPayload(identity.publicKey, relayUrl);
+  const publicRelayUrl = options.publicRelayUrl?.trim() || relayUrl;
+  const qrPayload = createQRPayload(identity.publicKey, publicRelayUrl, options.fallbackRelayUrls);
 
   let ws: WebSocket | null = null;
   let eventUnsub: (() => void) | null = null;
@@ -108,14 +113,14 @@ export function connectToRelay(
     const bridgeKeyHex = bytesToHex(identity.publicKey);
     const url = buildRelayUrl(relayUrl, qrPayload.room, bridgeKeyHex);
     console.log(`[relay-client] connecting to relay (room: ${qrPayload.room})`);
-    events?.onConnecting?.({ relayUrl, room: qrPayload.room });
+    events?.onConnecting?.({ relayUrl: publicRelayUrl, room: qrPayload.room });
 
     ws = new WebSocket(url, relayWebSocketOptions(relayUrl) as never);
 
     ws.addEventListener("open", () => {
       console.log(`[relay-client] connected to relay (room: ${qrPayload.room})`);
       backoff = INITIAL_BACKOFF_MS;
-      events?.onConnected?.({ relayUrl, room: qrPayload.room });
+      events?.onConnected?.({ relayUrl: publicRelayUrl, room: qrPayload.room });
     });
 
     ws.addEventListener("message", (event) => {
@@ -125,7 +130,7 @@ export function connectToRelay(
     ws.addEventListener("close", (event) => {
       console.log(`[relay-client] disconnected (code: ${event.code}, reason: ${event.reason})`);
       events?.onClosed?.({
-        relayUrl,
+        relayUrl: publicRelayUrl,
         room: qrPayload.room,
         code: event.code,
         reason: event.reason,
@@ -137,7 +142,7 @@ export function connectToRelay(
     ws.addEventListener("error", () => {
       const error = new Error("Relay websocket error");
       console.error("[relay-client] connection error");
-      events?.onError?.({ relayUrl, room: qrPayload.room, error });
+      events?.onError?.({ relayUrl: publicRelayUrl, room: qrPayload.room, error });
       // The close event will fire after this, triggering reconnect.
     });
   }
@@ -209,7 +214,7 @@ export function connectToRelay(
           console.log(
             `[relay-client] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., device: ${peer.deviceId}, client: ${clientId})`,
           );
-          events?.onPaired?.({ relayUrl, room: qrPayload.room, remotePublicKey });
+          events?.onPaired?.({ relayUrl: publicRelayUrl, room: qrPayload.room, remotePublicKey });
           sendExistingSessions((json) => {
             if (peer.transport.isReady()) {
               peer.transport.send(json);
@@ -224,7 +229,7 @@ export function connectToRelay(
         onError: (err) => {
           console.error("[relay-client] secure transport error:", err.message);
           log.error("trns:cry", `decrypt failed for ${clientId} — resetting handshake: ${err.message}`);
-          events?.onError?.({ relayUrl, room: qrPayload.room, error: err });
+          events?.onError?.({ relayUrl: publicRelayUrl, room: qrPayload.room, error: err });
           sendRelayClose(clientId, 4002, "Transport reset");
           teardownSecurePeer(clientId);
         },
@@ -459,7 +464,7 @@ export function connectToRelay(
     if (stopped) return;
 
     console.log(`[relay-client] reconnecting in ${backoff}ms...`);
-    events?.onReconnectScheduled?.({ relayUrl, room: qrPayload.room, delayMs: backoff });
+    events?.onReconnectScheduled?.({ relayUrl: publicRelayUrl, room: qrPayload.room, delayMs: backoff });
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connect();
