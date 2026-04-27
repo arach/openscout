@@ -1,4 +1,4 @@
-# SCO-007: Concierge Routing and Delegation
+# SCO-012: Concierge Routing and Delegation
 
 ## Status
 
@@ -6,7 +6,7 @@ Proposed.
 
 ## Proposal ID
 
-`sco-007`
+`sco-012`
 
 ## Intent
 
@@ -22,7 +22,7 @@ The goal is simple to say and harder to implement well:
 - Scout stays responsible for follow-through instead of dropping the operator
   into broker internals
 
-SCO-007 sits on top of the existing broker-first architecture, the
+SCO-012 sits on top of the existing broker-first architecture, the
 question-versus-work distinction in
 [`collaboration-workflows-v1.md`](../collaboration-workflows-v1.md), and the
 identity and binding work proposed in
@@ -193,7 +193,7 @@ Scout SHOULD surface and persist three operator intents distinctly:
 - `ask`: a question, answer required, short lifecycle
 - `handoff`: a durable work request with ownership and follow-through
 
-The current question/work split already exists at the workflow level. SCO-007
+The current question/work split already exists at the workflow level. SCO-012
 requires the operator experience to expose and honor that distinction instead of
 forcing durable delegation through `ask`.
 
@@ -606,7 +606,7 @@ It should not silently cross the machine boundary.
 
 ## Implementation Shape
 
-SCO-007 does not require one monolithic feature landing, but it does require
+SCO-012 does not require one monolithic feature landing, but it does require
 one coherent center of gravity.
 
 ### 1. Centralize concierge preflight in broker-facing services
@@ -657,7 +657,7 @@ instead of adding a second reminder system.
 
 ## Testing And Verification
 
-SCO-007 needs behavior tests more than syntax tests.
+SCO-012 needs behavior tests more than syntax tests.
 
 Required coverage:
 

@@ -1,4 +1,4 @@
-# SCO-008: Intent Briefs and Trusted Environments
+# SCO-013: Intent Briefs and Trusted Environments
 
 ## Status
 
@@ -6,7 +6,7 @@ Proposed.
 
 ## Proposal ID
 
-`sco-008`
+`sco-013`
 
 ## Intent
 
