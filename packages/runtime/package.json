@@ -27,11 +27,6 @@
       "bun": "./src/local-agent-template.ts",
       "default": "./src/local-agent-template.ts"
     },
-    "./broker-service": {
-      "types": "./src/broker-service.ts",
-      "bun": "./src/broker-service.ts",
-      "default": "./dist/broker-service.js"
-    },
     "./broker-process-manager": {
       "types": "./src/broker-process-manager.ts",
       "bun": "./src/broker-process-manager.ts",

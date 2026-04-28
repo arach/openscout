@@ -9,7 +9,7 @@ import {
   renderLaunchAgentPlist,
   selectLastRelevantLogLine,
   type BrokerServiceConfig,
-} from "./broker-service";
+} from "./broker-process-manager";
 
 const config: BrokerServiceConfig = {
   label: "dev.openscout.broker",
