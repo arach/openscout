@@ -1021,7 +1021,7 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 .docs-markdown h2 {
-  margin-top: 1.8rem;
+  margin-top: 2rem;
   margin-bottom: 0.6rem;
 }
 
@@ -1073,6 +1073,20 @@ html[data-site-theme="dark"] .dot-grid {
 
 .docs-markdown .rounded-lg.overflow-hidden:has(pre) span[class*="uppercase"] {
   color: var(--site-muted) !important;
+}
+
+/* prose links — accent color with subtle underline */
+.docs-markdown a {
+  color: var(--site-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--site-accent) 40%, transparent);
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.docs-markdown a:hover {
+  color: var(--site-ink);
+  text-decoration-color: color-mix(in srgb, var(--site-ink) 40%, transparent);
 }
 
 /* heading anchor link — breathing room and baseline alignment */

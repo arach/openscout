@@ -355,9 +355,12 @@ export function DocView({
           </div>
 
           {/* Article — content region, not a card */}
-          <article className="px-6 sm:px-10 lg:px-14 py-6">
+          <article className="px-6 sm:px-10 lg:px-14 pt-6 pb-24">
             <div className="max-w-3xl">
-              <h1 className="font-[family-name:var(--font-spectral)] text-3xl font-semibold tracking-[-0.02em] text-[var(--site-ink)] sm:text-4xl">
+              <h1
+                className="font-[family-name:var(--font-spectral)] font-semibold text-[var(--site-ink)]"
+                style={{ fontSize: "clamp(1.75rem, 2.8vw, 2.25rem)", lineHeight: 1.12, letterSpacing: "-0.015em" }}
+              >
                 {title}
               </h1>
               <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[var(--site-copy)]">
