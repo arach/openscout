@@ -3,7 +3,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { writeOpenScoutSettings } from "@openscout/runtime/setup";
+import {
+  resolveRelayAgentConfig,
+  writeOpenScoutSettings,
+  writeProjectConfig,
+} from "@openscout/runtime/setup";
 
 import { askScoutQuestion, openScoutPeerSession } from "./service.ts";
 
@@ -178,6 +182,200 @@ describe("askScoutQuestion", () => {
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
     expect(requests.some((request) => request.path === "/v1/deliver")).toBe(true);
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(false);
+  }, 15000);
+
+  test("returns broker delivery rejections as structured unresolved targets", async () => {
+    const home = useIsolatedOpenScoutHome();
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        return jsonResponse({
+          kind: "rejected",
+          accepted: false,
+          reason: "unknown_target",
+          rejection: {
+            id: "dispatch-1",
+            requesterId: "operator",
+            kind: "unknown",
+            askedLabel: "@ghost",
+            detail: "no agent matches @ghost",
+            candidates: [],
+            dispatchedAt: Date.now(),
+            dispatcherNodeId: "node-1",
+          },
+        }, 422);
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutQuestion({
+      senderId: "operator",
+      targetLabel: "ghost",
+      body: "build it for me",
+      currentDirectory: home,
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.unresolvedTarget).toBe("ghost");
+    expect(result.targetDiagnostic).toEqual({
+      agentId: "@ghost",
+      state: "unknown",
+      registrationKind: null,
+      projectRoot: null,
+    });
+  }, 15000);
+
+  test("refreshes stale exact targets before asking", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const repo = join(home, "dev", "openscout");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    await writeProjectConfig(repo, {
+      version: 1,
+      project: {
+        id: "openscout",
+        name: "OpenScout",
+      },
+      agent: {
+        id: "ranger",
+      },
+    });
+    const configured = await resolveRelayAgentConfig("ranger", {
+      currentDirectory: repo,
+    });
+    expect(configured).not.toBeNull();
+    const configuredAgentId = configured!.agentId;
+
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {
+            [configuredAgentId]: {
+              id: configuredAgentId,
+              kind: "agent",
+              definitionId: "ranger",
+              displayName: "Ranger",
+              metadata: {
+                staleLocalRegistration: true,
+                projectRoot: repo,
+              },
+            },
+          },
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/agents") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: `dm.operator.${configuredAgentId}`,
+            kind: "direct",
+            title: "Ranger",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", configuredAgentId],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: `dm.operator.${configuredAgentId}`,
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: body.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: configuredAgentId,
+          flight: {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: configuredAgentId,
+            state: "waking",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutQuestion({
+      senderId: "operator",
+      targetLabel: configuredAgentId,
+      targetAgentId: configuredAgentId,
+      body: "inspect state",
+      currentDirectory: repo,
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.flight?.targetAgentId).toBe(configuredAgentId);
+    expect(requests.some((request) => (
+      request.method === "POST" &&
+      request.path === "/v1/agents" &&
+      request.body?.id === configuredAgentId &&
+      request.body?.metadata?.staleLocalRegistration !== true
+    ))).toBe(true);
+    expect(requests.find((request) => request.path === "/v1/deliver")?.body)
+      .toMatchObject({
+        targetAgentId: configuredAgentId,
+        targetLabel: configuredAgentId,
+      });
   }, 15000);
 });
 

@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
+  BUILT_IN_AGENT_DEFINITION_IDS,
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
   parseAgentIdentity,
@@ -59,6 +60,8 @@ const MESSAGE_ROUTING_ERROR_VALUES = [
   "missing_destination",
   "multi_target_requires_explicit_channel",
 ] as const;
+const REPLY_MODE_VALUES = ["none", "inline", "notify"] as const;
+const REPLY_DELIVERY_VALUES = ["none", "inline", "mcp_notification"] as const;
 const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex"] as const;
 export const SCOUT_MCP_UI_META_KEY = "openscout/ui";
 
@@ -92,7 +95,7 @@ export type ScoutMcpAgentPickerFieldMeta = {
   valueField: "label" | "agentId";
   labelField: "label";
   descriptionField: "displayName";
-  badgeFields: ["harness", "workspace", "node"];
+  badgeFields: ["harness", "model", "workspace", "node"];
   icon: ScoutMcpAgentAvatarMeta;
   search: {
     minQueryLength: 0;
@@ -104,6 +107,25 @@ export type ScoutMcpAgentPickerFieldMeta = {
 export type ScoutMcpToolUiMeta = {
   icon: ScoutMcpToolIconMeta;
   fields?: Record<string, ScoutMcpAgentPickerFieldMeta>;
+};
+
+type ScoutMcpReplyMode = (typeof REPLY_MODE_VALUES)[number];
+
+type ScoutReplyNotificationParams = {
+  status: "completed" | "failed";
+  currentDirectory: string;
+  senderId: string;
+  targetAgentId: string | null;
+  targetLabel: string | null;
+  conversationId: string | null;
+  messageId: string | null;
+  flightId: string;
+  flight: ScoutFlightRecord | null;
+  output: string | null;
+  error: string | null;
+  workItem: ScoutTrackedWorkItem | null;
+  workId: string | null;
+  workUrl: string | null;
 };
 
 const scoutAgentToolIconMeta: ScoutMcpToolIconMeta = {
@@ -140,7 +162,7 @@ function createAgentPickerFieldMeta(input: {
     valueField: input.valueField,
     labelField: "label",
     descriptionField: "displayName",
-    badgeFields: ["harness", "workspace", "node"],
+    badgeFields: ["harness", "model", "workspace", "node"],
     icon: scoutAgentAvatarMeta,
     search: {
       minQueryLength: 0,
@@ -164,7 +186,7 @@ function createToolUiMeta(fields?: Record<string, ScoutMcpAgentPickerFieldMeta>)
 
 const targetLabelInputSchema = z
   .string()
-  .describe("Scout agent handle to contact, such as @talkie")
+  .describe("Scout agent handle to contact, such as @talkie or @talkie#codex?5.5")
   .optional();
 
 const targetAgentIdInputSchema = z
@@ -189,6 +211,7 @@ export type ScoutMcpAgentCandidate = {
   registrationKind: SearchRegistrationKind;
   routable: boolean;
   harness: string | null;
+  model: string | null;
   workspace: string | null;
   node: string | null;
   projectRoot: string | null;
@@ -212,6 +235,7 @@ type InternalAgentDirectoryEntry = {
   registrationKind: SearchRegistrationKind;
   routable: boolean;
   harness: string | null;
+  model: string | null;
   workspace: string | null;
   node: string | null;
   projectRoot: string | null;
@@ -384,6 +408,7 @@ const agentCandidateSchema = z.object({
   registrationKind: z.enum(REGISTRATION_KIND_VALUES),
   routable: z.boolean(),
   harness: z.string().nullable(),
+  model: z.string().nullable(),
   workspace: z.string().nullable(),
   node: z.string().nullable(),
   projectRoot: z.string().nullable(),
@@ -474,6 +499,15 @@ const askResultSchema = z.object({
   targetLabel: z.string().nullable(),
   usedBroker: z.boolean(),
   awaited: z.boolean(),
+  replyMode: z.enum(REPLY_MODE_VALUES).optional(),
+  delivery: z.enum(REPLY_DELIVERY_VALUES).optional(),
+  notification: z
+    .object({
+      method: z.literal("notifications/scout/reply"),
+      status: z.enum(["scheduled", "not_scheduled"]),
+    })
+    .nullable()
+    .optional(),
   conversationId: z.string().nullable(),
   messageId: z.string().nullable(),
   flight: flightSchema.nullable(),
@@ -500,8 +534,80 @@ function createTextContent(value: unknown): [{ type: "text"; text: string }] {
   return [{ type: "text", text: JSON.stringify(value, null, 2) }];
 }
 
+function resolveAskReplyMode(input: {
+  awaitReply?: boolean;
+  replyMode?: ScoutMcpReplyMode;
+}): ScoutMcpReplyMode {
+  if (input.replyMode) {
+    return input.replyMode;
+  }
+  return input.awaitReply ? "inline" : "none";
+}
+
+function workUrlFor(workItem: ScoutTrackedWorkItem | null | undefined): string | null {
+  return workItem ? `/api/work/${encodeURIComponent(workItem.id)}` : null;
+}
+
+function sendScoutReplyNotification(
+  server: McpServer,
+  params: ScoutReplyNotificationParams,
+): Promise<void> {
+  return server.server.notification({
+    method: "notifications/scout/reply",
+    params,
+  });
+}
+
+function scheduleScoutReplyNotification(input: {
+  server: McpServer;
+  deps: ScoutMcpDependencies;
+  brokerUrl: string;
+  flight: ScoutFlightRecord;
+  timeoutSeconds?: number;
+  context: Omit<
+    ScoutReplyNotificationParams,
+    "status" | "flight" | "output" | "error"
+  >;
+}): void {
+  void (async () => {
+    try {
+      const completedFlight = await input.deps.waitForFlight(
+        input.brokerUrl,
+        input.flight.id,
+        { timeoutSeconds: input.timeoutSeconds },
+      );
+      await sendScoutReplyNotification(input.server, {
+        ...input.context,
+        status: "completed",
+        flight: completedFlight,
+        output: completedFlight.output ?? completedFlight.summary ?? null,
+        error: null,
+      });
+    } catch (error) {
+      await sendScoutReplyNotification(input.server, {
+        ...input.context,
+        status: "failed",
+        flight: null,
+        output: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })().catch(() => {
+    // The MCP client may have disconnected by the time the flight finishes.
+  });
+}
+
 function normalizeSearchValue(value: string | null | undefined): string {
   return value?.trim().toLowerCase().replace(/^@+/, "") ?? "";
+}
+
+function isCanonicalOpenScoutProjectRoot(
+  projectRoot: string | null | undefined,
+): boolean {
+  if (!projectRoot) {
+    return false;
+  }
+  return normalizeSearchValue(basename(resolve(projectRoot))) === "openscout";
 }
 
 function isSameProjectRoot(
@@ -597,6 +703,28 @@ function normalizedStringOrNull(
   return trimmed ? trimmed : null;
 }
 
+function metadataStringValue(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function isBuiltInDirectoryAgent(agent: {
+  id: string;
+  definitionId?: string;
+  metadata?: Record<string, unknown>;
+}): boolean {
+  const definitionId =
+    agent.definitionId
+    || metadataStringValue(agent.metadata, "definitionId")
+    || agent.id;
+  return BUILT_IN_AGENT_DEFINITION_IDS.has(definitionId);
+}
+
 function rankState(state: SearchableAgentState): number {
   switch (state) {
     case "active":
@@ -641,6 +769,7 @@ function choosePreferredEndpoint(
     transport?: string;
     projectRoot?: string;
     cwd?: string;
+    metadata?: Record<string, unknown>;
   }>,
 ) {
   const orderedStates: AgentState[] = ["active", "waiting", "idle", "offline"];
@@ -656,15 +785,25 @@ function choosePreferredEndpoint(
 function buildIdentityCandidate(
   entry: InternalAgentDirectoryEntry,
 ): AgentIdentityCandidate {
+  const aliases = [entry.selector, entry.defaultSelector, entry.handle].filter(
+    (value): value is string => Boolean(value && value.trim().length > 0),
+  );
+  if (
+    normalizeSearchValue(entry.definitionId) === "openscout"
+    || normalizeSearchValue(entry.handle) === "openscout"
+    || normalizeSearchValue(entry.defaultSelector) === "openscout"
+  ) {
+    aliases.push("@scout");
+  }
+
   return {
     agentId: entry.agentId,
     definitionId: entry.definitionId,
     ...(entry.workspace ? { workspaceQualifier: entry.workspace } : {}),
     ...(entry.node ? { nodeQualifier: entry.node } : {}),
     ...(entry.harness ? { harness: entry.harness } : {}),
-    aliases: [entry.selector, entry.defaultSelector, entry.handle].filter(
-      (value): value is string => Boolean(value && value.trim().length > 0),
-    ),
+    ...(entry.model ? { model: entry.model } : {}),
+    aliases,
   };
 }
 
@@ -697,12 +836,52 @@ function decorateAgentLabels(
       registrationKind: entry.registrationKind,
       routable: entry.routable,
       harness: entry.harness,
+      model: entry.model,
       workspace: entry.workspace,
       node: entry.node,
       projectRoot: entry.projectRoot,
       transport: entry.transport,
     };
   });
+}
+
+function isOpenScoutNamedCandidate(
+  candidate: ScoutMcpAgentCandidate,
+): boolean {
+  const agentIdHead = normalizeSearchValue(candidate.agentId).split(".")[0] ?? "";
+  return [
+    candidate.handle,
+    candidate.defaultSelector,
+    candidate.defaultLabel,
+    agentIdHead,
+  ].some((value) => normalizeSearchValue(value) === "openscout");
+}
+
+function findPreferredStableScoutCandidate(
+  candidates: ScoutMcpAgentCandidate[],
+): ScoutMcpAgentCandidate | null {
+  const scored = candidates
+    .filter((candidate) => (
+      isCanonicalOpenScoutProjectRoot(candidate.projectRoot)
+      && isOpenScoutNamedCandidate(candidate)
+    ))
+    .map((candidate) => ({
+      candidate,
+      score: rankState(candidate.state) * 20 + (candidate.routable ? 50 : 0),
+    }))
+    .sort((left, right) => {
+      const scoreDelta = right.score - left.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      return left.candidate.agentId.localeCompare(right.candidate.agentId);
+    });
+
+  if (scored.length === 0) {
+    return null;
+  }
+  if (scored.length > 1 && scored[0]?.score === scored[1]?.score) {
+    return null;
+  }
+  return scored[0]?.candidate ?? null;
 }
 
 function scoreTextCandidate(
@@ -738,6 +917,8 @@ function scoreAgentCandidate(
     candidate.selector,
     candidate.defaultSelector,
     candidate.agentId,
+    candidate.harness,
+    candidate.model,
     candidate.workspace,
     candidate.node,
     candidate.projectRoot ? basename(candidate.projectRoot) : null,
@@ -745,6 +926,12 @@ function scoreAgentCandidate(
   let best = -1;
   for (const value of haystacks) {
     best = Math.max(best, scoreTextCandidate(value, query));
+  }
+  if (
+    (query === "scout" || query === "openscout")
+    && isCanonicalOpenScoutProjectRoot(candidate.projectRoot)
+  ) {
+    best = Math.max(best, 900);
   }
   if (best < 0) return -1;
   return best + stateBonus;
@@ -764,6 +951,7 @@ function exactCandidateMatches(
     candidate.handle,
     candidate.selector,
     candidate.defaultSelector,
+    candidate.model,
   ].some((value) => normalizeSearchValue(value) === normalizedQuery);
 }
 
@@ -802,6 +990,7 @@ async function loadScoutAgentDirectory(
       selector: entry.selector ?? existing.selector,
       defaultSelector: entry.defaultSelector ?? existing.defaultSelector,
       harness: entry.harness ?? existing.harness,
+      model: entry.model ?? existing.model,
       workspace: entry.workspace ?? existing.workspace,
       node: entry.node ?? existing.node,
       projectRoot: entry.projectRoot ?? existing.projectRoot,
@@ -838,6 +1027,7 @@ async function loadScoutAgentDirectory(
       registrationKind: identity.registrationKind,
       routable: isRoutableState(identity.state),
       harness: discovered.runtime.harness ?? discovered.defaultHarness,
+      model: null,
       workspace: discovered.instance.workspaceQualifier || null,
       node: discovered.instance.nodeQualifier || null,
       projectRoot: discovered.projectRoot,
@@ -847,6 +1037,7 @@ async function loadScoutAgentDirectory(
 
   for (const agent of Object.values(broker.snapshot.agents ?? {})) {
     if (agent.id === "operator") continue;
+    if (isBuiltInDirectoryAgent(agent)) continue;
 
     const endpoints = Object.values(broker.snapshot.endpoints ?? {}).filter(
       (endpoint) => endpoint.agentId === agent.id,
@@ -868,6 +1059,13 @@ async function loadScoutAgentDirectory(
       registrationKind: whoEntry?.registrationKind ?? "broker",
       routable: isRoutableState(state),
       harness: normalizedStringOrNull(preferredEndpoint?.harness),
+      model: normalizedStringOrNull(
+        typeof preferredEndpoint?.metadata?.model === "string"
+          ? preferredEndpoint.metadata.model
+          : typeof agent.metadata?.model === "string"
+            ? agent.metadata.model
+            : null,
+      ),
       workspace: normalizedStringOrNull(agent.workspaceQualifier),
       node: normalizedStringOrNull(agent.nodeQualifier),
       projectRoot: normalizedStringOrNull(
@@ -936,6 +1134,16 @@ export async function resolveScoutAgentForMcp(input: {
   const exactMatches = candidates.filter((candidate) =>
     exactCandidateMatches(candidate, rawLabel),
   );
+  if (["scout", "openscout"].includes(normalizeSearchValue(rawLabel))) {
+    const preferredStableScoutCandidate = findPreferredStableScoutCandidate(candidates);
+    if (preferredStableScoutCandidate) {
+      return {
+        kind: "resolved",
+        candidate: preferredStableScoutCandidate,
+        candidates: [],
+      };
+    }
+  }
 
   if (exactMatches.length === 1) {
     return { kind: "resolved", candidate: exactMatches[0], candidates: [] };
@@ -1294,7 +1502,7 @@ export function createScoutMcpServer(options: {
         label: z
           .string()
           .min(1)
-          .describe("Scout agent handle or selector, such as @talkie"),
+          .describe("Scout agent handle or selector, such as @talkie or @talkie#codex?5.5"),
         currentDirectory: z.string().optional(),
       }),
       outputSchema: resolveResultSchema,
@@ -1476,7 +1684,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask Scout Agent",
       description:
-        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' One target without a channel becomes a DM. Provide workItem to mint a durable workId beyond the message and flight ids. Use awaitReply only when the host cannot delegate background waiting.",
+        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' One target without a channel becomes a DM. Provide workItem to mint a durable workId beyond the message and flight ids. Use replyMode='inline' for short blocking waits, replyMode='notify' for callback-style MCP notifications, and replyMode='none' for fire-and-forget. awaitReply is kept as a boolean alias for replyMode='inline'.",
       inputSchema: z
         .object({
           body: z.string().min(1),
@@ -1487,7 +1695,16 @@ export function createScoutMcpServer(options: {
           workItem: workItemInputSchema.optional(),
           channel: z.string().optional(),
           shouldSpeak: z.boolean().optional(),
-          awaitReply: z.boolean().optional(),
+          awaitReply: z
+            .boolean()
+            .describe("Compatibility alias for replyMode='inline'.")
+            .optional(),
+          replyMode: z
+            .enum(REPLY_MODE_VALUES)
+            .describe(
+              "Reply delivery mode: 'none' returns durable ids only, 'inline' blocks until the flight completes, and 'notify' returns immediately then emits notifications/scout/reply.",
+            )
+            .optional(),
           timeoutSeconds: z.number().int().min(1).optional(),
         })
         .refine(
@@ -1527,6 +1744,7 @@ export function createScoutMcpServer(options: {
       channel,
       shouldSpeak,
       awaitReply,
+      replyMode,
       timeoutSeconds,
     }) => {
       const resolvedCurrentDirectory = resolveToolCurrentDirectory(
@@ -1538,7 +1756,8 @@ export function createScoutMcpServer(options: {
         resolvedCurrentDirectory,
         env,
       );
-      const shouldAwait = Boolean(awaitReply);
+      const resolvedReplyMode = resolveAskReplyMode({ awaitReply, replyMode });
+      const shouldAwait = resolvedReplyMode === "inline";
 
       if (targetAgentId?.trim()) {
         const result = await deps.askAgentById({
@@ -1559,6 +1778,30 @@ export function createScoutMcpServer(options: {
                 { timeoutSeconds },
               )
             : null;
+        const trackedWorkItem = result.workItem ?? null;
+        const notificationScheduled =
+          resolvedReplyMode === "notify" && Boolean(result.flight);
+        if (resolvedReplyMode === "notify" && result.flight) {
+          scheduleScoutReplyNotification({
+            server,
+            deps,
+            brokerUrl: deps.resolveBrokerUrl(),
+            flight: result.flight,
+            timeoutSeconds,
+            context: {
+              currentDirectory: resolvedCurrentDirectory,
+              senderId: resolvedSenderId,
+              targetAgentId: targetAgentId.trim(),
+              targetLabel: null,
+              conversationId: result.conversationId ?? null,
+              messageId: result.messageId ?? null,
+              flightId: result.flight.id,
+              workItem: trackedWorkItem,
+              workId: trackedWorkItem?.id ?? null,
+              workUrl: workUrlFor(trackedWorkItem),
+            },
+          });
+        }
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
           senderId: resolvedSenderId,
@@ -1566,6 +1809,18 @@ export function createScoutMcpServer(options: {
           targetLabel: null,
           usedBroker: result.usedBroker,
           awaited: shouldAwait,
+          replyMode: resolvedReplyMode,
+          delivery: notificationScheduled
+            ? "mcp_notification" as const
+            : shouldAwait
+              ? "inline" as const
+              : "none" as const,
+          notification: resolvedReplyMode === "notify"
+            ? {
+                method: "notifications/scout/reply" as const,
+                status: notificationScheduled ? "scheduled" as const : "not_scheduled" as const,
+              }
+            : null,
           conversationId: result.conversationId ?? null,
           messageId: result.messageId ?? null,
           flight: completedFlight ?? result.flight ?? null,
@@ -1573,11 +1828,9 @@ export function createScoutMcpServer(options: {
           output: completedFlight?.output ?? completedFlight?.summary ?? null,
           unresolvedTargetId: result.unresolvedTargetId ?? null,
           unresolvedTargetLabel: null,
-          workItem: result.workItem ?? null,
-          workId: result.workItem?.id ?? null,
-          workUrl: result.workItem
-            ? `/api/work/${encodeURIComponent(result.workItem.id)}`
-            : null,
+          workItem: trackedWorkItem,
+          workId: trackedWorkItem?.id ?? null,
+          workUrl: workUrlFor(trackedWorkItem),
           targetDiagnostic: result.targetDiagnostic ?? null,
         };
         return {
@@ -1603,6 +1856,30 @@ export function createScoutMcpServer(options: {
               { timeoutSeconds },
             )
           : null;
+      const trackedWorkItem = result.workItem ?? null;
+      const notificationScheduled =
+        resolvedReplyMode === "notify" && Boolean(result.flight);
+      if (resolvedReplyMode === "notify" && result.flight) {
+        scheduleScoutReplyNotification({
+          server,
+          deps,
+          brokerUrl: deps.resolveBrokerUrl(),
+          flight: result.flight,
+          timeoutSeconds,
+          context: {
+            currentDirectory: resolvedCurrentDirectory,
+            senderId: resolvedSenderId,
+            targetAgentId: result.flight.targetAgentId ?? null,
+            targetLabel: targetLabel!.trim(),
+            conversationId: result.conversationId ?? null,
+            messageId: result.messageId ?? null,
+            flightId: result.flight.id,
+            workItem: trackedWorkItem,
+            workId: trackedWorkItem?.id ?? null,
+            workUrl: workUrlFor(trackedWorkItem),
+          },
+        });
+      }
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
         senderId: resolvedSenderId,
@@ -1610,6 +1887,18 @@ export function createScoutMcpServer(options: {
         targetLabel: targetLabel!.trim(),
         usedBroker: result.usedBroker,
         awaited: shouldAwait,
+        replyMode: resolvedReplyMode,
+        delivery: notificationScheduled
+          ? "mcp_notification" as const
+          : shouldAwait
+            ? "inline" as const
+            : "none" as const,
+        notification: resolvedReplyMode === "notify"
+          ? {
+              method: "notifications/scout/reply" as const,
+              status: notificationScheduled ? "scheduled" as const : "not_scheduled" as const,
+            }
+          : null,
         conversationId: result.conversationId ?? null,
         messageId: result.messageId ?? null,
         flight: completedFlight ?? result.flight ?? null,
@@ -1617,11 +1906,9 @@ export function createScoutMcpServer(options: {
         output: completedFlight?.output ?? completedFlight?.summary ?? null,
         unresolvedTargetId: null,
         unresolvedTargetLabel: result.unresolvedTarget ?? null,
-        workItem: result.workItem ?? null,
-        workId: result.workItem?.id ?? null,
-        workUrl: result.workItem
-          ? `/api/work/${encodeURIComponent(result.workItem.id)}`
-          : null,
+        workItem: trackedWorkItem,
+        workId: trackedWorkItem?.id ?? null,
+        workUrl: workUrlFor(trackedWorkItem),
         targetDiagnostic: result.targetDiagnostic ?? null,
       };
       return {

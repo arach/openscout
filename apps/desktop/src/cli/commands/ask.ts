@@ -40,6 +40,8 @@ export function renderAskCommandHelp(): string {
     "  scout ask --to hudson --prompt-file ./handoff.md",
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
     '  scout ask --to vox.harness:codex "take another pass on the runtime fix"',
+    '  scout ask --to lattices#codex?5.5 "take task A"',
+    '  scout ask --to lattices#claude?sonnet "take task B"',
   ].join("\n");
 }
 

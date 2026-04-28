@@ -16,9 +16,9 @@ Scout separates identity into three layers, each serving a different audience:
 
 - **Alias** is a human-owned shortcut. `@huddy` maps to one specific identity. If the mapping becomes ambiguous, the alias is invalid until repaired.
 
-## The Five Dimensions
+## The Six Dimensions
 
-An agent identity combines up to five dimensions:
+An agent identity combines up to six dimensions:
 
 | Dimension | What it captures | Example |
 |---|---|---|
@@ -26,12 +26,13 @@ An agent identity combines up to five dimensions:
 | `workspaceQualifier` | A non-default worktree or branch | `super-refactor`, `main` |
 | `profile` | A capability or persona preset | `dev`, `dev-browser` |
 | `harness` | The execution backend | `claude`, `codex` |
+| `model` | The model family or concrete model | `sonnet`, `gpt-5-5` |
 | `node` | The machine or host | `mini`, `macbook` |
 
 The canonical form strings them together with dots:
 
 ```bash
-@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.model:<model>][.node:<node>]
 ```
 
 In practice, most of these dimensions are omitted. You only include what is needed to resolve unambiguously.
@@ -46,13 +47,16 @@ From shortest to most qualified:
 | `@arc.main` | The `arc` agent on the `main` branch |
 | `@arc.super-refactor` | The `arc` agent on a feature worktree |
 | `@arc.main.harness:claude` | Specifically the Claude-backed `arc` on main |
+| `@lattices#codex?5.5` | Shorthand for Codex-backed `lattices` on a 5.5 model |
+| `@lattices#claude?sonnet` | Shorthand for Claude-backed `lattices` on Sonnet |
 | `@arc.super-refactor.harness:claude.node:mini` | Fully qualified: project, branch, harness, machine |
 
 ## Parsing and Normalization
 
 - `@` is required in user-facing text. Internal systems can omit it.
 - One positional qualifier (without a type prefix) is allowed after the definition ID — it is always treated as the workspace qualifier.
-- Typed qualifiers (`profile:`, `harness:`, `node:`) may appear in any order during input. Scout normalizes them to canonical order on storage.
+- Typed qualifiers (`profile:`, `harness:`, `model:`, `node:`) may appear in any order during input. Scout normalizes them to canonical order on storage.
+- Shorthand `#<harness>` maps to `harness:<harness>`, and `?<model>` maps to `model:<model>`.
 - Segments are lowercased and kebab-cased: `Super Refactor` becomes `super-refactor`, `Mini.local` becomes `mini-local`. Dots are reserved as separators.
 
 These aliases are accepted during parsing and map to canonical dimensions:
@@ -62,6 +66,8 @@ These aliases are accepted during parsing and map to canonical dimensions:
 | `branch:`, `worktree:` | `workspaceQualifier` |
 | `persona:` | `profile` |
 | `runtime:` | `harness` |
+| `#codex` | `harness:codex` |
+| `?sonnet` | `model:sonnet` |
 | `host:` | `node` |
 
 ## Resolution
@@ -82,7 +88,8 @@ Given a specific agent and its peers, Scout prefers the shortest address that un
 1. `workspaceQualifier`
 2. `profile`
 3. `harness`
-4. `node`
+4. `model`
+5. `node`
 
 If a configured alias is shorter than the minimal canonical form and resolves uniquely, Scout prefers it.
 

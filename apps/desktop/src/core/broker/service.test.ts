@@ -924,6 +924,45 @@ describe("resolveScoutSenderId", () => {
     expect(senderId.startsWith("ranger.")).toBe(true);
     expect(senderId.startsWith("openscout-canvas-nav.")).toBe(false);
   });
+
+  test("prefers an explicit project-default sender over a differently named manifest agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const repo = join(home, "dev", "openscout");
+
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    await writeProjectConfig(repo, {
+      version: 1,
+      project: {
+        id: "openscout",
+        name: "OpenScout",
+      },
+      agent: {
+        id: "ranger",
+      },
+    });
+    await writeRelayAgentOverrides({
+      "ranger.main.mini": {
+        agentId: "ranger.main.mini",
+        definitionId: "ranger",
+        projectName: "OpenScout",
+        projectRoot: repo,
+        source: "manifest",
+      },
+      "openscout.main.mini": {
+        agentId: "openscout.main.mini",
+        definitionId: "openscout",
+        projectName: "OpenScout",
+        projectRoot: repo,
+        projectConfigPath: null,
+        source: "manual",
+      },
+    });
+
+    const senderId = await resolveScoutSenderId(null, repo);
+
+    expect(senderId.startsWith("openscout.")).toBe(true);
+    expect(senderId.startsWith("ranger.")).toBe(false);
+  });
 });
 
 describe("sendScoutMessage", () => {

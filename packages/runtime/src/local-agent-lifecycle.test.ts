@@ -12,6 +12,7 @@ import {
 } from "./local-agents.js";
 import {
   buildRelayAgentInstance,
+  readRelayAgentOverrides,
   writeOpenScoutSettings,
   writeRelayAgentOverrides,
   type OpenScoutProjectConfig,
@@ -343,5 +344,72 @@ describe("local agent lifecycle", () => {
       "ranger",
       "ranger-probe",
     ]);
+  });
+
+  test("forks an OpenScout codex agent outside the Ranger manifest identity", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+    const manifestPath = join(projectRoot, ".openscout", "project.json");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    writeProjectManifest(projectRoot, {
+      version: 1,
+      project: {
+        id: "openscout",
+        name: "OpenScout",
+      },
+      agent: {
+        id: "ranger",
+        displayName: "Ranger",
+      },
+    });
+
+    await writeRelayAgentOverrides({
+      "ranger.test-node": {
+        agentId: "ranger.test-node",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        projectConfigPath: manifestPath,
+        source: "manifest",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const openscout = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "openscout",
+      displayName: "OpenScout",
+      harness: "codex",
+      model: "gpt-5.4",
+      ensureOnline: false,
+    });
+
+    const overrides = await readRelayAgentOverrides();
+    expect(openscout.definitionId).toBe("openscout");
+    expect(overrides[openscout.agentId]).toMatchObject({
+      definitionId: "openscout",
+      displayName: "OpenScout",
+      projectRoot,
+      projectConfigPath: null,
+      source: "manual",
+      defaultHarness: "codex",
+    });
+    expect(overrides[openscout.agentId]?.runtime?.sessionId).toContain("openscout");
+    expect(overrides[openscout.agentId]?.runtime?.sessionId).not.toBe("relay-ranger-codex");
+    expect(overrides[openscout.agentId]?.systemPrompt).toBeUndefined();
+    expect(overrides["ranger.test-node"]).toMatchObject({
+      definitionId: "ranger",
+      projectConfigPath: manifestPath,
+    });
   });
 });

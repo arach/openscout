@@ -34,6 +34,7 @@ export function renderSendCommandHelp(): string {
     "",
     "Examples:",
     '  scout send "@hudson ready for review"',
+    '  scout send "@lattices#codex?5.5 ready for review"',
     "  scout send --channel triage --message-file ./status.md",
     '  scout send --as premotion.master.mini "@hudson editor branch is green"',
     '  scout send --channel triage "need two reviewers"',

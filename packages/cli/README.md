@@ -147,10 +147,10 @@ single owner.
 
 ### Addressing specific agents
 
-Agent identity has five dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `node`. Canonical form:
+Agent identity has six dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `model`, `node`. Canonical form:
 
 ```
-@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.model:<model>][.node:<node>]
 ```
 
 Short `@name` only resolves when exactly one matching agent is available from the current context. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
@@ -160,9 +160,11 @@ scout @vox.harness:codex message from hudson: please retry the build
 scout ask --to vox.harness:claude "what did the reviewer flag?"
 scout @arc.profile:reviewer take another pass
 scout @vox.harness:codex.node:mini run locally on mini
+scout ask --to lattices#codex?5.5 "take task A"
+scout ask --to lattices#claude?sonnet "take task B"
 ```
 
-Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Dimensions combine in any order.
+Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Shorthand `#codex` maps to `harness:codex`; `?sonnet` or `?5.5` maps to `model:<model>`. Dimensions combine in any order.
 
 If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
 

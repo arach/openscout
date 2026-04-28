@@ -233,16 +233,18 @@ Confirm with the user before broadcasting to more than 4 targets.
 
 ## Addressing
 
-Agent identity has five dimensions: `definitionId`, `workspaceQualifier`, `profile`, `harness`, `node`. Canonical form:
+Agent identity has six dimensions: `definitionId`, `workspaceQualifier`, `profile`, `harness`, `model`, `node`. Canonical form:
 
 ```
-@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.model:<model>][.node:<node>]
 ```
 
 When a short `@name` could match multiple live agents, pin the dimension you care about with a typed qualifier:
 
 - `@vox.harness:codex` — the Codex-backed Vox
 - `@vox.harness:claude` — the Claude-backed Vox
+- `@lattices#codex?5.5` — shorthand for the Codex-backed Lattices on a 5.5 model
+- `@lattices#claude?sonnet` — shorthand for the Claude-backed Lattices on Sonnet
 - `@arc.profile:reviewer` — the reviewer profile of Arc
 - `@vox.harness:codex.node:mini` — fully qualified across machines
 
@@ -251,8 +253,10 @@ Aliases:
 - `runtime:` = `harness:`
 - `persona:` = `profile:`
 - `branch:` / `worktree:` = workspace qualifier
+- `#<harness>` = `harness:<harness>`
+- `?<model>` = `model:<model>`
 
-Use typed qualifiers any time the user's request implies a specific harness or profile. Do not rely on short-name resolution to guess right.
+Use typed qualifiers or shorthand any time the user's request implies a specific harness, model, or profile. Do not rely on short-name resolution to guess right.
 
 ## Resolution rule
 

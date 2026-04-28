@@ -71,6 +71,16 @@ describe("parseImplicitAskCommandOptions", () => {
     expect(options.currentDirectory).toBe("/tmp/workspace");
   });
 
+  test("extracts shorthand harness and model target labels", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["hey", "@lattices#codex?5.5", "can", "you", "review", "this?"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("lattices#codex?5.5");
+    expect(options.message).toBe("hey can you review this?");
+  });
+
   test("parses ask flags before the freeform request", () => {
     const options = parseImplicitAskCommandOptions(
       ["--as", "vox", "--timeout", "900", "--context-root", "/tmp/repo", "@talkie", "take", "another", "pass"],

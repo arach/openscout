@@ -132,7 +132,7 @@ function parseContextRootPrefix(
   return { currentDirectory, args: rest };
 }
 
-const SCOUT_MENTION_PATTERN = /(^|[\s([{'"`])@([A-Za-z0-9._:-]+)(?=$|[\s)\]}",.!?:;'"`])/g;
+const SCOUT_MENTION_PATTERN = /(^|[\s([{'"`])@([A-Za-z0-9][A-Za-z0-9._/:-]*(?:#[A-Za-z0-9][A-Za-z0-9._/:-]*)?(?:\?[A-Za-z0-9][A-Za-z0-9._/:-]*)?)(?=$|[\s)\]}",.!?:;'"`])/g;
 
 type MentionMatch = {
   label: string;
