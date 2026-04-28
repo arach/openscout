@@ -482,14 +482,27 @@ export type TailDiscoveredProcess = {
   source: string;
 };
 
+export type TailDiscoveredTranscript = {
+  source: string;
+  transcriptPath: string;
+  sessionId: string | null;
+  cwd: string | null;
+  project: string;
+  harness: TailHarness;
+  mtimeMs: number;
+  size: number;
+};
+
 export type TailDiscoverySnapshot = {
   generatedAt: number;
   processes: TailDiscoveredProcess[];
+  transcripts?: TailDiscoveredTranscript[];
   totals: {
     total: number;
     scoutManaged: number;
     hudsonManaged: number;
     unattributed: number;
+    transcripts?: number;
   };
 };
 

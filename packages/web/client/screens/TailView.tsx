@@ -23,6 +23,7 @@ import type {
 const BUFFER_LIMIT = 5_000;
 const DEFAULT_RECENT_LIMIT = 500;
 const RATE_WINDOW_MS = 5_000;
+const DISCOVERY_REFRESH_MS = 30_000;
 
 const KIND_GLYPH: Record<TailEventKind, string> = {
   user: ">",
@@ -62,7 +63,7 @@ function shortSession(sessionId: string): string {
 
 function matchesFilter(event: TailEvent, query: string): boolean {
   if (!query) return true;
-  const haystack = `${event.summary} ${event.project} ${event.sessionId} ${event.harness}`.toLowerCase();
+  const haystack = `${event.summary} ${event.project} ${event.sessionId} ${event.harness} ${event.source}`.toLowerCase();
   return haystack.includes(query.toLowerCase());
 }
 
@@ -121,7 +122,7 @@ export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
 
   useEffect(() => {
     void loadDiscovery();
-    const id = setInterval(() => void loadDiscovery(), 5_000);
+    const id = setInterval(() => void loadDiscovery(), DISCOVERY_REFRESH_MS);
     return () => clearInterval(id);
   }, [loadDiscovery]);
 
@@ -225,13 +226,17 @@ export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
 
   const totals = discovery?.totals;
   const ghostCount = totals?.unattributed ?? 0;
+  const transcriptCount = totals?.transcripts ?? discovery?.transcripts?.length ?? 0;
 
   return (
     <div className="s-tail">
       <div className="s-tail-status">
         <span className="s-tail-status-cell">
           <span className="s-tail-rate-pulse" />
-          <strong>{totals?.total ?? 0}</strong> agent{(totals?.total ?? 0) === 1 ? "" : "s"}
+          <strong>{transcriptCount}</strong> log{transcriptCount === 1 ? "" : "s"}
+        </span>
+        <span className="s-tail-status-cell">
+          <strong>{totals?.total ?? 0}</strong> proc{(totals?.total ?? 0) === 1 ? "" : "s"}
         </span>
         <span className="s-tail-status-cell">
           <strong>{rate.toFixed(1)}</strong> lines/s
@@ -273,10 +278,10 @@ export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
           <div className="s-tail-empty">
             <span className="s-tail-empty-title">tail · waiting for transcripts</span>
             <span>
-              {totals?.total ? (
-                <>watching {totals.total} claude session{totals.total === 1 ? "" : "s"}</>
+              {transcriptCount ? (
+                <>watching {transcriptCount} transcript{transcriptCount === 1 ? "" : "s"}</>
               ) : (
-                <>no claude processes detected · start a session to see traffic</>
+                <>no moving transcript logs detected · start a session to see traffic</>
               )}
             </span>
           </div>
@@ -373,7 +378,9 @@ function TailRow({
           {shortSession(event.sessionId)}
         </TailLink>
         {" · "}
-        <span className="s-tail-cell-pid" title={`pid ${event.pid}`}>{event.pid}</span>
+        <span className="s-tail-cell-pid" title={event.pid > 0 ? `pid ${event.pid}` : "file-backed log"}>
+          {event.pid > 0 ? event.pid : "log"}
+        </span>
       </span>
       <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
       <span className="s-tail-summary">{event.summary}</span>
