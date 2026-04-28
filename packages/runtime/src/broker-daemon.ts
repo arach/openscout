@@ -1,6 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { basename, join, resolve } from "node:path";
+
+import { applyWSSHandler } from "@trpc/server/adapters/ws";
+
+import { brokerRouter } from "./broker-trpc-router.js";
 
 import {
   assertValidCollaborationEvent,
@@ -4164,7 +4169,7 @@ function resolveBrokerDeliveryTarget(
   const directId = targetAgentId?.trim();
   if (directId) {
     const agent = snapshot.agents[directId];
-    if (agent && !isStaleLocalAgent(agent)) {
+    if (agent) {
       return { kind: "resolved", agent };
     }
   }
@@ -4337,6 +4342,35 @@ const server = createServer((request, response) => {
   });
 });
 
+// ─── tRPC over WebSocket — broker firehose endpoints ───────────────────────
+// Mounted at /trpc. Today: tail.events. Future endpoints (agent activity,
+// control events) get added to broker-trpc-router.ts and consumers pick up
+// the new procedures via end-to-end type inference.
+//
+// See docs/tail-firehose.md.
+
+const wsRequire = createRequire(import.meta.url);
+const { WebSocketServer } = wsRequire("ws") as typeof import("ws");
+
+const trpcWss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+  const url = new URL(request.url || "/", `http://${host}:${port}`);
+  if (url.pathname === "/trpc") {
+    trpcWss.handleUpgrade(request, socket, head, (ws) => {
+      trpcWss.emit("connection", ws, request);
+    });
+    return;
+  }
+  socket.destroy();
+});
+
+const trpcHandler = applyWSSHandler({
+  wss: trpcWss,
+  router: brokerRouter,
+  createContext: () => ({}),
+});
+
 try {
   await listen(server);
   peerDelivery.start();
@@ -4398,6 +4432,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       }
     }
     invocationStreamClients.clear();
+    trpcHandler.broadcastReconnectNotification();
     projection.close();
     server.close(() => process.exit(0));
   });

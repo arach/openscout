@@ -43,8 +43,7 @@ import {
 import {
   getTailDiscovery,
   snapshotRecentEvents,
-  subscribeTail,
-} from "./core/tail/service.ts";
+} from "@openscout/tail";
 import {
   announceMeshVisibility,
   controlTailscale,
@@ -644,6 +643,7 @@ export async function createOpenScoutWebServer(
     const result = await askScoutQuestion({
       senderId,
       targetLabel: directAgentId,
+      targetAgentId: directAgentId,
       body: body.trim(),
       currentDirectory,
     });
@@ -714,62 +714,8 @@ export async function createOpenScoutWebServer(
     return c.json({ events: snapshotRecentEvents(limitParam) });
   });
 
-  app.get("/api/tail/stream", (c) => {
-    const encoder = new TextEncoder();
-    const signal = c.req.raw.signal;
-
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        let closed = false;
-        const safeEnqueue = (chunk: Uint8Array) => {
-          if (closed) return;
-          try {
-            controller.enqueue(chunk);
-          } catch {
-            closed = true;
-          }
-        };
-
-        // Replay recent buffer first so a new client sees context immediately.
-        const recent = snapshotRecentEvents(200);
-        for (const event of recent) {
-          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        }
-        safeEnqueue(encoder.encode(`event: ready\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`));
-
-        const unsubscribe = subscribeTail((event) => {
-          safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        });
-
-        const heartbeat = setInterval(() => {
-          safeEnqueue(encoder.encode(`: keep-alive ${Date.now()}\n\n`));
-        }, 15_000);
-
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          clearInterval(heartbeat);
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            /* already closed */
-          }
-        };
-
-        signal.addEventListener("abort", close, { once: true });
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache, no-transform",
-        connection: "keep-alive",
-        "x-accel-buffering": "no",
-      },
-    });
-  });
+  // /api/tail/stream removed — clients now subscribe to broker tail.events
+  // directly via tRPC over WebSocket. See packages/web/client/lib/tail-events.ts.
 
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,

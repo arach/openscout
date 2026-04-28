@@ -86,6 +86,11 @@
       "types": "./src/mobile-push.ts",
       "bun": "./src/mobile-push.ts",
       "default": "./dist/mobile-push.js"
+    },
+    "./broker-trpc-router": {
+      "types": "./src/broker-trpc-router.ts",
+      "bun": "./src/broker-trpc-router.ts",
+      "default": "./dist/broker-trpc-router.js"
     }
   },
   "types": "./src/index.ts",
@@ -112,14 +117,19 @@
   "dependencies": {
     "@openscout/agent-sessions": "0.2.62",
     "@openscout/protocol": "0.2.62",
+    "@openscout/tail": "0.2.62",
+    "@trpc/server": "^11.16.0",
     "drizzle-orm": "^0.45.2",
-    "smol-toml": "^1.6.1"
+    "smol-toml": "^1.6.1",
+    "ws": "^8.18.3",
+    "zod": "^4.3.6"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
     "@types/node": "^22",
+    "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5"
   }

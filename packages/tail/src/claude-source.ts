@@ -1,18 +1,27 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 
-import { discoverClaudeProcesses } from "./discover.ts";
+import { discoverClaudeProcesses } from "./discover";
 import type {
   DiscoveredProcess,
+  DiscoveredTranscript,
   TailContext,
+  TailDiscoveryScope,
   TailEvent,
   TailEventKind,
   TranscriptSource,
-} from "./types.ts";
+} from "./types";
 
 const SOURCE_NAME = "claude";
 const MAX_SUMMARY_LEN = 200;
+const DEFAULT_HOT_DISCOVERY_WINDOW_MS = 10 * 60 * 1000;
+const DEFAULT_SHALLOW_DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_DEEP_DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_HOT_DISCOVERY_LIMIT = 64;
+const DEFAULT_SHALLOW_DISCOVERY_LIMIT = 160;
+const DEFAULT_DEEP_DISCOVERY_LIMIT = 160;
+const HEAD_READ_BYTES = 256 * 1024;
 
 function encodeProjectDir(cwd: string): string {
   // Claude encodes the cwd by replacing "/" with "-" and prefixing the result.
@@ -21,7 +30,8 @@ function encodeProjectDir(cwd: string): string {
 }
 
 function projectsRoot(): string {
-  return join(homedir(), ".claude", "projects");
+  return process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT
+    ?? join(homedir(), ".claude", "projects");
 }
 
 function listJsonlFiles(dir: string): string[] {
@@ -47,6 +57,140 @@ function pickMostRecentJsonl(dir: string): string | null {
     }
   }
   return best ? join(dir, best.name) : null;
+}
+
+function readPositiveIntEnv(names: string[], fallback: number): number {
+  for (const name of names) {
+    const raw = Number.parseInt(process.env[name] ?? "", 10);
+    if (Number.isFinite(raw) && raw > 0) return raw;
+  }
+  return fallback;
+}
+
+function discoveryWindowMs(scope: TailDiscoveryScope): number {
+  const fallback = scope === "hot"
+    ? DEFAULT_HOT_DISCOVERY_WINDOW_MS
+    : scope === "deep"
+      ? DEFAULT_DEEP_DISCOVERY_WINDOW_MS
+      : DEFAULT_SHALLOW_DISCOVERY_WINDOW_MS;
+  const scopedName = `OPENSCOUT_TAIL_${scope.toUpperCase()}_DISCOVERY_WINDOW_MS`;
+  return readPositiveIntEnv([scopedName, "OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS"], fallback);
+}
+
+function discoveryLimit(scope: TailDiscoveryScope): number {
+  const fallback = scope === "hot"
+    ? DEFAULT_HOT_DISCOVERY_LIMIT
+    : scope === "deep"
+      ? DEFAULT_DEEP_DISCOVERY_LIMIT
+      : DEFAULT_SHALLOW_DISCOVERY_LIMIT;
+  const scopedName = `OPENSCOUT_TAIL_${scope.toUpperCase()}_DISCOVERY_LIMIT`;
+  return readPositiveIntEnv([scopedName, "OPENSCOUT_TAIL_DISCOVERY_LIMIT"], fallback);
+}
+
+function readFileHead(filePath: string): string {
+  let fd: number | null = null;
+  try {
+    fd = openSync(filePath, "r");
+    const buffer = Buffer.alloc(HEAD_READ_BYTES);
+    const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+    return buffer.toString("utf8", 0, bytesRead);
+  } catch {
+    return "";
+  } finally {
+    if (fd != null) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+function parseJsonRecord(line: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(line) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readClaudeMetadata(filePath: string): { cwd: string | null; sessionId: string | null } {
+  const head = readFileHead(filePath);
+  let cwd: string | null = null;
+  let sessionId: string | null = null;
+  for (const line of head.split(/\r?\n/)) {
+    const record = parseJsonRecord(line.trim());
+    if (!record) continue;
+    cwd ??= typeof record.cwd === "string" && record.cwd.trim()
+      ? record.cwd
+      : null;
+    sessionId ??=
+      typeof record.sessionId === "string" && record.sessionId.trim()
+        ? record.sessionId
+        : typeof record.session_id === "string" && record.session_id.trim()
+          ? record.session_id
+          : null;
+    if (cwd && sessionId) {
+      return { cwd, sessionId };
+    }
+  }
+  return { cwd, sessionId };
+}
+
+function decodeProjectDir(dirName: string): string | null {
+  if (!dirName.startsWith("-")) return null;
+  return `/${dirName.slice(1).replace(/-/g, "/")}`;
+}
+
+function projectDirNameForPath(filePath: string): string | null {
+  const rel = relative(projectsRoot(), filePath);
+  if (!rel || rel.startsWith("..")) return null;
+  return rel.split(/[\\/]/)[0] ?? null;
+}
+
+function fallbackCwdForPath(filePath: string): string | null {
+  const dirName = projectDirNameForPath(filePath);
+  return dirName ? decodeProjectDir(dirName) : null;
+}
+
+function walkRecentJsonlFiles(
+  root: string,
+  scope: TailDiscoveryScope,
+): Array<{ path: string; mtimeMs: number; size: number }> {
+  const cutoff = Date.now() - discoveryWindowMs(scope);
+  const found: Array<{ path: string; mtimeMs: number; size: number }> = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(dir, entry);
+      let stats;
+      try {
+        stats = statSync(path);
+      } catch {
+        continue;
+      }
+      if (stats.isDirectory()) {
+        stack.push(path);
+        continue;
+      }
+      if (!entry.endsWith(".jsonl") || stats.mtimeMs < cutoff) continue;
+      found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
+    }
+  }
+  return found
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, discoveryLimit(scope));
 }
 
 export function resolveClaudeTranscriptPath(p: DiscoveredProcess): string | null {
@@ -198,9 +342,11 @@ function parseClaudeLine(line: string, ctx: TailContext): TailEvent | null {
   const summary = summaryForType(rawType, obj, blocks)
     || `[${rawType}]`;
 
-  const project = ctx.process.cwd ? basename(ctx.process.cwd) : "(unknown)";
   const finalSessionId = sessionId
+    || ctx.transcript.sessionId
     || basename(ctx.transcriptPath).replace(/\.jsonl$/, "");
+  const cwd = ctx.transcript.cwd ?? ctx.process.cwd ?? "";
+  const project = cwd ? basename(cwd) : ctx.transcript.project;
 
   return {
     id: hashId(finalSessionId, ctx.lineOffset),
@@ -210,7 +356,7 @@ function parseClaudeLine(line: string, ctx: TailContext): TailEvent | null {
     pid: ctx.process.pid,
     parentPid: ctx.process.ppid,
     project,
-    cwd: ctx.process.cwd ?? "",
+    cwd,
     harness: ctx.process.harness,
     kind,
     summary,
@@ -223,8 +369,24 @@ export const ClaudeSource: TranscriptSource = {
   discoverProcesses(): Promise<DiscoveredProcess[]> {
     return discoverClaudeProcesses();
   },
-  resolveTranscriptPath(p: DiscoveredProcess): string | null {
-    return resolveClaudeTranscriptPath(p);
+  discoverTranscripts(_processes: DiscoveredProcess[], scope: TailDiscoveryScope = "shallow"): DiscoveredTranscript[] {
+    const root = projectsRoot();
+    if (!existsSync(root)) return [];
+    return walkRecentJsonlFiles(root, scope).map((file) => {
+      const meta = readClaudeMetadata(file.path);
+      const cwd = meta.cwd ?? fallbackCwdForPath(file.path);
+      const sessionId = meta.sessionId ?? basename(file.path).replace(/\.jsonl$/, "");
+      return {
+        source: SOURCE_NAME,
+        transcriptPath: file.path,
+        sessionId,
+        cwd,
+        project: cwd ? basename(cwd) : projectDirNameForPath(file.path) ?? "(unknown)",
+        harness: "unattributed",
+        mtimeMs: file.mtimeMs,
+        size: file.size,
+      };
+    });
   },
   parseLine(line: string, ctx: TailContext): TailEvent | null {
     return parseClaudeLine(line, ctx);

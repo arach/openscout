@@ -1,0 +1,34 @@
+{
+  "name": "@openscout/tail",
+  "version": "0.2.62",
+  "description": "Machine-wide harness transcript firehose — single-instance watcher and TailEvent stream",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test src/*.test.ts",
+    "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "bun-types": "^1.3.11",
+    "typescript": "^5"
+  }
+}

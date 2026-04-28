@@ -1,20 +1,20 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { DiscoveredProcess, TailHarness } from "./types.ts";
+import type { DiscoveredProcess, TailHarness } from "./types";
 
 const execFileAsync = promisify(execFile);
 
 const PARENT_HOP_LIMIT = 10;
 
-type RawProcess = {
+export type RawProcess = {
   pid: number;
   ppid: number;
   etime: string;
   command: string;
 };
 
-async function listProcesses(): Promise<RawProcess[]> {
+export async function listProcesses(): Promise<RawProcess[]> {
   const { stdout } = await execFileAsync("ps", ["-axww", "-o", "pid=,ppid=,etime=,command="], {
     maxBuffer: 32 * 1024 * 1024,
   });
@@ -47,7 +47,7 @@ export function isClaudeBinary(command: string): boolean {
   return false;
 }
 
-async function readCwd(pid: number): Promise<string | null> {
+export async function readCwd(pid: number): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
       maxBuffer: 1 * 1024 * 1024,
@@ -64,7 +64,7 @@ async function readCwd(pid: number): Promise<string | null> {
   return null;
 }
 
-function classifyHarness(parentChain: { command: string }[]): TailHarness {
+export function classifyHarness(parentChain: { command: string }[]): TailHarness {
   for (const ancestor of parentChain) {
     const cmd = ancestor.command.toLowerCase();
     if (cmd.includes("/openscout") || cmd.includes("openscout/") || cmd.includes("packages/runtime")) {
@@ -77,7 +77,7 @@ function classifyHarness(parentChain: { command: string }[]): TailHarness {
   return "unattributed";
 }
 
-function buildParentChain(
+export function buildParentChain(
   startPid: number,
   byPid: Map<number, RawProcess>,
 ): { pid: number; command: string }[] {
