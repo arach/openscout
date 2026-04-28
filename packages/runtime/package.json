@@ -32,6 +32,11 @@
       "bun": "./src/broker-service.ts",
       "default": "./dist/broker-service.js"
     },
+    "./broker-process-manager": {
+      "types": "./src/broker-process-manager.ts",
+      "bun": "./src/broker-process-manager.ts",
+      "default": "./dist/broker-process-manager.js"
+    },
     "./broker-api": {
       "types": "./src/broker-api.ts",
       "bun": "./src/broker-api.ts",

@@ -1,4 +1,4 @@
-import { DEFAULT_BROKER_URL } from "./broker-service.js";
+import { DEFAULT_BROKER_URL } from "./broker-process-manager.js";
 
 function resolveBrokerUrl(): string {
   return (process.env.OPENSCOUT_BROKER_URL ?? DEFAULT_BROKER_URL).replace(/\/$/, "");

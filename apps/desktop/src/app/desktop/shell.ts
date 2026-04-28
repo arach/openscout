@@ -12,7 +12,7 @@ import type {
   MessageRecord,
 } from "@openscout/protocol";
 import { BUILT_IN_AGENT_DEFINITION_IDS } from "@openscout/protocol";
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
 

@@ -36,7 +36,7 @@ import {
   maybeReadJsonFromActiveScoutBrokerService,
 } from "./broker-api.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
-import { resolveBrokerServiceConfig } from "./broker-service.js";
+import { resolveBrokerServiceConfig } from "./broker-process-manager.js";
 
 export type ScoutBrokerActorRecord = {
   id: string;

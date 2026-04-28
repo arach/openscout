@@ -18,7 +18,7 @@ import type {
   ShareMode,
   VisibilityScope,
 } from "@openscout/protocol";
-import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "../broker-service";
+import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "../broker-process-manager";
 
 const runtimeDir = join(import.meta.dir, "..", "..");
 

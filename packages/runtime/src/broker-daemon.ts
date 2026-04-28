@@ -87,7 +87,7 @@ import {
   isLoopbackHost,
   resolveAdvertiseScope,
   resolveBrokerHost,
-} from "./broker-service.js";
+} from "./broker-process-manager.js";
 import { readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
 
 function createRuntimeId(prefix: string): string {

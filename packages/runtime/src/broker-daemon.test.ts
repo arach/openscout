@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "./broker-service";
+import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "./broker-process-manager";
 
 const runtimeDir = join(import.meta.dir, "..");
 

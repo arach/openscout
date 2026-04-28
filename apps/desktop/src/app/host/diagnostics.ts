@@ -5,7 +5,7 @@ import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import {
   resolveOpenScoutSupportPaths,
 } from "@openscout/runtime/support-paths";

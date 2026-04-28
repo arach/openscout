@@ -9,7 +9,7 @@ import {
   renderLocalAgentSystemPromptTemplate,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
-import { DEFAULT_BROKER_URL } from "./broker-service";
+import { DEFAULT_BROKER_URL } from "./broker-process-manager";
 
 describe("local agent prompts", () => {
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {
