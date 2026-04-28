@@ -28,6 +28,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@arach/arc@0.4.1": "patches/@arach%2Farc@0.4.1.patch",
+  },
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 

@@ -19,6 +19,7 @@ import {
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { BrokerStreamDemo } from "@/components/broker-stream-demo";
+import { ArcDiagramEmbed } from "@/components/arc-diagram-embed";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
@@ -531,12 +532,9 @@ function GithubStars() {
   }, []);
   if (stars == null) return null;
   return (
-    <>
-      <span className="operator-strip__sep hidden md:inline">·</span>
-      <span className="operator-strip__data hidden md:inline-flex">
-        ★ <b>{stars}</b>
-      </span>
-    </>
+    <span className="operator-strip__cell hidden md:inline-flex">
+      ★&nbsp;<b>{stars}</b>
+    </span>
   );
 }
 
@@ -642,23 +640,21 @@ export default function Home() {
         {/* live status strip — broker identity + ambient telemetry */}
         <div className="operator-strip">
           <div className="mx-auto flex max-w-[90rem] items-center px-6">
-            <div className="operator-strip__inner overflow-x-auto whitespace-nowrap">
-              <span className="operator-strip__brand">SCOUT/Ø</span>
-              <span className="operator-strip__sep">·</span>
-              <span className="operator-strip__data">
+            <div className="operator-strip__inner">
+              <span className="operator-strip__cell">
+                <span className="operator-strip__brand">SCOUT/Ø</span>
+              </span>
+              <span className="operator-strip__cell">
                 <span className="status-dot" aria-hidden />
                 <span>experimental</span>
               </span>
-              <span className="operator-strip__sep hidden sm:inline">·</span>
-              <span className="operator-strip__data hidden sm:inline-flex">
+              <span className="operator-strip__cell hidden sm:inline-flex">
                 proto <b>Ø.1</b>
               </span>
-              <span className="operator-strip__sep">·</span>
-              <span className="operator-strip__data">
+              <span className="operator-strip__cell">
                 <b>v0.2.61</b>
               </span>
-              <span className="operator-strip__sep hidden sm:inline">·</span>
-              <span className="operator-strip__data hidden sm:inline-flex">
+              <span className="operator-strip__cell hidden sm:inline-flex">
                 MIT
               </span>
               <GithubStars />
@@ -724,7 +720,7 @@ export default function Home() {
         <>
           <main ref={scrollRef} className="relative z-10">
             {/* ── Hero (RFC front matter + live broker stream) ── */}
-            <section className="overflow-hidden pb-24 pt-12 md:pt-16">
+            <section className="overflow-hidden pb-12 pt-12 md:pt-16">
               <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:items-start lg:gap-16">
                 <div className="hero-animate" style={{ animationDelay: "0s" }}>
                   <div className="rfc-hero__bar">
@@ -763,6 +759,10 @@ export default function Home() {
                   </p>
 
                   <RfcInstall command={copy.heroCommand} />
+                </div>
+
+                <div className="hero-animate" style={{ animationDelay: "0.12s" }}>
+                  <BrokerStreamDemo />
 
                   <nav className="rfc-hero__toc" aria-label="Document sections">
                     <a
@@ -791,10 +791,6 @@ export default function Home() {
                     </a>
                   </nav>
                 </div>
-
-                <div className="hero-animate" style={{ animationDelay: "0.12s" }}>
-                  <BrokerStreamDemo />
-                </div>
               </div>
 
               {/* ── Machine-readable manifest layer ── */}
@@ -815,17 +811,26 @@ export default function Home() {
             {/* ── §1 Topology ── */}
             <section id="mesh" className="rfc-section">
               <div className="mx-auto max-w-6xl px-6">
-                <div className="reveal max-w-3xl">
-                  <div className="rfc-section-eyebrow">
-                    <span className="rfc-section-eyebrow__num">§1</span>
-                    <span>Topology</span>
+                <div className="grid gap-12 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:items-start lg:gap-16">
+                  <div className="reveal">
+                    <div className="rfc-section-eyebrow">
+                      <span className="rfc-section-eyebrow__num">§1</span>
+                      <span>Topology</span>
+                    </div>
+                    <h2 className="rfc-section-title">
+                      {problemContent.meshTitle}
+                    </h2>
+                    <p className="rfc-section-lead">
+                      {problemContent.meshDescription}
+                    </p>
                   </div>
-                  <h2 className="rfc-section-title">
-                    {problemContent.meshTitle}
-                  </h2>
-                  <p className="rfc-section-lead">
-                    {problemContent.meshDescription}
-                  </p>
+
+                  <div className="reveal lg:mt-9">
+                    <ArcDiagramEmbed
+                      src="communication-flow"
+                      aspectRatio="3/1"
+                    />
+                  </div>
                 </div>
 
                 <div className="reveal-stagger mt-12 grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
@@ -1021,33 +1026,34 @@ export default function Home() {
             </section>
           </main>
 
-          {/* ── Status footer (mirror of operator-strip) ── */}
+          {/* ── Status footer (Cursor-style IDE status bar) ── */}
           <footer className="status-bar">
-            <div className="mx-auto flex max-w-[90rem] items-center px-6">
-              <div className="status-bar__inner overflow-x-auto whitespace-nowrap">
-                <span className="status-bar__zone">
-                  <span className="status-bar__cell">
-                    <span className="status-dot" aria-hidden />
-                    <span>scout/Ø ready</span>
-                  </span>
-                  <span className="status-bar__sep">·</span>
-                  <span className="status-bar__cell">
-                    <b>v0.2.61</b>
-                  </span>
-                  <span className="status-bar__sep hidden sm:inline">·</span>
-                  <span className="status-bar__cell hidden sm:inline-flex">
-                    MIT License
-                  </span>
-                  <span className="status-bar__sep hidden md:inline">·</span>
-                  <span className="status-bar__cell hidden md:inline-flex">
-                    local-first
-                  </span>
+            <div className="mx-auto flex max-w-[90rem] items-stretch px-6">
+              <div className="status-bar__inner w-full">
+                {/* Left group: broker status */}
+                <span className="status-bar__cell">
+                  <span className="status-dot" aria-hidden />
+                  <span>ready</span>
                 </span>
-                <span className="status-bar__zone status-bar__zone--right">
+                <span className="status-bar__cell">
+                  <b>v0.2.61</b>
+                </span>
+                <span className="status-bar__cell hidden sm:inline-flex">
+                  proto&nbsp;<b>Ø.1</b>
+                </span>
+                <span className="status-bar__cell hidden md:inline-flex">
+                  MIT
+                </span>
+                <span className="status-bar__cell hidden md:inline-flex">
+                  local-first
+                </span>
+
+                {/* Right group: link cells */}
+                <span className="status-bar__zone--right">
                   <a
                     href="/docs"
                     onClick={onNavigationClick("Docs", "/docs", "footer")}
-                    className="status-bar__link"
+                    className="status-bar__cell status-bar__cell--link"
                   >
                     <span className="status-bar__sigil">:</span>docs
                   </a>
@@ -1059,7 +1065,7 @@ export default function Home() {
                       "footer",
                       "repo",
                     )}
-                    className="status-bar__link"
+                    className="status-bar__cell status-bar__cell--link"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -1068,14 +1074,14 @@ export default function Home() {
                   <a
                     href="/privacy"
                     onClick={onNavigationClick("Privacy", "/privacy", "footer")}
-                    className="status-bar__link hidden sm:inline-flex"
+                    className="status-bar__cell status-bar__cell--link hidden sm:inline-flex"
                   >
                     <span className="status-bar__sigil">:</span>privacy
                   </a>
                   <a
                     href="https://x.com/arach"
                     onClick={onCtaClick("Twitter", "https://x.com/arach", "footer", "social")}
-                    className="status-bar__link hidden md:inline-flex"
+                    className="status-bar__cell status-bar__cell--link hidden md:inline-flex"
                     target="_blank"
                     rel="noopener noreferrer"
                   >

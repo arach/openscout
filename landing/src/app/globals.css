@@ -255,20 +255,34 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 .operator-strip {
-  border-bottom: 1px solid var(--site-border-soft);
+  border-bottom: 1px solid var(--site-border);
   background: var(--site-panel-rail);
 }
 
 .operator-strip__inner {
   display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  height: 28px;
+  align-items: stretch;
+  height: 26px;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 10.5px;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--site-muted);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.operator-strip__cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.75rem;
+  border-right: 1px solid var(--site-border-soft);
+  white-space: nowrap;
+}
+
+.operator-strip__cell:first-child {
+  padding-left: 0;
 }
 
 .operator-strip__brand {
@@ -277,27 +291,13 @@ html[data-site-theme="dark"] .dot-grid {
   letter-spacing: 0.08em;
 }
 
-.operator-strip__sep {
-  color: var(--site-border-strong);
-  user-select: none;
-}
-
-.operator-strip__data {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.operator-strip__data b {
-  color: var(--site-ink);
-  font-weight: 500;
-}
 
 .status-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
+  flex-shrink: 0;
   background: var(--site-status-online);
   box-shadow: 0 0 0 0 var(--site-status-online-soft);
   animation: status-pulse 2.6s ease-in-out infinite;
@@ -305,72 +305,111 @@ html[data-site-theme="dark"] .dot-grid {
 
 @keyframes status-pulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--site-status-online-soft); }
-  50% { box-shadow: 0 0 0 5px transparent; }
+  50% { box-shadow: 0 0 0 4px transparent; }
 }
 
 .operator-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  height: 52px;
   gap: 1.5rem;
 }
 
 .operator-link {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--site-copy);
-  transition: color 0.18s ease;
+  transition: color 0.15s ease;
   letter-spacing: 0.01em;
+  position: relative;
 }
 
 .operator-link:hover {
   color: var(--site-ink);
 }
 
+.operator-link:hover .operator-link__sigil {
+  color: var(--site-accent);
+}
+
 .operator-link__sigil {
   color: var(--site-muted-soft);
   margin-right: 1px;
+  transition: color 0.15s ease;
+}
+
+/* Remove trailing border on the rightmost strip cell */
+.operator-strip__inner > .operator-strip__cell:last-child {
+  border-right: none;
 }
 
 /* tiny scrolling marquee on smaller screens — graceful overflow */
 .operator-strip__inner::-webkit-scrollbar { display: none; }
 .operator-strip__inner { scrollbar-width: none; }
 
-/* ── status footer (mirror of operator-strip) ── */
+/* ── status footer (Cursor-style IDE status bar) ── */
 
 .status-bar {
   border-top: 1px solid var(--site-border);
   background: var(--site-panel-rail);
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
 }
 
 .status-bar__inner {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  height: 32px;
+  align-items: stretch;
+  height: 24px;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 10.5px;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--site-muted);
-}
-
-.status-bar__zone {
-  display: inline-flex;
-  align-items: center;
-  gap: 1rem;
+  overflow-x: auto;
   white-space: nowrap;
 }
 
-.status-bar__zone--right {
-  margin-left: auto;
-}
+.status-bar__inner::-webkit-scrollbar { display: none; }
+.status-bar__inner { scrollbar-width: none; }
 
+/* A cell is the atomic unit — like Cursor's status bar segments */
 .status-bar__cell {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  padding: 0 0.625rem;
+  border-right: 1px solid var(--site-border-soft);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-bar__cell:first-child {
+  padding-left: 0;
+}
+
+/* Clickable / link cells get hover treatment */
+.status-bar__cell--link {
+  color: var(--site-copy);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.status-bar__cell--link:hover {
+  background: var(--site-border-soft);
+  color: var(--site-ink);
+}
+
+.status-bar__cell--link:hover .status-bar__sigil {
+  color: var(--site-accent);
+}
+
+/* Right-zone group pushed to the end */
+.status-bar__zone--right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: stretch;
 }
 
 .status-bar__cell b {
@@ -378,23 +417,21 @@ html[data-site-theme="dark"] .dot-grid {
   font-weight: 500;
 }
 
+/* Remove trailing border on the last visible cell in each group */
+.status-bar__inner > .status-bar__cell:last-child,
+.status-bar__zone--right > .status-bar__cell:last-child {
+  border-right: none;
+}
+
+/* Retained for any inline separators we still want */
 .status-bar__sep {
   color: var(--site-border-strong);
   user-select: none;
 }
 
-.status-bar__link {
-  color: var(--site-copy);
-  transition: color 0.18s ease;
-}
-
-.status-bar__link:hover {
-  color: var(--site-ink);
-}
-
 .status-bar__sigil {
   color: var(--site-muted-soft);
-  margin-right: 1px;
+  transition: color 0.12s ease;
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -695,7 +732,7 @@ html[data-site-theme="dark"] .dot-grid {
 .broker-stream__body {
   display: grid;
   grid-template-columns: minmax(0, 9.5rem) 1fr;
-  min-height: 280px;
+  height: 400px;
 }
 
 .broker-stream__peers {
@@ -710,6 +747,7 @@ html[data-site-theme="dark"] .dot-grid {
 .broker-stream__records {
   padding: 1rem 0.875rem;
   min-width: 0;
+  overflow: hidden;
 }
 
 .broker-stream__col-label {
@@ -972,42 +1010,88 @@ html[data-site-theme="dark"] .dot-grid {
   color: var(--site-ink-contrast);
 }
 
-/* ── arc diagram embeds in docs ── */
+/* ── arc diagram embeds (docs + landing) ── */
 
 /* diagram label — bottom left */
 .arc-docs-embed .absolute.bottom-3.left-3 {
   font-family: var(--font-geist-mono), ui-monospace, monospace !important;
-  font-size: 8px !important;
+  font-size: 9px !important;
   font-weight: 500 !important;
   text-transform: uppercase;
   letter-spacing: 0.14em !important;
-  opacity: 0.5;
-  bottom: 16px !important;
-  left: 16px !important;
+  color: var(--site-muted-soft) !important;
+  background: transparent !important;
+  padding: 0 !important;
+  bottom: 4px !important;
+  left: 6px !important;
 }
 
-/* zoom controls — bottom right */
+/* zoom controls pill — bottom right */
 .arc-docs-embed .absolute.bottom-3.right-3 {
-  background: rgba(0, 0, 0, 0.04) !important;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  box-shadow: none !important;
-  border-radius: 5px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 1px !important;
+  padding: 3px !important;
+  background: var(--site-surface) !important;
+  border: 1px solid var(--site-border) !important;
+  border-radius: 7px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
   backdrop-filter: blur(8px);
-  transform: scale(0.8);
-  transform-origin: bottom right;
-  opacity: 1;
-  bottom: 16px !important;
-  right: 16px !important;
+  transform: none !important;
+  opacity: 1 !important;
+  bottom: 4px !important;
+  right: 6px !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .arc-docs-embed .absolute.bottom-3.right-3:hover {
-  opacity: 1;
+  border-color: var(--site-border-strong) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06) !important;
 }
 
-/* zoom controls font */
+/* zoom buttons */
 .arc-docs-embed .absolute.bottom-3.right-3 button {
+  width: 24px !important;
+  height: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  color: var(--site-muted) !important;
   font-family: var(--font-geist-mono), ui-monospace, monospace !important;
-  color: rgba(0, 0, 0, 0.45) !important;
+  font-size: 11px !important;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3 button:hover {
+  background: var(--site-panel) !important;
+  border-color: var(--site-border-soft) !important;
+  color: var(--site-ink) !important;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3 button:active {
+  background: var(--site-panel-rail) !important;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3 button svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+/* zoom percentage indicator — the non-button child between the buttons */
+.arc-docs-embed .absolute.bottom-3.right-3 > span,
+.arc-docs-embed .absolute.bottom-3.right-3 > div:not(button) {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 10px !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em !important;
+  color: var(--site-muted) !important;
+  padding: 0 7px !important;
+  user-select: none;
 }
 
 /* ── docs markdown ── */

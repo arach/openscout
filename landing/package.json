@@ -29,5 +29,8 @@
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "patchedDependencies": {
+    "@arach/arc@0.4.1": "patches/@arach%2Farc@0.4.1.patch"
   }
 }
