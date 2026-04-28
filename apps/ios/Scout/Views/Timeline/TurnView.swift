@@ -1,12 +1,13 @@
 // TurnView — Renders a single turn within the timeline.
 //
 // Blocks are sorted by `index` (not arrival order, not id).
-// Status indicator: spinner for streaming, checkmark for completed, X for failed/interrupted.
+// Status indicator: spinner for streaming, X for failed, stop glyph for interrupted; nothing for completed.
 
 import SwiftUI
 
 struct TurnView: View {
     let turn: Turn
+    var session: Session? = nil
 
     private var isStreaming: Bool {
         turn.status == .streaming || turn.status == .started
@@ -17,6 +18,18 @@ struct TurnView: View {
     }
 
     private var isUser: Bool { turn.isUserTurn == true }
+
+    private var agentLabel: String? {
+        if let id = session?.agentId, !id.isEmpty {
+            return id.hasPrefix("@") ? id : "@\(id)"
+        }
+        return nil
+    }
+
+    private var harnessLabel: String? {
+        guard let adapter = session?.adapterType.trimmedNonEmpty else { return nil }
+        return AdapterIcon.displayName(for: adapter)
+    }
 
     var body: some View {
         if isUser {
@@ -60,17 +73,26 @@ struct TurnView: View {
     }
 
     private var assistantTurn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            turnHeader
-                .padding(.bottom, ScoutSpacing.sm)
+        HStack(alignment: .top, spacing: ScoutSpacing.md) {
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(ScoutColors.accent.opacity(0.35))
+                .frame(width: 2)
+                .frame(maxHeight: .infinity)
+                .padding(.vertical, 2)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: ScoutSpacing.md) {
-                ForEach(sortedBlocks) { block in
-                    BlockView(sessionId: turn.sessionId, block: block)
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            VStack(alignment: .leading, spacing: 0) {
+                turnHeader
+                    .padding(.bottom, ScoutSpacing.sm)
+
+                VStack(alignment: .leading, spacing: ScoutSpacing.md) {
+                    ForEach(sortedBlocks) { block in
+                        BlockView(sessionId: turn.sessionId, block: block)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
                 }
+                .animation(.easeOut(duration: 0.2), value: sortedBlocks.map(\.id))
             }
-            .animation(.easeOut(duration: 0.2), value: sortedBlocks.map(\.id))
         }
         .padding(.horizontal, ScoutSpacing.lg)
         .padding(.vertical, ScoutSpacing.md)
@@ -81,52 +103,57 @@ struct TurnView: View {
     // MARK: - Header
 
     private var turnHeader: some View {
-        HStack(spacing: ScoutSpacing.sm) {
-            statusIcon
-                .frame(width: 18, height: 18)
+        HStack(spacing: ScoutSpacing.md) {
+            leadingStatusIcon
+
+            if let agentLabel {
+                Text(agentLabel)
+                    .font(ScoutTypography.body(13, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            if let harnessLabel {
+                Text(harnessLabel)
+                    .font(ScoutTypography.code(10, weight: .medium))
+                    .foregroundStyle(ScoutColors.textMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: ScoutSpacing.sm)
 
             Text(RelativeTime.string(fromISO: turn.startedAt))
                 .font(ScoutTypography.caption(11))
                 .foregroundStyle(ScoutColors.textMuted)
-
-            if sortedBlocks.count > 1 {
-                Text("\(sortedBlocks.count) blocks")
-                    .font(ScoutTypography.caption(11))
-                    .foregroundStyle(ScoutColors.textMuted)
-                    .padding(.horizontal, ScoutSpacing.sm)
-                    .padding(.vertical, ScoutSpacing.xxs)
-                    .background(ScoutColors.surfaceAdaptive)
-                    .clipShape(Capsule())
-            }
-
-            Spacer()
         }
+        .frame(minHeight: 18)
     }
 
     // MARK: - Status Icon
 
     @ViewBuilder
-    private var statusIcon: some View {
+    private var leadingStatusIcon: some View {
         switch turn.status {
         case .started, .streaming:
             ProgressView()
                 .controlSize(.mini)
                 .tint(ScoutColors.accent)
+                .frame(width: 14, height: 14)
                 .accessibilityLabel("Streaming")
         case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(ScoutColors.statusActive)
-                .accessibilityLabel("Completed")
+            EmptyView()
         case .failed:
             Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 14))
+                .font(.system(size: 12))
                 .foregroundStyle(ScoutColors.statusError)
+                .frame(width: 14, height: 14)
                 .accessibilityLabel("Failed")
         case .stopped:
             Image(systemName: "stop.circle.fill")
-                .font(.system(size: 14))
+                .font(.system(size: 12))
                 .foregroundStyle(ScoutColors.statusStreaming)
+                .frame(width: 14, height: 14)
                 .accessibilityLabel("Interrupted")
         }
     }
@@ -146,22 +173,32 @@ struct TurnView: View {
 
 #Preview {
     ScrollView {
-        TurnView(turn: Turn(
-            id: "t1",
-            sessionId: "s1",
-            status: .completed,
-            startedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-120)),
-            endedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-90)),
-            blocks: [
-                Block(id: "b1", turnId: "t1", type: .text, status: .completed, index: 0,
-                      text: "Let me help you with that refactoring."),
-                Block(id: "b2", turnId: "t1", type: .action, status: .completed, index: 1,
-                      action: Action(kind: .command, status: .completed, output: "Done",
-                                     command: "git diff --stat")),
-                Block(id: "b3", turnId: "t1", type: .text, status: .completed, index: 2,
-                      text: "The changes look good. I've updated 3 files."),
-            ]
-        ))
+        TurnView(
+            turn: Turn(
+                id: "t1",
+                sessionId: "s1",
+                status: .completed,
+                startedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-120)),
+                endedAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-90)),
+                blocks: [
+                    Block(id: "b1", turnId: "t1", type: .text, status: .completed, index: 0,
+                          text: "Let me help you with that refactoring."),
+                    Block(id: "b2", turnId: "t1", type: .action, status: .completed, index: 1,
+                          action: Action(kind: .command, status: .completed, output: "Done",
+                                         command: "git diff --stat")),
+                    Block(id: "b3", turnId: "t1", type: .text, status: .completed, index: 2,
+                          text: "The changes look good. I've updated 3 files."),
+                ]
+            ),
+            session: Session(
+                id: "s1",
+                name: "refactor sweep",
+                adapterType: "claude-code",
+                status: .active,
+                cwd: "/tmp",
+                providerMeta: ["agentId": AnyCodable("scout-pilot")]
+            )
+        )
     }
     .background(Color(white: 0.07))
     .preferredColorScheme(.dark)

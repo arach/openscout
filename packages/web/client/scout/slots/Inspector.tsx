@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
 import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
-import { FleetInspector } from "../inspector/FleetInspector.tsx";
 import { HomeAgentsInspector } from "../inspector/HomeAgentsInspector.tsx";
 import { SessionsInspector } from "../inspector/SessionsInspector.tsx";
 import { WorkInspector } from "../inspector/WorkInspector.tsx";
@@ -14,14 +13,12 @@ export function ScoutInspector() {
 
   switch (route.view) {
     case "inbox":
+    case "fleet":
       content = <HomeAgentsInspector />;
       break;
     case "agents":
     case "agent-info":
       content = <AgentsInspector />;
-      break;
-    case "fleet":
-      content = <FleetInspector />;
       break;
     case "sessions":
     case "conversation":

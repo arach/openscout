@@ -74,6 +74,7 @@ const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
 
 type LocalAgentRecord = {
   definitionId?: string;
+  registrationSource?: RelayAgentOverride["source"];
   project: string;
   projectRoot?: string;
   tmuxSession: string;
@@ -925,6 +926,7 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
     transport: activeProfile?.transport ?? normalizeLocalAgentTransport(record.transport, harness),
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     launchArgs: activeProfile?.launchArgs ?? normalizeLaunchArgsForHarness(harness, record.launchArgs),
+    registrationSource: record.registrationSource,
   };
 }
 
@@ -958,6 +960,7 @@ function localAgentStatusSource(
 function localAgentRecordFromResolvedConfig(config: ResolvedRelayAgentConfig): LocalAgentRecord {
   return normalizeLocalAgentRecord(config.agentId, {
     definitionId: config.definitionId,
+    registrationSource: config.source,
     project: config.projectName,
     projectRoot: config.projectRoot,
     tmuxSession: config.runtime.sessionId,
@@ -979,6 +982,7 @@ function localAgentRecordFromRelayAgentOverride(
 ): LocalAgentRecord {
   return normalizeLocalAgentRecord(agentId, {
     definitionId: override.definitionId ?? agentId,
+    registrationSource: override.source,
     project: override.projectName ?? basename(override.projectRoot || override.runtime?.cwd || agentId),
     projectRoot: override.projectRoot ?? override.runtime?.cwd,
     tmuxSession: override.runtime?.sessionId ?? `relay-${agentId}`,
@@ -2277,6 +2281,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const nextDefaultHarness = preferredHarness
       ? normalizeManagedHarness(preferredHarness, "claude")
       : defaultHarnessForOverride(matchingOverride, "claude");
+    const nextSessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${nextHarness}`);
     const nextLaunchArgs = applyRequestedModelToLaunchArgs(
       nextHarness,
       launchArgsForOverrideHarness(matchingOverride, nextHarness),
@@ -2288,10 +2293,9 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       displayName: input.displayName || titleCaseLocalAgentName(requestedDefinitionId),
       projectName: matchingOverride.projectName ?? basename(matchingProjectRoot),
       projectRoot: matchingProjectRoot,
-      projectConfigPath: matchingOverride.projectConfigPath ?? null,
+      projectConfigPath: null,
       source: "manual",
       startedAt: matchingOverride.startedAt ?? nowSeconds(),
-      systemPrompt: matchingOverride.systemPrompt,
       launchArgs: nextHarness === nextDefaultHarness
         ? nextLaunchArgs
         : matchingOverride.launchArgs,
@@ -2301,17 +2305,18 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
         ...(matchingOverride.harnessProfiles ?? {}),
         [nextHarness]: {
           ...overrideHarnessProfile(matchingOverride, nextHarness),
+          sessionId: nextSessionId,
           launchArgs: nextLaunchArgs,
         },
       },
       runtime: {
         cwd: effectiveCwd ?? matchingOverride.runtime?.cwd ?? matchingProjectRoot,
-        harness: resolvedHarness,
-        transport: preferredHarness
-          ? normalizeLocalAgentTransport(undefined, preferredHarness)
-          : matchingOverride.runtime?.transport,
-        sessionId: matchingOverride.runtime?.sessionId
-          ?? normalizeTmuxSessionName(undefined, `${instance.id}-${normalizeManagedHarness(resolvedHarness, "claude")}`),
+        harness: nextHarness,
+        transport: normalizeLocalAgentTransport(
+          preferredHarness ? undefined : matchingOverride.runtime?.transport,
+          nextHarness,
+        ),
+        sessionId: nextSessionId,
         wakePolicy: "on_demand",
       },
     };
@@ -2508,6 +2513,7 @@ function buildLocalAgentBinding(
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         source,
+        ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         project: normalizedRecord.project,
         projectRoot,
         tmuxSession: normalizedRecord.tmuxSession,
@@ -2534,6 +2540,7 @@ function buildLocalAgentBinding(
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         source,
+        ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         project: normalizedRecord.project,
         projectRoot,
         tmuxSession: normalizedRecord.tmuxSession,
@@ -2567,6 +2574,7 @@ function buildLocalAgentBinding(
       sessionId: normalizedRecord.tmuxSession,
       metadata: {
         source,
+        ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         agentName: definitionId,
         tmuxSession: normalizedRecord.tmuxSession,
         runtimeInstanceId: normalizedRecord.tmuxSession,

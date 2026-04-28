@@ -13,6 +13,7 @@ import type {
   ActivityItem,
   Agent,
   FleetAsk,
+  FleetAttentionItem,
   FleetState,
   Route,
   SessionEntry,
@@ -113,10 +114,27 @@ export function HomeScreen({
       ),
     [fleet],
   );
+  // Work items needing input live on `fleet.needsAttention` alongside questions.
+  // Filter to just work_items here — questions overlap with `pendingAsks` above
+  // and would double-count.
+  const needsAttentionWork = useMemo(
+    () =>
+      (fleet?.needsAttention ?? []).filter((item) => item.kind === "work_item"),
+    [fleet],
+  );
   const answeredAsks = useMemo(
     () => (fleet?.recentCompleted ?? []).slice(0, 3),
     [fleet],
   );
+
+  const totalNeedsYou = pendingAsks.length + needsAttentionWork.length;
+  const oldestNeedsTs = useMemo(() => {
+    const stamps = [
+      ...pendingAsks.map((a) => a.updatedAt),
+      ...needsAttentionWork.map((w) => w.updatedAt),
+    ];
+    return stamps.length > 0 ? Math.min(...stamps) : null;
+  }, [pendingAsks, needsAttentionWork]);
 
   const activityPreview = useMemo(() => activity.slice(0, 8), [activity]);
   const now = new Date();
@@ -131,8 +149,8 @@ export function HomeScreen({
     const parts: string[] = [];
     if (active.length > 0)
       parts.push(`${active.length} agent${active.length === 1 ? " is" : "s are"} working now`);
-    if (pendingAsks.length > 0)
-      parts.push(`${pendingAsks.length} thing${pendingAsks.length === 1 ? "" : "s"} need${pendingAsks.length === 1 ? "s" : ""} you`);
+    if (totalNeedsYou > 0)
+      parts.push(`${totalNeedsYou} thing${totalNeedsYou === 1 ? "" : "s"} need${totalNeedsYou === 1 ? "s" : ""} you`);
     if (answeredAsks.length > 0)
       parts.push(`${answeredAsks.length} ask${answeredAsks.length === 1 ? " was" : "s were"} resolved recently`);
     if (parts.length === 0 && agents.length > 0)
@@ -140,7 +158,7 @@ export function HomeScreen({
     if (parts.length === 0)
       parts.push("no agents are connected yet");
     return parts;
-  }, [active, pendingAsks, answeredAsks, agents]);
+  }, [active, totalNeedsYou, answeredAsks, agents]);
 
   return (
     <div className="s-fleet-home">
@@ -173,12 +191,15 @@ export function HomeScreen({
               .
             </p>
             <div className="s-hero-actions">
-              {pendingAsks.length > 0 && (
+              {totalNeedsYou > 0 && (
                 <button
                   className="s-btn-fleet s-btn-fleet--primary"
-                  onClick={() => navigate({ view: "fleet" })}
+                  onClick={() => {
+                    const target = document.getElementById("home-needs-you");
+                    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
                 >
-                  Answer asks · {pendingAsks.length}
+                  Clear queue · {totalNeedsYou}
                 </button>
               )}
               {opsEnabled && (
@@ -216,52 +237,69 @@ export function HomeScreen({
         </div>
 
         {/* ── Needs you ──────────────────────────────────────────── */}
-        <div className="s-fleet-section">
+        <div className="s-fleet-section" id="home-needs-you">
           <SectionRule
-            label={`Needs you · ${pendingAsks.length}`}
+            label={`Needs you · ${totalNeedsYou}`}
             right={
-              pendingAsks.length > 0 ? (
+              totalNeedsYou > 0 && oldestNeedsTs !== null ? (
                 <span style={{ color: "var(--amber)" }}>
-                  oldest{" "}
-                  {timeAgo(
-                    Math.min(...pendingAsks.map((a) => a.updatedAt)),
-                  )}
+                  oldest {timeAgo(oldestNeedsTs)}
                 </span>
               ) : (
                 "clear"
               )
             }
           />
-          <div className="s-ask-grid">
-            {pendingAsks.slice(0, 4).map((ask) => (
-              <AskBlock
-                key={ask.invocationId}
-                ask={ask}
-                agents={agents}
-                navigate={navigate}
-                operatorName={operatorName}
-                pending
-              />
-            ))}
-            {answeredAsks.slice(0, Math.max(0, 2 - pendingAsks.length)).map((ask) => (
-              <AskBlock
-                key={ask.invocationId}
-                ask={ask}
-                agents={agents}
-                navigate={navigate}
-                operatorName={operatorName}
-                pending={false}
-              />
-            ))}
-            {pendingAsks.length < 2 && answeredAsks.length === 0 && (
-              <div className="s-ask-empty">
-                <span className="s-eyebrow">No more asks</span>
-                <span className="s-ask-empty-detail">
-                  Fleet is unblocked on you.
-                </span>
-              </div>
-            )}
-          </div>
+
+          {pendingAsks.length > 0 && (
+            <div className="s-ask-grid">
+              {pendingAsks.slice(0, 4).map((ask) => (
+                <AskBlock
+                  key={ask.invocationId}
+                  ask={ask}
+                  agents={agents}
+                  navigate={navigate}
+                  operatorName={operatorName}
+                  pending
+                />
+              ))}
+            </div>
+          )}
+
+          {needsAttentionWork.length > 0 && (
+            <div className="s-attention-list">
+              {needsAttentionWork.map((item) => (
+                <AttentionRow
+                  key={item.recordId}
+                  item={item}
+                  navigate={navigate}
+                />
+              ))}
+            </div>
+          )}
+
+          {totalNeedsYou === 0 && (
+            <div className="s-ask-grid">
+              {answeredAsks.slice(0, 2).map((ask) => (
+                <AskBlock
+                  key={ask.invocationId}
+                  ask={ask}
+                  agents={agents}
+                  navigate={navigate}
+                  operatorName={operatorName}
+                  pending={false}
+                />
+              ))}
+              {answeredAsks.length === 0 && (
+                <div className="s-ask-empty">
+                  <span className="s-eyebrow">No more asks</span>
+                  <span className="s-ask-empty-detail">
+                    Fleet is unblocked on you.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── What's moving ──────────────────────────────────────── */}
@@ -523,6 +561,53 @@ function AskBlock({
             <span className="s-thinking-strip" />
           </span>
         </div>
+      )}
+    </div>
+  );
+}
+
+function AttentionRow({
+  item,
+  navigate,
+}: {
+  item: FleetAttentionItem;
+  navigate: (r: Route) => void;
+}) {
+  const route: Route | null =
+    item.kind === "work_item" && item.recordId
+      ? { view: "work", workId: item.recordId }
+      : item.conversationId
+        ? { view: "conversation", conversationId: item.conversationId }
+        : item.agentId
+          ? { view: "agents", agentId: item.agentId }
+          : null;
+
+  const stateLabel =
+    item.kind === "question" ? "question" : item.state.replace(/_/g, " ");
+  const responseLabel =
+    item.acceptanceState !== "none"
+      ? item.acceptanceState.replace(/_/g, " ")
+      : item.kind === "question"
+        ? "awaiting answer"
+        : "your move";
+
+  return (
+    <div
+      className={`s-attention-row${route ? " s-attention-row--clickable" : ""}`}
+      onClick={route ? () => navigate(route) : undefined}
+    >
+      <div className="s-attention-row-title">{item.title}</div>
+      <div className="s-attention-row-meta">
+        <span className="s-eyebrow">
+          {item.kind === "work_item" ? "WORK ITEM" : "QUESTION"}
+        </span>
+        {item.agentName && <span>{item.agentName}</span>}
+        <span>{stateLabel}</span>
+        <span style={{ color: "var(--amber)" }}>{responseLabel}</span>
+        <span style={{ marginLeft: "auto" }}>{timeAgo(item.updatedAt)}</span>
+      </div>
+      {item.summary && (
+        <p className="s-attention-row-summary">{item.summary}</p>
       )}
     </div>
   );

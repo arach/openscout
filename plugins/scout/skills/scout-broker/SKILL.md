@@ -24,10 +24,10 @@ Fast path:
 ## Tell vs ask
 
 Use `messages_send` when the user is notifying or updating another agent.
-When there is one intended recipient and you only know a handle such as `@hudson`, prefer a single `messages_send` call with `targetLabel` over a separate resolve round-trip.
+When there is one intended recipient and you only know a handle such as `@hudson` or `@lattices#codex?5.5`, prefer a single `messages_send` call with `targetLabel` over a separate resolve round-trip.
 
 Use `invocations_ask` when the user wants another agent to investigate, review, decide, or report back.
-When there is one intended recipient and you know a handle such as `@hudson`, prefer a single `invocations_ask` call with `targetLabel`.
+When there is one intended recipient and you know a handle such as `@hudson` or `@lattices#claude?sonnet`, prefer a single `invocations_ask` call with `targetLabel`.
 
 - Set `awaitReply: true` only when the parent task is blocked on the answer now.
 - Leave `awaitReply` false when the request is background work or the user only asked you to hand it off.
@@ -38,6 +38,7 @@ When there is one intended recipient and you know a handle such as `@hudson`, pr
 - Use `agents_resolve` before sending only when the user names one specific agent and there is real risk of ambiguity.
 - When you already have exact target agent IDs, pass them via `mentionAgentIds` to `messages_send` or `targetAgentId` to `invocations_ask`.
 - If the user names multiple agents, fan out one action per target unless they explicitly want a shared broadcast-style update.
+- Target shorthand is accepted: `#<harness>` maps to a harness qualifier and `?<model>` maps to a model qualifier, e.g. `@lattices#codex?5.5`.
 
 ## Practical defaults
 

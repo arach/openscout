@@ -63,8 +63,8 @@ struct ScoutBottomBar: View {
                     .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
             }
             .padding(.horizontal, ActionTrayMetrics.horizontalPadding)
-            .padding(.top, ActionTrayMetrics.topPadding)
-            .padding(.bottom, ActionTrayMetrics.bottomPadding)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
         }
         .frame(maxWidth: .infinity)
         .overlay(alignment: .top) {
@@ -278,6 +278,13 @@ struct ScoutBottomBar: View {
             } label: {
                 Label("Activity Feed", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
+
+            Button {
+                router.push(.tail)
+            } label: {
+                Label("Tail", systemImage: "terminal")
+            }
+            .disabled(!isConnected)
 
             Divider()
 

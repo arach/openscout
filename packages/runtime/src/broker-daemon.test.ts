@@ -1072,6 +1072,131 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.reason).toBe("manual_wake_required");
   }, 15_000);
 
+  test("returns a broker question for stale direct targets", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "main",
+      selector: "@ranger.main.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        staleLocalRegistration: true,
+        projectRoot: "/tmp/openscout",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        targetAgentId: "ranger.main.mini",
+        targetLabel: "ranger.main.mini",
+        body: "@ranger.main.mini hello",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      question?: {
+        kind: string;
+        askedLabel: string;
+        target?: {
+          agentId: string;
+          reason: string;
+          detail: string;
+        };
+      };
+    };
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.kind).toBe("unavailable");
+    expect(body.question?.askedLabel).toBe("ranger.main.mini");
+    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
+    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.detail).toContain("stale registration");
+  }, 15_000);
+
+  test("returns a broker question for stale label-only targets", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "main",
+      selector: "@ranger.main.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        staleLocalRegistration: true,
+        projectRoot: "/tmp/openscout",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale-label",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        targetLabel: "@ranger",
+        body: "@ranger hello",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      question?: {
+        kind: string;
+        askedLabel: string;
+        target?: {
+          agentId: string;
+          reason: string;
+          detail: string;
+        };
+      };
+    };
+    expect(body.kind).toBe("question");
+    expect(body.accepted).toBe(false);
+    expect(body.question?.kind).toBe("unavailable");
+    expect(body.question?.askedLabel).toBe("@ranger");
+    expect(body.question?.target?.agentId).toBe("ranger.main.mini");
+    expect(body.question?.target?.reason).toBe("stale_registration");
+    expect(body.question?.target?.detail).toContain("stale registration");
+  }, 15_000);
+
   test("rejects unknown delivery targets explicitly", async () => {
     const harness = await startBroker();
 

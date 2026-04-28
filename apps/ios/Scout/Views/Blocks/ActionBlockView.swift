@@ -13,9 +13,6 @@ struct ActionBlockView: View {
     @State private var isOutputExpanded = false
     @State private var decisionPending: String?
     @State private var decisionError: String?
-    @State private var isOpeningWebHandoff = false
-    @State private var webHandoffError: String?
-    @State private var fileChangeWebHandoff: BridgeWebSurface?
 
     private var action: Action? { block.action }
     private var kind: ActionKind { action?.kind ?? .command }
@@ -103,37 +100,8 @@ struct ActionBlockView: View {
                     .padding(.vertical, ScoutSpacing.xs)
             }
 
-            if canOpenFileChangeWebHandoff(action: action) {
-                HStack(spacing: ScoutSpacing.sm) {
-                    Button {
-                        Task { await openFileChangeWebHandoff() }
-                    } label: {
-                        if isOpeningWebHandoff {
-                            ProgressView()
-                                .controlSize(.mini)
-                        } else {
-                            Label("Open Web Preview", systemImage: "macwindow")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isOpeningWebHandoff)
-
-                    Spacer()
-                }
-                .padding(.horizontal, ScoutSpacing.md)
-
-                if let webHandoffError {
-                    Text(webHandoffError)
-                        .font(ScoutTypography.caption(11, weight: .medium))
-                        .foregroundStyle(ScoutColors.statusError)
-                        .padding(.horizontal, ScoutSpacing.md)
-                }
-            }
         }
         .padding(.bottom, action.output.isEmpty ? ScoutSpacing.sm : 0)
-        .fullScreenCover(item: $fileChangeWebHandoff) { handoff in
-            BridgeWebHandoffView(surface: handoff)
-        }
     }
 
     private func diffView(_ diff: String) -> some View {
@@ -478,41 +446,6 @@ struct ActionBlockView: View {
         }
     }
 
-    private func canOpenFileChangeWebHandoff(action: Action) -> Bool {
-        connection.state == .connected
-            && action.kind == .fileChange
-            && action.path?.trimmedNonEmpty != nil
-    }
-
-    @MainActor
-    private func openFileChangeWebHandoff() async {
-        guard connection.state == .connected else { return }
-        guard let host = connection.bridgeHost,
-              let port = connection.bridgePort else {
-            webHandoffError = "Reconnect to open the web preview."
-            return
-        }
-
-        isOpeningWebHandoff = true
-        defer { isOpeningWebHandoff = false }
-
-        do {
-            let handoff = try await connection.createWebHandoff(
-                kind: .fileChange,
-                sessionId: sessionId,
-                turnId: block.turnId,
-                blockId: block.id
-            )
-            guard let surface = BridgeWebSurface(handoff: handoff, host: host, port: port) else {
-                webHandoffError = "Scout couldn't prepare this web preview right now."
-                return
-            }
-            fileChangeWebHandoff = surface
-            webHandoffError = nil
-        } catch {
-            webHandoffError = error.scoutUserFacingMessage
-        }
-    }
 }
 
 // MARK: - Preview

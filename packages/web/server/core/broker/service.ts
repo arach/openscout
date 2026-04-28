@@ -412,7 +412,16 @@ async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function brokerPostJson<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
+type BrokerPostJsonOptions<T> = {
+  acceptErrorJson?: (value: unknown) => value is T;
+};
+
+async function brokerPostJson<T>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  options: BrokerPostJsonOptions<T> = {},
+): Promise<T> {
   const response = await fetch(new URL(path, baseUrl), {
     method: "POST",
     headers: {
@@ -421,10 +430,47 @@ async function brokerPostJson<T>(baseUrl: string, path: string, body: unknown): 
     },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
+  const text = await response.text();
+  let parsed: unknown;
+  let parsedJson = false;
+  if (text.length > 0) {
+    try {
+      parsed = JSON.parse(text);
+      parsedJson = true;
+    } catch {
+      parsedJson = false;
+    }
   }
-  return response.json() as Promise<T>;
+  if (!response.ok) {
+    if (parsedJson && options.acceptErrorJson?.(parsed)) {
+      return parsed;
+    }
+    throw new Error(`${path} returned ${response.status}: ${text}`);
+  }
+  if (parsedJson) {
+    return parsed as T;
+  }
+  return undefined as T;
+}
+
+function isScoutDeliverResponse(value: unknown): value is ScoutDeliverResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const kind = (value as { kind?: unknown }).kind;
+  return kind === "delivery" || kind === "question" || kind === "rejected";
+}
+
+async function brokerPostDeliver(
+  baseUrl: string,
+  body: unknown,
+): Promise<ScoutDeliverResponse> {
+  return brokerPostJson<ScoutDeliverResponse>(
+    baseUrl,
+    scoutBrokerPaths.v1.deliver,
+    body,
+    { acceptErrorJson: isScoutDeliverResponse },
+  );
 }
 
 function renderScoutTargetLabel(targetLabel: string): string {
@@ -1116,7 +1162,10 @@ async function ensureTargetRelayAgentRegistered(
   agentId: string,
   currentDirectory: string,
 ): Promise<boolean> {
-  if (snapshot.agents[agentId]) return true;
+  const existingAgent = snapshot.agents[agentId];
+  if (existingAgent && !metadataBoolean(existingAgent.metadata, "staleLocalRegistration")) {
+    return true;
+  }
   const configured = await ensureRelayAgentConfigured(agentId, {
     currentDirectory,
     syncLegacyMirror: true,
@@ -1372,7 +1421,7 @@ export async function sendScoutMessage(input: {
   )];
 
   if (explicitTargetCandidates.length === 1 && selectors.length === 0) {
-    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    const delivery = await brokerPostDeliver(broker.baseUrl, {
       id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       requesterId: senderId,
       requesterNodeId: broker.node.id,
@@ -1407,7 +1456,7 @@ export async function sendScoutMessage(input: {
     && mentionResolution.resolved.length + mentionResolution.unresolved.length + mentionResolution.ambiguous.length === 1
   ) {
     const targetLabel = selectors[0]!.label;
-    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    const delivery = await brokerPostDeliver(broker.baseUrl, {
       id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       requesterId: senderId,
       requesterNodeId: broker.node.id,
@@ -1637,7 +1686,7 @@ export async function sendScoutDirectMessage(input: {
   const broker = await requireScoutBrokerContext();
   const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
-  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+  const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: OPERATOR_ID,
     requesterNodeId: broker.node.id,
@@ -1679,6 +1728,7 @@ export async function sendScoutDirectMessage(input: {
 export async function askScoutQuestion(input: {
   senderId: string;
   targetLabel: string;
+  targetAgentId?: string;
   body: string;
   channel?: string;
   shouldSpeak?: boolean;
@@ -1699,14 +1749,26 @@ export async function askScoutQuestion(input: {
     currentDirectory,
   );
   const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
+  const explicitTargetAgentId = input.targetAgentId?.trim()
+    || broker.snapshot.agents[input.targetLabel.trim()]?.id;
+  if (explicitTargetAgentId) {
+    await ensureTargetRelayAgentRegistered(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      explicitTargetAgentId,
+      currentDirectory,
+    );
+  }
   const messageBody = input.body.trim().startsWith(normalizedTargetLabel)
     ? input.body.trim()
     : `${normalizedTargetLabel} ${input.body.trim()}`;
-  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+  const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${(input.createdAtMs ?? Date.now()).toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: senderId,
     requesterNodeId: broker.node.id,
     targetLabel: input.targetLabel,
+    targetAgentId: explicitTargetAgentId,
     body: messageBody,
     intent: "consult",
     channel: input.channel,

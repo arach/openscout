@@ -2,6 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 import {
+  BUILT_IN_AGENT_DEFINITION_IDS,
   diagnoseAgentIdentity,
   extractAgentSelectors,
   formatMinimalAgentIdentity,
@@ -311,6 +312,21 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
+function isBuiltInBrokerAgent(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): boolean {
+  const agent = snapshot.agents[agentId];
+  const definitionId = agent?.definitionId
+    ?? metadataString(agent?.metadata, "definitionId")
+    ?? agentId;
+  return BUILT_IN_AGENT_DEFINITION_IDS.has(definitionId);
+}
+
 export function normalizeUnixTimestamp(value: unknown): number | null {
   const numeric = typeof value === "number"
     ? value
@@ -348,7 +364,16 @@ async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function brokerPostJson<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
+type BrokerPostJsonOptions<T> = {
+  acceptErrorJson?: (value: unknown) => value is T;
+};
+
+async function brokerPostJson<T>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  options: BrokerPostJsonOptions<T> = {},
+): Promise<T> {
   const response = await fetch(new URL(path, baseUrl), {
     method: "POST",
     headers: {
@@ -357,12 +382,49 @@ async function brokerPostJson<T>(baseUrl: string, path: string, body: unknown): 
     },
     body: JSON.stringify(body),
   });
-
-  if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
+  const text = await response.text();
+  let parsed: unknown;
+  let parsedJson = false;
+  if (text.length > 0) {
+    try {
+      parsed = JSON.parse(text);
+      parsedJson = true;
+    } catch {
+      parsedJson = false;
+    }
   }
 
-  return response.json() as Promise<T>;
+  if (!response.ok) {
+    if (parsedJson && options.acceptErrorJson?.(parsed)) {
+      return parsed;
+    }
+    throw new Error(`${path} returned ${response.status}: ${text}`);
+  }
+
+  if (parsedJson) {
+    return parsed as T;
+  }
+  return undefined as T;
+}
+
+function isScoutDeliverResponse(value: unknown): value is ScoutDeliverResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const kind = (value as { kind?: unknown }).kind;
+  return kind === "delivery" || kind === "question" || kind === "rejected";
+}
+
+async function brokerPostDeliver(
+  baseUrl: string,
+  body: unknown,
+): Promise<ScoutDeliverResponse> {
+  return brokerPostJson<ScoutDeliverResponse>(
+    baseUrl,
+    "/v1/deliver",
+    body,
+    { acceptErrorJson: isScoutDeliverResponse },
+  );
 }
 
 function renderScoutTargetLabel(targetLabel: string): string {
@@ -488,14 +550,19 @@ function buildMentionCandidate(
     ?? metadataString(agent.metadata, "harness")
     ?? metadataString(agent.metadata, "defaultHarness");
   const profile = metadataString(agent.metadata, "profile");
+  const model = metadataString(preferred?.metadata, "model")
+    ?? metadataString(agent.metadata, "model");
   return {
     agentId: agent.id,
-    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
-    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
-    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+    definitionId: agent.definitionId || metadataString(agent.metadata, "definitionId") || agent.id,
+    nodeQualifier: agent.nodeQualifier ?? metadataString(agent.metadata, "nodeQualifier"),
+    workspaceQualifier: agent.workspaceQualifier ?? metadataString(agent.metadata, "workspaceQualifier"),
     ...(harness ? { harness } : {}),
     ...(profile ? { profile } : {}),
+    ...(model ? { model } : {}),
     aliases: [
+      agent.selector,
+      agent.defaultSelector,
       metadataString(agent.metadata, "selector"),
       metadataString(agent.metadata, "defaultSelector"),
     ].filter(Boolean) as string[],
@@ -706,6 +773,7 @@ async function resolveMentionTargets(
         definitionId: discovered.definitionId,
         nodeQualifier: discovered.instance.nodeQualifier,
         workspaceQualifier: discovered.instance.workspaceQualifier,
+        harness: discovered.runtime.harness,
         aliases: [discovered.instance.selector, discovered.instance.defaultSelector],
       });
     }
@@ -848,7 +916,10 @@ function resolveConversationShareMode(
 
 export function stripScoutAgentSelectorLabels(text: string): string {
   return extractAgentSelectors(text).reduce((next, selector) => (
-    next.replaceAll(selector.label, "").replace(/\s{2,}/g, " ").trim()
+    [selector.label, `@${selector.raw}`].reduce(
+      (value, label) => value.replaceAll(label, ""),
+      next,
+    ).replace(/\s{2,}/g, " ").trim()
   ), text).trim();
 }
 
@@ -988,7 +1059,8 @@ async function ensureTargetRelayAgentRegistered(
   agentId: string,
   currentDirectory: string,
 ): Promise<boolean> {
-  if (snapshot.agents[agentId]) {
+  const existingAgent = snapshot.agents[agentId];
+  if (existingAgent && !metadataBoolean(existingAgent.metadata, "staleLocalRegistration")) {
     return true;
   }
 
@@ -1222,7 +1294,7 @@ export async function sendScoutMessage(input: {
     && mentionResolution.resolved.length + mentionResolution.unresolved.length + mentionResolution.ambiguous.length === 1
   ) {
     const targetLabel = selectors[0]!.label;
-    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, "/v1/deliver", {
+    const delivery = await brokerPostDeliver(broker.baseUrl, {
       id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       requesterId: input.senderId,
       requesterNodeId: broker.node.id,
@@ -1383,14 +1455,25 @@ export async function askScoutQuestion(input: {
   }
   const createdAt = input.createdAtMs ?? Date.now();
   const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
+  const explicitTargetAgentId = broker.snapshot.agents[input.targetLabel.trim()]?.id;
+  if (explicitTargetAgentId) {
+    await ensureTargetRelayAgentRegistered(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      explicitTargetAgentId,
+      currentDirectory,
+    );
+  }
   const messageBody = input.body.trim().startsWith(normalizedTargetLabel)
     ? input.body.trim()
     : `${normalizedTargetLabel} ${input.body.trim()}`;
-  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, "/v1/deliver", {
+  const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: input.senderId,
     requesterNodeId: broker.node.id,
     targetLabel: input.targetLabel,
+    targetAgentId: explicitTargetAgentId,
     body: messageBody,
     intent: "consult",
     channel: input.channel,
@@ -1834,6 +1917,9 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
     if (!endpoint.agentId || endpoint.agentId === OPERATOR_ID) {
       continue;
     }
+    if (isBuiltInBrokerAgent(broker.snapshot, endpoint.agentId)) {
+      continue;
+    }
     const existing = endpointsByAgent.get(endpoint.agentId) ?? [];
     existing.push(endpoint);
     endpointsByAgent.set(endpoint.agentId, existing);
@@ -1841,6 +1927,9 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
 
   for (const message of Object.values(broker.snapshot.messages ?? {})) {
     if (!message.actorId || message.actorId === OPERATOR_ID) {
+      continue;
+    }
+    if (isBuiltInBrokerAgent(broker.snapshot, message.actorId)) {
       continue;
     }
     const current = messageStats.get(message.actorId) ?? { messages: 0, lastSeen: null };
@@ -1859,6 +1948,7 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
     ...Array.from(discoveredAgents.keys()),
   ])
     .filter((agentId) => agentId && agentId !== OPERATOR_ID)
+    .filter((agentId) => !isBuiltInBrokerAgent(broker.snapshot, agentId))
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];
       const brokerMessages = messageStats.get(agentId);

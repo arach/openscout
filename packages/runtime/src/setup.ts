@@ -2185,7 +2185,17 @@ function mergeResolvedAgentConfig(
   }
 
   const overrideIsManual = override.source === "manual";
-  const manifestOwnsResolvedConfig = base.source === "manifest" && !overrideIsManual;
+  const overrideDefinitionId = normalizeAgentId(override.definitionId || override.agentId);
+  const overridePointsAtSameManifest = Boolean(
+    base.projectConfigPath
+      && override.projectConfigPath
+      && normalizePath(base.projectConfigPath) === normalizePath(override.projectConfigPath),
+  );
+  const overrideTargetsDifferentManifestAgent = Boolean(
+    overrideDefinitionId && overrideDefinitionId !== base.definitionId,
+  );
+  const manifestOwnsResolvedConfig = base.source === "manifest"
+    && (!overrideIsManual || overridePointsAtSameManifest || overrideTargetsDifferentManifestAgent);
   const overrideLaunchArgs = normalizeLaunchArgs(override.launchArgs);
   const overrideCapabilities = normalizeCapabilities(override.capabilities);
 
@@ -2264,6 +2274,47 @@ function relayAgentOverrideFromResolvedConfig(config: ResolvedRelayAgentConfig):
       wakePolicy: config.runtime.wakePolicy,
     },
   };
+}
+
+function projectDefaultDefinitionIds(config: ResolvedRelayAgentConfig): Set<string> {
+  return new Set(
+    [
+      basename(config.projectRoot),
+      config.projectName,
+    ]
+      .map((value) => normalizeAgentId(value))
+      .filter(Boolean),
+  );
+}
+
+function overrideMatchesSameManifest(
+  override: RelayAgentOverride,
+  config: ResolvedRelayAgentConfig,
+): boolean {
+  return Boolean(
+    override.projectConfigPath
+      && config.projectConfigPath
+      && normalizePath(override.projectConfigPath) === normalizePath(config.projectConfigPath),
+  );
+}
+
+function isSupersededManifestDefaultOverride(
+  override: RelayAgentOverride,
+  config: ResolvedRelayAgentConfig | undefined,
+): boolean {
+  if (!config || config.source !== "manifest") {
+    return false;
+  }
+  if (!override.projectConfigPath || !overrideMatchesSameManifest(override, config)) {
+    return false;
+  }
+
+  const overrideDefinitionId = normalizeAgentId(override.definitionId || override.agentId);
+  if (!overrideDefinitionId || overrideDefinitionId === config.definitionId) {
+    return false;
+  }
+
+  return projectDefaultDefinitionIds(config).has(overrideDefinitionId);
 }
 
 function selectorCandidateFromResolvedAgent(config: ResolvedRelayAgentConfig): AgentSelectorCandidate {
@@ -2605,16 +2656,37 @@ export async function loadResolvedRelayAgents(options: {
   const dedupedResolvedAgents = await dedupeResolvedAgentsByCanonicalProjectRoot(resolvedAgents);
 
   const configuredAgents = dedupedResolvedAgents.filter((agent) => agent.registrationKind === "configured");
+  const configuredAgentIds = new Set(configuredAgents.map((agent) => agent.agentId));
+  const configuredByProjectRoot = new Map(
+    configuredAgents.map((agent) => [normalizePath(agent.projectRoot), agent]),
+  );
   const builtInOverrides = Object.fromEntries(
     Object.entries(overrides).filter(([, record]) => record.definitionId ? BUILT_IN_AGENT_DEFINITION_IDS.has(record.definitionId) : false),
   );
+  const preservedManualOverrides = Object.fromEntries(
+    Object.entries(overrides).filter(([agentId, record]) => {
+      if (record.source !== "manual") {
+        return false;
+      }
+      const definitionId = normalizeAgentId(record.definitionId || agentId);
+      if (!definitionId || BUILT_IN_AGENT_DEFINITION_IDS.has(definitionId)) {
+        return false;
+      }
+      if (configuredAgentIds.has(agentId)) {
+        return false;
+      }
+      const configured = configuredByProjectRoot.get(normalizePath(record.projectRoot));
+      return !isSupersededManifestDefaultOverride(record, configured);
+    }),
+  );
   const nextOverrides = {
     ...builtInOverrides,
+    ...preservedManualOverrides,
     ...Object.fromEntries(
-    configuredAgents.map((agent) => [
-      agent.agentId,
-      relayAgentOverrideFromResolvedConfig(agent),
-    ]),
+      configuredAgents.map((agent) => [
+        agent.agentId,
+        relayAgentOverrideFromResolvedConfig(agent),
+      ]),
     ),
   };
 

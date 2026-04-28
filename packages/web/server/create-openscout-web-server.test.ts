@@ -326,6 +326,7 @@ describe("createOpenScoutWebServer", () => {
       {
         senderId: "operator",
         targetLabel: "agent-1",
+        targetAgentId: "agent-1",
         body: "Please own this and report back.",
         currentDirectory: "/tmp/openscout",
       },

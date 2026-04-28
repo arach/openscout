@@ -102,7 +102,7 @@ struct ComposerView: View {
     private var sendButtonShowsInterrupt: Bool { canInterruptTurn && !hasText }
     private var canActivatePrimaryAction: Bool { sendButtonShowsInterrupt || canSendDraft }
     private var composerPlaceholder: String {
-        isSteeringActiveTurn ? "Send a follow-up while the turn is live..." : "Ask anything..."
+        isSteeringActiveTurn ? "Follow up..." : "Ask anything..."
     }
     private var sendButtonAccessibilityLabel: String {
         if sendButtonShowsInterrupt {
@@ -134,7 +134,7 @@ struct ComposerView: View {
     private static let keepAliveTrigger = "extra keep alive please"
     private static let keepAliveReplacement = "use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online"
     private static let keepAliveAppendix = "If this may run a while, use an Amphetamine-style keep alive so the Mac stays awake and Scout stays online."
-    private static let messageCompactTextHeight: CGFloat = 32
+    private static let messageCompactTextHeight: CGFloat = 28
     private static let messageExpandedMinTextHeight: CGFloat = 72
     private static let messageExpandedActiveTurnMinTextHeight: CGFloat = 60
     private static let messageExpandedMaxTextHeight: CGFloat = 168
@@ -358,7 +358,7 @@ struct ComposerView: View {
                 )
                 .padding(.leading, 16)
                 .padding(.trailing, 8)
-                .padding(.top, 4)
+                .padding(.top, 2)
 
             Button {
                 handlePrimaryAction()
@@ -366,7 +366,7 @@ struct ComposerView: View {
                 Image(systemName: sendButtonSymbolName)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(sendButtonForegroundStyle)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 40)
                     .background {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(.clear)
@@ -377,12 +377,12 @@ struct ComposerView: View {
             .buttonStyle(.plain)
             .disabled(!canActivatePrimaryAction)
             .padding(.trailing, 14)
-            .padding(.bottom, 2)
+            .padding(.bottom, 0)
             .accessibilityLabel(sendButtonAccessibilityLabel)
             .accessibilityHint(sendButtonAccessibilityHint)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background {
@@ -417,7 +417,7 @@ struct ComposerView: View {
 
     private var controlRail: some View {
         HStack(spacing: 8) {
-            if isSteeringActiveTurn {
+            if isSteeringActiveTurn && hasText {
                 activeTurnBadge
                 stopChip
             }
@@ -433,13 +433,11 @@ struct ComposerView: View {
                     if showsEffortPicker {
                         effortPickerChip
                     }
-
-                    branchChip
                 }
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
         .background { composerSurface }
         .overlay(alignment: .top) {
@@ -461,7 +459,7 @@ struct ComposerView: View {
                 .foregroundStyle(ScoutColors.textSecondary)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .background(ScoutColors.surfaceAdaptive)
         .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
     }
@@ -474,7 +472,7 @@ struct ComposerView: View {
         .font(ScoutTypography.code(10, weight: .semibold))
         .foregroundStyle(canInterruptTurn ? ScoutColors.textPrimary : ScoutColors.textMuted)
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .background(ScoutColors.surfaceAdaptive)
         .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.sm, style: .continuous))
         .overlay {
@@ -850,7 +848,7 @@ struct ComposerView: View {
     }
 
     private var showsControlRail: Bool {
-        isSteeringActiveTurn || showsModelPicker || showReadOnlyModelChip || showsEffortPicker || currentBranch != nil || canEditBranch
+        (isSteeringActiveTurn && hasText) || showsModelPicker || showReadOnlyModelChip || showsEffortPicker
     }
 
     private var showsEffortPicker: Bool {

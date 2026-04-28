@@ -193,6 +193,8 @@ struct ScoutNavigationShell: View {
             AgentsView()
         case .activity:
             ActivityFeedView()
+        case .tail:
+            TailFeedView()
         case .sessionDetail(let sessionId):
             TimelineView(sessionId: sessionId)
         case .allSessions:

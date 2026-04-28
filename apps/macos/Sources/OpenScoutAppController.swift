@@ -159,8 +159,12 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     func openWebApp() {
+        openWebPath("/")
+    }
+
+    func openWebPath(_ path: String) {
         Task {
-            await openWebSurfaceNow(path: "/fleet")
+            await openWebSurfaceNow(path: path)
         }
     }
 
@@ -309,13 +313,8 @@ final class OpenScoutAppController: ObservableObject {
         do {
             try await ensureWebServerRunning()
             let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
-            if var components = URLComponents(string: "http://127.0.0.1:3200\(normalizedPath)") {
-                components.queryItems = [
-                    URLQueryItem(name: "openedAt", value: String(Int(Date().timeIntervalSince1970)))
-                ]
-                if let url = components.url {
-                    NSWorkspace.shared.open(url)
-                }
+            if let url = URL(string: "http://127.0.0.1:3200\(normalizedPath)") {
+                NSWorkspace.shared.open(url)
             }
         } catch {
             lastError = error.localizedDescription

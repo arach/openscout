@@ -17,6 +17,7 @@ function makeAgent(input: {
   selector?: string;
   authorityNodeId?: string;
   homeNodeId?: string;
+  metadata?: Record<string, unknown>;
 }): AgentDefinition {
   return {
     id: input.id,
@@ -36,6 +37,7 @@ function makeAgent(input: {
       ...(input.workspaceQualifier ? { workspaceQualifier: input.workspaceQualifier } : {}),
       ...(input.nodeQualifier ? { nodeQualifier: input.nodeQualifier } : {}),
       ...(input.selector ? { selector: input.selector } : {}),
+      ...(input.metadata ?? {}),
     },
   };
 }
@@ -58,6 +60,25 @@ function makeSnapshot(agents: AgentDefinition[], endpoints: AgentEndpoint[] = []
     collaborations: {},
     collaborationEvents: [],
   } as unknown as RuntimeSnapshot;
+}
+
+function makeEndpoint(input: {
+  id: string;
+  agentId: string;
+  harness: AgentEndpoint["harness"];
+  model?: string;
+}): AgentEndpoint {
+  return {
+    id: input.id,
+    agentId: input.agentId,
+    nodeId: "node.local",
+    harness: input.harness,
+    transport: input.harness === "codex" ? "codex_app_server" : "claude_stream_json",
+    state: "idle",
+    metadata: {
+      ...(input.model ? { model: input.model } : {}),
+    },
+  };
 }
 
 const helpers = {
@@ -84,6 +105,64 @@ describe("resolveAgentLabel", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("arc.main");
+    }
+  });
+
+  test("routes @scout to the stable OpenScout coordinator", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({ id: "openscout.main.mini", definitionId: "openscout", nodeQualifier: "mini", workspaceQualifier: "main" }),
+      makeAgent({ id: "ranger.main.mini", definitionId: "ranger", nodeQualifier: "mini", workspaceQualifier: "main" }),
+    ]);
+    const result = resolveAgentLabel(snapshot, "@scout", { helpers });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("openscout.main.mini");
+    }
+  });
+
+  test("routes @scout to the configured OpenScout project agent when the persona id changed", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "openscout.main.mini",
+        definitionId: "openscout",
+        nodeQualifier: "mini",
+        workspaceQualifier: "main",
+        metadata: {
+          projectRoot: "/tmp/openscout",
+          registrationSource: "manual",
+          staleLocalRegistration: true,
+        },
+      }),
+      makeAgent({
+        id: "ranger.main.mini",
+        definitionId: "ranger",
+        nodeQualifier: "mini",
+        workspaceQualifier: "main",
+        metadata: {
+          projectRoot: "/tmp/openscout",
+          registrationSource: "manifest",
+        },
+      }),
+    ]);
+    const result = resolveAgentLabel(snapshot, "@scout", {
+      helpers: {
+        ...helpers,
+        isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
+      },
+    });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("ranger.main.mini");
+    }
+    const legacyResult = resolveAgentLabel(snapshot, "@openscout", {
+      helpers: {
+        ...helpers,
+        isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
+      },
+    });
+    expect(legacyResult.kind).toBe("resolved");
+    if (legacyResult.kind === "resolved") {
+      expect(legacyResult.agent.id).toBe("ranger.main.mini");
     }
   });
 
@@ -130,6 +209,32 @@ describe("resolveAgentLabel", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("arc.fresh");
+    }
+  });
+
+  test("resolves shorthand harness and model labels from endpoint metadata", () => {
+    const codex55 = makeAgent({ id: "lattices.codex-55", definitionId: "lattices" });
+    const codex54 = makeAgent({ id: "lattices.codex-54", definitionId: "lattices" });
+    const claudeSonnet = makeAgent({ id: "lattices.sonnet", definitionId: "lattices" });
+    const snapshot = makeSnapshot(
+      [codex55, codex54, claudeSonnet],
+      [
+        makeEndpoint({ id: "endpoint.codex-55", agentId: codex55.id, harness: "codex", model: "gpt-5.5" }),
+        makeEndpoint({ id: "endpoint.codex-54", agentId: codex54.id, harness: "codex", model: "gpt-5.4" }),
+        makeEndpoint({ id: "endpoint.sonnet", agentId: claudeSonnet.id, harness: "claude", model: "claude-sonnet-4-6" }),
+      ],
+    );
+
+    const codexResult = resolveAgentLabel(snapshot, "@lattices#codex?5.5", { helpers });
+    expect(codexResult.kind).toBe("resolved");
+    if (codexResult.kind === "resolved") {
+      expect(codexResult.agent.id).toBe("lattices.codex-55");
+    }
+
+    const sonnetResult = resolveAgentLabel(snapshot, "@lattices#claude?sonnet", { helpers });
+    expect(sonnetResult.kind).toBe("resolved");
+    if (sonnetResult.kind === "resolved") {
+      expect(sonnetResult.agent.id).toBe("lattices.sonnet");
     }
   });
 });

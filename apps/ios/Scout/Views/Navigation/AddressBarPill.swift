@@ -76,6 +76,52 @@ struct ConnectionLED: View {
     }
 }
 
+// MARK: - Transport chip (LAN / MESH / REMOTE)
+
+/// Small pill showing how the iPhone is currently reaching the bridge:
+/// `LAN` (green LED) for RFC1918 private network, `MESH` (amber LED) for
+/// Tailscale CGNAT or `*.ts.net`, `REMOTE` (red LED) for anything else.
+/// Renders nothing when disconnected.
+struct TransportChip: View {
+    @Environment(ConnectionManager.self) private var connection
+
+    private var kind: TransportKind { connection.transportKind }
+
+    private var ledColor: Color {
+        switch kind {
+        case .lan: return ScoutColors.ledGreen
+        case .mesh: return ScoutColors.ledAmber
+        case .remote: return ScoutColors.ledRed
+        case .loopback: return ScoutColors.textMuted
+        case .none: return ScoutColors.textMuted
+        }
+    }
+
+    var body: some View {
+        if kind == .none {
+            EmptyView()
+        } else {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(ledColor)
+                    .frame(width: 5, height: 5)
+                Text(kind.label)
+                    .font(ScoutTypography.code(9, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textSecondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(ScoutColors.surfaceRaisedAdaptive)
+            )
+            .overlay(
+                Capsule().strokeBorder(ScoutColors.border, lineWidth: 0.5)
+            )
+            .accessibilityLabel("Transport: \(kind.label)")
+        }
+    }
+}
+
 struct AddressBarPill: View {
     @Environment(ScoutRouter.self) private var router
     @Environment(SessionStore.self) private var store
@@ -94,6 +140,8 @@ struct AddressBarPill: View {
             return "All Sessions"
         case .activity:
             return "Activity"
+        case .tail:
+            return "Tail"
         case .newSession:
             return "New Session"
         case .agentDashboard:
@@ -199,7 +247,8 @@ struct ConnectionStatusSheet: View {
 
     private var healthLabel: String {
         switch connection.health {
-        case .healthy: "Healthy"
+        case .healthy:
+            connection.state == .connected ? "Healthy" : "Mac Reachable"
         case .suspect: "Checking"
         case .degraded: "Degraded"
         case .tailscaleUnavailable: "Tailscale Off"
@@ -288,7 +337,12 @@ struct ConnectionStatusSheet: View {
             statusRow(label: "Health", value: healthLabel)
             statusRow(label: "Paired Bridge", value: pairedBridgeLabel)
             if let host = connection.bridgeHost {
-                statusRow(label: "Bridge Host", value: host)
+                let kind = connection.transportKind
+                if kind != .none {
+                    statusRow(label: "Connected Via", value: "\(kind.label) · \(host)")
+                } else {
+                    statusRow(label: "Bridge Host", value: host)
+                }
             }
             if let room = connection.relayRoomId {
                 statusRow(label: "Relay Room", value: room)

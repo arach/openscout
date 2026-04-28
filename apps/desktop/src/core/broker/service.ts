@@ -354,18 +354,33 @@ export function resolveScoutAgentName(agentName?: string | null): string {
 function resolveConfiguredSenderIdForProjectRoot(
   overrides: Awaited<ReturnType<typeof readRelayAgentOverrides>>,
   projectRoot: string,
-  preferredDefinitionId?: string,
+  preferredDefinitionIds: string[] = [],
 ): string | null {
   let fallbackSenderId: string | null = null;
+  const normalizedPreferredDefinitionIds = preferredDefinitionIds
+    .map((value) => normalizeAgentSelectorSegment(value))
+    .filter(Boolean);
+
+  for (const preferredDefinitionId of normalizedPreferredDefinitionIds) {
+    for (const [agentId, override] of Object.entries(overrides)) {
+      if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
+        continue;
+      }
+      if (!override.projectRoot || override.projectRoot !== projectRoot) {
+        continue;
+      }
+      if (override.definitionId === preferredDefinitionId) {
+        return agentId;
+      }
+    }
+  }
+
   for (const [agentId, override] of Object.entries(overrides)) {
     if (BUILT_IN_AGENT_DEFINITION_IDS.has(agentId)) {
       continue;
     }
     if (!override.projectRoot || override.projectRoot !== projectRoot) {
       continue;
-    }
-    if (preferredDefinitionId && override.definitionId === preferredDefinitionId) {
-      return agentId;
     }
     fallbackSenderId ??= agentId;
   }
@@ -380,10 +395,15 @@ async function inferSenderIdForProjectRoot(
   const configuredDefinitionId = normalizeAgentSelectorSegment(
     projectConfig?.agent?.id?.trim() ?? "",
   );
+  const projectDefaultDefinitionIds = [
+    projectConfig?.project?.id,
+    basename(projectRoot),
+    configuredDefinitionId,
+  ].filter((value): value is string => Boolean(value));
   const configuredSenderId = resolveConfiguredSenderIdForProjectRoot(
     overrides,
     projectRoot,
-    configuredDefinitionId,
+    projectDefaultDefinitionIds,
   );
   if (configuredSenderId) {
     return configuredSenderId;
@@ -569,6 +589,17 @@ function isSupersededBrokerAgent(
   return Boolean(replacementAgentId && snapshot.agents[replacementAgentId]);
 }
 
+function isBuiltInBrokerAgent(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): boolean {
+  const agent = snapshot.agents[agentId];
+  const definitionId = agent?.definitionId
+    ?? metadataString(agent?.metadata, "definitionId")
+    ?? agentId;
+  return BUILT_IN_AGENT_DEFINITION_IDS.has(definitionId);
+}
+
 async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
   const response = await fetch(new URL(path, baseUrl), {
     headers: {
@@ -583,10 +614,15 @@ async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+type BrokerPostJsonOptions<T> = {
+  acceptErrorJson?: (value: unknown) => value is T;
+};
+
 async function brokerPostJson<T>(
   baseUrl: string,
   path: string,
   body: unknown,
+  options: BrokerPostJsonOptions<T> = {},
 ): Promise<T> {
   const response = await fetch(new URL(path, baseUrl), {
     method: "POST",
@@ -596,12 +632,49 @@ async function brokerPostJson<T>(
     },
     body: JSON.stringify(body),
   });
+  const text = await response.text();
+  let parsed: unknown;
+  let parsedJson = false;
+  if (text.length > 0) {
+    try {
+      parsed = JSON.parse(text);
+      parsedJson = true;
+    } catch {
+      parsedJson = false;
+    }
+  }
   if (!response.ok) {
+    if (parsedJson && options.acceptErrorJson?.(parsed)) {
+      return parsed;
+    }
     throw new Error(
-      `${path} returned ${response.status}: ${await response.text()}`,
+      `${path} returned ${response.status}: ${text}`,
     );
   }
-  return response.json() as Promise<T>;
+  if (parsedJson) {
+    return parsed as T;
+  }
+  return undefined as T;
+}
+
+function isScoutDeliverResponse(value: unknown): value is ScoutDeliverResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const kind = (value as { kind?: unknown }).kind;
+  return kind === "delivery" || kind === "question" || kind === "rejected";
+}
+
+async function brokerPostDeliver(
+  baseUrl: string,
+  body: unknown,
+): Promise<ScoutDeliverResponse> {
+  return brokerPostJson<ScoutDeliverResponse>(
+    baseUrl,
+    scoutBrokerPaths.v1.deliver,
+    body,
+    { acceptErrorJson: isScoutDeliverResponse },
+  );
 }
 
 function renderScoutTargetLabel(targetLabel: string): string {
@@ -795,14 +868,21 @@ function buildMentionCandidate(
     metadataString(agent.metadata, "harness") ??
     metadataString(agent.metadata, "defaultHarness");
   const profile = metadataString(agent.metadata, "profile");
+  const model =
+    metadataString(preferred?.metadata, "model") ??
+    metadataString(agent.metadata, "model");
   return {
     agentId: agent.id,
-    definitionId: metadataString(agent.metadata, "definitionId") || agent.id,
-    nodeQualifier: metadataString(agent.metadata, "nodeQualifier"),
-    workspaceQualifier: metadataString(agent.metadata, "workspaceQualifier"),
+    definitionId: agent.definitionId || metadataString(agent.metadata, "definitionId") || agent.id,
+    nodeQualifier: agent.nodeQualifier ?? metadataString(agent.metadata, "nodeQualifier"),
+    workspaceQualifier:
+      agent.workspaceQualifier ?? metadataString(agent.metadata, "workspaceQualifier"),
     ...(harness ? { harness } : {}),
     ...(profile ? { profile } : {}),
+    ...(model ? { model } : {}),
     aliases: [
+      agent.selector,
+      agent.defaultSelector,
       metadataString(agent.metadata, "selector"),
       metadataString(agent.metadata, "defaultSelector"),
     ].filter(Boolean) as string[],
@@ -1008,6 +1088,7 @@ async function resolveMentionTargets(
         definitionId: discovered.definitionId,
         nodeQualifier: discovered.instance.nodeQualifier,
         workspaceQualifier: discovered.instance.workspaceQualifier,
+        harness: discovered.runtime.harness,
         aliases: [
           discovered.instance.selector,
           discovered.instance.defaultSelector,
@@ -1166,8 +1247,8 @@ export function stripScoutAgentSelectorLabels(text: string): string {
   return extractAgentSelectors(text)
     .reduce(
       (next, selector) =>
-        next
-          .replaceAll(selector.label, "")
+        [selector.label, `@${selector.raw}`]
+          .reduce((value, label) => value.replaceAll(label, ""), next)
           .replace(/\s{2,}/g, " ")
           .trim(),
       text,
@@ -1355,7 +1436,10 @@ async function ensureTargetRelayAgentRegistered(
   agentId: string,
   currentDirectory: string,
 ): Promise<boolean> {
-  if (snapshot.agents[agentId]) return true;
+  const existingAgent = snapshot.agents[agentId];
+  if (existingAgent && !metadataBoolean(existingAgent.metadata, "staleLocalRegistration")) {
+    return true;
+  }
   const configured = await ensureRelayAgentConfigured(agentId, {
     currentDirectory,
     syncLegacyMirror: true,
@@ -1997,7 +2081,7 @@ export async function sendScoutMessage(input: {
 
   const requestedTargetLabel = input.targetLabel?.trim();
   if (requestedTargetLabel) {
-    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    const delivery = await brokerPostDeliver(broker.baseUrl, {
       id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       requesterId: senderId,
       requesterNodeId: broker.node.id,
@@ -2034,7 +2118,7 @@ export async function sendScoutMessage(input: {
     && mentionResolution.resolved.length + mentionResolution.unresolved.length + mentionResolution.ambiguous.length === 1
   ) {
     const targetLabel = selectors[0]!.label;
-    const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+    const delivery = await brokerPostDeliver(broker.baseUrl, {
       id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       requesterId: senderId,
       requesterNodeId: broker.node.id,
@@ -2426,7 +2510,7 @@ export async function sendScoutDirectMessage(input: {
   const broker = await requireScoutBrokerContext();
   const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
-  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+  const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: OPERATOR_ID,
     requesterNodeId: broker.node.id,
@@ -2498,7 +2582,7 @@ export async function askScoutAgentById(input: {
   if (!targetAgentId) {
     return { usedBroker: true, unresolvedTargetId: input.targetAgentId };
   }
-  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+  const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: senderId,
     requesterNodeId: broker.node.id,
@@ -2572,14 +2656,25 @@ export async function askScoutQuestion(input: {
   );
   const createdAt = input.createdAtMs ?? Date.now();
   const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
+  const explicitTargetAgentId = broker.snapshot.agents[input.targetLabel.trim()]?.id;
+  if (explicitTargetAgentId) {
+    await ensureTargetRelayAgentRegistered(
+      broker.baseUrl,
+      broker.snapshot,
+      broker.node.id,
+      explicitTargetAgentId,
+      currentDirectory,
+    );
+  }
   const messageBody = input.body.trim().startsWith(normalizedTargetLabel)
     ? input.body.trim()
     : `${normalizedTargetLabel} ${input.body.trim()}`;
-  const delivery = await brokerPostJson<ScoutDeliverResponse>(broker.baseUrl, scoutBrokerPaths.v1.deliver, {
+  const delivery = await brokerPostDeliver(broker.baseUrl, {
     id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     requesterId: senderId,
     requesterNodeId: broker.node.id,
     targetLabel: input.targetLabel,
+    targetAgentId: explicitTargetAgentId,
     body: messageBody,
     intent: "consult",
     channel: input.channel,
@@ -2904,6 +2999,7 @@ export async function listScoutAgents(
 
   for (const endpoint of Object.values(broker.snapshot.endpoints ?? {})) {
     if (!endpoint.agentId || endpoint.agentId === OPERATOR_ID) continue;
+    if (isBuiltInBrokerAgent(broker.snapshot, endpoint.agentId)) continue;
     if (isSupersededBrokerAgent(broker.snapshot, endpoint.agentId)) continue;
     const existing = endpointsByAgent.get(endpoint.agentId) ?? [];
     existing.push(endpoint);
@@ -2911,6 +3007,7 @@ export async function listScoutAgents(
   }
   for (const message of Object.values(broker.snapshot.messages ?? {})) {
     if (!message.actorId || message.actorId === OPERATOR_ID) continue;
+    if (isBuiltInBrokerAgent(broker.snapshot, message.actorId)) continue;
     if (isSupersededBrokerAgent(broker.snapshot, message.actorId)) continue;
     const current = messageStats.get(message.actorId) ?? {
       messages: 0,
@@ -2933,6 +3030,7 @@ export async function listScoutAgents(
     ]),
   ]
     .filter((agentId) => agentId && agentId !== OPERATOR_ID)
+    .filter((agentId) => !isBuiltInBrokerAgent(broker.snapshot, agentId))
     .filter((agentId) => !isSupersededBrokerAgent(broker.snapshot, agentId))
     .map((agentId): ScoutWhoEntry => {
       const endpoints = endpointsByAgent.get(agentId) ?? [];

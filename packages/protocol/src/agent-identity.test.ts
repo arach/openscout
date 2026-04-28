@@ -14,6 +14,7 @@ import {
   resolveAgentAlias,
   resolveAgentIdentity,
   resolveAgentSelector,
+  OPENSCOUT_COORDINATOR_AGENT_ID,
   SCOUT_DISPATCHER_AGENT_ID,
 } from "./agent-identity.js";
 
@@ -58,6 +59,23 @@ describe("agent identity grammar", () => {
       harness: "codex",
       nodeQualifier: "mini",
     });
+
+    expect(parseAgentIdentity("@lattices#codex?5.5")).toEqual({
+      raw: "lattices#codex?5.5",
+      label: "@lattices.harness:codex.model:5-5",
+      definitionId: "lattices",
+      harness: "codex",
+      model: "5-5",
+    });
+
+    expect(parseAgentIdentity("@lattices.main#claude?sonnet")).toEqual({
+      raw: "lattices.main#claude?sonnet",
+      label: "@lattices.main.harness:claude.model:sonnet",
+      definitionId: "lattices",
+      workspaceQualifier: "main",
+      harness: "claude",
+      model: "sonnet",
+    });
   });
 
   test("parses 3-segment positional as definitionId.workspaceQualifier.nodeQualifier", () => {
@@ -72,6 +90,8 @@ describe("agent identity grammar", () => {
     expect(parseAgentIdentity("")).toBeNull();
     expect(parseAgentIdentity("@arc.profile:")).toBeNull();
     expect(parseAgentIdentity("@arc@mini#main")).toBeNull();
+    expect(parseAgentIdentity("@arc#")).toBeNull();
+    expect(parseAgentIdentity("@arc?sonnet#claude")).toBeNull();
     expect(parseAgentIdentity("@arc.a.b.c")).toBeNull(); // 3+ positionals rejected
   });
 
@@ -81,14 +101,16 @@ describe("agent identity grammar", () => {
       workspaceQualifier: "Super Refactor",
       profile: "Dev Browser",
       harness: "Claude",
+      model: "GPT-5.5",
       nodeQualifier: "Mini.local",
     })).toEqual({
-      raw: "arc.super-refactor.profile:dev-browser.harness:claude.node:mini-local",
-      label: "@arc.super-refactor.profile:dev-browser.harness:claude.node:mini-local",
+      raw: "arc.super-refactor.profile:dev-browser.harness:claude.model:gpt-5-5.node:mini-local",
+      label: "@arc.super-refactor.profile:dev-browser.harness:claude.model:gpt-5-5.node:mini-local",
       definitionId: "arc",
       workspaceQualifier: "super-refactor",
       profile: "dev-browser",
       harness: "claude",
+      model: "gpt-5-5",
       nodeQualifier: "mini-local",
     });
   });
@@ -99,13 +121,14 @@ describe("agent identity grammar", () => {
       workspaceQualifier: "main",
       profile: "dev-browser",
       harness: "claude",
+      model: "sonnet",
       nodeQualifier: "mini",
-    })).toBe("@arc.main.profile:dev-browser.harness:claude.node:mini");
+    })).toBe("@arc.main.profile:dev-browser.harness:claude.model:sonnet.node:mini");
   });
 
   test("extracts unique identities from text", () => {
     expect(extractAgentIdentities(
-      "Compare @arc.main.profile:dev-browser with @hudson, then ping @arc.main.profile:dev-browser.",
+      "Compare @arc.main.profile:dev-browser with @hudson, then ping @arc.main.profile:dev-browser and @lattices#codex?5.5.",
     )).toEqual([
       {
         raw: "arc.main.profile:dev-browser",
@@ -118,6 +141,13 @@ describe("agent identity grammar", () => {
         raw: "hudson",
         label: "@hudson",
         definitionId: "hudson",
+      },
+      {
+        raw: "lattices#codex?5.5",
+        label: "@lattices.harness:codex.model:5-5",
+        definitionId: "lattices",
+        harness: "codex",
+        model: "5-5",
       },
     ]);
   });
@@ -202,6 +232,27 @@ describe("agent identity resolution", () => {
       harness: "codex",
       nodeQualifier: "backup-mac-mini",
     },
+    {
+      agentId: "lattices.codex-55",
+      definitionId: "lattices",
+      workspaceQualifier: "main",
+      harness: "codex",
+      model: "gpt-5.5",
+    },
+    {
+      agentId: "lattices.codex-54",
+      definitionId: "lattices",
+      workspaceQualifier: "main",
+      harness: "codex",
+      model: "gpt-5.4",
+    },
+    {
+      agentId: "lattices.sonnet",
+      definitionId: "lattices",
+      workspaceQualifier: "main",
+      harness: "claude",
+      model: "claude-sonnet-4-6",
+    },
   ];
 
   test("prefers explicit default aliases for bare identities", () => {
@@ -238,6 +289,16 @@ describe("agent identity resolution", () => {
     const identity = parseAgentIdentity("@huddy");
     expect(identity).not.toBeNull();
     expect(resolveAgentIdentity(identity!, candidates)).toEqual(candidates[3]);
+  });
+
+  test("resolves shorthand harness and model qualifiers", () => {
+    const codex = parseAgentIdentity("@lattices#codex?5.5");
+    expect(codex).not.toBeNull();
+    expect(resolveAgentIdentity(codex!, candidates)).toEqual(candidates[6]);
+
+    const sonnet = parseAgentIdentity("@lattices#claude?sonnet");
+    expect(sonnet).not.toBeNull();
+    expect(resolveAgentIdentity(sonnet!, candidates)).toEqual(candidates[8]);
   });
 
   test("resolves aliases through the explicit alias table", () => {
@@ -278,6 +339,7 @@ describe("agent identity resolution", () => {
 describe("scout dispatcher reservation", () => {
   test("reserves the scout definition id", () => {
     expect(SCOUT_DISPATCHER_AGENT_ID).toBe("scout");
+    expect(OPENSCOUT_COORDINATOR_AGENT_ID).toBe("openscout");
     expect(isReservedAgentDefinitionId("scout")).toBe(true);
     expect(isReservedAgentDefinitionId("Scout")).toBe(true);
     expect(isReservedAgentDefinitionId("SCOUT ")).toBe(true);
@@ -286,6 +348,31 @@ describe("scout dispatcher reservation", () => {
     expect(isReservedAgentDefinitionId("")).toBe(false);
     expect(isReservedAgentDefinitionId(null)).toBe(false);
     expect(isReservedAgentDefinitionId(undefined)).toBe(false);
+  });
+
+  test("resolves @scout to the stable OpenScout coordinator", () => {
+    const identity = parseAgentIdentity("@scout");
+    expect(identity).not.toBeNull();
+    const candidates = [
+      {
+        agentId: "openscout.main.mini",
+        definitionId: "openscout",
+        nodeQualifier: "mini",
+        workspaceQualifier: "main",
+      },
+      {
+        agentId: "ranger.main.mini",
+        definitionId: "ranger",
+        nodeQualifier: "mini",
+        workspaceQualifier: "main",
+      },
+    ];
+    const result = diagnoseAgentIdentity(identity!, candidates);
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.match.agentId).toBe("openscout.main.mini");
+    }
+    expect(formatMinimalAgentIdentity(candidates[0]!, candidates)).toBe("@scout");
   });
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -302,6 +302,228 @@ describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
     expect(row.registrationKind).toBe("configured");
     expect(row.defaultHarness).toBe("codex");
     expect(row.harnesses.some((h) => h.harness === "codex" && h.source === "manifest")).toBe(true);
+  });
+
+  test("manifest identity replaces a stale same-manifest registry override", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const dev = join(home, "dev");
+    const svc = join(dev, "openscout");
+    const manifestPath = join(svc, ".openscout", "project.json");
+
+    mkdirSync(svc, { recursive: true });
+    writeProjectManifest(svc, {
+      version: 1,
+      project: { id: "openscout", name: "OpenScout" },
+      agent: {
+        id: "ranger",
+        displayName: "Ranger",
+        runtime: {
+          defaultHarness: "codex",
+          profiles: {
+            codex: {
+              cwd: ".",
+              transport: "codex_app_server",
+              sessionId: "relay-ranger-codex",
+              launchArgs: ["-c", "model=\"gpt-5.4\""],
+            },
+          },
+        },
+      },
+    });
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [dev],
+        includeCurrentRepo: false,
+      },
+    });
+
+    const supportDir = process.env.OPENSCOUT_SUPPORT_DIRECTORY!;
+    mkdirSync(supportDir, { recursive: true });
+    writeFileSync(
+      join(supportDir, "relay-agents.json"),
+      `${JSON.stringify({
+        version: 1,
+        agents: {
+          "openscout.test-node": {
+            agentId: "openscout.test-node",
+            definitionId: "openscout",
+            displayName: "Openscout",
+            projectName: "OpenScout",
+            projectRoot: svc,
+            projectConfigPath: manifestPath,
+            source: "manual",
+            startedAt: 1,
+            defaultHarness: "claude",
+            harnessProfiles: {
+              claude: {
+                cwd: svc,
+                transport: "claude_stream_json",
+                sessionId: "relay-openscout-claude",
+                launchArgs: [],
+              },
+            },
+            runtime: {
+              cwd: svc,
+              harness: "claude",
+              transport: "claude_stream_json",
+              sessionId: "relay-openscout-claude",
+              wakePolicy: "on_demand",
+            },
+          },
+          "ranger-codex.test-node": {
+            agentId: "ranger-codex.test-node",
+            definitionId: "ranger-codex",
+            displayName: "Ranger Codex",
+            projectName: "OpenScout",
+            projectRoot: svc,
+            source: "manual",
+            startedAt: 1,
+            defaultHarness: "codex",
+            harnessProfiles: {
+              codex: {
+                cwd: svc,
+                transport: "codex_app_server",
+                sessionId: "relay-ranger-codex-companion",
+                launchArgs: [],
+              },
+            },
+            runtime: {
+              cwd: svc,
+              harness: "codex",
+              transport: "codex_app_server",
+              sessionId: "relay-ranger-codex-companion",
+              wakePolicy: "on_demand",
+            },
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const setup = await loadResolvedRelayAgents();
+    expect(setup.agents.map((agent) => agent.definitionId)).toEqual(["ranger"]);
+    expect(setup.agents[0]?.displayName).toBe("Ranger");
+    expect(setup.agents[0]?.defaultHarness).toBe("codex");
+
+    const registry = JSON.parse(readFileSync(join(supportDir, "relay-agents.json"), "utf8")) as {
+      agents: Record<string, { definitionId?: string }>;
+    };
+    expect(Object.values(registry.agents).map((agent) => agent.definitionId).sort()).toEqual([
+      "ranger",
+      "ranger-codex",
+    ]);
+  });
+
+  test("preserves a manually forked project-default agent that is not manifest-owned", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const dev = join(home, "dev");
+    const svc = join(dev, "openscout");
+    const manifestPath = join(svc, ".openscout", "project.json");
+
+    mkdirSync(svc, { recursive: true });
+    writeProjectManifest(svc, {
+      version: 1,
+      project: { id: "openscout", name: "OpenScout" },
+      agent: {
+        id: "ranger",
+        displayName: "Ranger",
+        runtime: {
+          defaultHarness: "codex",
+          profiles: {
+            codex: {
+              cwd: ".",
+              transport: "codex_app_server",
+              sessionId: "relay-ranger-codex",
+              launchArgs: ["-c", "model=\"gpt-5.4\""],
+            },
+          },
+        },
+      },
+    });
+
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [dev],
+        includeCurrentRepo: false,
+      },
+    });
+
+    const supportDir = process.env.OPENSCOUT_SUPPORT_DIRECTORY!;
+    mkdirSync(supportDir, { recursive: true });
+    writeFileSync(
+      join(supportDir, "relay-agents.json"),
+      `${JSON.stringify({
+        version: 1,
+        agents: {
+          "openscout.test-node": {
+            agentId: "openscout.test-node",
+            definitionId: "openscout",
+            displayName: "OpenScout",
+            projectName: "OpenScout",
+            projectRoot: svc,
+            projectConfigPath: null,
+            source: "manual",
+            startedAt: 2,
+            defaultHarness: "codex",
+            harnessProfiles: {
+              codex: {
+                cwd: svc,
+                transport: "codex_app_server",
+                sessionId: "relay-openscout-codex",
+                launchArgs: ["-c", "model=\"gpt-5.4\""],
+              },
+            },
+            runtime: {
+              cwd: svc,
+              harness: "codex",
+              transport: "codex_app_server",
+              sessionId: "relay-openscout-codex",
+              wakePolicy: "on_demand",
+            },
+          },
+          "ranger.test-node": {
+            agentId: "ranger.test-node",
+            definitionId: "ranger",
+            displayName: "Ranger",
+            projectName: "OpenScout",
+            projectRoot: svc,
+            projectConfigPath: manifestPath,
+            source: "manifest",
+            startedAt: 1,
+            defaultHarness: "codex",
+            harnessProfiles: {
+              codex: {
+                cwd: svc,
+                transport: "codex_app_server",
+                sessionId: "relay-ranger-codex",
+                launchArgs: ["-c", "model=\"gpt-5.4\""],
+              },
+            },
+            runtime: {
+              cwd: svc,
+              harness: "codex",
+              transport: "codex_app_server",
+              sessionId: "relay-ranger-codex",
+              wakePolicy: "on_demand",
+            },
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const setup = await loadResolvedRelayAgents();
+    expect(setup.agents.map((agent) => agent.definitionId)).toEqual(["ranger"]);
+
+    const registry = JSON.parse(readFileSync(join(supportDir, "relay-agents.json"), "utf8")) as {
+      agents: Record<string, { definitionId?: string; projectConfigPath?: string | null }>;
+    };
+    expect(Object.values(registry.agents).map((agent) => agent.definitionId).sort()).toEqual([
+      "openscout",
+      "ranger",
+    ]);
+    expect(registry.agents["openscout.test-node"]?.projectConfigPath).toBeNull();
   });
 
   test("resolves relative runtime cwd against the project root and collapses same-id agents across repos", async () => {
