@@ -21,6 +21,150 @@ function sortSummaries(values: Array<Record<string, string | null>>) {
 
 describe("runtime scenario suite", () => {
   runtimeScenario(
+    "wakes a docs reviewer from a collaboration record and hands findings to an editor",
+    async (scenario) => {
+      const broker = await scenario.startBroker();
+      await scenario.seedOperator(broker);
+
+      await scenario.registerAgent(broker, {
+        id: "docs.review.claude",
+        definitionId: "docs-review",
+        displayName: "Docs Review",
+        handle: "docs-review",
+        selector: "@docs-review",
+        harness: "claude",
+        transport: "claude_stream_json",
+        endpointId: "endpoint.docs.review",
+        sessionId: "docs-review-session",
+        branch: "release/docs-pass",
+        projectRoot: "/tmp/product-docs",
+        cwd: "/tmp/product-docs",
+      });
+      await scenario.registerAgent(broker, {
+        id: "docs.edit.codex",
+        definitionId: "docs-edit",
+        displayName: "Docs Edit",
+        handle: "docs-edit",
+        selector: "@docs-edit",
+        harness: "codex",
+        transport: "codex_app_server",
+        endpointId: "endpoint.docs.edit",
+        sessionId: "docs-edit-session",
+        branch: "release/docs-fixes",
+        projectRoot: "/tmp/product-docs",
+        cwd: "/tmp/product-docs",
+      });
+
+      const conversation = await scenario.ensureDirectConversation(broker, {
+        sourceId: "docs.review.claude",
+        targetId: "docs.edit.codex",
+        title: "Docs Review Handoff",
+      });
+
+      const now = Date.now();
+      await scenario.post(broker, "/v1/collaboration/records", {
+        id: "work.docs.review.1",
+        kind: "work_item",
+        state: "waiting",
+        acceptanceState: "none",
+        title: "Review the quickstart docs",
+        summary: "Check the quickstart for missing setup steps and confusing language before release.",
+        createdById: "operator",
+        ownerId: "docs.review.claude",
+        nextMoveOwnerId: "docs.review.claude",
+        requestedById: "operator",
+        waitingOn: {
+          kind: "actor",
+          label: "docs review",
+          targetId: "docs.review.claude",
+        },
+        conversationId: conversation.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const wake = await scenario.post<{
+        ok: boolean;
+        recordId: string;
+        targetAgentId: string;
+        wakeReason: string;
+        invocation: {
+          targetAgentId: string;
+          metadata?: {
+            collaborationRecordId?: string;
+            wakeReason?: string;
+          };
+          context?: {
+            collaboration?: {
+              recordId?: string;
+              nextMoveOwnerId?: string;
+              waitingOn?: { targetId?: string };
+            };
+          };
+        };
+        flight: {
+          targetAgentId: string;
+          state: string;
+        };
+      }>(broker, "/v1/collaboration/records/work.docs.review.1/invoke", {
+        requesterId: "operator",
+      });
+
+      expect(wake.ok).toBe(true);
+      expect(wake.recordId).toBe("work.docs.review.1");
+      expect(wake.targetAgentId).toBe("docs.review.claude");
+      expect(wake.wakeReason).toBe("next_move_owner");
+      expect(wake.invocation.targetAgentId).toBe("docs.review.claude");
+      expect(wake.invocation.metadata?.collaborationRecordId).toBe("work.docs.review.1");
+      expect(wake.invocation.metadata?.wakeReason).toBe("next_move_owner");
+      expect(wake.invocation.context?.collaboration?.recordId).toBe("work.docs.review.1");
+      expect(wake.invocation.context?.collaboration?.nextMoveOwnerId).toBe("docs.review.claude");
+      expect(wake.invocation.context?.collaboration?.waitingOn?.targetId).toBe("docs.review.claude");
+      expect(wake.flight.targetAgentId).toBe("docs.review.claude");
+      expect(wake.flight.state).toBe("queued");
+
+      await scenario.postMessage(broker, {
+        id: "msg-docs-review-1",
+        conversationId: conversation.id,
+        actorId: "docs.review.claude",
+        body: "The quickstart needs a prerequisites section and a clearer API key setup step.",
+      });
+      await scenario.postMessage(broker, {
+        id: "msg-docs-review-2",
+        conversationId: conversation.id,
+        actorId: "docs.edit.codex",
+        body: "Updated. I added prerequisites and split the API key setup into its own numbered step.",
+      });
+
+      const messages = await scenario.listMessages(broker, conversation.id);
+      expect(messages.map((message) => message.body)).toEqual([
+        "The quickstart needs a prerequisites section and a clearer API key setup step.",
+        "Updated. I added prerequisites and split the API key setup into its own numbered step.",
+      ]);
+
+      const deliveries = (await scenario.listDeliveries(broker))
+        .filter((delivery) => new Set(["msg-docs-review-1", "msg-docs-review-2"]).has(delivery.messageId ?? ""));
+      expect(deliveries).toHaveLength(2);
+
+      const reviewToEdit = deliveries.find((delivery) => delivery.messageId === "msg-docs-review-1");
+      expect(deliverySummary(reviewToEdit!)).toEqual({
+        messageId: "msg-docs-review-1",
+        targetId: "docs.edit.codex",
+        transport: "codex_app_server",
+        reason: "direct_message",
+      });
+
+      const editToReview = deliveries.find((delivery) => delivery.messageId === "msg-docs-review-2");
+      expect(editToReview).toEqual(expect.objectContaining({
+        messageId: "msg-docs-review-2",
+        targetId: "docs.review.claude",
+        reason: "direct_message",
+      }));
+      expect(["claude_stream_json", "local_socket"]).toContain(editToReview?.transport);
+    },
+  );
+
+  runtimeScenario(
     "scripts a multi-turn direct conversation across Codex and Claude branches",
     async (scenario) => {
       const broker = await scenario.startBroker();
