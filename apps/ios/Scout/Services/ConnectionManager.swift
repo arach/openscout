@@ -287,6 +287,62 @@ struct BridgeConnectionInfo: Codable, Sendable {
     }
 }
 
+// MARK: - Transport classification
+
+enum TransportKind: String {
+    /// RFC1918 private LAN: 10/8, 192.168/16, 172.16-31/12; link-local 169.254/16.
+    case lan
+    /// Tailscale CGNAT 100.64.0.0/10 or `*.ts.net` MagicDNS host.
+    case mesh
+    /// Public IP / generic DNS hostname — neither LAN nor Tailscale.
+    case remote
+    /// 127.0.0.0/8 loopback (mostly bridge-to-self, rare from phone).
+    case loopback
+    /// Not connected or no host known.
+    case none
+
+    var label: String {
+        switch self {
+        case .lan: return "LAN"
+        case .mesh: return "TS"
+        case .remote: return "REMOTE"
+        case .loopback: return "LOCAL"
+        case .none: return ""
+        }
+    }
+}
+
+private func classifyTransport(host: String) -> TransportKind {
+    let lower = host.lowercased()
+    if lower == "localhost" {
+        return .loopback
+    }
+    // Tailscale MagicDNS hostnames look like `<machine>.<tailnet>.ts.net`.
+    if lower.hasSuffix(".ts.net") {
+        return .mesh
+    }
+    // Bonjour / mDNS hostnames (`<host>.local`) are by definition link-local LAN.
+    if lower.hasSuffix(".local") {
+        return .lan
+    }
+
+    let parts = host.split(separator: ".").compactMap { UInt8($0) }
+    guard parts.count == 4 else {
+        // Hostname or IPv6 we can't classify cheaply — fall through to remote.
+        return .remote
+    }
+
+    let a = parts[0], b = parts[1]
+    if a == 127 { return .loopback }
+    if a == 10 { return .lan }
+    if a == 192 && b == 168 { return .lan }
+    if a == 172 && (16...31).contains(b) { return .lan }
+    if a == 169 && b == 254 { return .lan }
+    // Tailscale CGNAT: 100.64.0.0/10 → 100.64.x.x through 100.127.x.x.
+    if a == 100 && (64...127).contains(b) { return .mesh }
+    return .remote
+}
+
 // MARK: - ConnectionManager
 
 @Observable
@@ -322,6 +378,13 @@ final class ConnectionManager: @unchecked Sendable {
               let components = URLComponents(string: relayURL),
               let host = components.host else { return nil }
         return host
+    }
+
+    /// Classified transport for the active relay host: LAN / MESH / REMOTE / loopback.
+    /// `.none` while disconnected or when the host isn't known yet.
+    var transportKind: TransportKind {
+        guard state == .connected, let host = bridgeHost else { return .none }
+        return classifyTransport(host: host)
     }
 
     /// File server HTTP port (bridge port + 2, default 7890).
@@ -587,6 +650,65 @@ final class ConnectionManager: @unchecked Sendable {
     /// Last event ID received from a tRPC tracked subscription (for reconnect recovery).
     private(set) var lastEventId: String?
 
+    /// Active fanout continuations for callers that subscribed via
+    /// `subscribeToEvents()`. Used by views like TailFeedView to live-refresh
+    /// when the bridge pushes any sequenced event.
+    private let eventFanout = OSAllocatedUnfairLock(
+        initialState: [UUID: AsyncStream<SequencedEvent>.Continuation]()
+    )
+
+    /// Live stream of every `SequencedEvent` the connection receives, regardless
+    /// of which routing path it arrived through. The stream stays open for the
+    /// lifetime of the consumer; cancel by exiting the `for await` loop.
+    func subscribeToEvents() -> AsyncStream<SequencedEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            eventFanout.withLock { $0[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                self?.eventFanout.withLock { $0.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    /// Fan a sequenced event out to every active `subscribeToEvents()` consumer.
+    /// Call sites: any code path that decodes a `SequencedEvent`.
+    private func fanoutEvent(_ event: SequencedEvent) {
+        let conts = eventFanout.withLock { Array($0.values) }
+        for cont in conts {
+            cont.yield(event)
+        }
+    }
+
+    /// Active fanout continuations for callers that subscribed via
+    /// `subscribeToTailEvents()`. Separate from `eventFanout` because tail is a
+    /// machine-wide firehose with potentially high rate, distinct from per-session
+    /// control events. See docs/tail-firehose.md.
+    private let tailFanout = OSAllocatedUnfairLock(
+        initialState: [UUID: AsyncStream<TailEvent>.Continuation]()
+    )
+
+    /// Live stream of every `TailEvent` fanned out by the bridge's
+    /// `tail.events` subscription (Lane A). Empty until Lane A wires the
+    /// bridge subscription; the receive-side here is ready.
+    func subscribeToTailEvents() -> AsyncStream<TailEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            tailFanout.withLock { $0[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                self?.tailFanout.withLock { $0.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    /// Fan a tail event out to every active `subscribeToTailEvents()` consumer.
+    /// Call sites: tRPC subscription decoder once Lane A wires `tail.events`.
+    private func fanoutTailEvent(_ event: TailEvent) {
+        let conts = tailFanout.withLock { Array($0.values) }
+        for cont in conts {
+            cont.yield(event)
+        }
+    }
+
     private static let logger = Logger(
         subsystem: "com.openscout.scout",
         category: "ConnectionManager"
@@ -785,6 +907,9 @@ final class ConnectionManager: @unchecked Sendable {
             startMessageLoop()
 
             setState(.connected)
+            await MainActor.run {
+                sessionStore.connectionState = .connected
+            }
             noteSuccessfulConnection()
             Self.logger.notice("Connected via QR pairing (XX handshake)")
 
@@ -920,6 +1045,9 @@ final class ConnectionManager: @unchecked Sendable {
                 try? ScoutIdentity.touchTrustedBridge(publicKey: remoteKeyData)
                 startMessageLoop()
                 setState(.connected)
+                await MainActor.run {
+                    sessionStore.connectionState = .connected
+                }
                 noteSuccessfulConnection()
                 Self.logger.notice("Reconnected via IK handshake")
                 await runRecovery()
@@ -1226,6 +1354,7 @@ final class ConnectionManager: @unchecked Sendable {
                 consecutiveBridgeProbeFailures = 0
                 transitionHealth(to: .healthy)
                 Self.logger.notice("Health probe succeeded (\(reason, privacy: .public))")
+                reconnectAfterReachableHealthProbeIfNeeded(reason: reason)
                 return
             case .bridgeAbsent:
                 consecutiveBridgeProbeFailures += 1
@@ -1251,6 +1380,27 @@ final class ConnectionManager: @unchecked Sendable {
             if attempt < 3 {
                 try? await Task.sleep(for: .seconds(Double(attempt)))
             }
+        }
+    }
+
+    private func reconnectAfterReachableHealthProbeIfNeeded(reason: String) {
+        guard hasTrustedBridge, !manualDisconnectRequested else { return }
+
+        let shouldReconnect: Bool
+        switch state {
+        case .connected, .connecting, .handshaking:
+            shouldReconnect = false
+        case .reconnecting:
+            shouldReconnect = reconnectTask == nil
+        case .disconnected, .failed:
+            shouldReconnect = true
+        }
+
+        guard shouldReconnect else { return }
+        Self.logger.notice("Reachable bridge found while disconnected; retrying secure reconnect (\(reason, privacy: .public))")
+
+        Task { [weak self] in
+            await self?.reconnect()
         }
     }
 
@@ -1398,22 +1548,6 @@ final class ConnectionManager: @unchecked Sendable {
         let params = AgentIdParams(agentId: agentId)
         let data = try await sendRPC(method: "mobile/agent/detail", params: params)
         return try decodeResult(MobileAgentDetail.self, from: data)
-    }
-
-    func createWebHandoff(
-        kind: MobileWebHandoffKind,
-        sessionId: String,
-        turnId: String? = nil,
-        blockId: String? = nil
-    ) async throws -> MobileWebHandoff {
-        let params = MobileWebHandoffParams(
-            kind: kind,
-            sessionId: sessionId,
-            turnId: turnId,
-            blockId: blockId
-        )
-        let data = try await sendRPC(method: "mobile/web/handoff", params: params)
-        return try decodeResult(MobileWebHandoff.self, from: data)
     }
 
     func restartAgent(agentId: String) async throws -> AgentActionResult {
@@ -1713,8 +1847,10 @@ final class ConnectionManager: @unchecked Sendable {
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
         cancelAllPendingRequests(with: ConnectionError.notConnected)
 
+        let nextState: ConnectionState = shouldReconnect ? .reconnecting(attempt: 0) : .disconnected
+        setState(nextState)
         await MainActor.run {
-            sessionStore.connectionState = shouldReconnect ? .reconnecting(attempt: 0) : .disconnected
+            sessionStore.connectionState = nextState
         }
 
         // Attempt reconnect if we have connection info for a trusted bridge.
@@ -1769,9 +1905,20 @@ final class ConnectionManager: @unchecked Sendable {
         // Try parsing as a sequenced event (has "seq" and "event" fields).
         // This handles the transition period before subscriptions are fully adopted.
         if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: data) {
+            fanoutEvent(sequenced)
             Task { @MainActor in
                 sessionStore.applyEvent(sequenced)
             }
+            return
+        }
+
+        // Try parsing as a TailEvent — bridge auto-fans the broker's
+        // /v1/tail/stream firehose to every connected phone as raw JSON in
+        // parity with the SequencedEvent path above. TailEvent's required
+        // fields (`harness`, `source`, `pid`, no `seq`) make this a safe
+        // last-resort decode.
+        if let tail = try? JSONDecoder().decode(TailEvent.self, from: data) {
+            fanoutTailEvent(tail)
             return
         }
 
@@ -1795,13 +1942,22 @@ final class ConnectionManager: @unchecked Sendable {
                 do {
                     let encoded = try JSONEncoder().encode(eventData)
                     if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: encoded) {
+                        fanoutEvent(sequenced)
                         Task { @MainActor in
                             sessionStore.applyEvent(sequenced)
                         }
                         return
                     }
+                    // Lane A's tail.events subscription will land here too.
+                    // TailEvent has disjoint required fields from SequencedEvent
+                    // (no `seq`, has `harness`+`source`+`pid`), so this attempt
+                    // is safe as a fallback.
+                    if let tail = try? JSONDecoder().decode(TailEvent.self, from: encoded) {
+                        fanoutTailEvent(tail)
+                        return
+                    }
                 } catch {
-                    // Not a sequenced event — log and skip.
+                    // Not a known event shape — log and skip.
                 }
             }
             Self.logger.debug("Received subscription data for id \(response.id, privacy: .public) with no handler")

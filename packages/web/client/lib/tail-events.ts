@@ -1,19 +1,28 @@
+// Web client subscription to the broker's tail.events firehose via tRPC over
+// WebSocket. Single shared connection across all React subscribers.
+//
+// See docs/tail-firehose.md.
+
 import { useEffect, useRef } from "react";
+import { createTRPCClient, createWSClient, wsLink } from "@trpc/client";
+import type { BrokerRouter } from "@openscout/runtime/broker-trpc-router";
+
 import type { TailEvent } from "./types.ts";
 
 type TailSubscription = (event: TailEvent) => void;
 
 const subscribers = new Set<TailSubscription>();
-let eventSource: EventSource | null = null;
-let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-let failures = 0;
+let wsClient: ReturnType<typeof createWSClient> | null = null;
+let trpc: ReturnType<typeof createTRPCClient<BrokerRouter>> | null = null;
+let activeSub: { unsubscribe: () => void } | null = null;
 
-function parseTailEvent(data: string): TailEvent | null {
-  try {
-    return JSON.parse(data) as TailEvent;
-  } catch {
-    return null;
-  }
+function brokerWsUrl(): string {
+  // Broker runs on a well-known port (65535). The web app may be served from
+  // a different origin (vite dev, or the bundled web server), but the broker
+  // is always reachable on the same hostname.
+  const host = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
+  const port = 65535;
+  return `ws://${host}:${port}/trpc`;
 }
 
 function dispatch(event: TailEvent): void {
@@ -22,47 +31,25 @@ function dispatch(event: TailEvent): void {
   }
 }
 
-function closeEventSource(): void {
-  eventSource?.close();
-  eventSource = null;
-}
-
-function scheduleReconnect(): void {
-  if (retryTimeout || subscribers.size === 0) return;
-  failures++;
-  const delay = Math.min(2_000 * 2 ** (failures - 1), 30_000);
-  retryTimeout = setTimeout(() => {
-    retryTimeout = null;
-    if (subscribers.size > 0) connect();
-  }, delay);
-}
-
-function connect(): void {
-  if (eventSource || subscribers.size === 0) return;
-  const es = new EventSource("/api/tail/stream");
-  eventSource = es;
-
-  const forward = (msg: MessageEvent<string>) => {
-    const parsed = parseTailEvent(msg.data);
-    if (parsed) dispatch(parsed);
-  };
-
-  es.onopen = () => {
-    failures = 0;
-  };
-  es.onmessage = forward;
-  es.addEventListener("ready", () => {
-    failures = 0;
+function ensureSubscribed(): void {
+  if (activeSub) return;
+  if (!wsClient) {
+    wsClient = createWSClient({ url: brokerWsUrl() });
+    trpc = createTRPCClient<BrokerRouter>({ links: [wsLink({ client: wsClient })] });
+  }
+  activeSub = trpc!.tail.events.subscribe(undefined, {
+    onData: (data) => {
+      // tRPC `tracked` envelope: { id, data }.
+      const event = (data as { data: TailEvent }).data;
+      if (event) dispatch(event);
+    },
   });
+}
 
-  es.onerror = () => {
-    if (eventSource === es) {
-      closeEventSource();
-    } else {
-      es.close();
-    }
-    scheduleReconnect();
-  };
+function teardown(): void {
+  activeSub?.unsubscribe();
+  activeSub = null;
+  // Keep wsClient open across re-mounts; tRPC handles reconnection.
 }
 
 export function useTailEvents(onEvent: (event: TailEvent) => void): void {
@@ -72,20 +59,11 @@ export function useTailEvents(onEvent: (event: TailEvent) => void): void {
   useEffect(() => {
     const subscriber: TailSubscription = (event) => cbRef.current(event);
     subscribers.add(subscriber);
-    if (retryTimeout) {
-      clearTimeout(retryTimeout);
-      retryTimeout = null;
-    }
-    connect();
+    ensureSubscribed();
     return () => {
       subscribers.delete(subscriber);
       if (subscribers.size === 0) {
-        if (retryTimeout) {
-          clearTimeout(retryTimeout);
-          retryTimeout = null;
-        }
-        failures = 0;
-        closeEventSource();
+        teardown();
       }
     };
   }, []);

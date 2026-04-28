@@ -1,5 +1,7 @@
 export type TailHarness = "scout-managed" | "hudson-managed" | "unattributed";
 
+export type TailDiscoveryScope = "hot" | "shallow" | "deep";
+
 export type TailEventKind =
   | "user"
   | "assistant"
@@ -34,19 +36,33 @@ export type DiscoveredProcess = {
   source: string;
 };
 
+export type DiscoveredTranscript = {
+  source: string;
+  transcriptPath: string;
+  sessionId: string | null;
+  cwd: string | null;
+  project: string;
+  harness: TailHarness;
+  mtimeMs: number;
+  size: number;
+};
+
 export type DiscoverySnapshot = {
   generatedAt: number;
   processes: DiscoveredProcess[];
+  transcripts: DiscoveredTranscript[];
   totals: {
     total: number;
     scoutManaged: number;
     hudsonManaged: number;
     unattributed: number;
+    transcripts: number;
   };
 };
 
 export type TailContext = {
   process: DiscoveredProcess;
+  transcript: DiscoveredTranscript;
   transcriptPath: string;
   lineOffset: number;
 };
@@ -54,6 +70,9 @@ export type TailContext = {
 export interface TranscriptSource {
   readonly name: string;
   discoverProcesses(): Promise<DiscoveredProcess[]> | DiscoveredProcess[];
-  resolveTranscriptPath(p: DiscoveredProcess): string | null;
+  discoverTranscripts(
+    processes: DiscoveredProcess[],
+    scope?: TailDiscoveryScope,
+  ): Promise<DiscoveredTranscript[]> | DiscoveredTranscript[];
   parseLine(line: string, ctx: TailContext): TailEvent | null;
 }

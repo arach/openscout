@@ -50,6 +50,8 @@
     "@openscout/agent-sessions": "0.2.62",
     "@openscout/protocol": "0.2.62",
     "@openscout/runtime": "0.2.62",
+    "@openscout/tail": "0.2.62",
+    "@trpc/client": "^11.16.0",
     "@trpc/server": "^11.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",

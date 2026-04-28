@@ -20,6 +20,8 @@ import {
 import { log } from "./log.ts";
 import { resolveConfig } from "./config.ts";
 import type { Bridge } from "./bridge.ts";
+import { getTailFanout } from "./tail-fanout.ts";
+import type { TailEvent } from "@openscout/tail";
 import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
@@ -340,6 +342,58 @@ function getEventSessionId(event: SequencedEvent): string | undefined {
 
 function trackedSequencedEventId(event: SequencedEvent): string {
   return `${getEventSessionId(event) ?? "unknown"}:${event.seq}`;
+}
+
+/**
+ * Async iterable over the singleton broker tail-fanout. Each tRPC subscriber
+ * registers its own listener; the underlying broker WebSocket is shared.
+ */
+function tailEventIterable(signal?: AbortSignal): AsyncIterable<TailEvent> {
+  return {
+    [Symbol.asyncIterator]() {
+      const buffer: TailEvent[] = [];
+      let resolve: (() => void) | null = null;
+      let done = false;
+
+      const unsub = getTailFanout().subscribe((event) => {
+        if (done) return;
+        buffer.push(event);
+        if (resolve) {
+          resolve();
+          resolve = null;
+        }
+      });
+
+      const cleanup = () => {
+        done = true;
+        unsub();
+        if (resolve) {
+          resolve();
+          resolve = null;
+        }
+      };
+
+      signal?.addEventListener("abort", cleanup, { once: true });
+
+      return {
+        async next(): Promise<IteratorResult<TailEvent>> {
+          while (true) {
+            if (done) return { done: true, value: undefined };
+            if (buffer.length > 0) {
+              return { done: false, value: buffer.shift()! };
+            }
+            await new Promise<void>((r) => {
+              resolve = r;
+            });
+          }
+        },
+        async return(): Promise<IteratorResult<TailEvent>> {
+          cleanup();
+          return { done: true, value: undefined };
+        },
+      };
+    },
+  };
 }
 
 export type MobileInboxItem = {
@@ -1171,6 +1225,23 @@ const syncRouter = t.router({
 });
 
 // ---------------------------------------------------------------------------
+// Tail firehose — relayed from broker /v1/tail/stream
+// ---------------------------------------------------------------------------
+
+const tailRouter = t.router({
+  events: procedure
+    .input(z.object({ sources: z.array(z.string()).optional() }).optional())
+    .subscription(async function* ({ input, signal }) {
+      for await (const event of tailEventIterable(signal)) {
+        if (input?.sources && !input.sources.includes(event.source)) {
+          continue;
+        }
+        yield tracked(event.id, event);
+      }
+    }),
+});
+
+// ---------------------------------------------------------------------------
 // Top-level router
 // ---------------------------------------------------------------------------
 
@@ -1182,6 +1253,7 @@ export const bridgeRouter = t.router({
   history: historyRouter,
   prompt: promptRouter,
   sync: syncRouter,
+  tail: tailRouter,
 
   // -- Top-level procedures (no sub-router grouping) -----------------------
 
