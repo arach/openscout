@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Instrument_Serif, Fraunces, Spectral } from "next/font/google";
+import { Instrument_Serif, IBM_Plex_Mono, Spectral } from "next/font/google";
 import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
 import { SITE_THEME_INIT_SCRIPT } from "@/lib/site-theme";
 import "./globals.css";
@@ -22,11 +22,10 @@ const instrumentSerif = Instrument_Serif({
   style: ["normal", "italic"],
 });
 
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-mono-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const spectral = Spectral({
@@ -91,7 +90,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${fraunces.variable} ${spectral.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${plexMono.variable} ${spectral.variable} antialiased bg-background text-foreground`}
       >
         {children}
         <GoogleAnalyticsTag />
