@@ -32,6 +32,16 @@
       "bun": "./src/broker-service.ts",
       "default": "./dist/broker-service.js"
     },
+    "./broker-api": {
+      "types": "./src/broker-api.ts",
+      "bun": "./src/broker-api.ts",
+      "default": "./dist/broker-api.js"
+    },
+    "./broker-core-service": {
+      "types": "./src/broker-core-service.ts",
+      "bun": "./src/broker-core-service.ts",
+      "default": "./dist/broker-core-service.js"
+    },
     "./registry": {
       "types": "./src/registry.ts",
       "bun": "./src/registry.ts",

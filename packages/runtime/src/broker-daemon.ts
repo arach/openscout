@@ -77,6 +77,11 @@ import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
 import {
+  registerActiveScoutBrokerService,
+  unregisterActiveScoutBrokerService,
+} from "./broker-api.js";
+import { createBrokerCoreService } from "./broker-core-service.js";
+import {
   buildDefaultBrokerUrl,
   DEFAULT_BROKER_PORT,
   isLoopbackHost,
@@ -2890,6 +2895,51 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
   }
 }
 
+async function handleInvocationRequest(
+  payload: InvocationRequest & { targetLabel?: string },
+) {
+  const resolved = resolveInvocationTarget(payload);
+  if (resolved.kind !== "resolved") {
+    const envelope = buildDispatchEnvelope(
+      resolved,
+      payload.targetLabel?.trim() || payload.targetAgentId || "",
+      nodeId,
+      runtime.snapshot(),
+      { homeEndpointFor: homeEndpointForAgent },
+    );
+    const { record } = await recordScoutDispatchDurably(envelope, {
+      invocationId: payload.id,
+      conversationId: payload.conversationId,
+      requesterId: payload.requesterId,
+    });
+    return {
+      accepted: true,
+      invocationId: payload.id,
+      dispatch: record,
+    };
+  }
+
+  const invocation: InvocationRequest = {
+    ...payload,
+    targetAgentId: resolved.agent.id,
+  };
+  const flight = await acceptInvocationDurably(invocation);
+  dispatchAcceptedInvocation(invocation).catch((error) => {
+    console.error(
+      `[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`,
+      error,
+    );
+  });
+  return {
+    accepted: true,
+    invocationId: invocation.id,
+    flightId: flight.id,
+    targetAgentId: invocation.targetAgentId,
+    state: flight.state,
+    flight,
+  };
+}
+
 async function acceptInvocationDurably(invocation: InvocationRequest): Promise<FlightRecord> {
   const { flight, entries } = await recordInvocationDurably(invocation, {
     enqueueProjection: false,
@@ -2966,6 +3016,23 @@ const peerDelivery: PeerDeliveryWorker = createPeerDeliveryWorker({
   emit: streamEvent,
 });
 
+const brokerService = createBrokerCoreService({
+  baseUrl: brokerUrl,
+  nodeId,
+  meshId,
+  localNode,
+  runtime,
+  projection,
+  journal,
+  threadEvents,
+  isReconciledStaleFlightActivityItem,
+  readHome: brokerHomePayload,
+  executeCommand: handleCommand,
+  invokeAgent: handleInvocationRequest,
+});
+
+registerActiveScoutBrokerService(brokerService);
+
 async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
@@ -2983,51 +3050,31 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     : null;
 
   if (method === "GET" && url.pathname === "/health") {
-    const snapshot = runtime.snapshot();
-    json(response, 200, {
-      ok: true,
-      nodeId,
-      meshId,
-      counts: {
-        nodes: Object.keys(snapshot.nodes).length,
-        actors: Object.keys(snapshot.actors).length,
-        agents: Object.keys(snapshot.agents).length,
-        conversations: Object.keys(snapshot.conversations).length,
-        messages: Object.keys(snapshot.messages).length,
-        flights: Object.keys(snapshot.flights).length,
-        collaborationRecords: Object.keys(snapshot.collaborationRecords).length,
-      },
-    });
+    json(response, 200, await brokerService.readHealth());
     return;
   }
 
   if (method === "GET" && url.pathname === "/v1/node") {
-    json(response, 200, localNode);
+    json(response, 200, await brokerService.readNode());
     return;
   }
 
   if (method === "GET" && url.pathname === "/v1/home") {
-    json(response, 200, await brokerHomePayload());
+    json(response, 200, await brokerService.readHome?.());
     return;
   }
 
   if (method === "GET" && url.pathname === "/v1/snapshot") {
-    json(response, 200, runtime.snapshot());
+    json(response, 200, await brokerService.readSnapshot());
     return;
   }
 
   if (method === "GET" && url.pathname === "/v1/messages") {
-    const snapshot = runtime.snapshot();
-    const conversationId = url.searchParams.get("conversationId")?.trim();
-    const since = parseSince(url);
-    const limit = parseLimit(url);
-    const messages = Object.values(snapshot.messages)
-      .filter((message) => !conversationId || message.conversationId === conversationId)
-      .filter((message) => since === null || message.createdAt >= since)
-      .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt)
-      .slice(0, limit)
-      .reverse();
-    json(response, 200, messages);
+    json(response, 200, await brokerService.readMessages?.({
+      conversationId: url.searchParams.get("conversationId")?.trim() || undefined,
+      since: parseSince(url),
+      limit: parseLimit(url),
+    }));
     return;
   }
 
@@ -3035,7 +3082,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     try {
       const conversationId = decodeURIComponent(threadEventsMatch[1] ?? "");
       const afterSeq = Number.parseInt(url.searchParams.get("afterSeq") ?? "0", 10);
-      json(response, 200, await threadEvents.replay({
+      json(response, 200, await brokerService.readThreadEvents?.({
         conversationId,
         afterSeq: Number.isFinite(afterSeq) && afterSeq > 0 ? afterSeq : 0,
         limit: parseLimit(url),
@@ -3049,7 +3096,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (threadSnapshotMatch) {
     try {
       const conversationId = decodeURIComponent(threadSnapshotMatch[1] ?? "");
-      json(response, 200, await threadEvents.snapshot(conversationId));
+      json(response, 200, await brokerService.readThreadSnapshot?.(conversationId));
     } catch (error) {
       threadWatchError(response, error);
     }
@@ -3062,42 +3109,31 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   if (method === "GET" && url.pathname === "/v1/activity") {
-    const agentId = url.searchParams.get("agentId") ?? undefined;
-    const actorId = url.searchParams.get("actorId") ?? undefined;
-    const conversationId = url.searchParams.get("conversationId") ?? undefined;
-    const items = await projection.listActivityItems({
+    json(response, 200, await brokerService.readActivity?.({
       limit: parseLimit(url),
-      agentId,
-      actorId,
-      conversationId,
-    });
-    json(response, 200, items.filter((item) => !isReconciledStaleFlightActivityItem(item)));
+      agentId: url.searchParams.get("agentId") ?? undefined,
+      actorId: url.searchParams.get("actorId") ?? undefined,
+      conversationId: url.searchParams.get("conversationId") ?? undefined,
+    }));
     return;
   }
 
   if (method === "GET" && url.pathname === "/v1/collaboration/records") {
-    const kind = url.searchParams.get("kind") ?? undefined;
-    const state = url.searchParams.get("state") ?? undefined;
-    const ownerId = url.searchParams.get("ownerId") ?? undefined;
-    const nextMoveOwnerId = url.searchParams.get("nextMoveOwnerId") ?? undefined;
-    const records = journal.listCollaborationRecords({
+    json(response, 200, await brokerService.readCollaborationRecords?.({
       limit: parseLimit(url),
-      kind: kind as CollaborationRecord["kind"] | undefined,
-      state: state ?? undefined,
-      ownerId: ownerId ?? undefined,
-      nextMoveOwnerId: nextMoveOwnerId ?? undefined,
-    });
-    json(response, 200, records);
+      kind: url.searchParams.get("kind") ?? undefined,
+      state: url.searchParams.get("state") ?? undefined,
+      ownerId: url.searchParams.get("ownerId") ?? undefined,
+      nextMoveOwnerId: url.searchParams.get("nextMoveOwnerId") ?? undefined,
+    }));
     return;
   }
 
   if (method === "GET" && url.pathname === "/v1/collaboration/events") {
-    const recordId = url.searchParams.get("recordId") ?? undefined;
-    const events = journal.listCollaborationEvents({
+    json(response, 200, await brokerService.readCollaborationEvents?.({
       limit: parseLimit(url),
-      recordId: recordId ?? undefined,
-    });
-    json(response, 200, events);
+      recordId: url.searchParams.get("recordId") ?? undefined,
+    }));
     return;
   }
 
@@ -3238,7 +3274,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/commands") {
     try {
       const command = await readRequestBody<ControlCommand>(request);
-      const result = await handleCommand(command);
+      const result = await brokerService.executeCommand(command);
       json(response, 200, result);
     } catch (error) {
       badRequest(response, error);
@@ -3249,7 +3285,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/thread-watches/open") {
     try {
       const body = await readRequestBody<ThreadWatchOpenRequest>(request);
-      json(response, 200, await threadEvents.openWatch(body));
+      json(response, 200, await brokerService.openThreadWatch?.(body));
     } catch (error) {
       threadWatchError(response, error);
     }
@@ -3259,7 +3295,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/thread-watches/renew") {
     try {
       const body = await readRequestBody<ThreadWatchRenewRequest>(request);
-      json(response, 200, await threadEvents.renewWatch(body));
+      json(response, 200, await brokerService.renewThreadWatch?.(body));
     } catch (error) {
       threadWatchError(response, error);
     }
@@ -3269,8 +3305,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/thread-watches/close") {
     try {
       const body = await readRequestBody<ThreadWatchCloseRequest>(request);
-      await threadEvents.closeWatch(body);
-      json(response, 200, { ok: true, watchId: body.watchId });
+      json(response, 200, await brokerService.closeThreadWatch?.(body));
     } catch (error) {
       threadWatchError(response, error);
     }
@@ -3569,7 +3604,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/nodes") {
     try {
       const node = await readRequestBody<NodeDefinition>(request);
-      await handleCommand({ kind: "node.upsert", node });
+      await brokerService.executeCommand({ kind: "node.upsert", node });
       json(response, 200, { ok: true, nodeId: node.id });
     } catch (error) {
       badRequest(response, error);
@@ -3580,7 +3615,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/actors") {
     try {
       const actor = await readRequestBody<ActorIdentity>(request);
-      await handleCommand({ kind: "actor.upsert", actor });
+      await brokerService.executeCommand({ kind: "actor.upsert", actor });
       json(response, 200, { ok: true, actorId: actor.id });
     } catch (error) {
       badRequest(response, error);
@@ -3591,7 +3626,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/agents") {
     try {
       const agent = await readRequestBody<AgentDefinition>(request);
-      await handleCommand({ kind: "agent.upsert", agent });
+      await brokerService.executeCommand({ kind: "agent.upsert", agent });
       json(response, 200, { ok: true, agentId: agent.id });
     } catch (error) {
       badRequest(response, error);
@@ -3602,7 +3637,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/endpoints") {
     try {
       const endpoint = await readRequestBody<AgentEndpoint>(request);
-      await handleCommand({ kind: "agent.endpoint.upsert", endpoint });
+      await brokerService.executeCommand({
+        kind: "agent.endpoint.upsert",
+        endpoint,
+      });
       json(response, 200, { ok: true, endpointId: endpoint.id });
     } catch (error) {
       badRequest(response, error);
@@ -3613,7 +3651,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/conversations") {
     try {
       const conversation = await readRequestBody<ConversationDefinition>(request);
-      await handleCommand({ kind: "conversation.upsert", conversation });
+      await brokerService.executeCommand({
+        kind: "conversation.upsert",
+        conversation,
+      });
       json(response, 200, { ok: true, conversationId: conversation.id });
     } catch (error) {
       badRequest(response, error);
@@ -3624,7 +3665,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/bindings") {
     try {
       const binding = await readRequestBody<ConversationBinding>(request);
-      await handleCommand({ kind: "binding.upsert", binding });
+      await brokerService.executeCommand({ kind: "binding.upsert", binding });
       json(response, 200, { ok: true, bindingId: binding.id });
     } catch (error) {
       badRequest(response, error);
@@ -3635,7 +3676,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/collaboration/records") {
     try {
       const record = await readRequestBody<CollaborationRecord>(request);
-      const result = await handleCommand({ kind: "collaboration.upsert", record });
+      const result = await brokerService.executeCommand({
+        kind: "collaboration.upsert",
+        record,
+      });
       json(response, 200, result);
     } catch (error) {
       badRequest(response, error);
@@ -3646,7 +3690,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/collaboration/events") {
     try {
       const event = await readRequestBody<CollaborationEvent>(request);
-      const result = await handleCommand({ kind: "collaboration.event.append", event });
+      const result = await brokerService.executeCommand({
+        kind: "collaboration.event.append",
+        event,
+      });
       json(response, 200, result);
     } catch (error) {
       badRequest(response, error);
@@ -3756,7 +3803,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/messages") {
     try {
       const message = await readRequestBody<MessageRecord>(request);
-      const result = await handleCommand({ kind: "conversation.post", message });
+      const result = await brokerService.postConversationMessage?.(message);
       json(response, 200, result);
     } catch (error) {
       badRequest(response, error);
@@ -3767,43 +3814,8 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/invocations") {
     try {
       const payload = await readRequestBody<InvocationRequest & { targetLabel?: string }>(request);
-      const resolved = resolveInvocationTarget(payload);
-      if (resolved.kind !== "resolved") {
-        const envelope = buildDispatchEnvelope(
-          resolved,
-          payload.targetLabel?.trim() || payload.targetAgentId || "",
-          nodeId,
-          runtime.snapshot(),
-          { homeEndpointFor: homeEndpointForAgent },
-        );
-        const { record } = await recordScoutDispatchDurably(envelope, {
-          invocationId: payload.id,
-          conversationId: payload.conversationId,
-          requesterId: payload.requesterId,
-        });
-        json(response, 202, {
-          accepted: true,
-          invocationId: payload.id,
-          dispatch: record,
-        });
-        return;
-      }
-      const invocation: InvocationRequest = {
-        ...payload,
-        targetAgentId: resolved.agent.id,
-      };
-      const flight = await acceptInvocationDurably(invocation);
-      json(response, 202, {
-        accepted: true,
-        invocationId: invocation.id,
-        flightId: flight.id,
-        targetAgentId: invocation.targetAgentId,
-        state: flight.state,
-        flight,
-      });
-      dispatchAcceptedInvocation(invocation).catch((error) => {
-        console.error(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
-      });
+      const result = await brokerService.invokeAgent?.(payload);
+      json(response, 202, result);
     } catch (error) {
       badRequest(response, error);
     }
@@ -3848,6 +3860,9 @@ const server = createServer((request, response) => {
     });
   });
 });
+server.on("close", () => {
+  unregisterActiveScoutBrokerService(brokerService);
+});
 
 try {
   await listen(server);
@@ -3860,6 +3875,7 @@ try {
   console.log(`[openscout-runtime] journal ${journalPath}`);
   console.log(`[openscout-runtime] sqlite ${sqliteDisabled ? "disabled" : dbPath}`);
 } catch (error) {
+  unregisterActiveScoutBrokerService(brokerService);
   if (isAddressInUse(error)) {
     const existing = await probeExistingBroker();
     if (existing) {

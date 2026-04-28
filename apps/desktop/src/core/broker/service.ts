@@ -45,6 +45,10 @@ import {
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
 import {
+  maybePostJsonToActiveScoutBrokerService,
+  maybeReadJsonFromActiveScoutBrokerService,
+} from "@openscout/runtime/broker-api";
+import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   type LocalAgentBinding,
@@ -544,6 +548,14 @@ function isSupersededBrokerAgent(
 }
 
 async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
+  const direct = await maybeReadJsonFromActiveScoutBrokerService<T>(
+    baseUrl,
+    path,
+  );
+  if (direct.handled) {
+    return direct.value;
+  }
+
   const response = await fetch(new URL(path, baseUrl), {
     headers: {
       accept: "application/json",
@@ -562,6 +574,15 @@ async function brokerPostJson<T>(
   path: string,
   body: unknown,
 ): Promise<T> {
+  const direct = await maybePostJsonToActiveScoutBrokerService<T>(
+    baseUrl,
+    path,
+    body,
+  );
+  if (direct.handled) {
+    return direct.value;
+  }
+
   const response = await fetch(new URL(path, baseUrl), {
     method: "POST",
     headers: {
