@@ -1,2 +1,2 @@
-export * from "./primitives";
-export * from "./adapter";
+export * from "./primitives.js";
+export * from "./adapter.js";

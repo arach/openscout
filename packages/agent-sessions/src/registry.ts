@@ -6,10 +6,10 @@ import type {
   Prompt,
   QuestionAnswer,
   Session,
-} from "./protocol/index";
-import { OutboundBuffer, type SequencedEvent } from "./buffer";
-import { StateTracker } from "./state";
-import type { SessionState, SessionSummary } from "./state";
+} from "./protocol/index.js";
+import { OutboundBuffer, type SequencedEvent } from "./buffer.js";
+import { StateTracker } from "./state.js";
+import type { SessionState, SessionSummary } from "./state.js";
 
 export interface SessionRegistryConfig {
   adapters: Record<string, AdapterFactory>;

@@ -3,9 +3,9 @@ import { access, appendFile, constants, mkdir, readFile, rm, writeFile } from "n
 import { delimiter, join } from "node:path";
 import { homedir } from "node:os";
 
-import { buildScoutMcpCodexLaunchArgs } from "../codex-launch-config";
-import { BaseAdapter } from "../protocol/adapter";
-import type { AdapterConfig } from "../protocol/adapter";
+import { buildScoutMcpCodexLaunchArgs } from "../codex-launch-config.js";
+import { BaseAdapter } from "../protocol/adapter.js";
+import type { AdapterConfig } from "../protocol/adapter.js";
 import type {
   Action,
   ActionBlock,
@@ -15,7 +15,7 @@ import type {
   SessionStatus,
   Turn,
   TurnStatus,
-} from "../protocol/primitives";
+} from "../protocol/primitives.js";
 
 type CodexRequest = {
   id: string | number;
