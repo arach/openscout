@@ -1,6 +1,7 @@
 export * from "./protocol/primitives.js";
 export * from "./protocol/adapter.js";
 export * from "./protocol/approval-normalization.js";
+export * from "./protocol/cost.js";
 export { StateTracker } from "./state.js";
 export type { SessionState, SessionSummary, TurnState, BlockState } from "./state.js";
 export { OutboundBuffer } from "./buffer.js";

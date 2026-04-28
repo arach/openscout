@@ -1,0 +1,47 @@
+/* ── Resizable column handle (paired with useResizableColumns) ── */
+
+/*
+ * Drop a <span {...getResizeHandleProps(key)} /> as the LAST child of each
+ * resizable <th>. The handle is absolute-positioned on the right edge; the
+ * <th> itself must be `position: relative` (set this on the consumer's table
+ * styles, e.g. .s-atop-table th { position: relative; padding-right: 8px; }).
+ */
+
+.s-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 1;
+  /* small invisible hit-target — the visual line is drawn via ::after */
+}
+
+.s-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  right: 3px;
+  width: 2px;
+  background: color-mix(in srgb, var(--accent, #62b6ff) 60%, transparent);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-out, top 120ms ease-out, bottom 120ms ease-out;
+}
+
+.s-resize-handle:hover::after {
+  opacity: 1;
+  top: 10%;
+  bottom: 10%;
+}
+
+/* While dragging, body[data-col-resizing] keeps the handle visible and the
+ * cursor locked even when the pointer leaves the th. */
+.s-resize-handle:active::after {
+  opacity: 1;
+  top: 0;
+  bottom: 0;
+}

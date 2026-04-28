@@ -4,6 +4,7 @@ import {
   parseAskCommandOptions,
   type ScoutAskCommandOptions,
 } from "../options.ts";
+import { resolvePromptBody } from "../input-file.ts";
 import {
   askScoutQuestion,
   parseScoutHarness,
@@ -17,7 +18,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask --to <agent> [--as <sender>] [--channel <name>] [--timeout <seconds>] [--harness <runtime>] <message>",
+    "Usage: scout ask --to <agent> [--as <sender>] [--channel <name>] [--timeout <seconds>] [--harness <runtime>] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -29,10 +30,18 @@ export function renderAskCommandHelp(): string {
     "Use ask when the meaning is \"do this and get back to me.\"",
     "Keep progress, review, and completion in that same DM or explicit channel.",
     "",
+    "Input:",
+    "  inline message                    -> primary prompt body",
+    "  --prompt-file <path>              -> read the primary prompt body from a UTF-8 file",
+    "  --body-file <path>                -> alias for --prompt-file",
+    "",
     "Examples:",
     '  scout ask --to hudson "review the parser"',
+    "  scout ask --to hudson --prompt-file ./handoff.md",
     '  scout ask --as premotion.master.mini --to hudson "build the editor"',
     '  scout ask --to vox.harness:codex "take another pass on the runtime fix"',
+    '  scout ask --to lattices#codex?5.5 "take task A"',
+    '  scout ask --to lattices#claude?sonnet "take task B"',
   ].join("\n");
 }
 
@@ -93,6 +102,20 @@ export function formatScoutAskRoutingError(
     return `target ${renderedTarget} is offline; nothing was sent. Run \`scout who\` to inspect the target before retrying.`;
   }
 
+  if (diagnostic?.state === "unavailable") {
+    const runtime = diagnostic.transport ? ` (${diagnostic.transport})` : "";
+    const wakePolicy = diagnostic.wakePolicy ? ` [wake:${diagnostic.wakePolicy}]` : "";
+    return `target ${renderedTarget} is known but currently unavailable${runtime}${wakePolicy}; nothing was sent. ${diagnostic.detail}`;
+  }
+
+  if (diagnostic?.state === "unknown") {
+    return `there is no ${renderedTarget}; nothing was sent.`;
+  }
+
+  if (diagnostic?.state === "invalid" || diagnostic?.state === "missing") {
+    return `${diagnostic.detail}; nothing was sent.`;
+  }
+
   return `target ${renderedTarget} is not currently routable; nothing was sent.`;
 }
 
@@ -123,10 +146,11 @@ export async function runAskWithOptions(
     currentDirectory,
     context.env,
   );
+  const body = await resolvePromptBody(options);
   const result = await askScoutQuestion({
     senderId,
     targetLabel: options.targetLabel,
-    body: options.message,
+    body,
     channel: options.channel,
     executionHarness: parseScoutHarness(options.harness),
     currentDirectory,

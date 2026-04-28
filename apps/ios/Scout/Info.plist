@@ -22,6 +22,8 @@
 	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
 			<key>tail1e8e67.ts.net</key>
@@ -33,5 +35,11 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_scout-pair._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Scout connects to your Mac over your local network when both devices are nearby.</string>
 </dict>
 </plist>

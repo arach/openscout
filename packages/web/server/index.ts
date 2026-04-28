@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveHost, resolveWebPort } from "@openscout/runtime/local-config";
 import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
+import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
 import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
@@ -30,6 +31,7 @@ const currentDirectory = resolveOpenScoutSetupContextRoot({
   fallbackDirectory: process.cwd(),
 });
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
+const routes = resolveOpenScoutWebRoutes(process.env);
 
 function resolveStaticRoot(): string | undefined {
   if (process.env.OPENSCOUT_WEB_STATIC_ROOT?.trim()) {
@@ -56,6 +58,13 @@ const idleTimeoutSeconds = Number.parseInt(
   10,
 );
 
+function toWebSocketUrl(httpUrl: string, pathname: string, search = ""): string {
+  const target = new URL(pathname, httpUrl);
+  target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
+  target.search = search;
+  return target.toString();
+}
+
 let terminalRelay: ManagedTerminalRelay | null = null;
 
 try {
@@ -75,58 +84,73 @@ const { app, warmupCaches } = await createOpenScoutWebServer({
   viteDevUrl,
   staticRoot,
   runTerminalCommand: terminalRelay?.queueCommand,
+  terminalRelayHealthcheck: terminalRelay?.healthcheck,
 });
 
 const honoFetch = app.fetch;
-const relayWebSocket = terminalRelay
-  ? createRelayWebSocketProxy(terminalRelay.targetWebSocketUrl)
-  : {
-      open(ws: {
-        readyState: number;
-        close(code?: number, reason?: string): void;
-      }) {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close(1013, "Terminal relay unavailable");
+const relayWebSocket = createRelayWebSocketProxy();
+
+let server: ReturnType<typeof Bun.serve<RelayWSData>>;
+try {
+  server = Bun.serve<RelayWSData>({
+    port,
+    hostname,
+    idleTimeout: idleTimeoutSeconds,
+
+    async fetch(req, server) {
+      const url = new URL(req.url);
+
+      if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        let upstreamUrl: string | null = null;
+
+        if (url.pathname === routes.terminalRelayPath) {
+          upstreamUrl = terminalRelay?.targetWebSocketUrl ?? null;
+          if (!upstreamUrl) {
+            return new Response("Terminal relay unavailable", { status: 503 });
+          }
+        } else if (viteDevUrl && url.pathname === routes.viteHmrPath) {
+          upstreamUrl = toWebSocketUrl(viteDevUrl, url.pathname, url.search);
+        } else {
+          return new Response("WebSocket endpoint not found", { status: 404 });
         }
-      },
-      message() {},
-      close() {},
-    };
 
-const server = Bun.serve<RelayWSData>({
-  port,
-  hostname,
-  idleTimeout: idleTimeoutSeconds,
+        const ok = server.upgrade(req, {
+          data: {
+            upstream: null,
+            pending: [],
+            upstreamUrl,
+          },
+        });
+        return ok
+          ? (undefined as unknown as Response)
+          : new Response("WebSocket upgrade failed", { status: 500 });
+      }
 
-  async fetch(req, server) {
-    const url = new URL(req.url);
+      if (
+        req.method === "POST"
+        && (url.pathname === routes.uploadPath || url.pathname === routes.relayUploadPath)
+      ) {
+        return handleRelayUpload(req);
+      }
 
-    // WebSocket upgrade — relay protocol
-    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      const ok = server.upgrade(req, { data: { upstream: null, pending: [] } });
-      return ok
-        ? (undefined as unknown as Response)
-        : new Response("WebSocket upgrade failed", { status: 500 });
-    }
+      return honoFetch(req, server);
+    },
 
-    // Relay HTTP routes
-    if (req.method === "GET" && url.pathname === "/health") {
-      const relayOk = terminalRelay ? await terminalRelay.healthcheck() : false;
-      return Response.json(
-        { ok: relayOk, relay: relayOk ? "up" : "down" },
-        { status: relayOk ? 200 : 503 },
-      );
-    }
-    if (req.method === "POST" && (url.pathname === "/api/upload" || url.pathname === "/api/relay/upload")) {
-      return handleRelayUpload(req);
-    }
-
-    // Everything else → Hono
-    return honoFetch(req, server);
-  },
-
-  websocket: relayWebSocket,
-});
+    websocket: relayWebSocket,
+  });
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/EADDRINUSE|address already in use|in use/i.test(message)) {
+    console.error(
+      `[scout] Port ${port} is already in use on ${hostname}.\n` +
+        `        Try: bun dev --port ${port + 100}  (or another free port)`,
+    );
+  } else {
+    console.error(`[scout] Failed to start server on ${hostname}:${port} — ${message}`);
+  }
+  terminalRelay?.shutdown();
+  process.exit(1);
+}
 
 // Graceful shutdown
 const shutdown = () => {
@@ -139,5 +163,5 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
-console.log(`Relay WebSocket -> ws://${hostname}:${server.port}`);
+console.log(`Relay WebSocket -> ws://${hostname}:${server.port}${routes.terminalRelayPath}`);
 void warmupCaches();

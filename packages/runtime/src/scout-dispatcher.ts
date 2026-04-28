@@ -1,5 +1,6 @@
 import {
   diagnoseAgentIdentity,
+  formatMinimalAgentIdentity,
   parseAgentIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -35,28 +36,77 @@ function metadataStringValue(metadata: Record<string, unknown> | undefined, key:
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function lastPathSegment(value: string | undefined): string {
+  return value?.replace(/[\\/]+$/, "").split(/[\\/]+/).filter(Boolean).pop() ?? "";
+}
+
+function stableScoutAliasesFor(
+  metadata: Record<string, unknown> | undefined,
+  definitionId: string,
+): string[] {
+  if (definitionId === "openscout") {
+    return [];
+  }
+  if (metadataStringValue(metadata, "registrationSource") !== "manifest") {
+    return [];
+  }
+  return lastPathSegment(metadataStringValue(metadata, "projectRoot")).toLowerCase() === "openscout"
+    ? ["@scout", "@openscout"]
+    : [];
+}
+
 export function buildAgentLabelCandidates(
   snapshot: RuntimeSnapshot,
   helpers: Pick<DispatcherHelpers, "isStale">,
+  options: { includeStale?: boolean } = {},
 ): BrokerAgentCandidate[] {
   return Object.values(snapshot.agents)
-    .filter((agent) => !helpers.isStale(agent))
-    .map((agent) => {
-      const metadata = agent.metadata ?? {};
-      const aliases = [
-        metadataStringValue(metadata, "selector"),
-        metadataStringValue(metadata, "defaultSelector"),
-      ].filter((value): value is string => Boolean(value));
+    .filter((agent) => options.includeStale || !helpers.isStale(agent))
+    .map((agent) => buildAgentLabelCandidate(snapshot, agent));
+}
 
-      return {
-        agentId: agent.id,
-        agent,
-        definitionId: metadataStringValue(metadata, "definitionId") ?? agent.id,
-        nodeQualifier: metadataStringValue(metadata, "nodeQualifier"),
-        workspaceQualifier: metadataStringValue(metadata, "workspaceQualifier"),
-        aliases,
-      };
-    });
+function preferredEndpointForAgent(
+  snapshot: RuntimeSnapshot,
+  agentId: string,
+): AgentEndpoint | undefined {
+  const endpoints = Object.values(snapshot.endpoints ?? {}).filter(
+    (endpoint) => endpoint.agentId === agentId,
+  );
+  return endpoints.find((endpoint) => endpoint.state === "active")
+    ?? endpoints.find((endpoint) => endpoint.state === "idle" || endpoint.state === "waiting")
+    ?? endpoints[0];
+}
+
+function buildAgentLabelCandidate(
+  snapshot: RuntimeSnapshot,
+  agent: AgentDefinition,
+): BrokerAgentCandidate {
+  const metadata = agent.metadata ?? {};
+  const endpoint = preferredEndpointForAgent(snapshot, agent.id);
+  const aliases = [
+    agent.selector,
+    agent.defaultSelector,
+    metadataStringValue(metadata, "selector"),
+    metadataStringValue(metadata, "defaultSelector"),
+  ].filter((value): value is string => Boolean(value));
+  const definitionId = agent.definitionId ?? metadataStringValue(metadata, "definitionId") ?? agent.id;
+  aliases.push(...stableScoutAliasesFor(metadata, definitionId));
+
+  return {
+    agentId: agent.id,
+    agent,
+    definitionId,
+    nodeQualifier: agent.nodeQualifier ?? metadataStringValue(metadata, "nodeQualifier"),
+    workspaceQualifier: agent.workspaceQualifier ?? metadataStringValue(metadata, "workspaceQualifier"),
+    harness: endpoint?.harness
+      ?? metadataStringValue(endpoint?.metadata, "harness")
+      ?? metadataStringValue(metadata, "harness")
+      ?? metadataStringValue(metadata, "defaultHarness"),
+    profile: metadataStringValue(metadata, "profile"),
+    model: metadataStringValue(endpoint?.metadata, "model")
+      ?? metadataStringValue(metadata, "model"),
+    aliases,
+  };
 }
 
 export function resolveAgentLabel(
@@ -82,6 +132,20 @@ export function resolveAgentLabel(
   }
 
   if (diagnosis.kind === "unknown") {
+    const fallbackCandidates = buildAgentLabelCandidates(snapshot, options.helpers, {
+      includeStale: true,
+    });
+    const fallbackDiagnosis = diagnoseAgentIdentity(identity, fallbackCandidates);
+    if (fallbackDiagnosis.kind === "resolved") {
+      return { kind: "resolved", agent: fallbackDiagnosis.match.agent };
+    }
+    if (fallbackDiagnosis.kind === "ambiguous") {
+      return {
+        kind: "ambiguous",
+        label: identity.label,
+        candidates: fallbackDiagnosis.candidates.map((candidate) => candidate.agent),
+      };
+    }
     return { kind: "unknown", label: identity.label };
   }
 
@@ -123,11 +187,13 @@ export function summarizeDispatchCandidate(
   agent: AgentDefinition,
   snapshot: RuntimeSnapshot,
   helpers: Pick<DispatcherHelpers, "homeEndpointFor">,
+  label: string,
 ): ScoutDispatchCandidate {
   const endpoint = helpers.homeEndpointFor(snapshot, agent.id);
   return {
     agentId: agent.id,
     displayName: agent.displayName ?? agent.id,
+    label,
     authorityNodeId: agent.authorityNodeId,
     homeNodeId: agent.homeNodeId,
     advertiseScope: agent.advertiseScope,
@@ -179,12 +245,21 @@ export function buildDispatchEnvelope(
     };
   }
 
+  const candidates = resolution.candidates.map((agent) =>
+    buildAgentLabelCandidate(snapshot, agent)
+  );
+
   return {
     kind,
     askedLabel: resolution.label,
     detail: `${resolution.label} matches ${resolution.candidates.length} agents; pick one`,
-    candidates: resolution.candidates.map((agent) =>
-      summarizeDispatchCandidate(agent, snapshot, helpers),
+    candidates: resolution.candidates.map((agent, index) =>
+      summarizeDispatchCandidate(
+        agent,
+        snapshot,
+        helpers,
+        formatMinimalAgentIdentity(candidates[index]!, candidates),
+      ),
     ),
     dispatchedAt,
     dispatcherNodeId,

@@ -159,8 +159,12 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     func openWebApp() {
+        openWebPath("/")
+    }
+
+    func openWebPath(_ path: String) {
         Task {
-            await openWebSurfaceNow(path: "/fleet")
+            await openWebSurfaceNow(path: path)
         }
     }
 
@@ -309,13 +313,8 @@ final class OpenScoutAppController: ObservableObject {
         do {
             try await ensureWebServerRunning()
             let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
-            if var components = URLComponents(string: "http://127.0.0.1:3200\(normalizedPath)") {
-                components.queryItems = [
-                    URLQueryItem(name: "openedAt", value: String(Int(Date().timeIntervalSince1970)))
-                ]
-                if let url = components.url {
-                    NSWorkspace.shared.open(url)
-                }
+            if let url = URL(string: "http://127.0.0.1:3200\(normalizedPath)") {
+                NSWorkspace.shared.open(url)
             }
         } catch {
             lastError = error.localizedDescription
@@ -338,20 +337,37 @@ final class OpenScoutAppController: ObservableObject {
         webServerProcess = process
         webServerStartedByApp = true
 
-        for _ in 0..<16 {
+        for _ in 0..<60 {
             try? await Task.sleep(for: .milliseconds(250))
             if await isWebSurfaceReachable() {
                 return
             }
         }
 
+        let logPath = scoutWebServerLogPath()
+        let tail = readScoutWebServerLogTail(at: logPath, maxLines: 12)
+        let detail = tail.isEmpty
+            ? "Timed out waiting for the OpenScout web app on port 3200. Check \(logPath)."
+            : "Timed out waiting for the OpenScout web app on port 3200.\n\nLast lines from \(logPath):\n\(tail)"
         throw NSError(
             domain: "OpenScoutWeb",
             code: 1,
-            userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for the current OpenScout web app on port 3200."
-            ]
+            userInfo: [NSLocalizedDescriptionKey: detail]
         )
+    }
+
+    private func scoutWebServerLogPath() -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent(".scout/logs/web-server.log").path
+    }
+
+    private func readScoutWebServerLogTail(at path: String, maxLines: Int) -> String {
+        guard let data = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return ""
+        }
+        let lines = data.split(separator: "\n", omittingEmptySubsequences: false)
+        let slice = lines.suffix(maxLines)
+        return slice.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func isWebSurfaceReachable() async -> Bool {

@@ -25,8 +25,7 @@ sequenceDiagram
   participant Work as Work item
 
   User->>Premotion: "Give the syntax-highlighting task to @hudson"
-  Premotion->>Broker: Resolve sender identity (`scout whoami`)
-  Broker-->>Premotion: premotion.master.mini
+  Premotion->>Broker: Ask Hudson from the current project context
   Premotion->>Broker: Open or reuse DM(premotion, hudson)
   Broker-->>Premotion: direct conversation id
   Premotion->>Broker: Create work item<br/>owner=Hudson<br/>nextMoveOwner=Hudson<br/>requestedBy=Premotion
@@ -53,9 +52,10 @@ That mismatch matters because future prompts, sweeps, notifications, and analyti
 Today, the best available Scout CLI pattern for a one-to-one work handoff is:
 
 ```bash
-scout whoami
 scout ask --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
 ```
+
+This is intentionally one command. Run `scout whoami` first only when the shell might not be in the intended project, or when the sender needs to be audited before the handoff.
 
 If the invoking shell, app host, or relay path might not preserve the acting project agent automatically, make the sender explicit:
 

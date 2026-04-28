@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import Image from "next/image";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
-  ArrowRight,
-  ArrowUpRight,
   Bot,
-  Download,
+  Check,
+  Copy,
   Layers,
   MessageSquare,
   Monitor,
@@ -18,14 +16,12 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { CopyCommand } from "@/components/copy-command";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
-import { HeroIntentForm } from "@/components/hero-intent-form";
-import { LandingProductShowcase } from "@/components/landing-product-showcase";
+import { BrokerStreamDemo } from "@/components/broker-stream-demo";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
-import { trackCtaClick, trackNavigationClick } from "@/lib/analytics";
+import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
 
 type AudienceMode = "general" | "technical" | "agent";
 type HumanAudienceMode = Exclude<AudienceMode, "agent">;
@@ -387,9 +383,9 @@ const audienceContent: Record<
   }
 > = {
   general: {
-    heroEyebrow: "Open-source agent runtime",
-    heroTitleTop: "All your agents,",
-    heroTitleBottom: "one message away.",
+    heroEyebrow: "Open-source agent broker · Protocol Ø.1",
+    heroTitleTop: "A switchboard",
+    heroTitleBottom: "for your agents.",
     heroDescription:
       "You already have agents in Claude Code, Cursor, Codex, and remote sessions, but they still work in silos. Scout connects them into one system you can see, manage, and message from anywhere.",
     heroCommand: "bun add -g @openscout/scout",
@@ -438,17 +434,140 @@ const audienceContent: Record<
   },
 };
 
-function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
-  const pixelSize = size === "md" ? 40 : 32;
+/* ──────────────────────────────────────────────────────────
+   Machine-readable manifest layer (agent-first DOM)
+   ────────────────────────────────────────────────────────── */
+
+const SCHEMA_ORG_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "OpenScout",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux",
+  softwareVersion: "0.2.61",
+  license: "https://opensource.org/licenses/MIT",
+  url: "https://openscout.app",
+  codeRepository: "https://github.com/arach/openscout",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+} as const;
+
+const OPENSCOUT_PROTOCOL_LD = {
+  "@context": { openscout: "https://openscout.app/ns#" },
+  "@type": "openscout:Protocol",
+  "openscout:version": "Ø.1",
+  "openscout:status": "experimental",
+  "openscout:recordTypes": ["Message", "Invocation", "Flight", "Delivery", "Binding"],
+  "openscout:transports": ["local", "telegram", "voice", "webhook"],
+  "openscout:referenceImplementation": "https://github.com/arach/openscout",
+} as const;
+
+const OPENSCOUT_SELF_MANIFEST = {
+  kind: "openscout.manifest",
+  version: "Ø.1",
+  broker: {
+    id: "scout/Ø",
+    transports: ["local", "tcp:7421", "telegram"],
+    capabilities: ["messages", "invocations", "flights", "deliveries", "bindings"],
+  },
+  discovery: {
+    endpoint: "openscout.app",
+    install: "bun add -g @openscout/scout",
+  },
+} as const;
+
+/* ──────────────────────────────────────────────────────────
+   RFC install — inline, document-styled command line
+   ────────────────────────────────────────────────────────── */
+
+function RfcInstall({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = () => {
+    navigator.clipboard.writeText(command);
+    trackCommandCopy({ command, location: "hero_rfc_install" });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
   return (
-    <span className="flex shrink-0 items-center justify-center">
-      <Image
-        src="/openscout-icon.png"
-        alt=""
+    <button
+      type="button"
+      onClick={onCopy}
+      className={`rfc-hero__install ${copied ? "rfc-hero__install--copied" : ""}`}
+      aria-label="Copy install command"
+    >
+      <span className="rfc-hero__install-prompt">$</span>
+      <span>{command}</span>
+      <span className="rfc-hero__install-copy inline-flex items-center gap-1.5">
+        {copied ? (
+          <>
+            <Check className="h-3 w-3" />
+            copied
+          </>
+        ) : (
+          <>
+            <Copy className="h-3 w-3" />
+            copy
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function GithubStars() {
+  const [stars, setStars] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/stars")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { stars?: number | null } | null) => {
+        if (!cancelled && data?.stars != null) {
+          setStars(data.stars);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (stars == null) return null;
+  return (
+    <>
+      <span className="operator-strip__sep hidden md:inline">·</span>
+      <span className="operator-strip__data hidden md:inline-flex">
+        ★ <b>{stars}</b>
+      </span>
+    </>
+  );
+}
+
+function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
+  const pixelSize = size === "md" ? 32 : 26;
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center text-[var(--site-ink)]"
+      style={{ width: pixelSize, height: pixelSize }}
+      aria-hidden
+    >
+      <svg
+        viewBox="0 0 32 32"
         width={pixelSize}
         height={pixelSize}
-        className="rounded-[10px] shadow-[0_1px_0_rgba(255,255,255,0.3)_inset]"
-      />
+        fill="none"
+        stroke="currentColor"
+      >
+        {/* peer connections */}
+        <line x1="16" y1="16" x2="16" y2="6"  strokeWidth="1" opacity="0.45" />
+        <line x1="16" y1="16" x2="6"  y2="22" strokeWidth="1" opacity="0.45" />
+        <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
+        {/* peers */}
+        <circle cx="16" cy="6"  r="2"   fill="currentColor" stroke="none" />
+        <circle cx="6"  cy="22" r="2"   fill="currentColor" stroke="none" />
+        <circle cx="26" cy="22" r="2"   fill="currentColor" stroke="none" />
+        {/* broker (center) */}
+        <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-page-bg)" strokeWidth="1.2" opacity="0.9" />
+        <circle cx="16" cy="16" r="2"   fill="currentColor" stroke="none" />
+      </svg>
     </span>
   );
 }
@@ -518,19 +637,41 @@ export default function Home() {
   };
   return (
     <div className="site-marketing relative isolate min-h-screen overflow-x-clip bg-[var(--site-page-bg)] text-[var(--site-ink)]">
-      {/* ── hero background layers ── */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[40rem] overflow-hidden">
-        <div className="hero-glow absolute inset-0" />
-        <div className="dot-grid absolute inset-0" />
-      </div>
+      {/* ── Operator Console (header) ── */}
+      <header className="operator-console">
+        {/* live status strip — broker identity + ambient telemetry */}
+        <div className="operator-strip">
+          <div className="mx-auto flex max-w-[90rem] items-center px-6">
+            <div className="operator-strip__inner overflow-x-auto whitespace-nowrap">
+              <span className="operator-strip__brand">SCOUT/Ø</span>
+              <span className="operator-strip__sep">·</span>
+              <span className="operator-strip__data">
+                <span className="status-dot" aria-hidden />
+                <span>experimental</span>
+              </span>
+              <span className="operator-strip__sep hidden sm:inline">·</span>
+              <span className="operator-strip__data hidden sm:inline-flex">
+                proto <b>Ø.1</b>
+              </span>
+              <span className="operator-strip__sep">·</span>
+              <span className="operator-strip__data">
+                <b>v0.2.61</b>
+              </span>
+              <span className="operator-strip__sep hidden sm:inline">·</span>
+              <span className="operator-strip__data hidden sm:inline-flex">
+                MIT
+              </span>
+              <GithubStars />
+            </div>
+          </div>
+        </div>
 
-      {/* ── nav ── */}
-      <nav className="sticky top-0 z-50 border-b border-[var(--site-border)] bg-[var(--site-page-bg-strong)] backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-[90rem] items-center justify-between px-6">
+        {/* main row — wordmark + minimal mono nav + theme toggle */}
+        <div className="mx-auto flex max-w-[90rem] items-center px-6 operator-row">
           <Link
             href="/"
             onClick={onNavigationClick("Scout", "/", "header_logo")}
-            className="flex items-center gap-3"
+            className="flex items-center gap-2.5"
           >
             <LogoMark />
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
@@ -538,21 +679,21 @@ export default function Home() {
             </span>
           </Link>
 
-          <div className="hidden items-center gap-8 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--site-copy)] md:flex">
+          <nav className="hidden items-center gap-7 md:flex">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
                 onClick={onNavigationClick(link.label, link.href, "header_nav")}
-                className="transition-colors hover:text-[var(--site-ink)]"
+                className="operator-link"
               >
-                {link.label}
+                <span className="operator-link__sigil">:</span>
+                {link.label.toLowerCase().replace(/\s+/g, "-")}
               </a>
             ))}
-          </div>
+          </nav>
 
-          <div className="flex items-center gap-3">
-            <SiteThemeToggle />
+          <div className="flex items-center gap-4">
             <a
               href="https://github.com/arach/openscout"
               target="_blank"
@@ -563,310 +704,313 @@ export default function Home() {
                 "header_nav",
                 "repo",
               )}
-              className="hidden text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)] sm:inline-flex"
+              className="operator-link hidden sm:inline-flex"
             >
-              GitHub
+              <span className="operator-link__sigil">:</span>github
             </a>
             <Link
               href="/docs"
               onClick={onCtaClick("Read the docs", "/docs", "header_nav", "docs")}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--site-ink)] px-4 text-sm font-medium text-[var(--site-ink-contrast)] transition-colors hover:bg-[var(--site-ink-hover)]"
+              className="operator-link"
             >
-              <span>Read the docs</span>
-              <ArrowUpRight className="h-3.5 w-3.5" />
+              <span className="operator-link__sigil">:</span>docs
             </Link>
+            <SiteThemeToggle />
           </div>
         </div>
-      </nav>
+      </header>
 
       {/* ── Agent view (replaces everything) ── */}
         <>
           <main ref={scrollRef} className="relative z-10">
-            {/* ── Hero ── */}
-            <section className="overflow-hidden pb-28 pt-16 md:pt-20">
-              <div className="mx-auto grid max-w-[90rem] gap-16 px-6 lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] lg:items-start">
-                <div className="max-w-xl">
-                  <div
-                    className="hero-animate landing-label text-[var(--site-accent)]"
-                    style={{ animationDelay: "0s" }}
-                  >
-                    {copy.heroEyebrow}
+            {/* ── Hero (RFC front matter + live broker stream) ── */}
+            <section className="overflow-hidden pb-24 pt-12 md:pt-16">
+              <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:items-start lg:gap-16">
+                <div className="hero-animate" style={{ animationDelay: "0s" }}>
+                  <div className="rfc-hero__bar">
+                    <span>Internet-Draft</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>draft-scout-Ø.1</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>experimental</span>
+                    <span className="rfc-hero__bar-sep">·</span>
+                    <span>apr 2026</span>
                   </div>
 
-                  <h1
-                    className="hero-animate mt-8 min-h-[7.5rem] tracking-[-0.04em] text-[var(--site-ink)] sm:min-h-[9rem] lg:min-h-[10.5rem]"
-                    style={{ animationDelay: "0.04s" }}
-                  >
-                    <span className="block font-[family-name:var(--font-display)] text-5xl italic sm:text-6xl lg:text-[4.5rem] lg:leading-[1.05]">
-                      {copy.heroTitleTop}
-                    </span>
-                    <span className="block text-4xl font-semibold sm:text-5xl lg:text-6xl">
-                      {copy.heroTitleBottom}
-                    </span>
+                  <h1 className="rfc-hero__title">
+                    OpenScout: A Local Broker Protocol for Inter-Agent Messaging
                   </h1>
 
-                  <p
-                    className="hero-animate mt-6 min-h-[5.5rem] max-w-lg text-[17px] leading-relaxed text-[var(--site-copy)]"
-                    style={{ animationDelay: "0.1s" }}
-                  >
-                    {copy.heroDescription}
+                  <p className="rfc-hero__authors">
+                    A. Tchoupani &middot; OpenScout Working Group &middot; expires October 2026
                   </p>
 
-                  <div
-                    className="hero-animate mt-8 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center"
-                    style={{ animationDelay: "0.16s" }}
-                  >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <HeroIntentForm />
-                      <Link
-                        href="#get-started"
-                        onClick={onCtaClick("Get started", "#get-started", "hero", "scroll")}
-                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-surface-strong)] px-5 text-sm font-medium text-[var(--site-ink)] shadow-sm transition-all hover:bg-[var(--site-panel)] hover:shadow"
-                      >
-                        <span>Get started</span>
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
-                    </div>
-                    <div className="w-full sm:w-auto sm:min-w-[200px]">
-                      <CopyCommand
-                        analyticsLocation="hero_command"
-                        command={copy.heroCommand}
-                      />
-                    </div>
-                  </div>
-
-                  <p
-                    className="hero-animate mt-6 text-[13px] text-[var(--site-muted-soft)]"
-                    style={{ animationDelay: "0.22s" }}
-                  >
-                    {copy.heroFootnote}
+                  <p className="rfc-hero__abstract">
+                    <span className="rfc-hero__abstract-label">Abstract.</span>
+                    This document specifies OpenScout/Ø.1, a local-first message broker
+                    for AI agents. Agents register as addressable peers, exchange typed
+                    records (
+                    <span className="rfc-hero__records-inline">Message</span>,{" "}
+                    <span className="rfc-hero__records-inline">Invocation</span>,{" "}
+                    <span className="rfc-hero__records-inline">Flight</span>,{" "}
+                    <span className="rfc-hero__records-inline">Delivery</span>,{" "}
+                    <span className="rfc-hero__records-inline">Binding</span>
+                    ), and remain reachable across process restarts and bridge transports.
                   </p>
+
+                  <p className="rfc-hero__memo">
+                    Reference implementation, MIT-licensed:
+                  </p>
+
+                  <RfcInstall command={copy.heroCommand} />
+
+                  <nav className="rfc-hero__toc" aria-label="Document sections">
+                    <a
+                      href="#mesh"
+                      onClick={onNavigationClick("§1 Topology", "#mesh", "rfc_toc")}
+                    >
+                      <span className="rfc-hero__toc-num">§1</span>Topology
+                    </a>
+                    <a
+                      href="#capabilities"
+                      onClick={onNavigationClick("§2 Records", "#capabilities", "rfc_toc")}
+                    >
+                      <span className="rfc-hero__toc-num">§2</span>Records
+                    </a>
+                    <a
+                      href="#surfaces"
+                      onClick={onNavigationClick("§3 Reference Implementation", "#surfaces", "rfc_toc")}
+                    >
+                      <span className="rfc-hero__toc-num">§3</span>Reference Implementation
+                    </a>
+                    <a
+                      href="#get-started"
+                      onClick={onNavigationClick("§4 Discovery", "#get-started", "rfc_toc")}
+                    >
+                      <span className="rfc-hero__toc-num">§4</span>Discovery
+                    </a>
+                  </nav>
                 </div>
 
-                <div className="hero-showcase">
-                  <LandingProductShowcase audience={"general"} />
+                <div className="hero-animate" style={{ animationDelay: "0.12s" }}>
+                  <BrokerStreamDemo />
                 </div>
               </div>
+
+              {/* ── Machine-readable manifest layer ── */}
+              <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(SCHEMA_ORG_LD) }}
+              />
+              <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(OPENSCOUT_PROTOCOL_LD) }}
+              />
+              <script
+                type="application/openscout-manifest+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(OPENSCOUT_SELF_MANIFEST) }}
+              />
             </section>
 
-            {/* ── Problem ── */}
-            <section
-              id="mesh"
-              className="relative border-y border-[var(--site-border)] bg-[var(--site-surface-strong)] py-24"
-            >
+            {/* ── §1 Topology ── */}
+            <section id="mesh" className="rfc-section">
               <div className="mx-auto max-w-6xl px-6">
-                <div className="reveal mx-auto max-w-3xl text-center">
-                  <div className="landing-label text-[var(--site-accent)]">
-                    The Problem
+                <div className="reveal max-w-3xl">
+                  <div className="rfc-section-eyebrow">
+                    <span className="rfc-section-eyebrow__num">§1</span>
+                    <span>Topology</span>
                   </div>
-                  <h2 className="mt-4 min-h-[3.5rem] text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)] sm:text-4xl">
+                  <h2 className="rfc-section-title">
                     {problemContent.meshTitle}
                   </h2>
-                  <p className="mt-4 min-h-[3.5rem] text-lg leading-relaxed text-[var(--site-copy)]">
+                  <p className="rfc-section-lead">
                     {problemContent.meshDescription}
                   </p>
-
                 </div>
 
-                <div className="reveal-stagger mt-16 grid gap-6 lg:grid-cols-3 md:grid-cols-2">
-                  {meshPrinciples.map(
-                    ({ icon: Icon, title, description }, i) => (
-                      <div
-                        key={title}
-                        className="reveal landing-card rounded-xl p-6"
-                        style={{ "--reveal-i": i } as React.CSSProperties}
-                      >
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--site-border)] bg-[var(--site-panel)] text-[var(--site-ink)]">
-                          <Icon
-                            className="h-[18px] w-[18px]"
-                            strokeWidth={1.6}
-                          />
-                        </div>
-                        <h3 className="mt-5 text-lg font-semibold tracking-tight text-[var(--site-ink)]">
-                          {title}
-                        </h3>
-                        <p className="mt-2 text-[15px] leading-relaxed text-[var(--site-copy)]">
-                          {description}
-                        </p>
-                      </div>
-                    ),
-                  )}
+                <div className="reveal-stagger mt-12 grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                  {meshPrinciples.map(({ title, description }, i) => (
+                    <div
+                      key={title}
+                      className="reveal rfc-block"
+                      style={{ "--reveal-i": i } as React.CSSProperties}
+                    >
+                      <div className="rfc-block__num">§1.{i + 1}</div>
+                      <h3 className="rfc-block__title">{title}</h3>
+                      <p className="rfc-block__body">{description}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </section>
 
-            {/* ── Capabilities ── */}
-            <section id="capabilities" className="py-24">
-              <div className="mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]">
+            {/* ── §2 Records ── */}
+            <section id="capabilities" className="rfc-section">
+              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
-                  <div className="landing-label text-[var(--site-accent)]">
-                    Capabilities
+                  <div className="rfc-section-eyebrow">
+                    <span className="rfc-section-eyebrow__num">§2</span>
+                    <span>Records</span>
                   </div>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)]">
+                  <h2 className="rfc-section-title">
                     {copy.capabilitiesTitle}
                   </h2>
-                  <p className="mt-4 text-[15px] leading-relaxed text-[var(--site-copy)]">
+                  <p className="rfc-section-lead">
                     {copy.capabilitiesDescription}
                   </p>
                   <Link
                     href="/docs"
                     onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
-                    className="group mt-6 inline-flex items-center gap-2 text-sm font-medium text-[var(--site-ink)] transition-colors hover:text-[var(--site-accent)]"
+                    className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                   >
-                    <span>Browse the docs</span>
-                    <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                    <span className="text-[var(--site-accent)]">→</span>
+                    <span>browse the docs</span>
                   </Link>
                 </div>
 
-                <div className="reveal-stagger grid gap-6 lg:grid-cols-3 md:grid-cols-2">
-                  {capabilities.map(
-                    ({ icon: Icon, label, title, description }, i) => (
-                      <div
-                        key={title}
-                        className="reveal landing-card rounded-xl p-5"
-                        style={{ "--reveal-i": i } as React.CSSProperties}
-                      >
-                        <div className="landing-label text-[var(--site-muted-soft)]">
-                          {label}
-                        </div>
-                        <div className="mt-3 flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--site-accent-border)] bg-[var(--site-accent-soft-strong)] text-[var(--site-accent)]">
-                          <Icon
-                            className="h-[18px] w-[18px]"
-                            strokeWidth={1.6}
-                          />
-                        </div>
-                        <h3 className="mt-4 text-base font-semibold tracking-tight text-[var(--site-ink)]">
-                          {title}
-                        </h3>
-                        <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-copy)]">
-                          {description}
-                        </p>
+                <div className="reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                  {capabilities.map(({ label, title, description }, i) => (
+                    <div
+                      key={title}
+                      className="reveal rfc-block"
+                      style={{ "--reveal-i": i } as React.CSSProperties}
+                    >
+                      <div className="rfc-block__num">
+                        §2.{i + 1} · {label}
                       </div>
-                    ),
-                  )}
+                      <h3 className="rfc-block__title">{title}</h3>
+                      <p className="rfc-block__body">{description}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </section>
 
-            {/* ── Surfaces ── */}
-            <section
-              id="surfaces"
-              className="relative border-y border-[var(--site-border)] bg-[var(--site-panel)] py-24"
-            >
-              <div className="dot-grid pointer-events-none absolute inset-0" />
-              <div className="relative mx-auto grid max-w-6xl gap-8 px-6 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] lg:items-start">
+            {/* ── §3 Reference Implementation ── */}
+            <section id="surfaces" className="rfc-section">
+              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start">
                 <div className="reveal max-w-xl">
-                  <div className="landing-label text-[var(--site-accent)]">Apps</div>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)] sm:text-4xl">
+                  <div className="rfc-section-eyebrow">
+                    <span className="rfc-section-eyebrow__num">§3</span>
+                    <span>Reference Implementation</span>
+                  </div>
+                  <h2 className="rfc-section-title">
                     {copy.surfacesTitle}
                   </h2>
-                  <p className="mt-4 text-[15px] leading-relaxed text-[var(--site-copy)]">
+                  <p className="rfc-section-lead">
                     {copy.surfacesDescription}
                   </p>
 
-                  <div className="mt-8 rounded-xl border border-[var(--site-border)] bg-[var(--site-surface-strong)] p-5">
-                    <div className="landing-label text-[var(--site-muted-soft)]">
+                  <div className="mt-8 rfc-block">
+                    <div className="rfc-block__num">Note</div>
+                    <h3 className="rfc-block__title">
                       {copy.surfacesNoteTitle}
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed text-[var(--site-copy)]">
+                    </h3>
+                    <p className="rfc-block__body">
                       {copy.surfacesNoteDescription}
                     </p>
                   </div>
                 </div>
 
                 <div className="reveal-stagger grid gap-6 sm:grid-cols-2">
-                  {surfaceGallery.map((shot, i) => (
-                    <figure
-                      key={shot.src}
-                      className="reveal landing-card overflow-hidden rounded-xl"
-                      style={{ "--reveal-i": i } as React.CSSProperties}
-                    >
-                      <ExpandableImage
-                        analyticsId={shot.src}
-                        analyticsLocation="surfaces_gallery"
-                        src={shot.src}
-                        alt={shot.alt}
-                        width={shot.width ?? 1552}
-                        height={shot.height ?? 1092}
-                        className={
-                          shot.imageClassName ??
-                          "aspect-[1552/1092] w-full object-cover object-top"
-                        }
-                      />
-                      <figcaption className="border-t border-[var(--site-border)] bg-[var(--site-panel)] px-4 py-3.5">
-                        <div className="landing-label text-[var(--site-accent)]">
-                          {shot.eyebrow}
-                        </div>
-                        <h3 className="mt-1.5 text-base font-semibold tracking-tight text-[var(--site-ink)]">
-                          {shot.title}
-                        </h3>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--site-copy)]">
-                          {shot.description}
-                        </p>
-                      </figcaption>
-                    </figure>
-                  ))}
+                  {surfaceGallery
+                    .filter((s) =>
+                      ["Fleet briefing", "Conversation thread", "Mesh"].includes(
+                        s.title,
+                      ),
+                    )
+                    .map((shot, i) => (
+                      <figure
+                        key={shot.src}
+                        className="reveal rfc-figure"
+                        style={{ "--reveal-i": i } as React.CSSProperties}
+                      >
+                        <ExpandableImage
+                          analyticsId={shot.src}
+                          analyticsLocation="surfaces_gallery"
+                          src={shot.src}
+                          alt={shot.alt}
+                          width={shot.width ?? 1552}
+                          height={shot.height ?? 1092}
+                          className={
+                            shot.imageClassName ??
+                            "aspect-[1552/1092] w-full object-cover object-top"
+                          }
+                        />
+                        <figcaption className="rfc-figure__caption">
+                          <div className="rfc-figure__caption-num">
+                            Fig. 3.{i + 1} · {shot.eyebrow}
+                          </div>
+                          <h3 className="rfc-figure__caption-title">
+                            {shot.title}
+                          </h3>
+                          <p className="rfc-figure__caption-body">
+                            {shot.description}
+                          </p>
+                        </figcaption>
+                      </figure>
+                    ))}
                 </div>
               </div>
             </section>
 
-            {/* ── Get Started ── */}
-            <section id="get-started" className="py-24">
+            {/* ── §4 Discovery ── */}
+            <section id="get-started" className="rfc-section">
               <div className="mx-auto max-w-6xl px-6">
-                <div className="reveal landing-panel rounded-2xl p-8 sm:p-10 lg:p-12">
-                  <div className="grid gap-12 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-                    <div className="max-w-sm">
-                      <div className="landing-label text-[var(--site-accent)]">
-                        Get Started
-                      </div>
-                      <h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[var(--site-ink)] sm:text-4xl">
-                        {copy.getStartedTitle}
-                      </h2>
-                      <p className="mt-4 text-[15px] leading-relaxed text-[var(--site-copy)]">
-                        {copy.getStartedDescription}
-                      </p>
+                <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
+                  <div className="reveal max-w-sm">
+                    <div className="rfc-section-eyebrow">
+                      <span className="rfc-section-eyebrow__num">§4</span>
+                      <span>Discovery</span>
+                    </div>
+                    <h2 className="rfc-section-title">
+                      {copy.getStartedTitle}
+                    </h2>
+                    <p className="rfc-section-lead">
+                      {copy.getStartedDescription}
+                    </p>
 
-                      <div className="mt-8 rounded-xl border border-[var(--site-border)] bg-[var(--site-panel)] p-5">
-                        <div className="landing-label text-[var(--site-muted-soft)]">
-                          Optional: Desktop App
-                        </div>
-                        <p className="mt-2 text-sm leading-relaxed text-[var(--site-copy)]">
-                          The CLI is the complete runtime. The desktop app adds a
-                          visual dashboard for conversations, agents, and machines.
-                        </p>
-                        <div className="mt-4 flex flex-wrap items-center gap-3">
-                          <a
-                            href="https://github.com/arach/openscout/releases/latest"
-                            onClick={onCtaClick(
-                              "Download for macOS",
-                              "https://github.com/arach/openscout/releases/latest",
-                              "get_started",
-                              "download",
-                            )}
-                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--site-ink)] px-4 text-sm font-medium text-[var(--site-ink-contrast)] transition-colors hover:bg-[var(--site-ink-hover)]"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            <span>Download for macOS</span>
-                          </a>
-                          <a
-                            href="https://github.com/arach/openscout"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={onCtaClick(
-                              "Open on GitHub",
-                              "https://github.com/arach/openscout",
-                              "get_started",
-                              "repo",
-                            )}
-                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-surface-strong)] px-4 text-sm font-medium text-[var(--site-ink)] transition-colors hover:bg-[var(--site-panel)]"
-                          >
-                            <span>Open on GitHub</span>
-                            <ArrowUpRight className="h-3.5 w-3.5" />
-                          </a>
-                        </div>
+                    <div className="mt-8 rfc-block">
+                      <div className="rfc-block__num">§4.1 · Optional</div>
+                      <h3 className="rfc-block__title">Desktop App</h3>
+                      <p className="rfc-block__body">
+                        The CLI is the complete runtime. The desktop app adds a
+                        visual dashboard for conversations, agents, and machines.
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-2 font-[family-name:var(--font-mono-display)] text-[12.5px]">
+                        <a
+                          href="https://github.com/arach/openscout/releases/latest"
+                          onClick={onCtaClick(
+                            "Download for macOS",
+                            "https://github.com/arach/openscout/releases/latest",
+                            "get_started",
+                            "download",
+                          )}
+                          className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                        >
+                          <span className="text-[var(--site-accent)]">→</span>
+                          <span>download for macOS</span>
+                        </a>
+                        <a
+                          href="https://github.com/arach/openscout"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={onCtaClick(
+                            "Open on GitHub",
+                            "https://github.com/arach/openscout",
+                            "get_started",
+                            "repo",
+                          )}
+                          className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                        >
+                          <span className="text-[var(--site-accent)]">→</span>
+                          <span>open on github</span>
+                        </a>
                       </div>
                     </div>
+                  </div>
 
+                  <div className="reveal">
                     <TerminalSession
                       analyticsLocation="get_started_terminal"
                       steps={getStartedCommands}
@@ -877,28 +1021,35 @@ export default function Home() {
             </section>
           </main>
 
-          {/* ── Footer ── */}
-          <footer className="px-6 pb-20">
-            <div className="mx-auto max-w-[90rem] border-t border-[var(--site-border)]">
-              <div className="flex items-center justify-between py-4">
-                <div className="flex items-center gap-2.5 text-[var(--site-muted-soft)]">
-                  <LogoMark />
-                  <span className="font-[family-name:var(--font-spectral)] text-sm font-semibold tracking-tight">Scout</span>
-                </div>
-                <div className="flex gap-5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.1em] text-[var(--site-muted-soft)]">
+          {/* ── Status footer (mirror of operator-strip) ── */}
+          <footer className="status-bar">
+            <div className="mx-auto flex max-w-[90rem] items-center px-6">
+              <div className="status-bar__inner overflow-x-auto whitespace-nowrap">
+                <span className="status-bar__zone">
+                  <span className="status-bar__cell">
+                    <span className="status-dot" aria-hidden />
+                    <span>scout/Ø ready</span>
+                  </span>
+                  <span className="status-bar__sep">·</span>
+                  <span className="status-bar__cell">
+                    <b>v0.2.61</b>
+                  </span>
+                  <span className="status-bar__sep hidden sm:inline">·</span>
+                  <span className="status-bar__cell hidden sm:inline-flex">
+                    MIT License
+                  </span>
+                  <span className="status-bar__sep hidden md:inline">·</span>
+                  <span className="status-bar__cell hidden md:inline-flex">
+                    local-first
+                  </span>
+                </span>
+                <span className="status-bar__zone status-bar__zone--right">
                   <a
                     href="/docs"
                     onClick={onNavigationClick("Docs", "/docs", "footer")}
-                    className="transition-colors hover:text-[var(--site-ink)]"
+                    className="status-bar__link"
                   >
-                    Docs
-                  </a>
-                  <a
-                    href="/privacy"
-                    onClick={onNavigationClick("Privacy", "/privacy", "footer")}
-                    className="transition-colors hover:text-[var(--site-ink)]"
-                  >
-                    Privacy
+                    <span className="status-bar__sigil">:</span>docs
                   </a>
                   <a
                     href="https://github.com/arach/openscout"
@@ -908,56 +1059,33 @@ export default function Home() {
                       "footer",
                       "repo",
                     )}
-                    className="transition-colors hover:text-[var(--site-ink)]"
+                    className="status-bar__link"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    GitHub
+                    <span className="status-bar__sigil">:</span>github
+                  </a>
+                  <a
+                    href="/privacy"
+                    onClick={onNavigationClick("Privacy", "/privacy", "footer")}
+                    className="status-bar__link hidden sm:inline-flex"
+                  >
+                    <span className="status-bar__sigil">:</span>privacy
                   </a>
                   <a
                     href="https://x.com/arach"
                     onClick={onCtaClick("Twitter", "https://x.com/arach", "footer", "social")}
-                    className="transition-colors hover:text-[var(--site-ink)]"
+                    className="status-bar__link hidden md:inline-flex"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Twitter
+                    <span className="status-bar__sigil">:</span>twitter
                   </a>
-                </div>
+                </span>
               </div>
             </div>
           </footer>
         </>
-
-      {/* ── Floating bottom nav ── */}
-      <nav className="fixed bottom-5 left-1/2 z-[60] hidden -translate-x-1/2 animate-in md:flex" style={{ animationDelay: "0.4s" }}>
-        <div className="flex items-center gap-0.5 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] p-1 shadow-lg backdrop-blur-xl">
-          {[
-            ["How it works", "#mesh"],
-            ["Features", "#capabilities"],
-            ["Apps", "#surfaces"],
-            ["Get Started", "#get-started"],
-            ["Docs", "/docs"],
-            ["Privacy", "/privacy"],
-            ["GitHub", "https://github.com/arach/openscout"],
-          ].map(([label, href]) => (
-            <a
-              key={label}
-              href={href}
-              onClick={
-                href.startsWith("http")
-                  ? onCtaClick(label, href, "floating_nav", label.toLowerCase())
-                  : onNavigationClick(label, href, "floating_nav")
-              }
-              {...(href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-              className="rounded-full px-3.5 py-1.5 font-[family-name:var(--font-geist-mono)] text-[10px] uppercase tracking-[0.08em] text-[var(--site-muted)] transition-colors hover:bg-[var(--site-ink)] hover:text-[var(--site-ink-contrast)]"
-            >
-              {label}
-            </a>
-          ))}
-
-        </div>
-      </nav>
 
     </div>
   );

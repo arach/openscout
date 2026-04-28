@@ -1,0 +1,394 @@
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+
+import {
+  buildParentChain,
+  classifyHarness,
+  commandBasename,
+  listProcesses,
+  readCwd,
+  type RawProcess,
+} from "./discover";
+import type {
+  DiscoveredProcess,
+  DiscoveredTranscript,
+  TailContext,
+  TailDiscoveryScope,
+  TailEvent,
+  TailEventKind,
+  TranscriptSource,
+} from "./types";
+
+const SOURCE_NAME = "codex";
+const MAX_SUMMARY_LEN = 200;
+const DEFAULT_HOT_DISCOVERY_WINDOW_MS = 10 * 60 * 1000;
+const DEFAULT_SHALLOW_DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_DEEP_DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_HOT_DISCOVERY_LIMIT = 64;
+const DEFAULT_SHALLOW_DISCOVERY_LIMIT = 160;
+const DEFAULT_DEEP_DISCOVERY_LIMIT = 160;
+const HEAD_READ_BYTES = 512 * 1024;
+
+function readPositiveIntEnv(names: string[], fallback: number): number {
+  for (const name of names) {
+    const raw = Number.parseInt(process.env[name] ?? "", 10);
+    if (Number.isFinite(raw) && raw > 0) return raw;
+  }
+  return fallback;
+}
+
+function discoveryWindowMs(scope: TailDiscoveryScope): number {
+  const fallback = scope === "hot"
+    ? DEFAULT_HOT_DISCOVERY_WINDOW_MS
+    : scope === "deep"
+      ? DEFAULT_DEEP_DISCOVERY_WINDOW_MS
+      : DEFAULT_SHALLOW_DISCOVERY_WINDOW_MS;
+  const scopedName = `OPENSCOUT_TAIL_${scope.toUpperCase()}_DISCOVERY_WINDOW_MS`;
+  return readPositiveIntEnv([scopedName, "OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS"], fallback);
+}
+
+function discoveryLimit(scope: TailDiscoveryScope): number {
+  const fallback = scope === "hot"
+    ? DEFAULT_HOT_DISCOVERY_LIMIT
+    : scope === "deep"
+      ? DEFAULT_DEEP_DISCOVERY_LIMIT
+      : DEFAULT_SHALLOW_DISCOVERY_LIMIT;
+  const scopedName = `OPENSCOUT_TAIL_${scope.toUpperCase()}_DISCOVERY_LIMIT`;
+  return readPositiveIntEnv([scopedName, "OPENSCOUT_TAIL_DISCOVERY_LIMIT"], fallback);
+}
+
+function codexSessionRoots(): string[] {
+  const explicit = process.env.OPENSCOUT_TAIL_CODEX_SESSIONS_ROOT;
+  if (explicit?.trim()) return [explicit.trim()];
+  return [
+    join(homedir(), ".codex", "sessions"),
+    join(homedir(), ".openai-codex", "sessions"),
+  ].filter((root) => existsSync(root));
+}
+
+function isCodexAppServerProcess(command: string): boolean {
+  const base = commandBasename(command);
+  return base === "codex" && /\bapp-server\b/.test(command);
+}
+
+export async function discoverCodexProcesses(): Promise<DiscoveredProcess[]> {
+  const all = await listProcesses();
+  const byPid = new Map<number, RawProcess>();
+  for (const proc of all) byPid.set(proc.pid, proc);
+
+  const codexes = all.filter((proc) => isCodexAppServerProcess(proc.command));
+  const out: DiscoveredProcess[] = [];
+  await Promise.all(
+    codexes.map(async (proc) => {
+      const cwd = await readCwd(proc.pid);
+      const parentChain = buildParentChain(proc.pid, byPid);
+      out.push({
+        pid: proc.pid,
+        ppid: proc.ppid,
+        command: proc.command,
+        etime: proc.etime,
+        cwd,
+        harness: classifyHarness(parentChain),
+        parentChain,
+        source: SOURCE_NAME,
+      });
+    }),
+  );
+  out.sort((a, b) => a.pid - b.pid);
+  return out;
+}
+
+function readFileHead(filePath: string): string {
+  let fd: number | null = null;
+  try {
+    fd = openSync(filePath, "r");
+    const buffer = Buffer.alloc(HEAD_READ_BYTES);
+    const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+    return buffer.toString("utf8", 0, bytesRead);
+  } catch {
+    return "";
+  } finally {
+    if (fd != null) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+function parseJsonRecord(line: string): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(line) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readCodexMetadata(filePath: string): { cwd: string | null; sessionId: string | null } {
+  const head = readFileHead(filePath);
+  let cwd: string | null = null;
+  let sessionId: string | null = null;
+  for (const line of head.split(/\r?\n/)) {
+    const record = parseJsonRecord(line.trim());
+    if (!record) continue;
+    const payload = metadataRecord(record.payload);
+    if (!payload) continue;
+    if (record.type === "session_meta" || record.type === "turn_context") {
+      cwd ??= typeof payload.cwd === "string" && payload.cwd.trim()
+        ? payload.cwd
+        : null;
+      sessionId ??= typeof payload.id === "string" && payload.id.trim()
+        ? payload.id
+        : null;
+      if (cwd || sessionId) {
+        if (cwd && sessionId) return { cwd, sessionId };
+      }
+    }
+  }
+  return { cwd, sessionId };
+}
+
+function walkRecentJsonlFiles(
+  root: string,
+  scope: TailDiscoveryScope,
+): Array<{ path: string; mtimeMs: number; size: number }> {
+  const cutoff = Date.now() - discoveryWindowMs(scope);
+  const found: Array<{ path: string; mtimeMs: number; size: number }> = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(dir, entry);
+      let stats;
+      try {
+        stats = statSync(path);
+      } catch {
+        continue;
+      }
+      if (stats.isDirectory()) {
+        stack.push(path);
+        continue;
+      }
+      if (!entry.endsWith(".jsonl") || stats.mtimeMs < cutoff) continue;
+      found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
+    }
+  }
+  return found;
+}
+
+function discoverCodexTranscripts(scope: TailDiscoveryScope): DiscoveredTranscript[] {
+  const byPath = new Map<string, { path: string; mtimeMs: number; size: number }>();
+  for (const root of codexSessionRoots()) {
+    for (const file of walkRecentJsonlFiles(root, scope)) {
+      const existing = byPath.get(file.path);
+      if (!existing || file.mtimeMs > existing.mtimeMs) byPath.set(file.path, file);
+    }
+  }
+  return [...byPath.values()]
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, discoveryLimit(scope))
+    .map((file) => {
+      const meta = readCodexMetadata(file.path);
+      const sessionId = meta.sessionId
+        ?? sessionIdFromCodexPath(file.path);
+      return {
+        source: SOURCE_NAME,
+        transcriptPath: file.path,
+        sessionId,
+        cwd: meta.cwd,
+        project: meta.cwd ? basename(meta.cwd) : "(unknown)",
+        harness: "unattributed",
+        mtimeMs: file.mtimeMs,
+        size: file.size,
+      };
+    });
+}
+
+function sessionIdFromCodexPath(filePath: string): string {
+  const name = basename(filePath).replace(/\.jsonl$/, "");
+  const match = name.match(/(019[0-9a-f-]+)$/);
+  return match?.[1] ?? name;
+}
+
+function clip(text: string, max = MAX_SUMMARY_LEN): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
+}
+
+function stringifyValue(value: unknown, max = MAX_SUMMARY_LEN): string {
+  if (typeof value === "string") return clip(value, max);
+  if (value == null) return "";
+  try {
+    return clip(JSON.stringify(value), max);
+  } catch {
+    return clip(String(value), max);
+  }
+}
+
+function parseTimestamp(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return clip(content);
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const entry of content) {
+    if (typeof entry === "string") {
+      parts.push(entry);
+      continue;
+    }
+    const record = metadataRecord(entry);
+    if (!record) continue;
+    if (typeof record.text === "string") parts.push(record.text);
+    else if (typeof record.summary === "string") parts.push(record.summary);
+    else if (typeof record.input_text === "string") parts.push(record.input_text);
+  }
+  return clip(parts.join("\n\n"));
+}
+
+function reasoningText(payload: Record<string, unknown>): string {
+  return clip([textFromContent(payload.summary), textFromContent(payload.content)]
+    .filter(Boolean)
+    .join("\n\n"));
+}
+
+function codexKind(entryType: string, payloadType: string, payload: Record<string, unknown>): TailEventKind {
+  if (entryType === "response_item") {
+    if (payloadType === "message") {
+      return payload.role === "user" ? "user" : "assistant";
+    }
+    if (payloadType === "function_call" || payloadType === "custom_tool_call" || payloadType === "web_search_call") {
+      return "tool";
+    }
+    if (payloadType === "function_call_output" || payloadType === "custom_tool_call_output") {
+      return "tool-result";
+    }
+    if (payloadType === "reasoning") return "system";
+  }
+  if (entryType === "event_msg") {
+    if (payloadType.endsWith("_end")) return "tool-result";
+    if (payloadType.endsWith("_start")) return "tool";
+    return "system";
+  }
+  if (entryType === "session_meta" || entryType === "turn_context") return "system";
+  return "other";
+}
+
+function summarizeCodex(entryType: string, payloadType: string, payload: Record<string, unknown>): string {
+  if (entryType === "session_meta") {
+    const id = typeof payload.id === "string" ? payload.id : "";
+    const cwd = typeof payload.cwd === "string" ? payload.cwd : "";
+    return clip(`session ${id}${cwd ? ` · ${cwd}` : ""}`);
+  }
+  if (entryType === "turn_context") {
+    const model = typeof payload.model === "string" ? payload.model : "";
+    const effort = typeof payload.effort === "string" ? payload.effort : "";
+    return clip(`turn context${model ? ` · ${model}` : ""}${effort ? ` · ${effort}` : ""}`);
+  }
+  if (entryType === "event_msg") {
+    if (payloadType === "task_started") return "task started";
+    if (payloadType === "task_complete") return "task complete";
+    if (payloadType === "turn_aborted") return `turn aborted · ${stringifyValue(payload.reason)}`;
+    if (payloadType === "token_count") {
+      const info = metadataRecord(payload.info);
+      const usage = metadataRecord(info?.total_token_usage);
+      const total = usage?.total_tokens;
+      return typeof total === "number" ? `tokens · ${total}` : "tokens";
+    }
+    if (payloadType.endsWith("_end")) {
+      const command = Array.isArray(payload.command)
+        ? payload.command.join(" ")
+        : typeof payload.command === "string"
+          ? payload.command
+          : payloadType;
+      return clip(`${payloadType} · ${command}`);
+    }
+    return clip(payloadType || "event");
+  }
+  if (entryType === "response_item") {
+    if (payloadType === "message") return textFromContent(payload.content) || `[${String(payload.role ?? "message")}]`;
+    if (payloadType === "reasoning") return reasoningText(payload) || "[reasoning]";
+    if (payloadType === "function_call") {
+      const name = typeof payload.name === "string" ? payload.name : "function_call";
+      return clip(`${name}(${stringifyValue(payload.arguments, 120)})`);
+    }
+    if (payloadType === "custom_tool_call") {
+      const name = typeof payload.name === "string" ? payload.name : "custom_tool_call";
+      return clip(`${name}(${stringifyValue(payload.input, 120)})`);
+    }
+    if (payloadType === "web_search_call") return "web_search";
+    if (payloadType === "function_call_output" || payloadType === "custom_tool_call_output") {
+      return clip(`-> ${stringifyValue(payload.output)}`);
+    }
+    return clip(`[${payloadType || entryType}]`);
+  }
+  return clip(`[${entryType || "codex"}]`);
+}
+
+function parseCodexLine(line: string, ctx: TailContext): TailEvent | null {
+  const record = parseJsonRecord(line.trim());
+  if (!record) return null;
+  const entryType = typeof record.type === "string" ? record.type : "other";
+  const payload = metadataRecord(record.payload) ?? {};
+  const payloadType = typeof payload.type === "string" ? payload.type : "";
+  const sessionId = typeof payload.id === "string" && entryType === "session_meta"
+    ? payload.id
+    : ctx.transcript.sessionId
+      ?? basename(ctx.transcriptPath).replace(/\.jsonl$/, "");
+  const cwd = ctx.transcript.cwd ?? ctx.process.cwd ?? "";
+  const summary = summarizeCodex(entryType, payloadType, payload);
+
+  return {
+    id: `${SOURCE_NAME}:${sessionId}:${ctx.lineOffset}`,
+    ts: parseTimestamp(record.timestamp) ?? parseTimestamp(payload.timestamp) ?? Date.now(),
+    source: SOURCE_NAME,
+    sessionId,
+    pid: ctx.process.pid,
+    parentPid: ctx.process.ppid || null,
+    project: cwd ? basename(cwd) : ctx.transcript.project,
+    cwd,
+    harness: ctx.process.harness,
+    kind: codexKind(entryType, payloadType, payload),
+    summary: summary || `[${entryType}]`,
+    raw: record,
+  };
+}
+
+export const CodexSource: TranscriptSource = {
+  name: SOURCE_NAME,
+  discoverProcesses(): Promise<DiscoveredProcess[]> {
+    return discoverCodexProcesses();
+  },
+  discoverTranscripts(_processes: DiscoveredProcess[], scope: TailDiscoveryScope = "shallow"): DiscoveredTranscript[] {
+    return discoverCodexTranscripts(scope);
+  },
+  parseLine(line: string, ctx: TailContext): TailEvent | null {
+    return parseCodexLine(line, ctx);
+  },
+};

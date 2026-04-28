@@ -161,7 +161,7 @@ final class InboxStore {
             ]
 
             let request = UNNotificationRequest(identifier: item.id, content: content, trigger: nil)
-            UNUserNotificationCenter.current().add(request)
+            try? await UNUserNotificationCenter.current().add(request)
             notifiedItemIds.insert(item.id)
             persistNotifiedItemIds()
         }

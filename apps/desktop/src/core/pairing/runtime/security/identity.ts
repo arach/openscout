@@ -93,6 +93,8 @@ export interface QRPayload {
   v: number;
   /** Relay WebSocket URL. */
   relay: string;
+  /** Additional relay URLs the phone should try after the primary relay. */
+  fallbackRelays?: string[];
   /** Room ID on the relay. */
   room: string;
   /** Bridge's static public key (hex). */
@@ -107,10 +109,13 @@ const QR_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 export function createQRPayload(
   bridgePublicKey: Uint8Array,
   relayUrl: string,
+  fallbackRelayUrls: string[] = [],
 ): QRPayload {
+  const fallbackRelays = normalizedRelayUrls(fallbackRelayUrls, relayUrl);
   return {
     v: QR_VERSION,
     relay: relayUrl,
+    ...(fallbackRelays.length > 0 ? { fallbackRelays } : {}),
     room: crypto.randomUUID(),
     publicKey: bytesToHex(bridgePublicKey),
     expiresAt: Date.now() + QR_EXPIRY_MS,
@@ -122,6 +127,22 @@ export function validateQRPayload(payload: QRPayload): boolean {
   if (Date.now() > payload.expiresAt) return false;
   if (!payload.relay || !payload.room || !payload.publicKey) return false;
   return true;
+}
+
+function normalizedRelayUrls(urls: string[], primaryRelayUrl: string): string[] {
+  const seen = new Set([primaryRelayUrl.trim()]);
+  const normalized: string[] = [];
+
+  for (const url of urls) {
+    const trimmed = url.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------

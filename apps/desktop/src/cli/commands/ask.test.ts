@@ -9,6 +9,7 @@ describe("renderAskCommandHelp", () => {
     expect(help).toContain("Ask one agent to do work or return a concrete answer.");
     expect(help).toContain("one target + no channel            -> DM");
     expect(help).toContain("Use ask when the meaning is \"do this and get back to me.\"");
+    expect(help).toContain("--prompt-file <path>");
   });
 });
 
@@ -33,6 +34,38 @@ describe("formatScoutAskRoutingError", () => {
     expect(formatScoutAskRoutingError({}, "talkie")).toBe(
       "target @talkie is not currently routable; nothing was sent.",
     );
+  });
+
+  test("says plainly when there is no such target", () => {
+    expect(formatScoutAskRoutingError(
+      {
+        targetDiagnostic: {
+          agentId: "@mars",
+          state: "unknown",
+          registrationKind: null,
+          projectRoot: null,
+        },
+      },
+      "mars",
+    )).toBe(
+      "there is no @mars; nothing was sent.",
+    );
+  });
+
+  test("calls out known but unavailable targets directly", () => {
+    expect(formatScoutAskRoutingError(
+      {
+        targetDiagnostic: {
+          agentId: "newell",
+          state: "unavailable",
+          detail: "Newell is currently offline with a manual wake policy, so the broker cannot bring it online without operator help.",
+          wakePolicy: "manual",
+          transport: "pairing_bridge",
+          projectRoot: null,
+        },
+      },
+      "newell",
+    )).toContain("known but currently unavailable");
   });
 
   test("lists candidates when the short @name matches multiple agents", () => {

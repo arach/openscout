@@ -1,126 +1,169 @@
 import Link from "next/link";
-import { ArrowRight, MessageSquare, Monitor, Smartphone } from "lucide-react";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { getAllDocs } from "@/lib/docs";
+import type { DocMeta } from "@/lib/docs";
 
-const pillars = [
-  {
-    icon: MessageSquare,
-    title: "Communication Protocol",
-    description:
-      "The layer that lets agents find each other and exchange messages. Conversations are durable, work is tracked, and everything runs locally on your machine.",
-  },
-  {
-    icon: Monitor,
-    title: "Chat Interface",
-    description:
-      "Relay is where you see what your agents are doing. Browse sessions, send messages, search across conversations, and keep an eye on everything from one desktop app.",
-  },
-  {
-    icon: Smartphone,
-    title: "Remote Application",
-    description:
-      "Scout iOS brings the conversation with you. Check in on agent work, reply to questions, and hand off tasks from anywhere — same thread, different screen.",
-  },
-];
+function DocEntry({
+  doc,
+  sectionNum,
+}: {
+  doc: DocMeta;
+  sectionNum: string;
+}) {
+  return (
+    <Link href={`/docs/${doc.slug}`} className="rfc-block group block">
+      <div className="rfc-block__num">{sectionNum}</div>
+      <h3 className="rfc-block__title transition-colors group-hover:text-[var(--site-accent)]">
+        {doc.title}
+      </h3>
+      <p className="rfc-block__body">{doc.description}</p>
+    </Link>
+  );
+}
 
 export default function DocsIndex() {
   const docs = getAllDocs();
-  const groups = new Map<string, typeof docs>();
+  const coreDocs = docs.filter((d) => d.group === "Core Concepts");
+  const annexDocs = docs.filter((d) => d.group === "OpenAgents Tracks");
+  const otherGroups = new Map<string, DocMeta[]>();
   for (const doc of docs) {
-    const list = groups.get(doc.group) ?? [];
+    if (doc.group === "Core Concepts" || doc.group === "OpenAgents Tracks") continue;
+    const list = otherGroups.get(doc.group) ?? [];
     list.push(doc);
-    groups.set(doc.group, list);
+    otherGroups.set(doc.group, list);
   }
 
   return (
-    <div className="site-docs min-h-screen bg-[var(--site-docs-bg)] text-[var(--site-ink)]">
-      <header className="border-b border-[var(--site-border-soft)] bg-[var(--site-docs-bg-strong)] backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-3">
+    <div className="site-docs min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
+      <header className="operator-console">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 operator-row">
+          <Link href="/" className="flex items-center gap-2.5">
+            <span
+              className="flex shrink-0 items-center justify-center text-[var(--site-ink)]"
+              style={{ width: 26, height: 26 }}
+              aria-hidden
+            >
+              <svg viewBox="0 0 32 32" width={26} height={26} fill="none" stroke="currentColor">
+                <line x1="16" y1="16" x2="16" y2="6" strokeWidth="1" opacity="0.45" />
+                <line x1="16" y1="16" x2="6" y2="22" strokeWidth="1" opacity="0.45" />
+                <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
+                <circle cx="16" cy="6" r="2" fill="currentColor" stroke="none" />
+                <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
+                <circle cx="26" cy="22" r="2" fill="currentColor" stroke="none" />
+                <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
+                <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-page-bg)" strokeWidth="1.2" opacity="0.9" />
+                <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
             </span>
           </Link>
-          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
-            <Link href="/privacy" className="transition-colors hover:text-[var(--site-ink)]">
-              Privacy
+          <nav className="flex items-center gap-5">
+            <Link href="/privacy" className="operator-link hidden sm:inline-flex">
+              <span className="operator-link__sigil">:</span>privacy
             </Link>
-            <span className="text-[var(--site-ink)]">Docs</span>
+            <span className="operator-link text-[var(--site-ink)]">
+              <span className="operator-link__sigil">:</span>docs
+            </span>
             <SiteThemeToggle />
-          </div>
+          </nav>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6">
-        {/* Introduction */}
-        <div className="pt-16 pb-6">
-          <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
-            OpenScout
-          </p>
-          <h1 className="mt-3 font-[family-name:var(--font-spectral)] text-4xl font-semibold tracking-[-0.02em] text-[var(--site-ink)] sm:text-5xl">
+      <main className="mx-auto max-w-4xl px-6">
+        {/* RFC front matter */}
+        <div className="border-b border-[var(--site-border-soft)] pb-10 pt-16">
+          <div className="rfc-section-eyebrow">
+            <span className="rfc-section-eyebrow__num">§</span>
+            <span>OpenScout · draft-scout-Ø.1</span>
+          </div>
+          <h1 className="mt-4 font-[family-name:var(--font-spectral)] text-4xl font-semibold tracking-[-0.02em] text-[var(--site-ink)] sm:text-5xl">
             Documentation
           </h1>
-          <p className="mt-5 max-w-2xl text-[16px] leading-relaxed text-[var(--site-copy)]">
-            OpenScout connects your AI agents so they can find each other, exchange
-            messages, and hand work off — without you being the one in the middle.
-            You stay in the loop from your desktop or your phone, without losing
-            your place.
+          <p className="mt-4 max-w-2xl font-[family-name:var(--font-mono-display)] text-[13.5px] leading-relaxed text-[var(--site-copy)]">
+            Reference material for OpenScout/Ø.1 — the local-first broker protocol
+            for inter-agent messaging. Covers topology, identity, record types,
+            and implementation guidance.
           </p>
         </div>
 
-        {/* Three pillars */}
-        <div className="grid gap-4 pt-4 pb-16 sm:grid-cols-3">
-          {pillars.map((pillar) => (
-            <div
-              key={pillar.title}
-              className="rounded-xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6"
-            >
-              <pillar.icon className="h-5 w-5 text-[var(--site-muted)]" strokeWidth={1.5} />
-              <h2 className="mt-4 text-[15px] font-semibold text-[var(--site-ink)]">
-                {pillar.title}
-              </h2>
-              <p className="mt-2 text-[13px] leading-relaxed text-[var(--site-copy)]">
-                {pillar.description}
-              </p>
-            </div>
+        {/* §1 + §A side by side */}
+        <div className="grid gap-x-16 gap-y-14 pb-24 pt-10 lg:grid-cols-2">
+          {/* §1 Core Concepts */}
+          {coreDocs.length > 0 && (
+            <section>
+              <div className="rfc-section-eyebrow mb-5">
+                <span className="rfc-section-eyebrow__num">§1</span>
+                <span>Core Concepts</span>
+              </div>
+              {coreDocs.map((doc, i) => (
+                <DocEntry key={doc.slug} doc={doc} sectionNum={`§1.${i + 1}`} />
+              ))}
+            </section>
+          )}
+
+          {/* §A Annexes */}
+          {annexDocs.length > 0 && (
+            <section>
+              <div className="rfc-section-eyebrow mb-5">
+                <span className="rfc-section-eyebrow__num">§A</span>
+                <span>Annexes</span>
+              </div>
+              {annexDocs.map((doc, i) => (
+                <DocEntry key={doc.slug} doc={doc} sectionNum={`§A.${i + 1}`} />
+              ))}
+            </section>
+          )}
+
+          {/* Any additional groups span full width */}
+          {Array.from(otherGroups).map(([group, items], gi) => (
+            <section key={group} className="lg:col-span-2">
+              <div className="rfc-section-eyebrow mb-5">
+                <span className="rfc-section-eyebrow__num">§{gi + 2}</span>
+                <span>{group}</span>
+              </div>
+              <div className="grid gap-x-16 lg:grid-cols-2">
+                {items.map((doc, i) => (
+                  <DocEntry key={doc.slug} doc={doc} sectionNum={`§${gi + 2}.${i + 1}`} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
+      </main>
 
-        <div className="border-t border-[var(--site-border-soft)]" />
-
-        {/* Doc directory */}
-        <div className="pt-12 pb-20">
-          <div className="space-y-10">
-            {Array.from(groups).map(([group, items]) => (
-              <section key={group}>
-                <h2 className="mb-4 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
-                  {group}
-                </h2>
-                <div className="grid gap-3">
-                  {items.map((doc) => (
-                    <Link
-                      key={doc.slug}
-                      href={`/docs/${doc.slug}`}
-                      className="group flex items-start justify-between rounded-xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-5 transition-all hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)]"
-                    >
-                      <div>
-                        <h3 className="text-[14px] font-medium text-[var(--site-ink)]">
-                          {doc.title}
-                        </h3>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--site-copy)]">
-                          {doc.description}
-                        </p>
-                      </div>
-                      <ArrowRight className="mt-1 ml-4 h-4 w-4 shrink-0 text-[var(--site-muted-soft)] transition-colors group-hover:text-[var(--site-ink)]" />
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            ))}
+      <footer className="status-bar">
+        <div className="mx-auto flex max-w-4xl items-center px-6">
+          <div className="status-bar__inner overflow-x-auto whitespace-nowrap">
+            <span className="status-bar__zone">
+              <span className="status-bar__cell">
+                <span className="status-dot" aria-hidden />
+                <span>scout/Ø ready</span>
+              </span>
+              <span className="status-bar__sep hidden sm:inline">·</span>
+              <span className="status-bar__cell hidden sm:inline-flex">
+                <b>v0.2.61</b>
+              </span>
+              <span className="status-bar__sep hidden md:inline">·</span>
+              <span className="status-bar__cell hidden md:inline-flex">MIT License</span>
+            </span>
+            <span className="status-bar__zone status-bar__zone--right">
+              <Link href="/" className="status-bar__link">
+                <span className="status-bar__sigil">:</span>home
+              </Link>
+              <a
+                href="https://github.com/arach/openscout"
+                className="status-bar__link"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="status-bar__sigil">:</span>github
+              </a>
+            </span>
           </div>
         </div>
-      </main>
+      </footer>
     </div>
   );
 }

@@ -8,8 +8,15 @@ import {
   listLocalAgents,
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
+  startLocalAgent,
 } from "./local-agents.js";
-import { writeOpenScoutSettings, writeRelayAgentOverrides, type OpenScoutProjectConfig } from "./setup.js";
+import {
+  buildRelayAgentInstance,
+  readRelayAgentOverrides,
+  writeOpenScoutSettings,
+  writeRelayAgentOverrides,
+  type OpenScoutProjectConfig,
+} from "./setup.js";
 
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
@@ -155,6 +162,51 @@ describe("local agent lifecycle", () => {
     });
   });
 
+  test("does not treat a project name as an agent name unless explicitly requested", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const openscoutRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(openscoutRoot, { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "smoke.main.mini": {
+        agentId: "smoke.main.mini",
+        definitionId: "smoke",
+        displayName: "Smoke",
+        projectName: "Openscout",
+        projectRoot: openscoutRoot,
+        source: "manual",
+        runtime: {
+          cwd: openscoutRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-openscout.main.mini-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const concreteAgentId = buildRelayAgentInstance("smoke", openscoutRoot).id;
+
+    expect(await resolveLocalAgentByName(concreteAgentId)).toMatchObject({
+      agentId: concreteAgentId,
+      definitionId: "smoke",
+      projectRoot: openscoutRoot,
+    });
+    expect(await resolveLocalAgentByName("smoke")).toMatchObject({
+      agentId: concreteAgentId,
+      definitionId: "smoke",
+      projectRoot: openscoutRoot,
+    });
+    expect(await resolveLocalAgentByName("openscout")).toBeNull();
+    expect(await resolveLocalAgentByName("openscout", { matchProjectName: true })).toMatchObject({
+      agentId: concreteAgentId,
+      definitionId: "smoke",
+      projectRoot: openscoutRoot,
+    });
+  });
+
   test("reuses an existing agent identity for subdirectories under the same project root", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");
@@ -242,5 +294,122 @@ describe("local agent lifecycle", () => {
     });
     expect(resolved.instanceId).toContain("build-master");
     expect(resolved.instanceId).toContain("test-node");
+  });
+
+  test("forks a same-root probe without replacing the configured main agent", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      ranger: {
+        agentId: "ranger",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const probe = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "ranger-probe",
+      displayName: "Ranger Probe",
+      harness: "codex",
+      model: "gpt-5.4-mini",
+      ensureOnline: false,
+    });
+
+    expect(probe.definitionId).toBe("ranger-probe");
+    expect(await resolveLocalAgentByName("ranger")).toMatchObject({
+      definitionId: "ranger",
+      projectRoot,
+    });
+    expect(await resolveLocalAgentByName("ranger-probe")).toMatchObject({
+      definitionId: "ranger-probe",
+      projectRoot,
+    });
+    expect((await listLocalAgents()).map((agent) => agent.definitionId).sort()).toEqual([
+      "ranger",
+      "ranger-probe",
+    ]);
+  });
+
+  test("forks an OpenScout codex agent outside the Ranger manifest identity", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+    const manifestPath = join(projectRoot, ".openscout", "project.json");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    writeProjectManifest(projectRoot, {
+      version: 1,
+      project: {
+        id: "openscout",
+        name: "OpenScout",
+      },
+      agent: {
+        id: "ranger",
+        displayName: "Ranger",
+      },
+    });
+
+    await writeRelayAgentOverrides({
+      "ranger.test-node": {
+        agentId: "ranger.test-node",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot,
+        projectConfigPath: manifestPath,
+        source: "manifest",
+        defaultHarness: "codex",
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "relay-ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const openscout = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "openscout",
+      displayName: "OpenScout",
+      harness: "codex",
+      model: "gpt-5.4",
+      ensureOnline: false,
+    });
+
+    const overrides = await readRelayAgentOverrides();
+    expect(openscout.definitionId).toBe("openscout");
+    expect(overrides[openscout.agentId]).toMatchObject({
+      definitionId: "openscout",
+      displayName: "OpenScout",
+      projectRoot,
+      projectConfigPath: null,
+      source: "manual",
+      defaultHarness: "codex",
+    });
+    expect(overrides[openscout.agentId]?.runtime?.sessionId).toContain("openscout");
+    expect(overrides[openscout.agentId]?.runtime?.sessionId).not.toBe("relay-ranger-codex");
+    expect(overrides[openscout.agentId]?.systemPrompt).toBeUndefined();
+    expect(overrides["ranger.test-node"]).toMatchObject({
+      definitionId: "ranger",
+      projectConfigPath: manifestPath,
+    });
   });
 });

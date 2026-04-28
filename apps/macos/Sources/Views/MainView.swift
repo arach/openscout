@@ -1,877 +1,382 @@
+import AppKit
 import SwiftUI
-
-private enum ShellPalette {
-    static let shellBackground = Color(red: 244 / 255, green: 246 / 255, blue: 248 / 255)
-    static let shellPanel = Color.white.opacity(0.92)
-    static let card = Color.white.opacity(0.95)
-    static let cardMuted = Color(red: 249 / 255, green: 250 / 255, blue: 252 / 255)
-    static let ink = Color(red: 37 / 255, green: 42 / 255, blue: 49 / 255)
-    static let copy = Color(red: 70 / 255, green: 76 / 255, blue: 85 / 255)
-    static let dim = Color(red: 126 / 255, green: 135 / 255, blue: 147 / 255)
-    static let muted = Color(red: 182 / 255, green: 188 / 255, blue: 197 / 255)
-    static let line = Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255).opacity(0.08)
-    static let lineStrong = Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255).opacity(0.14)
-    static let sand = Color(red: 229 / 255, green: 225 / 255, blue: 215 / 255)
-    static let accent = Color(red: 91 / 255, green: 132 / 255, blue: 255 / 255)
-    static let accentSoft = Color(red: 91 / 255, green: 132 / 255, blue: 255 / 255).opacity(0.12)
-    static let success = Color(red: 47 / 255, green: 122 / 255, blue: 85 / 255)
-    static let successSoft = Color(red: 47 / 255, green: 122 / 255, blue: 85 / 255).opacity(0.12)
-    static let warning = Color(red: 177 / 255, green: 120 / 255, blue: 34 / 255)
-    static let warningSoft = Color(red: 177 / 255, green: 120 / 255, blue: 34 / 255).opacity(0.12)
-    static let error = Color(red: 171 / 255, green: 73 / 255, blue: 63 / 255)
-    static let errorSoft = Color(red: 171 / 255, green: 73 / 255, blue: 63 / 255).opacity(0.12)
-}
-
-private enum MenuType {
-    static func title(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .semibold, design: .rounded)
-    }
-
-    static func body(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .regular, design: .rounded)
-    }
-
-    static func bodyMedium(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .medium, design: .rounded)
-    }
-
-    static func mono(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
-    }
-}
-
-private struct StatusTone {
-    let fill: Color
-    let soft: Color
-}
-
-private struct ShellBackdrop: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [ShellPalette.shellBackground, Color.white],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            RadialGradient(
-                colors: [ShellPalette.accent.opacity(0.08), .clear],
-                center: .topLeading,
-                startRadius: 20,
-                endRadius: 220
-            )
-            .offset(x: -30, y: -80)
-
-            RadialGradient(
-                colors: [ShellPalette.accent.opacity(0.14), .clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 200
-            )
-            .offset(x: 50, y: -120)
-
-            DotGrid()
-                .opacity(0.3)
-                .mask(
-                    LinearGradient(
-                        colors: [.black.opacity(0.9), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-        }
-        .ignoresSafeArea()
-    }
-}
-
-private struct DotGrid: View {
-    var body: some View {
-        Canvas { context, size in
-            let spacing: CGFloat = 28
-            let dotSize: CGFloat = 1.3
-
-            for x in stride(from: 10.0, through: size.width + spacing, by: spacing) {
-                for y in stride(from: 8.0, through: size.height + spacing, by: spacing) {
-                    let rect = CGRect(x: x, y: y, width: dotSize, height: dotSize)
-                    context.fill(Path(ellipseIn: rect), with: .color(ShellPalette.muted))
-                }
-            }
-        }
-    }
-}
-
-private struct PrimaryPillStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(MenuType.mono(10, weight: .semibold))
-            .foregroundStyle(Color.white)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(configuration.isPressed ? ShellPalette.accent.opacity(0.88) : ShellPalette.accent)
-            )
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-    }
-}
-
-private struct SecondaryPillStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(MenuType.mono(10, weight: .medium))
-            .foregroundStyle(ShellPalette.ink)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(configuration.isPressed ? Color.white.opacity(0.7) : ShellPalette.cardMuted)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(ShellPalette.sand, lineWidth: 1)
-            )
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-    }
-}
-
-private struct HeaderIconButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(ShellPalette.ink)
-            .frame(width: 30, height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(configuration.isPressed ? Color.white.opacity(0.68) : Color.white.opacity(0.82))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(ShellPalette.lineStrong, lineWidth: 1)
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-    }
-}
 
 struct MainView: View {
     @ObservedObject var controller: OpenScoutAppController
+    @ObservedObject private var theme = ThemeManager.shared
+
+    static let baseHeight: CGFloat = 168
+    static let errorHeight: CGFloat = 240
 
     var body: some View {
         ZStack {
-            ShellBackdrop()
+            ShellPalette.shellBackground
+                .ignoresSafeArea()
 
-            VStack(spacing: 10) {
-                headerPanel
+            VStack(spacing: 0) {
+                topBar
 
-                if let lastError = controller.lastError, !lastError.isEmpty {
-                    errorBanner(lastError)
-                }
+                Rectangle()
+                    .fill(ShellPalette.line)
+                    .frame(height: 1)
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        brokerCard
-                        tailscaleCard
-                        pairingCard
-                        utilitiesCard
+                VStack(spacing: 10) {
+                    if let lastError = controller.lastError, !lastError.isEmpty {
+                        errorBanner(lastError)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 10)
+
+                    Spacer(minLength: 0)
+                    deckStrip
+                    Spacer(minLength: 0)
                 }
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(ShellPalette.shellPanel)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .stroke(ShellPalette.sand, lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.08), radius: 26, x: 0, y: 16)
-            )
-            .padding(8)
-        }
-        .frame(width: 408, height: 574)
-        .preferredColorScheme(.light)
-    }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 10)
 
-    private var headerPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("OPENSCOUT")
-                        .font(MenuType.mono(10))
-                        .tracking(1.8)
-                        .foregroundStyle(ShellPalette.dim)
+                Rectangle()
+                    .fill(ShellPalette.line)
+                    .frame(height: 1)
 
-                    Text("Local control plane")
-                        .font(MenuType.title(19))
-                        .foregroundStyle(ShellPalette.ink)
-
-                    Text("Broker, Tailscale, pairing, and the local operator surface.")
-                        .font(MenuType.body(11.5))
-                        .foregroundStyle(ShellPalette.copy)
-                }
-
-                Spacer(minLength: 8)
-
-                HStack(spacing: 6) {
-                    Button {
-                        controller.openWebApp()
-                    } label: {
-                        Image(systemName: "safari")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(HeaderIconButtonStyle())
-                    .disabled(controller.webActionPending)
-
-                    Button {
-                        controller.refresh()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .buttonStyle(HeaderIconButtonStyle())
-                    .disabled(controller.isRefreshing)
-                }
-                .opacity((controller.webActionPending || controller.isRefreshing) ? 0.55 : 1)
-            }
-
-            HStack(spacing: 6) {
-                headerStatusPill(label: "Broker", value: brokerSummaryValue(), tone: brokerTone())
-                headerStatusPill(label: "Mesh", value: tailscaleSummaryValue(), tone: tailscaleTone())
-                headerStatusPill(label: "Pairing", value: pairingSummaryValue(), tone: pairingTone())
-                headerStatusPill(
-                    label: "Web",
-                    value: controller.webReachable ? "Ready" : (controller.webServerStartedByApp ? "Booting" : "Closed"),
-                    tone: controller.webReachable
-                        ? StatusTone(fill: ShellPalette.accent, soft: ShellPalette.accentSoft)
-                        : neutralTone()
-                )
+                footerBar
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.96), ShellPalette.cardMuted],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(ShellPalette.sand, lineWidth: 1)
-        )
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
+        .frame(width: 408, height: hasError ? Self.errorHeight : Self.baseHeight)
+        .preferredColorScheme(theme.colorScheme)
     }
 
-    private var brokerCard: some View {
-        sectionCard(
-            eyebrow: "Broker",
-            title: brokerHeadline(),
-            detail: brokerDetailSummary(),
-            badge: brokerSummaryValue(),
-            tone: brokerTone()
-        ) {
-            detailRows([
-                ("URL", controller.broker.brokerURL),
-                ("Agent", compactPath(controller.broker.launchAgentPath) ?? "Not installed"),
-                ("PID", controller.broker.pid.map(String.init) ?? "—"),
-            ])
-
-            HStack(spacing: 6) {
-                if !controller.broker.installed {
-                    Button("Install") {
-                        controller.installBroker()
-                    }
-                    .buttonStyle(PrimaryPillStyle())
-                } else if controller.broker.loaded {
-                    Button("Restart") {
-                        controller.restartBroker()
-                    }
-                    .buttonStyle(PrimaryPillStyle())
-
-                    Button("Stop") {
-                        controller.stopBroker()
-                    }
-                    .buttonStyle(SecondaryPillStyle())
-                } else {
-                    Button("Start") {
-                        controller.startBroker()
-                    }
-                    .buttonStyle(PrimaryPillStyle())
-                }
-            }
-            .disabled(controller.brokerActionPending)
-            .opacity(controller.brokerActionPending ? 0.55 : 1)
-        }
+    private var hasError: Bool {
+        if let last = controller.lastError, !last.isEmpty { return true }
+        return false
     }
 
-    private var tailscaleCard: some View {
-        sectionCard(
-            eyebrow: "Mesh",
-            title: tailscaleHeadline(),
-            detail: tailscaleDetailSummary(),
-            badge: tailscaleSummaryValue(),
-            tone: tailscaleTone()
-        ) {
-            detailRows([
-                ("Status", controller.tailscale.statusLabel),
-                ("Backend", controller.tailscale.backendState ?? "—"),
-                ("Identity", controller.tailscale.dnsName ?? controller.tailscale.address ?? "—"),
-                ("Peers", "\(controller.tailscale.onlinePeerCount)/\(controller.tailscale.peerCount) online"),
-            ])
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            statusDot
 
-            if let controlHint = controller.tailscale.controlHint, !controlHint.isEmpty {
-                noteRow(controlHint)
-            } else if let health = controller.tailscale.health.first, !health.isEmpty {
-                noteRow(health)
-            }
+            Text("OPENSCOUT")
+                .font(MenuType.mono(11, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(ShellPalette.ink)
+
+            Text("·")
+                .font(MenuType.mono(11))
+                .foregroundStyle(ShellPalette.muted)
+
+            Text("MENU")
+                .font(MenuType.mono(10, weight: .medium))
+                .tracking(1.2)
+                .foregroundStyle(ShellPalette.dim)
+
+            Spacer()
 
             HStack(spacing: 6) {
-                Button(controller.tailscale.running ? "Open App" : "Open Tailscale") {
-                    controller.openTailscale()
+                Button {
+                    controller.openWebApp()
+                } label: {
+                    Image(systemName: "safari")
+                        .font(.system(size: 11, weight: .semibold))
                 }
-                .buttonStyle(PrimaryPillStyle())
-                .disabled(!controller.tailscale.controlAvailable || controller.tailscaleActionPending)
+                .buttonStyle(HeaderIconButtonStyle())
+                .disabled(controller.webActionPending)
 
-                Button("Refresh") {
+                Button {
                     controller.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .semibold))
                 }
-                .buttonStyle(SecondaryPillStyle())
+                .buttonStyle(HeaderIconButtonStyle())
                 .disabled(controller.isRefreshing)
             }
-            .opacity((controller.tailscaleActionPending || controller.isRefreshing) ? 0.55 : 1)
         }
+        .padding(.horizontal, 14)
+        .frame(height: 38)
+        .background(ShellPalette.chrome)
     }
 
-    private var pairingCard: some View {
-        sectionCard(
-            eyebrow: "Pairing",
-            title: pairingHeadline(),
-            detail: controller.pairing.statusDetail,
-            badge: pairingSummaryValue(),
-            tone: pairingTone()
-        ) {
-            detailRows([
-                ("Relay", controller.pairing.relay ?? "Managed relay on demand"),
-                ("Workspace", compactPath(controller.pairing.workspaceRoot) ?? "—"),
-                ("Identity", controller.pairing.identityFingerprint ?? "—"),
-                ("Trusted", "\(controller.pairing.trustedPeerCount)"),
-            ])
+    private var statusDot: some View {
+        Circle()
+            .fill(overallStatusColor)
+            .frame(width: 7, height: 7)
+    }
 
-            if let controlHint = controller.pairing.controlHint, !controlHint.isEmpty {
-                noteRow(controlHint)
-            }
+    private var overallStatusColor: Color {
+        if !controller.broker.reachable { return ShellPalette.error }
+        if !controller.webReachable { return ShellPalette.error }
+        if controller.tailscale.available && !controller.tailscale.running {
+            return ShellPalette.warning
+        }
+        return ShellPalette.success
+    }
 
-            if let qrArt = controller.pairing.qrArt,
-               controller.pairing.isRunning,
-               controller.pairing.status != "paired" {
-                qrPanel(qrArt)
-            }
-
-            HStack(spacing: 6) {
-                Button("Start") {
-                    controller.startPairing()
+    private var footerBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                SettingsWindowController.shared.show(controller: controller)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("SETTINGS")
+                        .font(MenuType.mono(10, weight: .semibold))
+                        .tracking(1.0)
                 }
-                .buttonStyle(PrimaryPillStyle())
-                .disabled(!controller.pairing.controlAvailable || controller.pairingActionPending || controller.pairing.isRunning)
-
-                Button("Restart") {
-                    controller.restartPairing()
-                }
-                .buttonStyle(SecondaryPillStyle())
-                .disabled(!controller.pairing.controlAvailable || controller.pairingActionPending)
-
-                Button("Stop") {
-                    controller.stopPairing()
-                }
-                .buttonStyle(SecondaryPillStyle())
-                .disabled(!controller.pairing.controlAvailable || controller.pairingActionPending || !controller.pairing.isRunning)
+                .foregroundStyle(ShellPalette.copy)
             }
-            .opacity(controller.pairingActionPending ? 0.55 : 1)
+            .buttonStyle(.plain)
 
-            if let updatedAt = controller.pairing.lastUpdatedLabel {
-                Text("Updated \(updatedAt)")
-                    .font(MenuType.mono(10))
+            Spacer(minLength: 0)
+
+            Text("v\(buildVersion())")
+                .font(MenuType.mono(9))
+                .foregroundStyle(ShellPalette.muted)
+
+            Spacer(minLength: 0)
+
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Text("QUIT")
+                    .font(MenuType.mono(10, weight: .semibold))
+                    .tracking(1.0)
                     .foregroundStyle(ShellPalette.dim)
             }
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, 14)
+        .frame(height: 32)
+        .background(ShellPalette.chromeFooter)
     }
 
-    private var utilitiesCard: some View {
-        sectionCard(
-            eyebrow: "Utilities",
-            title: "Operator shortcuts",
-            detail: "Fast local actions from the menu bar, without opening the full app shell.",
-            badge: controller.webReachable ? "Ready" : "Local",
-            tone: controller.webReachable
-                ? StatusTone(fill: ShellPalette.accent, soft: ShellPalette.accentSoft)
-                : neutralTone()
-        ) {
-            VStack(spacing: 5) {
-                utilityRow(
-                    title: controller.webReachable ? "Open web app" : "Start web app",
-                    subtitle: controller.webReachable
-                        ? "Launch the local operator surface."
-                        : "Boot the local web shell and open it.",
-                    symbol: "safari",
-                    emphasized: true,
-                    disabled: controller.webActionPending
-                ) {
-                    controller.openWebApp()
-                }
+    // MARK: - Deck strip
 
-                utilityRow(
-                    title: "Logs view",
-                    subtitle: "Jump into recent activity and session diagnostics.",
-                    symbol: "doc.text.magnifyingglass",
-                    emphasized: false,
-                    disabled: controller.webActionPending
-                ) {
-                    controller.openLogsView()
-                }
-
-                utilityRow(
-                    title: controller.webServerStartedByApp ? "Stop web server" : "Refresh state",
-                    subtitle: controller.webServerStartedByApp
-                        ? "Terminate the local web process started from this menu."
-                        : "Poll broker, pairing, and web state right now.",
-                    symbol: controller.webServerStartedByApp ? "pause.circle" : "arrow.clockwise",
-                    emphasized: false,
-                    disabled: controller.webServerStartedByApp ? false : controller.isRefreshing
-                ) {
-                    if controller.webServerStartedByApp {
-                        controller.stopWebApp()
-                    } else {
-                        controller.refresh()
-                    }
-                }
-
-                utilityRow(
-                    title: "Feedback",
-                    subtitle: "Open the support and diagnostics surface.",
-                    symbol: "paperplane",
-                    emphasized: false,
-                    disabled: false
-                ) {
-                    controller.openFeedback()
-                }
-
-                utilityRow(
-                    title: "About",
-                    subtitle: "Show version and app metadata.",
-                    symbol: "info.circle",
-                    emphasized: false,
-                    disabled: false
-                ) {
-                    controller.openAboutPanel()
-                }
-            }
-        }
-    }
-
-    private func headerStatusPill(label: String, value: String, tone: StatusTone) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(tone.fill)
-                .frame(width: 5.5, height: 5.5)
-
-            Text(label.uppercased())
-                .font(MenuType.mono(8.5))
-                .tracking(1.1)
-                .foregroundStyle(ShellPalette.dim)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .allowsTightening(true)
-
-            Text(value)
-                .font(MenuType.bodyMedium(10.5))
-                .foregroundStyle(ShellPalette.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.84)
-                .allowsTightening(true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6.5)
-        .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color.white.opacity(0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(tone.soft.opacity(0.9), lineWidth: 1)
-        )
-    }
-
-    private func sectionCard<Content: View>(
-        eyebrow: String,
-        title: String,
-        detail: String,
-        badge: String,
-        tone: StatusTone,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(tone.fill)
-                    .frame(width: 3, height: 34)
-                    .padding(.top, 1)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(eyebrow.uppercased())
-                        .font(MenuType.mono(9))
-                        .tracking(1.6)
-                        .foregroundStyle(ShellPalette.dim)
-
-                    Text(title)
-                        .font(MenuType.title(15))
-                        .foregroundStyle(ShellPalette.ink)
-
-                    Text(detail)
-                        .font(MenuType.body(11))
-                        .foregroundStyle(ShellPalette.copy)
-                        .lineSpacing(1)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 8)
-
-                Text(badge.uppercased())
-                    .font(MenuType.mono(8.5, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(tone.fill)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .allowsTightening(true)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(tone.soft)
-                    )
-            }
-
-            content()
-        }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(ShellPalette.card)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(ShellPalette.sand, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.035), radius: 12, x: 0, y: 8)
-    }
-
-    private func detailRows(_ items: [(String, String)]) -> some View {
+    /// Compact info strip shown below the service stack. Surfaces the latent
+    /// data the controller already exposes (broker port, peer count, mesh
+    /// state) so the bottom of the popover isn't dead space.
+    private var deckStrip: some View {
         VStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                HStack(alignment: .top, spacing: 10) {
-                    Text(item.0.uppercased())
-                        .font(MenuType.mono(8.5))
-                        .tracking(1.2)
-                        .foregroundStyle(ShellPalette.dim)
-                        .frame(width: 68, alignment: .leading)
+            Rectangle()
+                .fill(ShellPalette.line)
+                .frame(height: 1)
 
-                    Text(item.1)
-                        .font(MenuType.mono(10, weight: .regular))
-                        .foregroundStyle(ShellPalette.ink)
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-
-                if index < items.count - 1 {
-                    Divider()
-                        .overlay(ShellPalette.line)
-                }
+            HStack(alignment: .center, spacing: 0) {
+                DeckTileButton(
+                    glyph: .broker,
+                    label: "BROKER",
+                    value: brokerValue,
+                    tint: brokerTint,
+                    action: brokerAction,
+                    helpText: "Copy broker URL"
+                )
+                deckDivider
+                DeckTileButton(
+                    glyph: .peers,
+                    label: "DEVICES",
+                    value: devicesValue,
+                    tint: ShellPalette.ink,
+                    action: devicesAction,
+                    helpText: "Open agents view"
+                )
+                deckDivider
+                DeckTileButton(
+                    glyph: .mesh,
+                    label: "MESH",
+                    value: meshValue,
+                    tint: meshTint,
+                    action: meshAction,
+                    helpText: "Open mesh view"
+                )
+                deckDivider
+                DeckTileButton(
+                    glyph: .web,
+                    label: "WEB",
+                    value: webValue,
+                    tint: webTint,
+                    action: webAction,
+                    helpText: "Open web app"
+                )
             }
+            .padding(.vertical, 8)
+
+            Rectangle()
+                .fill(ShellPalette.line)
+                .frame(height: 1)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(ShellPalette.cardMuted)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(ShellPalette.sand, lineWidth: 1)
-        )
     }
 
-    private func noteRow(_ message: String) -> some View {
+    private var deckDivider: some View {
+        Rectangle()
+            .fill(ShellPalette.line)
+            .frame(width: 1)
+    }
+
+    // MARK: - Tile data
+
+    private var brokerValue: String {
+        if !controller.broker.reachable {
+            return controller.broker.loaded ? "WAIT" : "DOWN"
+        }
+        let url = controller.broker.brokerURL
+        if let parsed = URL(string: url), let port = parsed.port {
+            return ":\(port)"
+        }
+        return "—"
+    }
+
+    private var brokerTint: Color {
+        if controller.broker.reachable { return ShellPalette.ink }
+        if controller.broker.loaded { return ShellPalette.warning }
+        return ShellPalette.error
+    }
+
+    private var brokerAction: (() -> Void)? {
+        let url = controller.broker.brokerURL
+        guard !url.isEmpty else { return nil }
+        return {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(url, forType: .string)
+        }
+    }
+
+    private var devicesValue: String {
+        "\(controller.pairing.trustedPeerCount)"
+    }
+
+    private var devicesAction: (() -> Void)? {
+        return { controller.openWebPath("/agents") }
+    }
+
+    private var meshValue: String {
+        let ts = controller.tailscale
+        if !ts.available { return "OFF" }
+        if !ts.running { return "OFF" }
+        return "\(ts.onlinePeerCount)/\(ts.peerCount)"
+    }
+
+    private var meshTint: Color {
+        let ts = controller.tailscale
+        if !ts.available { return ShellPalette.dim }
+        if !ts.running { return ShellPalette.warning }
+        return ShellPalette.ink
+    }
+
+    private var meshAction: (() -> Void)? {
+        return { controller.openWebPath("/mesh") }
+    }
+
+    private var webValue: String {
+        if controller.webActionPending { return "BOOT" }
+        return controller.webReachable ? ":3200" : "DOWN"
+    }
+
+    private var webTint: Color {
+        if controller.webActionPending { return ShellPalette.warning }
+        return controller.webReachable ? ShellPalette.ink : ShellPalette.error
+    }
+
+    private var webAction: (() -> Void)? {
+        return { controller.openWebApp() }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(ShellPalette.warning)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(ShellPalette.error)
                 .padding(.top, 1)
 
             Text(message)
-                .font(MenuType.body(11.5))
+                .font(MenuType.body(11))
                 .foregroundStyle(ShellPalette.copy)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(ShellPalette.warningSoft)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(ShellPalette.warning.opacity(0.25), lineWidth: 1)
-        )
-    }
-
-    private func qrPanel(_ qrArt: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("SCAN FROM SCOUT")
-                .font(MenuType.mono(9))
-                .tracking(1.5)
-                .foregroundStyle(ShellPalette.dim)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(qrArt)
-                    .font(.system(size: 5.9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(ShellPalette.ink)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(0.92))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(ShellPalette.sand, lineWidth: 1)
-            )
-        }
-    }
-
-    private func utilityRow(
-        title: String,
-        subtitle: String,
-        symbol: String,
-        emphasized: Bool,
-        disabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(emphasized ? ShellPalette.accentSoft : Color.white.opacity(0.78))
-                        .frame(width: 28, height: 28)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(emphasized ? ShellPalette.accentSoft : ShellPalette.sand, lineWidth: 1)
-                        )
-
-                    Image(systemName: symbol)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(emphasized ? ShellPalette.accent : ShellPalette.ink)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(MenuType.bodyMedium(12))
-                        .foregroundStyle(ShellPalette.ink)
-
-                    Text(subtitle)
-                        .font(MenuType.body(10.8))
-                        .foregroundStyle(ShellPalette.copy)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 6)
-
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(ShellPalette.dim)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(emphasized ? Color.white.opacity(0.96) : ShellPalette.cardMuted)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(emphasized ? ShellPalette.accentSoft : ShellPalette.sand, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .opacity(disabled ? 0.55 : 1)
-        .disabled(disabled)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(ShellPalette.error)
-                .padding(.top, 1)
-
-            Text(message)
-                .font(MenuType.body(11.5))
-                .foregroundStyle(ShellPalette.copy)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(ShellPalette.errorSoft)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(ShellPalette.error.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.errorBorder, lineWidth: 1)
         )
+    }
+
+    private func buildVersion() -> String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+}
+
+private struct DeckTileButton: View {
+    let glyph: ServiceGlyph.Kind
+    let label: String
+    let value: String
+    let tint: Color
+    let action: (() -> Void)?
+    let helpText: String
+
+    @State private var isHovered = false
+
+    private var isClickable: Bool { action != nil }
+
+    var body: some View {
+        Group {
+            if let action {
+                Button(action: action) { tile }
+                    .buttonStyle(.plain)
+                    .help(helpText)
+            } else {
+                tile
+            }
+        }
+    }
+
+    private var tile: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                ServiceGlyph(kind: glyph, size: 11, color: ShellPalette.ink)
+                Text(label)
+                    .font(MenuType.mono(9, weight: .medium))
+                    .tracking(0.6)
+                    .foregroundStyle(ShellPalette.ink)
+            }
+
+            HStack(spacing: 4) {
+                Text(value)
+                    .font(MenuType.mono(11, weight: .bold))
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if isClickable {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(ShellPalette.ink)
+                        .opacity(isHovered ? 1 : 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
-    }
-
-    private func compactPath(_ value: String?) -> String? {
-        guard let value, !value.isEmpty else {
-            return nil
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .background(
+            Rectangle()
+                .fill(isClickable && isHovered ? ShellPalette.surfaceFill : Color.clear)
+        )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+            guard isClickable else { return }
+            if hovering {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
         }
-
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if value.hasPrefix(home) {
-            return "~" + value.dropFirst(home.count)
-        }
-
-        return value
-    }
-
-    private func brokerHeadline() -> String {
-        if controller.broker.reachable {
-            return "Live on the local mesh"
-        }
-        if controller.broker.installed {
-            return controller.broker.loaded ? "Installed but not answering" : "Installed and waiting"
-        }
-        return "Not installed yet"
-    }
-
-    private func brokerDetailSummary() -> String {
-        if controller.broker.reachable {
-            return "Broker is answering locally. Full endpoint details are listed below."
-        }
-        if controller.broker.loaded {
-            return "Launch agent is loaded, but broker health checks are failing."
-        }
-        if controller.broker.installed {
-            return "Launch agent is installed and ready to start."
-        }
-        return "Launch agent is not installed yet."
-    }
-
-    private func pairingHeadline() -> String {
-        switch controller.pairing.status {
-        case "paired":
-            return "Secure peer is connected"
-        case "connected", "connecting":
-            return "Relay session is active"
-        case "error":
-            return "Pairing needs attention"
-        default:
-            return "Ready when you want it"
-        }
-    }
-
-    private func tailscaleHeadline() -> String {
-        if !controller.tailscale.available {
-            return "Tailscale status unavailable"
-        }
-        if controller.tailscale.running {
-            return "Mesh transport is available"
-        }
-        return "Tailscale is stopped"
-    }
-
-    private func brokerSummaryValue() -> String {
-        if controller.broker.reachable {
-            return "Online"
-        }
-        if controller.broker.installed {
-            return controller.broker.loaded ? "Waiting" : "Dormant"
-        }
-        return "Offline"
-    }
-
-    private func pairingSummaryValue() -> String {
-        switch controller.pairing.status {
-        case "paired":
-            return "Paired"
-        case "connected", "connecting":
-            return "Active"
-        case "error":
-            return "Error"
-        default:
-            return "Idle"
-        }
-    }
-
-    private func tailscaleSummaryValue() -> String {
-        if !controller.tailscale.available {
-            return "Unknown"
-        }
-        return controller.tailscale.running ? "Connected" : "Local"
-    }
-
-    private func brokerTone() -> StatusTone {
-        if controller.broker.reachable {
-            return StatusTone(fill: ShellPalette.accent, soft: ShellPalette.accentSoft)
-        }
-        if controller.broker.installed {
-            return StatusTone(fill: ShellPalette.warning, soft: ShellPalette.warningSoft)
-        }
-        return neutralTone()
-    }
-
-    private func tailscaleTone() -> StatusTone {
-        if !controller.tailscale.available {
-            return neutralTone()
-        }
-        if controller.tailscale.running {
-            return StatusTone(fill: ShellPalette.success, soft: ShellPalette.successSoft)
-        }
-        return StatusTone(fill: ShellPalette.warning, soft: ShellPalette.warningSoft)
-    }
-
-    private func pairingTone() -> StatusTone {
-        switch controller.pairing.status {
-        case "paired":
-            return StatusTone(fill: ShellPalette.success, soft: ShellPalette.successSoft)
-        case "connected", "connecting":
-            return StatusTone(fill: ShellPalette.warning, soft: ShellPalette.warningSoft)
-        case "error":
-            return StatusTone(fill: ShellPalette.error, soft: ShellPalette.errorSoft)
-        default:
-            return neutralTone()
-        }
-    }
-
-    private func tailscaleDetailSummary() -> String {
-        if !controller.tailscale.available {
-            return controller.tailscale.statusDetail
-        }
-        if controller.tailscale.running {
-            return "This machine can see tailnet peers and is ready for cross-machine mesh traffic."
-        }
-        return "Cached peers may still appear, but cross-machine broker traffic is blocked until Tailscale starts."
-    }
-
-    private func neutralTone() -> StatusTone {
-        StatusTone(fill: ShellPalette.dim, soft: ShellPalette.lineStrong)
     }
 }

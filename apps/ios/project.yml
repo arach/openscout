@@ -28,10 +28,14 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
           NSExceptionDomains:
             tail1e8e67.ts.net:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSIncludesSubdomains: true
+        NSBonjourServices:
+          - _scout-pair._tcp
+        NSLocalNetworkUsageDescription: Scout connects to your Mac over your local network when both devices are nearby.
     settings:
       base:
         PRODUCT_NAME: Scout

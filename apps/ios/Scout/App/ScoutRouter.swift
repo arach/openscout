@@ -10,6 +10,7 @@ enum Surface: Hashable {
     case inbox
     case agents
     case activity
+    case tail
     case sessionDetail(sessionId: String)
     case allSessions
     case newSession

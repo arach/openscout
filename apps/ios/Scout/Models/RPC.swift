@@ -37,8 +37,6 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/agent/detail":      TRPCRoute(path: "mobile.agentDetail",     method: .query),
     "mobile/agent/restart":     TRPCRoute(path: "mobile.agentRestart",    method: .mutation),
     "mobile/agent/stop":        TRPCRoute(path: "mobile.agentStop",       method: .mutation),
-    "mobile/web/handoff":       TRPCRoute(path: "mobile.webHandoff",      method: .mutation),
-
     // Session management
     "session/list":             TRPCRoute(path: "session.list",           method: .query),
     "session/create":           TRPCRoute(path: "session.create",         method: .mutation),
@@ -274,28 +272,9 @@ struct MobileSendMessageParams: Codable, Sendable {
     var harness: String?
 }
 
-enum MobileWebHandoffKind: String, Codable, Sendable {
-    case session
-    case fileChange = "file_change"
-}
-
-struct MobileWebHandoffParams: Codable, Sendable {
-    let kind: MobileWebHandoffKind
-    let sessionId: String
-    var turnId: String?
-    var blockId: String?
-}
-
-struct MobileWebHandoff: Codable, Sendable, Identifiable {
-    let kind: MobileWebHandoffKind
-    let path: String
-    let token: String
-    let expiresAt: Int
-    let title: String
-
-    var id: String {
-        "\(kind.rawValue):\(path):\(expiresAt)"
-    }
+struct MobileSendMessageResult: Codable, Sendable {
+    let conversationId: String
+    let messageId: String
 }
 
 struct ActionDecideParams: Codable, Sendable {

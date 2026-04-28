@@ -183,6 +183,82 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 
+  test("serves runtime bootstrap config for the client", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/bootstrap.js");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/javascript");
+    const body = await response.text();
+    expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
+    expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
+    expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
+  });
+
+  test("derives the relay health route from the configured relay path by default", async () => {
+    const originalRelayPath = process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PATH;
+    const originalRelayHealthPath = process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HEALTH_PATH;
+    process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PATH = "/ws/relay";
+    delete process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HEALTH_PATH;
+
+    try {
+      const server = await createOpenScoutWebServer({
+        currentDirectory: "/tmp/openscout",
+        assetMode: "static",
+        staticRoot: makeStaticRoot(),
+      });
+
+      const response = await server.app.request("http://localhost/api/bootstrap.js");
+      const body = await response.text();
+      expect(body).toContain('"terminalRelayPath":"/ws/relay"');
+      expect(body).toContain('"terminalRelayHealthPath":"/ws/relay/health"');
+    } finally {
+      if (originalRelayPath === undefined) {
+        delete process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PATH;
+      } else {
+        process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PATH = originalRelayPath;
+      }
+      if (originalRelayHealthPath === undefined) {
+        delete process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HEALTH_PATH;
+      } else {
+        process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HEALTH_PATH = originalRelayHealthPath;
+      }
+    }
+  });
+
+  test("serves terminal relay health at the configured route", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      terminalRelayHealthcheck: async () => true,
+    });
+
+    const okResponse = await server.app.request("http://localhost/ws/terminal/health");
+    expect(okResponse.status).toBe(200);
+    expect(await okResponse.json()).toEqual({
+      ok: true,
+      surface: "openscout-terminal-relay",
+    });
+
+    const unavailableServer = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const unavailableResponse = await unavailableServer.app.request("http://localhost/ws/terminal/health");
+    expect(unavailableResponse.status).toBe(503);
+    expect(await unavailableResponse.json()).toEqual({
+      ok: false,
+      surface: "openscout-terminal-relay",
+    });
+  });
+
   test("routes channel sends through sendScoutMessage", async () => {
     querySessionByIdImpl = () => ({
       kind: "channel",
@@ -250,6 +326,7 @@ describe("createOpenScoutWebServer", () => {
       {
         senderId: "operator",
         targetLabel: "agent-1",
+        targetAgentId: "agent-1",
         body: "Please own this and report back.",
         currentDirectory: "/tmp/openscout",
       },

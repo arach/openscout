@@ -24,8 +24,11 @@ export async function runDownCommand(context: ScoutCommandContext, args: string[
   let agent = await downScoutAgent(target);
   if (!agent) {
     const resolved = await resolveLocalAgentByName(target);
-    if (resolved) {
-      agent = await downScoutAgent(resolved.agentId);
+    const projectMatch = resolved ?? await resolveLocalAgentByName(target, {
+      matchProjectName: true,
+    });
+    if (projectMatch) {
+      agent = await downScoutAgent(projectMatch.agentId);
     }
   }
 

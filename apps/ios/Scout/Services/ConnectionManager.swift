@@ -43,6 +43,7 @@ enum BridgeHealthState: Sendable, Equatable {
     case healthy
     case suspect
     case degraded
+    case tailscaleUnavailable
     case offline
 }
 
@@ -52,12 +53,84 @@ func normalizedConnectionDisplayHealth(
 ) -> BridgeHealthState {
     switch state {
     case .connected:
-        return health == .offline ? .healthy : health
+        return (health == .offline || health == .tailscaleUnavailable) ? .healthy : health
     case .connecting, .handshaking, .reconnecting:
         return health == .offline ? .suspect : health
     case .disconnected, .failed:
         return health
     }
+}
+
+func relayURLIndicatesLocalOnlyTailscaleRoute(_ rawValue: String) -> Bool {
+    guard let host = URLComponents(string: rawValue)?.host?.lowercased() else {
+        return false
+    }
+    return isLocalOnlyRelayHost(host)
+}
+
+func relayURLUsesTailnetRoute(_ rawValue: String) -> Bool {
+    guard let host = URLComponents(string: rawValue)?.host?.lowercased() else {
+        return false
+    }
+    return isTailnetRelayHost(host)
+}
+
+func relayURLDependsOnTailscale(_ rawValue: String) -> Bool {
+    relayURLUsesTailnetRoute(rawValue)
+}
+
+func deduplicatedRelayURLs(primary: String, fallbacks: [String]) -> [String] {
+    var seen = Set<String>()
+    var urls: [String] = []
+
+    for rawValue in [primary] + fallbacks {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, seen.insert(value).inserted else {
+            continue
+        }
+        urls.append(value)
+    }
+
+    return urls
+}
+
+func isTailscaleRouteNetworkFailure(_ error: Error) -> Bool {
+    guard let urlError = error as? URLError else {
+        return false
+    }
+
+    switch urlError.code {
+    case .cannotFindHost,
+         .cannotConnectToHost,
+         .dnsLookupFailed,
+         .networkConnectionLost,
+         .notConnectedToInternet,
+         .timedOut:
+        return true
+    default:
+        return false
+    }
+}
+
+private func isLocalOnlyRelayHost(_ host: String) -> Bool {
+    host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "0.0.0.0"
+}
+
+private func isTailnetRelayHost(_ host: String) -> Bool {
+    host.hasSuffix(".ts.net") || isTailscaleAddress(host)
+}
+
+private func isTailscaleAddress(_ host: String) -> Bool {
+    let components = host.split(separator: ".")
+    guard components.count == 4,
+          let first = Int(components[0]),
+          let second = Int(components[1]) else {
+        return false
+    }
+    return first == 100 && (64...127).contains(second)
 }
 
 // MARK: - Errors
@@ -70,6 +143,7 @@ enum ConnectionError: LocalizedError, Sendable {
     case invalidQRPayload(String)
     case bridgeOffline
     case relayUnavailable
+    case tailscaleUnavailable
     case reconnectExhausted
     case encodingFailed
     case decodingFailed(String)
@@ -91,6 +165,8 @@ enum ConnectionError: LocalizedError, Sendable {
             return "Scout on your Mac appears to be offline"
         case .relayUnavailable:
             return "Scout can't reach the relay right now"
+        case .tailscaleUnavailable:
+            return "Scout cannot reach your Mac on the local network or through the saved Tailscale route."
         case .reconnectExhausted:
             return "Reconnect attempts exhausted"
         case .encodingFailed:
@@ -111,6 +187,8 @@ extension Error {
                 return "Your Mac looks offline or asleep. Open Scout on your Mac or wake it, then try again. Cached sessions on this iPhone stay available read-only."
             case .relayUnavailable:
                 return "Scout can't reach the relay right now. Check your network connection and try again."
+            case .tailscaleUnavailable:
+                return "Scout cannot reach your Mac on the local network or through Tailscale. If you're nearby, allow Local Network access and make sure Scout is running on your Mac. If you're remote, open Tailscale on this iPhone and Mac."
             case .notConnected:
                 return "Scout isn't connected to your Mac right now. Reconnect and try again."
             case .rpcTimeout:
@@ -157,6 +235,42 @@ struct BridgeConnectionInfo: Codable, Sendable {
     let relayURL: String
     var roomId: String      // Mutable — updated when room is resolved after bridge restart
     let publicKeyHex: String
+    let fallbackRelayURLs: [String]
+
+    init(
+        relayURL: String,
+        roomId: String,
+        publicKeyHex: String,
+        fallbackRelayURLs: [String] = []
+    ) {
+        self.relayURL = relayURL
+        self.roomId = roomId
+        self.publicKeyHex = publicKeyHex
+        self.fallbackRelayURLs = Array(deduplicatedRelayURLs(primary: relayURL, fallbacks: fallbackRelayURLs).dropFirst())
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case relayURL
+        case roomId
+        case publicKeyHex
+        case fallbackRelayURLs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let relayURL = try container.decode(String.self, forKey: .relayURL)
+        let fallbackRelayURLs = try container.decodeIfPresent([String].self, forKey: .fallbackRelayURLs) ?? []
+        self.init(
+            relayURL: relayURL,
+            roomId: try container.decode(String.self, forKey: .roomId),
+            publicKeyHex: try container.decode(String.self, forKey: .publicKeyHex),
+            fallbackRelayURLs: fallbackRelayURLs
+        )
+    }
+
+    var relayURLs: [String] {
+        deduplicatedRelayURLs(primary: relayURL, fallbacks: fallbackRelayURLs)
+    }
 
     /// Convert the hex public key to raw Data (32 bytes).
     var bridgePublicKeyData: Data {
@@ -171,6 +285,62 @@ struct BridgeConnectionInfo: Codable, Sendable {
         }
         return data
     }
+}
+
+// MARK: - Transport classification
+
+enum TransportKind: String {
+    /// RFC1918 private LAN: 10/8, 192.168/16, 172.16-31/12; link-local 169.254/16.
+    case lan
+    /// Tailscale CGNAT 100.64.0.0/10 or `*.ts.net` MagicDNS host.
+    case mesh
+    /// Public IP / generic DNS hostname — neither LAN nor Tailscale.
+    case remote
+    /// 127.0.0.0/8 loopback (mostly bridge-to-self, rare from phone).
+    case loopback
+    /// Not connected or no host known.
+    case none
+
+    var label: String {
+        switch self {
+        case .lan: return "LAN"
+        case .mesh: return "TS"
+        case .remote: return "REMOTE"
+        case .loopback: return "LOCAL"
+        case .none: return ""
+        }
+    }
+}
+
+private func classifyTransport(host: String) -> TransportKind {
+    let lower = host.lowercased()
+    if lower == "localhost" {
+        return .loopback
+    }
+    // Tailscale MagicDNS hostnames look like `<machine>.<tailnet>.ts.net`.
+    if lower.hasSuffix(".ts.net") {
+        return .mesh
+    }
+    // Bonjour / mDNS hostnames (`<host>.local`) are by definition link-local LAN.
+    if lower.hasSuffix(".local") {
+        return .lan
+    }
+
+    let parts = host.split(separator: ".").compactMap { UInt8($0) }
+    guard parts.count == 4 else {
+        // Hostname or IPv6 we can't classify cheaply — fall through to remote.
+        return .remote
+    }
+
+    let a = parts[0], b = parts[1]
+    if a == 127 { return .loopback }
+    if a == 10 { return .lan }
+    if a == 192 && b == 168 { return .lan }
+    if a == 172 && (16...31).contains(b) { return .lan }
+    if a == 169 && b == 254 { return .lan }
+    // Tailscale CGNAT: 100.64.0.0/10 → 100.64.x.x through 100.127.x.x.
+    if a == 100 && (64...127).contains(b) { return .mesh }
+    return .remote
 }
 
 // MARK: - ConnectionManager
@@ -204,10 +374,17 @@ final class ConnectionManager: @unchecked Sendable {
     /// Best-effort bridge host for direct HTTP access (e.g., spectator, file server).
     /// Extracted from the relay URL — works when relay runs on the bridge machine.
     var bridgeHost: String? {
-        guard let info = connectionInfo,
-              let components = URLComponents(string: info.relayURL),
+        guard let relayURL = activeRelayURL ?? connectionInfo?.relayURL,
+              let components = URLComponents(string: relayURL),
               let host = components.host else { return nil }
         return host
+    }
+
+    /// Classified transport for the active relay host: LAN / MESH / REMOTE / loopback.
+    /// `.none` while disconnected or when the host isn't known yet.
+    var transportKind: TransportKind {
+        guard state == .connected, let host = bridgeHost else { return .none }
+        return classifyTransport(host: host)
     }
 
     /// File server HTTP port (bridge port + 2, default 7890).
@@ -265,7 +442,7 @@ final class ConnectionManager: @unchecked Sendable {
                 return ConnectionStatusDetails(
                     shortLabel: "Checking Mac",
                     title: "Checking Your Mac",
-                    message: "Scout is reconnecting and checking whether your Mac is reachable over Tailscale.",
+                    message: "Scout is reconnecting and checking whether your Mac is reachable on the network.",
                     symbol: "arrow.triangle.2.circlepath",
                     allowsRetry: false
                 )
@@ -277,7 +454,7 @@ final class ConnectionManager: @unchecked Sendable {
                     symbol: "exclamationmark.triangle",
                     allowsRetry: true
                 )
-            case .healthy, .offline:
+            case .healthy, .tailscaleUnavailable, .offline:
                 break
             }
             return ConnectionStatusDetails(
@@ -296,6 +473,9 @@ final class ConnectionManager: @unchecked Sendable {
                 allowsRetry: false
             )
         case .reconnecting(let attempt):
+            if displayHealth == .tailscaleUnavailable {
+                return tailscaleUnavailableStatusDetails(allowsRetry: false)
+            }
             let attemptSuffix = attempt > 1 ? " Attempt \(attempt) of \(Self.maxReconnectAttempts)." : ""
             return ConnectionStatusDetails(
                 shortLabel: "Reconnecting",
@@ -310,7 +490,7 @@ final class ConnectionManager: @unchecked Sendable {
                 return ConnectionStatusDetails(
                     shortLabel: "Checking Mac",
                     title: "Checking Your Mac",
-                    message: "Scout is reconnecting and checking whether your Mac is reachable over Tailscale.",
+                    message: "Scout is reconnecting and checking whether your Mac is reachable on the network.",
                     symbol: "arrow.triangle.2.circlepath",
                     allowsRetry: false
                 )
@@ -322,11 +502,13 @@ final class ConnectionManager: @unchecked Sendable {
                     symbol: "exclamationmark.triangle",
                     allowsRetry: true
                 )
+            case .tailscaleUnavailable:
+                return tailscaleUnavailableStatusDetails()
             case .offline:
                 return ConnectionStatusDetails(
                     shortLabel: "Mac Offline",
                     title: "Mac Offline",
-                    message: "Scout could not reach your Mac over Tailscale after retrying. It is probably offline or asleep.",
+                    message: "Scout could not reach your Mac after retrying. It is probably offline, asleep, or on another network.",
                     symbol: "wifi.exclamationmark",
                     allowsRetry: true
                 )
@@ -351,6 +533,8 @@ final class ConnectionManager: @unchecked Sendable {
                         symbol: "wifi.exclamationmark",
                         allowsRetry: true
                     )
+                case .tailscaleUnavailable:
+                    return tailscaleUnavailableStatusDetails()
                 case .rpcTimeout:
                     return ConnectionStatusDetails(
                         shortLabel: "Checking Mac",
@@ -398,6 +582,16 @@ final class ConnectionManager: @unchecked Sendable {
         }
     }
 
+    private func tailscaleUnavailableStatusDetails(allowsRetry: Bool = true) -> ConnectionStatusDetails {
+        ConnectionStatusDetails(
+            shortLabel: "Mac Unreachable",
+            title: "Mac Not Reachable",
+            message: "Scout could not find your Mac on the local network or reach it through Tailscale. If you're nearby, allow Local Network access and keep Scout running on your Mac. If you're remote, open Tailscale on both devices.",
+            symbol: "network.slash",
+            allowsRetry: allowsRetry
+        )
+    }
+
     private var currentTrustedBridge: TrustedBridge? {
         let bridges = (try? ScoutIdentity.getTrustedBridges()) ?? []
         guard !bridges.isEmpty else { return nil }
@@ -429,6 +623,7 @@ final class ConnectionManager: @unchecked Sendable {
     private let urlSession: URLSession
     private let sessionDelegate = TrustAllDelegate()
     private var connectionInfo: BridgeConnectionInfo?
+    private var activeRelayURL: String?
     private var isScreenshotPreview = false
     private var cachedRemotePushToken: String?
     private var identityKeyPair: NoiseKeyPair?
@@ -454,6 +649,65 @@ final class ConnectionManager: @unchecked Sendable {
 
     /// Last event ID received from a tRPC tracked subscription (for reconnect recovery).
     private(set) var lastEventId: String?
+
+    /// Active fanout continuations for callers that subscribed via
+    /// `subscribeToEvents()`. Used by views like TailFeedView to live-refresh
+    /// when the bridge pushes any sequenced event.
+    private let eventFanout = OSAllocatedUnfairLock(
+        initialState: [UUID: AsyncStream<SequencedEvent>.Continuation]()
+    )
+
+    /// Live stream of every `SequencedEvent` the connection receives, regardless
+    /// of which routing path it arrived through. The stream stays open for the
+    /// lifetime of the consumer; cancel by exiting the `for await` loop.
+    func subscribeToEvents() -> AsyncStream<SequencedEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            eventFanout.withLock { $0[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                self?.eventFanout.withLock { $0.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    /// Fan a sequenced event out to every active `subscribeToEvents()` consumer.
+    /// Call sites: any code path that decodes a `SequencedEvent`.
+    private func fanoutEvent(_ event: SequencedEvent) {
+        let conts = eventFanout.withLock { Array($0.values) }
+        for cont in conts {
+            cont.yield(event)
+        }
+    }
+
+    /// Active fanout continuations for callers that subscribed via
+    /// `subscribeToTailEvents()`. Separate from `eventFanout` because tail is a
+    /// machine-wide firehose with potentially high rate, distinct from per-session
+    /// control events. See docs/tail-firehose.md.
+    private let tailFanout = OSAllocatedUnfairLock(
+        initialState: [UUID: AsyncStream<TailEvent>.Continuation]()
+    )
+
+    /// Live stream of every `TailEvent` fanned out by the bridge's
+    /// `tail.events` subscription (Lane A). Empty until Lane A wires the
+    /// bridge subscription; the receive-side here is ready.
+    func subscribeToTailEvents() -> AsyncStream<TailEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            tailFanout.withLock { $0[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                self?.tailFanout.withLock { $0.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    /// Fan a tail event out to every active `subscribeToTailEvents()` consumer.
+    /// Call sites: tRPC subscription decoder once Lane A wires `tail.events`.
+    private func fanoutTailEvent(_ event: TailEvent) {
+        let conts = tailFanout.withLock { Array($0.values) }
+        for cont in conts {
+            cont.yield(event)
+        }
+    }
 
     private static let logger = Logger(
         subsystem: "com.openscout.scout",
@@ -608,6 +862,7 @@ final class ConnectionManager: @unchecked Sendable {
         }
 
         disconnect()
+        manualDisconnectRequested = false
 
         setState(.connecting)
         Self.logger.notice("Connecting via QR: relay=\(qrPayload.relay, privacy: .public) room=\(qrPayload.room, privacy: .public)")
@@ -618,27 +873,27 @@ final class ConnectionManager: @unchecked Sendable {
                 throw ConnectionError.invalidQRPayload("Invalid bridge public key length")
             }
 
-            let remoteKey = try await performConnection(
-                relayURL: qrPayload.relay,
-                roomId: qrPayload.room,
-                remoteStaticKey: nil // XX pattern — no prior key
-            )
-
-            try verifyRemoteKey(
-                remoteKey,
-                matches: expectedRemoteKey,
+            let relayURLs = qrPayload.orderedRelayURLs
+            let attempt = try await connectUsingAvailableRelayURLs(
+                relayURLs: relayURLs,
+                initialRoomId: qrPayload.room,
+                publicKeyHex: qrPayload.publicKey,
+                expectedRemoteKey: expectedRemoteKey,
+                remoteStaticKey: nil, // XX pattern — no prior key
+                resolveRoomBeforeConnect: false,
                 failureReason: "Bridge identity did not match the scanned QR code"
             )
 
             // On successful XX handshake, save the bridge as trusted in Keychain.
-            try ScoutIdentity.saveTrustedBridge(publicKey: remoteKey)
+            try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey)
 
-            let publicKeyHex = hexString(remoteKey)
+            let publicKeyHex = hexString(attempt.remoteKey)
 
             let info = BridgeConnectionInfo(
-                relayURL: qrPayload.relay,
-                roomId: qrPayload.room,
-                publicKeyHex: publicKeyHex
+                relayURL: relayURLs.first ?? attempt.relayURL,
+                roomId: attempt.roomId,
+                publicKeyHex: publicKeyHex,
+                fallbackRelayURLs: Array(relayURLs.dropFirst())
             )
             saveConnectionInfo(info)
             connectionInfo = info
@@ -652,6 +907,9 @@ final class ConnectionManager: @unchecked Sendable {
             startMessageLoop()
 
             setState(.connected)
+            await MainActor.run {
+                sessionStore.connectionState = .connected
+            }
             noteSuccessfulConnection()
             Self.logger.notice("Connected via QR pairing (XX handshake)")
 
@@ -659,6 +917,14 @@ final class ConnectionManager: @unchecked Sendable {
             await runRecovery()
 
         } catch {
+            if let connectionError = error as? ConnectionError {
+                switch connectionError {
+                case .tailscaleUnavailable:
+                    transitionHealth(to: .tailscaleUnavailable)
+                default:
+                    break
+                }
+            }
             setState(.failed(error))
             throw error
         }
@@ -701,10 +967,21 @@ final class ConnectionManager: @unchecked Sendable {
             return
         }
 
-        guard var info = connectionInfo else {
+        let initialConnectionInfo: BridgeConnectionInfo?
+        if let connectionInfo {
+            initialConnectionInfo = connectionInfo
+        } else {
+            initialConnectionInfo = await discoveredConnectionInfoFromTrustedBridge()
+        }
+
+        guard var info = initialConnectionInfo else {
             Self.logger.warning("No saved connection info to reconnect to")
             setState(.disconnected)
             return
+        }
+        if connectionInfo == nil {
+            saveConnectionInfo(info)
+            connectionInfo = info
         }
 
         manualDisconnectRequested = false
@@ -732,69 +1009,81 @@ final class ConnectionManager: @unchecked Sendable {
             setState(.reconnecting(attempt: attempt))
             Self.logger.notice("Reconnect attempt \(attempt, privacy: .public)/\(Self.maxReconnectAttempts, privacy: .public)")
 
-            // Resolve the current room — don't guess with stale room IDs.
-            Self.logger.notice("Resolving room for bridge \(info.publicKeyHex.prefix(12), privacy: .public)... relay=\(info.relayURL, privacy: .public)")
-            let resolvedRoom = await resolveRoom(relayURL: info.relayURL, publicKeyHex: info.publicKeyHex)
+            let relayURLs = await relayURLsForTrustedBridge(info)
+            Self.logger.notice("Resolving room for bridge \(info.publicKeyHex.prefix(12), privacy: .public) across \(relayURLs.count, privacy: .public) relay route(s)")
 
-            switch resolvedRoom {
-            case .bridgeOffline:
-                Self.logger.notice("Resolve returned 404 — bridge offline")
-                transitionHealth(to: .degraded)
-                scheduleHealthProbe(reason: "resolve_404")
-                if attempt < Self.maxReconnectAttempts {
-                    let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
-                    try? await Task.sleep(for: .seconds(backoff))
-                }
-                continue
-            case .relayUnavailable:
-                Self.logger.notice("Resolve could not reach relay")
-                transitionHealth(to: .suspect)
-                scheduleHealthProbe(reason: "resolve_unreachable")
-                if attempt < Self.maxReconnectAttempts {
-                    let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
-                    try? await Task.sleep(for: .seconds(backoff))
-                    continue
-                }
-                setState(.failed(ConnectionError.relayUnavailable))
-                return
-            case .resolved(let roomId):
-                if roomId != info.roomId {
-                    Self.logger.notice("Room changed: \(info.roomId, privacy: .public) → \(roomId, privacy: .public)")
-                    info.roomId = roomId
+            do {
+                let connectionAttempt = try await connectUsingAvailableRelayURLs(
+                    relayURLs: relayURLs,
+                    initialRoomId: info.roomId,
+                    publicKeyHex: info.publicKeyHex,
+                    expectedRemoteKey: remoteKeyData,
+                    remoteStaticKey: remoteKeyData,
+                    resolveRoomBeforeConnect: true,
+                    failureReason: "Trusted bridge identity changed during reconnect"
+                )
+
+                if connectionAttempt.roomId != info.roomId || relayURLs != info.relayURLs {
+                    if connectionAttempt.roomId != info.roomId {
+                        Self.logger.notice("Room changed: \(info.roomId, privacy: .public) → \(connectionAttempt.roomId, privacy: .public)")
+                    } else {
+                        Self.logger.notice("Relay routes updated via Bonjour discovery")
+                    }
+                    info = BridgeConnectionInfo(
+                        relayURL: relayURLs.first ?? connectionAttempt.relayURL,
+                        roomId: connectionAttempt.roomId,
+                        publicKeyHex: info.publicKeyHex,
+                        fallbackRelayURLs: Array(relayURLs.dropFirst())
+                    )
                     saveConnectionInfo(info)
                     connectionInfo = info
                 }
 
-                do {
-                    let remoteKey = try await performConnection(
-                        relayURL: info.relayURL,
-                        roomId: roomId,
-                        remoteStaticKey: remoteKeyData
-                    )
-
-                    try verifyRemoteKey(
-                        remoteKey,
-                        matches: remoteKeyData,
-                        failureReason: "Trusted bridge identity changed during reconnect"
-                    )
-
-                    await MainActor.run {
-                        sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
+                await MainActor.run {
+                    sessionStore.bindToBridge(publicKeyHex: info.publicKeyHex)
+                }
+                try? ScoutIdentity.touchTrustedBridge(publicKey: remoteKeyData)
+                startMessageLoop()
+                setState(.connected)
+                await MainActor.run {
+                    sessionStore.connectionState = .connected
+                }
+                noteSuccessfulConnection()
+                Self.logger.notice("Reconnected via IK handshake")
+                await runRecovery()
+                return
+            } catch {
+                if let connectionError = error as? ConnectionError {
+                    switch connectionError {
+                    case .tailscaleUnavailable:
+                        Self.logger.notice("Could not reach the Tailscale relay route")
+                        transitionHealth(to: .tailscaleUnavailable)
+                        if attempt >= Self.maxReconnectAttempts {
+                            setState(.failed(ConnectionError.tailscaleUnavailable))
+                            return
+                        }
+                    case .bridgeOffline:
+                        Self.logger.notice("Resolve returned 404 — bridge offline")
+                        transitionHealth(to: .degraded)
+                        scheduleHealthProbe(reason: "resolve_404")
+                    case .relayUnavailable:
+                        Self.logger.notice("Could not reach any relay route")
+                        transitionHealth(to: .suspect)
+                        scheduleHealthProbe(reason: "resolve_unreachable")
+                        if attempt >= Self.maxReconnectAttempts {
+                            setState(.failed(ConnectionError.relayUnavailable))
+                            return
+                        }
+                    default:
+                        Self.logger.error("Handshake failed: \(error.localizedDescription, privacy: .public)")
                     }
-                    try? ScoutIdentity.touchTrustedBridge(publicKey: remoteKeyData)
-                    startMessageLoop()
-                    setState(.connected)
-                    noteSuccessfulConnection()
-                    Self.logger.notice("Reconnected via IK handshake")
-                    await runRecovery()
-                    return
-
-                } catch {
+                } else {
                     Self.logger.error("Handshake failed: \(error.localizedDescription, privacy: .public)")
-                    if attempt < Self.maxReconnectAttempts {
-                        let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
-                        try? await Task.sleep(for: .seconds(backoff))
-                    }
+                }
+
+                if attempt < Self.maxReconnectAttempts {
+                    let backoff = min(pow(2.0, Double(attempt - 1)), Self.maxBackoff)
+                    try? await Task.sleep(for: .seconds(backoff))
                 }
             }
         }
@@ -803,12 +1092,13 @@ final class ConnectionManager: @unchecked Sendable {
         Self.logger.error("All reconnect attempts exhausted — bridge appears offline")
         let generation = beginHealthProbeGeneration()
         await runHealthProbe(reason: "reconnect_exhausted", generation: generation)
-        setState(.failed(ConnectionError.bridgeOffline))
+        setState(.failed(health == .tailscaleUnavailable ? ConnectionError.tailscaleUnavailable : ConnectionError.bridgeOffline))
     }
 
     /// Resolve the bridge's current room ID via the relay's POST /resolve endpoint.
     private enum ResolveRoomResult: Sendable {
         case resolved(String)
+        case tailscaleUnavailable
         case bridgeOffline
         case relayUnavailable
     }
@@ -822,7 +1112,118 @@ final class ConnectionManager: @unchecked Sendable {
     private enum MachineProbeResult: Sendable {
         case bridgeConnected
         case bridgeAbsent
+        case tailscaleUnavailable
         case unreachable
+    }
+
+    private struct RelayConnectionAttempt: Sendable {
+        let relayURL: String
+        let roomId: String
+        let remoteKey: Data
+    }
+
+    private func relayURLsForTrustedBridge(_ info: BridgeConnectionInfo) async -> [String] {
+        let discoveredRelayURLs = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: info.publicKeyHex)
+        let combinedRelayURLs = discoveredRelayURLs + info.relayURLs
+        guard let primary = combinedRelayURLs.first else {
+            return []
+        }
+        return deduplicatedRelayURLs(primary: primary, fallbacks: Array(combinedRelayURLs.dropFirst()))
+    }
+
+    private func discoveredConnectionInfoFromTrustedBridge() async -> BridgeConnectionInfo? {
+        guard let bridge = currentTrustedBridge else {
+            return nil
+        }
+
+        let relayURLs = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: bridge.publicKeyHex)
+        guard let primary = relayURLs.first else {
+            return nil
+        }
+
+        return BridgeConnectionInfo(
+            relayURL: primary,
+            roomId: "",
+            publicKeyHex: bridge.publicKeyHex,
+            fallbackRelayURLs: Array(relayURLs.dropFirst())
+        )
+    }
+
+    private func connectUsingAvailableRelayURLs(
+        relayURLs: [String],
+        initialRoomId: String,
+        publicKeyHex: String,
+        expectedRemoteKey: Data,
+        remoteStaticKey: Data?,
+        resolveRoomBeforeConnect: Bool,
+        failureReason: String
+    ) async throws -> RelayConnectionAttempt {
+        var lastError: Error?
+        var sawBridgeOffline = false
+        var sawTailscaleUnavailable = false
+
+        for relayURL in relayURLs {
+            var roomId = initialRoomId
+            Self.logger.notice("Trying relay \(relayURL, privacy: .public)")
+
+            if resolveRoomBeforeConnect {
+                let resolvedRoom = await resolveRoom(relayURL: relayURL, publicKeyHex: publicKeyHex)
+                switch resolvedRoom {
+                case .resolved(let resolvedRoomId):
+                    roomId = resolvedRoomId
+                case .tailscaleUnavailable:
+                    sawTailscaleUnavailable = true
+                    lastError = ConnectionError.tailscaleUnavailable
+                    continue
+                case .bridgeOffline:
+                    sawBridgeOffline = true
+                    lastError = ConnectionError.bridgeOffline
+                    continue
+                case .relayUnavailable:
+                    break
+                }
+            }
+
+            do {
+                let remoteKey = try await performConnection(
+                    relayURL: relayURL,
+                    roomId: roomId,
+                    remoteStaticKey: remoteStaticKey
+                )
+
+                guard remoteKey == expectedRemoteKey else {
+                    clearFailedConnectionAttempt()
+                    lastError = ConnectionError.handshakeFailed(failureReason)
+                    continue
+                }
+
+                activeRelayURL = relayURL
+                return RelayConnectionAttempt(relayURL: relayURL, roomId: roomId, remoteKey: remoteKey)
+            } catch {
+                clearFailedConnectionAttempt()
+                if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
+                    sawTailscaleUnavailable = true
+                    lastError = ConnectionError.tailscaleUnavailable
+                } else {
+                    lastError = error
+                }
+            }
+        }
+
+        if sawBridgeOffline {
+            throw ConnectionError.bridgeOffline
+        }
+        if sawTailscaleUnavailable {
+            throw ConnectionError.tailscaleUnavailable
+        }
+        throw lastError ?? ConnectionError.relayUnavailable
+    }
+
+    private func clearFailedConnectionAttempt() {
+        transport = nil
+        let activeWebSocket = webSocket
+        webSocket = nil
+        activeWebSocket?.cancel(with: .goingAway, reason: nil)
     }
 
     private func resolveRoom(relayURL: String, publicKeyHex: String) async -> ResolveRoomResult {
@@ -836,6 +1237,7 @@ final class ConnectionManager: @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 3
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(["bridgePublicKey": publicKeyHex])
 
@@ -861,46 +1263,68 @@ final class ConnectionManager: @unchecked Sendable {
             }
         } catch {
             Self.logger.error("Room resolve request failed: \(error.localizedDescription, privacy: .public)")
+            if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
+                return .tailscaleUnavailable
+            }
             return .relayUnavailable
         }
     }
 
-    private func machineProbeURL(for info: BridgeConnectionInfo) -> URL? {
-        let httpURL = info.relayURL
+    private func machineProbeURL(relayURL: String, publicKeyHex: String) -> URL? {
+        let httpURL = relayURL
             .replacingOccurrences(of: "wss://", with: "https://")
             .replacingOccurrences(of: "ws://", with: "http://")
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard var components = URLComponents(string: "\(httpURL)/healthz") else { return nil }
         components.queryItems = [
-            URLQueryItem(name: "bridgePublicKey", value: info.publicKeyHex),
+            URLQueryItem(name: "bridgePublicKey", value: publicKeyHex),
         ]
         return components.url
     }
 
     private func probeMachineLiveness() async -> MachineProbeResult {
-        guard let info = connectionInfo,
-              let url = machineProbeURL(for: info) else { return .unreachable }
+        guard let info = connectionInfo else { return .unreachable }
+        let relayURLs = await relayURLsForTrustedBridge(info)
+        var sawBridgeAbsent = false
+        var sawTailscaleUnavailable = false
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 3
+        for relayURL in relayURLs {
+            guard let url = machineProbeURL(relayURL: relayURL, publicKeyHex: info.publicKeyHex) else {
+                continue
+            }
 
-        do {
-            let (data, response) = try await urlSession.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return .unreachable
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 3
+
+            do {
+                let (data, response) = try await urlSession.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    continue
+                }
+                let payload = try JSONDecoder().decode(BridgeHealthProbeResponse.self, from: data)
+                guard payload.ok else { continue }
+                lastMachineProbeSuccessAt = Date()
+                if payload.bridgeConnected {
+                    activeRelayURL = relayURL
+                    lastBridgeProbeSuccessAt = Date()
+                    return .bridgeConnected
+                }
+                sawBridgeAbsent = true
+            } catch {
+                if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
+                    sawTailscaleUnavailable = true
+                }
             }
-            let payload = try JSONDecoder().decode(BridgeHealthProbeResponse.self, from: data)
-            guard payload.ok else { return .unreachable }
-            lastMachineProbeSuccessAt = Date()
-            if payload.bridgeConnected {
-                lastBridgeProbeSuccessAt = Date()
-                return .bridgeConnected
-            }
-            return .bridgeAbsent
-        } catch {
-            return .unreachable
         }
+
+        if sawTailscaleUnavailable {
+            return .tailscaleUnavailable
+        }
+        if sawBridgeAbsent {
+            return .bridgeAbsent
+        }
+        return .unreachable
     }
 
     private func scheduleHealthProbe(reason: String) {
@@ -930,6 +1354,7 @@ final class ConnectionManager: @unchecked Sendable {
                 consecutiveBridgeProbeFailures = 0
                 transitionHealth(to: .healthy)
                 Self.logger.notice("Health probe succeeded (\(reason, privacy: .public))")
+                reconnectAfterReachableHealthProbeIfNeeded(reason: reason)
                 return
             case .bridgeAbsent:
                 consecutiveBridgeProbeFailures += 1
@@ -938,11 +1363,15 @@ final class ConnectionManager: @unchecked Sendable {
                     Self.logger.notice("Health probe found reachable machine but absent bridge")
                     return
                 }
+            case .tailscaleUnavailable:
+                transitionHealth(to: .tailscaleUnavailable)
+                Self.logger.notice("Health probe could not reach the Tailscale route")
+                return
             case .unreachable:
                 consecutiveMachineProbeFailures += 1
                 if consecutiveMachineProbeFailures >= 2 {
                     transitionHealth(to: .offline)
-                    Self.logger.notice("Health probe could not reach machine over Tailscale")
+                    Self.logger.notice("Health probe could not reach machine on any relay route")
                     return
                 }
                 transitionHealth(to: .degraded)
@@ -951,6 +1380,27 @@ final class ConnectionManager: @unchecked Sendable {
             if attempt < 3 {
                 try? await Task.sleep(for: .seconds(Double(attempt)))
             }
+        }
+    }
+
+    private func reconnectAfterReachableHealthProbeIfNeeded(reason: String) {
+        guard hasTrustedBridge, !manualDisconnectRequested else { return }
+
+        let shouldReconnect: Bool
+        switch state {
+        case .connected, .connecting, .handshaking:
+            shouldReconnect = false
+        case .reconnecting:
+            shouldReconnect = reconnectTask == nil
+        case .disconnected, .failed:
+            shouldReconnect = true
+        }
+
+        guard shouldReconnect else { return }
+        Self.logger.notice("Reachable bridge found while disconnected; retrying secure reconnect (\(reason, privacy: .public))")
+
+        Task { [weak self] in
+            await self?.reconnect()
         }
     }
 
@@ -965,6 +1415,7 @@ final class ConnectionManager: @unchecked Sendable {
         healthProbeTask = nil
 
         transport = nil
+        activeRelayURL = nil
 
         let activeWebSocket = webSocket
         webSocket = nil
@@ -987,7 +1438,7 @@ final class ConnectionManager: @unchecked Sendable {
 
     /// Whether there is a saved trusted bridge (for UI routing decisions).
     var hasTrustedBridge: Bool {
-        connectionInfo != nil
+        connectionInfo != nil || currentTrustedBridge != nil
     }
 
     /// Clear the trusted bridge record (triggers QR scanner).
@@ -1099,22 +1550,6 @@ final class ConnectionManager: @unchecked Sendable {
         return try decodeResult(MobileAgentDetail.self, from: data)
     }
 
-    func createWebHandoff(
-        kind: MobileWebHandoffKind,
-        sessionId: String,
-        turnId: String? = nil,
-        blockId: String? = nil
-    ) async throws -> MobileWebHandoff {
-        let params = MobileWebHandoffParams(
-            kind: kind,
-            sessionId: sessionId,
-            turnId: turnId,
-            blockId: blockId
-        )
-        let data = try await sendRPC(method: "mobile/web/handoff", params: params)
-        return try decodeResult(MobileWebHandoff.self, from: data)
-    }
-
     func restartAgent(agentId: String) async throws -> AgentActionResult {
         let params = AgentIdParams(agentId: agentId)
         let data = try await sendRPC(method: "mobile/agent/restart", params: params)
@@ -1132,7 +1567,7 @@ final class ConnectionManager: @unchecked Sendable {
         _ = try await sendRPC(method: "session/close", params: params)
     }
 
-    func sendPrompt(_ prompt: Prompt) async throws {
+    func sendPrompt(_ prompt: Prompt) async throws -> MobileSendMessageResult {
         let session = await MainActor.run {
             sessionStore.sessions[prompt.sessionId]?.session
         }
@@ -1149,7 +1584,8 @@ final class ConnectionManager: @unchecked Sendable {
             referenceMessageIds: nil,
             harness: session.adapterType.trimmedNonEmpty
         )
-        _ = try await sendRPC(method: "mobile/message/send", params: params)
+        let data = try await sendRPC(method: "mobile/message/send", params: params)
+        return try decodeResult(MobileSendMessageResult.self, from: data)
     }
 
     func interruptTurn(_ sessionId: String) async throws {
@@ -1411,8 +1847,10 @@ final class ConnectionManager: @unchecked Sendable {
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
         cancelAllPendingRequests(with: ConnectionError.notConnected)
 
+        let nextState: ConnectionState = shouldReconnect ? .reconnecting(attempt: 0) : .disconnected
+        setState(nextState)
         await MainActor.run {
-            sessionStore.connectionState = shouldReconnect ? .reconnecting(attempt: 0) : .disconnected
+            sessionStore.connectionState = nextState
         }
 
         // Attempt reconnect if we have connection info for a trusted bridge.
@@ -1467,9 +1905,20 @@ final class ConnectionManager: @unchecked Sendable {
         // Try parsing as a sequenced event (has "seq" and "event" fields).
         // This handles the transition period before subscriptions are fully adopted.
         if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: data) {
+            fanoutEvent(sequenced)
             Task { @MainActor in
                 sessionStore.applyEvent(sequenced)
             }
+            return
+        }
+
+        // Try parsing as a TailEvent — bridge auto-fans the broker's
+        // /v1/tail/stream firehose to every connected phone as raw JSON in
+        // parity with the SequencedEvent path above. TailEvent's required
+        // fields (`harness`, `source`, `pid`, no `seq`) make this a safe
+        // last-resort decode.
+        if let tail = try? JSONDecoder().decode(TailEvent.self, from: data) {
+            fanoutTailEvent(tail)
             return
         }
 
@@ -1493,13 +1942,22 @@ final class ConnectionManager: @unchecked Sendable {
                 do {
                     let encoded = try JSONEncoder().encode(eventData)
                     if let sequenced = try? JSONDecoder().decode(SequencedEvent.self, from: encoded) {
+                        fanoutEvent(sequenced)
                         Task { @MainActor in
                             sessionStore.applyEvent(sequenced)
                         }
                         return
                     }
+                    // Lane A's tail.events subscription will land here too.
+                    // TailEvent has disjoint required fields from SequencedEvent
+                    // (no `seq`, has `harness`+`source`+`pid`), so this attempt
+                    // is safe as a fallback.
+                    if let tail = try? JSONDecoder().decode(TailEvent.self, from: encoded) {
+                        fanoutTailEvent(tail)
+                        return
+                    }
                 } catch {
-                    // Not a sequenced event — log and skip.
+                    // Not a known event shape — log and skip.
                 }
             }
             Self.logger.debug("Received subscription data for id \(response.id, privacy: .public) with no handler")

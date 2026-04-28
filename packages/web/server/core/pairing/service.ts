@@ -145,13 +145,20 @@ export async function startScoutPairingSession(input: {
     : input.relayUrl?.trim() || config.relay;
 
   try {
-    const activeRelayUrl = resolvedRelayUrl ?? (() => {
+    const managedRelay = resolvedRelayUrl ? null : (() => {
       relay = startManagedRelay(config.port + 1);
-      return relay.relayUrl;
+      return relay;
     })();
+    const activeRelayUrl = resolvedRelayUrl ?? managedRelay?.relayUrl;
+    const connectRelayUrl = resolvedRelayUrl ?? managedRelay?.connectUrl ?? managedRelay?.relayUrl;
+    if (!activeRelayUrl || !connectRelayUrl) {
+      throw new Error("Scout pairing relay URL is not configured.");
+    }
 
     runtime = await startPairingRuntime({
-      relayUrl: activeRelayUrl,
+      relayUrl: connectRelayUrl,
+      advertisedRelayUrl: activeRelayUrl,
+      fallbackRelayUrls: managedRelay?.fallbackRelayUrls,
       relayEvents: {
         onConnecting() {
           emitOrQueue(createStatusEvent("connecting", `Connecting to ${activeRelayUrl}`));

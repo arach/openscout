@@ -1,6 +1,6 @@
 // HomeView — Landing surface replacing SessionListView.
 //
-// Sections: bridge status bar, shortcuts, active sessions, recent history.
+// Sections: bridge status bar, shortcuts, and live bridge sessions.
 
 import SwiftUI
 
@@ -57,22 +57,15 @@ struct HomeView: View {
     }
 
     private var surfacedSummaries: [SessionSummary] {
-        // Three-state gate:
-        // 1. Disconnected → show everything including cached (best-effort content)
-        // 2. Connected, live list not yet received → show ONLY cached sessions.
-        //    Streaming applyEvent calls add live sessions one-by-one before the
-        //    full reconcileLiveSummaries arrives, causing a single-row flash.
-        //    Keeping those hidden until we have the complete list avoids the jump.
-        // 3. Connected + live list received → show only confirmed-live sessions.
-        let source: [SessionSummary]
-        if !isConnected {
-            source = store.summaries
-        } else if !store.hasReceivedLiveList {
-            source = store.summaries.filter { $0.isCachedOnly }
-        } else {
-            source = store.summaries.filter { !$0.isCachedOnly }
+        // Home mirrors the connected bridge surface. Cached-only sessions belong
+        // in Saved Sessions, not in the primary list that disappears after sync.
+        guard isConnected, store.hasReceivedLiveList else {
+            return []
         }
-        return source.sorted { $0.lastActivityAt > $1.lastActivityAt }
+
+        return store.summaries
+            .filter { !$0.isCachedOnly }
+            .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
     private var filteredSummaries: [SessionSummary] {
@@ -99,10 +92,6 @@ struct HomeView: View {
         surfacedSummaries.filter { summary in
             !activeSummaries.contains(where: { $0.sessionId == summary.sessionId })
         }
-    }
-
-    private var cachedSummaryCount: Int {
-        store.summaries.filter(\.isCachedOnly).count
     }
 
     var body: some View {
@@ -174,11 +163,6 @@ struct HomeView: View {
         .refreshable {
             await refreshSessions()
         }
-        .task {
-            if !isConnected && store.summaries.isEmpty {
-                await refreshSessions()
-            }
-        }
         .task(id: isConnected) {
             guard isConnected else { return }
             await refreshSessions()
@@ -194,24 +178,53 @@ struct HomeView: View {
 
     // MARK: - Bridge Status Bar
 
-    private var bridgeLedColor: Color {
+    /// Letters between the brackets — `LAN` / `TS` / `REMOTE` / `LOCAL` when
+    /// connected, `…` while connecting, `OFF` when down.
+    private var bridgeIndicatorLetters: String {
+        if connection.state == .connected {
+            let label = connection.transportKind.label
+            return label.isEmpty ? "ON" : label
+        }
         switch connection.state {
-        case .connected:                  return ScoutColors.ledGreen
-        case .connecting, .handshaking:   return ScoutColors.ledAmber
-        case .reconnecting:               return ScoutColors.ledAmber
-        case .disconnected:               return ScoutColors.ledRed
-        case .failed:                     return ScoutColors.ledRed
+        case .connecting, .handshaking, .reconnecting: return "…"
+        case .disconnected, .failed: return "OFF"
+        case .connected: return "ON"
+        }
+    }
+
+    /// Color applied to the inner letters only — green for LAN, amber for TS,
+    /// red for REMOTE / disconnected. Brackets stay muted.
+    private var bridgeIndicatorColor: Color {
+        if connection.state == .connected {
+            switch connection.transportKind {
+            case .lan: return ScoutColors.ledGreen
+            case .mesh: return ScoutColors.ledAmber
+            case .remote: return ScoutColors.ledRed
+            case .loopback, .none: return ScoutColors.ledGreen
+            }
+        }
+        switch connection.state {
+        case .connecting, .handshaking, .reconnecting: return ScoutColors.ledAmber
+        case .disconnected, .failed: return ScoutColors.ledRed
+        case .connected: return ScoutColors.ledGreen
         }
     }
 
     private var bridgeStatusBar: some View {
         HStack(spacing: 0) {
-            // LED + tap to open sheet
+            // Bracketed mode indicator (replaces LED dot). Brackets are muted;
+            // the letters carry the transport / state color.
             Button { showingConnectionSheet = true } label: {
-                Circle()
-                    .fill(bridgeLedColor)
-                    .frame(width: 7, height: 7)
-                    .padding(.horizontal, ScoutSpacing.md)
+                HStack(spacing: 0) {
+                    Text("[")
+                        .foregroundStyle(ScoutColors.textMuted)
+                    Text(bridgeIndicatorLetters)
+                        .foregroundStyle(bridgeIndicatorColor)
+                    Text("]")
+                        .foregroundStyle(ScoutColors.textMuted)
+                }
+                .font(ScoutTypography.code(10, weight: .bold))
+                .padding(.horizontal, ScoutSpacing.md)
             }
             .buttonStyle(.plain)
 
@@ -241,7 +254,7 @@ struct HomeView: View {
 
             Spacer()
 
-            // Divider
+            // Divider before gear
             Rectangle()
                 .fill(ScoutColors.divider)
                 .frame(width: 0.5)
@@ -271,19 +284,8 @@ struct HomeView: View {
             let count = liveSummaries.count
             return count == 0 ? "connected" : "\(count) session\(count == 1 ? "" : "s")"
         default:
-            if cachedSummaryCount > 0,
-               connection.state != .connecting,
-               connection.state != .handshaking,
-               !matchesReconnectingState(connection.state) {
-                return "\(cachedSummaryCount) cached"
-            }
             return connection.statusDetails.shortLabel.lowercased()
         }
-    }
-
-    private func matchesReconnectingState(_ state: ConnectionState) -> Bool {
-        if case .reconnecting = state { return true }
-        return false
     }
 
     // MARK: - Search Bar

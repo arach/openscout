@@ -76,6 +76,9 @@ export async function createScoutAgentCard(input: CreateScoutAgentCardInput): Pr
     harness: input.harness,
     model: input.model,
     currentDirectory: input.currentDirectory,
+    // Card creation should publish a routable identity, not make this short-lived
+    // CLI process the owner of a long-lived Claude/Codex session.
+    ensureOnline: false,
   });
   const currentDirectory = input.currentDirectory ?? input.projectPath;
   const broker = await loadScoutBrokerContext();

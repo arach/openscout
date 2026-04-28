@@ -48,6 +48,26 @@ struct SettingsView: View {
                     .foregroundStyle(ScoutColors.textSecondary)
             }
 
+            if connection.transportKind != .none, let host = connection.bridgeHost {
+                SettingsRow(icon: "network", iconColor: ScoutColors.textMuted, label: "Transport") {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(transportLEDColor)
+                            .frame(width: 6, height: 6)
+                        Text(connection.transportKind.label)
+                            .font(ScoutTypography.code(11, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textPrimary)
+                        Text("·")
+                            .foregroundStyle(ScoutColors.textMuted)
+                        Text(host)
+                            .font(ScoutTypography.code(11))
+                            .foregroundStyle(ScoutColors.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+
             if connection.hasTrustedBridge {
                 SettingsRow(icon: "checkmark.shield", iconColor: ScoutColors.textMuted, label: "Trusted Bridge") {
                     Image(systemName: "checkmark.circle.fill")
@@ -205,6 +225,15 @@ struct SettingsView: View {
 
     private var connectionLabel: String {
         connection.statusDetails.shortLabel
+    }
+
+    private var transportLEDColor: Color {
+        switch connection.transportKind {
+        case .lan: return ScoutColors.ledGreen
+        case .mesh: return ScoutColors.ledAmber
+        case .remote: return ScoutColors.ledRed
+        case .loopback, .none: return ScoutColors.textMuted
+        }
     }
 }
 

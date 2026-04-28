@@ -214,11 +214,55 @@ export type ObserveFile = {
   lastT: number;
 };
 
+export type ObserveUsageMeta = {
+  assistantMessages?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  totalTokens?: number;
+  contextWindowTokens?: number;
+  webSearchRequests?: number;
+  webFetchRequests?: number;
+  serviceTier?: string;
+  speed?: string;
+  planType?: string;
+};
+
+export type ObserveSessionMeta = {
+  adapterType?: string;
+  model?: string;
+  cwd?: string;
+  turnCount?: number;
+  externalSessionId?: string;
+  threadId?: string;
+  threadPath?: string;
+  gitBranch?: string;
+  cliVersion?: string;
+  entrypoint?: string;
+  originator?: string;
+  source?: string;
+  permissionMode?: string;
+  approvalPolicy?: string;
+  sandbox?: string;
+  userType?: string;
+  effort?: string;
+  modelProvider?: string;
+  timezone?: string;
+};
+
+export type ObserveMetadata = {
+  session?: ObserveSessionMeta;
+  usage?: ObserveUsageMeta;
+};
+
 export type ObserveData = {
   events: ObserveEvent[];
   files: ObserveFile[];
   contextUsage?: number[];
   live?: boolean;
+  metadata?: ObserveMetadata;
 };
 
 export type AgentObservePayload = {
@@ -399,7 +443,68 @@ export type Route =
   | { view: "terminal"; agentId?: string };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "plan" | "conductor" | "warroom" | "mission";
+export type OpsMode = "plan" | "conductor" | "warroom" | "mission" | "agents" | "tail" | "atop";
+
+/* ── Tail (Ops > Tail) types ── */
+
+export type TailHarness = "scout-managed" | "hudson-managed" | "unattributed";
+export type TailEventKind =
+  | "user"
+  | "assistant"
+  | "tool"
+  | "tool-result"
+  | "system"
+  | "other";
+
+export type TailEvent = {
+  id: string;
+  ts: number;
+  source: string;
+  sessionId: string;
+  pid: number;
+  parentPid: number | null;
+  project: string;
+  cwd: string;
+  harness: TailHarness;
+  kind: TailEventKind;
+  summary: string;
+  raw?: unknown;
+};
+
+export type TailDiscoveredProcess = {
+  pid: number;
+  ppid: number;
+  command: string;
+  etime: string;
+  cwd: string | null;
+  harness: TailHarness;
+  parentChain: { pid: number; command: string }[];
+  source: string;
+};
+
+export type TailDiscoveredTranscript = {
+  source: string;
+  transcriptPath: string;
+  sessionId: string | null;
+  cwd: string | null;
+  project: string;
+  harness: TailHarness;
+  mtimeMs: number;
+  size: number;
+};
+
+export type TailDiscoverySnapshot = {
+  generatedAt: number;
+  processes: TailDiscoveredProcess[];
+  transcripts?: TailDiscoveredTranscript[];
+  totals: {
+    total: number;
+    scoutManaged: number;
+    hudsonManaged: number;
+    unattributed: number;
+    transcripts?: number;
+  };
+};
 
 /* ── Ops types (Plan view) ── */
 

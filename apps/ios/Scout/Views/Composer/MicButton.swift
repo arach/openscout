@@ -1,4 +1,4 @@
-// MicButton — Central 70pt microphone button for the action tray.
+// MicButton — Compact central microphone button for the action tray.
 //
 // Ported from Talkie's ActionDock record button pattern.
 // Dual interaction: tap to toggle recording, long-press (0.2s) for push-to-talk.
@@ -6,18 +6,18 @@
 // Glow ring with spring animation and pulsing blur.
 // Haptic feedback on all state transitions.
 //
-// Also includes BottomCircleButton — the 44pt side button with
+// Also includes BottomCircleButton — the side button with
 // iOS 26 Liquid Glass and pre-iOS 26 chrome metallic fallback.
 
 import SwiftUI
 
 enum ActionTrayMetrics {
-    static let sideButtonSize: CGFloat = 44
-    static let centerButtonSize: CGFloat = 70
-    static let centerTouchTargetSize: CGFloat = centerButtonSize + 20
+    static let sideButtonSize: CGFloat = 40
+    static let centerButtonSize: CGFloat = 44
+    static let centerTouchTargetSize: CGFloat = centerButtonSize + 6
     static let horizontalPadding: CGFloat = 14
-    static let topPadding: CGFloat = 18
-    static let bottomPadding: CGFloat = -14
+    static let topPadding: CGFloat = 0
+    static let bottomPadding: CGFloat = 2
 }
 
 // MARK: - Mic State
@@ -29,7 +29,7 @@ enum MicButtonState: Equatable, Hashable {
     case disabled
 }
 
-// MARK: - MicButton (70pt center)
+// MARK: - MicButton
 
 struct MicButton: View {
     let state: MicButtonState

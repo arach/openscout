@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "OpenScout Feedback API",
+  title: "OpenScout Fleet Console",
   metadataBase: new URL("https://api.openscout.app"),
-  description: "OpenScout app feedback ingestion and review surface.",
+  description: "OpenScout compute fleet and agent operations console.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -12,10 +13,26 @@ import { useRouter } from "../lib/router.ts";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
+import {
+  extractRangerUiActions,
+  isRangerActorId,
+  rangerConversationId,
+  resolveRangerAgentId,
+  type RangerUiAction,
+} from "../lib/ranger.ts";
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
+
+declare global {
+  interface Window {
+    scoutRanger?: {
+      applyUiAction: (action: RangerUiAction) => void;
+      navigate: (route: Route) => void;
+    };
+  }
+}
 
 export interface OnboardingState {
   hasLocalConfig: boolean;
@@ -45,6 +62,10 @@ export interface ScoutContextValue {
   settingsOpen: boolean;
   openSettings: () => void;
   closeSettings: () => void;
+
+  rangerAgentId: string;
+  rangerConversationId: string;
+  applyRangerUiAction: (action: RangerUiAction) => void;
 }
 
 const ScoutContext = createContext<ScoutContextValue | null>(null);
@@ -140,6 +161,8 @@ export function ScoutProvider({
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
+  const rangerAgentId = useMemo(() => resolveRangerAgentId(agents), [agents]);
+  const rangerDmConversationId = useMemo(() => rangerConversationId(rangerAgentId), [rangerAgentId]);
 
   const reload = useCallback(async () => {
     const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
@@ -170,28 +193,95 @@ export function ScoutProvider({
     void reload();
     void refreshOnboarding();
   }, [reload, refreshOnboarding]);
-  useBrokerEvents((event) => {
-    if (!AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
-      return;
-    }
-    void reload();
-  });
 
   const onlineCount = useMemo(
     () => agents.filter((a) => isAgentOnline(a.state)).length,
     [agents],
   );
 
+  const applyRangerUiAction = useCallback((action: RangerUiAction) => {
+    switch (action.type) {
+      case "navigate":
+        navigate(action.route);
+        break;
+      case "open-ranger":
+        navigate({
+          view: "conversation",
+          conversationId: rangerDmConversationId,
+          ...(action.mode === "ask" ? { composeMode: "ask" } : {}),
+        });
+        break;
+      case "refresh":
+        void reload();
+        break;
+    }
+  }, [navigate, rangerDmConversationId, reload]);
+
+  const rangerBridgeRef = useRef({
+    rangerAgentId,
+    applyRangerUiAction,
+  });
+  rangerBridgeRef.current = { rangerAgentId, applyRangerUiAction };
+
+  useBrokerEvents((event) => {
+    if (AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
+      void reload();
+    }
+
+    const message = event.kind === "message.posted" && event.payload && typeof event.payload === "object"
+      ? (event.payload as { message?: unknown }).message
+      : null;
+    if (!message || typeof message !== "object") {
+      return;
+    }
+
+    const record = message as { actorId?: unknown; body?: unknown };
+    const actorId = typeof record.actorId === "string" ? record.actorId : "";
+    const body = typeof record.body === "string" ? record.body : "";
+    if (!actorId || !body || !isRangerActorId(actorId, rangerBridgeRef.current.rangerAgentId)) {
+      return;
+    }
+
+    for (const action of extractRangerUiActions(body)) {
+      rangerBridgeRef.current.applyRangerUiAction(action);
+    }
+  });
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      const action = detail && typeof detail === "object" && "type" in detail
+        ? detail as RangerUiAction
+        : null;
+      if (action) {
+        rangerBridgeRef.current.applyRangerUiAction(action);
+      }
+    };
+    window.addEventListener("scout:ranger-ui-action", handler);
+    window.scoutRanger = {
+      applyUiAction: (action: RangerUiAction) => rangerBridgeRef.current.applyRangerUiAction(action),
+      navigate: (route: Route) => rangerBridgeRef.current.applyRangerUiAction({ type: "navigate", route }),
+    };
+    return () => {
+      window.removeEventListener("scout:ranger-ui-action", handler);
+      if (window.scoutRanger?.applyUiAction) {
+        delete window.scoutRanger;
+      }
+    };
+  }, []);
+
   const value = useMemo<ScoutContextValue>(
     () => ({
       route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
+      rangerAgentId, rangerConversationId: rangerDmConversationId, applyRangerUiAction,
     }),
     [
       route, navigate, agents, onlineCount, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
+      rangerAgentId, rangerDmConversationId, applyRangerUiAction,
     ],
   );
 

@@ -10,6 +10,7 @@ import { loadScoutCommandHandler } from "./commands/index.ts";
 import { renderScoutHelp } from "./help.ts";
 import { parseImplicitAskCommandOptions } from "./options.ts";
 import { findScoutCommandRegistration } from "./registry.ts";
+import { normalizeCliBinaryMtimeMs, shouldRestartBrokerForCliMtime } from "./uptodate.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
 
 async function main() {
@@ -85,13 +86,13 @@ function getScoutBinPath(): string {
  */
 async function ensureBrokerUptodate(): Promise<void> {
   try {
-    const mtime = statSync(getScoutBinPath()).mtimeMs;
+    const mtime = normalizeCliBinaryMtimeMs(statSync(getScoutBinPath()).mtimeMs);
     const checkpointDir = join(homedir(), ".scout");
     const mtimePath = join(checkpointDir, "cli-mtime");
 
     const lastMtime = existsSync(mtimePath) ? Number(readFileSync(mtimePath, "utf8").trim()) : 0;
 
-    if (mtime > lastMtime) {
+    if (shouldRestartBrokerForCliMtime(mtime, lastMtime)) {
       // CLI was updated — bounce the broker
       const uid = process.getuid();
       const plistPath = join(homedir(), "Library", "LaunchAgents", "dev.openscout.broker.plist");
@@ -105,7 +106,7 @@ async function ensureBrokerUptodate(): Promise<void> {
     if (!existsSync(checkpointDir)) {
       mkdirSync(checkpointDir, { recursive: true });
     }
-    writeFileSync(mtimePath, String(Math.floor(mtime)), { encoding: "utf8", flag: "w" });
+    writeFileSync(mtimePath, String(mtime), { encoding: "utf8", flag: "w" });
   } catch {
     // Non-fatal: don't block command execution if broker check fails
   }

@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import * as z from "zod/v4";
 
 import {
+  SCOUT_MCP_UI_META_KEY,
   createScoutMcpServer,
   type ScoutMcpAgentCandidate,
 } from "./scout-mcp.ts";
@@ -101,6 +103,107 @@ describe("createScoutMcpServer", () => {
       .toContain("progress, waiting, review, and done transitions");
   });
 
+  test("advertises host-consumable agent picker metadata for Scout routing fields", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.listTools();
+    const sendTool = result.tools.find((tool) => tool.name === "messages_send") as
+      | {
+          _meta?: Record<string, unknown>;
+          inputSchema?: {
+            properties?: Record<string, { description?: string }>;
+          };
+        }
+      | undefined;
+    const askTool = result.tools.find((tool) => tool.name === "invocations_ask") as
+      | {
+          _meta?: Record<string, unknown>;
+          inputSchema?: {
+            properties?: Record<string, { description?: string }>;
+          };
+        }
+      | undefined;
+
+    expect(sendTool?._meta).toMatchObject({
+      [SCOUT_MCP_UI_META_KEY]: {
+        icon: {
+          kind: "semantic",
+          name: "agent",
+          fallbackGlyph: "@",
+        },
+        fields: {
+          targetLabel: {
+            kind: "agent-picker",
+            selection: "single",
+            sourceTool: "agents_search",
+            resolveTool: "agents_resolve",
+            valueField: "label",
+            labelField: "label",
+            descriptionField: "displayName",
+          },
+          mentionAgentIds: {
+            kind: "agent-picker",
+            selection: "multiple",
+            sourceTool: "agents_search",
+            valueField: "agentId",
+          },
+        },
+      },
+    });
+    expect(askTool?._meta).toMatchObject({
+      [SCOUT_MCP_UI_META_KEY]: {
+        fields: {
+          targetAgentId: {
+            kind: "agent-picker",
+            selection: "single",
+            sourceTool: "agents_search",
+            valueField: "agentId",
+          },
+          targetLabel: {
+            kind: "agent-picker",
+            selection: "single",
+            sourceTool: "agents_search",
+            resolveTool: "agents_resolve",
+            valueField: "label",
+          },
+        },
+      },
+    });
+    expect(sendTool?.inputSchema?.properties?.targetLabel?.description).toBe(
+      "Scout agent handle to contact, such as @talkie or @talkie#codex?5.5",
+    );
+    expect(askTool?.inputSchema?.properties?.targetAgentId?.description).toBe(
+      "Exact Scout agent id when already known, such as talkie.master.mini",
+    );
+  });
+
   test("surfaces broker-backed search results", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async (_senderId, currentDirectory) =>
@@ -120,6 +223,7 @@ describe("createScoutMcpServer", () => {
             registrationKind: "broker",
             routable: true,
             harness: "codex",
+            model: "gpt-5.5",
             workspace: "main",
             node: "mini",
             projectRoot: "/tmp/openscout-test",
@@ -358,6 +462,117 @@ describe("createScoutMcpServer", () => {
     expect(structured.workUrl).toBe("/api/work/work-1");
   });
 
+  test("schedules MCP reply notifications for notify-mode asks", async () => {
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({
+        usedBroker: true,
+        conversationId: "dm.operator.hudson",
+        messageId: "msg-1",
+        flight: {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "hudson.main",
+          state: "running",
+        },
+      }),
+      waitForFlight: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return {
+          id: "flight-1",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: "hudson.main",
+          state: "completed",
+          output: "hudson replied",
+        };
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const notificationPromise = new Promise<{
+      params: {
+        status: string;
+        flightId: string;
+        output: string | null;
+        senderId: string;
+        targetAgentId: string | null;
+      };
+    }>((resolve) => {
+      client.setNotificationHandler(
+        z.object({
+          method: z.literal("notifications/scout/reply"),
+          params: z
+            .object({
+              status: z.string(),
+              flightId: z.string(),
+              output: z.string().nullable(),
+              senderId: z.string(),
+              targetAgentId: z.string().nullable(),
+            })
+            .catchall(z.unknown()),
+        }),
+        (notification) => resolve(notification),
+      );
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Review the auth module",
+        targetAgentId: "hudson.main",
+        replyMode: "notify",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      awaited: boolean;
+      replyMode: string;
+      delivery: string;
+      notification: { method: string; status: string } | null;
+      output: string | null;
+      flight: { state: string } | null;
+    };
+
+    expect(structured.awaited).toBe(false);
+    expect(structured.replyMode).toBe("notify");
+    expect(structured.delivery).toBe("mcp_notification");
+    expect(structured.notification).toEqual({
+      method: "notifications/scout/reply",
+      status: "scheduled",
+    });
+    expect(structured.output).toBeNull();
+    expect(structured.flight?.state).toBe("running");
+
+    const notification = await notificationPromise;
+    expect(notification.params.status).toBe("completed");
+    expect(notification.params.flightId).toBe("flight-1");
+    expect(notification.params.output).toBe("hudson replied");
+    expect(notification.params.senderId).toBe("operator");
+    expect(notification.params.targetAgentId).toBe("hudson.main");
+  });
+
   test("updates a work item through the dedicated MCP tool", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async () => "hudson.main",
@@ -419,5 +634,68 @@ describe("createScoutMcpServer", () => {
     expect(structured.workUrl).toBe("/api/work/work-1");
     expect(structured.workItem?.state).toBe("review");
     expect(structured.workItem?.summary).toBe("Ready for review");
+  });
+
+  test("sends to a target label in one MCP call", async () => {
+    let receivedTargetLabel: string | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "operator",
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => [],
+      resolveAgent: async () => ({
+        kind: "unresolved",
+        candidate: null,
+        candidates: [],
+      }),
+      sendMessage: async ({ targetLabel }) => {
+        receivedTargetLabel = targetLabel;
+        return {
+          usedBroker: true,
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          invokedTargets: ["hudson.main"],
+          unresolvedTargets: [],
+          routeKind: "dm",
+        };
+      },
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async () => ({ usedBroker: true }),
+      askAgentById: async () => ({ usedBroker: true }),
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Take a look at the auth module.",
+        targetLabel: "@hudson",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      mode: string;
+      conversationId: string | null;
+      messageId: string | null;
+      invokedTargetIds: string[];
+      unresolvedTargetIds: string[];
+      routeKind: string | null;
+    };
+
+    expect(receivedTargetLabel).toBe("@hudson");
+    expect(structured.mode).toBe("target_label");
+    expect(structured.conversationId).toBe("dm.operator.hudson");
+    expect(structured.messageId).toBe("msg-1");
+    expect(structured.invokedTargetIds).toEqual(["hudson.main"]);
+    expect(structured.unresolvedTargetIds).toEqual([]);
+    expect(structured.routeKind).toBe("dm");
   });
 });

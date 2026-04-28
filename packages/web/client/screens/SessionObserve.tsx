@@ -4,15 +4,19 @@ import type {
   ObserveData,
   ObserveEvent,
   ObserveFile,
+  ObserveMetadata,
+  ObserveSessionMeta,
+  ObserveUsageMeta,
   SessionCatalogWithResume,
 } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
+import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import { useScout } from "../scout/Provider.tsx";
 
 import "./session-observe.css";
 
 async function queueTakeover(command: string) {
-  await fetch("/api/terminal/run", {
+  await fetch(resolveScoutRoutePath("terminalRunPath"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command }),
@@ -45,6 +49,20 @@ const TOOL_GLYPH: Record<string, string> = {
 };
 
 const LIVE_EDGE_WINDOW_SECONDS = 20;
+const GROUPED_NUMBER_FORMAT = new Intl.NumberFormat("en-US");
+const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+type ObserveDetailTone = "default" | "accent" | "good" | "warn";
+type ObserveDetailRow = {
+  label: string;
+  value: string;
+  title?: string;
+  tone?: ObserveDetailTone;
+  wrap?: boolean;
+};
 
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -54,6 +72,54 @@ function fmtClock(sec: number): string {
 
 function isCursorAtLiveEdge(cursor: number, duration: number): boolean {
   return cursor >= Math.max(0, duration - LIVE_EDGE_WINDOW_SECONDS);
+}
+
+function fmtGroupedNumber(value: number | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return GROUPED_NUMBER_FORMAT.format(value);
+}
+
+function fmtCompactNumber(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "—";
+  }
+  if (Math.abs(value) < 1_000) {
+    return GROUPED_NUMBER_FORMAT.format(value);
+  }
+
+  return COMPACT_NUMBER_FORMAT.format(value).toLowerCase();
+}
+
+function fmtWindowSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "0s";
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+
+  const wholeSeconds = Math.round(seconds);
+  const hours = Math.floor(wholeSeconds / 3_600);
+  const minutes = Math.floor((wholeSeconds % 3_600) / 60);
+  const remainingSeconds = wholeSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes >= 10 || remainingSeconds === 0) {
+    return `${minutes}m`;
+  }
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+function hasObserveRows(value: ObserveMetadata | ObserveSessionMeta | ObserveUsageMeta | undefined): boolean {
+  return !!value && Object.keys(value).length > 0;
+}
+
+function definedObserveRows(rows: Array<ObserveDetailRow | null | undefined>): ObserveDetailRow[] {
+  return rows.filter((row): row is ObserveDetailRow => Boolean(row));
 }
 
 /* ── Event blocks ── */
@@ -338,6 +404,46 @@ function FileGlyph({ state }: { state: string }) {
   );
 }
 
+function StatCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <div className="s-observe-stat">
+      <div className="s-observe-stat-label">{label}</div>
+      <div className="s-observe-stat-value">{value}</div>
+      {detail && <div className="s-observe-stat-detail">{detail}</div>}
+    </div>
+  );
+}
+
+function DetailRows({ rows }: { rows: ObserveDetailRow[] }) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="s-observe-detail-list">
+      {rows.map((row) => (
+        <div key={row.label} className="s-observe-detail-row">
+          <div className="s-observe-detail-label">{row.label}</div>
+          <div
+            className={`s-observe-detail-value s-observe-detail-value--${row.tone ?? "default"}${row.wrap ? " s-observe-detail-value--wrap" : ""}`}
+            title={row.title}
+          >
+            {row.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── Scrubber ── */
 
 function Scrubber({
@@ -564,12 +670,137 @@ export function SessionObserve({
       : "Jump to live ↦"
     : "Jump to end ↦";
 
+  const metadata = observeData.metadata;
+  const sessionMeta = metadata?.session;
+  const usageMeta = metadata?.usage;
   const toolCount = events.filter((e) => e.kind === "tool").length;
   const thinkCount = events.filter((e) => e.kind === "think").length;
   const askCount = events.filter((e) => e.kind === "ask").length;
-  const editCount = events.filter(
-    (e) => e.kind === "tool" && e.tool === "edit",
+  const readCount = events.filter(
+    (e) => e.kind === "tool" && e.tool === "read",
   ).length;
+  const editCount = events.filter(
+    (e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write"),
+  ).length;
+  const observedWindowSeconds = events.length > 0 ? events[events.length - 1]!.t : 0;
+  const derivedLoadPercent = contextUsage && contextUsage.length > 0
+    ? Math.round((contextUsage[contextUsage.length - 1] ?? 0) * 100)
+    : null;
+  const usageStatCards = [
+    { label: "Input", value: usageMeta?.inputTokens },
+    { label: "Output", value: usageMeta?.outputTokens },
+    { label: "Cache hit", value: usageMeta?.cacheReadInputTokens },
+    { label: "Cache write", value: usageMeta?.cacheCreationInputTokens },
+    { label: "Total", value: usageMeta?.totalTokens },
+    { label: "Reasoning", value: usageMeta?.reasoningOutputTokens },
+  ].filter((entry) => typeof entry.value === "number");
+  const usageRows = definedObserveRows([
+    typeof usageMeta?.assistantMessages === "number"
+      ? {
+          label: "Assistant msgs",
+          value: fmtGroupedNumber(usageMeta.assistantMessages) ?? "0",
+          tone: "accent",
+        }
+      : null,
+    typeof usageMeta?.webSearchRequests === "number"
+      ? {
+          label: "Web search",
+          value: fmtGroupedNumber(usageMeta.webSearchRequests) ?? "0",
+        }
+      : null,
+    typeof usageMeta?.webFetchRequests === "number"
+      ? {
+          label: "Web fetch",
+          value: fmtGroupedNumber(usageMeta.webFetchRequests) ?? "0",
+        }
+      : null,
+    usageMeta?.serviceTier
+      ? {
+          label: "Service tier",
+          value: usageMeta.serviceTier,
+          tone: "good",
+        }
+      : null,
+    usageMeta?.speed
+      ? {
+          label: "Speed",
+          value: usageMeta.speed,
+        }
+      : null,
+    usageMeta?.planType
+      ? {
+          label: "Plan",
+          value: usageMeta.planType,
+        }
+      : null,
+  ]);
+  const windowRows = definedObserveRows([
+    typeof usageMeta?.contextWindowTokens === "number"
+      ? {
+          label: "Model window",
+          value: `${fmtGroupedNumber(usageMeta.contextWindowTokens)} tokens`,
+          title: fmtGroupedNumber(usageMeta.contextWindowTokens) ?? undefined,
+          tone: "accent",
+        }
+      : null,
+    derivedLoadPercent !== null
+      ? {
+          label: "Derived load",
+          value: `${derivedLoadPercent}%`,
+          tone: derivedLoadPercent >= 80 ? "warn" : "default",
+        }
+      : null,
+  ]);
+  const metadataRows = definedObserveRows([
+    sessionMeta?.model ? { label: "Model", value: sessionMeta.model, tone: "accent" } : null,
+    sessionMeta?.adapterType ? { label: "Adapter", value: sessionMeta.adapterType } : null,
+    sessionMeta?.gitBranch ? { label: "Branch", value: sessionMeta.gitBranch } : null,
+    sessionMeta?.cwd
+      ? {
+          label: "Workspace",
+          value: sessionMeta.cwd,
+          title: sessionMeta.cwd,
+          wrap: true,
+        }
+      : null,
+    sessionMeta?.entrypoint ? { label: "Entrypoint", value: sessionMeta.entrypoint } : null,
+    sessionMeta?.cliVersion ? { label: "CLI", value: sessionMeta.cliVersion } : null,
+    sessionMeta?.permissionMode ? { label: "Permissions", value: sessionMeta.permissionMode } : null,
+    sessionMeta?.approvalPolicy ? { label: "Approval", value: sessionMeta.approvalPolicy } : null,
+    sessionMeta?.sandbox ? { label: "Sandbox", value: sessionMeta.sandbox } : null,
+    sessionMeta?.userType ? { label: "User type", value: sessionMeta.userType } : null,
+    sessionMeta?.originator ? { label: "Originator", value: sessionMeta.originator } : null,
+    sessionMeta?.modelProvider ? { label: "Provider", value: sessionMeta.modelProvider } : null,
+    sessionMeta?.effort ? { label: "Effort", value: sessionMeta.effort } : null,
+    sessionMeta?.timezone ? { label: "Timezone", value: sessionMeta.timezone } : null,
+    sessionMeta?.externalSessionId
+      ? {
+          label: "External session",
+          value: sessionMeta.externalSessionId,
+          title: sessionMeta.externalSessionId,
+          wrap: true,
+        }
+      : null,
+    sessionMeta?.threadId
+      ? {
+          label: "Thread",
+          value: sessionMeta.threadId,
+          title: sessionMeta.threadId,
+          wrap: true,
+        }
+      : null,
+    sessionMeta?.threadPath
+      ? {
+          label: "Thread path",
+          value: sessionMeta.threadPath,
+          title: sessionMeta.threadPath,
+          wrap: true,
+        }
+      : null,
+    sessionMeta?.source ? { label: "Runtime source", value: sessionMeta.source } : null,
+  ]);
+  const hasUsageMetadata = hasObserveRows(usageMeta);
+  const hasSessionMetadata = hasObserveRows(sessionMeta);
 
   return (
     <div className="s-observe">
@@ -593,18 +824,39 @@ export function SessionObserve({
         )}
 
         <div>
+          <div className="s-observe-rail-label">Trace stats</div>
+          <div className="s-observe-stats">
+            <StatCard
+              label="Turns"
+              value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)}
+            />
+            <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
+            <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />
+            <StatCard label="Asks" value={fmtCompactNumber(askCount)} />
+            <StatCard label="Reads" value={fmtCompactNumber(readCount)} />
+            <StatCard label="Edits" value={fmtCompactNumber(editCount)} />
+            <StatCard label="Files" value={fmtCompactNumber(files.length)} />
+            <StatCard label="Window" value={fmtWindowSpan(observedWindowSeconds)} />
+          </div>
+        </div>
+
+        <div>
           <div className="s-observe-rail-label">Context window</div>
+          <DetailRows rows={windowRows} />
           {contextUsage && contextUsage.length >= 2 ? (
             <>
               <ContextMeter data={contextUsage} cursor={cursor / duration} />
               <div className="s-observe-ctx-detail">
-                {Math.round((contextUsage[contextUsage.length - 1] ?? 0) * 100)}% ·{" "}
-                derived session load
+                Sparkline shows derived session load across the observed trace.
               </div>
             </>
-          ) : (
+          ) : windowRows.length === 0 ? (
             <div className="s-observe-ctx-detail">
               Unavailable for this session
+            </div>
+          ) : (
+            <div className="s-observe-ctx-detail">
+              Exact window metadata is available, but no derived load trace was captured.
             </div>
           )}
         </div>
@@ -628,25 +880,32 @@ export function SessionObserve({
         </div>
 
         <div>
-          <div className="s-observe-rail-label">Session stats</div>
-          <div className="s-observe-stats">
-            <div className="s-observe-stat">
-              <div className="s-observe-stat-label">Tools</div>
-              <div className="s-observe-stat-value">{toolCount}</div>
+          <div className="s-observe-rail-label">Usage</div>
+          {usageStatCards.length > 0 && (
+            <div className="s-observe-stats s-observe-stats--usage">
+              {usageStatCards.map((card) => (
+                <StatCard
+                  key={card.label}
+                  label={card.label}
+                  value={fmtCompactNumber(card.value)}
+                />
+              ))}
             </div>
-            <div className="s-observe-stat">
-              <div className="s-observe-stat-label">Thinks</div>
-              <div className="s-observe-stat-value">{thinkCount}</div>
-            </div>
-            <div className="s-observe-stat">
-              <div className="s-observe-stat-label">Asks</div>
-              <div className="s-observe-stat-value">{askCount}</div>
-            </div>
-            <div className="s-observe-stat">
-              <div className="s-observe-stat-label">Edits</div>
-              <div className="s-observe-stat-value">{editCount}</div>
-            </div>
-          </div>
+          )}
+          {usageRows.length > 0 ? (
+            <DetailRows rows={usageRows} />
+          ) : !hasUsageMetadata ? (
+            <div className="s-observe-ctx-detail">Unavailable for this session</div>
+          ) : null}
+        </div>
+
+        <div>
+          <div className="s-observe-rail-label">Metadata</div>
+          {metadataRows.length > 0 ? (
+            <DetailRows rows={metadataRows} />
+          ) : !hasSessionMetadata ? (
+            <div className="s-observe-ctx-detail">Unavailable for this session</div>
+          ) : null}
         </div>
       </aside>
 

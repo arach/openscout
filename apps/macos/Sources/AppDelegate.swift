@@ -36,6 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             .store(in: &cancellables)
 
+        ThemeManager.shared.$mode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.popover?.appearance = ThemeManager.shared.nsAppearance
+            }
+            .store(in: &cancellables)
+
         controller.start()
     }
 
@@ -73,8 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentSize = NSSize(width: 408, height: 574)
-        popover.appearance = NSAppearance(named: .aqua)
+        popover.contentSize = NSSize(width: 408, height: MainView.baseHeight)
+        popover.appearance = ThemeManager.shared.nsAppearance
         popover.contentViewController = NSHostingController(
             rootView: MainView(controller: controller)
         )
@@ -93,13 +100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openTailscaleItem.target = self
         menu.addItem(openTailscaleItem)
 
-        let logsItem = NSMenuItem(title: "Open Logs View", action: #selector(openLogsView), keyEquivalent: "")
-        logsItem.target = self
-        menu.addItem(logsItem)
-
         let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshState), keyEquivalent: "r")
         refreshItem.target = self
         menu.addItem(refreshItem)
+
+        menu.addItem(.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
@@ -132,6 +141,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func openLogsView() {
         controller.openLogsView()
+    }
+
+    @objc
+    private func openSettings() {
+        SettingsWindowController.shared.show(controller: controller)
     }
 
     @objc

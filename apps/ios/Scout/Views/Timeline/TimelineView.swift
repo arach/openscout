@@ -20,9 +20,6 @@ struct TimelineView: View {
     @State private var liveRefreshGeneration = 0
     @State private var liveRefreshDeadline: Date?
     @State private var isHydrating = true
-    @State private var isOpeningWebHandoff = false
-    @State private var webHandoffError: String?
-    @State private var sessionWebHandoff: SecureBridgeWebSurface?
     @Namespace private var bottomAnchor
 
     private var sessionState: SessionState? {
@@ -101,8 +98,8 @@ struct TimelineView: View {
                 cachedSessionBanner
             }
 
-            if showsWebHandoffStrip {
-                webHandoffStrip
+            if let session {
+                sessionHeader(session)
             }
 
             if turns.isEmpty {
@@ -171,9 +168,6 @@ struct TimelineView: View {
             guard phase == .active, (sessionState?.currentTurnId != nil || liveRefreshDeadline != nil) else { return }
             requestFocusedRefresh(for: 20, forceRestart: true)
         }
-        .fullScreenCover(item: $sessionWebHandoff) { handoff in
-            SecureBridgeHandoffView(surface: handoff)
-        }
     }
 
     @MainActor
@@ -181,9 +175,15 @@ struct TimelineView: View {
         do {
             guard try await verifyLatestTurnBeforeSending() else { return }
 
-            let turnId = "user-\(UUID().uuidString)"
+            let prompt = Prompt(
+                sessionId: sessionId,
+                text: request.text,
+                providerOptions: promptProviderOptions(for: request)
+            )
+            let result = try await connection.sendPrompt(prompt)
+            let turnId = result.messageId
             let userBlock = Block(
-                id: UUID().uuidString,
+                id: "\(turnId):body",
                 turnId: turnId,
                 type: .text,
                 status: .completed,
@@ -198,14 +198,8 @@ struct TimelineView: View {
                 isUserTurn: true
             )
             store.appendLocalTurn(userTurn, sessionId: sessionId)
-
-            let prompt = Prompt(
-                sessionId: sessionId,
-                text: request.text,
-                providerOptions: promptProviderOptions(for: request)
-            )
-            try await connection.sendPrompt(prompt)
             shouldAutoScroll = true
+            await refreshTimeline(showSpinner: false, reportErrors: false)
             requestFocusedRefresh(for: 30, forceRestart: true)
             sendError = nil
         } catch {
@@ -222,13 +216,22 @@ struct TimelineView: View {
 
         let localState = store.sessions[sessionId] ?? SessionCache.shared.load(sessionId: sessionId)
         let remoteSnapshot = TurnHash.normalize(try await connection.getSnapshot(sessionId))
-        guard TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) else {
-            store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
-            sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
-            return false
+        if TurnHash.latestTurnsMatch(local: localState, remote: remoteSnapshot) {
+            return true
         }
 
-        return true
+        if let localState,
+           TurnHash.latestTurnsMatch(
+               local: TurnHash.droppingTrailingLocalOnlyUserTurns(from: localState),
+               remote: remoteSnapshot
+           ) {
+            store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
+            return true
+        }
+
+        store.applyLatestSnapshotPreservingHistory(remoteSnapshot)
+        sendError = "Session changed on the bridge. Scout reloaded the latest turns. Review and send again."
+        return false
     }
 
     @MainActor
@@ -248,87 +251,48 @@ struct TimelineView: View {
         isHydrating = false
     }
 
-    private var showsWebHandoffStrip: Bool {
-        connection.state == .connected && !isCachedOnly
-    }
+    private func sessionHeader(_ session: Session) -> some View {
+        HStack(spacing: 8) {
+            Text(session.name)
+                .font(ScoutTypography.caption(13, weight: .semibold))
+                .foregroundStyle(ScoutColors.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-    private var webHandoffStrip: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: ScoutSpacing.sm) {
-                Image(systemName: "lock.desktopcomputer")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ScoutColors.accent)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("SECURE WEB")
+            if isStreaming {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(ScoutColors.statusStreaming)
+                        .frame(width: 6, height: 6)
+                    Text("Live")
                         .font(ScoutTypography.code(10, weight: .semibold))
-                        .foregroundStyle(ScoutColors.textMuted)
-                    Text("Open a proxy-backed web playback surface for this session.")
-                        .font(ScoutTypography.caption(12))
-                        .foregroundStyle(ScoutColors.textSecondary)
                 }
+                .foregroundStyle(ScoutColors.textSecondary)
+            }
 
-                Spacer()
-
-                Button {
-                    Task { await openSessionWebHandoff() }
-                } label: {
-                    if isOpeningWebHandoff {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Text("Open")
-                            .font(ScoutTypography.caption(12, weight: .semibold))
-                    }
+            if let branch = session.currentBranch?.trimmedNonEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(branch)
+                        .font(ScoutTypography.code(11, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isOpeningWebHandoff)
+                .foregroundStyle(ScoutColors.textSecondary)
             }
-            .padding(.horizontal, ScoutSpacing.lg)
-            .padding(.vertical, ScoutSpacing.sm)
 
-            if let webHandoffError {
-                Text(webHandoffError)
-                    .font(ScoutTypography.caption(12, weight: .medium))
-                    .foregroundStyle(ScoutColors.statusError)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, ScoutSpacing.lg)
-                    .padding(.bottom, ScoutSpacing.sm)
-            }
+            Spacer(minLength: 0)
         }
-        .background(ScoutColors.surfaceAdaptive)
+        .padding(.horizontal, ScoutSpacing.lg)
+        .padding(.top, 6)
+        .padding(.bottom, 7)
+        .frame(maxWidth: .infinity)
+        .background(ScoutColors.backgroundAdaptive)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(ScoutColors.divider)
+                .fill(ScoutColors.divider.opacity(0.7))
                 .frame(height: 0.5)
-        }
-    }
-
-    @MainActor
-    private func openSessionWebHandoff() async {
-        guard connection.state == .connected else { return }
-        guard let host = connection.bridgeHost,
-              let port = connection.bridgePort else {
-            webHandoffError = "Reconnect to open the secure web surface."
-            return
-        }
-
-        isOpeningWebHandoff = true
-        defer { isOpeningWebHandoff = false }
-
-        do {
-            let handoff = try await connection.createWebHandoff(
-                kind: .session,
-                sessionId: sessionId
-            )
-            guard let surface = SecureBridgeWebSurface(handoff: handoff, host: host, port: port) else {
-                webHandoffError = "Scout couldn't prepare this web surface right now."
-                return
-            }
-            sessionWebHandoff = surface
-            webHandoffError = nil
-        } catch {
-            webHandoffError = error.scoutUserFacingMessage
         }
     }
 
@@ -427,7 +391,7 @@ struct TimelineView: View {
                     }
 
                     ForEach(turns) { turn in
-                        TurnView(turn: turn)
+                        TurnView(turn: turn, session: session)
 
                         // Subtle divider between turns
                         if turn.id != turns.last?.id {
@@ -501,25 +465,6 @@ struct TimelineView: View {
                     .padding(.trailing, ScoutSpacing.lg)
                     .padding(.bottom, ScoutSpacing.lg)
                 }
-            }
-            .overlay(alignment: .top) {
-                // Gradient blur behind the status bar / dynamic island
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .mask(
-                        LinearGradient(
-                            stops: [
-                                .init(color: .white, location: 0),
-                                .init(color: .white, location: 0.5),
-                                .init(color: .clear, location: 1),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(height: 54)
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
             }
         }
     }

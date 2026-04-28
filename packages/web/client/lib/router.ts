@@ -79,7 +79,15 @@ export function routeFromUrl(urlLike: string | URL): Route {
       return { view: "inbox" };
     }
     const mode = parts[1];
-    if (mode === "conductor" || mode === "warroom" || mode === "plan" || mode === "mission") {
+    if (
+      mode === "conductor" ||
+      mode === "warroom" ||
+      mode === "plan" ||
+      mode === "mission" ||
+      mode === "agents" ||
+      mode === "tail" ||
+      mode === "atop"
+    ) {
       return { view: "ops", mode };
     }
     return { view: "ops" };

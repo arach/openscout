@@ -1,12 +1,12 @@
 {
   "name": "@openscout/protocol",
-  "version": "0.2.61",
+  "version": "0.2.62",
   "description": "Typed protocol for the OpenScout local control plane",
   "type": "module",
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "bun": "./dist/index.js",
+      "bun": "./src/index.ts",
       "default": "./dist/index.js"
     }
   },

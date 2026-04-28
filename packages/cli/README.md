@@ -91,6 +91,33 @@ scout send "@vox heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
 ```
 
+Known on-demand or offline agents are supposed to wake on first delivery. `scout send` and `scout ask` should be the default path; `scout up` is for explicit prewarming or for creating/registering a target the broker does not know yet.
+
+### File-backed input
+
+Use a file when the primary prompt or message is too large or too structured to
+belong in shell argv.
+
+Nomenclature:
+
+- **Prompt file**: the primary work prompt for `scout ask`; pass it with `--prompt-file <path>`.
+- **Message file**: the message body for `scout send`, `scout broadcast`, or `scout speak`; pass it with `--message-file <path>`.
+- **Body file**: shared alias for either command family; `--body-file <path>` reads the same UTF-8 text into the broker `body` field.
+
+Examples:
+
+```bash
+scout ask --to hudson --prompt-file ./handoff.md
+scout @hudson --prompt-file ./review-request.md
+scout send --channel triage --message-file ./status-update.md
+scout broadcast --message-file ./maintenance-window.md
+```
+
+The file is read locally before dispatch. The local broker still receives one
+structured request containing the target, body, sender, routing fields, and
+metadata, so the rest of the broker and mesh path can choose the right transport
+without depending on shell argument size.
+
 ### One-to-one delegation
 
 When one project agent is delegating concrete work to one other agent, treat it
@@ -120,10 +147,10 @@ single owner.
 
 ### Addressing specific agents
 
-Agent identity has five dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `node`. Canonical form:
+Agent identity has six dimensions: `definitionId`, workspace qualifier, `profile`, `harness`, `model`, `node`. Canonical form:
 
 ```
-@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.node:<node>]
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.model:<model>][.node:<node>]
 ```
 
 Short `@name` only resolves when exactly one matching agent is available from the current context. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
@@ -133,9 +160,13 @@ scout @vox.harness:codex message from hudson: please retry the build
 scout ask --to vox.harness:claude "what did the reviewer flag?"
 scout @arc.profile:reviewer take another pass
 scout @vox.harness:codex.node:mini run locally on mini
+scout ask --to lattices#codex?5.5 "take task A"
+scout ask --to lattices#claude?sonnet "take task B"
 ```
 
-Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Dimensions combine in any order.
+Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree:` = workspace qualifier. Shorthand `#codex` maps to `harness:codex`; `?sonnet` or `?5.5` maps to `model:<model>`. Dimensions combine in any order.
+
+If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
 
 ## Current Commands
 

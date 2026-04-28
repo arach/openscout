@@ -74,6 +74,7 @@ const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
 
 type LocalAgentRecord = {
   definitionId?: string;
+  registrationSource?: RelayAgentOverride["source"];
   project: string;
   projectRoot?: string;
   tmuxSession: string;
@@ -134,6 +135,8 @@ export type StartLocalAgentInput = {
   branch?: string;
   /** Override the agent's working directory (e.g., for git worktrees). */
   cwdOverride?: string;
+  /** When false, only register/update the agent identity without warming a live session. */
+  ensureOnline?: boolean;
 };
 
 interface BrokerSnapshotMessage {
@@ -303,7 +306,7 @@ function buildLocalAgentCollaborationPrompt(context: LocalAgentSystemPromptTempl
 function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTemplateContext): string {
   return [
     "Relay protocol:",
-    `  - Read recent context with: ${context.relayCommand} read --as ${context.agentId}`,
+    `  - Read recent context when needed with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
     `  - Tell one agent with: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
     `  - Ask one agent and stay attached with: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "",
@@ -315,9 +318,10 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "  - If you need multiple agents, use separate DMs or an explicit channel; do not guess a venue from multiple mentions",
     "  - Do not use channel.shared for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
+    "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
     "  - When replying to an [ask:<id>] request, include the same [ask:<id>] tag in your reply",
-    "  - Use the broker-backed relay read command above to inspect recent context before responding",
+    "  - Use the broker-backed latest command above only when recent context is needed before responding",
     `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
 }
@@ -328,7 +332,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - You are invoked directly by the OpenScout broker",
     "  - Return your final answer in the assistant message for the current turn",
     "  - Do not shell out to send the final answer through relay yourself",
-    `  - If you need recent relay context, inspect it with: ${context.relayCommand} read --as ${context.agentId}`,
+    `  - If you need recent broker context, inspect it with: ${context.relayCommand} latest --agent ${context.agentId} --limit 20`,
     `  - If you need to tell one agent something, use: ${context.relayCommand} send --as ${context.agentId} "@<agent> your message"`,
     `  - If you need another agent to do work, use: ${context.relayCommand} ask --to <agent> --as ${context.agentId} "your request"`,
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
@@ -336,6 +340,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - If you need multiple agents, use separate DMs or an explicit channel; do not guess a venue from multiple mentions",
     "  - Do not use channel.shared for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
+    "  - Treat known offline / on-demand agents as wakeable: use send or ask first and let the broker wake them; only surface ambiguity or unknown-target failures to the operator",
     "  - Use send for tells and status; use ask when the meaning is 'do this and get back to me'",
     `  - Follow the scout skill at ${context.scoutSkill} for agent-to-agent communication`,
   ].join("\n");
@@ -921,6 +926,7 @@ function normalizeLocalAgentRecord(agentId: string, record: LocalAgentRecord): L
     transport: activeProfile?.transport ?? normalizeLocalAgentTransport(record.transport, harness),
     capabilities: normalizeLocalAgentCapabilities(record.capabilities),
     launchArgs: activeProfile?.launchArgs ?? normalizeLaunchArgsForHarness(harness, record.launchArgs),
+    registrationSource: record.registrationSource,
   };
 }
 
@@ -954,6 +960,7 @@ function localAgentStatusSource(
 function localAgentRecordFromResolvedConfig(config: ResolvedRelayAgentConfig): LocalAgentRecord {
   return normalizeLocalAgentRecord(config.agentId, {
     definitionId: config.definitionId,
+    registrationSource: config.source,
     project: config.projectName,
     projectRoot: config.projectRoot,
     tmuxSession: config.runtime.sessionId,
@@ -975,6 +982,7 @@ function localAgentRecordFromRelayAgentOverride(
 ): LocalAgentRecord {
   return normalizeLocalAgentRecord(agentId, {
     definitionId: override.definitionId ?? agentId,
+    registrationSource: override.source,
     project: override.projectName ?? basename(override.projectRoot || override.runtime?.cwd || agentId),
     projectRoot: override.projectRoot ?? override.runtime?.cwd,
     tmuxSession: override.runtime?.sessionId ?? `relay-${agentId}`,
@@ -1507,7 +1515,7 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
     parts.push(`Context: ${JSON.stringify(invocation.context)}`);
   }
 
-  parts.push(`Read recent context if needed: ${relayCommand} read -n 20 --as ${agentName}.`);
+  parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
   parts.push(`Reply with: ${relayCommand} send --as ${agentName} "[ask:${flightId}] @${invocation.requesterId} <your response>"`);
   return parts.join(" ");
 }
@@ -1945,17 +1953,58 @@ export type ResolvedAgentName = {
   projectRoot: string;
 };
 
-export async function resolveLocalAgentByName(name: string): Promise<ResolvedAgentName | null> {
+export type ResolveLocalAgentByNameOptions = {
+  matchProjectName?: boolean;
+};
+
+function resolvedAgentNameFromOverride(
+  agentId: string,
+  override: RelayAgentOverride,
+): ResolvedAgentName {
+  return {
+    agentId,
+    definitionId: override.definitionId ?? agentId,
+    projectRoot: override.projectRoot,
+  };
+}
+
+export async function resolveLocalAgentByName(
+  name: string,
+  options: ResolveLocalAgentByNameOptions = {},
+): Promise<ResolvedAgentName | null> {
   const normalized = normalizeAgentSelectorSegment(name);
   if (!normalized) return null;
 
   const overrides = await readRelayAgentOverrides();
-  for (const [id, override] of Object.entries(overrides)) {
-    if (BUILT_IN_AGENT_DEFINITION_IDS.has(id)) continue;
-    const defId = override.definitionId ?? id;
-    if (defId === normalized || normalizeAgentSelectorSegment(override.projectName ?? "") === normalized) {
-      return { agentId: id, definitionId: defId, projectRoot: override.projectRoot };
+  const entries = Object.entries(overrides)
+    .filter(([agentId]) => !BUILT_IN_AGENT_DEFINITION_IDS.has(agentId));
+
+  const exactAgentIdMatch = entries.find(([agentId]) => normalizeAgentSelectorSegment(agentId) === normalized);
+  if (exactAgentIdMatch) {
+    return resolvedAgentNameFromOverride(exactAgentIdMatch[0], exactAgentIdMatch[1]);
+  }
+
+  const definitionMatches = entries.filter(([agentId, override]) => (override.definitionId ?? agentId) === normalized);
+  if (definitionMatches.length === 1) {
+    const [agentId, override] = definitionMatches[0]!;
+    return resolvedAgentNameFromOverride(agentId, override);
+  }
+  if (definitionMatches.length > 1) {
+    const preferredMatch = definitionMatches.find(([agentId]) => /\.(main|master)\./.test(agentId))
+      ?? definitionMatches[0];
+    if (preferredMatch) {
+      return resolvedAgentNameFromOverride(preferredMatch[0], preferredMatch[1]);
     }
+  }
+
+  if (!options.matchProjectName) {
+    return null;
+  }
+
+  const projectMatches = entries.filter(([, override]) => normalizeAgentSelectorSegment(override.projectName ?? "") === normalized);
+  if (projectMatches.length === 1) {
+    const [agentId, override] = projectMatches[0]!;
+    return resolvedAgentNameFromOverride(agentId, override);
   }
   return null;
 }
@@ -2093,6 +2142,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
   const currentDirectory = input.currentDirectory ?? projectPath;
   const effectiveCwd = input.cwdOverride ? normalizeProjectPath(input.cwdOverride) : undefined;
+  const shouldEnsureOnline = input.ensureOnline !== false;
   const requestedDefinitionId = input.agentName?.trim()
     ? normalizeAgentSelectorSegment(input.agentName.trim())
     : "";
@@ -2231,6 +2281,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     const nextDefaultHarness = preferredHarness
       ? normalizeManagedHarness(preferredHarness, "claude")
       : defaultHarnessForOverride(matchingOverride, "claude");
+    const nextSessionId = normalizeTmuxSessionName(undefined, `${instance.id}-${nextHarness}`);
     const nextLaunchArgs = applyRequestedModelToLaunchArgs(
       nextHarness,
       launchArgsForOverrideHarness(matchingOverride, nextHarness),
@@ -2242,10 +2293,9 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
       displayName: input.displayName || titleCaseLocalAgentName(requestedDefinitionId),
       projectName: matchingOverride.projectName ?? basename(matchingProjectRoot),
       projectRoot: matchingProjectRoot,
-      projectConfigPath: matchingOverride.projectConfigPath ?? null,
+      projectConfigPath: null,
       source: "manual",
       startedAt: matchingOverride.startedAt ?? nowSeconds(),
-      systemPrompt: matchingOverride.systemPrompt,
       launchArgs: nextHarness === nextDefaultHarness
         ? nextLaunchArgs
         : matchingOverride.launchArgs,
@@ -2255,17 +2305,18 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
         ...(matchingOverride.harnessProfiles ?? {}),
         [nextHarness]: {
           ...overrideHarnessProfile(matchingOverride, nextHarness),
+          sessionId: nextSessionId,
           launchArgs: nextLaunchArgs,
         },
       },
       runtime: {
         cwd: effectiveCwd ?? matchingOverride.runtime?.cwd ?? matchingProjectRoot,
-        harness: resolvedHarness,
-        transport: preferredHarness
-          ? normalizeLocalAgentTransport(undefined, preferredHarness)
-          : matchingOverride.runtime?.transport,
-        sessionId: matchingOverride.runtime?.sessionId
-          ?? normalizeTmuxSessionName(undefined, `${instance.id}-${normalizeManagedHarness(resolvedHarness, "claude")}`),
+        harness: nextHarness,
+        transport: normalizeLocalAgentTransport(
+          preferredHarness ? undefined : matchingOverride.runtime?.transport,
+          nextHarness,
+        ),
+        sessionId: nextSessionId,
         wakePolicy: "on_demand",
       },
     };
@@ -2301,12 +2352,14 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     targetAgentId = matchingAgentId!;
   }
 
-  await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
-    includeDiscovered: false,
-    currentDirectory,
-    ensureCurrentProjectConfig: false,
-    harness: preferredHarness,
-  });
+  if (shouldEnsureOnline) {
+    await ensureLocalAgentBindingOnline(targetAgentId, process.env.OPENSCOUT_NODE_ID ?? "local", {
+      includeDiscovered: false,
+      currentDirectory,
+      ensureCurrentProjectConfig: false,
+      harness: preferredHarness,
+    });
+  }
 
   const finalOverrides = await readRelayAgentOverrides();
   const finalOverride = finalOverrides[targetAgentId];
@@ -2460,6 +2513,7 @@ function buildLocalAgentBinding(
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         source,
+        ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         project: normalizedRecord.project,
         projectRoot,
         tmuxSession: normalizedRecord.tmuxSession,
@@ -2486,6 +2540,7 @@ function buildLocalAgentBinding(
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         source,
+        ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         project: normalizedRecord.project,
         projectRoot,
         tmuxSession: normalizedRecord.tmuxSession,
@@ -2519,6 +2574,7 @@ function buildLocalAgentBinding(
       sessionId: normalizedRecord.tmuxSession,
       metadata: {
         source,
+        ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         agentName: definitionId,
         tmuxSession: normalizedRecord.tmuxSession,
         runtimeInstanceId: normalizedRecord.tmuxSession,

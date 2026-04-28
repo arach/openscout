@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildControlPlaneClientAndCopy,
+  bundleScoutWebServerBun,
   bundleScoutControlPlaneWebServerBun,
   getOpenScoutRepoRoot,
+  verifyBundleStaticChecks,
 } from "../../../scripts/bundle-scout-web.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -17,6 +19,7 @@ const repoRoot = getOpenScoutRepoRoot();
 const entryFile = resolve(packageDirectory, "src/main.ts");
 const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
+const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
 const pairSupervisorOutput = resolve(outputDirectory, "pair-supervisor.mjs");
 const clientDir = resolve(outputDirectory, "client");
@@ -35,6 +38,10 @@ if ((result.status ?? 1) !== 0) {
 }
 
 if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
+  process.exit(1);
+}
+
+if (!bundleScoutWebServerBun(repoRoot, webServerOutput)) {
   process.exit(1);
 }
 
@@ -66,3 +73,9 @@ const normalized = built
 
 writeFileSync(outputFile, `#!/usr/bin/env bun\n${normalized}`);
 chmodSync(outputFile, 0o755);
+
+for (const built of [outputFile, pairSupervisorOutput]) {
+  if (!verifyBundleStaticChecks(built)) {
+    process.exit(1);
+  }
+}

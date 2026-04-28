@@ -54,11 +54,55 @@ export interface ObserveFile {
   lastT: number;
 }
 
+export interface ObserveUsageMeta {
+  assistantMessages?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  totalTokens?: number;
+  contextWindowTokens?: number;
+  webSearchRequests?: number;
+  webFetchRequests?: number;
+  serviceTier?: string;
+  speed?: string;
+  planType?: string;
+}
+
+export interface ObserveSessionMeta {
+  adapterType?: string;
+  model?: string;
+  cwd?: string;
+  turnCount?: number;
+  externalSessionId?: string;
+  threadId?: string;
+  threadPath?: string;
+  gitBranch?: string;
+  cliVersion?: string;
+  entrypoint?: string;
+  originator?: string;
+  source?: string;
+  permissionMode?: string;
+  approvalPolicy?: string;
+  sandbox?: string;
+  userType?: string;
+  effort?: string;
+  modelProvider?: string;
+  timezone?: string;
+}
+
+export interface ObserveMetadata {
+  session?: ObserveSessionMeta;
+  usage?: ObserveUsageMeta;
+}
+
 export interface ObserveData {
   events: ObserveEvent[];
   files: ObserveFile[];
   contextUsage?: number[];
   live?: boolean;
+  metadata?: ObserveMetadata;
 }
 
 export interface AgentObservePayload {
@@ -223,6 +267,142 @@ function historyAdapterAlias(
 function snapshotProviderMeta(snapshot: SessionState): Record<string, unknown> {
   const providerMeta = snapshot.session.providerMeta;
   return providerMeta && typeof providerMeta === "object" ? providerMeta : {};
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = metadata?.[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function buildObserveMetadata(snapshot: SessionState): ObserveMetadata | undefined {
+  const providerMeta = snapshotProviderMeta(snapshot);
+  const observeRuntime = metadataRecord(providerMeta, "observeRuntime");
+  const observeUsage = metadataRecord(providerMeta, "observeUsage");
+
+  const sessionMeta: ObserveSessionMeta = {};
+  if (snapshot.session.adapterType) sessionMeta.adapterType = snapshot.session.adapterType;
+  if (snapshot.session.model) sessionMeta.model = snapshot.session.model;
+  if (snapshot.session.cwd) sessionMeta.cwd = snapshot.session.cwd;
+  if (snapshot.turns.length > 0) sessionMeta.turnCount = snapshot.turns.length;
+  if (metadataString(providerMeta, "externalSessionId")) {
+    sessionMeta.externalSessionId = metadataString(providerMeta, "externalSessionId");
+  }
+  if (metadataString(providerMeta, "threadId")) {
+    sessionMeta.threadId = metadataString(providerMeta, "threadId");
+  }
+  if (metadataString(providerMeta, "threadPath")) {
+    sessionMeta.threadPath = metadataString(providerMeta, "threadPath");
+  }
+  if (metadataString(observeRuntime, "gitBranch")) {
+    sessionMeta.gitBranch = metadataString(observeRuntime, "gitBranch");
+  }
+  if (metadataString(observeRuntime, "cliVersion")) {
+    sessionMeta.cliVersion = metadataString(observeRuntime, "cliVersion");
+  }
+  if (metadataString(observeRuntime, "entrypoint")) {
+    sessionMeta.entrypoint = metadataString(observeRuntime, "entrypoint");
+  }
+  if (metadataString(observeRuntime, "originator")) {
+    sessionMeta.originator = metadataString(observeRuntime, "originator");
+  }
+  if (metadataString(observeRuntime, "source")) {
+    sessionMeta.source = metadataString(observeRuntime, "source");
+  }
+  if (metadataString(observeRuntime, "permissionMode")) {
+    sessionMeta.permissionMode = metadataString(observeRuntime, "permissionMode");
+  }
+  if (metadataString(observeRuntime, "approvalPolicy")) {
+    sessionMeta.approvalPolicy = metadataString(observeRuntime, "approvalPolicy");
+  }
+  if (metadataString(observeRuntime, "sandbox")) {
+    sessionMeta.sandbox = metadataString(observeRuntime, "sandbox");
+  }
+  if (metadataString(observeRuntime, "userType")) {
+    sessionMeta.userType = metadataString(observeRuntime, "userType");
+  }
+  if (metadataString(observeRuntime, "effort")) {
+    sessionMeta.effort = metadataString(observeRuntime, "effort");
+  }
+  if (metadataString(observeRuntime, "modelProvider")) {
+    sessionMeta.modelProvider = metadataString(observeRuntime, "modelProvider");
+  }
+  if (metadataString(observeRuntime, "timezone")) {
+    sessionMeta.timezone = metadataString(observeRuntime, "timezone");
+  }
+
+  const usageMeta: ObserveUsageMeta = {};
+  if (metadataNumber(observeUsage, "assistantMessages") !== undefined) {
+    usageMeta.assistantMessages = metadataNumber(observeUsage, "assistantMessages");
+  }
+  if (metadataNumber(observeUsage, "inputTokens") !== undefined) {
+    usageMeta.inputTokens = metadataNumber(observeUsage, "inputTokens");
+  }
+  if (metadataNumber(observeUsage, "outputTokens") !== undefined) {
+    usageMeta.outputTokens = metadataNumber(observeUsage, "outputTokens");
+  }
+  if (metadataNumber(observeUsage, "reasoningOutputTokens") !== undefined) {
+    usageMeta.reasoningOutputTokens = metadataNumber(observeUsage, "reasoningOutputTokens");
+  }
+  if (metadataNumber(observeUsage, "cacheReadInputTokens") !== undefined) {
+    usageMeta.cacheReadInputTokens = metadataNumber(observeUsage, "cacheReadInputTokens");
+  }
+  if (metadataNumber(observeUsage, "cacheCreationInputTokens") !== undefined) {
+    usageMeta.cacheCreationInputTokens = metadataNumber(observeUsage, "cacheCreationInputTokens");
+  }
+  if (metadataNumber(observeUsage, "totalTokens") !== undefined) {
+    usageMeta.totalTokens = metadataNumber(observeUsage, "totalTokens");
+  }
+  if (metadataNumber(observeUsage, "contextWindowTokens") !== undefined) {
+    usageMeta.contextWindowTokens = metadataNumber(observeUsage, "contextWindowTokens");
+  }
+  if (metadataNumber(observeUsage, "webSearchRequests") !== undefined) {
+    usageMeta.webSearchRequests = metadataNumber(observeUsage, "webSearchRequests");
+  }
+  if (metadataNumber(observeUsage, "webFetchRequests") !== undefined) {
+    usageMeta.webFetchRequests = metadataNumber(observeUsage, "webFetchRequests");
+  }
+  if (metadataString(observeUsage, "serviceTier")) {
+    usageMeta.serviceTier = metadataString(observeUsage, "serviceTier");
+  }
+  if (metadataString(observeUsage, "speed")) {
+    usageMeta.speed = metadataString(observeUsage, "speed");
+  }
+  if (metadataString(observeUsage, "planType")) {
+    usageMeta.planType = metadataString(observeUsage, "planType");
+  }
+
+  const hasSessionMeta = Object.keys(sessionMeta).length > 0;
+  const hasUsageMeta = Object.keys(usageMeta).length > 0;
+  if (!hasSessionMeta && !hasUsageMeta) {
+    return undefined;
+  }
+
+  return {
+    ...(hasSessionMeta ? { session: sessionMeta } : {}),
+    ...(hasUsageMeta ? { usage: usageMeta } : {}),
+  };
 }
 
 function firstString(
@@ -792,6 +972,7 @@ export function buildObserveDataFromSnapshot(
     files: [...files.values()].sort((left, right) => right.lastT - left.lastT || left.path.localeCompare(right.path)),
     contextUsage: syntheticContextUsage(events.length),
     live,
+    metadata: buildObserveMetadata(snapshot),
   };
 }
 

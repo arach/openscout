@@ -13,6 +13,7 @@ type TargetableMessageOptions = ContextRootOptions & {
   harness?: string;
   shouldSpeak: boolean;
   message: string;
+  messageFile?: string;
 };
 
 export type ScoutSetupCommandOptions = {
@@ -27,6 +28,7 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   harness?: string;
   timeoutSeconds?: number;
   message: string;
+  promptFile?: string;
 };
 
 export type ScoutImplicitAskCommandOptions = ScoutAskCommandOptions;
@@ -90,6 +92,25 @@ function parseFlagValue(args: string[], index: number, flag: string): { value: s
   missingFlagValue(flag);
 }
 
+function flagNameFor(current: string, flagNames: readonly string[]): string | null {
+  return flagNames.find((flag) => current === flag || current.startsWith(`${flag}=`)) ?? null;
+}
+
+function resolveInputFilePath(
+  currentDirectory: string,
+  filePath: string,
+): string {
+  return resolve(currentDirectory, filePath);
+}
+
+function rejectMixedBodySources(kind: "message" | "question"): never {
+  throw new ScoutCliError(
+    kind === "message"
+      ? "provide either an inline message or --message-file/--body-file, not both"
+      : "provide either an inline question or --prompt-file/--body-file, not both",
+  );
+}
+
 function parseContextRootPrefix(
   args: string[],
   defaultCurrentDirectory: string,
@@ -111,7 +132,7 @@ function parseContextRootPrefix(
   return { currentDirectory, args: rest };
 }
 
-const SCOUT_MENTION_PATTERN = /(^|[\s([{'"`])@([A-Za-z0-9._:-]+)(?=$|[\s)\]}",.!?:;'"`])/g;
+const SCOUT_MENTION_PATTERN = /(^|[\s([{'"`])@([A-Za-z0-9][A-Za-z0-9._/:-]*(?:#[A-Za-z0-9][A-Za-z0-9._/:-]*)?(?:\?[A-Za-z0-9][A-Za-z0-9._/:-]*)?)(?=$|[\s)\]}",.!?:;'"`])/g;
 
 type MentionMatch = {
   label: string;
@@ -188,6 +209,7 @@ export function parseSendCommandOptions(
   let channel: string | undefined;
   let shouldSpeak = false;
   let harness: string | undefined;
+  let messageFile: string | undefined;
   const messageParts: string[] = [];
 
   for (let index = 0; index < parsed.args.length; index += 1) {
@@ -214,11 +236,24 @@ export function parseSendCommandOptions(
       shouldSpeak = true;
       continue;
     }
+    const fileFlag = flagNameFor(current, ["--message-file", "--body-file"]);
+    if (fileFlag) {
+      if (messageFile) {
+        throw new ScoutCliError("message file was provided more than once");
+      }
+      const value = parseFlagValue(parsed.args, index, fileFlag);
+      messageFile = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
     messageParts.push(current);
   }
 
   const message = messageParts.join(" ").trim();
-  if (!message) {
+  if (message && messageFile) {
+    rejectMixedBodySources("message");
+  }
+  if (!message && !messageFile) {
     throw new ScoutCliError("no message provided");
   }
 
@@ -230,6 +265,7 @@ export function parseSendCommandOptions(
     shouldSpeak,
     harness,
     message,
+    messageFile,
   };
 }
 
@@ -243,6 +279,7 @@ export function parseAskCommandOptions(
   let channel: string | undefined;
   let harness: string | undefined;
   let timeoutSeconds: number | undefined;
+  let promptFile: string | undefined;
   const messageParts: string[] = [];
 
   for (let index = 0; index < parsed.args.length; index += 1) {
@@ -281,6 +318,16 @@ export function parseAskCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    const fileFlag = flagNameFor(current, ["--prompt-file", "--body-file"]);
+    if (fileFlag) {
+      if (promptFile) {
+        throw new ScoutCliError("prompt file was provided more than once");
+      }
+      const value = parseFlagValue(parsed.args, index, fileFlag);
+      promptFile = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
     messageParts.push(current);
   }
 
@@ -288,7 +335,10 @@ export function parseAskCommandOptions(
   if (!targetLabel) {
     throw new ScoutCliError("--to <name> is required");
   }
-  if (!message) {
+  if (message && promptFile) {
+    rejectMixedBodySources("question");
+  }
+  if (!message && !promptFile) {
     throw new ScoutCliError("no question provided");
   }
 
@@ -301,6 +351,7 @@ export function parseAskCommandOptions(
     harness,
     timeoutSeconds,
     message,
+    promptFile,
   };
 }
 
@@ -313,6 +364,7 @@ export function parseImplicitAskCommandOptions(
   let channel: string | undefined;
   let harness: string | undefined;
   let timeoutSeconds: number | undefined;
+  let promptFile: string | undefined;
   const messageParts: string[] = [];
 
   for (let index = 0; index < parsed.args.length; index += 1) {
@@ -345,6 +397,16 @@ export function parseImplicitAskCommandOptions(
       index = value.nextIndex;
       continue;
     }
+    const fileFlag = flagNameFor(current, ["--prompt-file", "--body-file"]);
+    if (fileFlag) {
+      if (promptFile) {
+        throw new ScoutCliError("prompt file was provided more than once");
+      }
+      const value = parseFlagValue(parsed.args, index, fileFlag);
+      promptFile = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
     messageParts.push(current);
   }
 
@@ -363,7 +425,10 @@ export function parseImplicitAskCommandOptions(
 
   const [target] = mentions;
   const message = stripMention(input, target);
-  if (!message) {
+  if (message && promptFile) {
+    rejectMixedBodySources("question");
+  }
+  if (!message && !promptFile) {
     throw new ScoutCliError("no question provided");
   }
 
@@ -376,6 +441,7 @@ export function parseImplicitAskCommandOptions(
     harness,
     timeoutSeconds,
     message,
+    promptFile,
   };
 }
 

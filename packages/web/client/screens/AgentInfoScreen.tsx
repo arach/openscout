@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import "./agents-detail-redesign.css";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import {
   compactAgentId,

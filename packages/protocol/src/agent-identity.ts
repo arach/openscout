@@ -1,6 +1,6 @@
 import type { ScoutId } from "./common.js";
 
-export type AgentIdentityDimension = "workspace" | "profile" | "harness" | "node";
+export type AgentIdentityDimension = "workspace" | "profile" | "harness" | "model" | "node";
 
 export interface AgentIdentity {
   raw: string;
@@ -10,6 +10,7 @@ export interface AgentIdentity {
   workspaceQualifier?: string;
   profile?: string;
   harness?: string;
+  model?: string;
 }
 
 export interface AgentIdentityCandidate {
@@ -19,6 +20,7 @@ export interface AgentIdentityCandidate {
   workspaceQualifier?: string;
   profile?: string;
   harness?: string;
+  model?: string;
   aliases?: string[];
 }
 
@@ -28,6 +30,7 @@ export interface AgentIdentityInput {
   workspaceQualifier?: string;
   profile?: string;
   harness?: string;
+  model?: string;
 }
 
 export interface AgentIdentityAlias {
@@ -43,6 +46,7 @@ const DIMENSION_ALIASES: Record<string, AgentIdentityDimension> = {
   persona: "profile",
   harness: "harness",
   runtime: "harness",
+  model: "model",
   node: "node",
   host: "node",
 };
@@ -66,6 +70,7 @@ export function normalizeAgentIdentitySegment(value: string): string {
 export const normalizeAgentSelectorSegment = normalizeAgentIdentitySegment;
 
 export const SCOUT_DISPATCHER_AGENT_ID = "scout";
+export const OPENSCOUT_COORDINATOR_AGENT_ID = "openscout";
 
 export const BUILT_IN_AGENT_DEFINITION_IDS: ReadonlySet<string> = new Set([
   SCOUT_DISPATCHER_AGENT_ID,
@@ -99,6 +104,7 @@ function canonicalizeIdentity(input: AgentIdentityInput): AgentIdentityInput | n
     : undefined;
   const profile = input.profile ? normalizeAgentIdentitySegment(input.profile) : undefined;
   const harness = input.harness ? normalizeAgentIdentitySegment(input.harness) : undefined;
+  const model = input.model ? normalizeAgentIdentitySegment(input.model) : undefined;
   const nodeQualifier = input.nodeQualifier
     ? normalizeAgentIdentitySegment(input.nodeQualifier)
     : undefined;
@@ -112,6 +118,7 @@ function canonicalizeIdentity(input: AgentIdentityInput): AgentIdentityInput | n
     ...(workspaceQualifier ? { workspaceQualifier } : {}),
     ...(profile ? { profile } : {}),
     ...(harness ? { harness } : {}),
+    ...(model ? { model } : {}),
     ...(nodeQualifier ? { nodeQualifier } : {}),
   };
 }
@@ -144,6 +151,8 @@ function parseSegmentedIdentity(raw: string): AgentIdentity | null {
         next.profile = value;
       } else if (key === "harness") {
         next.harness = value;
+      } else if (key === "model") {
+        next.model = value;
       } else if (key === "node") {
         next.nodeQualifier = value;
       }
@@ -173,14 +182,68 @@ function parseSegmentedIdentity(raw: string): AgentIdentity | null {
   return constructAgentIdentity(next, { raw });
 }
 
+function parseShorthandIdentity(raw: string): AgentIdentity | null {
+  const hashIndex = raw.indexOf("#");
+  const questionIndex = raw.indexOf("?");
+  if (hashIndex === -1 && questionIndex === -1) {
+    return null;
+  }
+  if (raw.indexOf("#", hashIndex + 1) !== -1 || raw.indexOf("?", questionIndex + 1) !== -1) {
+    return null;
+  }
+  if (hashIndex !== -1 && questionIndex !== -1 && questionIndex < hashIndex) {
+    return null;
+  }
+
+  const baseEnd = Math.min(
+    ...[hashIndex, questionIndex].filter((index) => index >= 0),
+  );
+  const base = raw.slice(0, baseEnd);
+  if (!base) {
+    return null;
+  }
+
+  const parsedBase = parseSegmentedIdentity(base);
+  if (!parsedBase) {
+    return null;
+  }
+
+  const harnessRaw = hashIndex >= 0
+    ? raw.slice(hashIndex + 1, questionIndex >= 0 ? questionIndex : raw.length)
+    : "";
+  const modelRaw = questionIndex >= 0 ? raw.slice(questionIndex + 1) : "";
+  if ((hashIndex >= 0 && !harnessRaw) || (questionIndex >= 0 && !modelRaw)) {
+    return null;
+  }
+  if (harnessRaw.includes("#") || harnessRaw.includes("?") || modelRaw.includes("#") || modelRaw.includes("?")) {
+    return null;
+  }
+  if ((parsedBase.harness && harnessRaw) || (parsedBase.model && modelRaw)) {
+    return null;
+  }
+
+  return constructAgentIdentity({
+    definitionId: parsedBase.definitionId,
+    nodeQualifier: parsedBase.nodeQualifier,
+    workspaceQualifier: parsedBase.workspaceQualifier,
+    profile: parsedBase.profile,
+    harness: harnessRaw || parsedBase.harness,
+    model: modelRaw || parsedBase.model,
+  }, { raw });
+}
+
 export function parseAgentIdentity(value: string): AgentIdentity | null {
   const raw = trimIdentityPrefix(value);
   if (!raw) {
     return null;
   }
 
-  if (raw.includes("@") || raw.includes("#")) {
+  if (raw.includes("@")) {
     return null;
+  }
+
+  if (raw.includes("#") || raw.includes("?")) {
+    return parseShorthandIdentity(raw);
   }
 
   return parseSegmentedIdentity(raw);
@@ -207,6 +270,9 @@ export function formatAgentIdentity(
   if (canonical.harness) {
     segments.push(`harness:${canonical.harness}`);
   }
+  if (canonical.model) {
+    segments.push(`model:${canonical.model}`);
+  }
   if (canonical.nodeQualifier) {
     segments.push(`node:${canonical.nodeQualifier}`);
   }
@@ -231,6 +297,7 @@ export function constructAgentIdentity(
     ...(canonical.workspaceQualifier ? { workspaceQualifier: canonical.workspaceQualifier } : {}),
     ...(canonical.profile ? { profile: canonical.profile } : {}),
     ...(canonical.harness ? { harness: canonical.harness } : {}),
+    ...(canonical.model ? { model: canonical.model } : {}),
   };
 }
 
@@ -240,7 +307,7 @@ export function extractAgentIdentities(text: string): AgentIdentity[] {
 
 export function extractAgentMentions(text: string): { parsed: AgentIdentity[]; unparsed: string[] } {
   const matches = Array.from(
-    text.matchAll(/(^|\s)@([a-z0-9][a-z0-9._/:-]*)/gi),
+    text.matchAll(/(^|[\s([{'"`])@([a-z0-9][a-z0-9._/:-]*(?:#[a-z0-9][a-z0-9._/:-]*)?(?:\?[a-z0-9][a-z0-9._/:-]*)?)(?=$|[\s)\]}",.!?:;'"`])/gi),
   );
   const identities = new Map<string, AgentIdentity>();
   const unparsed: string[] = [];
@@ -269,6 +336,7 @@ function candidateAliases(candidate: AgentIdentityCandidate): string[] {
     workspaceQualifier: candidate.workspaceQualifier,
     profile: candidate.profile,
     harness: candidate.harness,
+    model: candidate.model,
   });
   if (!canonical) {
     return [];
@@ -286,6 +354,9 @@ function candidateAliases(candidate: AgentIdentityCandidate): string[] {
     canonical.harness
       ? formatAgentIdentity({ definitionId: canonical.definitionId, harness: canonical.harness })
       : "",
+    canonical.model
+      ? formatAgentIdentity({ definitionId: canonical.definitionId, model: canonical.model })
+      : "",
     canonical.nodeQualifier
       ? formatAgentIdentity({ definitionId: canonical.definitionId, nodeQualifier: canonical.nodeQualifier })
       : "",
@@ -296,8 +367,12 @@ function candidateAliases(candidate: AgentIdentityCandidate): string[] {
 }
 
 function explicitCandidateAliases(candidate: AgentIdentityCandidate): string[] {
+  const canonical = candidateCanonicalIdentity(candidate);
+  const implicitAliases = canonical?.definitionId === OPENSCOUT_COORDINATOR_AGENT_ID
+    ? [SCOUT_DISPATCHER_AGENT_ID]
+    : [];
   return Array.from(new Set(
-    (candidate.aliases ?? [])
+    [...(candidate.aliases ?? []), ...implicitAliases]
       .map((alias) => normalizeAgentIdentitySegment(trimIdentityPrefix(alias)))
       .filter(Boolean),
   ));
@@ -327,6 +402,7 @@ function candidateCanonicalIdentity(candidate: AgentIdentityCandidate): AgentIde
     workspaceQualifier: candidate.workspaceQualifier,
     profile: candidate.profile,
     harness: candidate.harness,
+    model: candidate.model,
   });
 }
 
@@ -342,7 +418,53 @@ function candidateDimensionValue(
   if (dimension === "workspace") return canonical.workspaceQualifier;
   if (dimension === "profile") return canonical.profile;
   if (dimension === "harness") return canonical.harness;
+  if (dimension === "model") return canonical.model;
   return canonical.nodeQualifier;
+}
+
+function modelAliasKeys(value: string | undefined): string[] {
+  const normalized = value ? normalizeAgentIdentitySegment(value) : "";
+  if (!normalized) {
+    return [];
+  }
+
+  const parts = normalized.split("-").filter(Boolean);
+  const aliases = new Set<string>([normalized]);
+  if (parts.length > 1 && ["claude", "gpt", "openai", "anthropic"].includes(parts[0]!)) {
+    aliases.add(parts.slice(1).join("-"));
+  }
+
+  for (const family of ["sonnet", "opus", "haiku", "mini", "nano", "pro"]) {
+    const index = parts.indexOf(family);
+    if (index >= 0) {
+      aliases.add(family);
+      aliases.add(parts.slice(index).join("-"));
+    }
+  }
+
+  return Array.from(aliases).filter(Boolean);
+}
+
+function modelMatches(
+  identityModel: string | undefined,
+  candidate: AgentIdentityCandidate,
+): boolean {
+  if (!identityModel) {
+    return true;
+  }
+  return modelAliasKeys(candidate.model).includes(identityModel);
+}
+
+function definitionMatchesIdentity(
+  identityDefinitionId: string,
+  candidateDefinitionId: string,
+): boolean {
+  if (identityDefinitionId === candidateDefinitionId) {
+    return true;
+  }
+
+  return identityDefinitionId === SCOUT_DISPATCHER_AGENT_ID
+    && candidateDefinitionId === OPENSCOUT_COORDINATOR_AGENT_ID;
 }
 
 export function agentIdentityMatches(
@@ -361,8 +483,9 @@ export function agentIdentityMatches(
     workspaceQualifier: candidate.workspaceQualifier,
     profile: candidate.profile,
     harness: candidate.harness,
+    model: candidate.model,
   });
-  if (!canonical || identity.definitionId !== canonical.definitionId) {
+  if (!canonical || !definitionMatchesIdentity(identity.definitionId, canonical.definitionId)) {
     return false;
   }
 
@@ -376,6 +499,9 @@ export function agentIdentityMatches(
     return candidateAliases(candidate).includes(trimIdentityPrefix(identity.label));
   }
   if (identity.harness && identity.harness !== canonical.harness) {
+    return candidateAliases(candidate).includes(trimIdentityPrefix(identity.label));
+  }
+  if (identity.model && !modelMatches(identity.model, candidate)) {
     return candidateAliases(candidate).includes(trimIdentityPrefix(identity.label));
   }
 
@@ -419,7 +545,13 @@ export function diagnoseAgentIdentity<T extends AgentIdentityCandidate>(
     return { kind: "unknown" };
   }
 
-  if (!identity.nodeQualifier && !identity.workspaceQualifier && !identity.profile && !identity.harness) {
+  if (
+    !identity.nodeQualifier
+    && !identity.workspaceQualifier
+    && !identity.profile
+    && !identity.harness
+    && !identity.model
+  ) {
     const exactIdMatch = matches.find(
       (candidate) => normalizeAgentIdentitySegment(candidate.agentId) === identity.definitionId,
     );
@@ -491,6 +623,7 @@ function buildIdentitySubset(
       : {}),
     ...(dimensions.includes("profile") && canonical.profile ? { profile: canonical.profile } : {}),
     ...(dimensions.includes("harness") && canonical.harness ? { harness: canonical.harness } : {}),
+    ...(dimensions.includes("model") && canonical.model ? { model: canonical.model } : {}),
     ...(dimensions.includes("node") && canonical.nodeQualifier ? { nodeQualifier: canonical.nodeQualifier } : {}),
   });
 }
@@ -523,7 +656,7 @@ export function formatMinimalAgentIdentity<T extends AgentIdentityCandidate>(
     return formatAgentIdentity({ definitionId: canonical.definitionId }, options);
   }
 
-  const orderedDimensions: AgentIdentityDimension[] = ["workspace", "profile", "harness", "node"];
+  const orderedDimensions: AgentIdentityDimension[] = ["workspace", "profile", "harness", "model", "node"];
   const selectedDimensions: AgentIdentityDimension[] = [];
   let remainingPeers = peers.filter((peer) => peer !== candidate);
 

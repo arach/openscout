@@ -14,6 +14,7 @@ import { timeAgo } from "../lib/time.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 import { renderWithMentions } from "../lib/mentions.tsx";
+import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import {
   agentIdFromConversation,
   conversationForAgent,
@@ -39,7 +40,7 @@ import "./conversation-screen.css";
 import "./ops-screen.css";
 
 async function queueTakeover(command: string) {
-  await fetch("/api/terminal/run", {
+  await fetch(resolveScoutRoutePath("terminalRunPath"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ command }),

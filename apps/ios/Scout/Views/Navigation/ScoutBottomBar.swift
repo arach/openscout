@@ -63,8 +63,8 @@ struct ScoutBottomBar: View {
                     .frame(width: ActionTrayMetrics.sideButtonSize, height: ActionTrayMetrics.sideButtonSize)
             }
             .padding(.horizontal, ActionTrayMetrics.horizontalPadding)
-            .padding(.top, ActionTrayMetrics.topPadding)
-            .padding(.bottom, ActionTrayMetrics.bottomPadding)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
         }
         .frame(maxWidth: .infinity)
         .overlay(alignment: .top) {
@@ -208,7 +208,7 @@ struct ScoutBottomBar: View {
         )
         if connection.state != .connected { return true }
         switch displayHealth {
-        case .suspect, .degraded, .offline: return true
+        case .suspect, .degraded, .tailscaleUnavailable, .offline: return true
         case .healthy: return false
         }
     }
@@ -220,7 +220,7 @@ struct ScoutBottomBar: View {
         )
         switch displayHealth {
         case .suspect, .degraded: return ScoutColors.ledAmber
-        case .offline: return ScoutColors.ledRed
+        case .tailscaleUnavailable, .offline: return ScoutColors.ledRed
         default: break
         }
         switch connection.state {
@@ -278,6 +278,13 @@ struct ScoutBottomBar: View {
             } label: {
                 Label("Activity Feed", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
+
+            Button {
+                router.push(.tail)
+            } label: {
+                Label("Tail", systemImage: "terminal")
+            }
+            .disabled(!isConnected)
 
             Divider()
 

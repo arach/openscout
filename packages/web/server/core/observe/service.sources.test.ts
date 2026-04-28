@@ -19,7 +19,7 @@ mock.module("../broker/service.ts", () => ({
   loadScoutBrokerContext: async () => brokerContextResult,
 }));
 
-mock.module("@openscout/runtime", () => ({
+mock.module("@openscout/runtime/local-agents", () => ({
   getLocalAgentEndpointSessionSnapshot: async () => localSnapshotResult,
 }));
 

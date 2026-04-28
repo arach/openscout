@@ -53,6 +53,7 @@ export function startRelay(port: number, options: RelayOptions = {}): { stop: ()
 
   const server = Bun.serve<SocketData>({
     port,
+    hostname: "0.0.0.0",
     ...(options.tls
       ? {
           tls: {

@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 
 import { pairingLog } from "./log";
@@ -8,7 +8,7 @@ import { startRelay, type RelayOptions } from "./relay/relay";
 
 const PAIRING_DIR = join(homedir(), ".scout/pairing");
 
-interface TLSPair {
+export interface TLSPair {
   cert: string;
   key: string;
 }
@@ -22,7 +22,21 @@ interface TailscaleStatusProbe {
 
 export type StartedManagedRelay = {
   relayUrl: string;
+  connectUrl: string;
+  fallbackRelayUrls: string[];
   stop: () => void;
+};
+
+export type ResolvedRelayEndpoint = {
+  relayUrl: string;
+  connectUrl: string;
+  fallbackRelayUrls: string[];
+  options: RelayOptions;
+};
+
+export type RelayEndpointResolutionOptions = {
+  localAddress?: string | null;
+  tls?: TLSPair | null;
 };
 
 function findStoredCerts(): TLSPair | null {
@@ -82,26 +96,50 @@ function readTailscaleStatus(): TailscaleStatusProbe | null {
 export function resolveRelayEndpointForTailscaleStatus(
   port: number,
   tailscale: TailscaleStatusProbe | null,
-) {
+  options: RelayEndpointResolutionOptions = {},
+): ResolvedRelayEndpoint {
   const backendState = tailscale?.backendState?.trim().toLowerCase() ?? "";
   const hostname = tailscale?.dnsName ?? null;
   const tailscaleRunning = backendState === "running" && tailscale?.online !== false && Boolean(hostname);
-  const tls = resolveTls(tailscaleRunning ? hostname : null);
+  const tls = tailscaleRunning
+    ? options.tls !== undefined ? options.tls : resolveTls(hostname)
+    : null;
+  const scheme = tls ? "wss" : "ws";
+  const connectUrl = `${scheme}://127.0.0.1:${port}`;
+  const localAddress = options.localAddress !== undefined
+    ? normalizedOptionalAddress(options.localAddress)
+    : findLocalNetworkAddress();
+  const localRelayUrl = localAddress ? `${scheme}://${localAddress}:${port}` : null;
+  const tailnetRelayUrl = tailscaleRunning && hostname ? `${scheme}://${hostname}:${port}` : null;
+  const fallbackRelayUrls = tailnetRelayUrl && localRelayUrl ? [tailnetRelayUrl] : [];
 
-  if (tailscaleRunning && hostname && tls) {
+  if (localRelayUrl) {
     return {
-      relayUrl: `wss://${hostname}:${port}`,
+      relayUrl: localRelayUrl,
+      connectUrl,
+      fallbackRelayUrls,
+      options: tls ? { tls } satisfies RelayOptions : {} satisfies RelayOptions,
+    };
+  }
+
+  if (tailnetRelayUrl && tls) {
+    return {
+      relayUrl: tailnetRelayUrl,
+      connectUrl,
+      fallbackRelayUrls: [],
       options: { tls } satisfies RelayOptions,
     };
   }
 
-  if (tailscaleRunning && hostname) {
+  if (tailnetRelayUrl) {
     pairingLog.warn("relay", "tailscale is running without TLS; falling back to insecure websocket relay", {
       hostname,
       port,
     });
     return {
-      relayUrl: `ws://${hostname}:${port}`,
+      relayUrl: tailnetRelayUrl,
+      connectUrl,
+      fallbackRelayUrls: [],
       options: {} satisfies RelayOptions,
     };
   }
@@ -116,7 +154,9 @@ export function resolveRelayEndpointForTailscaleStatus(
   }
 
   return {
-    relayUrl: `ws://127.0.0.1:${port}`,
+    relayUrl: connectUrl,
+    connectUrl,
+    fallbackRelayUrls: [],
     options: {} satisfies RelayOptions,
   };
 }
@@ -187,14 +227,98 @@ export function suggestedRelayUrl(port = 7889) {
 
 export function startManagedRelay(port = 7889): StartedManagedRelay {
   const endpoint = resolveRelayEndpoint(port);
-  pairingLog.info("relay", "starting managed relay", { relay: endpoint.relayUrl, port });
+  pairingLog.info("relay", "starting managed relay", {
+    relay: endpoint.relayUrl,
+    connectUrl: endpoint.connectUrl,
+    fallbackRelayUrls: endpoint.fallbackRelayUrls,
+    port,
+  });
   const relay = startRelay(port, endpoint.options);
 
   return {
     relayUrl: endpoint.relayUrl,
+    connectUrl: endpoint.connectUrl,
+    fallbackRelayUrls: endpoint.fallbackRelayUrls,
     stop() {
       pairingLog.info("relay", "stopping managed relay", { relay: endpoint.relayUrl, port });
       relay.stop();
     },
   };
+}
+
+function normalizedOptionalAddress(address: string | null | undefined): string | null {
+  const trimmed = address?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function findLocalNetworkAddress(): string | null {
+  const candidates: Array<{ name: string; address: string }> = [];
+  const interfaces = networkInterfaces();
+
+  for (const [name, entries] of Object.entries(interfaces)) {
+    for (const entry of entries ?? []) {
+      if (entry.internal || entry.family !== "IPv4") {
+        continue;
+      }
+      if (!isPrivateIPv4(entry.address) || isLinkLocalIPv4(entry.address) || isTailscaleIPv4(entry.address)) {
+        continue;
+      }
+      candidates.push({ name, address: entry.address });
+    }
+  }
+
+  candidates.sort((left, right) => {
+    const leftScore = localInterfaceScore(left.name);
+    const rightScore = localInterfaceScore(right.name);
+    if (leftScore !== rightScore) {
+      return leftScore - rightScore;
+    }
+    return left.address.localeCompare(right.address);
+  });
+
+  return candidates[0]?.address ?? null;
+}
+
+function localInterfaceScore(name: string): number {
+  if (/^en\d+$/i.test(name)) {
+    return 0;
+  }
+  if (/^bridge\d*$/i.test(name)) {
+    return 2;
+  }
+  return 1;
+}
+
+function isPrivateIPv4(address: string): boolean {
+  const octets = parseIPv4(address);
+  if (!octets) {
+    return false;
+  }
+
+  const [first, second] = octets;
+  return first === 10
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168);
+}
+
+function isLinkLocalIPv4(address: string): boolean {
+  const octets = parseIPv4(address);
+  return Boolean(octets && octets[0] === 169 && octets[1] === 254);
+}
+
+function isTailscaleIPv4(address: string): boolean {
+  const octets = parseIPv4(address);
+  return Boolean(octets && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127);
+}
+
+function parseIPv4(address: string): [number, number, number, number] | null {
+  const octets = address.split(".");
+  if (octets.length !== 4) {
+    return null;
+  }
+  const numbers = octets.map((octet) => Number(octet));
+  if (numbers.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) {
+    return null;
+  }
+  return numbers as [number, number, number, number];
 }

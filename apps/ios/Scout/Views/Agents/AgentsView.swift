@@ -7,6 +7,7 @@ struct AgentsView: View {
     @State private var agents: [MobileAgentSummary] = []
     @State private var launchableWorkspaceRoots: Set<String> = []
     @State private var searchText = ""
+    @State private var selectedWorkspace: String?
     @State private var isLoading = true
     @State private var error: String?
     @State private var openingAgentId: String?
@@ -15,11 +16,17 @@ struct AgentsView: View {
         connection.state == .connected
     }
 
-    private var filteredAgents: [MobileAgentSummary] {
-        let tokens = searchText.searchTokens
-        guard !tokens.isEmpty else { return agents }
+    private var workspaceFilteredAgents: [MobileAgentSummary] {
+        guard let selectedWorkspace else { return agents }
+        return agents.filter { ($0.workspaceRoot ?? "") == selectedWorkspace }
+    }
 
-        return agents.filter { agent in
+    private var filteredAgents: [MobileAgentSummary] {
+        let base = workspaceFilteredAgents
+        let tokens = searchText.searchTokens
+        guard !tokens.isEmpty else { return base }
+
+        return base.filter { agent in
             let fields = [
                 agent.title,
                 agent.id,
@@ -47,6 +54,28 @@ struct AgentsView: View {
             ("Offline", offline),
         ]
         .filter { !$0.agents.isEmpty }
+    }
+
+    private var workingCount: Int { agents.filter { $0.state == "working" }.count }
+    private var availableCount: Int { agents.filter { $0.state == "available" }.count }
+    private var offlineCount: Int { agents.filter { $0.state == "offline" }.count }
+    private var onlineCount: Int { agents.count - offlineCount }
+
+    /// Top workspaces by agent count, used for the filter rail.
+    private var workspaceBuckets: [(root: String, name: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for agent in agents {
+            guard let root = agent.workspaceRoot?.trimmedNonEmpty else { continue }
+            counts[root, default: 0] += 1
+        }
+        return counts
+            .map { (root, count) in
+                (root: root, name: URL(fileURLWithPath: root).lastPathComponent, count: count)
+            }
+            .sorted { lhs, rhs in
+                lhs.count == rhs.count ? lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                                       : lhs.count > rhs.count
+            }
     }
 
     var body: some View {
@@ -80,6 +109,15 @@ struct AgentsView: View {
     private var content: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                heroSection
+                    .padding(.horizontal, ScoutSpacing.lg)
+                    .padding(.top, ScoutSpacing.lg)
+
+                if !workspaceBuckets.isEmpty {
+                    workspaceRail
+                        .padding(.top, ScoutSpacing.lg)
+                }
+
                 if let error {
                     Text(error)
                         .font(ScoutTypography.code(11))
@@ -93,7 +131,11 @@ struct AgentsView: View {
                         .padding(.horizontal, ScoutSpacing.xxl)
                 } else {
                     ForEach(groupedAgents, id: \.title) { group in
-                        HStack {
+                        HStack(spacing: ScoutSpacing.sm) {
+                            Circle()
+                                .fill(groupColor(for: group.title))
+                                .frame(width: 6, height: 6)
+
                             Text(group.title.uppercased())
                                 .font(ScoutTypography.code(10, weight: .semibold))
                                 .foregroundStyle(ScoutColors.textMuted)
@@ -113,7 +155,7 @@ struct AgentsView: View {
                                 Rectangle()
                                     .fill(ScoutColors.divider)
                                     .frame(height: 0.5)
-                                    .padding(.leading, ScoutSpacing.lg + 6 + ScoutSpacing.sm)
+                                    .padding(.leading, ScoutSpacing.lg + 6 + ScoutSpacing.md)
                             }
                         }
                     }
@@ -124,6 +166,154 @@ struct AgentsView: View {
         }
         .refreshable {
             await refreshAgents()
+        }
+    }
+
+    // MARK: - Hero
+
+    private var heroSection: some View {
+        VStack(alignment: .leading, spacing: ScoutSpacing.md) {
+            HStack(alignment: .firstTextBaseline, spacing: ScoutSpacing.sm) {
+                Text("Fleet")
+                    .font(ScoutTypography.code(10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textMuted)
+
+                Text("/")
+                    .font(ScoutTypography.code(10))
+                    .foregroundStyle(ScoutColors.textMuted)
+
+                Text("Agents")
+                    .font(ScoutTypography.code(10, weight: .semibold))
+                    .foregroundStyle(ScoutColors.textSecondary)
+
+                Spacer()
+
+                if onlineCount > 0 {
+                    HStack(spacing: ScoutSpacing.xs) {
+                        PulseIndicator()
+                        Text("\(onlineCount) active")
+                            .font(ScoutTypography.code(10, weight: .semibold))
+                            .foregroundStyle(ScoutColors.textSecondary)
+                    }
+                }
+            }
+
+            Text("All agents")
+                .font(ScoutTypography.body(22, weight: .bold))
+                .foregroundStyle(ScoutColors.textPrimary)
+
+            Text(heroSubtitle)
+                .font(ScoutTypography.body(13))
+                .foregroundStyle(ScoutColors.textSecondary)
+                .lineLimit(2)
+
+            HStack(spacing: ScoutSpacing.sm) {
+                metric(label: "Working", value: workingCount, tint: ScoutColors.ledGreen)
+                metric(label: "Available", value: availableCount, tint: ScoutColors.ledAmber)
+                metric(label: "Offline", value: offlineCount, tint: ScoutColors.textMuted)
+                metric(label: "Total", value: agents.count, tint: ScoutColors.accent)
+            }
+            .padding(.top, ScoutSpacing.xs)
+        }
+    }
+
+    private var heroSubtitle: String {
+        if agents.isEmpty {
+            return "No agents registered yet."
+        }
+
+        let total = agents.count
+        let workspaceCount = workspaceBuckets.count
+        let workspaceClause: String = {
+            switch workspaceCount {
+            case 0: return ""
+            case 1: return " across 1 workspace"
+            default: return " across \(workspaceCount) workspaces"
+            }
+        }()
+
+        return "\(total) registered\(workspaceClause), sorted by live status."
+    }
+
+    private func metric(label: String, value: Int, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(ScoutTypography.code(8, weight: .semibold))
+                .foregroundStyle(ScoutColors.textMuted)
+
+            Text("\(value)")
+                .font(ScoutTypography.code(20, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, ScoutSpacing.sm)
+        .padding(.horizontal, ScoutSpacing.md)
+        .background(ScoutColors.surfaceRaisedAdaptive)
+        .clipShape(RoundedRectangle(cornerRadius: ScoutRadius.md, style: .continuous))
+    }
+
+    // MARK: - Workspace Rail
+
+    private var workspaceRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: ScoutSpacing.sm) {
+                workspacePill(
+                    name: "All",
+                    count: agents.count,
+                    isSelected: selectedWorkspace == nil,
+                    onTap: { selectedWorkspace = nil }
+                )
+
+                ForEach(workspaceBuckets, id: \.root) { bucket in
+                    workspacePill(
+                        name: bucket.name,
+                        count: bucket.count,
+                        isSelected: selectedWorkspace == bucket.root,
+                        onTap: {
+                            selectedWorkspace = (selectedWorkspace == bucket.root) ? nil : bucket.root
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, ScoutSpacing.lg)
+        }
+    }
+
+    private func workspacePill(
+        name: String,
+        count: Int,
+        isSelected: Bool,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            HStack(spacing: ScoutSpacing.xs) {
+                Text(name)
+                    .font(ScoutTypography.code(11, weight: .semibold))
+                    .foregroundStyle(isSelected ? ScoutColors.textPrimary : ScoutColors.textSecondary)
+
+                Text("\(count)")
+                    .font(ScoutTypography.code(10))
+                    .foregroundStyle(isSelected ? ScoutColors.textSecondary : ScoutColors.textMuted)
+            }
+            .padding(.horizontal, ScoutSpacing.md)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isSelected ? ScoutColors.accent.opacity(0.18) : ScoutColors.surfaceRaisedAdaptive)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(isSelected ? ScoutColors.accent.opacity(0.45) : Color.clear, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func groupColor(for title: String) -> Color {
+        switch title {
+        case "Working": return ScoutColors.ledGreen
+        case "Available": return ScoutColors.ledAmber
+        default: return ScoutColors.textMuted
         }
     }
 
@@ -139,15 +329,44 @@ struct AgentsView: View {
                 router.push(.agentDetail(agentId: agent.id))
             }
         } label: {
-            HStack(spacing: ScoutSpacing.md) {
-                Text(agent.title)
-                    .font(ScoutTypography.code(13, weight: .medium))
-                    .foregroundStyle(ScoutColors.textPrimary)
-                    .lineLimit(1)
+            HStack(alignment: .top, spacing: ScoutSpacing.md) {
+                Circle()
+                    .fill(rowStatusColor(for: agent.state))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 6)
 
-                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: ScoutSpacing.sm) {
+                        Text(agent.title)
+                            .font(ScoutTypography.code(13, weight: .medium))
+                            .foregroundStyle(ScoutColors.textPrimary)
+                            .lineLimit(1)
 
-                statusChip(for: agent.state)
+                        if let selector = agent.resolvedSelector {
+                            Text(selector)
+                                .font(ScoutTypography.code(10))
+                                .foregroundStyle(ScoutColors.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    if let subtitle = subtitle(for: agent) {
+                        Text(subtitle)
+                            .font(ScoutTypography.code(10))
+                            .foregroundStyle(ScoutColors.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+
+                Spacer(minLength: ScoutSpacing.sm)
+
+                if agent.sessionId != nil {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ScoutColors.accent)
+                }
 
                 if openingAgentId == agent.id {
                     ProgressView()
@@ -191,17 +410,27 @@ struct AgentsView: View {
     // MARK: - States
 
     private var emptyState: some View {
-        VStack(spacing: ScoutSpacing.md) {
-            Text(searchText.isEmpty ? "NO AGENTS" : "NO MATCHES")
+        let hasFilter = !searchText.isEmpty || selectedWorkspace != nil
+        return VStack(spacing: ScoutSpacing.md) {
+            Text(hasFilter ? "NO MATCHES" : "NO AGENTS")
                 .font(ScoutTypography.code(11, weight: .semibold))
                 .foregroundStyle(ScoutColors.textMuted)
 
-            Text(searchText.isEmpty
-                 ? "Start a session from Home or connect to your Mac."
-                 : "Try a broader search.")
+            Text(hasFilter
+                 ? "Try a broader search or clear the workspace filter."
+                 : "Start a session from Home or connect to your Mac.")
                 .font(ScoutTypography.body(13))
                 .foregroundStyle(ScoutColors.textSecondary)
                 .multilineTextAlignment(.center)
+
+            if hasFilter {
+                Button("Clear filters") {
+                    searchText = ""
+                    selectedWorkspace = nil
+                }
+                .font(ScoutTypography.code(11, weight: .semibold))
+                .buttonStyle(.bordered)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -256,22 +485,26 @@ struct AgentsView: View {
 
     // MARK: - Helpers
 
-    private func statusChip(for state: String) -> some View {
-        let (label, color): (String, Color) = {
-            switch state {
-            case "working": return ("WORKING", ScoutColors.ledGreen)
-            case "available": return ("AVAILABLE", ScoutColors.ledAmber)
-            default: return ("OFFLINE", ScoutColors.textMuted)
-            }
-        }()
+    private func rowStatusColor(for state: String) -> Color {
+        switch state {
+        case "working": return ScoutColors.ledGreen
+        case "available": return ScoutColors.ledAmber
+        default: return ScoutColors.textMuted
+        }
+    }
 
-        return Text(label)
-            .font(ScoutTypography.code(8, weight: .semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+    private func subtitle(for agent: MobileAgentSummary) -> String? {
+        var parts: [String] = []
+        if let project = agent.projectName, !project.isEmpty {
+            parts.append(project)
+        }
+        if let harness = agent.harness?.trimmedNonEmpty {
+            parts.append(AdapterIcon.displayName(for: harness))
+        }
+        if let lastActive = agent.lastActiveDate {
+            parts.append(RelativeTime.string(from: lastActive))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func isLaunchable(_ agent: MobileAgentSummary) -> Bool {

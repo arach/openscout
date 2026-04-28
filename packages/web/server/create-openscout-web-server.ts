@@ -41,6 +41,10 @@ import {
   loadAgentObserveSummaries,
 } from "./core/observe/service.ts";
 import {
+  getTailDiscovery,
+  snapshotRecentEvents,
+} from "@openscout/tail";
+import {
   announceMeshVisibility,
   controlTailscale,
   loadMeshStatus,
@@ -50,6 +54,7 @@ import {
   loadOpenScoutWebShellState,
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
+import { synthesizeVoxSpeech } from "./vox.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -71,6 +76,10 @@ import {
 import { relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import { buildHarnessResumeCommand, findHarnessEntry } from "@openscout/runtime/harness-catalog";
+import {
+  resolveOpenScoutWebRoutes,
+  serializeOpenScoutWebBootstrap,
+} from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
 export type CreateOpenScoutWebServerOptions = {
@@ -80,6 +89,7 @@ export type CreateOpenScoutWebServerOptions = {
   viteDevUrl?: string;
   staticRoot?: string;
   runTerminalCommand?: (command: string) => Promise<void>;
+  terminalRelayHealthcheck?: () => Promise<boolean>;
 };
 
 export type OpenScoutWebServer = {
@@ -216,6 +226,7 @@ export async function createOpenScoutWebServer(
 ): Promise<OpenScoutWebServer> {
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
+  const routes = resolveOpenScoutWebRoutes(process.env);
   const app = new Hono();
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
@@ -224,13 +235,31 @@ export async function createOpenScoutWebServer(
 
   installScoutApiMiddleware(app, "openscout-web api");
 
-  app.get("/api/health", (c) =>
+  app.get(routes.bootstrapScriptPath, (c) =>
+    new Response(serializeOpenScoutWebBootstrap(process.env), {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/javascript; charset=utf-8",
+      },
+    }),
+  );
+  app.get(routes.healthPath, (c) =>
     c.json({
       ok: true,
       surface: "openscout-web",
       currentDirectory,
     }),
   );
+  app.get(routes.terminalRelayHealthPath, async (c) => {
+    const ok = await (options.terminalRelayHealthcheck?.() ?? Promise.resolve(false));
+    return c.json(
+      {
+        ok,
+        surface: "openscout-terminal-relay",
+      },
+      ok ? 200 : 503,
+    );
+  });
   app.get("/api/pairing-state", async (c) =>
     c.json(await loadPairingState(currentDirectory, false)),
   );
@@ -400,8 +429,8 @@ export async function createOpenScoutWebServer(
     const hasLocalConfig = localConfigExists();
     const settings = await readOpenScoutSettings({ currentDirectory }).catch(() => null);
     const configuredContextRoot = settings?.discovery.contextRoot ?? null;
-    const discoveryStart = configuredContextRoot ?? currentDirectory;
-    const projectRoot = await findNearestProjectRoot(discoveryStart).catch(() => null);
+    const projectRoot = await findNearestProjectRoot(currentDirectory).catch(() => null)
+      ?? await findNearestProjectRoot(configuredContextRoot ?? "").catch(() => null);
     const hasProjectConfig = projectRoot !== null;
     const userName = loadUserConfig().name?.trim() ?? "";
     return c.json({
@@ -530,7 +559,7 @@ export async function createOpenScoutWebServer(
     });
   });
 
-  app.post("/api/terminal/run", async (c) => {
+  app.post(routes.terminalRunPath, async (c) => {
     const body = await c.req.json<{ command?: string }>();
     if (!body.command) return c.json({ error: "missing command" }, 400);
     if (!options.runTerminalCommand) {
@@ -614,6 +643,7 @@ export async function createOpenScoutWebServer(
     const result = await askScoutQuestion({
       senderId,
       targetLabel: directAgentId,
+      targetAgentId: directAgentId,
       body: body.trim(),
       currentDirectory,
     });
@@ -634,6 +664,31 @@ export async function createOpenScoutWebServer(
     return c.json(result);
   });
 
+  app.post("/api/voice/speak", async (c) => {
+    const body = (await c.req.json()) as {
+      text?: string;
+      modelId?: string;
+      voiceId?: string;
+      speed?: number;
+    };
+    const text = body.text?.trim();
+    if (!text) {
+      return c.json({ error: "text is required" }, 400);
+    }
+
+    try {
+      return c.json(await synthesizeVoxSpeech({
+        text,
+        modelId: body.modelId,
+        voiceId: body.voiceId,
+        speed: body.speed,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Vox speech failed";
+      return c.json({ error: message }, 503);
+    }
+  });
+
   app.get("/api/events", async (c) => {
     const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
     const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
@@ -647,6 +702,20 @@ export async function createOpenScoutWebServer(
       return c.text("Broker unreachable", 502);
     }
   });
+
+  app.get("/api/tail/discover", async (c) => {
+    const force = c.req.query("force") === "true";
+    const snapshot = await getTailDiscovery(force);
+    return c.json(snapshot);
+  });
+
+  app.get("/api/tail/recent", (c) => {
+    const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
+    return c.json({ events: snapshotRecentEvents(limitParam) });
+  });
+
+  // /api/tail/stream removed — clients now subscribe to broker tail.events
+  // directly via tRPC over WebSocket. See packages/web/client/lib/tail-events.ts.
 
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,
