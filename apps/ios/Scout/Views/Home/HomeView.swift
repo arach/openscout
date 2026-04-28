@@ -178,24 +178,53 @@ struct HomeView: View {
 
     // MARK: - Bridge Status Bar
 
-    private var bridgeLedColor: Color {
+    /// Letters between the brackets — `LAN` / `TS` / `REMOTE` / `LOCAL` when
+    /// connected, `…` while connecting, `OFF` when down.
+    private var bridgeIndicatorLetters: String {
+        if connection.state == .connected {
+            let label = connection.transportKind.label
+            return label.isEmpty ? "ON" : label
+        }
         switch connection.state {
-        case .connected:                  return ScoutColors.ledGreen
-        case .connecting, .handshaking:   return ScoutColors.ledAmber
-        case .reconnecting:               return ScoutColors.ledAmber
-        case .disconnected:               return ScoutColors.ledRed
-        case .failed:                     return ScoutColors.ledRed
+        case .connecting, .handshaking, .reconnecting: return "…"
+        case .disconnected, .failed: return "OFF"
+        case .connected: return "ON"
+        }
+    }
+
+    /// Color applied to the inner letters only — green for LAN, amber for TS,
+    /// red for REMOTE / disconnected. Brackets stay muted.
+    private var bridgeIndicatorColor: Color {
+        if connection.state == .connected {
+            switch connection.transportKind {
+            case .lan: return ScoutColors.ledGreen
+            case .mesh: return ScoutColors.ledAmber
+            case .remote: return ScoutColors.ledRed
+            case .loopback, .none: return ScoutColors.ledGreen
+            }
+        }
+        switch connection.state {
+        case .connecting, .handshaking, .reconnecting: return ScoutColors.ledAmber
+        case .disconnected, .failed: return ScoutColors.ledRed
+        case .connected: return ScoutColors.ledGreen
         }
     }
 
     private var bridgeStatusBar: some View {
         HStack(spacing: 0) {
-            // LED + tap to open sheet
+            // Bracketed mode indicator (replaces LED dot). Brackets are muted;
+            // the letters carry the transport / state color.
             Button { showingConnectionSheet = true } label: {
-                Circle()
-                    .fill(bridgeLedColor)
-                    .frame(width: 7, height: 7)
-                    .padding(.horizontal, ScoutSpacing.md)
+                HStack(spacing: 0) {
+                    Text("[")
+                        .foregroundStyle(ScoutColors.textMuted)
+                    Text(bridgeIndicatorLetters)
+                        .foregroundStyle(bridgeIndicatorColor)
+                    Text("]")
+                        .foregroundStyle(ScoutColors.textMuted)
+                }
+                .font(ScoutTypography.code(10, weight: .bold))
+                .padding(.horizontal, ScoutSpacing.md)
             }
             .buttonStyle(.plain)
 
@@ -225,7 +254,7 @@ struct HomeView: View {
 
             Spacer()
 
-            // Divider
+            // Divider before gear
             Rectangle()
                 .fill(ScoutColors.divider)
                 .frame(width: 0.5)

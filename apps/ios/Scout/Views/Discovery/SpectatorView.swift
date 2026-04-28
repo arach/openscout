@@ -37,7 +37,7 @@ struct SpectatorView: View {
                     )
                         .ignoresSafeArea(edges: .bottom)
 
-                    BridgeWebSurfaceStateView(
+                    BridgeViewerStateView(
                         isLoading: isLoading,
                         errorMessage: loadError,
                         loadingLabel: "Loading viewer..."
@@ -46,7 +46,7 @@ struct SpectatorView: View {
                     BridgeWebUnavailableView(
                         icon: "wifi.slash",
                         title: "Not connected to bridge",
-                        subtitle: "Reconnect to open this web preview."
+                        subtitle: "Reconnect to open this viewer."
                     )
                 }
 
@@ -125,68 +125,6 @@ struct SpectatorView: View {
     }
 }
 
-struct BridgeWebSurface: Identifiable {
-    let id: String
-    let title: String
-    let request: URLRequest
-
-    init?(handoff: MobileWebHandoff, host: String, port: Int) {
-        guard let url = URL(string: "http://\(host):\(port)\(handoff.path)") else {
-            return nil
-        }
-
-        var request = URLRequest(url: url)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue(handoff.token, forHTTPHeaderField: "X-Scout-Handoff-Token")
-
-        self.id = handoff.id
-        self.title = handoff.title
-        self.request = request
-    }
-}
-
-struct BridgeWebHandoffView: View {
-    let surface: BridgeWebSurface
-
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var isLoading = true
-    @State private var loadError: String?
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ScoutColors.backgroundAdaptive.ignoresSafeArea()
-
-                BridgeWebView(
-                    request: surface.request,
-                    isLoading: $isLoading,
-                    errorMessage: $loadError
-                )
-                .ignoresSafeArea(edges: .bottom)
-
-                BridgeWebSurfaceStateView(
-                    isLoading: isLoading,
-                    errorMessage: loadError,
-                    loadingLabel: "Opening web preview..."
-                )
-            }
-            .navigationTitle(surface.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(ScoutColors.textMuted)
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Reusable bridge WebView
 
 struct BridgeWebView: UIViewRepresentable {
@@ -253,8 +191,8 @@ struct BridgeWebView: UIViewRepresentable {
                 Task { @MainActor in
                     parent.isLoading = false
                     parent.errorMessage = response.statusCode == 401
-                        ? "This web preview link expired. Stay in the app and try again if needed."
-                        : "Scout couldn't load this web preview right now."
+                        ? "This viewer link expired. Stay in the app and try again if needed."
+                        : "Scout couldn't load this viewer right now."
                 }
                 decisionHandler(.cancel)
                 return
@@ -266,7 +204,7 @@ struct BridgeWebView: UIViewRepresentable {
             guard !shouldIgnoreNavigationError(error) else { return }
             Task { @MainActor in
                 parent.isLoading = false
-                parent.errorMessage = "Scout couldn't load this web preview right now."
+                parent.errorMessage = "Scout couldn't load this viewer right now."
             }
         }
 
@@ -274,7 +212,7 @@ struct BridgeWebView: UIViewRepresentable {
             guard !shouldIgnoreNavigationError(error) else { return }
             Task { @MainActor in
                 parent.isLoading = false
-                parent.errorMessage = "Scout couldn't load this web preview right now."
+                parent.errorMessage = "Scout couldn't load this viewer right now."
             }
         }
 
@@ -285,7 +223,7 @@ struct BridgeWebView: UIViewRepresentable {
     }
 }
 
-private struct BridgeWebSurfaceStateView: View {
+private struct BridgeViewerStateView: View {
     let isLoading: Bool
     let errorMessage: String?
     let loadingLabel: String
