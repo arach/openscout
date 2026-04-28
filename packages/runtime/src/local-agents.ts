@@ -1292,7 +1292,7 @@ function endpointInvocationPrompt(
   }
 
   if (sessionBacked) {
-    return buildAttachedSessionInvocationPrompt(invocation);
+    return buildAttachedSessionInvocationPrompt(invocation, agentName);
   }
 
   return buildLocalAgentDirectInvocationPrompt(agentName, invocation);
@@ -1456,6 +1456,63 @@ function buildLocalAgentInitialMessage(projectName: string, agentName: string): 
   return `You are now online as the ${agentName} relay agent for ${projectName}. Announce yourself on the relay with: ${brokerRelayCommand()} send --as ${agentName} "relay agent online — ready to assist with ${projectName}"`;
 }
 
+function scoutHandle(id: string): string {
+  const trimmed = id.trim();
+  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+}
+
+function invocationTitleVerb(action: InvocationRequest["action"]): string {
+  switch (action) {
+    case "execute":
+      return "assigns";
+    case "summarize":
+      return "asks";
+    case "status":
+      return "checks";
+    case "wake":
+      return "wakes";
+    case "consult":
+    default:
+      return "asks";
+  }
+}
+
+function summarizeInvocationTask(task: string): string {
+  const normalized = task
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "broker request";
+  }
+
+  const [firstClause = normalized] = normalized.split(/[.!?]\s+/u);
+  const words = firstClause.split(" ").filter(Boolean);
+  const summary = words.slice(0, 5).join(" ");
+  return words.length > 5 ? `${summary}...` : summary;
+}
+
+function buildInvocationHeadline(agentName: string, invocation: InvocationRequest): string {
+  return [
+    `[scout] ${scoutHandle(invocation.requesterId)}`,
+    invocationTitleVerb(invocation.action),
+    `${scoutHandle(agentName)}:`,
+    summarizeInvocationTask(invocation.task),
+  ].join(" ");
+}
+
+function buildInvocationMetadataLines(agentName: string, invocation: InvocationRequest): string[] {
+  const referenceParts = [
+    invocation.conversationId ? `convo=${invocation.conversationId}` : undefined,
+    invocation.messageId ? `msg=${invocation.messageId}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return [
+    `meta: from=${invocation.requesterId} to=${agentName} action=${invocation.action}`,
+    referenceParts.length > 0 ? `ref: ${referenceParts.join(" ")}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+}
+
 export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
@@ -1466,11 +1523,8 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     : "Do not modify files unless the request explicitly requires it. End with the concise broker-visible reply for the requester.";
 
   return [
-    `OpenScout invocation for ${agentName}.`,
-    `Requester: ${invocation.requesterId}.`,
-    `Action: ${invocation.action}.`,
-    invocation.conversationId ? `Conversation: ${invocation.conversationId}.` : undefined,
-    invocation.messageId ? `Message: ${invocation.messageId}.` : undefined,
+    buildInvocationHeadline(agentName, invocation),
+    ...buildInvocationMetadataLines(agentName, invocation),
     "",
     actionRules,
     collaborationContract,
@@ -1485,15 +1539,13 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     .join("\n");
 }
 
-export function buildAttachedSessionInvocationPrompt(invocation: InvocationRequest): string {
+export function buildAttachedSessionInvocationPrompt(invocation: InvocationRequest, agentName = invocation.targetAgentId): string {
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
 
   return [
-    `Scout message from ${invocation.requesterId}.`,
-    invocation.conversationId ? `Conversation: ${invocation.conversationId}.` : undefined,
-    invocation.messageId ? `Reply-To Message: ${invocation.messageId}.` : undefined,
-    invocation.action !== "consult" ? `Requested action: ${invocation.action}.` : undefined,
+    buildInvocationHeadline(agentName, invocation),
+    ...buildInvocationMetadataLines(agentName, invocation),
     "Treat this as a direct message to the current session and reply normally as yourself in this session.",
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "",

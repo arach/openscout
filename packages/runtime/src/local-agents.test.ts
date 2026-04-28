@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildTmuxLaunchShellCommand,
+  buildAttachedSessionInvocationPrompt,
+  buildLocalAgentDirectInvocationPrompt,
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
   buildLocalAgentSystemPromptTemplate,
@@ -129,6 +131,89 @@ describe("local agent prompts", () => {
     expect(prompt).toContain('Context: {"file":"ShaperProvider.tsx"}');
     expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" latest --agent shaper --limit 20');
     expect(prompt).toContain('bun "/Users/arach/dev/openscout/packages/cli/bin/scout.mjs" send --as shaper "[ask:flt-1] @hudson <your response>"');
+  });
+
+  test("direct invocation prompt starts with a compact Scout title and metadata", () => {
+    const prompt = buildLocalAgentDirectInvocationPrompt(
+      "ranger",
+      {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "ranger",
+        action: "consult",
+        task: "Review how invocation prompt titles should read in Codex conversations.",
+        conversationId: "dm.operator.ranger.main.mini",
+        messageId: "msg-moi5w7kt-1hjg5e",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      },
+    );
+
+    expect(prompt.split("\n").slice(0, 3)).toEqual([
+      "[scout] @operator asks @ranger: Review how invocation prompt titles...",
+      "meta: from=operator to=ranger action=consult",
+      "ref: convo=dm.operator.ranger.main.mini msg=msg-moi5w7kt-1hjg5e",
+    ]);
+    expect(prompt).not.toContain("OpenScout invocation for");
+    expect(prompt).not.toContain("Requester:");
+    expect(prompt).not.toContain("Action:");
+  });
+
+  test("direct invocation prompt skips fenced protocol blocks when summarizing title text", () => {
+    const prompt = buildLocalAgentDirectInvocationPrompt(
+      "ranger",
+      {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "ranger",
+        action: "execute",
+        task: [
+          "```",
+          "OpenScout invocation for ranger.",
+          "Requester: operator.",
+          "```",
+          "",
+          "Improve the Scout invocation title format.",
+        ].join("\n"),
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      },
+    );
+
+    expect(prompt.split("\n").slice(0, 2)).toEqual([
+      "[scout] @operator assigns @ranger: Improve the Scout invocation title...",
+      "meta: from=operator to=ranger action=execute",
+    ]);
+  });
+
+  test("attached session invocation prompt uses the same Scout opener", () => {
+    const prompt = buildAttachedSessionInvocationPrompt(
+      {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "ranger",
+        action: "status",
+        task: "Check whether the broker reply landed.",
+        conversationId: "dm.operator.ranger.main.mini",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      },
+      "ranger",
+    );
+
+    expect(prompt.split("\n").slice(0, 2)).toEqual([
+      "[scout] @operator checks @ranger: Check whether the broker reply...",
+      "meta: from=operator to=ranger action=status",
+    ]);
+    expect(prompt).toContain("Treat this as a direct message to the current session");
+    expect(prompt).not.toContain("Scout message from");
+    expect(prompt).not.toContain("Requested action:");
   });
 
   test("tmux launch shell command quotes script paths with spaces", () => {
