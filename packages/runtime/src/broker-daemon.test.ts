@@ -12,6 +12,7 @@ type BrokerHarness = {
   controlHome: string;
   nodeId: string;
   child: ReturnType<typeof Bun.spawn>;
+  outputDrain: Promise<void>[];
 };
 
 const harnesses = new Set<BrokerHarness>();
@@ -22,6 +23,7 @@ afterEach(async () => {
   for (const harness of harnesses) {
     harness.child.kill();
     await harness.child.exited.catch(() => {});
+    await Promise.all(harness.outputDrain);
     rmSync(harness.controlHome, { recursive: true, force: true });
   }
   harnesses.clear();
@@ -54,18 +56,26 @@ async function startBroker(input: {
       OPENSCOUT_BROKER_URL: baseUrl,
       OPENSCOUT_NODE_ID: derivedNodeId,
       OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
+      OPENSCOUT_RELAY_HUB: join(controlHome, "relay"),
+      OPENSCOUT_SUPPORT_DIRECTORY: join(controlHome, "support"),
       OPENSCOUT_PARENT_PID: "0",
       ...input.env,
     },
     stdout: "pipe",
     stderr: "pipe",
   });
+  const outputDrain = [drainProcessOutput(child.stdout), drainProcessOutput(child.stderr)];
 
   await waitForHealth(baseUrl);
   const node = await getJson<{ id: string }>(baseUrl, "/v1/node");
-  const harness = { baseUrl, controlHome, nodeId: node.id, child };
+  const harness = { baseUrl, controlHome, nodeId: node.id, child, outputDrain };
   harnesses.add(harness);
   return harness;
+}
+
+async function drainProcessOutput(stream: ReadableStream<Uint8Array> | null): Promise<void> {
+  if (!stream) return;
+  await new Response(stream).arrayBuffer().catch(() => undefined);
 }
 
 async function waitForHealth(baseUrl: string): Promise<void> {
