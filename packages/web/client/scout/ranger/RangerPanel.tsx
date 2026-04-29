@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, Compass, Loader2, Map, Mic, MicOff, Radio, RefreshCw, Rocket, Settings, Volume2, VolumeX } from "lucide-react";
+import { Bot, Compass, Loader2, Map, Mic, Radio, RefreshCw, Rocket, Settings, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { isRangerActorId, isRangerAgent } from "../../lib/ranger.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -196,7 +196,7 @@ export function RangerPanel() {
   });
 
   const voiceLabel = recording
-    ? voiceState === "processing" ? "Sending" : "Stop Talking"
+    ? voiceState === "processing" ? "Sending" : "Stop"
     : voiceProbeState === "probing" ? "Checking Vox"
     : voiceProbeState === "launching" ? "Opening Vox"
     : voiceAvailable === false ? "Launch Vox" : "Start Talking";
@@ -271,7 +271,7 @@ export function RangerPanel() {
           }`}
           disabled={sending || voiceState === "processing" || voiceProbeState === "probing"}
         >
-          {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <MicOff size={13} /> : <Mic size={13} />}
+          {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <Square size={12} className="fill-current" /> : <Mic size={13} />}
           {voiceLabel}
         </button>
         {recording && (
