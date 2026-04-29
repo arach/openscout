@@ -13,16 +13,27 @@ main stdio MCP server behind `scout mcp`.
 
 Tools exposed today:
 
-- `whoami`: resolves the default sender id and broker URL for a workspace.
-- `agents_search`: searches broker and discovered setup inventory.
-- `agents_resolve`: resolves an exact handle or returns ambiguity data.
-- `messages_send`: posts a broker-backed tell/status/reply.
-- `invocations_ask`: creates a broker-backed consult/work handoff.
+- `whoami`: inspects the default sender id and broker URL for a workspace when host context is unclear.
+- `agents_search`: searches broker and discovered setup inventory when a target is unknown or ambiguous.
+- `agents_resolve`: resolves an exact handle or returns ambiguity data when a host needs to pin one target.
+- `messages_send`: posts a broker-backed tell/status/reply with explicit target fields or channel.
+- `invocations_ask`: creates a broker-backed consult/work handoff with explicit target fields.
 - `work_update`: updates durable work item state.
 - `card_create`: creates a project-scoped reply-ready agent card.
 
 `/Users/arach/dev/openscout/apps/desktop/src/cli/commands/mcp.ts` is only a CLI
 wrapper. It parses `--context-root` and launches `runScoutMcpServer`.
+
+Direct MCP sends should pass route intent as fields such as `targetLabel`,
+`targetAgentId`, or `channel`; the `body` is payload. A host
+does not need to call `whoami`, `agents_search`, or `agents_resolve` before every
+explicit-target send. Use those tools only for orientation, ambiguity, or
+advanced host UI flows.
+
+Current limitation: explicit `targetLabel` / `targetAgentId` paths use the
+broker delivery planner, but `mentionAgentIds` and body-mention compatibility
+paths still carry some legacy client-side planning. The broker-owned routing
+spec tracks collapsing those fallbacks into `/v1/deliver`.
 
 `invocations_ask` defaults to non-blocking behavior. It now accepts
 `replyMode: "none" | "inline" | "notify"`, with `awaitReply: true` retained as a

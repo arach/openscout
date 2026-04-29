@@ -96,7 +96,7 @@ describe("createScoutMcpServer", () => {
       "work_update",
     ]);
     expect(result.tools.find((tool) => tool.name === "whoami")?.description)
-      .toContain("Start here.");
+      .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
       .toContain("For owned work or a reply lifecycle, use invocations_ask instead.");
     expect(result.tools.find((tool) => tool.name === "work_update")?.description)

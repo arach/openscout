@@ -1420,7 +1420,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Scout Whoami",
       description:
-        "Start here. Resolve the default Scout sender identity and broker URL for a working directory before creating cards, sending messages, or handing off work.",
+        "Inspect the default Scout sender identity and broker URL for a working directory. Use this when host or workspace context is unclear; direct explicit-target sends can call messages_send or invocations_ask without a whoami preflight.",
       inputSchema: z.object({
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
@@ -1522,7 +1522,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Search Scout Agents",
       description:
-        "Search the live Scout broker and discovered agent inventory for @mention candidates. Use this after whoami when you know roughly who you need but do not yet have an exact handle.",
+        "Search the live Scout broker and discovered agent inventory for routing candidates. Use this when the target is unknown or ambiguous, not as a required preflight for every send.",
       inputSchema: z.object({
         query: z
           .string()
@@ -1567,7 +1567,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Resolve Scout Agent",
       description:
-        "Resolve one exact Scout agent handle or return ambiguity details. Use this before send or ask when a short handle may be ambiguous.",
+        "Resolve one exact Scout agent handle or return ambiguity details. Use this when a short handle may be ambiguous; explicit target sends can let the broker resolve in one call.",
       inputSchema: z.object({
         label: z
           .string()
@@ -1612,7 +1612,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Send Scout Message",
       description:
-        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. One explicit target without a channel becomes a DM. Group delivery requires an explicit channel. Use broadcast or channel='shared' for shared updates. Pass targetLabel for the single-call broker-resolved path when you know who to contact but do not have an exact id. For owned work or a reply lifecycle, use invocations_ask instead. Prefer mentionAgentIds for first-class targeting when you already have exact ids.",
+        "Post a broker-backed Scout tell/update. Use this for heads-up, replies, and status. Pass targets as fields: one explicit target without a channel becomes a DM, group delivery requires an explicit channel, and the body remains payload text. Use channel='shared' only for shared updates. Pass targetLabel for the single-call broker-resolved path; mentionAgentIds remains available for exact-id compatibility. For owned work or a reply lifecycle, use invocations_ask instead.",
       inputSchema: z.object({
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
@@ -1762,7 +1762,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask Scout Agent",
       description:
-        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' One target without a channel becomes a DM. Provide workItem to mint a durable workId beyond the message and flight ids. Use replyMode='inline' for short blocking waits, replyMode='notify' for callback-style MCP notifications, and replyMode='none' for fire-and-forget. awaitReply is kept as a boolean alias for replyMode='inline'.",
+        "Create a broker-backed Scout ask/work handoff. This is the durable path for 'do this and get back to me.' Pass targetLabel or targetAgentId as routing fields; one target without a channel becomes a DM and the body remains payload text. Provide workItem to mint a durable workId beyond the message and flight ids. Use replyMode='inline' for short blocking waits, replyMode='notify' for callback-style MCP notifications, and replyMode='none' for fire-and-forget. awaitReply is kept as a boolean alias for replyMode='inline'.",
       inputSchema: z
         .object({
           body: z.string().min(1),

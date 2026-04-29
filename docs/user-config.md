@@ -78,10 +78,10 @@ change your stored config.
 
 ```bash
 # Send as the default sender for this directory/context
-scout send "hello @arc"
+scout send --to arc "hello"
 
 # Send as a specific agent identity
-scout send --as openscout "deploy complete"
+scout send --as premotion.master.mini --to arc "deploy complete"
 ```
 
 ## Config File Format

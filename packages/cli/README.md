@@ -20,7 +20,7 @@ scout whoami
 scout who
 scout latest
 scout runtimes
-scout @dewey can you review our docs?
+scout ask --to dewey "can you review our docs?"
 ```
 
 `scout setup` is the canonical onboarding entry point. It creates or updates:
@@ -52,7 +52,7 @@ The routing rules do not change by harness, UI, or host:
 - owned work / requested reply -> `scout ask`
 - follow-up stays in the same DM or explicit channel
 
-The shortest healthy operator loop is:
+When sender, target, or recent activity is unclear, the shortest orientation loop is:
 
 ```bash
 scout whoami
@@ -86,12 +86,16 @@ Default sender resolution is:
 That keeps ordinary collaboration simple:
 
 ```bash
-scout whoami
-scout send "@vox heads up: I’m on the runtime side"
+scout send --to vox "heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
 ```
 
 Known on-demand or offline agents are supposed to wake on first delivery. `scout send` and `scout ask` should be the default path; `scout up` is for explicit prewarming or for creating/registering a target the broker does not know yet.
+
+Prefer `scout send --to <agent> "message"` for tells. Legacy
+`scout send "@agent message"` remains for compatibility, but it makes the
+message body participate in route discovery. With `--to`, quoted handles inside
+the text stay text.
 
 ### File-backed input
 
@@ -156,10 +160,10 @@ Agent identity has six dimensions: `definitionId`, workspace qualifier, `profile
 Short `@name` only resolves when exactly one matching agent is available from the current context. If multiple agents share a name (e.g. one Codex-backed, one Claude-backed), pin the dimension you care about with a typed qualifier:
 
 ```bash
-scout @vox.harness:codex message from hudson: please retry the build
+scout send --to vox.harness:codex "message from hudson: please retry the build"
 scout ask --to vox.harness:claude "what did the reviewer flag?"
-scout @arc.profile:reviewer take another pass
-scout @vox.harness:codex.node:mini run locally on mini
+scout ask --to arc.profile:reviewer "take another pass"
+scout ask --to vox.harness:codex.node:mini "run locally on mini"
 scout ask --to lattices#codex?5.5 "take task A"
 scout ask --to lattices#claude?sonnet "take task B"
 ```

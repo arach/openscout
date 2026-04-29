@@ -49,14 +49,15 @@ Agent sessions connect to a single Scout broker over HTTP and SSE. The broker ow
 A typical exchange looks like this:
 
 ```
-operator  →  scout send "@codex review the auth module"
-scout cli →  broker (resolve @codex → endpoint)
+operator  →  scout send --to codex "review the auth module"
+scout cli →  broker /v1/deliver (target intent + message body)
+broker    →  resolves codex → endpoint
 broker    →  codex session (deliver message via SSE)
 codex     →  broker (post reply)
 broker    →  operator (deliver reply via SSE)
 ```
 
-One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves `@codex` to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
+One concrete example: `scout ask --to codex "review the auth module"` sends an ask-style request to the broker. The broker resolves the `codex` target to an endpoint, forwards the request to the running Codex session, waits for the reply, and stores the whole exchange as a flight. A flight is the broker's tracked record for an ask-style request, including timeout and retry state.
 
 ## Core Moving Parts
 
@@ -65,7 +66,7 @@ One concrete example: `scout ask --to codex "review the auth module"` sends an a
 | **Protocol** | Shared type system and address grammar | Defines the agent identity grammar, message records, invocation requests, flight records, collaboration contracts, and bindings |
 | **Broker** | Local message bus and state store | SQLite-backed daemon that owns registration, routing, threading, dispatch, HTTP reads/writes, and SSE updates |
 | **Runtime** | Session and runtime lifecycle management | Starts, resumes, stops, and health-checks sessions across harnesses. Manages tmux sessions, system prompts, and transport adapters |
-| **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` -- resolves short names, infers sender identity, and handles mention routing |
+| **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` -- passes structured route intent to the broker and keeps bootstrap/orientation cheap |
 | **Surfaces** | Views into broker state | Desktop, web, iOS, and terminal views. They read from the broker; none of them own agent state |
 
 ### Protocol
@@ -76,11 +77,11 @@ Anything that crosses a boundary — between agents, harnesses, or machines — 
 
 ### Broker
 
-A single SQLite-backed daemon per machine. Agents post messages to it; it resolves mentions, routes to endpoints, and records history. It is the canonical writer for local state. Exposes HTTP for reads and writes, SSE for live updates.
+A single SQLite-backed daemon per machine. Agents post messages to it; it resolves structured targets, routes to endpoints, and records history. It is the canonical writer for local state. Exposes HTTP for reads and writes, SSE for live updates.
 
 ```bash
 # What the broker handles
-scout send "@hudson check the deploy"   # → resolve, route, deliver
+scout send --to hudson "check the deploy"  # → resolve, route, deliver
 scout who                                # → read agent registry
 scout watch                              # → SSE stream of all events
 ```
@@ -93,7 +94,7 @@ Also owns the file-based agent override registry, project discovery, and harness
 
 ### CLI
 
-The operator's main interface. Resolves short agent names (`@hudson`) to the specific registered agent they refer to, infers sender identity from the current project or `~/.openscout/user.json`, and handles mention-based routing.
+The operator's main interface. It sends route intent such as `--to hudson` or `--channel triage` to the broker and renders broker receipts, remediation actions, and orientation views. Legacy body-mention shortcuts still exist for compatibility, but new flows should keep target metadata out of the message body.
 
 ### Surfaces
 
@@ -115,7 +116,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 2. **Start or attach.** `scout up` launches or resumes the harness session Scout should use for that target, with a generated system prompt that includes the collaboration contract when Scout owns the launch path.
 
-3. **Route.** Messages mentioning `@agent` hit the broker, which resolves the name, finds the endpoint, and dispatches.
+3. **Route.** Messages with explicit target intent hit the broker, which resolves the name, finds the endpoint, and dispatches.
 
 4. **Invoke.** For ask-style interactions, the broker creates a flight record -- tracking the request-response lifecycle with timeout and retry semantics.
 
@@ -123,7 +124,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 ```bash
 scout up hudson          # bind + start
-scout send "@hudson hi"  # route + deliver
+scout send --to hudson "hi"  # route + deliver
 scout ask --to hudson "..."  # route + invoke (tracks flight)
 scout down hudson        # stop
 ```
@@ -150,7 +151,7 @@ Once a peer is found, the broker fetches its agent registry via `/v1/snapshot` a
 
 ### Forwarding
 
-When you `scout send "@hudson"` and hudson lives on another machine, the broker's delivery planner detects that hudson's `authorityNodeId` differs from the local node. Instead of delivering locally, it bundles the message with its full context — actors, agents, conversation, bindings — and POSTs it to the remote broker's `/v1/mesh/messages` endpoint. The remote broker commits the bundle to its own journal and delivers locally.
+When you `scout send --to hudson "..."` and hudson lives on another machine, the broker's delivery planner detects that hudson's `authorityNodeId` differs from the local node. Instead of delivering locally, it bundles the message with its full context — actors, agents, conversation, bindings — and POSTs it to the remote broker's `/v1/mesh/messages` endpoint. The remote broker commits the bundle to its own journal and delivers locally.
 
 Invocations work the same way. Ask-style requests forward to the authority node, which executes them and returns the flight record.
 

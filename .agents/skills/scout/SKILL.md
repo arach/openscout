@@ -12,7 +12,7 @@ Use Scout when you need shared coordination state, not just message delivery.
 Baseline agent-to-agent communication should be one command:
 
 ```bash
-scout send "@x msg"        # tell/update; no reply needed
+scout send --to x "msg"    # tell/update; no reply needed
 scout ask --to x "msg"     # work/question; reply needed
 ```
 
@@ -45,11 +45,13 @@ bun /Users/arach/dev/openscout/packages/cli/bin/scout.mjs env --json
 
 When the workspace is known and there is one intended recipient, do not burn extra commands on orientation first.
 
-- CLI tell: `scout send "@x msg"`
+- CLI tell: `scout send --to x "msg"`
 - CLI ask: `scout ask --to x "msg"`
 - Known offline / on-demand agents are supposed to wake on first delivery. Do not ask the operator to bring up a known target just to send the first message.
 
 The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
+
+Use `scout send --to ...` instead of placing the route inside the message body. Legacy `scout send "@x msg"` exists for compatibility, but body mention parsing can turn quoted agent names into route candidates. With `--to`, text such as `@codex` inside the body remains payload.
 
 ## Orientation loop
 
@@ -79,8 +81,8 @@ The semantics do not change by host. Only the verbs change:
 | ------- | --- | --- | ---------- |
 | Resolve who you are | `scout whoami` | `whoami` | use when sender context is unclear |
 | Find or confirm a target | `scout who`, `scout latest`, `scout @x...` disambiguation | `agents_search`, `agents_resolve` | use when direct routing is ambiguous |
-| Tell / status / reply | `scout send` | `messages_send` | one target -> DM |
-| Owned work / requested reply | `scout ask` | `invocations_ask` | one target -> DM |
+| Tell / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
+| Owned work / requested reply | `scout ask --to x "msg"` | `invocations_ask` with explicit target fields | one target -> DM |
 | Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
 | Fresh reply-ready identity | `scout card create` | `card_create` | project-scoped inbox |
 | Everybody on this broker | `scout broadcast` | `messages_send` with `channel="shared"` | shared broadcast only |
@@ -93,6 +95,7 @@ Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI.
 - tell/update -> send
 - owned work / requested reply -> ask
 - follow-up stays in the same DM or explicit channel
+- message body text is payload, not routing metadata
 
 ## Frequent questions
 
@@ -114,7 +117,7 @@ Scout has three destinations: **DM**, **named channel**, **shared broadcast**. P
 
 | Situation                            | Destination             | Command                                           |
 | ------------------------------------ | ----------------------- | ------------------------------------------------- |
-| You're addressing one specific agent | DM (two-party, private) | `scout send "@x msg"` or `scout ask --to x "msg"` |
+| You're addressing one specific agent | DM (two-party, private) | `scout send --to x "msg"` or `scout ask --to x "msg"` |
 | You're posting into a named channel  | that channel            | `scout send --channel foo "msg"`                  |
 | You want every agent to see it       | `channel.shared`        | `scout broadcast "msg"`                           |
 
@@ -175,7 +178,7 @@ Phrasing:
 Command:
 
 ```bash
-scout send "@x msg"
+scout send --to x "msg"
 ```
 
 This is inline, fire-and-forget, and lands in the `@x` DM.
@@ -258,13 +261,15 @@ Aliases:
 
 Use typed qualifiers or shorthand any time the user's request implies a specific harness, model, or profile. Do not rely on short-name resolution to guess right.
 
+Product handles are reserved. Do not treat `@scout` or `@openscout` as aliases for a normal orchestration persona. Use a product/coordinator inbox only when it is explicitly available; use `@ranger` when the user specifically needs Ranger-style orchestration.
+
 ## Resolution rule
 
 Short `@name` should resolve when the broker can map it to **exactly one known target**.
 
 Offline / on-demand is still routable. The broker should register the target if needed and wake it on first send / ask.
 
-If `scout send "@x ..."` or `scout ask --to x ...` returns `unresolved`, treat that as **route unclear or target unknown in the current broker context**, not as proof the target is merely offline.
+If `scout send --to x "..."` or `scout ask --to x ...` returns `unresolved`, treat that as **route unclear or target unknown in the current broker context**, not as proof the target is merely offline.
 
 If the CLI reports multiple candidates, re-run with a typed qualifier. If the route still fails, options are:
 
@@ -316,7 +321,8 @@ After creating the card, prefer the friendly handle such as `@shellfix`.
 
 - `scout relay ask` and `scout relay send` are accepted as namespace aliases. Do not use them in new prompts.
 - `scout` is the canonical CLI binary. Do not use `openscout` in new prompts or examples.
-- For agent-to-agent delegation, check `scout whoami` first and use `--as <agent>` whenever the acting project agent must be preserved explicitly.
+- Legacy `scout send "@x msg"` is accepted as body-mention shorthand. Do not use it in new prompts when a structured target field is available.
+- For agent-to-agent delegation, rely on the current workspace identity by default. Check `scout whoami` and use `--as <agent>` only when the acting project agent might not be preserved by the host, shell, or bridge.
 
 ## When not to use Scout
 

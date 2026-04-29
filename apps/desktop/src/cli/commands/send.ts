@@ -34,12 +34,12 @@ export function renderSendCommandHelp(): string {
     "  --body-file <path>                -> alias for --message-file",
     "",
     "Examples:",
-    '  scout send "@hudson ready for review"',
     '  scout send --to hudson "ready for review; literal @codex stays text"',
-    '  scout send "@lattices#codex?5.5 ready for review"',
+    '  scout send --to lattices#codex?5.5 "ready for review"',
     "  scout send --channel triage --message-file ./status.md",
-    '  scout send --as premotion.master.mini "@hudson editor branch is green"',
+    '  scout send --as premotion.master.mini --to hudson "editor branch is green"',
     '  scout send --channel triage "need two reviewers"',
+    '  scout send "@hudson ready for review"  # legacy body-mention shorthand',
   ].join("\n");
 }
 
@@ -68,7 +68,7 @@ export function formatScoutSendRoutingError(
       .map((candidate) => renderAmbiguousCandidate(candidate.label || candidate.agentId))
       .filter((label) => label.length > 0);
     if (renderedCandidates.length > 0) {
-      return `target ${renderTargetLabel(result.unresolvedTargets[0] ?? "")} matches multiple agents: ${renderedCandidates.join(", ")}. Re-run with the fully qualified form (e.g. \`scout send "${renderedCandidates[0]} ..."\`).`;
+      return `target ${renderTargetLabel(result.unresolvedTargets[0] ?? "")} matches multiple agents: ${renderedCandidates.join(", ")}. Re-run with the fully qualified form (e.g. \`scout send --to ${renderedCandidates[0]} "..."\`).`;
     }
     return `target ${renderTargetLabel(result.unresolvedTargets[0] ?? "")} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
   }

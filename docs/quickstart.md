@@ -64,7 +64,7 @@ When the workspace and one target are clear, use the direct command first. Do
 not run an orientation loop before every handoff.
 
 ```bash
-scout send "@agent hello"
+scout send --to agent "hello"
 scout ask --to agent "can you review this?"
 ```
 
