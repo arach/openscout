@@ -19,6 +19,16 @@ describe("parseSendCommandOptions", () => {
     expect(options.currentDirectory).toBe("/tmp/repo");
   });
 
+  test("accepts an explicit target without consuming body mentions", () => {
+    const options = parseSendCommandOptions(
+      ["--to", "hudson", "literal", "@codex", "stays", "text"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("hudson");
+    expect(options.message).toBe("literal @codex stays text");
+  });
+
   test("rejects mixing inline messages with a message file", () => {
     expect(() =>
       parseSendCommandOptions(

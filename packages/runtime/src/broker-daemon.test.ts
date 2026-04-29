@@ -989,15 +989,29 @@ describe("broker daemon comms layer", () => {
       kind: string;
       accepted: boolean;
       routeKind: string;
+      receipt?: {
+        requestId: string;
+        requesterId: string;
+        requesterNodeId: string;
+        targetAgentId?: string;
+        targetLabel?: string;
+        messageId: string;
+        flightId?: string;
+      };
       targetAgentId?: string;
       conversation?: { id: string; kind: string };
       message?: { id: string; conversationId: string; actorId: string; body: string };
       flight?: { id: string; state: string; targetAgentId: string };
     }>(harness.baseUrl, "/v1/deliver", {
       id: "deliver-test-1",
-      requesterId: "operator",
-      requesterNodeId: harness.nodeId,
-      targetLabel: "@ghost",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "agent_label",
+        label: "@ghost",
+      },
       body: "@ghost are you there?",
       intent: "consult",
       createdAt: Date.now(),
@@ -1007,10 +1021,59 @@ describe("broker daemon comms layer", () => {
     expect(response.accepted).toBe(true);
     expect(response.routeKind).toBe("dm");
     expect(response.targetAgentId).toBe("ghost");
+    expect(response.receipt?.requestId).toBe("deliver-test-1");
+    expect(response.receipt?.requesterId).toBe("operator");
+    expect(response.receipt?.requesterNodeId).toBe(harness.nodeId);
+    expect(response.receipt?.targetAgentId).toBe("ghost");
+    expect(response.receipt?.targetLabel).toBe("@ghost");
     expect(response.conversation?.kind).toBe("direct");
     expect(response.message?.conversationId).toBe(response.conversation?.id);
+    expect(response.receipt?.messageId).toBe(response.message?.id);
     expect(response.flight?.state).toBe("waking");
     expect(response.flight?.targetAgentId).toBe("ghost");
+    expect(response.receipt?.flightId).toBe(response.flight?.id);
+  }, 15_000);
+
+  test("accepts broker-owned channel tells without caller-side route preflight", async () => {
+    const harness = await startBroker();
+
+    const response = await postJson<{
+      kind: string;
+      accepted: boolean;
+      routeKind: string;
+      targetAgentId?: string;
+      receipt?: {
+        requestId: string;
+        requesterId: string;
+        requesterNodeId: string;
+        targetLabel?: string;
+        conversationId: string;
+        messageId: string;
+      };
+      conversation?: { id: string; kind: string };
+      message?: { id: string; actorId: string; conversationId: string; createdAt: number };
+    }>(harness.baseUrl, "/v1/deliver", {
+      target: {
+        kind: "channel",
+        channel: "shared",
+      },
+      body: "build status update",
+      intent: "tell",
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.routeKind).toBe("broadcast");
+    expect(response.targetAgentId).toBeUndefined();
+    expect(response.conversation?.id).toBe("channel.shared");
+    expect(response.message?.conversationId).toBe("channel.shared");
+    expect(response.message?.createdAt).toBeGreaterThan(0);
+    expect(response.receipt?.requestId.startsWith("deliver-")).toBe(true);
+    expect(response.receipt?.requesterId).toBe("operator");
+    expect(response.receipt?.requesterNodeId).toBe(harness.nodeId);
+    expect(response.receipt?.targetLabel).toBe("shared");
+    expect(response.receipt?.conversationId).toBe("channel.shared");
+    expect(response.receipt?.messageId).toBe(response.message?.id);
   }, 15_000);
 
   test("returns a broker question for manual offline targets it cannot wake", async () => {

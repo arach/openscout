@@ -1,9 +1,36 @@
 import type { WakePolicy } from "./actors.js";
-import type { AdvertiseScope, DeliveryTransport, ScoutId } from "./common.js";
+import type { AdvertiseScope, DeliveryTransport, MetadataMap, ScoutId } from "./common.js";
 
 export type ScoutDispatchKind = "ambiguous" | "unknown" | "unparseable" | "unavailable";
 
 export type ScoutCandidateEndpointState = "online" | "offline" | "unknown";
+
+export type ScoutRouteTargetKind = "agent_id" | "agent_label" | "channel" | "broadcast";
+
+export type ScoutRouteAmbiguousPolicy = "reject" | "ask";
+
+export interface ScoutCallerContext {
+  actorId?: ScoutId;
+  nodeId?: ScoutId;
+  displayName?: string;
+  handle?: string;
+  currentDirectory?: string;
+  metadata?: MetadataMap;
+}
+
+export interface ScoutRouteTarget {
+  kind: ScoutRouteTargetKind;
+  value?: string;
+  agentId?: ScoutId;
+  label?: string;
+  channel?: string;
+}
+
+export interface ScoutRoutePolicy {
+  preferLocalNodeId?: ScoutId;
+  ambiguous?: ScoutRouteAmbiguousPolicy;
+  allowStaleDirectId?: boolean;
+}
 
 export type ScoutDispatchUnavailableReason =
   | "manual_wake_required"

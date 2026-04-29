@@ -176,7 +176,7 @@ describe("loadScoutBrokerContext", () => {
 });
 
 describe("askScoutQuestion", () => {
-  test("registers discovered targets and lets the broker wake them on demand", async () => {
+  test("passes route intent to broker delivery and lets the broker wake targets", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");
     const talkieRoot = join(workspaceRoot, "talkie");
@@ -203,6 +203,13 @@ describe("askScoutQuestion", () => {
         requesterId: string;
         conversationId: string;
         metadata?: { relayChannel?: string; relayTarget?: string };
+      } | null,
+      delivery: null as {
+        body: string;
+        target?: { kind?: string; label?: string };
+        caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
+        messageMetadata?: { source?: string };
+        invocationMetadata?: { source?: string };
       } | null,
     };
     globalThis.fetch = (async (input, init) => {
@@ -244,9 +251,14 @@ describe("askScoutQuestion", () => {
       }
       if (request.method === "POST" && url.pathname === "/v1/deliver") {
         const body = (await request.json()) as {
-          requesterId: string;
+          caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
           body: string;
+          target?: { kind?: string; label?: string };
+          messageMetadata?: { source?: string };
+          invocationMetadata?: { source?: string };
         };
+        const requesterId = body.caller?.actorId ?? "operator";
+        captured.delivery = body;
         return jsonResponse({
           kind: "delivery",
           accepted: true,
@@ -262,7 +274,7 @@ describe("askScoutQuestion", () => {
           message: {
             id: "msg-1",
             conversationId: "dm.operator.talkie",
-            actorId: body.requesterId,
+            actorId: requesterId,
             originNodeId: "node-1",
             class: "agent",
             body: body.body,
@@ -280,7 +292,7 @@ describe("askScoutQuestion", () => {
           flight: {
             id: "flt-1",
             invocationId: "inv-1",
-            requesterId: body.requesterId,
+            requesterId,
             targetAgentId: "talkie",
             state: "waking",
             summary: "Talkie waking.",
@@ -306,6 +318,18 @@ describe("askScoutQuestion", () => {
     expect(result.flight?.state).toBe("waking");
     expect(result.unresolvedTarget).toBeUndefined();
     expect(result.targetDiagnostic).toBeUndefined();
+    expect(captured.delivery?.body).toBe("build it for me");
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_label",
+      label: "talkie",
+    });
+    expect(captured.delivery?.caller).toMatchObject({
+      actorId: "operator",
+      nodeId: "node-1",
+      currentDirectory: workspaceRoot,
+    });
+    expect(captured.delivery?.messageMetadata?.source).toBe("scout-cli");
+    expect(captured.delivery?.invocationMetadata?.source).toBe("scout-cli");
     expect(requests.some((request) => request.path === "/v1/deliver")).toBe(
       true,
     );
@@ -1159,6 +1183,108 @@ describe("sendScoutMessage", () => {
     expect(requests.some((request) => request.path === "/v1/invocations")).toBe(
       false,
     );
+  }, 15000);
+
+  test("uses explicit send target as route intent and leaves body mentions as text", async () => {
+    useIsolatedOpenScoutHome();
+
+    const captured = {
+      delivery: null as {
+        id?: string;
+        requesterId?: string;
+        requesterNodeId?: string;
+        caller?: { actorId?: string; nodeId?: string; currentDirectory?: string };
+        target?: { kind?: string; label?: string };
+        body?: string;
+        createdAt?: number;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = await request.json() as NonNullable<typeof captured.delivery>;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.hudson",
+            kind: "direct",
+            title: "Hudson",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "hudson.main"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.hudson",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: captured.delivery.body,
+            audience: {
+              notify: ["hudson.main"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "hudson.main",
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      targetLabel: "hudson",
+      body: "status references literal @codex and should still route",
+      currentDirectory: "/worktree/project",
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.invokedTargets).toEqual(["hudson.main"]);
+    expect(captured.delivery?.target).toEqual({
+      kind: "agent_label",
+      label: "hudson",
+    });
+    expect(captured.delivery?.body).toBe(
+      "status references literal @codex and should still route",
+    );
+    expect(captured.delivery?.requesterId).toBeUndefined();
+    expect(captured.delivery?.requesterNodeId).toBeUndefined();
+    expect(captured.delivery?.id).toBeUndefined();
+    expect(captured.delivery?.createdAt).toBeUndefined();
+    expect(captured.delivery?.caller).toMatchObject({
+      actorId: "operator",
+      nodeId: "node-1",
+      currentDirectory: "/worktree/project",
+    });
   }, 15000);
 
   test("fails closed when a mention target is unresolved", async () => {

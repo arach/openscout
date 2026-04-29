@@ -7,6 +7,8 @@ describe("renderSendCommandHelp", () => {
     const help = renderSendCommandHelp();
 
     expect(help).toContain("Tell or update another agent or an explicit channel.");
+    expect(help).toContain("--to <agent>");
+    expect(help).toContain("body @mentions stay text");
     expect(help).toContain("one explicit @agent + no channel   -> DM");
     expect(help).toContain("multiple targets + no channel      -> error");
     expect(help).toContain("Use `scout ask` when the meaning is \"do this and get back to me.\"");

@@ -22,6 +22,7 @@ import type {
 } from "@openscout/protocol";
 
 import type { RuntimeRegistrySnapshot } from "./registry.js";
+import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 
 export type ScoutBrokerHealthPayload = {
   ok: boolean;
@@ -104,7 +105,7 @@ export type ActiveScoutBrokerService = {
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
   deliver?: (request: ScoutDeliverRequest) => Promise<ScoutDeliverResponse>;
   invokeAgent?: (
-    request: InvocationRequest & { targetLabel?: string },
+    request: InvocationRequest & BrokerRouteTargetInput,
   ) => Promise<unknown>;
 };
 
@@ -431,7 +432,7 @@ export async function maybePostJsonToActiveScoutBrokerService<T>(
   }
 
   if (url.pathname === "/v1/invocations") {
-    const invocation = body as InvocationRequest & { targetLabel?: string };
+    const invocation = body as InvocationRequest & BrokerRouteTargetInput;
     if (service.invokeAgent) {
       return handled(await service.invokeAgent(invocation) as T);
     }

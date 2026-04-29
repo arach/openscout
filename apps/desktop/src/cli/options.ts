@@ -9,6 +9,7 @@ type ContextRootOptions = {
 
 type TargetableMessageOptions = ContextRootOptions & {
   agentName: string | null;
+  targetLabel?: string;
   channel?: string;
   harness?: string;
   shouldSpeak: boolean;
@@ -206,6 +207,7 @@ export function parseSendCommandOptions(
 ): TargetableMessageOptions {
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
+  let targetLabel: string | undefined;
   let channel: string | undefined;
   let shouldSpeak = false;
   let harness: string | undefined;
@@ -217,6 +219,12 @@ export function parseSendCommandOptions(
     if (current === "--as" || current.startsWith("--as=")) {
       const value = parseFlagValue(parsed.args, index, "--as");
       agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--to" || current.startsWith("--to=")) {
+      const value = parseFlagValue(parsed.args, index, "--to");
+      targetLabel = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -261,6 +269,7 @@ export function parseSendCommandOptions(
     currentDirectory: parsed.currentDirectory,
     args: parsed.args,
     agentName,
+    targetLabel,
     channel,
     shouldSpeak,
     harness,

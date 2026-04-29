@@ -274,6 +274,7 @@ type ScoutMcpDependencies = {
     channel?: string;
     shouldSpeak?: boolean;
     currentDirectory: string;
+    source?: string;
   }) => Promise<ScoutMessagePostResult>;
   sendMessageToAgentIds: (input: {
     senderId: string;
@@ -292,6 +293,7 @@ type ScoutMcpDependencies = {
     channel?: string;
     shouldSpeak?: boolean;
     currentDirectory: string;
+    source?: string;
   }) => Promise<ScoutAskResult>;
   askAgentById: (input: {
     senderId: string;
@@ -532,6 +534,70 @@ const workUpdateResultSchema = z.object({
 
 function createTextContent(value: unknown): [{ type: "text"; text: string }] {
   return [{ type: "text", text: JSON.stringify(value, null, 2) }];
+}
+
+function createPlainTextContent(
+  text: string,
+): [{ type: "text"; text: string }] {
+  return [{ type: "text", text }];
+}
+
+function renderMcpSendSummary(result: {
+  usedBroker: boolean;
+  conversationId: string | null;
+  messageId: string | null;
+  invokedTargetIds: string[];
+  unresolvedTargetIds: string[];
+  routingError: string | null;
+}): string {
+  if (!result.usedBroker) {
+    return "Scout broker is not reachable; message was not sent.";
+  }
+  if (result.routingError) {
+    return `Message was not sent: ${result.routingError}.`;
+  }
+  if (result.unresolvedTargetIds.length > 0) {
+    return `Message was not sent; unresolved target(s): ${result.unresolvedTargetIds.join(", ")}.`;
+  }
+  const destination = result.invokedTargetIds.length > 0
+    ? ` to ${result.invokedTargetIds.join(", ")}`
+    : "";
+  const route = result.conversationId ? ` in ${result.conversationId}` : "";
+  const message = result.messageId ? ` (${result.messageId})` : "";
+  return `Message sent${destination}${route}${message}.`;
+}
+
+function renderMcpAskSummary(result: {
+  usedBroker: boolean;
+  targetAgentId: string | null;
+  targetLabel: string | null;
+  flightId: string | null;
+  workId: string | null;
+  unresolvedTargetId: string | null;
+  unresolvedTargetLabel: string | null;
+  output: string | null;
+  delivery?: string;
+}): string {
+  if (!result.usedBroker) {
+    return "Scout broker is not reachable; ask was not sent.";
+  }
+  const unresolved = result.unresolvedTargetId ?? result.unresolvedTargetLabel;
+  if (unresolved) {
+    return `Ask was not sent; unresolved target: ${unresolved}.`;
+  }
+  const target = result.targetAgentId ?? result.targetLabel ?? "target";
+  const details = [
+    result.flightId ? `flight ${result.flightId}` : null,
+    result.workId ? `work ${result.workId}` : null,
+  ].filter(Boolean);
+  const detailText = details.length > 0 ? `; ${details.join(", ")}` : "";
+  if (result.output) {
+    return result.output;
+  }
+  if (result.delivery === "mcp_notification") {
+    return `Ask sent to ${target}; reply will be delivered by MCP notification${detailText}.`;
+  }
+  return `Ask sent to ${target}${detailText}.`;
 }
 
 function resolveAskReplyMode(input: {
@@ -1250,6 +1316,7 @@ function defaultScoutMcpDependencies(
       channel,
       shouldSpeak,
       currentDirectory,
+      source,
     }) =>
       sendScoutMessage({
         senderId,
@@ -1258,6 +1325,7 @@ function defaultScoutMcpDependencies(
         channel,
         shouldSpeak,
         currentDirectory,
+        source,
       }),
     sendMessageToAgentIds: ({
       senderId,
@@ -1285,6 +1353,7 @@ function defaultScoutMcpDependencies(
       channel,
       shouldSpeak,
       currentDirectory,
+      source,
     }) =>
       askScoutQuestion({
         senderId,
@@ -1294,6 +1363,7 @@ function defaultScoutMcpDependencies(
         channel,
         shouldSpeak,
         currentDirectory,
+        source,
       }),
     askAgentById: ({
       senderId,
@@ -1619,7 +1689,9 @@ export function createScoutMcpServer(options: {
           routingError: result.routingError ?? null,
         };
         return {
-          content: createTextContent(structuredContent),
+          content: createPlainTextContent(
+            renderMcpSendSummary(structuredContent),
+          ),
           structuredContent,
         };
       }
@@ -1632,6 +1704,7 @@ export function createScoutMcpServer(options: {
           channel,
           shouldSpeak,
           currentDirectory: resolvedCurrentDirectory,
+          source: "scout-mcp",
         });
         const structuredContent = {
           currentDirectory: resolvedCurrentDirectory,
@@ -1647,7 +1720,9 @@ export function createScoutMcpServer(options: {
           routingError: result.routingError ?? null,
         };
         return {
-          content: createTextContent(structuredContent),
+          content: createPlainTextContent(
+            renderMcpSendSummary(structuredContent),
+          ),
           structuredContent,
         };
       }
@@ -1658,6 +1733,7 @@ export function createScoutMcpServer(options: {
         channel,
         shouldSpeak,
         currentDirectory: resolvedCurrentDirectory,
+        source: "scout-mcp",
       });
       const structuredContent = {
         currentDirectory: resolvedCurrentDirectory,
@@ -1673,7 +1749,9 @@ export function createScoutMcpServer(options: {
         routingError: result.routingError ?? null,
       };
       return {
-        content: createTextContent(structuredContent),
+        content: createPlainTextContent(
+          renderMcpSendSummary(structuredContent),
+        ),
         structuredContent,
       };
     },
@@ -1834,7 +1912,9 @@ export function createScoutMcpServer(options: {
           targetDiagnostic: result.targetDiagnostic ?? null,
         };
         return {
-          content: createTextContent(structuredContent),
+          content: createPlainTextContent(
+            renderMcpAskSummary(structuredContent),
+          ),
           structuredContent,
         };
       }
@@ -1847,6 +1927,7 @@ export function createScoutMcpServer(options: {
         channel,
         shouldSpeak,
         currentDirectory: resolvedCurrentDirectory,
+        source: "scout-mcp",
       });
       const completedFlight =
         shouldAwait && result.flight
@@ -1912,7 +1993,9 @@ export function createScoutMcpServer(options: {
         targetDiagnostic: result.targetDiagnostic ?? null,
       };
       return {
-        content: createTextContent(structuredContent),
+        content: createPlainTextContent(
+          renderMcpAskSummary(structuredContent),
+        ),
         structuredContent,
       };
     },

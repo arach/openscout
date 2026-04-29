@@ -28,6 +28,8 @@ import {
   type ScoutDispatchEnvelope,
   type ScoutDispatchRecord,
   type ScoutDispatchUnavailableTarget,
+  type ScoutDeliveryRemediationAction,
+  type ScoutDeliveryReceipt,
   type ScoutDeliverRequest,
   type ScoutDeliverResponse,
   type ScoutDeliverRouteKind,
@@ -41,9 +43,13 @@ import {
 import { createInMemoryControlRuntime } from "./broker.js";
 import { FileBackedBrokerJournal, type BrokerJournalEntry } from "./broker-journal.js";
 import {
+  askedLabelForRouteTarget,
   buildDispatchEnvelope,
+  resolveBrokerRouteTarget,
   resolveAgentLabel,
+  routeChannelForTarget,
   type BrokerLabelResolution,
+  type BrokerRouteTargetInput,
 } from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
@@ -3225,13 +3231,13 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
 }
 
 async function handleInvocationRequest(
-  payload: InvocationRequest & { targetLabel?: string },
+  payload: InvocationRequest & BrokerRouteTargetInput,
 ) {
   const resolved = resolveInvocationTarget(payload);
   if (resolved.kind !== "resolved") {
     const envelope = buildDispatchEnvelope(
       resolved,
-      payload.targetLabel?.trim() || payload.targetAgentId || "",
+      askedLabelForRouteTarget(payload),
       nodeId,
       runtime.snapshot(),
       { homeEndpointFor: homeEndpointForAgent },
@@ -4160,8 +4166,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "POST" && url.pathname === "/v1/invocations") {
     try {
-      const payload = await readRequestBody<InvocationRequest & { targetLabel?: string }>(request);
-      const result = await brokerService.invokeAgent?.(payload);
+      const payload = await readRequestBody<InvocationRequest & BrokerRouteTargetInput>(request);
+      const result = brokerService.invokeAgent
+        ? await brokerService.invokeAgent(payload)
+        : await handleInvocationRequest(payload);
       json(response, 202, result);
     } catch (error) {
       badRequest(response, error);
@@ -4176,43 +4184,157 @@ type InvocationResolution =
   | { kind: "resolved"; agent: AgentDefinition }
   | BrokerLabelResolution;
 
+function callerContextForDelivery(payload: ScoutDeliverRequest): { requesterId: string; requesterNodeId: string } {
+  return {
+    requesterId: payload.caller?.actorId?.trim() || payload.requesterId?.trim() || operatorActorId,
+    requesterNodeId: payload.caller?.nodeId?.trim() || payload.requesterNodeId?.trim() || nodeId,
+  };
+}
+
 function resolveBrokerDeliveryTarget(
-  targetAgentId: string | null | undefined,
-  targetLabel: string | null | undefined,
+  input: BrokerRouteTargetInput,
 ): InvocationResolution {
-  const snapshot = runtime.snapshot();
-  const directId = targetAgentId?.trim();
-  if (directId) {
-    const agent = snapshot.agents[directId];
-    if (agent) {
-      return { kind: "resolved", agent };
-    }
-  }
-
-  const label = targetLabel?.trim() || directId || "";
-  if (!label) {
-    return { kind: "unparseable", label: "" };
-  }
-
-  return resolveAgentLabel(snapshot, label, {
+  return resolveBrokerRouteTarget(runtime.snapshot(), input, {
     preferLocalNodeId: nodeId,
     helpers: { isStale: isStaleLocalAgent },
   });
 }
 
 function resolveInvocationTarget(
-  payload: InvocationRequest & { targetLabel?: string },
+  payload: InvocationRequest & BrokerRouteTargetInput,
 ): InvocationResolution {
-  return resolveBrokerDeliveryTarget(payload.targetAgentId, payload.targetLabel);
+  return resolveBrokerDeliveryTarget({
+    target: payload.target,
+    targetAgentId: payload.targetAgentId,
+    targetLabel: payload.targetLabel,
+    routePolicy: payload.routePolicy,
+  });
+}
+
+function remediationForDispatch(
+  dispatch: ScoutDispatchRecord,
+): ScoutDeliveryRemediationAction {
+  if (dispatch.kind === "ambiguous") {
+    return {
+      kind: "choose_target",
+      detail: dispatch.detail,
+      targetLabel: dispatch.askedLabel,
+      dispatchId: dispatch.id,
+    };
+  }
+  if (dispatch.kind === "unavailable") {
+    return {
+      kind: dispatch.target?.reason === "manual_wake_required" ? "wake_target" : "retry_later",
+      detail: dispatch.target?.detail ?? dispatch.detail,
+      targetAgentId: dispatch.target?.agentId,
+      targetLabel: dispatch.askedLabel,
+      dispatchId: dispatch.id,
+    };
+  }
+  return {
+    kind: dispatch.kind === "unknown" ? "register_target" : "choose_target",
+    detail: dispatch.detail,
+    targetLabel: dispatch.askedLabel,
+    dispatchId: dispatch.id,
+  };
+}
+
+function buildDeliveryReceipt(input: {
+  requestId: string;
+  routeKind: ScoutDeliverRouteKind;
+  requesterId: string;
+  requesterNodeId: string;
+  targetAgentId?: string;
+  targetLabel: string;
+  conversationId: string;
+  messageId: string;
+  flightId?: string;
+}): ScoutDeliveryReceipt {
+  return {
+    requestId: input.requestId,
+    routeKind: input.routeKind,
+    requesterId: input.requesterId,
+    requesterNodeId: input.requesterNodeId,
+    targetAgentId: input.targetAgentId,
+    targetLabel: input.targetLabel,
+    conversationId: input.conversationId,
+    messageId: input.messageId,
+    ...(input.flightId ? { flightId: input.flightId } : {}),
+    acceptedAt: Date.now(),
+  };
 }
 
 async function acceptBrokerDelivery(
   payload: ScoutDeliverRequest,
 ): Promise<ScoutDeliverResponse> {
-  const requesterId = payload.requesterId?.trim() || operatorActorId;
-  const requesterNodeId = payload.requesterNodeId?.trim() || nodeId;
-  const askedLabel = payload.targetLabel?.trim() || payload.targetAgentId?.trim() || "";
-  const resolved = resolveBrokerDeliveryTarget(payload.targetAgentId, payload.targetLabel);
+  const requestId = payload.id?.trim() || createRuntimeId("deliver");
+  const createdAt = typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
+    ? payload.createdAt
+    : Date.now();
+  const { requesterId, requesterNodeId } = callerContextForDelivery(payload);
+  const askedLabel = askedLabelForRouteTarget(payload);
+  const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
+  const hasAgentTarget = Boolean(
+    payload.targetAgentId?.trim()
+      || payload.targetLabel?.trim()
+      || payload.target?.kind === "agent_id"
+      || payload.target?.kind === "agent_label",
+  );
+
+  if (deliveryChannel && !hasAgentTarget && payload.intent === "tell") {
+    await ensureBrokerActorForDelivery(requesterId);
+    const conversation = await ensureBrokerDeliveryConversation({
+      requesterId,
+      channel: deliveryChannel,
+    });
+    const snapshot = runtime.snapshot();
+    const messageId = createRuntimeId("msg");
+    const routeKind = brokerRouteKind(conversation);
+    const message: MessageRecord = {
+      id: messageId,
+      conversationId: conversation.id,
+      actorId: requesterId,
+      originNodeId: requesterNodeId,
+      class: conversation.kind === "system" ? "system" : "agent",
+      body: payload.body.trim(),
+      ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
+      ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
+      audience: {
+        reason: conversation.kind === "direct" ? "direct_message" : "conversation_visibility",
+      },
+      visibility: messageVisibilityForConversation(conversation),
+      policy: "durable",
+      createdAt,
+      metadata: {
+        ...(payload.messageMetadata ?? {}),
+        relayChannel: deliveryChannel,
+        relayMessageId: messageId,
+        returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
+          conversationId: conversation.id,
+          replyToMessageId: messageId,
+        }),
+      },
+    };
+    await postConversationMessage(message);
+    return {
+      kind: "delivery",
+      accepted: true,
+      routeKind,
+      receipt: buildDeliveryReceipt({
+        requestId,
+        routeKind,
+        requesterId,
+        requesterNodeId,
+        targetLabel: deliveryChannel,
+        conversationId: conversation.id,
+        messageId,
+      }),
+      conversation,
+      message,
+    };
+  }
+
+  const resolved = resolveBrokerDeliveryTarget(payload);
 
   if (resolved.kind !== "resolved") {
     const { record } = await recordScoutDispatchDurably(
@@ -4238,6 +4360,7 @@ async function acceptBrokerDelivery(
         ? "invalid_target"
         : "missing_target",
       rejection: record,
+      remediation: remediationForDispatch(record),
     };
   }
 
@@ -4253,6 +4376,7 @@ async function acceptBrokerDelivery(
       kind: "question",
       accepted: false,
       question: record,
+      remediation: remediationForDispatch(record),
     };
   }
 
@@ -4260,7 +4384,7 @@ async function acceptBrokerDelivery(
   const conversation = await ensureBrokerDeliveryConversation({
     requesterId,
     targetAgentId: resolved.agent.id,
-    channel: payload.channel,
+    channel: deliveryChannel,
   });
   const snapshot = runtime.snapshot();
   const messageId = createRuntimeId("msg");
@@ -4282,10 +4406,10 @@ async function acceptBrokerDelivery(
     },
     visibility: messageVisibilityForConversation(conversation),
     policy: "durable",
-    createdAt: payload.createdAt,
+    createdAt,
     metadata: {
       ...(payload.messageMetadata ?? {}),
-      relayChannel: payload.channel?.trim() || (conversation.kind === "direct" ? "dm" : "shared"),
+      relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       relayTargetIds: [resolved.agent.id],
       relayMessageId: messageId,
@@ -4298,10 +4422,21 @@ async function acceptBrokerDelivery(
   await postConversationMessage(message);
 
   if (payload.intent !== "consult") {
+    const receipt = buildDeliveryReceipt({
+      requestId,
+      routeKind,
+      requesterId,
+      requesterNodeId,
+      targetAgentId: resolved.agent.id,
+      targetLabel,
+      conversationId: conversation.id,
+      messageId,
+    });
     return {
       kind: "delivery",
       accepted: true,
       routeKind,
+      receipt,
       conversation,
       message,
       targetAgentId: resolved.agent.id,
@@ -4321,10 +4456,10 @@ async function acceptBrokerDelivery(
     execution: payload.execution,
     ensureAwake: payload.ensureAwake ?? true,
     stream: false,
-    createdAt: payload.createdAt,
+    createdAt,
     metadata: {
       ...(payload.invocationMetadata ?? {}),
-      relayChannel: payload.channel?.trim() || (conversation.kind === "direct" ? "dm" : "shared"),
+      relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       ...(payload.collaborationRecordId ? { collaborationRecordId: payload.collaborationRecordId } : {}),
       returnAddress: buildBrokerReturnAddressForActor(snapshot, requesterId, {
@@ -4341,6 +4476,17 @@ async function acceptBrokerDelivery(
     kind: "delivery",
     accepted: true,
     routeKind,
+    receipt: buildDeliveryReceipt({
+      requestId,
+      routeKind,
+      requesterId,
+      requesterNodeId,
+      targetAgentId: resolved.agent.id,
+      targetLabel,
+      conversationId: conversation.id,
+      messageId,
+      flightId: flight.id,
+    }),
     conversation,
     message,
     targetAgentId: resolved.agent.id,

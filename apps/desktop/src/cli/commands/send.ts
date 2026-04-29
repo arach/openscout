@@ -14,11 +14,12 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderSendCommandHelp(): string {
   return [
-    "Usage: scout send [--as <sender>] [--channel <name>] [--speak] [--harness <runtime>] [--message-file <path> | <message>]",
+    "Usage: scout send [--as <sender>] [--to <agent>] [--channel <name>] [--speak] [--harness <runtime>] [--message-file <path> | <message>]",
     "",
     "Tell or update another agent or an explicit channel.",
     "",
     "Routing:",
+    "  --to <agent>                      -> DM; body @mentions stay text",
     "  one explicit @agent + no channel   -> DM",
     "  --channel <name>                   -> named group thread",
     "  no target + no channel             -> error",
@@ -34,6 +35,7 @@ export function renderSendCommandHelp(): string {
     "",
     "Examples:",
     '  scout send "@hudson ready for review"',
+    '  scout send --to hudson "ready for review; literal @codex stays text"',
     '  scout send "@lattices#codex?5.5 ready for review"',
     "  scout send --channel triage --message-file ./status.md",
     '  scout send --as premotion.master.mini "@hudson editor branch is green"',
@@ -123,6 +125,7 @@ export async function runSendCommand(
   const result = await sendScoutMessage({
     senderId,
     body,
+    targetLabel: options.targetLabel,
     channel: options.channel,
     shouldSpeak: options.shouldSpeak,
     executionHarness: parseScoutHarness(options.harness),

@@ -22,6 +22,7 @@ import type {
   ScoutBrokerCollaborationRecordQuery,
   ScoutBrokerMessageQuery,
 } from "./broker-api.js";
+import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { ActivityItem } from "./sqlite-store.js";
 
@@ -83,7 +84,7 @@ export type BrokerCoreServiceDeps = {
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
   deliver?: (request: ScoutDeliverRequest) => Promise<ScoutDeliverResponse>;
   invokeAgent?: (
-    request: InvocationRequest & { targetLabel?: string },
+    request: InvocationRequest & BrokerRouteTargetInput,
   ) => Promise<unknown>;
 };
 

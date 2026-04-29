@@ -460,6 +460,8 @@ describe("createScoutMcpServer", () => {
     expect(structured.targetAgentId).toBe("hudson.main");
     expect(structured.workId).toBe("work-1");
     expect(structured.workUrl).toBe("/api/work/work-1");
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]).toEqual({ type: "text", text: "done" });
   });
 
   test("schedules MCP reply notifications for notify-mode asks", async () => {
@@ -636,8 +638,119 @@ describe("createScoutMcpServer", () => {
     expect(structured.workItem?.summary).toBe("Ready for review");
   });
 
+  test("routes a direct ask by label without whoami or agents_resolve preflight", async () => {
+    const resolveSenderCalls: Array<{
+      senderId: string | null | undefined;
+      currentDirectory: string;
+    }> = [];
+    let receivedAsk:
+      | {
+          senderId: string;
+          targetLabel: string;
+          currentDirectory: string;
+          source?: string;
+        }
+      | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async (senderId, currentDirectory) => {
+        resolveSenderCalls.push({ senderId, currentDirectory });
+        return "operator.main.mini";
+      },
+      resolveBrokerUrl: () => "http://broker.test",
+      searchAgents: async () => {
+        throw new Error("unexpected agents_search preflight");
+      },
+      resolveAgent: async () => {
+        throw new Error("unexpected agents_resolve preflight");
+      },
+      sendMessage: async () => ({
+        usedBroker: true,
+        invokedTargets: [],
+        unresolvedTargets: [],
+      }),
+      sendMessageToAgentIds: async () => ({
+        usedBroker: true,
+        invokedTargetIds: [],
+        unresolvedTargetIds: [],
+      }),
+      askQuestion: async ({
+        senderId,
+        targetLabel,
+        currentDirectory,
+        source,
+      }) => {
+        receivedAsk = { senderId, targetLabel, currentDirectory, source };
+        return {
+          usedBroker: true,
+          conversationId: "dm.operator.hudson",
+          messageId: "msg-1",
+          flight: {
+            id: "flight-1",
+            invocationId: "inv-1",
+            requesterId: senderId,
+            targetAgentId: "hudson.main",
+            state: "running",
+          },
+        };
+      },
+      askAgentById: async () => {
+        throw new Error("unexpected askAgentById path");
+      },
+      updateWorkItem: async () => {
+        throw new Error("not used");
+      },
+      waitForFlight: async () => {
+        throw new Error("not used");
+      },
+    });
+
+    const result = await client.callTool({
+      name: "invocations_ask",
+      arguments: {
+        body: "Use the simplified Scout path. Do not call whoami or agents_resolve first.",
+        targetLabel: "@hudson",
+        replyMode: "none",
+      },
+    });
+
+    const structured = result.structuredContent as {
+      currentDirectory: string;
+      senderId: string;
+      targetAgentId: string | null;
+      targetLabel: string | null;
+      conversationId: string | null;
+      messageId: string | null;
+      flightId: string | null;
+      delivery: string;
+    };
+
+    expect(resolveSenderCalls).toEqual([
+      { senderId: undefined, currentDirectory: "/tmp/openscout-test" },
+    ]);
+    expect(receivedAsk).toEqual({
+      senderId: "operator.main.mini",
+      targetLabel: "@hudson",
+      currentDirectory: "/tmp/openscout-test",
+      source: "scout-mcp",
+    });
+    expect(structured.currentDirectory).toBe("/tmp/openscout-test");
+    expect(structured.senderId).toBe("operator.main.mini");
+    expect(structured.targetAgentId).toBe("hudson.main");
+    expect(structured.targetLabel).toBe("@hudson");
+    expect(structured.conversationId).toBe("dm.operator.hudson");
+    expect(structured.messageId).toBe("msg-1");
+    expect(structured.flightId).toBe("flight-1");
+    expect(structured.delivery).toBe("none");
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]).toEqual({
+      type: "text",
+      text: "Ask sent to hudson.main; flight flight-1.",
+    });
+  });
+
   test("sends to a target label in one MCP call", async () => {
     let receivedTargetLabel: string | undefined;
+    let receivedSource: string | undefined;
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -647,8 +760,9 @@ describe("createScoutMcpServer", () => {
         candidate: null,
         candidates: [],
       }),
-      sendMessage: async ({ targetLabel }) => {
+      sendMessage: async ({ targetLabel, source }) => {
         receivedTargetLabel = targetLabel;
+        receivedSource = source;
         return {
           usedBroker: true,
           conversationId: "dm.operator.hudson",
@@ -691,11 +805,17 @@ describe("createScoutMcpServer", () => {
     };
 
     expect(receivedTargetLabel).toBe("@hudson");
+    expect(receivedSource).toBe("scout-mcp");
     expect(structured.mode).toBe("target_label");
     expect(structured.conversationId).toBe("dm.operator.hudson");
     expect(structured.messageId).toBe("msg-1");
     expect(structured.invokedTargetIds).toEqual(["hudson.main"]);
     expect(structured.unresolvedTargetIds).toEqual([]);
     expect(structured.routeKind).toBe("dm");
+    const content = result.content as Array<{ type: string; text: string }> | undefined;
+    expect(content?.[0]).toEqual({
+      type: "text",
+      text: "Message sent to hudson.main in dm.operator.hudson (msg-1).",
+    });
   });
 });

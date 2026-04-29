@@ -32,6 +32,7 @@ implementation specs.
 - [sco-011-external-runtime-integration-and-handoff-proposal.md](./sco-011-external-runtime-integration-and-handoff-proposal.md)
 - [sco-012-concierge-routing-and-delegation-proposal.md](./sco-012-concierge-routing-and-delegation-proposal.md)
 - [sco-013-intent-briefs-and-trusted-environments-proposal.md](./sco-013-intent-briefs-and-trusted-environments-proposal.md)
+- [sco-014-broker-owned-routing-and-context.md](./sco-014-broker-owned-routing-and-context.md)
 
 ## Operations
 

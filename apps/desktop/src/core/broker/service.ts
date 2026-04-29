@@ -2078,6 +2078,7 @@ export async function sendScoutMessage(input: {
   createdAtMs?: number;
   executionHarness?: AgentHarness;
   currentDirectory?: string;
+  source?: string;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -2085,7 +2086,7 @@ export async function sendScoutMessage(input: {
   }
 
   const currentDirectory = input.currentDirectory ?? process.cwd();
-  const createdAtMs = input.createdAtMs ?? Date.now();
+  const source = input.source?.trim() || "scout-cli";
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -2093,27 +2094,27 @@ export async function sendScoutMessage(input: {
     input.senderId,
     currentDirectory,
   );
-  const mentionResolution = await resolveMentionTargets(
-    broker.snapshot,
-    input.body,
-    currentDirectory,
-  );
-  const selectors = extractAgentSelectors(input.body);
 
   const requestedTargetLabel = input.targetLabel?.trim();
   if (requestedTargetLabel) {
     const delivery = await brokerPostDeliver(broker.baseUrl, {
-      id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      requesterId: senderId,
-      requesterNodeId: broker.node.id,
+      caller: {
+        actorId: senderId,
+        nodeId: broker.node.id,
+        currentDirectory,
+        metadata: { source },
+      },
+      target: {
+        kind: "agent_label",
+        label: requestedTargetLabel,
+      },
       targetLabel: requestedTargetLabel,
       body: input.body,
       intent: "tell",
       channel: input.channel,
       speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
-      createdAt: createdAtMs,
       messageMetadata: {
-        source: "scout-cli",
+        source,
       },
     });
     if (delivery.kind !== "delivery") {
@@ -2134,23 +2135,36 @@ export async function sendScoutMessage(input: {
     };
   }
 
+  const mentionResolution = await resolveMentionTargets(
+    broker.snapshot,
+    input.body,
+    currentDirectory,
+  );
+  const selectors = extractAgentSelectors(input.body);
+
   if (
     selectors.length === 1
     && mentionResolution.resolved.length + mentionResolution.unresolved.length + mentionResolution.ambiguous.length === 1
   ) {
     const targetLabel = selectors[0]!.label;
     const delivery = await brokerPostDeliver(broker.baseUrl, {
-      id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      requesterId: senderId,
-      requesterNodeId: broker.node.id,
+      caller: {
+        actorId: senderId,
+        nodeId: broker.node.id,
+        currentDirectory,
+        metadata: { source },
+      },
+      target: {
+        kind: "agent_label",
+        label: targetLabel,
+      },
       targetLabel,
       body: input.body,
       intent: "tell",
       channel: input.channel,
       speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
-      createdAt: createdAtMs,
       messageMetadata: {
-        source: "scout-cli",
+        source,
       },
     });
     if (delivery.kind !== "delivery") {
@@ -2171,6 +2185,7 @@ export async function sendScoutMessage(input: {
     };
   }
 
+  const createdAtMs = input.createdAtMs ?? Date.now();
   const availableTargets = (
     await Promise.all(
       mentionResolution.resolved.map(async (target) =>
@@ -2274,7 +2289,7 @@ export async function sendScoutMessage(input: {
     policy: "durable",
     createdAt: createdAtMs,
     metadata: {
-      source: "scout-cli",
+      source,
       relayChannel: relayChannelMetadata(conversation, input.channel),
       relayTargetIds: validTargets,
       relayMessageId: messageId,
@@ -2529,12 +2544,18 @@ export async function sendScoutDirectMessage(input: {
   deviceId?: string;
 }): Promise<ScoutDirectMessageResult> {
   const broker = await requireScoutBrokerContext();
-  const createdAt = Date.now();
   const source = input.source?.trim() || "scout-mobile";
   const delivery = await brokerPostDeliver(broker.baseUrl, {
-    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    requesterId: OPERATOR_ID,
-    requesterNodeId: broker.node.id,
+    caller: {
+      actorId: OPERATOR_ID,
+      nodeId: broker.node.id,
+      currentDirectory: input.currentDirectory,
+      metadata: { source },
+    },
+    target: {
+      kind: "agent_id",
+      agentId: input.agentId,
+    },
     targetAgentId: input.agentId,
     body: input.body.trim(),
     intent: "consult",
@@ -2543,7 +2564,6 @@ export async function sendScoutDirectMessage(input: {
       ? { harness: input.executionHarness }
       : undefined,
     ensureAwake: true,
-    createdAt,
     messageMetadata: {
       source,
       destinationKind: "direct",
@@ -2604,9 +2624,16 @@ export async function askScoutAgentById(input: {
     return { usedBroker: true, unresolvedTargetId: input.targetAgentId };
   }
   const delivery = await brokerPostDeliver(broker.baseUrl, {
-    id: `deliver-${createdAtMs.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    requesterId: senderId,
-    requesterNodeId: broker.node.id,
+    caller: {
+      actorId: senderId,
+      nodeId: broker.node.id,
+      currentDirectory,
+      metadata: { source },
+    },
+    target: {
+      kind: "agent_id",
+      agentId: targetAgentId,
+    },
     targetAgentId,
     body: input.body.trim(),
     intent: "consult",
@@ -2616,7 +2643,6 @@ export async function askScoutAgentById(input: {
       ? { harness: input.executionHarness }
       : undefined,
     ensureAwake: true,
-    createdAt: createdAtMs,
     messageMetadata: {
       source,
     },
@@ -2662,12 +2688,14 @@ export async function askScoutQuestion(input: {
   createdAtMs?: number;
   executionHarness?: AgentHarness;
   currentDirectory?: string;
+  source?: string;
 }): Promise<ScoutAskResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
     return { usedBroker: false, unresolvedTarget: input.targetLabel };
   }
   const currentDirectory = input.currentDirectory ?? process.cwd();
+  const source = input.source?.trim() || "scout-cli";
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -2676,26 +2704,19 @@ export async function askScoutQuestion(input: {
     currentDirectory,
   );
   const createdAt = input.createdAtMs ?? Date.now();
-  const normalizedTargetLabel = renderScoutTargetLabel(input.targetLabel);
-  const explicitTargetAgentId = broker.snapshot.agents[input.targetLabel.trim()]?.id;
-  if (explicitTargetAgentId) {
-    await ensureTargetRelayAgentRegistered(
-      broker.baseUrl,
-      broker.snapshot,
-      broker.node.id,
-      explicitTargetAgentId,
-      currentDirectory,
-    );
-  }
-  const messageBody = input.body.trim().startsWith(normalizedTargetLabel)
-    ? input.body.trim()
-    : `${normalizedTargetLabel} ${input.body.trim()}`;
+  const messageBody = input.body.trim();
   const delivery = await brokerPostDeliver(broker.baseUrl, {
-    id: `deliver-${createdAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    requesterId: senderId,
-    requesterNodeId: broker.node.id,
+    caller: {
+      actorId: senderId,
+      nodeId: broker.node.id,
+      currentDirectory,
+      metadata: { source },
+    },
+    target: {
+      kind: "agent_label",
+      label: input.targetLabel,
+    },
     targetLabel: input.targetLabel,
-    targetAgentId: explicitTargetAgentId,
     body: messageBody,
     intent: "consult",
     channel: input.channel,
@@ -2706,12 +2727,11 @@ export async function askScoutQuestion(input: {
       ? { harness: input.executionHarness }
       : undefined,
     ensureAwake: true,
-    createdAt,
     messageMetadata: {
-      source: "scout-cli",
+      source,
     },
     invocationMetadata: {
-      source: "scout-cli",
+      source,
     },
   });
 
@@ -2730,7 +2750,7 @@ export async function askScoutQuestion(input: {
         targetAgentId: delivery.targetAgentId,
         conversationId: delivery.conversation.id,
         createdAtMs: createdAt,
-        source: "scout-cli",
+        source,
         workItem: input.workItem,
       })
     : undefined;

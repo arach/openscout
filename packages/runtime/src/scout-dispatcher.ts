@@ -9,6 +9,8 @@ import {
   type ScoutDispatchCandidate,
   type ScoutDispatchEnvelope,
   type ScoutDispatchKind,
+  type ScoutRoutePolicy,
+  type ScoutRouteTarget,
 } from "@openscout/protocol";
 
 import type { createInMemoryControlRuntime } from "./broker.js";
@@ -21,6 +23,13 @@ export type BrokerLabelResolution =
   | { kind: "unparseable"; label: string }
   | { kind: "unknown"; label: string };
 
+export interface BrokerRouteTargetInput {
+  target?: ScoutRouteTarget | null;
+  targetAgentId?: string | null;
+  targetLabel?: string | null;
+  routePolicy?: ScoutRoutePolicy | null;
+}
+
 export type BrokerAgentCandidate = AgentIdentityCandidate & {
   agentId: string;
   agent: AgentDefinition;
@@ -31,28 +40,39 @@ export interface DispatcherHelpers {
   homeEndpointFor: (snapshot: RuntimeSnapshot, agentId: string) => AgentEndpoint | null;
 }
 
+function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined): string | undefined {
+  if (!target) {
+    return undefined;
+  }
+  const direct = target.agentId ?? target.label ?? target.channel ?? target.value;
+  const trimmed = direct?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function askedLabelForRouteTarget(input: BrokerRouteTargetInput): string {
+  return normalizedRouteTargetValue(input.target)
+    ?? input.targetLabel?.trim()
+    ?? input.targetAgentId?.trim()
+    ?? "";
+}
+
+export function routeChannelForTarget(input: BrokerRouteTargetInput): string | undefined {
+  const target = input.target;
+  if (!target) {
+    return undefined;
+  }
+  if (target.kind === "broadcast") {
+    return "shared";
+  }
+  if (target.kind !== "channel") {
+    return undefined;
+  }
+  return normalizedRouteTargetValue(target);
+}
+
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function lastPathSegment(value: string | undefined): string {
-  return value?.replace(/[\\/]+$/, "").split(/[\\/]+/).filter(Boolean).pop() ?? "";
-}
-
-function stableScoutAliasesFor(
-  metadata: Record<string, unknown> | undefined,
-  definitionId: string,
-): string[] {
-  if (definitionId === "openscout") {
-    return [];
-  }
-  if (metadataStringValue(metadata, "registrationSource") !== "manifest") {
-    return [];
-  }
-  return lastPathSegment(metadataStringValue(metadata, "projectRoot")).toLowerCase() === "openscout"
-    ? ["@scout", "@openscout"]
-    : [];
 }
 
 export function buildAgentLabelCandidates(
@@ -90,7 +110,6 @@ function buildAgentLabelCandidate(
     metadataStringValue(metadata, "defaultSelector"),
   ].filter((value): value is string => Boolean(value));
   const definitionId = agent.definitionId ?? metadataStringValue(metadata, "definitionId") ?? agent.id;
-  aliases.push(...stableScoutAliasesFor(metadata, definitionId));
 
   return {
     agentId: agent.id,
@@ -171,6 +190,41 @@ export function resolveAgentLabel(
     label: identity.label,
     candidates: diagnosis.candidates.map((candidate) => candidate.agent),
   };
+}
+
+export function resolveBrokerRouteTarget(
+  snapshot: RuntimeSnapshot,
+  input: BrokerRouteTargetInput,
+  options: { preferLocalNodeId?: string; helpers: Pick<DispatcherHelpers, "isStale"> },
+): BrokerLabelResolution {
+  const policy = input.routePolicy;
+  const routeTarget = input.target;
+  const preferLocalNodeId = policy?.preferLocalNodeId?.trim() || options.preferLocalNodeId;
+  const directId = routeTarget?.kind === "agent_id"
+    ? normalizedRouteTargetValue(routeTarget)
+    : input.targetAgentId?.trim();
+
+  if (directId) {
+    const agent = snapshot.agents[directId];
+    if (agent && (policy?.allowStaleDirectId ?? true)) {
+      return { kind: "resolved", agent };
+    }
+    if (agent && !options.helpers.isStale(agent)) {
+      return { kind: "resolved", agent };
+    }
+  }
+
+  const label = routeTarget?.kind === "agent_label"
+    ? normalizedRouteTargetValue(routeTarget) ?? ""
+    : input.targetLabel?.trim() || directId || "";
+  if (!label) {
+    return { kind: "unparseable", label: "" };
+  }
+
+  return resolveAgentLabel(snapshot, label, {
+    preferLocalNodeId,
+    helpers: options.helpers,
+  });
 }
 
 function normalizeEndpointState(state: AgentEndpoint["state"] | undefined): ScoutCandidateEndpointState {

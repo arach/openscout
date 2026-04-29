@@ -5,6 +5,7 @@ import type { AgentDefinition, AgentEndpoint } from "@openscout/protocol";
 import {
   buildAgentLabelCandidates,
   buildDispatchEnvelope,
+  resolveBrokerRouteTarget,
   resolveAgentLabel,
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
@@ -120,7 +121,7 @@ describe("resolveAgentLabel", () => {
     }
   });
 
-  test("routes @scout to the configured OpenScout project agent when the persona id changed", () => {
+  test("keeps @scout reserved for the OpenScout coordinator when the local orchestrator is separate", () => {
     const snapshot = makeSnapshot([
       makeAgent({
         id: "openscout.main.mini",
@@ -152,7 +153,7 @@ describe("resolveAgentLabel", () => {
     });
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
-      expect(result.agent.id).toBe("ranger.main.mini");
+      expect(result.agent.id).toBe("openscout.main.mini");
     }
     const legacyResult = resolveAgentLabel(snapshot, "@openscout", {
       helpers: {
@@ -162,7 +163,7 @@ describe("resolveAgentLabel", () => {
     });
     expect(legacyResult.kind).toBe("resolved");
     if (legacyResult.kind === "resolved") {
-      expect(legacyResult.agent.id).toBe("ranger.main.mini");
+      expect(legacyResult.agent.id).toBe("openscout.main.mini");
     }
   });
 
@@ -235,6 +236,34 @@ describe("resolveAgentLabel", () => {
     expect(sonnetResult.kind).toBe("resolved");
     if (sonnetResult.kind === "resolved") {
       expect(sonnetResult.agent.id).toBe("lattices.sonnet");
+    }
+  });
+});
+
+describe("resolveBrokerRouteTarget", () => {
+  test("resolves typed agent-label targets without caller-side preflight", () => {
+    const snapshot = makeSnapshot([makeAgent({ id: "arc.main", definitionId: "arc" })]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "agent_label", label: "@arc" } },
+      { helpers },
+    );
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("arc.main");
+    }
+  });
+
+  test("resolves typed direct agent ids before label parsing", () => {
+    const snapshot = makeSnapshot([makeAgent({ id: "arc.main", definitionId: "arc" })]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "agent_id", agentId: "arc.main" }, targetLabel: "@other" },
+      { helpers },
+    );
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("arc.main");
     }
   });
 });
