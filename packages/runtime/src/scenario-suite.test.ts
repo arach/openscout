@@ -1,6 +1,10 @@
 import { describe, expect } from "bun:test";
 
-import type { DeliveryIntent, MessageRecord } from "@openscout/protocol";
+import type {
+  DeliveryIntent,
+  MessageRecord,
+  ScoutDeliverResponse,
+} from "@openscout/protocol";
 import {
   RuntimeScenarioHarness,
   runtimeScenario,
@@ -20,6 +24,306 @@ function sortSummaries(values: Array<Record<string, string | null>>) {
 }
 
 describe("runtime scenario suite", () => {
+  runtimeScenario(
+    "runs a project routine across docs and OG review asks",
+    async (scenario) => {
+      const home = scenario.configurePairingHome(0);
+      const broker = await scenario.startBroker({
+        env: {
+          HOME: home,
+          OPENSCOUT_SUPPORT_DIRECTORY: `${home}/Library/Application Support/OpenScout`,
+          OPENSCOUT_RELAY_HUB: `${home}/.openscout/relay`,
+          OPENSCOUT_SKIP_USER_PROJECT_HINTS: "1",
+        },
+      });
+      await scenario.seedOperator(broker);
+
+      const agents = [
+        {
+          id: "hudson.docs.claude",
+          definitionId: "hudson",
+          displayName: "Hudson",
+          handle: "hudson",
+          selector: "@hudson",
+          harness: "claude" as const,
+          transport: "claude_stream_json" as const,
+          endpointId: "endpoint.hudson.docs",
+          projectRoot: "/tmp/hudson",
+          cwd: "/tmp/hudson",
+        },
+        {
+          id: "talkie.docs.codex",
+          definitionId: "talkie",
+          displayName: "Talkie",
+          handle: "talkie",
+          selector: "@talkie",
+          harness: "codex" as const,
+          transport: "codex_app_server" as const,
+          endpointId: "endpoint.talkie.docs",
+          projectRoot: "/tmp/talkie",
+          cwd: "/tmp/talkie",
+        },
+        {
+          id: "linea.og.codex",
+          definitionId: "linea",
+          displayName: "Linea",
+          handle: "linea",
+          selector: "@linea",
+          harness: "codex" as const,
+          transport: "codex_app_server" as const,
+          endpointId: "endpoint.linea.og",
+          projectRoot: "/tmp/linea",
+          cwd: "/tmp/linea",
+        },
+        {
+          id: "lattices.og.claude",
+          definitionId: "lattices",
+          displayName: "Lattices",
+          handle: "lattices",
+          selector: "@lattices",
+          harness: "claude" as const,
+          transport: "claude_stream_json" as const,
+          endpointId: "endpoint.lattices.og",
+          projectRoot: "/tmp/lattices",
+          cwd: "/tmp/lattices",
+        },
+      ];
+
+      for (const agent of agents) {
+        await scenario.registerAgent(broker, {
+          ...agent,
+          metadata: {
+            routine: "docs-og-review",
+          },
+          endpointMetadata: {
+            routine: "docs-og-review",
+          },
+        });
+      }
+
+      const tasks = [
+        {
+          recordId: "work.hudson.docs-state",
+          targetAgentId: "hudson.docs.claude",
+          label: "@hudson",
+          title: "Check Hudson docs state",
+          body: "Review Hudson docs and report stale setup steps, missing screenshots, and the current docs state.",
+          response: "Hudson docs are usable, but install docs need the new broker direct-service wording and one screenshot refresh.",
+          artifact: "docs",
+          expectedTransport: "claude_stream_json",
+        },
+        {
+          recordId: "work.talkie.docs-state",
+          targetAgentId: "talkie.docs.codex",
+          label: "@talkie",
+          title: "Check Talkie docs state",
+          body: "Review Talkie docs and summarize what is current, stale, or missing before the next release.",
+          response: "Talkie docs cover the main voice loop, but onboarding still references the older pairing screen copy.",
+          artifact: "docs",
+          expectedTransport: "codex_app_server",
+        },
+        {
+          recordId: "work.linea.og-review",
+          targetAgentId: "linea.og.codex",
+          label: "@linea",
+          title: "Review Linea OG images",
+          body: "Review Linea Open Graph images for legibility, brand fit, and obvious export issues.",
+          response: "Linea OG images read clearly at social-card size; the dark variant needs a stronger product signal.",
+          artifact: "og-image",
+          expectedTransport: "codex_app_server",
+        },
+        {
+          recordId: "work.lattices.og-review",
+          targetAgentId: "lattices.og.claude",
+          label: "@lattices",
+          title: "Review Lattices OG images",
+          body: "Review Lattices Open Graph images and call out any weak contrast, cropping, or stale claims.",
+          response: "Lattices OG images have solid contrast, but the topology card crops too close on narrow previews.",
+          artifact: "og-image",
+          expectedTransport: "claude_stream_json",
+        },
+      ];
+
+      const startedAt = Date.now();
+      for (const [index, task] of tasks.entries()) {
+        await scenario.post(broker, "/v1/collaboration/records", {
+          id: task.recordId,
+          kind: "work_item",
+          state: "waiting",
+          acceptanceState: "none",
+          title: task.title,
+          summary: task.body,
+          createdById: "operator",
+          ownerId: task.targetAgentId,
+          nextMoveOwnerId: task.targetAgentId,
+          requestedById: "operator",
+          waitingOn: {
+            kind: "actor",
+            label: task.label,
+            targetId: task.targetAgentId,
+            metadata: {
+              artifact: task.artifact,
+            },
+          },
+          priority: task.artifact === "og-image" ? "normal" : "high",
+          labels: ["routine", task.artifact],
+          createdAt: startedAt + index,
+          updatedAt: startedAt + index,
+          metadata: {
+            routine: "docs-og-review",
+            targetLabel: task.label,
+          },
+        });
+      }
+
+      const deliveries: ScoutDeliverResponse[] = [];
+      for (const [index, task] of tasks.entries()) {
+        deliveries.push(await scenario.post<ScoutDeliverResponse>(
+          broker,
+          "/v1/deliver",
+          {
+            id: `deliver-routine-${index + 1}`,
+            requesterId: "operator",
+            requesterNodeId: broker.nodeId,
+            body: task.body,
+            intent: "consult",
+            targetAgentId: task.targetAgentId,
+            ensureAwake: true,
+            createdAt: startedAt + 100 + index,
+            collaborationRecordId: task.recordId,
+            messageMetadata: {
+              routine: "docs-og-review",
+              artifact: task.artifact,
+            },
+            invocationMetadata: {
+              routine: "docs-og-review",
+              artifact: task.artifact,
+            },
+          },
+        ));
+      }
+
+      expect(deliveries.every((delivery) => delivery.kind === "delivery")).toBe(true);
+      expect(deliveries.map((delivery) => delivery.targetAgentId)).toEqual(
+        tasks.map((task) => task.targetAgentId),
+      );
+      expect(deliveries.map((delivery) => delivery.flight?.targetAgentId)).toEqual(
+        tasks.map((task) => task.targetAgentId),
+      );
+
+      const requestMessageIds = deliveries.map((delivery) => delivery.kind === "delivery" ? delivery.message.id : "");
+      const requestDeliveries = (await scenario.listDeliveries(broker))
+        .filter((delivery) => requestMessageIds.includes(delivery.messageId ?? ""));
+      const directRequestDeliveries = requestDeliveries.filter((delivery) => delivery.reason === "direct_message");
+      const mentionRequestDeliveries = requestDeliveries.filter((delivery) => delivery.reason === "mention");
+      expect(sortSummaries(directRequestDeliveries.map(deliverySummary))).toEqual(sortSummaries(
+        tasks.map((task, index) => ({
+          messageId: requestMessageIds[index] ?? null,
+          targetId: task.targetAgentId,
+          transport: task.expectedTransport,
+          reason: "direct_message",
+        })),
+      ));
+      expect(sortSummaries(mentionRequestDeliveries.map(deliverySummary))).toEqual(sortSummaries(
+        tasks.map((task, index) => ({
+          messageId: requestMessageIds[index] ?? null,
+          targetId: task.targetAgentId,
+          transport: task.expectedTransport,
+          reason: "mention",
+        })),
+      ));
+
+      for (const [index, task] of tasks.entries()) {
+        const delivery = deliveries[index];
+        if (delivery.kind !== "delivery") {
+          throw new Error(`expected accepted delivery for ${task.recordId}`);
+        }
+
+        await scenario.postMessage(broker, {
+          id: `msg-routine-response-${index + 1}`,
+          conversationId: delivery.conversation.id,
+          actorId: task.targetAgentId,
+          body: task.response,
+          metadata: {
+            routine: "docs-og-review",
+            artifact: task.artifact,
+            collaborationRecordId: task.recordId,
+          },
+        });
+
+        await scenario.post(broker, "/v1/collaboration/records", {
+          id: task.recordId,
+          kind: "work_item",
+          state: "done",
+          acceptanceState: "accepted",
+          title: task.title,
+          summary: task.response,
+          createdById: "operator",
+          ownerId: task.targetAgentId,
+          requestedById: "operator",
+          conversationId: delivery.conversation.id,
+          priority: task.artifact === "og-image" ? "normal" : "high",
+          labels: ["routine", task.artifact],
+          progress: {
+            completedSteps: 1,
+            totalSteps: 1,
+            checkpoint: "reviewed",
+            summary: task.response,
+            percent: 100,
+          },
+          createdAt: startedAt + index,
+          updatedAt: startedAt + 200 + index,
+          completedAt: startedAt + 200 + index,
+          metadata: {
+            routine: "docs-og-review",
+            targetLabel: task.label,
+          },
+        });
+      }
+
+      for (const [index, task] of tasks.entries()) {
+        const delivery = deliveries[index];
+        if (delivery.kind !== "delivery") {
+          throw new Error(`expected accepted delivery for ${task.recordId}`);
+        }
+        const messages = await scenario.listMessages(broker, delivery.conversation.id);
+        expect(messages.map((message) => message.body)).toEqual([
+          task.body,
+          task.response,
+        ]);
+      }
+
+      const snapshot = await scenario.snapshot<{
+        collaborationRecords: Record<string, {
+          state: string;
+          ownerId?: string;
+          conversationId?: string;
+          progress?: { percent?: number; checkpoint?: string };
+          metadata?: Record<string, unknown>;
+        }>;
+      }>(broker);
+
+      for (const [index, task] of tasks.entries()) {
+        const delivery = deliveries[index];
+        if (delivery.kind !== "delivery") {
+          throw new Error(`expected accepted delivery for ${task.recordId}`);
+        }
+        expect(snapshot.collaborationRecords[task.recordId]).toEqual(expect.objectContaining({
+          state: "done",
+          ownerId: task.targetAgentId,
+          conversationId: delivery.conversation.id,
+          progress: expect.objectContaining({
+            checkpoint: "reviewed",
+            percent: 100,
+          }),
+          metadata: expect.objectContaining({
+            routine: "docs-og-review",
+          }),
+        }));
+      }
+    },
+  );
+
   runtimeScenario(
     "wakes a docs reviewer from a collaboration record and hands findings to an editor",
     async (scenario) => {
