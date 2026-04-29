@@ -3357,6 +3357,7 @@ const brokerService = createBrokerCoreService({
   isReconciledStaleFlightActivityItem,
   readHome: brokerHomePayload,
   executeCommand: handleCommand,
+  deliver: acceptBrokerDelivery,
   invokeAgent: handleInvocationRequest,
 });
 
@@ -4143,7 +4144,9 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "POST" && url.pathname === "/v1/deliver") {
     try {
       const payload = await readRequestBody<ScoutDeliverRequest>(request);
-      const result = await acceptBrokerDelivery(payload);
+      const result = brokerService.deliver
+        ? await brokerService.deliver(payload)
+        : await acceptBrokerDelivery(payload);
       json(
         response,
         result.kind === "delivery" ? 202 : result.kind === "question" ? 409 : 422,

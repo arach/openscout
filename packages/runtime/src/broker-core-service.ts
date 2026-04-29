@@ -4,6 +4,8 @@ import type {
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
+  ScoutDeliverRequest,
+  ScoutDeliverResponse,
   ThreadEventEnvelope,
   ThreadSnapshot,
   ThreadWatchCloseRequest,
@@ -79,6 +81,7 @@ export type BrokerCoreServiceDeps = {
   readHome?: () => Promise<unknown>;
   executeCommand: (command: ControlCommand) => Promise<unknown>;
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
+  deliver?: (request: ScoutDeliverRequest) => Promise<ScoutDeliverResponse>;
   invokeAgent?: (
     request: InvocationRequest & { targetLabel?: string },
   ) => Promise<unknown>;
@@ -205,6 +208,7 @@ export function createBrokerCoreService(
       ? async (message) => await postConversationMessage(message)
       : async (message) =>
         await deps.executeCommand({ kind: "conversation.post", message }),
+    deliver: deps.deliver,
     invokeAgent: deps.invokeAgent,
   };
 }

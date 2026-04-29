@@ -10,6 +10,8 @@ import type {
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
+  ScoutDeliverRequest,
+  ScoutDeliverResponse,
   ThreadEventEnvelope,
   ThreadSnapshot,
   ThreadWatchCloseRequest,
@@ -100,6 +102,7 @@ export type ActiveScoutBrokerService = {
   ) => Promise<{ ok: boolean; watchId: string }>;
   executeCommand: (command: ControlCommand) => Promise<unknown>;
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
+  deliver?: (request: ScoutDeliverRequest) => Promise<ScoutDeliverResponse>;
   invokeAgent?: (
     request: InvocationRequest & { targetLabel?: string },
   ) => Promise<unknown>;
@@ -418,6 +421,13 @@ export async function maybePostJsonToActiveScoutBrokerService<T>(
       kind: "conversation.post",
       message: body as MessageRecord,
     }) as T);
+  }
+
+  if (url.pathname === "/v1/deliver") {
+    if (!service.deliver) {
+      return unhandled();
+    }
+    return handled(await service.deliver(body as ScoutDeliverRequest) as T);
   }
 
   if (url.pathname === "/v1/invocations") {

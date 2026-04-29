@@ -49,6 +49,7 @@ describe("createBrokerCoreService", () => {
       },
     ];
     const commands: unknown[] = [];
+    const delivered: string[] = [];
 
     const service = createBrokerCoreService({
       baseUrl: "http://broker.test",
@@ -109,6 +110,35 @@ describe("createBrokerCoreService", () => {
         commands.push(command);
         return { ok: true };
       },
+      deliver: async (request) => {
+        delivered.push(request.id);
+        return {
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "conv-1",
+            kind: "direct",
+            title: "Conversation",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["agent-1"],
+          },
+          message: {
+            id: "msg-deliver-1",
+            conversationId: "conv-1",
+            actorId: request.requesterId,
+            originNodeId: request.requesterNodeId,
+            class: "agent",
+            body: request.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: request.createdAt,
+          },
+          targetAgentId: request.targetAgentId,
+        };
+      },
     });
 
     const health = await service.readHealth();
@@ -116,6 +146,15 @@ describe("createBrokerCoreService", () => {
     const activity = await service.readActivity?.({ limit: 10 });
     const records = await service.readCollaborationRecords?.({ limit: 10 });
     const closeWatch = await service.closeThreadWatch?.({ watchId: "watch-1" });
+    const delivery = await service.deliver?.({
+      id: "deliver-1",
+      requesterId: "agent-1",
+      requesterNodeId: "node-1",
+      body: "deliver this",
+      intent: "tell",
+      targetAgentId: "agent-2",
+      createdAt: 102,
+    });
     const post = await service.postConversationMessage?.({
       id: "msg-2",
       conversationId: "conv-1",
@@ -133,7 +172,12 @@ describe("createBrokerCoreService", () => {
     expect(activity?.map((item) => item.id)).toEqual(["act-1"]);
     expect(records).toEqual(Object.values(snapshot.collaborationRecords));
     expect(closeWatch).toEqual({ ok: true, watchId: "watch-1" });
+    expect(delivery).toEqual(expect.objectContaining({
+      kind: "delivery",
+      targetAgentId: "agent-2",
+    }));
     expect(post).toEqual({ ok: true });
+    expect(delivered).toEqual(["deliver-1"]);
     expect(commands).toEqual([
       {
         kind: "conversation.post",

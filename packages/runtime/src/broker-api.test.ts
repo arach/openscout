@@ -4,6 +4,8 @@ import type {
   ControlCommand,
   InvocationRequest,
   MessageRecord,
+  ScoutDeliverRequest,
+  ScoutDeliverResponse,
 } from "@openscout/protocol";
 
 import {
@@ -179,6 +181,7 @@ describe("active broker service helpers", () => {
   test("maps write endpoints onto service commands and direct handlers", async () => {
     const commands: ControlCommand[] = [];
     const postedMessages: MessageRecord[] = [];
+    const deliveredRequests: ScoutDeliverRequest[] = [];
     const invokedRequests: Array<InvocationRequest & { targetLabel?: string }> =
       [];
 
@@ -215,6 +218,35 @@ describe("active broker service helpers", () => {
         postedMessages.push(message);
         return { ok: true, messageId: message.id };
       },
+      deliver: async (request) => {
+        deliveredRequests.push(request);
+        return {
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.actor-1.agent-1",
+            kind: "direct",
+            title: "Actor One <> Agent One",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["actor-1", "agent-1"],
+          },
+          message: {
+            id: "msg-deliver-1",
+            conversationId: "dm.actor-1.agent-1",
+            actorId: request.requesterId,
+            originNodeId: request.requesterNodeId,
+            class: "agent",
+            body: request.body,
+            visibility: "private",
+            policy: "durable",
+            createdAt: request.createdAt,
+          },
+          targetAgentId: request.targetAgentId,
+        } satisfies ScoutDeliverResponse;
+      },
       invokeAgent: async (request) => {
         invokedRequests.push(request);
         return {
@@ -248,6 +280,17 @@ describe("active broker service helpers", () => {
       policy: "durable",
       createdAt: 100,
     } satisfies MessageRecord);
+    const deliveryResult = await maybePostJsonToActiveScoutBrokerService<
+      ScoutDeliverResponse
+    >("http://broker.test", "/v1/deliver", {
+      id: "deliver-1",
+      requesterId: "actor-1",
+      requesterNodeId: "node-1",
+      body: "hello agent",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      createdAt: 101,
+    } satisfies ScoutDeliverRequest);
     const invocationResult = await maybePostJsonToActiveScoutBrokerService<{
       accepted: boolean;
       invocationId: string;
@@ -282,6 +325,13 @@ describe("active broker service helpers", () => {
       handled: true,
       value: { ok: true, messageId: "msg-1" },
     });
+    expect(deliveryResult).toEqual({
+      handled: true,
+      value: expect.objectContaining({
+        kind: "delivery",
+        targetAgentId: "agent-1",
+      }),
+    });
     expect(invocationResult).toEqual({
       handled: true,
       value: { accepted: true, invocationId: "inv-1" },
@@ -309,6 +359,9 @@ describe("active broker service helpers", () => {
       },
     ]);
     expect(postedMessages.map((message) => message.id)).toEqual(["msg-1"]);
+    expect(deliveredRequests.map((request) => request.id)).toEqual([
+      "deliver-1",
+    ]);
     expect(invokedRequests.map((request) => request.id)).toEqual(["inv-1"]);
   });
 });

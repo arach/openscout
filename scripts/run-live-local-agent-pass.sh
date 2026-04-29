@@ -9,7 +9,7 @@ usage() {
 Run a live same-machine Codex <-> Claude broker pass against a fresh local broker.
 
 This helper:
-1. builds the CLI/runtime unless OPENSCOUT_SKIP_BUILD=1
+1. builds runtime artifacts unless OPENSCOUT_SKIP_BUILD=1
 2. starts an isolated broker on a random localhost port
 3. starts one Codex-backed agent in the repo root
 4. starts one Claude-backed agent from a detached worktree
@@ -75,19 +75,11 @@ export PATH
 PATH="$(dirname "$CLAUDE_BIN"):$(dirname "$BUN_BIN"):$PATH"
 
 if [[ "${OPENSCOUT_SKIP_BUILD:-0}" != "1" ]]; then
-  echo "==> Building CLI/runtime"
+  echo "==> Building runtime"
   (
     cd "$ROOT_DIR" &&
-    "$BUN_BIN" run --cwd packages/protocol build >/dev/null &&
-    "$BUN_BIN" run --cwd packages/agent-sessions build >/dev/null &&
-    rm -rf packages/runtime/dist &&
-    "$BUN_BIN" x tsc -p packages/runtime/tsconfig.json >/dev/null
+    "$BUN_BIN" run --cwd packages/runtime build >/dev/null
   )
-fi
-
-if [[ ! -f "$ROOT_DIR/packages/cli/dist/main.mjs" ]]; then
-  echo "Missing packages/cli/dist/main.mjs. Build the CLI first or run bun install." >&2
-  exit 1
 fi
 
 if [[ -n "${OPENSCOUT_BROKER_PORT:-}" ]]; then
@@ -109,7 +101,7 @@ export OPENSCOUT_BROKER_PORT="$BROKER_PORT"
 export OPENSCOUT_SKIP_USER_PROJECT_HINTS="${OPENSCOUT_SKIP_USER_PROJECT_HINTS:-1}"
 
 BROKER_URL="http://${OPENSCOUT_BROKER_HOST}:${OPENSCOUT_BROKER_PORT}"
-SCOUT_CMD=("$BUN_BIN" "$ROOT_DIR/packages/cli/bin/scout.mjs")
+SCOUT_CMD=("$BUN_BIN" "$ROOT_DIR/apps/desktop/bin/scout.ts")
 BROKER_CMD=("$BUN_BIN" "$ROOT_DIR/packages/runtime/dist/broker-daemon.js")
 
 BROKER_PID=""
