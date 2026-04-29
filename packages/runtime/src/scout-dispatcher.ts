@@ -1,7 +1,9 @@
 import {
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
+  OPENSCOUT_COORDINATOR_AGENT_ID,
   parseAgentIdentity,
+  SCOUT_DISPATCHER_AGENT_ID,
   type AgentDefinition,
   type AgentEndpoint,
   type AgentIdentityCandidate,
@@ -44,7 +46,13 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
   if (!target) {
     return undefined;
   }
-  const direct = target.agentId ?? target.label ?? target.channel ?? target.value;
+  const direct = target.kind === "agent_id"
+    ? target.agentId
+    : target.kind === "agent_label"
+    ? target.label
+    : target.kind === "channel"
+    ? target.channel
+    : target.value;
   const trimmed = direct?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
@@ -73,6 +81,11 @@ export function routeChannelForTarget(input: BrokerRouteTargetInput): string | u
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function isReservedProductIdentity(definitionId: string): boolean {
+  return definitionId === SCOUT_DISPATCHER_AGENT_ID
+    || definitionId === OPENSCOUT_COORDINATOR_AGENT_ID;
 }
 
 export function buildAgentLabelCandidates(
@@ -141,6 +154,9 @@ export function resolveAgentLabel(
   const identity = parseAgentIdentity(trimmed.startsWith("@") ? trimmed : `@${trimmed}`);
   if (!identity) {
     return { kind: "unparseable", label };
+  }
+  if (isReservedProductIdentity(identity.definitionId)) {
+    return { kind: "unknown", label: identity.label };
   }
 
   const candidates = buildAgentLabelCandidates(snapshot, options.helpers);

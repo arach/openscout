@@ -18,13 +18,11 @@ export interface ScoutCallerContext {
   metadata?: MetadataMap;
 }
 
-export interface ScoutRouteTarget {
-  kind: ScoutRouteTargetKind;
-  value?: string;
-  agentId?: ScoutId;
-  label?: string;
-  channel?: string;
-}
+export type ScoutRouteTarget =
+  | { kind: "agent_id"; agentId: ScoutId; value?: string }
+  | { kind: "agent_label"; label: string; value?: string }
+  | { kind: "channel"; channel: string; value?: string }
+  | { kind: "broadcast"; value?: string };
 
 export interface ScoutRoutePolicy {
   preferLocalNodeId?: ScoutId;

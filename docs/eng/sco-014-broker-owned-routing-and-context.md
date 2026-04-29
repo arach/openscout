@@ -51,8 +51,8 @@ Landed:
 - Broker delivery generates missing delivery request IDs and timestamps.
 - `scout send --to <target>` is the preferred explicit tell path. In that path,
   body `@handles` remain payload text.
-- MCP `messages_send` and `invocations_ask` return compact visible text with
-  full detail in `structuredContent`.
+- MCP explicit-target `messages_send` and `invocations_ask` return compact
+  visible text with full detail in `structuredContent`.
 - `@scout` and `@openscout` no longer get donated to a Ranger manifest agent.
   They are reserved until the product inbox is implemented.
 
@@ -168,6 +168,8 @@ export interface ScoutDeliverRequest {
   intent: "tell" | "consult";
   body: string;
   target?: ScoutRouteTarget;
+  targetLabel?: string;
+  targetAgentId?: ScoutId;
   channel?: string;
   routePolicy?: ScoutRoutePolicy;
   replyToMessageId?: ScoutId;
@@ -187,8 +189,9 @@ Compatibility rules:
 - `targetAgentId` maps to `{ kind: "agent_id" }`.
 - Missing `id` and `createdAt` are broker-generated.
 - Body mention scanning is disabled by default.
-- Legacy `scout send "@agent message"` may parse only a leading target at the
-  CLI boundary and pass it as structured `target`.
+- Legacy `scout send "@agent message"` is still a compatibility path. It
+  currently scans body mentions and should be narrowed to leading-target-only
+  before this migration is complete.
 - During migration, older clients may still send both typed `target` and legacy
   `targetLabel` / `targetAgentId` fields so new clients can talk to older
   running brokers.
@@ -278,7 +281,7 @@ Failures and partial deliveries carry first-class actions. Senders render or
 execute these; they should not invent recovery logic.
 
 ```ts
-export type ScoutRemediationAction =
+export type ScoutDeliveryRemediationAction =
   | { kind: "choose_target"; detail: string; targetLabel?: string }
   | { kind: "register_target"; detail: string; targetLabel?: string }
   | { kind: "wake_target"; detail: string; targetAgentId?: ScoutId }
@@ -368,13 +371,18 @@ The client should not deliver first and create work second.
 CLI:
 
 - `scout send --to <target> "body"` becomes the preferred explicit form.
-- `scout send "@agent body"` remains legacy shorthand for leading target only.
+- `scout send "@agent body"` remains a legacy shorthand and must be narrowed to
+  leading-target-only before full broker-owned routing.
 - `scout ask --to <target> "body"` sends target as structured route intent.
-- Errors display `receiptText` and at most three broker-suggested actions.
+- Target state: errors display `receiptText` and at most three
+  broker-suggested actions. Current CLI errors still render from local
+  `targetDiagnostic` data.
 
 MCP:
 
-- `messages_send` and `invocations_ask` call broker deliver directly.
+- Explicit-target `messages_send` and `invocations_ask` call broker deliver
+  directly. `mentionAgentIds` and no-target body-mention paths are still legacy
+  client-planned paths.
 - Visible `content` is compact receipt text.
 - Full details remain in `structuredContent`.
 - MCP server establishes default caller context once per server/session.

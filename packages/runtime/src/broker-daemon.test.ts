@@ -1057,6 +1057,7 @@ describe("broker daemon comms layer", () => {
         kind: "channel",
         channel: "shared",
       },
+      targetLabel: "@ghost",
       body: "build status update",
       intent: "tell",
     });

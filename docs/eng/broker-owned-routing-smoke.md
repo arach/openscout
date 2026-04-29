@@ -72,7 +72,7 @@ Acceptance:
 
 ```bash
 bun ./apps/desktop/bin/scout.ts ask --to route-smoke-claude --timeout 180 \
-  'Use the simplified Scout broker path only. Do not run scout whoami, scout who, agents_search, or agents_resolve first. Create a reply-ready card for this workspace with scout card create, then send a short broker-backed status with scout send --to route-smoke-claude. Include the literal text @codex in the message body. Reply with the exact Scout commands you ran and the returned conversationId/messageId values.'
+  'Use the repo-local Scout CLI only. Do not run scout whoami, scout who, agents_search, or agents_resolve first. Create a reply-ready card for this workspace with bun /Users/arach/dev/openscout/apps/desktop/bin/scout.ts card create, then send a short broker-backed status with bun /Users/arach/dev/openscout/apps/desktop/bin/scout.ts --json send --to route-smoke-claude. Include the literal text @codex in the message body. Reply with the exact Scout commands you ran and the returned JSON fields.'
 ```
 
 Acceptance:
@@ -83,10 +83,10 @@ Acceptance:
   target label/id or card return context, without a separate who/search/resolve
   preflight
 - the body text can include literal `@codex` without creating a second route
-- the final reply includes durable broker ids: `conversationId` plus either
-  `messageId` or `flightId`
-- the broker conversation shows the same sender id and current directory that
-  the tool result returned
+- the final reply includes the JSON `conversationId`, `messageId`, and
+  `routeKind`
+- if plain-text `send` is used by mistake, accept `DM:` and `Route:` as a
+  delivery smoke only, because the plain renderer does not print all durable ids
 
 Note: the current Claude stream-json runtime does not automatically inject
 `scout mcp`; this live Claude smoke therefore validates the simplified

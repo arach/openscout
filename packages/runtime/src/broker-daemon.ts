@@ -4274,14 +4274,13 @@ async function acceptBrokerDelivery(
   const { requesterId, requesterNodeId } = callerContextForDelivery(payload);
   const askedLabel = askedLabelForRouteTarget(payload);
   const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
+  const typedChannelTarget = payload.target?.kind === "channel" || payload.target?.kind === "broadcast";
   const hasAgentTarget = Boolean(
-    payload.targetAgentId?.trim()
-      || payload.targetLabel?.trim()
-      || payload.target?.kind === "agent_id"
+    payload.target?.kind === "agent_id"
       || payload.target?.kind === "agent_label",
-  );
+  ) || (!payload.target && Boolean(payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
 
-  if (deliveryChannel && !hasAgentTarget && payload.intent === "tell") {
+  if (deliveryChannel && (typedChannelTarget || !hasAgentTarget) && payload.intent === "tell") {
     await ensureBrokerActorForDelivery(requesterId);
     const conversation = await ensureBrokerDeliveryConversation({
       requesterId,

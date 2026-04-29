@@ -109,19 +109,16 @@ describe("resolveAgentLabel", () => {
     }
   });
 
-  test("routes @scout to the stable OpenScout coordinator", () => {
+  test("reserves @scout instead of routing it through normal agent identity", () => {
     const snapshot = makeSnapshot([
       makeAgent({ id: "openscout.main.mini", definitionId: "openscout", nodeQualifier: "mini", workspaceQualifier: "main" }),
       makeAgent({ id: "ranger.main.mini", definitionId: "ranger", nodeQualifier: "mini", workspaceQualifier: "main" }),
     ]);
     const result = resolveAgentLabel(snapshot, "@scout", { helpers });
-    expect(result.kind).toBe("resolved");
-    if (result.kind === "resolved") {
-      expect(result.agent.id).toBe("openscout.main.mini");
-    }
+    expect(result.kind).toBe("unknown");
   });
 
-  test("keeps @scout reserved for the OpenScout coordinator when the local orchestrator is separate", () => {
+  test("keeps product handles reserved when the local orchestrator is separate", () => {
     const snapshot = makeSnapshot([
       makeAgent({
         id: "openscout.main.mini",
@@ -151,20 +148,14 @@ describe("resolveAgentLabel", () => {
         isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
       },
     });
-    expect(result.kind).toBe("resolved");
-    if (result.kind === "resolved") {
-      expect(result.agent.id).toBe("openscout.main.mini");
-    }
+    expect(result.kind).toBe("unknown");
     const legacyResult = resolveAgentLabel(snapshot, "@openscout", {
       helpers: {
         ...helpers,
         isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
       },
     });
-    expect(legacyResult.kind).toBe("resolved");
-    if (legacyResult.kind === "resolved") {
-      expect(legacyResult.agent.id).toBe("openscout.main.mini");
-    }
+    expect(legacyResult.kind).toBe("unknown");
   });
 
   test("returns ambiguous when multiple agents share the same label", () => {
