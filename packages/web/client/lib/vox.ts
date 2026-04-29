@@ -40,6 +40,20 @@ export type VoxSpeakResult = {
 export type VoxLaunchOptions = {
   source?: string;
   returnTo?: string;
+  context?: VoxLaunchContext;
+};
+
+export type VoxLaunchContext = {
+  requesterName?: string;
+  productName?: string;
+  headline?: string;
+  body?: string;
+  actionLabel?: string;
+  logo?: {
+    url?: string;
+    path?: string;
+    symbolName?: string;
+  };
 };
 
 const DEFAULT_VOX_BRIDGE = "http://127.0.0.1:43115";
@@ -88,6 +102,7 @@ export class VoxBrowserClient {
     window.location.href = buildVoxUrl("launch", {
       source: options.source,
       returnTo: options.returnTo ?? currentBrowserOrigin(),
+      context: encodeLaunchContext(options.context),
     });
   }
 
@@ -95,6 +110,7 @@ export class VoxBrowserClient {
     window.location.href = buildVoxUrl("settings", {
       source: options.source,
       returnTo: options.returnTo ?? currentBrowserOrigin(),
+      context: encodeLaunchContext(options.context),
     });
   }
 
@@ -189,6 +205,11 @@ function buildVoxUrl(host: "launch" | "settings", params: Record<string, string 
   }
   const query = search.toString();
   return query ? `vox://${host}?${query}` : `vox://${host}`;
+}
+
+function encodeLaunchContext(context: VoxLaunchContext | undefined): string | undefined {
+  if (!context) return undefined;
+  return JSON.stringify(context);
 }
 
 function currentBrowserOrigin(): string | undefined {

@@ -67,7 +67,7 @@ export function RangerPanel() {
     clientRef.current = client;
     setError(null);
     setVoiceProbeState("launching");
-    client.launch({ source: "openscout" });
+    client.launch({ source: "openscout", context: makeScoutAudioLaunchContext() });
     window.setTimeout(() => {
       void probeVoice();
     }, 2400);
@@ -76,7 +76,7 @@ export function RangerPanel() {
   const openVoxSettings = useCallback(() => {
     const client = clientRef.current ?? new VoxBrowserClient();
     clientRef.current = client;
-    client.openSettings({ source: "openscout" });
+    client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
   }, []);
 
   const askRanger = useCallback(async (body: string) => {
@@ -352,6 +352,20 @@ function stripRangerUiFences(body: string): string {
   return body
     .replace(/```(?:scout-ui|scout-ui-action|ranger-ui)\s*[\s\S]*?```/gi, "")
     .trim();
+}
+
+function makeScoutAudioLaunchContext() {
+  return {
+    requesterName: "OpenScout",
+    productName: "Scout Audio",
+    headline: "Turn on local voice for Ranger",
+    body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
+    actionLabel: "Return to OpenScout",
+    logo: {
+      url: new URL("/openscout-icon.png", window.location.href).toString(),
+      symbolName: "sparkles",
+    },
+  };
 }
 
 function RangerActionButton({
