@@ -16,6 +16,8 @@ import {
   restartLocalAgent,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
 } from "@openscout/runtime/local-agents";
+import { requestScoutBrokerJson } from "@openscout/runtime/broker-api";
+import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import {
   DEFAULT_OPERATOR_NAME,
@@ -340,18 +342,11 @@ function directConversationId(agentId: string): string {
 }
 
 async function postBrokerJson(baseUrl: string, pathname: string, body: unknown): Promise<void> {
-  const response = await fetch(new URL(pathname, baseUrl), {
+  await requestScoutBrokerJson<void>(baseUrl, pathname, {
     method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
+    body,
+    socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
   });
-
-  if (!response.ok) {
-    throw new Error(`${pathname} returned ${response.status}: ${await response.text()}`);
-  }
 }
 
 async function ensureOperatorActor(

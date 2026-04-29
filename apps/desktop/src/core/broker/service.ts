@@ -50,7 +50,9 @@ import {
 import {
   maybePostJsonToActiveScoutBrokerService,
   maybeReadJsonFromActiveScoutBrokerService,
+  requestScoutBrokerJson,
 } from "@openscout/runtime/broker-api";
+import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
 import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
@@ -613,17 +615,9 @@ async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
     return direct.value;
   }
 
-  const response = await fetch(new URL(path, baseUrl), {
-    headers: {
-      accept: "application/json",
-    },
+  return requestScoutBrokerJson<T>(baseUrl, path, {
+    socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
   });
-  if (!response.ok) {
-    throw new Error(
-      `${path} returned ${response.status}: ${await response.text()}`,
-    );
-  }
-  return response.json() as Promise<T>;
 }
 
 type BrokerPostJsonOptions<T> = {
@@ -645,37 +639,12 @@ async function brokerPostJson<T>(
     return direct.value;
   }
 
-  const response = await fetch(new URL(path, baseUrl), {
+  return requestScoutBrokerJson<T>(baseUrl, path, {
     method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
+    body,
+    acceptErrorJson: options.acceptErrorJson,
+    socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
   });
-  const text = await response.text();
-  let parsed: unknown;
-  let parsedJson = false;
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-      parsedJson = true;
-    } catch {
-      parsedJson = false;
-    }
-  }
-  if (!response.ok) {
-    if (parsedJson && options.acceptErrorJson?.(parsed)) {
-      return parsed;
-    }
-    throw new Error(
-      `${path} returned ${response.status}: ${text}`,
-    );
-  }
-  if (parsedJson) {
-    return parsed as T;
-  }
-  return undefined as T;
 }
 
 function isScoutDeliverResponse(value: unknown): value is ScoutDeliverResponse {

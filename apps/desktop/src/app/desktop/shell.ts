@@ -12,7 +12,10 @@ import type {
   MessageRecord,
 } from "@openscout/protocol";
 import { BUILT_IN_AGENT_DEFINITION_IDS } from "@openscout/protocol";
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
+import {
+  resolveBrokerServiceConfig,
+  type BrokerServiceStatus,
+} from "@openscout/runtime/broker-process-manager";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { loadResolvedRelayAgents } from "@openscout/runtime/setup";
 
@@ -761,6 +764,7 @@ function mergeBrokerServiceStatusWithHealth(
 }
 
 function buildBrokerServiceStatusFromHealth(health: ScoutBrokerHealthState): BrokerServiceStatus {
+  const config = resolveBrokerServiceConfig();
   return {
     label: health.reachable
       ? (health.ok ? "Running" : "Degraded")
@@ -768,7 +772,9 @@ function buildBrokerServiceStatusFromHealth(health: ScoutBrokerHealthState): Bro
     mode: "dev",
     launchAgentPath: "",
     brokerUrl: health.baseUrl,
+    brokerSocketPath: config.brokerSocketPath,
     supportDirectory: "",
+    runtimeDirectory: config.runtimeDirectory,
     controlHome: "",
     stdoutLogPath: "",
     stderrLogPath: "",

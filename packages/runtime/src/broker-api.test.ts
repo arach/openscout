@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createServer } from "node:http";
+import { mkdtemp, rm, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type {
   ControlCommand,
@@ -12,6 +16,7 @@ import {
   maybePostJsonToActiveScoutBrokerService,
   maybeReadJsonFromActiveScoutBrokerService,
   registerActiveScoutBrokerService,
+  requestScoutBrokerJson,
   type ActiveScoutBrokerService,
 } from "./broker-api.js";
 import { createRuntimeRegistrySnapshot } from "./registry.js";
@@ -363,5 +368,84 @@ describe("active broker service helpers", () => {
       "deliver-1",
     ]);
     expect(invokedRequests.map((request) => request.id)).toEqual(["inv-1"]);
+  });
+});
+
+describe("broker JSON transport", () => {
+  test("can request JSON over a Unix domain socket", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "openscout-broker-api-"));
+    const socketPath = join(dir, "broker.sock");
+    const server = createServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: true,
+        path: request.url,
+        via: "unix",
+      }));
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => resolve());
+    });
+
+    try {
+      const result = await requestScoutBrokerJson<{
+        ok: boolean;
+        path: string;
+        via: string;
+      }>("http://127.0.0.1:1", "/health?probe=1", { socketPath });
+
+      expect(result).toEqual({
+        ok: true,
+        path: "/health?probe=1",
+        via: "unix",
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await unlink(socketPath).catch(() => undefined);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to HTTP when the configured Unix socket is absent", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "openscout-broker-api-"));
+    const socketPath = join(dir, "missing.sock");
+    const server = createServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: true,
+        path: request.url,
+        via: "http",
+      }));
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("HTTP test server did not bind to a TCP port");
+      }
+      const result = await requestScoutBrokerJson<{
+        ok: boolean;
+        path: string;
+        via: string;
+      }>(`http://127.0.0.1:${address.port}`, "/health?probe=1", {
+        socketPath,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        path: "/health?probe=1",
+        via: "http",
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

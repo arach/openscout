@@ -61,7 +61,11 @@ import {
   relayAgentRuntimeDirectory,
   resolveOpenScoutSupportPaths,
 } from "./support-paths.js";
-import { resolveBrokerServiceConfig } from "./broker-process-manager.js";
+import {
+  resolveBrokerServiceConfig,
+  resolveBrokerSocketPathForBaseUrl,
+} from "./broker-process-manager.js";
+import { requestScoutBrokerJson } from "./broker-api.js";
 import {
   LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT,
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,
@@ -1428,12 +1432,10 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
 }
 
 async function readBrokerMessagesSince(sinceSeconds: number): Promise<BrokerSnapshotMessage[]> {
-  const response = await fetch(new URL("/v1/snapshot", resolveBrokerUrl()));
-  if (!response.ok) {
-    throw new Error(`Broker snapshot failed: ${response.status} ${response.statusText}`);
-  }
-
-  const snapshot = await response.json() as BrokerSnapshot;
+  const baseUrl = resolveBrokerUrl();
+  const snapshot = await requestScoutBrokerJson<BrokerSnapshot>(baseUrl, "/v1/snapshot", {
+    socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
+  });
   return Object.values(snapshot.messages)
     .filter((message) => normalizeBrokerTimestamp(message.createdAt) >= sinceSeconds)
     .sort((lhs, rhs) => normalizeBrokerTimestamp(lhs.createdAt) - normalizeBrokerTimestamp(rhs.createdAt));

@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { lstat, mkdir, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import type { Duplex } from "node:stream";
 
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 
@@ -92,6 +94,7 @@ import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { ensureOpenScoutCleanSlateSync } from "./support-paths.js";
 import {
+  requestScoutBrokerJson,
   registerActiveScoutBrokerService,
   unregisterActiveScoutBrokerService,
 } from "./broker-api.js";
@@ -101,6 +104,7 @@ import {
   DEFAULT_BROKER_PORT,
   isLoopbackHost,
   resolveAdvertiseScope,
+  resolveBrokerServiceConfig,
   resolveBrokerHost,
 } from "./broker-process-manager.js";
 import { readRelayAgentOverrides, writeRelayAgentOverrides } from "./setup.js";
@@ -164,6 +168,8 @@ const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
 const tailnetName = process.env.TAILSCALE_TAILNET ?? undefined;
 const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host, port);
+const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
+  ?? resolveBrokerServiceConfig().brokerSocketPath;
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
 const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
   .split(",")
@@ -3055,25 +3061,15 @@ function isAddressInUse(error: unknown): boolean {
 }
 
 async function probeExistingBroker() {
-  const healthUrl = `${brokerUrl}/health`;
-  const nodeUrl = `${brokerUrl}/v1/node`;
-
   try {
-    const [healthResponse, nodeResponse] = await Promise.all([
-      fetch(healthUrl, { headers: { accept: "application/json" } }),
-      fetch(nodeUrl, { headers: { accept: "application/json" } }),
+    const [health, node] = await Promise.all([
+      requestScoutBrokerJson<{
+        ok?: boolean;
+        nodeId?: string;
+        meshId?: string;
+      }>(brokerUrl, "/health", { socketPath: brokerSocketPath }),
+      requestScoutBrokerJson<NodeDefinition>(brokerUrl, "/v1/node", { socketPath: brokerSocketPath }),
     ]);
-
-    if (!healthResponse.ok || !nodeResponse.ok) {
-      return null;
-    }
-
-    const health = await healthResponse.json() as {
-      ok?: boolean;
-      nodeId?: string;
-      meshId?: string;
-    };
-    const node = await nodeResponse.json() as NodeDefinition;
 
     if (!health.ok || !node.id) {
       return null;
@@ -3089,7 +3085,28 @@ async function probeExistingBroker() {
   }
 }
 
-async function listen(serverInstance: ReturnType<typeof createServer>): Promise<void> {
+async function prepareBrokerSocketPath(socketPath: string): Promise<void> {
+  await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
+  try {
+    const existing = await lstat(socketPath);
+    if (!existing.isSocket()) {
+      throw new Error(`broker socket path exists but is not a socket: ${socketPath}`);
+    }
+    await unlink(socketPath);
+  } catch (error) {
+    if (
+      error
+      && typeof error === "object"
+      && "code" in error
+      && (error as { code?: string }).code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function listenTcp(serverInstance: ReturnType<typeof createServer>): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const handleError = (error: unknown) => {
       serverInstance.off("listening", handleListening);
@@ -3103,6 +3120,27 @@ async function listen(serverInstance: ReturnType<typeof createServer>): Promise<
     serverInstance.once("error", handleError);
     serverInstance.once("listening", handleListening);
     serverInstance.listen(port, host);
+  });
+}
+
+async function listenUnixSocket(
+  serverInstance: ReturnType<typeof createServer>,
+  socketPath: string,
+): Promise<void> {
+  await prepareBrokerSocketPath(socketPath);
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: unknown) => {
+      serverInstance.off("listening", handleListening);
+      reject(error);
+    };
+    const handleListening = () => {
+      serverInstance.off("error", handleError);
+      resolve();
+    };
+
+    serverInstance.once("error", handleError);
+    serverInstance.once("listening", handleListening);
+    serverInstance.listen(socketPath);
   });
 }
 
@@ -4493,14 +4531,19 @@ async function acceptBrokerDelivery(
   };
 }
 
-const server = createServer((request, response) => {
-  routeRequest(request, response).catch((error) => {
-    json(response, 500, {
-      error: "internal_error",
-      detail: error instanceof Error ? error.message : String(error),
+function createBrokerHttpServer(): ReturnType<typeof createServer> {
+  return createServer((request, response) => {
+    routeRequest(request, response).catch((error) => {
+      json(response, 500, {
+        error: "internal_error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
     });
   });
-});
+}
+
+const server = createBrokerHttpServer();
+const socketServer = createBrokerHttpServer();
 server.on("close", () => {
   unregisterActiveScoutBrokerService(brokerService);
 });
@@ -4517,7 +4560,11 @@ const { WebSocketServer } = wsRequire("ws") as typeof import("ws");
 
 const trpcWss = new WebSocketServer({ noServer: true });
 
-server.on("upgrade", (request, socket, head) => {
+function handleBrokerUpgrade(
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+): void {
   const url = new URL(request.url || "/", `http://${host}:${port}`);
   if (url.pathname === "/trpc") {
     trpcWss.handleUpgrade(request, socket, head, (ws) => {
@@ -4526,7 +4573,10 @@ server.on("upgrade", (request, socket, head) => {
     return;
   }
   socket.destroy();
-});
+}
+
+server.on("upgrade", handleBrokerUpgrade);
+socketServer.on("upgrade", handleBrokerUpgrade);
 
 const trpcHandler = applyWSSHandler({
   wss: trpcWss,
@@ -4535,9 +4585,11 @@ const trpcHandler = applyWSSHandler({
 });
 
 try {
-  await listen(server);
+  await listenTcp(server);
+  await listenUnixSocket(socketServer, brokerSocketPath);
   peerDelivery.start();
   console.log(`[openscout-runtime] broker listening on ${host}:${port} (scope: ${advertiseScope}, url: ${brokerUrl})`);
+  console.log(`[openscout-runtime] broker local socket ${brokerSocketPath}`);
   if (advertiseScope === "mesh" && isLoopbackHost(host)) {
     console.warn(`[openscout-runtime] WARNING: mesh scope bound to loopback ${host} — peers cannot reach this broker. Set OPENSCOUT_BROKER_HOST=0.0.0.0 or unset to use the mesh default.`);
   }
@@ -4546,6 +4598,7 @@ try {
   console.log(`[openscout-runtime] sqlite ${sqliteDisabled ? "disabled" : dbPath}`);
 } catch (error) {
   unregisterActiveScoutBrokerService(brokerService);
+  await Promise.all([closeServer(socketServer), closeServer(server)]).catch(() => undefined);
   if (isAddressInUse(error)) {
     const existing = await probeExistingBroker();
     if (existing) {
@@ -4584,21 +4637,46 @@ if (Number.isFinite(discoveryIntervalMs) && discoveryIntervalMs > 0) {
   }, discoveryIntervalMs).unref();
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    peerDelivery.stop();
-    for (const client of eventClients) {
+function closeServer(serverInstance: ReturnType<typeof createServer>): Promise<void> {
+  return new Promise((resolve) => {
+    if (!serverInstance.listening) {
+      resolve();
+      return;
+    }
+    serverInstance.close(() => resolve());
+  });
+}
+
+let shuttingDown = false;
+
+async function shutdownBroker(exitCode = 0): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  peerDelivery.stop();
+  for (const client of eventClients) {
+    client.end();
+  }
+  for (const subscribers of invocationStreamClients.values()) {
+    for (const client of subscribers) {
       client.end();
     }
-    for (const subscribers of invocationStreamClients.values()) {
-      for (const client of subscribers) {
-        client.end();
-      }
-    }
-    invocationStreamClients.clear();
-    trpcHandler.broadcastReconnectNotification();
-    projection.close();
-    server.close(() => process.exit(0));
+  }
+  invocationStreamClients.clear();
+  trpcHandler.broadcastReconnectNotification();
+  projection.close();
+  await Promise.all([closeServer(socketServer), closeServer(server)]);
+  await unlink(brokerSocketPath).catch(() => undefined);
+  process.exit(exitCode);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    shutdownBroker(0).catch((error) => {
+      console.error("[openscout-runtime] shutdown failed:", error);
+      process.exit(1);
+    });
   });
 }
 
@@ -4608,11 +4686,10 @@ if (Number.isFinite(parentPid) && parentPid > 0) {
       process.kill(parentPid, 0);
     } catch {
       console.log(`[openscout-runtime] parent ${parentPid} is gone, exiting broker`);
-      for (const client of eventClients) {
-        client.end();
-      }
-      projection.close();
-      server.close(() => process.exit(0));
+      shutdownBroker(0).catch((error) => {
+        console.error("[openscout-runtime] shutdown failed:", error);
+        process.exit(1);
+      });
     }
   }, 2_000).unref();
 }
