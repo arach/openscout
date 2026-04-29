@@ -22,6 +22,15 @@ const OPS_MODES = new Set([
   "atop",
 ]);
 
+const ONLINE_RANGER_STATES = new Set([
+  "available",
+  "working",
+  "active",
+  "idle",
+  "waiting",
+  "registered",
+]);
+
 export type RangerUiAction =
   | { type: "navigate"; route: Route; reason?: string }
   | { type: "open-ranger"; mode?: "ask" | "tell"; reason?: string }
@@ -45,15 +54,41 @@ export function isRangerAgent(agent: Agent): boolean {
   );
 }
 
+function isOnlineRangerAgent(agent: Agent): boolean {
+  return ONLINE_RANGER_STATES.has(agent.state?.trim().toLowerCase() ?? "");
+}
+
+function rangerAgentScore(agent: Agent): number {
+  if (!isRangerAgent(agent)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  let score = 0;
+  if (isOnlineRangerAgent(agent)) {
+    score += 100;
+  }
+  if (agent.handle?.trim().toLowerCase() === "ranger") {
+    score += 20;
+  }
+  if (agent.selector?.trim().toLowerCase() === "@ranger") {
+    score += 20;
+  }
+  if (agent.role?.trim().toLowerCase() === "ranger") {
+    score += 10;
+  }
+  if (agent.id === DEFAULT_RANGER_AGENT_ID) {
+    score += 1;
+  }
+  return score;
+}
+
 export function resolveRangerAgent(agents: Agent[]): Agent | null {
-  return (
-    agents.find((agent) => agent.id === DEFAULT_RANGER_AGENT_ID) ??
-    agents.find((agent) => agent.handle?.toLowerCase() === "@ranger") ??
-    agents.find((agent) => agent.selector?.toLowerCase() === "@ranger") ??
-    agents.find((agent) => agent.role?.toLowerCase() === "ranger") ??
-    agents.find(isRangerAgent) ??
-    null
-  );
+  return agents
+    .filter(isRangerAgent)
+    .sort((left, right) => {
+      const scoreDelta = rangerAgentScore(right) - rangerAgentScore(left);
+      if (scoreDelta !== 0) return scoreDelta;
+      return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
+    })[0] ?? null;
 }
 
 export function resolveRangerAgentId(agents: Agent[]): string {

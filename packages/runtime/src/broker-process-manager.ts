@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { requestScoutBrokerJson } from "./broker-api.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { resolveBunExecutable as resolveResolvedBunExecutable } from "./tool-resolution.js";
 
@@ -23,6 +24,7 @@ export type BrokerServiceConfig = {
   serviceTarget: string;
   launchAgentPath: string;
   supportDirectory: string;
+  runtimeDirectory: string;
   logsDirectory: string;
   stdoutLogPath: string;
   stderrLogPath: string;
@@ -32,6 +34,7 @@ export type BrokerServiceConfig = {
   brokerHost: string;
   brokerPort: number;
   brokerUrl: string;
+  brokerSocketPath: string;
   advertiseScope: BrokerAdvertiseScope;
 };
 
@@ -56,7 +59,9 @@ export type BrokerServiceStatus = {
   mode: BrokerServiceMode;
   launchAgentPath: string;
   brokerUrl: string;
+  brokerSocketPath: string;
   supportDirectory: string;
+  runtimeDirectory: string;
   controlHome: string;
   stdoutLogPath: string;
   stderrLogPath: string;
@@ -116,7 +121,28 @@ export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT
   return `http://${host}:${port}`;
 }
 
+export function buildDefaultBrokerSocketPath(runtimeDirectory: string): string {
+  return join(runtimeDirectory, "broker.sock");
+}
+
 export const DEFAULT_BROKER_URL = buildDefaultBrokerUrl();
+
+function normalizeBrokerUrl(value: string): string {
+  try {
+    return new URL(value).toString();
+  } catch {
+    return value.trim();
+  }
+}
+
+export function resolveBrokerSocketPathForBaseUrl(
+  baseUrl: string,
+  config: BrokerServiceConfig = resolveBrokerServiceConfig(),
+): string | null {
+  return normalizeBrokerUrl(baseUrl) === normalizeBrokerUrl(config.brokerUrl)
+    ? config.brokerSocketPath
+    : null;
+}
 
 function runtimePackageDir(): string {
   // 1. Explicit override — always wins (useful for development)
@@ -241,6 +267,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const supportPaths = resolveOpenScoutSupportPaths();
   const defaultSupportDir = join(homedir(), "Library", "Application Support", "OpenScout");
   const supportDirectory = isTmpPath(supportPaths.supportDirectory) ? defaultSupportDir : supportPaths.supportDirectory;
+  const runtimeDirectory = join(supportDirectory, "runtime");
   const logsDirectory = join(supportDirectory, "logs", "broker");
   const controlHome = isTmpPath(supportPaths.controlHome)
     ? join(homedir(), ".openscout", "control-plane")
@@ -249,6 +276,8 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const brokerHost = resolveBrokerHost(advertiseScope);
   const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
   const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(brokerHost, brokerPort);
+  const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
+    ?? buildDefaultBrokerSocketPath(runtimeDirectory);
   const launchAgentPath = join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
 
   return {
@@ -259,6 +288,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     serviceTarget: `gui/${uid}/${label}`,
     launchAgentPath,
     supportDirectory,
+    runtimeDirectory,
     logsDirectory,
     stdoutLogPath: join(logsDirectory, "stdout.log"),
     stderrLogPath: join(logsDirectory, "stderr.log"),
@@ -268,6 +298,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     brokerHost,
     brokerPort,
     brokerUrl,
+    brokerSocketPath,
     advertiseScope,
   };
 }
@@ -278,6 +309,7 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
     OPENSCOUT_BROKER_HOST: config.brokerHost,
     OPENSCOUT_BROKER_PORT: String(config.brokerPort),
     OPENSCOUT_BROKER_URL: config.brokerUrl,
+    OPENSCOUT_BROKER_SOCKET_PATH: config.brokerSocketPath,
     OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_SERVICE_MODE: config.mode,
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
@@ -381,6 +413,8 @@ function ensureParentDirectory(filePath: string): void {
 function ensureServiceDirectories(config: BrokerServiceConfig): void {
   ensureOpenScoutCleanSlateSync();
   mkdirSync(config.supportDirectory, { recursive: true });
+  mkdirSync(config.runtimeDirectory, { recursive: true, mode: 0o700 });
+  chmodSync(config.runtimeDirectory, 0o700);
   mkdirSync(config.logsDirectory, { recursive: true });
   mkdirSync(config.controlHome, { recursive: true });
   ensureParentDirectory(config.launchAgentPath);
@@ -497,20 +531,10 @@ async function fetchHealthSnapshot(config: BrokerServiceConfig): Promise<BrokerH
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1000);
   try {
-    const response = await fetch(new URL("/health", config.brokerUrl), {
+    const payload = await requestScoutBrokerJson<BrokerHealthSnapshot & { ok: boolean }>(config.brokerUrl, "/health", {
       signal: controller.signal,
-      headers: { accept: "application/json" },
+      socketPath: config.brokerSocketPath,
     });
-
-    if (!response.ok) {
-      return {
-        reachable: false,
-        ok: false,
-        error: `health returned ${response.status}`,
-      };
-    }
-
-    const payload = await response.json() as BrokerHealthSnapshot & { ok: boolean };
     return {
       reachable: true,
       ok: Boolean(payload.ok),
@@ -543,7 +567,9 @@ export async function brokerServiceStatus(config: BrokerServiceConfig = resolveB
     mode: config.mode,
     launchAgentPath: config.launchAgentPath,
     brokerUrl: config.brokerUrl,
+    brokerSocketPath: config.brokerSocketPath,
     supportDirectory: config.supportDirectory,
+    runtimeDirectory: config.runtimeDirectory,
     controlHome: config.controlHome,
     stdoutLogPath: config.stdoutLogPath,
     stderrLogPath: config.stderrLogPath,
@@ -659,6 +685,7 @@ function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
     `pid: ${status.pid ?? "—"}`,
     `launchd state: ${status.launchdState ?? "—"}`,
     `broker url: ${status.brokerUrl}`,
+    `broker socket: ${status.brokerSocketPath}`,
     `reachable: ${status.reachable ? "yes" : "no"}`,
     `health: ${status.health.ok ? "ok" : status.health.error ?? "unreachable"}`,
     `logs: ${status.stdoutLogPath}`,

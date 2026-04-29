@@ -19,6 +19,7 @@ const config: BrokerServiceConfig = {
   serviceTarget: "gui/501/dev.openscout.broker",
   launchAgentPath: "/Users/arach/Library/LaunchAgents/dev.openscout.broker.plist",
   supportDirectory: "/Users/arach/Library/Application Support/OpenScout",
+  runtimeDirectory: "/Users/arach/Library/Application Support/OpenScout/runtime",
   logsDirectory: "/Users/arach/Library/Application Support/OpenScout/logs/broker",
   stdoutLogPath: "/Users/arach/Library/Application Support/OpenScout/logs/broker/stdout.log",
   stderrLogPath: "/Users/arach/Library/Application Support/OpenScout/logs/broker/stderr.log",
@@ -28,6 +29,7 @@ const config: BrokerServiceConfig = {
   brokerHost: DEFAULT_BROKER_HOST,
   brokerPort: DEFAULT_BROKER_PORT,
   brokerUrl: DEFAULT_BROKER_URL,
+  brokerSocketPath: "/Users/arach/Library/Application Support/OpenScout/runtime/broker.sock",
   advertiseScope: "local",
 };
 
@@ -49,6 +51,8 @@ describe("broker launch agent config", () => {
     expect(plist).toContain("<false/>");
     expect(plist).toContain("<key>OPENSCOUT_BROKER_URL</key>");
     expect(plist).toContain(`<string>${DEFAULT_BROKER_URL}</string>`);
+    expect(plist).toContain("<key>OPENSCOUT_BROKER_SOCKET_PATH</key>");
+    expect(plist).toContain("<string>/Users/arach/Library/Application Support/OpenScout/runtime/broker.sock</string>");
   });
 
   test("parses launchctl print output for pid and state", () => {

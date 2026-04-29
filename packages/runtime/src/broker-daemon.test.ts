@@ -1209,6 +1209,83 @@ describe("broker daemon comms layer", () => {
     expect(body.question?.target?.detail).toContain("stale registration");
   }, 15_000);
 
+  test("routes stale direct targets to their current replacement", async () => {
+    const harness = await startBroker();
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.main.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "main",
+      selector: "@ranger.main.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        staleLocalRegistration: true,
+        replacedByAgentId: "ranger.codex-vox-getting-started.mini",
+        projectRoot: "/tmp/openscout",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "ranger.codex-vox-getting-started.mini",
+      kind: "agent",
+      definitionId: "ranger",
+      nodeQualifier: "mini",
+      workspaceQualifier: "codex-vox-getting-started",
+      selector: "@ranger.codex-vox-getting-started.node:mini",
+      defaultSelector: "@ranger",
+      displayName: "Ranger",
+      handle: "ranger",
+      labels: ["relay", "project", "agent", "local-agent"],
+      metadata: {
+        projectRoot: "/tmp/openscout",
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    const response = await requestJson(harness.baseUrl, "/v1/deliver", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "deliver-test-stale-replaced",
+        requesterId: "operator",
+        requesterNodeId: harness.nodeId,
+        targetAgentId: "ranger.main.mini",
+        targetLabel: "ranger.main.mini",
+        body: "@ranger.main.mini hello",
+        intent: "consult",
+        createdAt: Date.now(),
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const body = response.body as {
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      conversation?: { id: string };
+      flight?: { targetAgentId?: string };
+    };
+    expect(body.kind).toBe("delivery");
+    expect(body.accepted).toBe(true);
+    expect(body.targetAgentId).toBe("ranger.codex-vox-getting-started.mini");
+    expect(body.conversation?.id).toBe("dm.operator.ranger.codex-vox-getting-started.mini");
+    expect(body.flight?.targetAgentId).toBe("ranger.codex-vox-getting-started.mini");
+  }, 15_000);
+
   test("returns a broker question for stale label-only targets", async () => {
     const harness = await startBroker();
 

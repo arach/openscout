@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, Compass, Loader2, Map, Mic, MicOff, Radio, Volume2, VolumeX } from "lucide-react";
+import { Bot, Compass, Loader2, Map, Mic, MicOff, Radio, RefreshCw, Rocket, Settings, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { isRangerActorId, isRangerAgent } from "../../lib/ranger.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -9,6 +9,8 @@ import { useScout } from "../Provider.tsx";
 type SendResult = {
   conversationId?: string;
 };
+
+type VoiceProbeState = "idle" | "probing" | "launching";
 
 const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
@@ -29,6 +31,8 @@ export function RangerPanel() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voiceAvailable, setVoiceAvailable] = useState<boolean | null>(null);
+  const [voiceIssue, setVoiceIssue] = useState<string | null>(null);
+  const [voiceProbeState, setVoiceProbeState] = useState<VoiceProbeState>("probing");
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.ranger.voiceReplies", false);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
@@ -42,10 +46,37 @@ export function RangerPanel() {
   const voiceRepliesRef = useRef(voiceReplies);
   voiceRepliesRef.current = voiceReplies;
 
-  useEffect(() => {
-    const client = new VoxBrowserClient();
+  const probeVoice = useCallback(async () => {
+    const client = clientRef.current ?? new VoxBrowserClient();
     clientRef.current = client;
-    void client.probe().then(setVoiceAvailable);
+    setVoiceProbeState("probing");
+
+    const ok = await client.probe();
+    setVoiceAvailable(ok);
+    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Vox Companion is not reachable.");
+    setVoiceProbeState("idle");
+    return ok;
+  }, []);
+
+  useEffect(() => {
+    void probeVoice();
+  }, [probeVoice]);
+
+  const launchVox = useCallback(() => {
+    const client = clientRef.current ?? new VoxBrowserClient();
+    clientRef.current = client;
+    setError(null);
+    setVoiceProbeState("launching");
+    client.launch({ source: "openscout", context: makeScoutAudioLaunchContext() });
+    window.setTimeout(() => {
+      void probeVoice();
+    }, 2400);
+  }, [probeVoice]);
+
+  const openVoxSettings = useCallback(() => {
+    const client = clientRef.current ?? new VoxBrowserClient();
+    clientRef.current = client;
+    client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
   }, []);
 
   const askRanger = useCallback(async (body: string) => {
@@ -83,11 +114,9 @@ export function RangerPanel() {
     setVoiceState("starting");
 
     if (voiceAvailable !== true) {
-      const ok = await client.probe();
-      setVoiceAvailable(ok);
+      const ok = await probeVoice();
       if (!ok) {
         setVoiceState(null);
-        setError(client.lastUnavailableReason ?? "Vox Companion is not reachable.");
         return;
       }
     }
@@ -113,7 +142,7 @@ export function RangerPanel() {
       setVoiceState("error");
       setError(err instanceof Error ? err.message : "Vox recording failed.");
     }
-  }, [askRanger, recording, voiceAvailable]);
+  }, [askRanger, probeVoice, recording, voiceAvailable]);
 
   const stopVoice = useCallback(async () => {
     setVoiceState("processing");
@@ -168,6 +197,8 @@ export function RangerPanel() {
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop Talking"
+    : voiceProbeState === "probing" ? "Checking Vox"
+    : voiceProbeState === "launching" ? "Opening Vox"
     : voiceAvailable === false ? "Launch Vox" : "Start Talking";
   const agentStatus = rangerAgent
     ? rangerAgent.state ?? "registered"
@@ -213,12 +244,22 @@ export function RangerPanel() {
         />
       </div>
 
+      {voiceAvailable === false && (
+        <VoxSetupPanel
+          issue={voiceIssue}
+          probeState={voiceProbeState}
+          onLaunch={launchVox}
+          onRetry={() => void probeVoice()}
+          onSettings={openVoxSettings}
+        />
+      )}
+
       <div className="flex gap-2">
         <button
           type="button"
           onClick={() => {
             if (voiceAvailable === false) {
-              clientRef.current?.launch();
+              launchVox();
               return;
             }
             void (recording ? stopVoice() : startVoice());
@@ -228,9 +269,9 @@ export function RangerPanel() {
               ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
               : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
           }`}
-          disabled={sending || voiceState === "processing"}
+          disabled={sending || voiceState === "processing" || voiceProbeState === "probing"}
         >
-          {voiceState === "processing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <MicOff size={13} /> : <Mic size={13} />}
+          {voiceState === "processing" || voiceProbeState === "probing" ? <Loader2 size={13} className="animate-spin" /> : recording ? <MicOff size={13} /> : <Mic size={13} />}
           {voiceLabel}
         </button>
         {recording && (
@@ -313,6 +354,20 @@ function stripRangerUiFences(body: string): string {
     .trim();
 }
 
+function makeScoutAudioLaunchContext() {
+  return {
+    requesterName: "OpenScout",
+    productName: "Scout Audio",
+    headline: "Turn on local voice for Ranger",
+    body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
+    actionLabel: "Return to OpenScout",
+    logo: {
+      url: new URL("/openscout-icon.png", window.location.href).toString(),
+      symbolName: "sparkles",
+    },
+  };
+}
+
 function RangerActionButton({
   icon,
   label,
@@ -330,6 +385,92 @@ function RangerActionButton({
       onClick={onClick}
       disabled={disabled}
       className="flex items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] transition-colors hover:bg-[var(--scout-chrome-hover)] disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function VoxSetupPanel({
+  issue,
+  probeState,
+  onLaunch,
+  onRetry,
+  onSettings,
+}: {
+  issue: string | null;
+  probeState: VoiceProbeState;
+  onLaunch: () => void;
+  onRetry: () => void;
+  onSettings: () => void;
+}) {
+  const isBusy = probeState === "probing" || probeState === "launching";
+
+  return (
+    <div className="rounded border border-lime-300/25 bg-lime-300/[0.06] px-3 py-3 font-mono text-[10px] text-[var(--scout-chrome-ink)]">
+      <div className="flex items-start gap-2">
+        <Rocket size={14} className="mt-0.5 shrink-0 text-lime-300" />
+        <div className="min-w-0">
+          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Vox</div>
+          <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+            Start Vox, then retry once the menu bar icon is visible.
+          </p>
+          {issue && (
+            <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
+              {issue}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <VoxSetupButton
+          icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
+          label={probeState === "launching" ? "Opening" : "Launch"}
+          onClick={onLaunch}
+          disabled={probeState === "probing"}
+          title="Open Vox"
+        />
+        <VoxSetupButton
+          icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          label="Retry"
+          onClick={onRetry}
+          disabled={isBusy}
+          title="Check Vox again"
+        />
+        <VoxSetupButton
+          icon={<Settings size={12} />}
+          label="Settings"
+          onClick={onSettings}
+          disabled={probeState === "probing"}
+          title="Open Vox settings"
+        />
+      </div>
+    </div>
+  );
+}
+
+function VoxSetupButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="flex min-h-8 items-center justify-center gap-1.5 rounded border border-lime-300/20 px-2 text-[9px] uppercase tracking-[0.12em] text-lime-100 transition-colors hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-45"
     >
       {icon}
       {label}

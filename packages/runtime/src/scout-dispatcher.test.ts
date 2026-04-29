@@ -257,6 +257,38 @@ describe("resolveBrokerRouteTarget", () => {
       expect(result.agent.id).toBe("arc.main");
     }
   });
+
+  test("redirects stale direct agent ids to their current replacement", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "ranger.main.mini",
+        definitionId: "ranger",
+        metadata: {
+          staleLocalRegistration: true,
+          replacedByAgentId: "ranger.codex-vox-getting-started.mini",
+        },
+      }),
+      makeAgent({
+        id: "ranger.codex-vox-getting-started.mini",
+        definitionId: "ranger",
+      }),
+    ]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { targetAgentId: "ranger.main.mini", targetLabel: "ranger.main.mini" },
+      {
+        helpers: {
+          ...helpers,
+          isStale: (agent) => agent?.metadata?.staleLocalRegistration === true,
+        },
+      },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("ranger.codex-vox-getting-started.mini");
+    }
+  });
 });
 
 describe("buildAgentLabelCandidates", () => {

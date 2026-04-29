@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+
 import type {
   ActorIdentity,
   AgentDefinition,
@@ -113,6 +115,21 @@ export type ActiveScoutBrokerServiceResult<T> =
   | { handled: false }
   | { handled: true; value: T };
 
+export type ScoutBrokerJsonRequestOptions<T> = {
+  method?: "GET" | "POST";
+  body?: unknown;
+  headers?: Record<string, string>;
+  socketPath?: string | null;
+  signal?: AbortSignal;
+  acceptErrorJson?: (value: unknown) => value is T;
+};
+
+type ScoutBrokerWireResponse = {
+  ok: boolean;
+  status: number;
+  text: string;
+};
+
 const activeScoutBrokerServices: ActiveScoutBrokerService[] = [];
 
 function handled<T>(value: T): ActiveScoutBrokerServiceResult<T> {
@@ -133,6 +150,171 @@ function normalizeBaseUrl(baseUrl: string): string {
   } catch {
     return trimmed;
   }
+}
+
+function requestHeaders(options: ScoutBrokerJsonRequestOptions<any>): Record<string, string> {
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    ...(options.headers ?? {}),
+  };
+  if (options.body !== undefined && !("content-type" in lowercaseKeys(headers))) {
+    headers["content-type"] = "application/json";
+  }
+  return headers;
+}
+
+function lowercaseKeys(value: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const key of Object.keys(value)) {
+    result[key.toLowerCase()] = value[key] ?? "";
+  }
+  return result;
+}
+
+function requestBody(options: ScoutBrokerJsonRequestOptions<any>): string | undefined {
+  return options.body === undefined ? undefined : JSON.stringify(options.body);
+}
+
+async function requestBrokerOverHttp<T>(
+  baseUrl: string,
+  path: string,
+  options: ScoutBrokerJsonRequestOptions<T>,
+): Promise<ScoutBrokerWireResponse> {
+  const response = await fetch(new URL(path, normalizeBaseUrl(baseUrl)), {
+    method: options.method ?? (options.body === undefined ? "GET" : "POST"),
+    headers: requestHeaders(options),
+    body: requestBody(options),
+    signal: options.signal,
+  });
+  return {
+    ok: response.ok,
+    status: response.status,
+    text: await response.text(),
+  };
+}
+
+function shouldFallbackFromUnixSocket(error: unknown): boolean {
+  const code = error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  return code === "ENOENT"
+    || code === "ECONNREFUSED"
+    || code === "ENOTSOCK"
+    || code === "EACCES"
+    || code === "FailedToOpenSocket";
+}
+
+function requestBrokerOverUnixSocket<T>(
+  socketPath: string,
+  baseUrl: string,
+  path: string,
+  options: ScoutBrokerJsonRequestOptions<T>,
+): Promise<ScoutBrokerWireResponse> {
+  return new Promise((resolve, reject) => {
+    const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+    const url = new URL(path, normalizedBaseUrl);
+    const body = requestBody(options);
+    const headers = requestHeaders(options);
+    if (body !== undefined) {
+      headers["content-length"] = Buffer.byteLength(body).toString();
+    }
+
+    const request = httpRequest(
+      {
+        socketPath,
+        path: `${url.pathname}${url.search}`,
+        method: options.method ?? (body === undefined ? "GET" : "POST"),
+        headers,
+      },
+      (response) => {
+        let text = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          text += String(chunk);
+        });
+        response.on("end", () => {
+          options.signal?.removeEventListener("abort", handleAbort);
+          resolve({
+            ok: Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 300),
+            status: response.statusCode ?? 0,
+            text,
+          });
+        });
+      },
+    );
+
+    const handleAbort = () => {
+      request.destroy(
+        options.signal?.reason instanceof Error
+          ? options.signal.reason
+          : new Error("Scout broker request aborted"),
+      );
+    };
+
+    request.on("error", (error) => {
+      options.signal?.removeEventListener("abort", handleAbort);
+      reject(error);
+    });
+    if (options.signal) {
+      if (options.signal.aborted) {
+        handleAbort();
+        return;
+      }
+      options.signal.addEventListener("abort", handleAbort, { once: true });
+    }
+    if (body !== undefined) {
+      request.write(body);
+    }
+    request.end();
+  });
+}
+
+async function requestBrokerWire<T>(
+  baseUrl: string,
+  path: string,
+  options: ScoutBrokerJsonRequestOptions<T>,
+): Promise<ScoutBrokerWireResponse> {
+  const socketPath = options.socketPath?.trim();
+  if (socketPath) {
+    try {
+      return await requestBrokerOverUnixSocket(socketPath, baseUrl, path, options);
+    } catch (error) {
+      if (!shouldFallbackFromUnixSocket(error)) {
+        throw error;
+      }
+    }
+  }
+  return requestBrokerOverHttp(baseUrl, path, options);
+}
+
+export async function requestScoutBrokerJson<T>(
+  baseUrl: string,
+  path: string,
+  options: ScoutBrokerJsonRequestOptions<T> = {},
+): Promise<T> {
+  const response = await requestBrokerWire(baseUrl, path, options);
+  let parsed: unknown;
+  let parsedJson = false;
+  if (response.text.length > 0) {
+    try {
+      parsed = JSON.parse(response.text);
+      parsedJson = true;
+    } catch {
+      parsedJson = false;
+    }
+  }
+
+  if (!response.ok) {
+    if (parsedJson && options.acceptErrorJson?.(parsed)) {
+      return parsed;
+    }
+    throw new Error(`${path} returned ${response.status}: ${response.text}`);
+  }
+
+  if (parsedJson) {
+    return parsed as T;
+  }
+  return undefined as T;
 }
 
 function parsePositiveInt(

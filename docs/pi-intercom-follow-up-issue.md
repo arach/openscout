@@ -27,6 +27,7 @@ Today:
 - broker startup is service-oriented and `launchd`-driven
 - local liveness and stale endpoint cleanup are spread across runtime behavior
 - there is no single lightweight "ensure broker is running" entry point
+- same-machine callers still mostly reach the broker through the TCP HTTP URL
 - local collaboration ergonomics are solving a richer problem than a simple
   same-machine chat room, but we still want the same low-friction feel
 
@@ -65,6 +66,8 @@ adopt the local-runtime operational ideas.
 
 - `ensureBrokerRunning()` as the default local startup path
 - PID + lock files in broker runtime state
+- Unix domain socket support as the preferred same-machine broker transport,
+  with the existing HTTP URL kept for compatibility and mesh reachability
 - stronger stale endpoint and stale claim cleanup using PID and session identity
 - a clearer local fast path for waking local agents
 - versioned snapshot / event cursor support for race-free refresh
@@ -75,6 +78,14 @@ adopt the local-runtime operational ideas.
 - file-only registry as the source of truth
 - client-owned ask semantics that bypass broker-owned flight state
 - same-machine assumptions that break mesh behavior
+
+### Unix Socket Transport
+
+`local_socket` means the same broker-owned HTTP-shaped API over a Unix domain
+socket, not a separate file inbox protocol. Local callers should prefer the
+socket path when it is available and fall back to `http://127.0.0.1:65535`.
+The broker remains the single durable writer for messages, invocations,
+flights, deliveries, and activity projections.
 
 ## Proposed Scope
 
