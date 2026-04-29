@@ -1,5 +1,6 @@
 import {
   buildScoutReturnAddress,
+  type AgentEndpoint,
   type ScoutAgentCard,
   type ScoutAgentProvider,
   type ScoutAgentSkill,
@@ -16,18 +17,14 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
 
 function metadataStringArray(metadata: Record<string, unknown> | undefined, key: string): string[] | undefined {
   const value = metadata?.[key];
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
+  if (!Array.isArray(value)) return undefined;
   const next = value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
   return next.length > 0 ? next : undefined;
 }
 
 function metadataStringMatrix(metadata: Record<string, unknown> | undefined, key: string): string[][] | undefined {
   const value = metadata?.[key];
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
+  if (!Array.isArray(value)) return undefined;
   const next = value
     .filter((entry): entry is unknown[] => Array.isArray(entry))
     .map((entry) => entry.filter((item): item is string => typeof item === "string" && item.trim().length > 0))
@@ -37,9 +34,7 @@ function metadataStringMatrix(metadata: Record<string, unknown> | undefined, key
 
 function metadataRecord(metadata: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
   const value = metadata?.[key];
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    return undefined;
-  }
+  if (!value || Array.isArray(value) || typeof value !== "object") return undefined;
   return value as Record<string, unknown>;
 }
 
@@ -48,10 +43,10 @@ function metadataRecordArray(
   key: string,
 ): Record<string, unknown>[] | undefined {
   const value = metadata?.[key];
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const next = value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && !Array.isArray(entry) && typeof entry === "object");
+  if (!Array.isArray(value)) return undefined;
+  const next = value.filter((entry): entry is Record<string, unknown> =>
+    Boolean(entry) && !Array.isArray(entry) && typeof entry === "object",
+  );
   return next.length > 0 ? next : undefined;
 }
 
@@ -134,9 +129,7 @@ export function buildScoutAgentCard(
       nodeId: binding.endpoint.nodeId,
       projectRoot,
       sessionId: binding.endpoint.sessionId,
-      metadata: {
-        transport: binding.endpoint.transport,
-      },
+      metadata: { transport: binding.endpoint.transport },
     }),
     metadata: {
       actorId: binding.actor.id,
@@ -144,5 +137,99 @@ export function buildScoutAgentCard(
       wakePolicy: binding.agent.wakePolicy,
       ...(model ? { model } : {}),
     },
+  };
+}
+
+// ─── External agent card API (SCO-016) ──────────────────────────────────────
+
+export type ExternalAgentCardInput = {
+  id: string;
+  agentId: string;
+  displayName: string;
+  handle: string;
+  harness: string;
+  transport: AgentEndpoint["transport"];
+  projectRoot: string;
+  currentDirectory?: string;
+  selector?: string;
+  defaultSelector?: string;
+  sessionId?: string;
+  nodeId?: string;
+  description?: string;
+  version?: string;
+  branch?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export function upsertScoutAgentCardFromInput(
+  runtime: { upsertAgentIdentity: (a: {
+    id: string;
+    displayName: string;
+    handle: string;
+    selector?: string;
+    labels?: string[];
+    authorityNodeId: string;
+    metadata?: Record<string, unknown>;
+  }) => void; upsertEndpoint: (e: AgentEndpoint) => void; snapshot: () => { nodes: Record<string, { id: string }> } },
+  input: ExternalAgentCardInput,
+): ScoutAgentCard {
+  const now = Date.now();
+  const nodes = runtime.snapshot().nodes;
+  const nodeId = input.nodeId ?? (nodes[Object.keys(nodes)[0]]?.id ?? "local");
+
+  runtime.upsertAgentIdentity({
+    id: input.agentId,
+    displayName: input.displayName,
+    handle: input.handle,
+    selector: input.selector,
+    labels: input.selector ? [input.selector] : [],
+    authorityNodeId: nodeId,
+    metadata: { ...(input.metadata ?? {}), brokerRegistered: true },
+  });
+
+  const endpoint: AgentEndpoint = {
+    id: input.id,
+    agentId: input.agentId,
+    nodeId,
+    harness: input.harness as AgentEndpoint["harness"],
+    transport: input.transport,
+    state: "active",
+    projectRoot: input.projectRoot,
+    cwd: input.currentDirectory ?? input.projectRoot,
+    sessionId: input.sessionId,
+    metadata: input.metadata,
+  };
+  runtime.upsertEndpoint(endpoint);
+
+  return {
+    id: input.id,
+    agentId: input.agentId,
+    definitionId: input.id,
+    displayName: input.displayName,
+    handle: input.handle,
+    ...(input.selector ? { selector: input.selector } : {}),
+    ...(input.defaultSelector ? { defaultSelector: input.defaultSelector } : {}),
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.version ? { version: input.version } : {}),
+    projectRoot: input.projectRoot,
+    currentDirectory: input.currentDirectory ?? input.projectRoot,
+    harness: input.harness as AgentEndpoint["harness"],
+    transport: input.transport,
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.branch ? { branch: input.branch } : {}),
+    createdAt: now,
+    brokerRegistered: true,
+    returnAddress: buildScoutReturnAddress({
+      actorId: input.agentId,
+      handle: input.handle,
+      displayName: input.displayName,
+      selector: input.selector,
+      defaultSelector: input.defaultSelector,
+      nodeId,
+      projectRoot: input.projectRoot,
+      sessionId: input.sessionId,
+      metadata: { transport: input.transport },
+    }),
+    metadata: { ...(input.metadata ?? {}), brokerRegistered: true },
   };
 }

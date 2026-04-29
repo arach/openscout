@@ -33,6 +33,10 @@ export type AgentEndpointUpsertedEvent = ControlEventBase<"agent.endpoint.upsert
   endpoint: AgentEndpoint;
 }>;
 
+export type AgentEndpointDeletedEvent = ControlEventBase<"agent.endpoint.deleted", {
+  endpointId: string;
+}>;
+
 export type ConversationUpsertedEvent = ControlEventBase<"conversation.upserted", {
   conversation: ConversationDefinition;
 }>;
@@ -83,6 +87,7 @@ export type ControlEvent =
   | ActorRegisteredEvent
   | AgentRegisteredEvent
   | AgentEndpointUpsertedEvent
+  | AgentEndpointDeletedEvent
   | ConversationUpsertedEvent
   | BindingUpsertedEvent
   | MessagePostedEvent

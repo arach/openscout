@@ -27,6 +27,7 @@ import {
   type InvocationRequest,
   type MessageRecord,
   type NodeDefinition,
+  type ScoutAgentCard,
   type ScoutDispatchEnvelope,
   type ScoutDispatchRecord,
   type ScoutDispatchUnavailableTarget,
@@ -80,6 +81,11 @@ import {
   shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
 } from "./local-agents.js";
+import {
+  upsertScoutAgentCardFromInput,
+  buildScoutAgentCard,
+  type ExternalAgentCardInput,
+} from "./scout-agent-cards.js";
 import {
   buildManagedPairingEndpointBinding,
   buildPairingSessionCandidate,
@@ -4209,6 +4215,53 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         ? await brokerService.invokeAgent(payload)
         : await handleInvocationRequest(payload);
       json(response, 202, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  // ─── External agent endpoints (SCO-016) ────────────────────────────────────
+  if (method === "POST" && url.pathname === "/v1/endpoints") {
+    try {
+      const endpoint = await readRequestBody<AgentEndpoint>(request);
+      await runtime.upsertEndpoint(endpoint);
+      json(response, 200, { ok: true, endpoint });
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+  if (method === "DELETE" && url.pathname.startsWith("/v1/endpoints/")) {
+    const id = decodeURIComponent(url.pathname.slice("/v1/endpoints/".length));
+    runtime.deleteEndpoint(id);
+    json(response, 200, { ok: true });
+    return;
+  }
+
+  // ─── External agent cards (SCO-016) ────────────────────────────────────────
+  if (method === "GET" && url.pathname === "/v1/agent-cards") {
+    const bindings = await loadRegisteredLocalAgentBindings(nodeId, { ensureOnline: false });
+    const local = bindings.map((b) => buildScoutAgentCard(b, { brokerRegistered: true }));
+    const external = Object.values(runtime.snapshot().agents)
+      .filter((a) => a.metadata?.brokerRegistered === true)
+      .map((agent) => {
+        const eps = Object.values(runtime.snapshot().endpoints).filter((e) => e.agentId === agent.id);
+        const ep = eps[0];
+        return ep ? buildScoutAgentCard(
+          { agent, endpoint: ep, actor: runtime.snapshot().actors[agent.id] ?? { id: agent.id, kind: "agent" } },
+          { brokerRegistered: true },
+        ) : null;
+      })
+      .filter(Boolean) as ScoutAgentCard[];
+    json(response, 200, { cards: [...local, ...external] });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/v1/agent-cards") {
+    try {
+      const input = await readRequestBody<ExternalAgentCardInput>(request);
+      const card = upsertScoutAgentCardFromInput(runtime, input);
+      json(response, 200, { ok: true, card });
     } catch (error) {
       badRequest(response, error);
     }

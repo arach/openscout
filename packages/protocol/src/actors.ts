@@ -32,7 +32,8 @@ export type AgentHarness =
   | "native"
   | "worker"
   | "bridge"
-  | "http";
+  | "http"
+  | "pi";
 
 export type WakePolicy = "manual" | "on_demand" | "keep_warm";
 

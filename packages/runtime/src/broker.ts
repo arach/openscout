@@ -375,6 +375,56 @@ export class InMemoryControlRuntime implements ControlRuntime {
     });
   }
 
+  /**
+   * Upsert an agent using only identity fields. Used for external harnesses
+   * (SCO-016) where the full AgentDefinition fields are not available.
+   */
+  upsertAgentIdentity(input: {
+    id: string;
+    displayName: string;
+    handle: string;
+    selector?: string;
+    labels?: string[];
+    authorityNodeId: string;
+    metadata?: Record<string, unknown>;
+  }): void {
+    if (!this.registry.actors[input.id]) {
+      this.registry.actors[input.id] = {
+        id: input.id,
+        kind: "agent" as const,
+        displayName: input.displayName,
+        handle: input.handle,
+        labels: input.labels,
+        metadata: input.metadata,
+      };
+    }
+    const partial: AgentDefinition = {
+      id: input.id,
+      definitionId: input.id as ScoutId,
+      kind: "agent",
+      authorityNodeId: input.authorityNodeId as ScoutId,
+      displayName: input.displayName,
+      handle: input.handle,
+      labels: input.labels,
+      selector: input.selector,
+      agentClass: "operator" as const,
+      capabilities: [],
+      wakePolicy: "on_demand" as const,
+      homeNodeId: input.authorityNodeId as ScoutId,
+      advertiseScope: "local" as const,
+      metadata: input.metadata,
+    };
+    this.registry.agents[input.id] = partial;
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "agent.registered",
+      ts: Date.now(),
+      actorId: input.id,
+      nodeId: input.authorityNodeId,
+      payload: { agent: partial },
+    });
+  }
+
   async upsertEndpoint(endpoint: AgentEndpoint): Promise<void> {
     const previous = this.registry.endpoints[endpoint.id];
     if (previous) {
@@ -389,6 +439,21 @@ export class InMemoryControlRuntime implements ControlRuntime {
       actorId: endpoint.agentId,
       nodeId: endpoint.nodeId,
       payload: { endpoint },
+    });
+  }
+
+  deleteEndpoint(id: string): void {
+    const endpoint = this.registry.endpoints[id];
+    if (!endpoint) return;
+    this.unindexEndpoint(endpoint);
+    delete this.registry.endpoints[id];
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "agent.endpoint.deleted",
+      ts: Date.now(),
+      actorId: endpoint.agentId,
+      nodeId: endpoint.nodeId,
+      payload: { endpointId: id },
     });
   }
 
