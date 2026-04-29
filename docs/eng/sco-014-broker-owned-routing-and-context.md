@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed for implementation.
+Partially implemented in `edeec8f0`.
+
+This document is both a target-state spec and a migration tracker. The first
+pass landed the broker delivery contract and fixed the immediate sender-facing
+failure modes. The remaining sections call out the still-proposed pieces.
 
 ## Problem
 
@@ -35,6 +39,40 @@ contract that accepts caller intent and returns a compact receipt.
 - Return compact human receipts by default and structured diagnostics for tools.
 - Preserve advanced explicit addressing for power users and tests.
 
+## Current Implementation
+
+Landed:
+
+- Protocol types for caller context, route targets, route policy, delivery
+  receipts, and remediation actions.
+- `/v1/deliver` accepts typed `target` intent for `agent_label`, `agent_id`,
+  `channel`, and `broadcast`, while preserving legacy `targetLabel` and
+  `targetAgentId` fields.
+- Broker delivery generates missing delivery request IDs and timestamps.
+- `scout send --to <target>` is the preferred explicit tell path. In that path,
+  body `@handles` remain payload text.
+- MCP `messages_send` and `invocations_ask` return compact visible text with
+  full detail in `structuredContent`.
+- `@scout` and `@openscout` no longer get donated to a Ranger manifest agent.
+  They are reserved until the product inbox is implemented.
+
+Still proposed:
+
+- Product inbox routing for `@scout` and `@openscout`, including a receipt field
+  that can show the virtual target and the concrete handler.
+- Broker-derived caller identity from raw process/session context. Current
+  desktop clients still resolve the sender before calling deliver.
+- Route preview or dry-run endpoint.
+- Broker-owned presence directory for `scout who` and pickers.
+- Multi-target route intent.
+- Atomic work item creation inside `/v1/deliver`.
+- Replacing all remaining client-side message planning paths.
+- Moving legacy body mention parsing and conversation planning out of the
+  desktop client. Today the explicit `--to` path is broker-directed; the legacy
+  `scout send "@agent body"` path still exists for compatibility.
+- Publishing a new global `scout` binary. The repo-local CLI has `send --to`;
+  older installed CLIs still parse body mentions.
+
 ## Non-Goals
 
 - Removing fully qualified Scout addresses.
@@ -62,18 +100,21 @@ or address that implementation detail. Receipts can state the actual handler:
 sent to @scout-feedback; handler ranger.pre-tail.mini
 ```
 
+This is not implemented yet. The current implementation only prevents
+manifest-backed Ranger agents from claiming these product handles.
+
 ## Caller Context
 
 Senders may provide raw context. The broker resolves it.
 
 ```ts
 export interface ScoutCallerContext {
-  cwd?: string;
-  envAgent?: string;
-  sessionId?: string;
-  deviceId?: string;
-  transport?: "cli" | "mcp" | "web" | "mobile" | "agent" | "api";
-  surface?: string;
+  actorId?: ScoutId;
+  nodeId?: ScoutId;
+  displayName?: string;
+  handle?: string;
+  currentDirectory?: string;
+  metadata?: MetadataMap;
 }
 
 export interface ScoutResolvedCallerContext {
@@ -97,26 +138,27 @@ Resolution order:
 Clients can still pass explicit `requesterId` for compatibility, but the broker
 stamps the final resolved caller into the receipt.
 
+Raw hints such as `OPENSCOUT_AGENT`, transport name, session id, and device id
+belong in `metadata` until the broker owns full caller inference.
+
 ## Route Intent
 
 Delivery requests should describe intent instead of precomputed routes.
 
 ```ts
-export type ScoutRoutePolicy =
-  | "broker_default"
-  | "dm"
-  | "channel"
-  | "fanout"
-  | "routable_first"
-  | "ask_if_ambiguous";
+export type ScoutRouteAmbiguousPolicy = "reject" | "ask";
+
+export interface ScoutRoutePolicy {
+  preferLocalNodeId?: ScoutId;
+  ambiguous?: ScoutRouteAmbiguousPolicy;
+  allowStaleDirectId?: boolean;
+}
 
 export type ScoutRouteTarget =
-  | { kind: "agent_label"; label: string }
-  | { kind: "agent_id"; agentId: ScoutId }
-  | { kind: "channel"; channel: string }
-  | { kind: "broadcast" }
-  | { kind: "role"; role: "scout" | "openscout" | "ranger" }
-  | { kind: "harness"; harness: AgentHarness; projectRoot?: string };
+  | { kind: "agent_label"; label: string; value?: string }
+  | { kind: "agent_id"; agentId: ScoutId; value?: string }
+  | { kind: "channel"; channel: string; value?: string }
+  | { kind: "broadcast"; value?: string };
 
 export interface ScoutDeliverRequest {
   id?: ScoutId;
@@ -126,7 +168,6 @@ export interface ScoutDeliverRequest {
   intent: "tell" | "consult";
   body: string;
   target?: ScoutRouteTarget;
-  targets?: ScoutRouteTarget[];
   channel?: string;
   routePolicy?: ScoutRoutePolicy;
   replyToMessageId?: ScoutId;
@@ -134,7 +175,6 @@ export interface ScoutDeliverRequest {
   ensureAwake?: boolean;
   execution?: InvocationExecutionPreference;
   createdAt?: number;
-  workItem?: ScoutWorkItemInput;
   collaborationRecordId?: ScoutId;
   messageMetadata?: MetadataMap;
   invocationMetadata?: MetadataMap;
@@ -149,6 +189,11 @@ Compatibility rules:
 - Body mention scanning is disabled by default.
 - Legacy `scout send "@agent message"` may parse only a leading target at the
   CLI boundary and pass it as structured `target`.
+- During migration, older clients may still send both typed `target` and legacy
+  `targetLabel` / `targetAgentId` fields so new clients can talk to older
+  running brokers.
+- Role targets, harness targets, multi-target arrays, and inline `workItem`
+  payloads are planned extensions, not part of the landed protocol yet.
 
 ## Route Preview
 
@@ -181,24 +226,42 @@ Preview is the single source used by CLI, MCP, web, mobile, and agents for:
 
 ## Delivery Receipt
 
-Successful delivery returns a compact receipt plus structured records.
+Successful delivery returns a structured receipt plus the records created by the
+broker.
 
 ```ts
-export interface ScoutDeliverReceipt {
+export interface ScoutDeliveryReceipt {
+  requestId: ScoutId;
+  routeKind: "dm" | "channel" | "broadcast";
+  requesterId: ScoutId;
+  requesterNodeId: ScoutId;
+  targetAgentId?: ScoutId;
+  targetLabel?: string;
+  conversationId: ScoutId;
+  messageId: ScoutId;
+  flightId?: ScoutId;
+  acceptedAt: number;
+}
+
+export interface ScoutDeliverAcceptedResponse {
   kind: "delivery";
   accepted: true;
-  caller: ScoutResolvedCallerContext;
-  routeKind: "dm" | "channel" | "broadcast" | "fanout";
-  receiptText: string;
+  routeKind: "dm" | "channel" | "broadcast";
+  receipt: ScoutDeliveryReceipt;
   conversation: ConversationDefinition;
   message: MessageRecord;
-  targets: ScoutResolvedRouteTarget[];
   targetAgentId?: ScoutId;
   flight?: FlightRecord;
-  workItem?: CollaborationRecord;
-  actions: ScoutRemediationAction[];
 }
 ```
+
+`receiptText`, resolved caller summaries, target arrays, and work item records
+are target-state response fields. Today, CLI and MCP render compact text from
+the structured response.
+
+Virtual route receipts also need a concrete handler field before `@scout` can
+delegate internally without confusing senders. The landed receipt does not have
+that field yet.
 
 Human-facing text should be short:
 
@@ -216,36 +279,10 @@ execute these; they should not invent recovery logic.
 
 ```ts
 export type ScoutRemediationAction =
-  | {
-      kind: "retry_with_target";
-      label: string;
-      target: ScoutRouteTarget;
-      command?: string;
-      payload?: unknown;
-    }
-  | {
-      kind: "start_agent";
-      label: string;
-      projectRoot: string;
-      harness?: AgentHarness;
-      command: string;
-    }
-  | {
-      kind: "open_picker";
-      label: string;
-      candidates: ScoutDispatchCandidate[];
-    }
-  | {
-      kind: "send_to_feedback";
-      label: string;
-      target: ScoutRouteTarget;
-    }
-  | {
-      kind: "create_ranger";
-      label: string;
-      projectRoot: string;
-      command: string;
-    };
+  | { kind: "choose_target"; detail: string; targetLabel?: string }
+  | { kind: "register_target"; detail: string; targetLabel?: string }
+  | { kind: "wake_target"; detail: string; targetAgentId?: ScoutId }
+  | { kind: "retry_later"; detail: string; targetAgentId?: ScoutId };
 ```
 
 Unknown target example:
@@ -255,14 +292,17 @@ Unknown target example:
   "receiptText": "no agent matches @codex; closest routable target is @ranger.harness:codex",
   "actions": [
     {
-      "kind": "retry_with_target",
-      "label": "Ask Codex-backed Ranger",
-      "target": { "kind": "agent_label", "label": "@ranger.harness:codex" },
-      "command": "scout ask --to ranger.harness:codex \"...\""
+      "kind": "register_target",
+      "detail": "no agent matches @codex",
+      "targetLabel": "@codex"
     }
   ]
 }
 ```
+
+First-class retry/start/open-picker payloads are still proposed. Current
+remediation is intentionally small so senders can display useful failures
+without inventing their own recovery taxonomy.
 
 ## Runtime Paths
 
@@ -354,16 +394,20 @@ Agents:
 
 ## Migration Plan
 
-1. Add protocol types for caller context, route targets, route policy, receipt,
+1. [x] Add protocol types for caller context, route targets, route policy, receipt,
    and remediation actions.
-2. Implement broker context resolution and route preview.
-3. Teach `/v1/deliver` to accept route intent while preserving legacy fields.
-4. Move multi-target explicit-ID sends from client message planning to deliver.
-5. Add atomic work item creation to deliver.
-6. Replace client/MCP directory reconstruction with broker presence endpoints.
-7. Make MCP visible content compact receipt text.
-8. Update CLI help and docs to prefer explicit target fields.
-9. Update agent instructions and smoke-test with a new Claude-backed agent.
+2. [x] Teach `/v1/deliver` to accept route intent while preserving legacy fields.
+3. [x] Make MCP visible content compact receipt text.
+4. [x] Update CLI help and docs to prefer explicit target fields.
+5. [x] Smoke-test with a new Claude-backed agent using repo-local `send --to`.
+6. [ ] Implement `@scout` / `@openscout` product inbox routing.
+7. [ ] Implement broker context resolution and route preview.
+8. [ ] Move legacy body mention parsing, target registration, and conversation
+   planning from client service code into deliver.
+9. [ ] Move multi-target explicit-ID sends from client message planning to deliver.
+10. [ ] Add atomic work item creation to deliver.
+11. [ ] Replace client/MCP directory reconstruction with broker presence endpoints.
+12. [ ] Publish the updated CLI so global `scout send --to` has the same behavior.
 
 ## Test Plan
 
