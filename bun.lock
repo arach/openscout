@@ -148,6 +148,7 @@
       "dependencies": {
         "@ai-sdk/react": "^3.0.107",
         "@arach/arc": "^0.4.1",
+        "@voxd/client": "^0.2.1",
         "ai": "^6.0.105",
         "lucide-react": "^0.577.0",
         "node-pty": "1.2.0-beta.12",
@@ -637,6 +638,8 @@
     "@vercel/oidc": ["@vercel/oidc@3.2.0", "", {}, "sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug=="],
 
     "@vitejs/plugin-react-swc": ["@vitejs/plugin-react-swc@4.3.0", "", { "dependencies": { "@rolldown/pluginutils": "1.0.0-rc.7", "@swc/core": "^1.15.11" }, "peerDependencies": { "vite": "^4 || ^5 || ^6 || ^7 || ^8" } }, "sha512-mOkXCII839dHyAt/gpoSlm28JIVDwhZ6tnG6wJxUy2bmOx7UaPjvOyIDf3SFv5s7Eo7HVaq6kRcu6YMEzt5Z7w=="],
+
+    "@voxd/client": ["@voxd/client@0.2.1", "", {}, "sha512-mywJKlBeKq/HE0ud+mx9Uyuu29L2xLA+T8wF5n6fL9u0MTglBWYpUmSBj2acbCzNDj7gwk+9EwpbUrJMZpxRUw=="],
 
     "@webgpu/types": ["@webgpu/types@0.1.69", "", {}, "sha512-RPmm6kgRbI8e98zSD3RVACvnuktIja5+yLgDAkTmxLr90BEwdTXRQWNLF3ETTTyH/8mKhznZuN5AveXYFEsMGQ=="],
 

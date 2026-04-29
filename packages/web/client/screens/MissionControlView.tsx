@@ -342,7 +342,7 @@ export function MissionControlView({
       >
         {agents.length === 0 ? (
           <div className="s-mission-empty">
-            <div className="s-mission-empty-title">Mission Control</div>
+            <div className="s-mission-empty-title">Control</div>
             <div className="s-mission-empty-sub">
               Connect agents to observe their sessions here.
             </div>

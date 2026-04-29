@@ -151,6 +151,10 @@ export type WorkItem = {
   nextMoveOwnerId: string | null;
   nextMoveOwnerName: string | null;
   conversationId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  parentId: string | null;
+  parentTitle: string | null;
   state: string;
   acceptanceState: string;
   priority: string | null;
@@ -425,6 +429,7 @@ export type Route =
       view: "conversation";
       conversationId: string;
       composeMode?: "tell" | "ask";
+      composeDraft?: string;
     }
   | { view: "agent-info"; conversationId: string }
   | {

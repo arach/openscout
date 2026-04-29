@@ -843,11 +843,13 @@ function MiniMeshSvg({
 export function ConversationScreen({
   conversationId,
   initialComposeMode,
+  initialDraft,
   navigate,
   embedded,
 }: {
   conversationId: string;
   initialComposeMode?: ComposeMode;
+  initialDraft?: string;
   navigate: (r: Route) => void;
   embedded?: boolean;
 }) {
@@ -862,6 +864,7 @@ export function ConversationScreen({
   const trackedInvocationIdsRef = useRef<Set<string>>(new Set());
   const currentFlightRef = useRef<Flight | null>(null);
   const lastForegroundRefreshAtRef = useRef(0);
+  const appliedInitialDraftKeyRef = useRef<string | null>(null);
 
   const legacyAgentId = agentIdFromConversation(conversationId);
   const agentId = sessionMeta?.agentId ?? legacyAgentId;
@@ -972,7 +975,7 @@ export function ConversationScreen({
     currentFlightRef.current = currentFlight;
   }, [currentFlight]);
 
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => initialDraft ?? "");
   const [sending, setSending] = useState(false);
   const [operatorName, setOperatorName] = useState("operator");
   const [slashState, setSlashState] = useState<SlashSuggestState>({
@@ -997,6 +1000,15 @@ export function ConversationScreen({
   useEffect(() => {
     setComposeMode(isDm && initialComposeMode === "ask" ? "ask" : "tell");
   }, [conversationId, initialComposeMode, isDm]);
+
+  useEffect(() => {
+    if (!initialDraft) return;
+    const draftKey = `${conversationId}:${initialDraft}`;
+    if (appliedInitialDraftKeyRef.current === draftKey) return;
+    appliedInitialDraftKeyRef.current = draftKey;
+    setDraft(initialDraft);
+    requestAnimationFrame(() => composeRef.current?.focus());
+  }, [conversationId, initialDraft]);
 
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
     const seen = new Set<string>();

@@ -780,14 +780,448 @@ export function AgentsScreen({
   }
 
   return (
-    <div className="s-profile-center" style={{ height: "100%" }}>
-      <div className="s-profile-empty">
-        <h2 className="s-profile-empty-title">Select an agent</h2>
-        <p className="s-profile-empty-copy">
-          Pick an agent from the sidebar to view its profile, current work,
-          and session context.
-        </p>
+    <AgentsLibrary
+      agents={agents}
+      sessionByAgentId={sessionByAgentId}
+      conversationByAgentId={conversationByAgentId}
+      navigate={navigate}
+    />
+  );
+}
+
+type BranchTab = {
+  name: string;
+  agents: Agent[];
+  online: number;
+  kind: "active" | "idle" | "unmonitored";
+};
+
+type RepoCard = {
+  key: string;
+  name: string;
+  path: string | null;
+  branches: BranchTab[];
+  totalAgents: number;
+  totalOnline: number;
+  lastActivityAt: number | null;
+};
+
+const NO_BRANCH_KEY = "—";
+
+function buildRepoCards(agents: Agent[]): RepoCard[] {
+  const byProject = new Map<string, Agent[]>();
+  for (const agent of agents) {
+    const key = agent.project ?? "Unscoped";
+    const list = byProject.get(key) ?? [];
+    list.push(agent);
+    byProject.set(key, list);
+  }
+
+  const cards: RepoCard[] = [];
+  for (const [name, repoAgents] of byProject) {
+    const path = repoAgents.find((a) => a.projectRoot)?.projectRoot ?? null;
+
+    const byBranch = new Map<string, Agent[]>();
+    for (const agent of repoAgents) {
+      const branchKey = agent.branch ?? NO_BRANCH_KEY;
+      const list = byBranch.get(branchKey) ?? [];
+      list.push(agent);
+      byBranch.set(branchKey, list);
+    }
+
+    const branches: BranchTab[] = Array.from(byBranch.entries()).map(
+      ([branchName, list]) => {
+        const online = list.filter(isOnline).length;
+        return {
+          name: branchName,
+          agents: list,
+          online,
+          kind: online > 0 ? "active" : "idle",
+        };
+      },
+    );
+
+    const PRIMARY_BRANCHES = new Set(["main", "master", "trunk"]);
+    branches.sort((a, b) => {
+      const aPrimary = PRIMARY_BRANCHES.has(a.name);
+      const bPrimary = PRIMARY_BRANCHES.has(b.name);
+      if (aPrimary !== bPrimary) return aPrimary ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const tab of branches) {
+      tab.agents.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    const lastActivityAt = repoAgents.reduce<number | null>((acc, agent) => {
+      const t = agent.updatedAt;
+      if (!t) return acc;
+      return acc === null || t > acc ? t : acc;
+    }, null);
+
+    cards.push({
+      key: name,
+      name,
+      path,
+      branches,
+      totalAgents: repoAgents.length,
+      totalOnline: repoAgents.filter(isOnline).length,
+      lastActivityAt,
+    });
+  }
+
+  cards.sort((a, b) => a.name.localeCompare(b.name));
+
+  return cards;
+}
+
+function AgentsLibrary({
+  agents,
+  sessionByAgentId,
+  conversationByAgentId,
+  navigate,
+}: {
+  agents: Agent[];
+  sessionByAgentId: Map<string, SessionEntry>;
+  conversationByAgentId: Map<string, string>;
+  navigate: (r: Route) => void;
+}) {
+  if (agents.length === 0) {
+    return (
+      <div className="s-profile-center" style={{ height: "100%" }}>
+        <div className="s-profile-empty">
+          <h2 className="s-profile-empty-title">No agents yet</h2>
+          <p className="s-profile-empty-copy">
+            Spawn an agent from a workspace, harness, branch, and model to see
+            it land here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const repos = useMemo(() => buildRepoCards(agents), [agents]);
+  const onlineTotal = agents.filter(isOnline).length;
+  const [viewMode, setViewMode] = useState<AgentViewMode>("cards");
+
+  return (
+    <div className="s-agents-library">
+      <header className="s-agents-library-head">
+        <div className="s-agents-library-title-row">
+          <h2 className="s-agents-library-title">Agents</h2>
+          <span className="s-agents-library-count">
+            {onlineTotal} online · {agents.length} total · {repos.length}{" "}
+            {repos.length === 1 ? "repo" : "repos"}
+          </span>
+        </div>
+        <div className="s-agents-library-view" role="tablist" aria-label="Agent view">
+          {(["pills", "rows", "cards"] as AgentViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={viewMode === mode}
+              className="s-agents-library-view-btn"
+              data-active={viewMode === mode ? "true" : undefined}
+              onClick={() => setViewMode(mode)}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className="s-agents-library-repos">
+        {repos.map((repo) => (
+          <RepoCardView
+            key={repo.key}
+            repo={repo}
+            sessionByAgentId={sessionByAgentId}
+            conversationByAgentId={conversationByAgentId}
+            navigate={navigate}
+            viewMode={viewMode}
+          />
+        ))}
       </div>
     </div>
+  );
+}
+
+type AgentViewMode = "log" | "rows" | "cards";
+
+function RepoCardView({
+  repo,
+  sessionByAgentId,
+  conversationByAgentId,
+  navigate,
+  viewMode,
+}: {
+  repo: RepoCard;
+  sessionByAgentId: Map<string, SessionEntry>;
+  conversationByAgentId: Map<string, string>;
+  navigate: (r: Route) => void;
+  viewMode: AgentViewMode;
+}) {
+  const [selected, setSelected] = useState<string>(
+    () => repo.branches[0]?.name ?? NO_BRANCH_KEY,
+  );
+
+  const activeTab =
+    repo.branches.find((b) => b.name === selected) ?? repo.branches[0];
+
+  return (
+    <section className="s-repo-card">
+      <header className="s-repo-card-head">
+        <div className="s-repo-card-identity">
+          <h3 className="s-repo-card-name">{repo.name}</h3>
+          {repo.path && <span className="s-repo-card-path">{repo.path}</span>}
+        </div>
+        <div className="s-repo-card-meta">
+          {repo.lastActivityAt && (
+            <span>{timeAgo(repo.lastActivityAt)}</span>
+          )}
+        </div>
+      </header>
+
+      <div className="s-repo-card-tabs" role="tablist" aria-label="Branches">
+        {repo.branches.map((tab) => (
+          <button
+            key={tab.name}
+            type="button"
+            role="tab"
+            aria-selected={activeTab?.name === tab.name}
+            className="s-repo-card-tab"
+            data-kind={tab.kind}
+            data-active={activeTab?.name === tab.name ? "true" : undefined}
+            onClick={() => setSelected(tab.name)}
+          >
+            <span className="s-repo-card-tab-name">{tab.name}</span>
+            {tab.kind === "unmonitored" ? (
+              <span className="s-repo-card-tab-glyph" aria-hidden="true">
+                +
+              </span>
+            ) : (
+              <span className="s-repo-card-tab-count">
+                {tab.online > 0
+                  ? `${tab.online}/${tab.agents.length}`
+                  : `${tab.agents.length}`}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="s-repo-card-body">
+        {activeTab && activeTab.agents.length > 0 ? (
+          <AgentList
+            agents={activeTab.agents}
+            sessionByAgentId={sessionByAgentId}
+            conversationByAgentId={conversationByAgentId}
+            navigate={navigate}
+            viewMode={viewMode}
+          />
+        ) : (
+          <div className="s-repo-card-empty">
+            No agent on <strong>{activeTab?.name}</strong>. Spawn one to start.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function isOnline(agent: Agent): boolean {
+  return normalizeAgentState(agent.state) !== "offline";
+}
+
+function AgentList({
+  agents,
+  sessionByAgentId,
+  conversationByAgentId,
+  navigate,
+  viewMode,
+}: {
+  agents: Agent[];
+  sessionByAgentId: Map<string, SessionEntry>;
+  conversationByAgentId: Map<string, string>;
+  navigate: (r: Route) => void;
+  viewMode: AgentViewMode;
+}) {
+  const onClickFor = (agent: Agent) => () => {
+    const conversationId = conversationByAgentId.get(agent.id);
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      ...(conversationId ? { conversationId } : {}),
+    });
+  };
+
+  if (viewMode === "rows") {
+    return (
+      <div className="s-agent-rows">
+        {agents.map((agent) => (
+          <AgentRow
+            key={agent.id}
+            agent={agent}
+            session={sessionByAgentId.get(agent.id) ?? null}
+            onClick={onClickFor(agent)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (viewMode === "cards") {
+    return (
+      <div className="s-agent-grid">
+        {agents.map((agent) => (
+          <AgentCard
+            key={agent.id}
+            agent={agent}
+            session={sessionByAgentId.get(agent.id) ?? null}
+            onClick={onClickFor(agent)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="s-agent-log">
+      {agents.map((agent) => (
+        <AgentLogLine
+          key={agent.id}
+          agent={agent}
+          session={sessionByAgentId.get(agent.id) ?? null}
+          onClick={onClickFor(agent)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AgentRow({
+  agent,
+  session,
+  onClick,
+}: {
+  agent: Agent;
+  session: SessionEntry | null;
+  onClick: () => void;
+}) {
+  const display = normalizeAgentState(agent.state);
+  const stateLabel = agentStateLabel(agent.state);
+  const lastActivityAt =
+    session?.lastMessageAt ?? agent.updatedAt ?? null;
+  const preview = session?.preview ?? null;
+  const harness = formatLabel(agent.harness);
+
+  return (
+    <button
+      type="button"
+      className="s-agent-row"
+      data-state={display}
+      onClick={onClick}
+      title={stateLabel}
+    >
+      <span className="s-agent-row-name">{agent.name}</span>
+      <span className="s-agent-row-preview">
+        {preview ?? <span className="s-agent-row-preview-quiet">{stateLabel.toLowerCase()}</span>}
+      </span>
+      {harness && <span className="s-agent-row-harness">{harness}</span>}
+      {lastActivityAt && (
+        <span className="s-agent-row-time">{timeAgo(lastActivityAt)}</span>
+      )}
+    </button>
+  );
+}
+
+function AgentCard({
+  agent,
+  session,
+  onClick,
+}: {
+  agent: Agent;
+  session: SessionEntry | null;
+  onClick: () => void;
+}) {
+  const display = normalizeAgentState(agent.state);
+  const stateLabel = agentStateLabel(agent.state);
+  const lastActivityAt =
+    session?.lastMessageAt ?? agent.updatedAt ?? null;
+  const preview = session?.preview ?? null;
+  const topology = [agent.harness, agent.branch, agent.agentClass]
+    .map(formatLabel)
+    .filter((part): part is string => Boolean(part));
+
+  return (
+    <button
+      type="button"
+      className="s-agent-card"
+      data-state={display}
+      onClick={onClick}
+      title={stateLabel}
+    >
+      <div className="s-agent-card-row">
+        <span className="s-agent-card-name">{agent.name}</span>
+        {lastActivityAt && (
+          <span className="s-agent-card-time">{timeAgo(lastActivityAt)}</span>
+        )}
+      </div>
+      <div className="s-agent-card-preview">
+        {preview ?? (
+          <span className="s-agent-card-preview-quiet">{stateLabel}</span>
+        )}
+      </div>
+      {topology.length > 0 && (
+        <div className="s-agent-card-topo">
+          {topology.map((part, idx) => (
+            <span key={`${part}-${idx}`} className="s-agent-card-topo-chip">
+              {part}
+            </span>
+          ))}
+        </div>
+      )}
+    </button>
+  );
+}
+
+function AgentLogLine({
+  agent,
+  session,
+  onClick,
+}: {
+  agent: Agent;
+  session: SessionEntry | null;
+  onClick: () => void;
+}) {
+  const display = normalizeAgentState(agent.state);
+  const stateLabel = agentStateLabel(agent.state);
+  const lastActivityAt =
+    session?.lastMessageAt ?? agent.updatedAt ?? null;
+  const preview = session?.preview ?? null;
+  const harness = formatLabel(agent.harness);
+  const tooltipParts = [
+    `${agent.name} · ${stateLabel}`,
+    harness ? `harness: ${harness}` : null,
+    preview ? `preview: ${preview}` : null,
+  ].filter(Boolean);
+
+  return (
+    <button
+      type="button"
+      className="s-agent-log-row"
+      data-state={display}
+      onClick={onClick}
+      title={tooltipParts.join("\n")}
+    >
+      <span className="s-agent-log-time">
+        {lastActivityAt ? timeAgo(lastActivityAt) : "—"}
+      </span>
+      <span className="s-agent-log-name">{agent.name}</span>
+      <span className="s-agent-log-msg">
+        {preview ?? <span className="s-agent-log-msg-quiet">{stateLabel.toLowerCase()}</span>}
+      </span>
+    </button>
   );
 }

@@ -70,6 +70,10 @@ export type WebWorkItem = {
   nextMoveOwnerId: string | null;
   nextMoveOwnerName: string | null;
   conversationId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  parentId: string | null;
+  parentTitle: string | null;
   state: string;
   acceptanceState: string;
   priority: string | null;
@@ -363,10 +367,13 @@ function projectWorkItemRow(row: {
   next_move_owner_id: string | null;
   next_move_owner_name: string | null;
   conversation_id: string | null;
+  created_at?: number;
   state: string;
   acceptance_state: string;
   priority: string | null;
   updated_at: number;
+  parent_id?: string | null;
+  parent_title?: string | null;
   active_child_work_count: number;
   active_flight_count: number;
   active_flight_state: string | null;
@@ -411,6 +418,10 @@ function projectWorkItemRow(row: {
     nextMoveOwnerId: row.next_move_owner_id,
     nextMoveOwnerName: row.next_move_owner_name,
     conversationId: row.conversation_id,
+    createdAt: coerceNumber(row.created_at ?? row.updated_at) ?? updatedAt,
+    updatedAt,
+    parentId: row.parent_id ?? null,
+    parentTitle: row.parent_title ?? null,
     state: row.state,
     acceptanceState: row.acceptance_state,
     priority: row.priority,
@@ -872,10 +883,13 @@ function queryWorkItemShallow(id: string): WebWorkItem | null {
     cr.next_move_owner_id,
     next.display_name AS next_move_owner_name,
     cr.conversation_id,
+    cr.created_at,
     cr.state,
     cr.acceptance_state,
     cr.priority,
     cr.updated_at,
+    cr.parent_id,
+    parent.title AS parent_title,
     json_extract(cr.detail_json, '$.progress.summary') AS progress_summary,
     0 AS active_child_work_count,
     0 AS active_flight_count,
@@ -888,6 +902,7 @@ function queryWorkItemShallow(id: string): WebWorkItem | null {
   FROM collaboration_records cr
   LEFT JOIN actors owner ON owner.id = cr.owner_id
   LEFT JOIN actors next ON next.id = cr.next_move_owner_id
+  LEFT JOIN collaboration_records parent ON parent.id = cr.parent_id
   WHERE cr.kind = 'work_item' AND cr.id = ?
   LIMIT 1`;
   const row = db().prepare(sql).get(id) as Parameters<typeof projectWorkItemRow>[0] | null;
@@ -1005,10 +1020,13 @@ export function queryWorkItems(opts?: {
     cr.next_move_owner_id,
     next.display_name AS next_move_owner_name,
     cr.conversation_id,
+    cr.created_at,
     cr.state,
     cr.acceptance_state,
     cr.priority,
     cr.updated_at,
+    cr.parent_id,
+    parent.title AS parent_title,
     json_extract(cr.detail_json, '$.progress.summary') AS progress_summary,
     (
       SELECT COUNT(*)
@@ -1093,6 +1111,7 @@ export function queryWorkItems(opts?: {
   FROM collaboration_records cr
   LEFT JOIN actors owner ON owner.id = cr.owner_id
   LEFT JOIN actors next ON next.id = cr.next_move_owner_id
+  LEFT JOIN collaboration_records parent ON parent.id = cr.parent_id
   ${sqlWhereClause([where])}
   ORDER BY sort_ts DESC, cr.updated_at DESC
   LIMIT ?`;
@@ -1113,10 +1132,13 @@ export function queryWorkItems(opts?: {
     next_move_owner_id: string | null;
     next_move_owner_name: string | null;
     conversation_id: string | null;
+    created_at: number;
     state: string;
     acceptance_state: string;
     priority: string | null;
     updated_at: number;
+    parent_id: string | null;
+    parent_title: string | null;
     progress_summary: string | null;
     active_child_work_count: number;
     active_flight_count: number;
@@ -2334,7 +2356,29 @@ function queryFleetAttentionRows(requesterIds: string[], limit: number): FleetAt
        )
        AND (
          cr.next_move_owner_id IN (${requesterClause})
-         OR cr.acceptance_state = 'pending'
+         OR (
+           cr.acceptance_state = 'pending'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM collaboration_events e
+             WHERE e.record_id = cr.id
+               AND e.created_at > cr.updated_at
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM flights f
+             JOIN invocations inv ON inv.id = f.invocation_id
+             WHERE inv.collaboration_record_id = cr.id
+               AND COALESCE(f.completed_at, f.started_at, 0) > cr.updated_at
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM messages m
+             WHERE m.conversation_id = cr.conversation_id
+               AND m.actor_id = cr.owner_id
+               AND m.created_at > cr.updated_at
+           )
+         )
        )
      ORDER BY cr.updated_at DESC
      LIMIT ?`,

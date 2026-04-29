@@ -1,63 +1,1081 @@
-/* ── War Room: fullscreen operations dashboard ── */
+/* War Room: responsive command cockpit */
 
 .s-warroom {
+  --warroom-gap: 1px;
+  --warroom-pad: 14px;
+  container-type: inline-size;
   height: 100%;
-  position: relative;
-  background: color-mix(in srgb, var(--bg) 70%, black);
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--border);
   color: var(--ink);
   font-family: var(--font-sans);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  overflow: auto;
 }
 
-/* ── Top strip ── */
+.s-warroom :where(button) {
+  font: inherit;
+}
 
-.s-warroom-topstrip {
+.s-warroom-command {
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  padding: 16px 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 0.9fr);
+  align-items: stretch;
+  gap: 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  align-items: center;
-  gap: 16px;
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+  z-index: 4;
+}
+
+.s-warroom-command-main {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+
+.s-warroom-title {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-subtitle,
+.s-warroom-statusline {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-statusline {
+  color: var(--muted);
+}
+
+.s-warroom-kpis {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.s-warroom-kpi {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 52%, var(--surface));
+}
+
+.s-warroom-kpi--warn {
+  border-color: color-mix(in srgb, var(--amber) 46%, var(--border));
+  background: color-mix(in srgb, var(--amber) 5%, var(--surface));
+}
+
+.s-warroom-kpi--hot {
+  border-color: color-mix(in srgb, var(--amber) 70%, var(--border));
+  background: color-mix(in srgb, var(--amber) 9%, var(--surface));
+  box-shadow: inset 2px 0 0 var(--amber);
+}
+
+.s-warroom-kpi-label,
+.s-warroom-kpi-detail {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-kpi-value {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-kpi--warn .s-warroom-kpi-value,
+.s-warroom-kpi--hot .s-warroom-kpi-value {
+  color: var(--amber);
+}
+
+.s-warroom-layout {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(280px, 330px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--warroom-gap);
+  background: var(--border);
+  overflow: hidden;
+}
+
+.s-warroom-queue,
+.s-warroom-board,
+.s-warroom-inspector {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: var(--warroom-pad);
+  background: var(--bg);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border) 85%, transparent) transparent;
+}
+
+.s-warroom-board {
+  background: color-mix(in srgb, var(--surface) 26%, var(--bg));
+}
+
+.s-warroom-section-head {
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   flex: none;
 }
 
-.s-warroom-topstrip-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+.s-warroom-section-title {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.s-warroom-topstrip-center {
-  text-align: center;
+.s-warroom-section-meta {
+  min-width: 0;
+  flex: none;
+  max-width: 50%;
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.06em;
   color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.s-warroom-topstrip-right {
-  justify-self: end;
+.s-warroom-queue-list {
+  min-height: 0;
+  min-width: 0;
   display: flex;
-  gap: 20px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.s-warroom-telemetry {
-  text-align: right;
+.s-warroom-command-stack {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
 }
 
-.s-warroom-telemetry-label {
+.s-warroom-readiness {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--green) 36%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--green) 5%, var(--surface));
+}
+
+.s-warroom-readiness-mark {
+  width: max-content;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--green) 45%, var(--border));
+  border-radius: 999px;
+  color: var(--green);
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: 0.12em;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-readiness-body {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.s-warroom-section-head--tight {
+  min-height: 22px;
+}
+
+.s-warroom-decision {
+  width: 100%;
+  min-width: 0;
+  min-height: 108px;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.s-warroom-decision:hover {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.s-warroom-decision--selected {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.s-warroom-decision--critical {
+  border-color: color-mix(in srgb, var(--amber) 66%, var(--border));
+  background: color-mix(in srgb, var(--amber) 6%, var(--surface));
+}
+
+.s-warroom-decision--warning {
+  border-color: color-mix(in srgb, var(--amber) 42%, var(--border));
+}
+
+.s-warroom-decision--info {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+.s-warroom-decision-top {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-warroom-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 62%;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 56%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-age {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.s-warroom-decision-title,
+.s-warroom-board-card-title,
+.s-warroom-inspector-title {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-warroom-decision-title,
+.s-warroom-board-card-title {
+  white-space: nowrap;
+}
+
+.s-warroom-decision-summary,
+.s-warroom-board-card-summary,
+.s-warroom-inspector-body {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
+.s-warroom-decision-summary,
+.s-warroom-board-card-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.s-warroom-decision-meta,
+.s-warroom-board-card-foot,
+.s-warroom-inspector-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  overflow: hidden;
+}
+
+.s-warroom-decision-meta > *,
+.s-warroom-board-card-foot > *,
+.s-warroom-inspector-meta > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-empty {
+  min-width: 0;
+  padding: 18px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
+}
+
+.s-warroom-lanes {
+  min-width: 0;
+  min-height: 0;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.s-warroom-lane {
+  min-width: 0;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 64%, var(--surface));
+}
+
+.s-warroom-lane--attention {
+  border-top-color: var(--amber);
+}
+
+.s-warroom-lane--running {
+  border-top-color: var(--accent);
+}
+
+.s-warroom-lane--failed {
+  border-top-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 4%, var(--bg));
+}
+
+.s-warroom-lane--done {
+  border-top-color: var(--green);
+}
+
+.s-warroom-lane-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.s-warroom-lane-head > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-lane-count {
+  flex: none;
+  min-width: 24px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-warroom-lane-list {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.s-warroom-board-card {
+  width: 100%;
+  min-width: 0;
+  min-height: 92px;
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.s-warroom-board-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.s-warroom-board-card--selected {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.s-warroom-topology {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(430px, 1fr) auto;
+  gap: 12px;
+}
+
+.s-warroom-windowbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 58%, var(--bg));
+}
+
+.s-warroom-windowbar-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.s-warroom-windowbar-copy span,
+.s-warroom-windowbar-copy strong {
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-windowbar-copy span {
+  color: var(--dim);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.s-warroom-windowbar-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.s-warroom-window-controls {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.s-warroom-window-tabs {
+  flex: none;
+  display: inline-flex;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.s-warroom-window-tab {
+  min-width: 44px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 5px 9px;
+}
+
+.s-warroom-window-tab:last-child {
+  border-right: 0;
+}
+
+.s-warroom-window-tab:hover {
+  color: var(--ink);
+}
+
+.s-warroom-window-tab--active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.s-warroom-window-custom {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+}
+
+.s-warroom-window-custom label {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-warroom-window-custom input {
+  width: 52px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  outline: none;
+  padding: 5px 0;
+}
+
+.s-warroom-window-custom:focus-within {
+  border-color: var(--accent);
+}
+
+.s-warroom-map {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 34%),
+    color-mix(in srgb, var(--bg) 78%, black);
+  overflow: hidden;
+}
+
+.s-warroom-map::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--bg) 72%, transparent));
+}
+
+.s-warroom-map-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 430px;
+  display: block;
+  color: var(--accent);
+}
+
+.s-warroom-map-grid line {
+  stroke: var(--border);
+  stroke-width: 0.7;
+  opacity: 0.35;
+}
+
+.s-warroom-map-projects rect {
+  fill: color-mix(in srgb, var(--surface) 68%, transparent);
+  stroke: color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.s-warroom-map-projects text {
+  fill: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+.s-warroom-map-links line {
+  stroke: color-mix(in srgb, var(--accent) 66%, var(--border));
+  stroke-width: 1.1;
+  stroke-dasharray: 4 8;
+}
+
+.s-warroom-packet {
+  fill: var(--accent);
+  opacity: 0.95;
+}
+
+.s-warroom-packet--ghost {
+  fill: color-mix(in srgb, var(--accent) 24%, transparent);
+  opacity: 0.45;
+}
+
+.s-warroom-map-node {
+  color: var(--accent);
+}
+
+.s-warroom-map-node--operator {
+  color: var(--amber);
+}
+
+.s-warroom-map-node--broker {
+  color: var(--green);
+}
+
+.s-warroom-map-node-glow {
+  fill: url("#warroomNodeGlow");
+}
+
+.s-warroom-map-node-core {
+  stroke: color-mix(in srgb, var(--bg) 82%, black);
+  stroke-width: 2;
+}
+
+.s-warroom-map-node-initial {
+  fill: rgba(0, 0, 0, 0.72);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.s-warroom-map-node-label,
+.s-warroom-map-node-detail {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  pointer-events: none;
+}
+
+.s-warroom-map-node-label {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.s-warroom-map-node-detail {
+  fill: var(--dim);
+  font-size: 8.8px;
+  letter-spacing: 0.02em;
+}
+
+.s-warroom-map-caption {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-warroom-map-caption > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-flow-ledger {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.s-warroom-flow-ledger-head {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.s-warroom-flow-list {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.s-warroom-flow-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 27px;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.9fr) minmax(78px, 0.35fr) minmax(0, 1.5fr);
+  align-items: baseline;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+button.s-warroom-flow-row {
+  cursor: pointer;
+}
+
+.s-warroom-flow-row--active .s-warroom-flow-route,
+.s-warroom-flow-row:hover .s-warroom-flow-route {
+  color: var(--ink);
+}
+
+.s-warroom-flow-row--selected {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.s-warroom-flow-route,
+.s-warroom-flow-kind,
+.s-warroom-flow-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.s-warroom-flow-route {
+  color: var(--muted);
+}
+
+.s-warroom-flow-route span,
+.s-warroom-flow-kind {
+  color: var(--accent);
+}
+
+.s-warroom-flow-title {
+  color: var(--dim);
+}
+
+.s-warroom-inspector-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.s-warroom-inspector-body {
+  color: var(--ink);
+}
+
+.s-warroom-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.s-warroom-action {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  appearance: none;
+  white-space: nowrap;
+}
+
+.s-warroom-action:hover {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  color: var(--ink);
+}
+
+.s-warroom-health {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.s-warroom-health-row {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(96px, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.s-warroom-health-row:hover {
+  color: var(--ink);
+}
+
+.s-warroom-health-row > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.s-warroom-stream {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  font-family: var(--font-mono);
+}
+
+.s-warroom-stream-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 25px;
+  display: grid;
+  grid-template-columns: minmax(54px, 86px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.s-warroom-stream-row:hover {
+  color: var(--ink);
+}
+
+.s-warroom-stream-kind {
+  min-width: 0;
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-stream-text {
+  min-width: 0;
+  color: var(--dim);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-timeline {
+  min-width: 0;
+  flex: none;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 62%, var(--bg));
+}
+
+.s-warroom-layout > .s-warroom-timeline {
+  grid-column: 1 / -1;
+}
+
+.s-warroom-timeline-header {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
   color: var(--dim);
   text-transform: uppercase;
 }
 
-.s-warroom-telemetry-value {
+.s-warroom-timeline-header > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-spark {
+  min-width: 0;
+  height: 64px;
+}
+
+.s-warroom-spark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Temporary compatibility bridge for the current TSX. Remove once Dev 1 lands
+   the command-cockpit markup. */
+
+.s-warroom-topstrip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+}
+
+.s-warroom-topstrip-left,
+.s-warroom-topstrip-right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.s-warroom-topstrip-right {
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.s-warroom-topstrip-center,
+.s-warroom-telemetry-label,
+.s-warroom-burn-label,
+.s-warroom-waveform-meta {
+  min-width: 0;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-warroom-telemetry {
+  min-width: 54px;
+  text-align: right;
+}
+
+.s-warroom-telemetry-value,
+.s-warroom-burn-num,
+.s-warroom-breach-clock {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -66,91 +1084,116 @@
   color: var(--amber);
 }
 
-/* ── Main grid ── */
-
 .s-warroom-grid {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 280px 1fr 320px;
-  grid-template-rows: 1fr 120px;
-  gap: 1px;
-  background: var(--border);
+  min-width: 0;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(286px, 320px) minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--warroom-gap);
+  background: var(--border);
+  overflow: hidden;
 }
 
-.s-warroom-panel {
-  background: color-mix(in srgb, var(--bg) 70%, black);
-  padding: 18px 20px;
+.s-warroom-panel,
+.s-warroom-waveform-panel {
+  min-width: 0;
+  min-height: 0;
+  padding: var(--warroom-pad);
+  background: var(--bg);
   overflow: auto;
 }
 
-/* ── Left: SLA breach + asks ── */
+.s-warroom-waveform-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.s-warroom-breach,
+.s-warroom-ask-card,
+.s-warroom-burn-tile {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
 
 .s-warroom-breach {
-  padding: 14px 16px;
-  border: 1px solid var(--amber);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--amber) 6%, transparent);
-  margin-bottom: 14px;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-color: color-mix(in srgb, var(--amber) 54%, var(--border));
+  background: color-mix(in srgb, var(--amber) 5%, var(--surface));
 }
 
 .s-warroom-breach-clock {
-  font-family: var(--font-mono);
-  font-size: 28px;
-  font-weight: 500;
+  font-size: 24px;
+  line-height: 1;
   color: var(--amber);
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
 }
 
-.s-warroom-breach-sub {
+.s-warroom-breach-sub,
+.s-warroom-blockers,
+.s-warroom-ticker {
+  min-width: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
   color: var(--dim);
-  letter-spacing: 0.08em;
-  margin-top: 4px;
 }
 
 .s-warroom-ask-card {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  margin-bottom: 8px;
   width: 100%;
-  border-color: var(--border);
-  color: inherit;
-}
-
-button.s-warroom-ask-card {
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-button.s-warroom-ask-card:hover {
-  background: color-mix(in srgb, var(--surface) 85%, var(--accent));
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-}
-
-.s-warroom-ask-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.s-warroom-ask-body {
-  font-size: 12.5px;
-  line-height: 1.4;
+  display: grid;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
   color: var(--ink);
 }
 
-.s-warroom-blockers {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
+button.s-warroom-ask-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.s-warroom-ask-header,
+.s-warroom-waveform-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-warroom-ask-header > *,
+.s-warroom-waveform-header > * {
+  min-width: 0;
+}
+
+.s-warroom-ask-body {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.38;
   color: var(--muted);
-  line-height: 1.8;
-  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+
+.s-warroom-blockers {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 11px;
+}
+
+.s-warroom-blockers button,
+.s-warroom-ticker-line {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  text-align: left;
 }
 
 .s-warroom-blockers-item--high {
@@ -161,117 +1204,369 @@ button.s-warroom-ask-card:hover {
   color: var(--muted);
 }
 
-.s-warroom-blockers button,
-.s-warroom-ticker-line {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-}
-
-/* ── Center: mesh ── */
-
 .s-warroom-mesh {
   position: relative;
   overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 26%, var(--bg));
 }
 
 .s-warroom-mesh-label {
   position: absolute;
-  top: 16px;
-  left: 20px;
+  inset: 14px auto auto 14px;
   z-index: 2;
 }
 
-/* ── Right: tool ticker + burn ── */
-
 .s-warroom-ticker {
-  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 2px;
   overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.9;
+  font-size: 10.5px;
 }
 
 .s-warroom-ticker-line {
-  display: flex;
-  gap: 8px;
-  white-space: nowrap;
-  overflow: hidden;
+  min-height: 24px;
+  display: grid;
+  grid-template-columns: minmax(54px, 84px) auto minmax(60px, 108px) minmax(0, 1fr);
   align-items: baseline;
+  gap: 7px;
+  overflow: hidden;
 }
 
-.s-warroom-ticker-agent {
-  color: var(--accent);
-}
-
+.s-warroom-ticker-agent,
 .s-warroom-ticker-sep {
   color: var(--accent);
 }
 
 .s-warroom-ticker-tool {
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.s-warroom-ticker-result {
-  color: var(--dim);
-  margin-left: auto;
+.s-warroom-ticker-result,
+.s-warroom-ticker-tool,
+.s-warroom-ticker-agent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .s-warroom-burn-grid {
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .s-warroom-burn-tile {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
+  padding: 9px 10px;
 }
 
 .s-warroom-burn-num {
-  font-family: var(--font-mono);
-  font-size: 20px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  letter-spacing: -0.01em;
+  font-size: 18px;
+  line-height: 1;
 }
 
-.s-warroom-burn-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  color: var(--dim);
-  margin-top: 2px;
-  text-transform: uppercase;
+@container (max-width: 1040px) {
+  .s-warroom-command,
+  .s-warroom-topstrip {
+    grid-template-columns: 1fr;
+  }
+
+  .s-warroom-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .s-warroom-layout,
+  .s-warroom-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(520px, 1fr) auto;
+    overflow: visible;
+  }
+
+  .s-warroom-queue {
+    overflow: visible;
+  }
+
+  .s-warroom-inspector {
+    grid-column: auto;
+  }
+
+  .s-warroom-command-stack {
+    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .s-warroom-command-stack .s-warroom-section-head,
+  .s-warroom-command-stack .s-warroom-queue-list {
+    grid-column: 2;
+  }
+
 }
 
-/* ── Bottom: waveform ── */
+@container (max-width: 720px) {
+  .s-warroom-command {
+    position: sticky;
+    top: 0;
+  }
 
-.s-warroom-waveform-panel {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  background: color-mix(in srgb, var(--bg) 70%, black);
-  padding: 12px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  .s-warroom-topstrip {
+    position: sticky;
+    top: 0;
+    grid-template-columns: 1fr;
+    z-index: 4;
+  }
+
+  .s-warroom-topstrip-right {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .s-warroom-layout,
+  .s-warroom-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    overflow: visible;
+  }
+
+  .s-warroom-queue,
+  .s-warroom-board,
+  .s-warroom-inspector,
+  .s-warroom-panel,
+  .s-warroom-waveform-panel {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .s-warroom-lanes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-warroom-command-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-warroom-command-stack .s-warroom-section-head,
+  .s-warroom-command-stack .s-warroom-queue-list {
+    grid-column: auto;
+  }
+
+  .s-warroom-lane {
+    min-height: 0;
+  }
+
+  .s-warroom-grid > .s-warroom-panel:nth-of-type(3),
+  .s-warroom-waveform-panel {
+    grid-column: auto;
+  }
 }
 
-.s-warroom-waveform-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+@container (max-width: 560px) {
+  .s-warroom-command,
+  .s-warroom-topstrip {
+    padding: 9px 10px;
+  }
+
+  .s-warroom-queue,
+  .s-warroom-board,
+  .s-warroom-inspector,
+  .s-warroom-panel,
+  .s-warroom-waveform-panel {
+    padding: 12px;
+  }
+
+  .s-warroom-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .s-warroom-section-head,
+  .s-warroom-timeline-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .s-warroom-section-meta {
+    max-width: 100%;
+  }
+
+  .s-warroom-windowbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .s-warroom-window-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .s-warroom-window-tabs {
+    flex: 1 1 auto;
+  }
+
+  .s-warroom-window-tab {
+    flex: 1 1 0;
+  }
+
+  .s-warroom-window-custom {
+    flex: 0 0 auto;
+  }
+
+  .s-warroom-decision,
+  .s-warroom-board-card {
+    min-height: 0;
+  }
+
+  .s-warroom-health-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .s-warroom-health-row > :last-child {
+    grid-column: 2 / -1;
+  }
+
+  .s-warroom-stream-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
 }
 
-.s-warroom-waveform-meta {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--dim);
+@media (max-width: 1180px) {
+  .s-warroom-command,
+  .s-warroom-topstrip {
+    grid-template-columns: 1fr;
+  }
+
+  .s-warroom-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .s-warroom-layout,
+  .s-warroom-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(520px, 1fr) auto;
+    overflow: visible;
+  }
+
+  .s-warroom-queue {
+    overflow: visible;
+  }
+
+  .s-warroom-inspector {
+    grid-column: auto;
+  }
+
+  .s-warroom-command-stack {
+    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .s-warroom-command-stack .s-warroom-section-head,
+  .s-warroom-command-stack .s-warroom-queue-list {
+    grid-column: 2;
+  }
+
+}
+
+@media (max-width: 860px) {
+  .s-warroom {
+    height: 100%;
+    overflow: auto;
+  }
+
+  .s-warroom-command {
+    position: sticky;
+    top: 0;
+  }
+
+  .s-warroom-topstrip {
+    position: sticky;
+    top: 0;
+    grid-template-columns: 1fr;
+    z-index: 4;
+  }
+
+  .s-warroom-topstrip-right {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .s-warroom-layout,
+  .s-warroom-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    overflow: visible;
+  }
+
+  .s-warroom-queue,
+  .s-warroom-board,
+  .s-warroom-inspector,
+  .s-warroom-panel,
+  .s-warroom-waveform-panel {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .s-warroom-lanes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-warroom-command-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-warroom-command-stack .s-warroom-section-head,
+  .s-warroom-command-stack .s-warroom-queue-list {
+    grid-column: auto;
+  }
+
+  .s-warroom-lane {
+    min-height: 0;
+  }
+
+  .s-warroom-grid > .s-warroom-panel:nth-of-type(3),
+  .s-warroom-waveform-panel {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .s-warroom {
+    --warroom-pad: 12px;
+  }
+
+  .s-warroom-command,
+  .s-warroom-topstrip {
+    padding: 9px 10px;
+  }
+
+  .s-warroom-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .s-warroom-section-head,
+  .s-warroom-timeline-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .s-warroom-section-meta {
+    max-width: 100%;
+  }
+
+  .s-warroom-decision,
+  .s-warroom-board-card {
+    min-height: 0;
+  }
+
+  .s-warroom-stream-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
 }

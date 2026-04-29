@@ -6,6 +6,12 @@ import Foundation
 final class OpenScoutAppController: ObservableObject {
     static let shared = OpenScoutAppController()
 
+    private enum RefreshReason {
+        case startup
+        case timer
+        case manual
+    }
+
     private struct WebSurfaceHealth: Decodable {
         let ok: Bool
         let surface: String
@@ -75,6 +81,7 @@ final class OpenScoutAppController: ObservableObject {
     private let tailscaleService = TailscaleService()
     private let toolchain = OpenScoutToolchain()
     private var refreshTimer: Timer?
+    private var refreshQueued = false
     private var webServerProcess: Process?
 
     private init() {}
@@ -84,10 +91,10 @@ final class OpenScoutAppController: ObservableObject {
             return
         }
 
-        refresh()
+        requestRefresh(reason: .startup)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.refresh()
+                self?.requestRefresh(reason: .timer)
             }
         }
     }
@@ -98,12 +105,20 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     func refresh() {
-        guard !isRefreshing else {
+        requestRefresh(reason: .manual)
+    }
+
+    private func requestRefresh(reason: RefreshReason) {
+        if isRefreshing {
+            if reason == .manual {
+                refreshQueued = true
+            }
             return
         }
 
+        isRefreshing = true
         Task {
-            await refreshNow()
+            await runRefreshLoop()
         }
     }
 
@@ -154,7 +169,7 @@ final class OpenScoutAppController: ObservableObject {
                 lastError = error.localizedDescription
             }
 
-            await refreshNow()
+            requestRefresh(reason: .manual)
         }
     }
 
@@ -219,7 +234,7 @@ final class OpenScoutAppController: ObservableObject {
                 lastError = error.localizedDescription
             }
 
-            await refreshNow()
+            requestRefresh(reason: .manual)
         }
     }
 
@@ -242,20 +257,22 @@ final class OpenScoutAppController: ObservableObject {
                 lastError = error.localizedDescription
             }
 
-            await refreshNow()
+            requestRefresh(reason: .manual)
         }
     }
 
-    private func refreshNow() async {
-        guard !isRefreshing else {
-            return
-        }
-
-        isRefreshing = true
+    private func runRefreshLoop() async {
         defer {
             isRefreshing = false
         }
 
+        repeat {
+            refreshQueued = false
+            await refreshNow()
+        } while refreshQueued
+    }
+
+    private func refreshNow() async {
         if let webServerProcess, !webServerProcess.isRunning {
             self.webServerProcess = nil
             webServerStartedByApp = false
@@ -264,6 +281,7 @@ final class OpenScoutAppController: ObservableObject {
         do {
             let status = try await brokerService.fetchStatus()
             broker = BrokerState(from: status)
+            lastError = nil
         } catch {
             lastError = error.localizedDescription
             broker.statusDetail = error.localizedDescription
@@ -320,7 +338,7 @@ final class OpenScoutAppController: ObservableObject {
             lastError = error.localizedDescription
         }
 
-        await refreshNow()
+        requestRefresh(reason: .manual)
     }
 
     private func ensureWebServerRunning() async throws {

@@ -16,7 +16,6 @@ const STATE_PROMPT =
 export function RangerPanel() {
   const {
     agents,
-    navigate,
     rangerAgentId,
     rangerConversationId,
     applyRangerUiAction,
@@ -35,6 +34,9 @@ export function RangerPanel() {
   const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
   const [partial, setPartial] = useState("");
   const [speaking, setSpeaking] = useState(false);
+  const [lastAsk, setLastAsk] = useState<string | null>(null);
+  const [lastReply, setLastReply] = useState<string | null>(null);
+  const [askStatus, setAskStatus] = useState<string | null>(null);
   const clientRef = useRef<VoxBrowserClient | null>(null);
   const liveRef = useRef<VoxLiveHandle | null>(null);
   const voiceRepliesRef = useRef(voiceReplies);
@@ -46,21 +48,16 @@ export function RangerPanel() {
     void client.probe().then(setVoiceAvailable);
   }, []);
 
-  const openRanger = useCallback((mode: "ask" | "tell" = "ask") => {
-    navigate({
-      view: "conversation",
-      conversationId: rangerConversationId,
-      ...(mode === "ask" ? { composeMode: "ask" } : {}),
-    });
-  }, [navigate, rangerConversationId]);
-
   const askRanger = useCallback(async (body: string) => {
     const trimmed = body.trim();
     if (!trimmed || sending) return;
     setSending(true);
     setError(null);
+    setLastAsk(trimmed);
+    setLastReply(null);
+    setAskStatus("Sending to Ranger");
     try {
-      const result = await api<SendResult>("/api/ask", {
+      await api<SendResult>("/api/ask", {
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
@@ -68,17 +65,14 @@ export function RangerPanel() {
         }),
       });
       setDraft("");
-      navigate({
-        view: "conversation",
-        conversationId: result.conversationId ?? rangerConversationId,
-        composeMode: "ask",
-      });
+      setAskStatus("Waiting for Ranger");
     } catch (err) {
+      setAskStatus(null);
       setError(err instanceof Error ? err.message : "Could not ask Ranger.");
     } finally {
       setSending(false);
     }
-  }, [navigate, rangerConversationId, sending]);
+  }, [rangerConversationId, sending]);
 
   const startVoice = useCallback(async () => {
     if (recording) return;
@@ -93,7 +87,7 @@ export function RangerPanel() {
       setVoiceAvailable(ok);
       if (!ok) {
         setVoiceState(null);
-        setError("Vox Companion is not reachable.");
+        setError(client.lastUnavailableReason ?? "Vox Companion is not reachable.");
         return;
       }
     }
@@ -135,7 +129,7 @@ export function RangerPanel() {
   }, []);
 
   useBrokerEvents((event) => {
-    if (!voiceRepliesRef.current || event.kind !== "message.posted") {
+    if (event.kind !== "message.posted") {
       return;
     }
     const message = event.payload && typeof event.payload === "object"
@@ -144,7 +138,11 @@ export function RangerPanel() {
     if (!message || typeof message !== "object") {
       return;
     }
-    const record = message as { actorId?: unknown; body?: unknown };
+    const record = message as { actorId?: unknown; body?: unknown; conversationId?: unknown };
+    const conversationId = typeof record.conversationId === "string" ? record.conversationId : "";
+    if (conversationId && conversationId !== rangerConversationId) {
+      return;
+    }
     if (
       typeof record.actorId !== "string" ||
       !isRangerActorId(record.actorId, rangerAgentId) ||
@@ -153,15 +151,24 @@ export function RangerPanel() {
     ) {
       return;
     }
+    const replyText = stripRangerUiFences(record.body);
+    if (!replyText) {
+      return;
+    }
+    setLastReply(replyText);
+    setAskStatus("Ranger replied");
+    if (!voiceRepliesRef.current) {
+      return;
+    }
     setSpeaking(true);
-    void speakWithVox(record.body)
+    void speakWithVox(replyText)
       .catch((err) => setError(err instanceof Error ? err.message : "Vox speech failed."))
       .finally(() => setSpeaking(false));
   });
 
   const voiceLabel = recording
-    ? voiceState === "processing" ? "Processing" : "Listening"
-    : voiceAvailable === false ? "Launch Vox" : "Talk";
+    ? voiceState === "processing" ? "Sending" : "Stop Talking"
+    : voiceAvailable === false ? "Launch Vox" : "Start Talking";
   const agentStatus = rangerAgent
     ? rangerAgent.state ?? "registered"
     : "default target";
@@ -180,13 +187,6 @@ export function RangerPanel() {
             {rangerAgent?.name ?? rangerAgentId} · {agentStatus}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => openRanger("ask")}
-          className="rounded border border-[var(--scout-chrome-border-soft)] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink)] hover:bg-[var(--scout-chrome-hover)]"
-        >
-          Open
-        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -239,7 +239,7 @@ export function RangerPanel() {
             onClick={() => void cancelVoice()}
             className="rounded border border-[var(--scout-chrome-border-soft)] px-2.5 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)]"
           >
-            Cancel
+            Discard
           </button>
         )}
       </div>
@@ -247,6 +247,30 @@ export function RangerPanel() {
       {(partial || speaking) && (
         <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
           {speaking ? "Speaking Ranger reply…" : partial}
+        </div>
+      )}
+
+      {(lastAsk || lastReply || askStatus) && (
+        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          {askStatus && (
+            <div className="mb-1 uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+              {askStatus}
+            </div>
+          )}
+          {lastAsk && (
+            <p className="line-clamp-3">
+              <span className="text-[var(--scout-chrome-ink-soft)]">You: </span>
+              {lastAsk}
+            </p>
+          )}
+          {lastReply ? (
+            <p className="mt-1 line-clamp-4">
+              <span className="text-lime-200">Ranger: </span>
+              {lastReply}
+            </p>
+          ) : askStatus === "Waiting for Ranger" ? (
+            <p className="mt-1 text-[var(--scout-chrome-ink-ghost)]">Waiting in the sidebar...</p>
+          ) : null}
         </div>
       )}
 
@@ -281,6 +305,12 @@ export function RangerPanel() {
       )}
     </section>
   );
+}
+
+function stripRangerUiFences(body: string): string {
+  return body
+    .replace(/```(?:scout-ui|scout-ui-action|ranger-ui)\s*[\s\S]*?```/gi, "")
+    .trim();
 }
 
 function RangerActionButton({

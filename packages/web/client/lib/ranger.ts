@@ -12,8 +12,11 @@ const RANGER_AGENT_IDS = new Set([
 const OPS_MODES = new Set([
   "plan",
   "conductor",
+  "conduct",
   "warroom",
+  "command",
   "mission",
+  "control",
   "agents",
   "tail",
   "atop",
@@ -172,10 +175,33 @@ function normalizeRoute(raw: unknown): Route | null {
           }
         : null;
     case "ops": {
-      const mode = typeof record.mode === "string" && OPS_MODES.has(record.mode) ? record.mode : undefined;
-      return { view: "ops", ...(mode ? { mode: mode as OpsMode } : {}) };
+      const mode = typeof record.mode === "string" && OPS_MODES.has(record.mode)
+        ? normalizeOpsMode(record.mode)
+        : undefined;
+      return { view: "ops", ...(mode ? { mode } : {}) };
     }
     default:
       return null;
+  }
+}
+
+function normalizeOpsMode(mode: string): OpsMode | undefined {
+  switch (mode) {
+    case "command":
+    case "warroom":
+      return "warroom";
+    case "control":
+    case "mission":
+      return "mission";
+    case "conduct":
+    case "conductor":
+      return "conductor";
+    case "plan":
+    case "agents":
+    case "tail":
+    case "atop":
+      return mode;
+    default:
+      return undefined;
   }
 }

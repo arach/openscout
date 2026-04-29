@@ -942,6 +942,47 @@ describe("web db query fleet", () => {
         createdAt: now - 20_000,
         updatedAt: now - 10_000,
       });
+      store.recordCollaborationRecord({
+        id: "work-pending-resolved",
+        kind: "work_item",
+        title: "Pending work with a later owner action",
+        summary: "The owner replied after the pending handoff.",
+        createdById: "operator",
+        ownerId: "agent-3",
+        nextMoveOwnerId: "agent-3",
+        conversationId: "conv-3",
+        state: "open",
+        acceptanceState: "pending",
+        requestedById: "operator",
+        createdAt: now - 26_000,
+        updatedAt: now - 25_000,
+      });
+      store.recordMessage({
+        id: "msg-3-pending-resolution",
+        conversationId: "conv-3",
+        actorId: "agent-3",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "I picked this up in the thread.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 24_000,
+      });
+      store.recordCollaborationRecord({
+        id: "work-pending-unresolved",
+        kind: "work_item",
+        title: "Pending work without a later owner action",
+        summary: "This still needs an acceptance decision.",
+        createdById: "operator",
+        ownerId: "agent-3",
+        nextMoveOwnerId: "agent-3",
+        conversationId: "conv-3",
+        state: "open",
+        acceptanceState: "pending",
+        requestedById: "operator",
+        createdAt: now - 6_000,
+        updatedAt: now - 5_000,
+      });
       store.upsertActor({
         id: "agent-4",
         kind: "agent",
@@ -997,7 +1038,7 @@ describe("web db query fleet", () => {
       expect(fleet.totals).toMatchObject({
         active: 1,
         recentCompleted: 1,
-        needsAttention: 1,
+        needsAttention: 2,
       });
 
       expect(fleet.activeAsks).toHaveLength(1);
@@ -1016,6 +1057,16 @@ describe("web db query fleet", () => {
 
       expect(fleet.needsAttention).toEqual([
         expect.objectContaining({
+          kind: "work_item",
+          recordId: "work-pending-unresolved",
+          title: "Pending work without a later owner action",
+          agentId: "agent-3",
+          agentName: "Agent Three",
+          conversationId: "conv-3",
+          state: "open",
+          acceptanceState: "pending",
+        }),
+        expect.objectContaining({
           kind: "question",
           recordId: "question-1",
           title: "Need your decision",
@@ -1026,6 +1077,7 @@ describe("web db query fleet", () => {
           acceptanceState: "none",
         }),
       ]);
+      expect(fleet.needsAttention.some((item) => item.recordId === "work-pending-resolved")).toBe(false);
       expect(fleet.activity.map((item) => item.ts)).toEqual([...fleet.activity.map((item) => item.ts)].sort((a, b) => b - a));
       expect(fleet.recentCompleted.some((ask) => ask.agentId === "agent-4")).toBe(false);
       expect(fleet.activity.some((item) => item.id === "activity:flight:flight-4")).toBe(false);
@@ -1102,6 +1154,10 @@ describe("web db query work items", () => {
           nextMoveOwnerId: "agent-1",
           nextMoveOwnerName: "Agent One",
           conversationId: "conv-1",
+          createdAt: 90,
+          updatedAt: 90,
+          parentId: null,
+          parentTitle: null,
           state: "working",
           acceptanceState: "none",
           priority: null,
@@ -1121,6 +1177,10 @@ describe("web db query work items", () => {
           nextMoveOwnerId: "agent-1",
           nextMoveOwnerName: "Agent One",
           conversationId: "conv-1",
+          createdAt: 95,
+          updatedAt: 95,
+          parentId: "work-1",
+          parentTitle: "Observed work",
           state: "open",
           acceptanceState: "none",
           priority: null,

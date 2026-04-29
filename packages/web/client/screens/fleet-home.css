@@ -77,6 +77,8 @@
 
 .s-hero-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 28px;
 }
@@ -96,9 +98,25 @@
   transition: background 120ms ease, color 120ms ease;
 }
 
+.s-btn-fleet:disabled {
+  cursor: default;
+  opacity: 0.54;
+}
+
 .s-btn-fleet:hover {
   background: var(--surface);
   color: var(--ink);
+}
+
+.s-btn-fleet:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.s-btn-fleet--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .s-btn-fleet--primary {
@@ -109,6 +127,41 @@
 
 .s-btn-fleet--primary:hover {
   filter: brightness(1.1);
+}
+
+.s-refresh-spin {
+  animation: s-refresh-spin 0.8s linear infinite;
+}
+
+.s-fleet-sync-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  color: var(--muted);
+}
+
+.s-fleet-sync-note::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--green);
+  opacity: 0.8;
+}
+
+.s-fleet-sync-note--error {
+  color: var(--amber);
+}
+
+.s-fleet-sync-note--error::before {
+  background: var(--amber);
+}
+
+@keyframes s-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Heart-rate card ───────────────────────────────────────────────── */
@@ -249,6 +302,12 @@
   line-height: 1.5;
 }
 
+.s-attention-row-action {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 /* ── Ask block ─────────────────────────────────────────────────────── */
 
 .s-ask-grid {
@@ -381,21 +440,155 @@
   100% { transform: translateX(250%); }
 }
 
-/* ── Empty cell ────────────────────────────────────────────────────── */
+/* ── Clear-state fleet overview ───────────────────────────────────── */
 
-.s-ask-empty {
-  padding: 20px 22px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--dim);
+.s-fleet-clear {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(260px, 0.8fr) minmax(360px, 1.5fr);
+  gap: 22px;
+  align-items: stretch;
+  padding: 18px 0;
 }
 
-.s-ask-empty-detail {
+@media (max-width: 980px) {
+  .s-fleet-clear {
+    grid-template-columns: 1fr;
+  }
+}
+
+.s-fleet-clear-head {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.s-fleet-clear-title {
+  margin-top: 8px;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.s-fleet-clear-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.s-fleet-metric {
+  min-width: 0;
+  padding: 14px;
+  border-right: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 8px 7px;
+  align-items: center;
+}
+
+.s-fleet-metric:last-child {
+  border-right: 0;
+}
+
+.s-fleet-metric-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.s-fleet-metric-value {
+  grid-column: 1 / -1;
+  font-family: var(--font-serif);
+  font-size: 30px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.s-fleet-roster {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.s-fleet-roster-row {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  display: grid;
+  grid-template-columns: 8px minmax(110px, 0.9fr) minmax(130px, 1fr) 78px 82px;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.s-fleet-roster-row:last-child {
+  border-bottom: 0;
+}
+
+.s-fleet-roster-row:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.s-fleet-roster-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.s-fleet-roster-name {
+  min-width: 0;
   font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-fleet-roster-meta,
+.s-fleet-roster-state,
+.s-fleet-roster-time,
+.s-fleet-clear-empty {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-fleet-roster-state {
   color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.s-fleet-roster-time {
+  text-align: right;
+}
+
+.s-fleet-clear-empty {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
 }
 
 /* ── Now cards (active agents) ─────────────────────────────────────── */
@@ -403,6 +596,68 @@
 .s-now-grid {
   display: grid;
   gap: 14px;
+}
+
+.s-moving-ask-list {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.s-moving-ask-row {
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.35fr) minmax(220px, 1fr) 96px 74px;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.s-moving-ask-row:last-child {
+  border-bottom: 0;
+}
+
+.s-moving-ask-row:hover {
+  background: color-mix(in srgb, var(--green) 5%, transparent);
+}
+
+.s-moving-ask-agent,
+.s-moving-ask-state,
+.s-moving-ask-time {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-moving-ask-title {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-moving-ask-state {
+  color: var(--green);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.s-moving-ask-time {
+  text-align: right;
 }
 
 .s-now-card {

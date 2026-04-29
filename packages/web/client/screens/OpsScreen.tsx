@@ -11,18 +11,18 @@ import { WarRoomView } from "./WarRoomView.tsx";
 import type { OpsMode, Route } from "../lib/types.ts";
 
 const TABS: { id: OpsMode; label: string }[] = [
-  { id: "mission", label: "Mission Control" },
-  { id: "agents", label: "Agents" },
+  { id: "warroom", label: "Command" },
+  { id: "mission", label: "Control" },
   { id: "plan", label: "Plan" },
-  { id: "conductor", label: "Conductor" },
-  { id: "warroom", label: "War Room" },
+  { id: "conductor", label: "Conduct" },
   { id: "tail", label: "Tail" },
   { id: "atop", label: "Atop" },
+  { id: "agents", label: "Agents" },
 ];
 
 export function OpsScreen({
   navigate,
-  mode = "mission",
+  mode = "warroom",
 }: {
   navigate: (r: Route) => void;
   mode?: OpsMode;

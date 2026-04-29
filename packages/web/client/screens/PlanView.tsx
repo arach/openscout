@@ -1,10 +1,9 @@
 import "./plan-view.css";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { actorColor } from "../lib/colors.ts";
-import { normalizeAgentState } from "../lib/agent-state.ts";
 import { timeAgo } from "../lib/time.ts";
 import { conversationForAgent } from "../lib/router.ts";
 import type {
@@ -28,8 +27,6 @@ const STATE_META: Record<
   stuck: { label: "STUCK", icon: "▲", color: "var(--amber)" },
 };
 
-type PlanLaneKey = "attention" | "active" | "committed";
-
 type PlanNode = {
   id: string;
   kind: "mission" | "phase" | "task";
@@ -52,6 +49,36 @@ type OpsRisk = {
   title: string;
   detail: string;
   severity: "high" | "med" | "low";
+};
+
+type PlanFilter = "ongoing" | "recent" | "all";
+
+type PlanRecordStatus = "blocked" | "active" | "queued" | "complete" | "needs_review";
+
+type CompletionEvaluation = {
+  state: "not_started" | "in_progress" | "blocked" | "needs_review" | "verified";
+  label: string;
+  summary: string;
+  detail: string;
+};
+
+type PlanLoadStatus = "loading" | "ready";
+
+type PlanRecord = {
+  id: string;
+  source: "work" | "ask";
+  title: string;
+  summary: string | null;
+  status: PlanRecordStatus;
+  createdAt: number;
+  updatedAt: number;
+  ownerId: string | null;
+  ownerName: string | null;
+  harnesses: string[];
+  root: PlanNode;
+  leafNodes: PlanNode[];
+  route: Route | null;
+  completion: CompletionEvaluation;
 };
 
 function flattenTree(root: PlanNode): PlanNode[] {
@@ -131,20 +158,6 @@ function askNodeState(ask: FleetAsk): MissionNodeState {
   }
 }
 
-function laneForWork(work: WorkItem): PlanLaneKey {
-  const state = workNodeState(work);
-  if (state === "stuck") return "attention";
-  if (state === "inflight") return "active";
-  return "committed";
-}
-
-function laneForAsk(ask: FleetAsk): PlanLaneKey {
-  const state = askNodeState(ask);
-  if (state === "stuck") return "attention";
-  if (state === "inflight") return "active";
-  return "committed";
-}
-
 function minutesSince(ts: number | null, nowMs: number): number | null {
   if (typeof ts !== "number" || !Number.isFinite(ts)) return null;
   return Math.max(0, Math.round((nowMs - ts) / 60_000));
@@ -210,84 +223,6 @@ function buildNodeFromAsk(ask: FleetAsk, nowMs: number): PlanNode {
   };
 }
 
-function buildNodeFromAttention(item: FleetAttentionItem, nowMs: number): PlanNode {
-  return {
-    id: `attention:${item.recordId}`,
-    kind: "task",
-    title: item.title,
-    summary: item.summary,
-    state: "stuck",
-    assigneeId: item.agentId,
-    detail: item.summary ?? item.state.replace(/_/g, " "),
-    why: item.kind === "question"
-      ? "Operator input is required before this can move again."
-      : "This work item is blocked on a review, decision, or reply.",
-    progress: progressForState("stuck"),
-    stuckMins: minutesSince(item.updatedAt, nowMs),
-    updatedAt: item.updatedAt,
-    route: routeForAttention(item),
-  };
-}
-
-function nodeSort(left: PlanNode, right: PlanNode): number {
-  return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
-}
-
-function laneNode(
-  id: PlanLaneKey,
-  title: string,
-  summary: string,
-  state: MissionNodeState,
-  children: PlanNode[],
-): PlanNode {
-  return {
-    id: `lane:${id}`,
-    kind: "phase",
-    title,
-    summary,
-    state,
-    assigneeId: null,
-    detail: summary,
-    why: summary,
-    progress: progressForState(state),
-    stuckMins: null,
-    updatedAt: children[0]?.updatedAt ?? null,
-    route: { view: "fleet" },
-    children,
-  };
-}
-
-function missionTitle(
-  attentionCount: number,
-  activeCount: number,
-  committedCount: number,
-  onlineCount: number,
-): string {
-  if (attentionCount > 0) return "Resolve blockers before the queue widens";
-  if (activeCount > 0) return "Keep the live queue moving";
-  if (committedCount > 0) return "Commit the next slice of work";
-  if (onlineCount > 0) return "Stand up the next unit of work";
-  return "No live operational plan yet";
-}
-
-function missionGoal(
-  workCount: number,
-  activeAskCount: number,
-  attentionCount: number,
-  onlineCount: number,
-): string {
-  if (workCount === 0 && activeAskCount === 0) {
-    return onlineCount > 0
-      ? `${onlineCount} agent${onlineCount === 1 ? " is" : "s are"} connected, but no work items or asks are active yet.`
-      : "Bring agents online or dispatch the first ask to light up the plan surface.";
-  }
-  return `${workCount} live work item${workCount === 1 ? "" : "s"}, ${activeAskCount} active ask${activeAskCount === 1 ? "" : "s"}, and ${attentionCount} item${attentionCount === 1 ? "" : "s"} currently need operator awareness.`;
-}
-
-function missionRationale(workCount: number, activityCount: number): string {
-  return `Derived from live collaboration records, active asks, and recent fleet activity. This surface now reflects the current checkout instead of a canned mission narrative. ${workCount > 0 ? `You have ${workCount} active work records in play.` : "No work records are active yet."} ${activityCount > 0 ? `${activityCount} recent fleet events are informing the live view.` : "Recent fleet activity is quiet right now."}`;
-}
-
 function buildRisks(
   attentionItems: FleetAttentionItem[],
   activeAsks: FleetAsk[],
@@ -334,6 +269,295 @@ function buildRisks(
   return risks;
 }
 
+const RECENT_PLAN_WINDOW_MS = 7 * 24 * 60 * 60_000;
+const COMPLETION_REVIEW_WINDOW_MS = 12 * 60 * 60_000;
+
+const PLAN_STATUS_META: Record<PlanRecordStatus, { label: string; color: string }> = {
+  blocked: { label: "Blocked", color: "var(--amber)" },
+  active: { label: "Active", color: "var(--green)" },
+  queued: { label: "Queued", color: "var(--accent)" },
+  complete: { label: "Complete", color: "var(--muted)" },
+  needs_review: { label: "Review", color: "var(--amber)" },
+};
+
+function isTerminalWorkState(state: string): boolean {
+  return state === "done" || state === "cancelled";
+}
+
+function workStatus(work: WorkItem, descendants: WorkItem[]): PlanRecordStatus {
+  const items = [work, ...descendants];
+  if (items.some((item) => item.attention !== "silent" || item.state === "waiting" || item.state === "review")) {
+    return "blocked";
+  }
+  if (items.some((item) => item.state === "working" || item.activeFlightCount > 0)) {
+    return "active";
+  }
+  if (items.every((item) => isTerminalWorkState(item.state))) {
+    return work.acceptanceState === "pending" ? "needs_review" : "complete";
+  }
+  return "queued";
+}
+
+function askStatus(ask: FleetAsk): PlanRecordStatus {
+  if (ask.status === "failed" || ask.status === "needs_attention") return "blocked";
+  if (ask.status === "working") return "active";
+  if (ask.status === "queued") return "queued";
+  return "needs_review";
+}
+
+function completionForWork(work: WorkItem, descendants: WorkItem[], nowMs: number): CompletionEvaluation {
+  const items = [work, ...descendants];
+  const latestAt = Math.max(...items.map((item) => item.lastMeaningfulAt || item.updatedAt || item.createdAt));
+  const hasBlocked = items.some((item) => item.attention !== "silent" || item.state === "waiting" || item.state === "review");
+  const hasActive = items.some((item) => item.state === "working" || item.activeFlightCount > 0);
+  const allDone = items.every((item) => item.state === "done");
+  const hasQueued = items.some((item) => item.state === "open");
+
+  if (hasBlocked) {
+    return {
+      state: "blocked",
+      label: "Needs operator check",
+      summary: "A child item is waiting, in review, or marked for attention.",
+      detail: "Completion cannot be trusted until the blocking state is resolved.",
+    };
+  }
+  if (hasActive) {
+    return {
+      state: "in_progress",
+      label: "Still moving",
+      summary: "At least one item or flight is still active.",
+      detail: "The plan should stay in the ongoing set.",
+    };
+  }
+  if (allDone) {
+    const stale = nowMs - latestAt > COMPLETION_REVIEW_WINDOW_MS;
+    return stale
+      ? {
+          state: "needs_review",
+          label: "Done, needs freshness check",
+          summary: "The plan is marked done, but the last meaningful update is no longer fresh.",
+          detail: "Ask the owner to confirm whether the completion state is still accurate.",
+        }
+      : {
+          state: "verified",
+          label: "Recently completed",
+          summary: "All visible items are marked done with a recent meaningful update.",
+          detail: "This looks current from the available collaboration state.",
+        };
+  }
+  if (hasQueued) {
+    return {
+      state: "not_started",
+      label: "Queued",
+      summary: "The plan has open work but no active execution signal yet.",
+      detail: "It is ready to be picked up or clarified.",
+    };
+  }
+  return {
+    state: "needs_review",
+    label: "Needs review",
+    summary: "The plan is in a terminal or quiet state without enough signal to verify completion.",
+    detail: "Use the owner review path before treating this as closed.",
+  };
+}
+
+function completionForAsk(ask: FleetAsk, nowMs: number): CompletionEvaluation {
+  if (ask.status === "failed" || ask.status === "needs_attention") {
+    return {
+      state: "blocked",
+      label: "Needs operator check",
+      summary: ask.summary ?? "The ask is blocked or failed.",
+      detail: "Completion cannot be trusted until the ask is resolved.",
+    };
+  }
+  if (ask.status === "queued" || ask.status === "working") {
+    return {
+      state: "in_progress",
+      label: ask.status === "queued" ? "Queued" : "Still moving",
+      summary: ask.summary ?? ask.task,
+      detail: "The ask has not reported a terminal result yet.",
+    };
+  }
+  const updatedAt = ask.completedAt ?? ask.updatedAt;
+  return nowMs - updatedAt > COMPLETION_REVIEW_WINDOW_MS
+    ? {
+        state: "needs_review",
+        label: "Completed, needs freshness check",
+        summary: ask.summary ?? ask.task,
+        detail: "The completion is older than the review window.",
+      }
+    : {
+        state: "verified",
+        label: "Recently completed",
+        summary: ask.summary ?? ask.task,
+        detail: "The ask completed recently.",
+      };
+}
+
+function collectDescendants(work: WorkItem, childrenByParent: Map<string, WorkItem[]>): WorkItem[] {
+  const children = childrenByParent.get(work.id) ?? [];
+  return children.flatMap((child) => [child, ...collectDescendants(child, childrenByParent)]);
+}
+
+function buildWorkTree(work: WorkItem, childrenByParent: Map<string, WorkItem[]>, nowMs: number): PlanNode {
+  const children = (childrenByParent.get(work.id) ?? [])
+    .sort((left, right) => right.lastMeaningfulAt - left.lastMeaningfulAt)
+    .map((child) => buildWorkTree(child, childrenByParent, nowMs));
+  const node = buildNodeFromWork(work, nowMs);
+  return {
+    ...node,
+    children: children.length > 0 ? children : undefined,
+  };
+}
+
+function nodeProgressAverage(nodes: PlanNode[]): number {
+  const values = nodes.map((node) => node.progress).filter((value): value is number => typeof value === "number");
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function harnessesForWork(items: WorkItem[], agentsById: Record<string, Agent>): string[] {
+  const harnesses = new Set<string>();
+  for (const item of items) {
+    const owner = item.ownerId ? agentsById[item.ownerId] : null;
+    const next = item.nextMoveOwnerId ? agentsById[item.nextMoveOwnerId] : null;
+    if (owner?.harness) harnesses.add(owner.harness);
+    if (next?.harness) harnesses.add(next.harness);
+  }
+  return [...harnesses].sort();
+}
+
+function buildWorkPlanRecord(
+  work: WorkItem,
+  childrenByParent: Map<string, WorkItem[]>,
+  agentsById: Record<string, Agent>,
+  nowMs: number,
+): PlanRecord {
+  const descendants = collectDescendants(work, childrenByParent);
+  const tree = buildWorkTree(work, childrenByParent, nowMs);
+  const leafNodes = flattenTree(tree).filter((node) => node.kind === "task");
+  const status = workStatus(work, descendants);
+  const completion = completionForWork(work, descendants, nowMs);
+  const rootChildren = tree.children && tree.children.length > 0 ? tree.children : [tree];
+  const root: PlanNode = {
+    ...tree,
+    id: `plan:${work.id}`,
+    kind: "mission",
+    badge: `${leafNodes.length} item${leafNodes.length === 1 ? "" : "s"}`,
+    progress: leafNodes.length > 0 ? nodeProgressAverage(leafNodes) : tree.progress,
+    children: rootChildren,
+  };
+  const allItems = [work, ...descendants];
+  return {
+    id: `work:${work.id}`,
+    source: "work",
+    title: work.title,
+    summary: work.summary ?? work.lastMeaningfulSummary,
+    status,
+    createdAt: work.createdAt,
+    updatedAt: Math.max(...allItems.map((item) => item.lastMeaningfulAt || item.updatedAt || item.createdAt)),
+    ownerId: work.ownerId ?? work.nextMoveOwnerId,
+    ownerName: work.ownerName ?? work.nextMoveOwnerName,
+    harnesses: harnessesForWork(allItems, agentsById),
+    root,
+    leafNodes,
+    route: { view: "work", workId: work.id },
+    completion,
+  };
+}
+
+function buildAskPlanRecord(ask: FleetAsk, nowMs: number): PlanRecord {
+  const node = buildNodeFromAsk(ask, nowMs);
+  const root: PlanNode = {
+    ...node,
+    id: `plan:ask:${ask.invocationId}`,
+    kind: "mission",
+    badge: ask.statusLabel,
+    children: [node],
+  };
+  return {
+    id: `ask:${ask.invocationId}`,
+    source: "ask",
+    title: ask.task,
+    summary: ask.summary,
+    status: askStatus(ask),
+    createdAt: ask.startedAt ?? ask.updatedAt,
+    updatedAt: ask.updatedAt,
+    ownerId: ask.agentId,
+    ownerName: ask.agentName ?? ask.agentId,
+    harnesses: ask.harness ? [ask.harness] : [],
+    root,
+    leafNodes: [node],
+    route: routeForAsk(ask),
+    completion: completionForAsk(ask, nowMs),
+  };
+}
+
+function formatReviewTimestamp(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function completionReviewDraft(record: PlanRecord): string {
+  const visibleItems = record.leafNodes
+    .slice(0, 6)
+    .map((node) => `- ${STATE_META[node.state].label}: ${node.title}`)
+    .join("\n");
+  const remaining = record.leafNodes.length > 6
+    ? `\n- ${record.leafNodes.length - 6} more item${record.leafNodes.length - 6 === 1 ? "" : "s"}`
+    : "";
+  const visibleSection = `${visibleItems || "- No visible child items"}${remaining}`;
+
+  return [
+    "Can you evaluate completion for this plan and update the collaboration state if needed?",
+    "",
+    `Plan: ${record.title}`,
+    `Current status: ${PLAN_STATUS_META[record.status].label}`,
+    `Completion signal: ${record.completion.label}`,
+    `Last visible update: ${formatReviewTimestamp(record.updatedAt)}`,
+    "",
+    record.completion.summary,
+    record.completion.detail,
+    "",
+    "Visible items:",
+    visibleSection,
+    "",
+    "Please check whether this is actually done, what remains, and whether the plan record is stale.",
+  ].join("\n");
+}
+
+function mergeWorkItemResults(results: Array<PromiseSettledResult<WorkItem[]>>): WorkItem[] {
+  const byId = new Map<string, WorkItem>();
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    for (const item of result.value) {
+      byId.set(item.id, item);
+    }
+  }
+  return [...byId.values()];
+}
+
+function planMatchesFilter(record: PlanRecord, filter: PlanFilter, nowMs: number): boolean {
+  if (filter === "all") return true;
+  if (filter === "ongoing") return record.status !== "complete";
+  return nowMs - Math.max(record.createdAt, record.updatedAt) <= RECENT_PLAN_WINDOW_MS;
+}
+
+function planSort(left: PlanRecord, right: PlanRecord): number {
+  const rank: Record<PlanRecordStatus, number> = {
+    blocked: 0,
+    active: 1,
+    queued: 2,
+    needs_review: 3,
+    complete: 4,
+  };
+  const byStatus = rank[left.status] - rank[right.status];
+  if (byStatus !== 0) return byStatus;
+  return right.updatedAt - left.updatedAt;
+}
+
 export function PlanView({
   navigate,
   agents,
@@ -343,22 +567,38 @@ export function PlanView({
 }) {
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [mode, setMode] = useState<"plan" | "live">("plan");
+  const [filter, setFilter] = useState<PlanFilter>("ongoing");
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [loadStatus, setLoadStatus] = useState<PlanLoadStatus>("loading");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
-    const [fleetResult, workResult] = await Promise.allSettled([
+    const requestSeq = ++requestSeqRef.current;
+    const [fleetResult, activeWorkResult, recentWorkResult] = await Promise.allSettled([
       api<FleetState>("/api/fleet"),
-      api<WorkItem[]>("/api/work"),
+      api<WorkItem[]>("/api/work?limit=250"),
+      api<WorkItem[]>("/api/work?active=false&limit=250"),
     ]);
+
+    if (requestSeq !== requestSeqRef.current) return;
 
     if (fleetResult.status === "fulfilled") {
       setFleet(fleetResult.value);
     }
-    if (workResult.status === "fulfilled") {
-      setWorkItems(workResult.value);
+    if (activeWorkResult.status === "fulfilled" || recentWorkResult.status === "fulfilled") {
+      setWorkItems(mergeWorkItemResults([activeWorkResult, recentWorkResult]));
     }
+    const errors = [
+      fleetResult.status === "rejected" ? `fleet: ${fleetResult.reason instanceof Error ? fleetResult.reason.message : String(fleetResult.reason)}` : null,
+      activeWorkResult.status === "rejected" ? `active work: ${activeWorkResult.reason instanceof Error ? activeWorkResult.reason.message : String(activeWorkResult.reason)}` : null,
+      recentWorkResult.status === "rejected" ? `recent work: ${recentWorkResult.reason instanceof Error ? recentWorkResult.reason.message : String(recentWorkResult.reason)}` : null,
+    ].filter((error): error is string => Boolean(error));
+    setLoadError(errors.length > 0 ? errors.join(" · ") : null);
+    setLoadStatus("ready");
     setNowMs(Date.now());
   }, []);
 
@@ -379,182 +619,90 @@ export function PlanView({
     [agents],
   );
 
-  const onlineCount = useMemo(
-    () => agents.filter((agent) => normalizeAgentState(agent.state) !== "offline").length,
-    [agents],
-  );
-
-  const derived = useMemo(() => {
-    const attentionNodes: PlanNode[] = [];
-    const activeNodes: PlanNode[] = [];
-    const committedNodes: PlanNode[] = [];
-    const consumedWorkIds = new Set<string>();
+  const planData = useMemo(() => {
     const workById = new Map(workItems.map((work) => [work.id, work]));
-
-    for (const item of fleet?.needsAttention ?? []) {
-      const relatedWork = workById.get(item.recordId);
-      if (relatedWork) {
-        const node = buildNodeFromWork(relatedWork, nowMs);
-        attentionNodes.push({
-          ...node,
-          state: "stuck",
-          detail: item.summary ?? node.detail,
-          why: item.summary ?? node.summary ?? node.why,
-          stuckMins: minutesSince(item.updatedAt, nowMs),
-          updatedAt: item.updatedAt,
-          route: node.route ?? routeForAttention(item),
-        });
-        consumedWorkIds.add(relatedWork.id);
-      } else {
-        attentionNodes.push(buildNodeFromAttention(item, nowMs));
-      }
-    }
-
-    for (const ask of fleet?.activeAsks ?? []) {
-      const relatedWorkId = ask.collaborationRecordId ?? null;
-      const relatedWork = relatedWorkId ? workById.get(relatedWorkId) : null;
-      if (relatedWork && consumedWorkIds.has(relatedWork.id)) {
-        continue;
-      }
-      if (relatedWork) {
-        const node = buildNodeFromWork(relatedWork, nowMs);
-        const lane = laneForWork(relatedWork);
-        if (lane === "attention") attentionNodes.push(node);
-        else if (lane === "active") activeNodes.push(node);
-        else committedNodes.push(node);
-        consumedWorkIds.add(relatedWork.id);
-      } else {
-        const node = buildNodeFromAsk(ask, nowMs);
-        const lane = laneForAsk(ask);
-        if (lane === "attention") attentionNodes.push(node);
-        else if (lane === "active") activeNodes.push(node);
-        else committedNodes.push(node);
-      }
-    }
-
+    const childrenByParent = new Map<string, WorkItem[]>();
     for (const work of workItems) {
-      if (consumedWorkIds.has(work.id)) continue;
-      const node = buildNodeFromWork(work, nowMs);
-      const lane = laneForWork(work);
-      if (lane === "attention") attentionNodes.push(node);
-      else if (lane === "active") activeNodes.push(node);
-      else committedNodes.push(node);
+      if (work.parentId && workById.has(work.parentId)) {
+        const children = childrenByParent.get(work.parentId) ?? [];
+        children.push(work);
+        childrenByParent.set(work.parentId, children);
+      }
     }
 
-    attentionNodes.sort(nodeSort);
-    activeNodes.sort(nodeSort);
-    committedNodes.sort(nodeSort);
-
-    const rootChildren: PlanNode[] = [];
-    if (attentionNodes.length > 0) {
-      rootChildren.push(
-        laneNode(
-          "attention",
-          "Needs input",
-          `${attentionNodes.length} item${attentionNodes.length === 1 ? "" : "s"} are waiting on an answer, decision, or unblock.`,
-          "stuck",
-          attentionNodes,
-        ),
-      );
+    const rootWork = workItems.filter((work) => !work.parentId || !workById.has(work.parentId));
+    const workRecords = rootWork.map((work) => buildWorkPlanRecord(work, childrenByParent, agentsById, nowMs));
+    const workIds = new Set(workItems.map((work) => work.id));
+    const askRecords = [...(fleet?.activeAsks ?? []), ...(fleet?.recentCompleted ?? [])]
+      .filter((ask) => !ask.collaborationRecordId || !workIds.has(ask.collaborationRecordId))
+      .map((ask) => buildAskPlanRecord(ask, nowMs));
+    const records = [...workRecords, ...askRecords].sort(planSort);
+    const visibleRecords = records.filter((record) => planMatchesFilter(record, filter, nowMs));
+    const harnesses = new Set<string>();
+    for (const record of records) {
+      record.harnesses.forEach((harness) => harnesses.add(harness));
     }
-    if (activeNodes.length > 0) {
-      rootChildren.push(
-        laneNode(
-          "active",
-          "In flight",
-          `${activeNodes.length} item${activeNodes.length === 1 ? "" : "s"} are currently moving through the fleet.`,
-          "inflight",
-          activeNodes,
-        ),
-      );
-    }
-    if (committedNodes.length > 0) {
-      rootChildren.push(
-        laneNode(
-          "committed",
-          "Committed next",
-          `${committedNodes.length} item${committedNodes.length === 1 ? "" : "s"} are queued or ready to be picked up next.`,
-          "committed",
-          committedNodes,
-        ),
-      );
-    }
-
-    const leafNodes = [...attentionNodes, ...activeNodes, ...committedNodes];
-    const root = {
-      id: "plan:root",
-      kind: "mission",
-      title: missionTitle(
-        attentionNodes.length,
-        activeNodes.length,
-        committedNodes.length,
-        onlineCount,
-      ),
-      summary: missionGoal(
-        workItems.length,
-        fleet?.activeAsks.length ?? 0,
-        attentionNodes.length,
-        onlineCount,
-      ),
-      state: attentionNodes.length > 0
-        ? "stuck"
-        : activeNodes.length > 0
-          ? "inflight"
-          : committedNodes.length > 0
-            ? "committed"
-            : "proposed",
-      assigneeId: null,
-      detail: null,
-      why: missionRationale(workItems.length, fleet?.activity.length ?? 0),
-      progress: leafNodes.length > 0
-        ? leafNodes.reduce((sum, node) => sum + (node.progress ?? 0), 0) / leafNodes.length
-        : 0,
-      stuckMins: null,
-      updatedAt: fleet?.generatedAt ?? null,
-      route: { view: "fleet" } as Route,
-      badge: `${leafNodes.length} live item${leafNodes.length === 1 ? "" : "s"}`,
-      children: rootChildren,
-    } satisfies PlanNode;
-
-    const risks = buildRisks(
-      fleet?.needsAttention ?? [],
-      fleet?.activeAsks ?? [],
-      workItems,
-    );
-
-    const recentCompleted = (fleet?.recentCompleted ?? []).slice(0, 4);
 
     return {
-      root,
-      leafNodes,
-      risks,
-      recentCompleted,
+      records,
+      visibleRecords,
+      risks: buildRisks(fleet?.needsAttention ?? [], fleet?.activeAsks ?? [], workItems),
+      recentCompleted: (fleet?.recentCompleted ?? []).slice(0, 4),
       pendingAttention: fleet?.needsAttention ?? [],
+      harnesses: [...harnesses].sort(),
       counts: {
-        done: recentCompleted.length,
-        inflight: activeNodes.length,
-        stuck: attentionNodes.length,
+        ongoing: records.filter((record) => record.status !== "complete").length,
+        recent: records.filter((record) => nowMs - Math.max(record.createdAt, record.updatedAt) <= RECENT_PLAN_WINDOW_MS).length,
+        review: records.filter((record) => record.completion.state === "needs_review").length,
+        blocked: records.filter((record) => record.status === "blocked").length,
       },
     };
-  }, [fleet, nowMs, onlineCount, workItems]);
+  }, [agentsById, filter, fleet, nowMs, workItems]);
 
-  const selectedNode = selected ? findNode(derived.root, selected) : null;
+  const selectedPlan = useMemo(() => {
+    return planData.records.find((record) => record.id === selectedPlanId)
+      ?? planData.visibleRecords[0]
+      ?? planData.records[0]
+      ?? null;
+  }, [planData.records, planData.visibleRecords, selectedPlanId]);
+
+  const selectedNode = selected && selectedPlan ? findNode(selectedPlan.root, selected) : null;
+  const isInitialLoading = loadStatus === "loading" && planData.records.length === 0;
 
   useEffect(() => {
-    if (selectedNode) return;
-    setSelected(derived.leafNodes[0]?.id ?? derived.root.id);
-  }, [derived.leafNodes, derived.root.id, selectedNode]);
+    const nextPlanId = planData.visibleRecords[0]?.id ?? planData.records[0]?.id ?? null;
+    if (!selectedPlanId || !planData.records.some((record) => record.id === selectedPlanId)) {
+      setSelectedPlanId(nextPlanId);
+    }
+  }, [planData.records, planData.visibleRecords, selectedPlanId]);
+
+  useEffect(() => {
+    if (!selectedPlan) {
+      if (selected !== null) setSelected(null);
+      return;
+    }
+    if (!selectedNode) {
+      setSelected(selectedPlan.root.id);
+    }
+  }, [selected, selectedNode, selectedPlan]);
 
   return (
     <div className="s-plan">
-      <div className="s-plan-inner">
+      <div className="s-plan-inner s-plan-inner--registry">
         <div className="s-plan-banner">
           <span className="s-plan-banner-badge">
-            ◉ Live plan
+            Plans
           </span>
           <span className="s-plan-banner-meta">
-            {workItems.length} work item{workItems.length === 1 ? "" : "s"} · {fleet?.activeAsks.length ?? 0} active ask{(fleet?.activeAsks.length ?? 0) === 1 ? "" : "s"} · {derived.pendingAttention.length} waiting on you
+            {isInitialLoading
+              ? "loading plan registry..."
+              : `${planData.records.length} record${planData.records.length === 1 ? "" : "s"} · ${planData.counts.ongoing} ongoing · ${planData.counts.recent} recent · ${planData.counts.review} review · ${planData.harnesses.length || "no"} harness${planData.harnesses.length === 1 ? "" : "es"}`}
           </span>
+          {loadError && (
+            <span className="s-plan-banner-meta s-plan-banner-meta--error">
+              partial data · {loadError}
+            </span>
+          )}
           <span style={{ flex: 1 }} />
           {fleet && (
             <span className="s-plan-banner-meta">
@@ -570,15 +718,56 @@ export function PlanView({
         </div>
 
         <div className="s-plan-col">
-          <div className="s-ops-eyebrow">◇ Mission</div>
-          <h1 className="s-plan-title">{derived.root.title}</h1>
-          <p className="s-plan-goal">{derived.root.summary}</p>
+          <div className="s-ops-eyebrow">Plan index</div>
+          <div className="s-plan-filterbar">
+            {(["ongoing", "recent", "all"] as const).map((nextFilter) => (
+              <button
+                key={nextFilter}
+                type="button"
+                className={`s-plan-tree-toggle-btn${filter === nextFilter ? " s-plan-tree-toggle-btn--active" : ""}`}
+                onClick={() => setFilter(nextFilter)}
+              >
+                {nextFilter}
+              </button>
+            ))}
+          </div>
+          <div className="s-plan-record-list">
+            {planData.visibleRecords.length === 0 ? (
+              <div className="s-plan-change-card">
+                <div className="s-plan-change-summary">
+                  {isInitialLoading
+                    ? "Loading plan registry"
+                    : loadError && planData.records.length === 0
+                      ? "Plan data did not load"
+                      : "No matching plan records"}
+                </div>
+                <div className="s-plan-change-why">
+                  {isInitialLoading
+                    ? "Fetching collaboration records, active asks, and recent finishes."
+                    : loadError && planData.records.length === 0
+                      ? loadError
+                      : planData.records.length === 0
+                    ? "No collaboration records or recent asks are available yet."
+                    : "Switch filters to inspect older or completed records."}
+                </div>
+              </div>
+            ) : (
+              planData.visibleRecords.map((record) => (
+                <PlanRecordButton
+                  key={record.id}
+                  record={record}
+                  selected={record.id === selectedPlan?.id}
+                  onSelect={() => {
+                    setSelectedPlanId(record.id);
+                    setSelected(record.root.id);
+                  }}
+                />
+              ))
+            )}
+          </div>
 
-          <div className="s-ops-eyebrow">Derived from live state</div>
-          <p className="s-plan-rationale">{derived.root.why}</p>
-
-          <div className="s-ops-eyebrow">Risks · watch</div>
-          {derived.risks.length === 0 ? (
+          <div className="s-ops-eyebrow" style={{ marginTop: 24 }}>Risks · watch</div>
+          {planData.risks.length === 0 ? (
             <div className="s-plan-change-card">
               <div className="s-plan-change-summary">No active blockers</div>
               <div className="s-plan-change-why">
@@ -586,48 +775,29 @@ export function PlanView({
               </div>
             </div>
           ) : (
-            derived.risks.map((risk) => (
+            planData.risks.map((risk) => (
               <RiskRow key={risk.id} risk={risk} />
             ))
-          )}
-
-          <div className="s-ops-eyebrow" style={{ marginTop: 24 }}>Agents on mission</div>
-          {agents.filter((agent) => countAssigned(derived.root, agent.id) > 0).length === 0 ? (
-            <div className="s-plan-change-card">
-              <div className="s-plan-change-summary">No assigned work yet</div>
-              <div className="s-plan-change-why">
-                As soon as asks and work items have clear owners, this roster will show who is carrying what.
-              </div>
-            </div>
-          ) : (
-            agents.map((agent) => {
-              const count = countAssigned(derived.root, agent.id);
-              if (count === 0) return null;
-              return (
-                <div key={agent.id} className="s-plan-agent-row">
-                  <div
-                    className="s-ops-avatar"
-                    style={{ "--size": "22px", background: actorColor(agent.name) } as React.CSSProperties}
-                  >
-                    {agent.name[0]?.toUpperCase()}
-                  </div>
-                  <div className="s-plan-agent-row-copy">
-                    <div className="s-plan-agent-row-name">{agent.name}</div>
-                    <div className="s-plan-agent-row-tasks">
-                      {count} item{count === 1 ? "" : "s"} assigned
-                    </div>
-                  </div>
-                </div>
-              );
-            })
           )}
         </div>
 
         <div className="s-plan-col" style={{ padding: "20px 16px 40px" }}>
+          {selectedPlan && (
+            <div className="s-plan-readonly-head">
+              <div>
+                <div className="s-ops-eyebrow">Read-only plan</div>
+                <h1 className="s-plan-title">{selectedPlan.title}</h1>
+                <p className="s-plan-goal">{selectedPlan.summary ?? selectedPlan.completion.summary}</p>
+              </div>
+              <span className="s-ops-state-chip" style={{ color: PLAN_STATUS_META[selectedPlan.status].color }}>
+                {PLAN_STATUS_META[selectedPlan.status].label}
+              </span>
+            </div>
+          )}
           <div className="s-plan-tree-header">
-            <div className="s-ops-eyebrow" style={{ marginBottom: 0 }}>◆ Execution tree</div>
+            <div className="s-ops-eyebrow" style={{ marginBottom: 0 }}>Execution tree</div>
             <span className="s-plan-tree-stats">
-              {derived.leafNodes.length} items · {derived.counts.done} recent done · {derived.counts.inflight} in flight · {derived.counts.stuck} stuck
+              {selectedPlan?.leafNodes.length ?? 0} item{(selectedPlan?.leafNodes.length ?? 0) === 1 ? "" : "s"} · created {selectedPlan ? timeAgo(selectedPlan.createdAt) : "never"} · updated {selectedPlan ? timeAgo(selectedPlan.updatedAt) : "never"}
             </span>
             <div className="s-plan-tree-toggle">
               {(["plan", "live"] as const).map((nextMode) => (
@@ -642,30 +812,87 @@ export function PlanView({
             </div>
           </div>
 
-          {derived.root.children && derived.root.children.length > 0 ? (
+          {selectedPlan ? (
             <TreeNode
-              node={derived.root}
+              node={selectedPlan.root}
               depth={0}
               mode={mode}
-              selected={selected ?? derived.root.id}
+              selected={selected ?? selectedPlan.root.id}
               setSelected={setSelected}
               agentsById={agentsById}
               nowMs={nowMs}
             />
           ) : (
             <div className="s-plan-change-card">
-              <div className="s-plan-change-summary">No live plan records yet</div>
+              <div className="s-plan-change-summary">
+                {isInitialLoading ? "Loading plan registry" : "No plan records yet"}
+              </div>
               <div className="s-plan-change-why">
-                The execution tree is populated from live work items and active asks. Dispatch work and it will appear here automatically.
+                {isInitialLoading
+                  ? "Resolving the latest collaboration state."
+                  : "Collaboration records and asks will appear here as they are created."}
               </div>
             </div>
           )}
         </div>
 
         <div className="s-plan-col" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {selectedPlan && (
+            <CompletionReviewCard
+              record={selectedPlan}
+              navigate={navigate}
+            />
+          )}
+
+          {selectedNode && (
+            <div>
+              <div className="s-ops-eyebrow">Selected node</div>
+              <NodeDetail
+                node={selectedNode}
+                agentsById={agentsById}
+                navigate={navigate}
+              />
+            </div>
+          )}
+
+          {selectedPlan && (
+            <div>
+              <div className="s-ops-eyebrow">Agents on plan</div>
+              {agents.filter((agent) => countAssigned(selectedPlan.root, agent.id) > 0).length === 0 ? (
+                <div className="s-plan-change-card">
+                  <div className="s-plan-change-summary">No assigned owner</div>
+                  <div className="s-plan-change-why">
+                    This record has no visible owner in the current fleet roster.
+                  </div>
+                </div>
+              ) : (
+                agents.map((agent) => {
+                  const count = countAssigned(selectedPlan.root, agent.id);
+                  if (count === 0) return null;
+                  return (
+                    <div key={agent.id} className="s-plan-agent-row">
+                      <div
+                        className="s-ops-avatar"
+                        style={{ "--size": "22px", background: actorColor(agent.name) } as React.CSSProperties}
+                      >
+                        {agent.name[0]?.toUpperCase()}
+                      </div>
+                      <div className="s-plan-agent-row-copy">
+                        <div className="s-plan-agent-row-name">{agent.name}</div>
+                        <div className="s-plan-agent-row-tasks">
+                          {count} item{count === 1 ? "" : "s"} · {agent.harness ?? "unknown harness"}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
           <div>
-            <div className="s-ops-eyebrow">↻ Attention queue · {derived.pendingAttention.length}</div>
-            {derived.pendingAttention.length === 0 ? (
+            <div className="s-ops-eyebrow">Attention · {planData.pendingAttention.length}</div>
+            {planData.pendingAttention.length === 0 ? (
               <div className="s-plan-change-card">
                 <div className="s-plan-change-summary">Nothing is waiting on you</div>
                 <div className="s-plan-change-why">
@@ -673,7 +900,7 @@ export function PlanView({
                 </div>
               </div>
             ) : (
-              derived.pendingAttention.map((item) => (
+              planData.pendingAttention.slice(0, 3).map((item) => (
                 <AttentionCard
                   key={item.recordId}
                   item={item}
@@ -684,8 +911,8 @@ export function PlanView({
           </div>
 
           <div>
-            <div className="s-ops-eyebrow">✓ Recent finishes · {derived.recentCompleted.length}</div>
-            {derived.recentCompleted.length === 0 ? (
+            <div className="s-ops-eyebrow">Recent finishes · {planData.recentCompleted.length}</div>
+            {planData.recentCompleted.length === 0 ? (
               <div className="s-plan-change-card">
                 <div className="s-plan-change-summary">No recent completions</div>
                 <div className="s-plan-change-why">
@@ -693,23 +920,98 @@ export function PlanView({
                 </div>
               </div>
             ) : (
-              derived.recentCompleted.map((ask) => (
+              planData.recentCompleted.map((ask) => (
                 <CompletedCard key={ask.invocationId} ask={ask} navigate={navigate} />
               ))
             )}
           </div>
-
-          {selectedNode && (
-            <div>
-              <div className="s-ops-eyebrow">◎ Selected</div>
-              <NodeDetail
-                node={selectedNode}
-                agentsById={agentsById}
-                navigate={navigate}
-              />
-            </div>
-          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanRecordButton({
+  record,
+  selected,
+  onSelect,
+}: {
+  record: PlanRecord;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const status = PLAN_STATUS_META[record.status];
+  return (
+    <button
+      type="button"
+      className={`s-plan-record${selected ? " s-plan-record--selected" : ""}`}
+      onClick={onSelect}
+    >
+      <div className="s-plan-record-top">
+        <span className="s-plan-change-kind" style={{ color: status.color }}>
+          {status.label}
+        </span>
+        <span className="s-plan-record-source">{record.source}</span>
+        <span className="s-plan-record-time">{timeAgo(record.updatedAt)}</span>
+      </div>
+      <div className="s-plan-record-title">{record.title}</div>
+      <div className="s-plan-record-summary">{record.summary ?? record.completion.summary}</div>
+      <div className="s-plan-record-foot">
+        <span>{record.leafNodes.length} item{record.leafNodes.length === 1 ? "" : "s"}</span>
+        <span>{record.ownerName ?? record.ownerId ?? "unassigned"}</span>
+        <span>{record.harnesses.length > 0 ? record.harnesses.join(", ") : "unknown harness"}</span>
+      </div>
+    </button>
+  );
+}
+
+function CompletionReviewCard({
+  record,
+  navigate,
+}: {
+  record: PlanRecord;
+  navigate: (route: Route) => void;
+}) {
+  const stateColor = record.completion.state === "verified"
+    ? "var(--green)"
+    : record.completion.state === "blocked" || record.completion.state === "needs_review"
+      ? "var(--amber)"
+      : "var(--accent)";
+
+  return (
+    <div className="s-plan-detail s-plan-completion">
+      <div className="s-ops-eyebrow">Completion</div>
+      <div className="s-plan-detail-header">
+        <span className="s-ops-state-chip" style={{ color: stateColor }}>
+          {record.completion.label}
+        </span>
+        <span className="s-plan-record-time">updated {timeAgo(record.updatedAt)}</span>
+      </div>
+      <div className="s-plan-detail-title">{record.completion.summary}</div>
+      <div className="s-plan-detail-why">{record.completion.detail}</div>
+      <div className="s-plan-detail-actions">
+        {record.route && (
+          <button
+            className="s-ops-btn s-ops-btn--primary"
+            onClick={() => navigate(record.route!)}
+          >
+            Open editor
+          </button>
+        )}
+        {record.ownerId && (
+          <button
+            className="s-ops-btn"
+            onClick={() =>
+              navigate({
+                view: "conversation",
+                conversationId: conversationForAgent(record.ownerId!),
+                composeMode: "ask",
+                composeDraft: completionReviewDraft(record),
+              })}
+          >
+            Evaluate with owner
+          </button>
+        )}
       </div>
     </div>
   );

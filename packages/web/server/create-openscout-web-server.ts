@@ -54,7 +54,7 @@ import {
   loadOpenScoutWebShellState,
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
-import { synthesizeVoxSpeech } from "./vox.ts";
+import { ensureOpenScoutVoxOrigins, synthesizeVoxSpeech } from "./vox.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -227,6 +227,7 @@ export async function createOpenScoutWebServer(
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
   const routes = resolveOpenScoutWebRoutes(process.env);
+  ensureOpenScoutVoxOrigins();
   const app = new Hono();
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
@@ -339,10 +340,15 @@ export async function createOpenScoutWebServer(
   const handleListWork = (c: Context) => {
     const agentId = c.req.query("agentId");
     const activeOnly = c.req.query("active") !== "false";
+    const rawLimit = Number(c.req.query("limit"));
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(250, Math.max(1, Math.floor(rawLimit)))
+      : undefined;
     return c.json(
       queryWorkItems({
         agentId: agentId || undefined,
         activeOnly,
+        limit,
       }),
     );
   };

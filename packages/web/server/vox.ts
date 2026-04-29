@@ -1,11 +1,20 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+const VOX_CLIENT_ID = "openscout-web";
 const DEFAULT_VOX_RPC_PORT = 42137;
 const DEFAULT_VOX_RPC_HOST = "127.0.0.1";
 const VOX_RPC_TIMEOUT_MS = 30_000;
+const OPENSCOUT_VOX_ORIGINS = [
+  "http://127.0.0.1:*",
+  "http://localhost:*",
+  "http://[::1]:*",
+  "https://127.0.0.1:*",
+  "https://localhost:*",
+  "https://[::1]:*",
+];
 
 export type VoxSpeechResult = {
   contentType: string;
@@ -22,7 +31,7 @@ export async function synthesizeVoxSpeech(input: {
   speed?: number;
 }): Promise<VoxSpeechResult> {
   const result = await callVoxRpc("synthesize.generate", {
-    clientId: "openscout-web",
+    clientId: VOX_CLIENT_ID,
     text: input.text,
     modelId: input.modelId ?? "avspeech:system",
     voiceId: input.voiceId,
@@ -42,6 +51,47 @@ export async function synthesizeVoxSpeech(input: {
     voiceId: stringValue(result.voiceId) || input.voiceId || "",
     audioBytes: Number(result.audioBytes ?? 0),
   };
+}
+
+export function ensureOpenScoutVoxOrigins(): void {
+  const originsPath = resolveOpenScoutVoxOriginsPath();
+  const body = `${JSON.stringify({ origins: OPENSCOUT_VOX_ORIGINS }, null, 2)}\n`;
+
+  try {
+    if (existsSync(originsPath) && readFileSync(originsPath, "utf8") === body) {
+      return;
+    }
+
+    mkdirSync(dirname(originsPath), { recursive: true });
+    writeFileSync(originsPath, body, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[vox] Could not register OpenScout browser origins: ${message}`);
+  }
+}
+
+function resolveOpenScoutVoxOriginsPath(): string {
+  return join(resolveVoxHome(), "origins.d", "openscout.json");
+}
+
+function resolveVoxHome(): string {
+  return process.env.VOX_HOME ?? join(homedir(), ".vox");
+}
+
+export function resolveVoxRpcPort(): number {
+  const runtimePath = process.env.VOX_RUNTIME_PATH ?? join(resolveVoxHome(), "runtime.json");
+  if (!existsSync(runtimePath)) {
+    const port = Number(process.env.VOX_PORT);
+    return Number.isFinite(port) && port > 0 ? port : DEFAULT_VOX_RPC_PORT;
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(runtimePath, "utf8")) as { port?: unknown };
+    const port = Number(parsed.port);
+    return Number.isFinite(port) && port > 0 ? port : DEFAULT_VOX_RPC_PORT;
+  } catch {
+    return DEFAULT_VOX_RPC_PORT;
+  }
 }
 
 async function callVoxRpc(
@@ -98,22 +148,6 @@ async function callVoxRpc(
       reject(new Error("Vox closed the connection before returning a result."));
     };
   });
-}
-
-function resolveVoxRpcPort(): number {
-  const runtimePath = process.env.VOX_RUNTIME_PATH ??
-    join(process.env.VOX_HOME ?? join(homedir(), ".vox"), "runtime.json");
-  if (!existsSync(runtimePath)) {
-    return Number(process.env.VOX_PORT ?? DEFAULT_VOX_RPC_PORT);
-  }
-
-  try {
-    const parsed = JSON.parse(readFileSync(runtimePath, "utf8")) as { port?: unknown };
-    const port = Number(parsed.port);
-    return Number.isFinite(port) && port > 0 ? port : DEFAULT_VOX_RPC_PORT;
-  } catch {
-    return DEFAULT_VOX_RPC_PORT;
-  }
 }
 
 function parseRpcPayload(data: unknown): Record<string, unknown> | null {

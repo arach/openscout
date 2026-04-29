@@ -1,6 +1,7 @@
 import "./fleet-home.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -25,6 +26,8 @@ type HeartrateBucketView = {
   value: number;
 };
 
+type LoadMode = "initial" | "background" | "manual";
+
 function greetingFor(hour: number): string {
   if (hour < 5) return "Still up";
   if (hour < 12) return "Good morning";
@@ -32,22 +35,137 @@ function greetingFor(hour: number): string {
   return "Good evening";
 }
 
+function settledError(result: PromiseSettledResult<unknown>): string | null {
+  if (result.status === "fulfilled") return null;
+  return result.reason instanceof Error ? result.reason.message : String(result.reason);
+}
+
+function activitySignalRank(item: ActivityItem): number {
+  if (item.kind === "flight_updated" && /\breplied\.?$/i.test(item.title ?? "")) {
+    return 0;
+  }
+
+  const text = (item.title ?? item.summary ?? "").trim().toLowerCase();
+  if (/^(kk|k|ok|okay|ping|pong|thanks|thank you)\.?$/.test(text)) {
+    return 0;
+  }
+
+  switch (item.kind) {
+    case "ask_failed":
+      return 110;
+    case "handoff_sent":
+      return 100;
+    case "collaboration_event":
+      return 95;
+    case "agent_message":
+      return 90;
+    case "status_message":
+      return 85;
+    case "ask_working":
+      return 75;
+    case "ask_opened":
+      return 70;
+    case "message_posted":
+      return 60;
+    case "invocation_recorded":
+      return 30;
+    case "flight_updated":
+      return 20;
+    default:
+      return 50;
+  }
+}
+
+function activitySignalKey(item: ActivityItem): string {
+  const text = (item.title ?? item.summary ?? "").trim().toLowerCase();
+  return `${item.conversationId ?? "global"}:${text}`;
+}
+
+function activityKindLabel(kind: string): string {
+  switch (kind) {
+    case "ask_opened":
+      return "ask";
+    case "handoff_sent":
+      return "handoff";
+    case "collaboration_event":
+      return "work";
+    case "agent_message":
+      return "message";
+    case "status_message":
+      return "status";
+    case "ask_failed":
+      return "failed";
+    case "ask_working":
+      return "working";
+    case "invocation_recorded":
+      return "recorded";
+    case "flight_updated":
+      return "flight";
+    default:
+      return kind.replace(/_/g, " ");
+  }
+}
+
+function homeActivitySignals(items: ActivityItem[], limit = 12): ActivityItem[] {
+  const ranked = items
+    .map((item) => ({ item, rank: activitySignalRank(item) }))
+    .filter(({ rank }) => rank > 0)
+    .sort((left, right) => {
+      const recency = right.item.ts - left.item.ts;
+      if (Math.abs(recency) > 30_000) return recency;
+      return right.rank - left.rank;
+    });
+
+  const selected: ActivityItem[] = [];
+  const seen = new Set<string>();
+  for (const { item } of ranked) {
+    const key = activitySignalKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(item);
+    if (selected.length >= limit) break;
+  }
+
+  return selected.sort((left, right) => right.ts - left.ts);
+}
+
 export function HomeScreen({
   navigate,
 }: {
   navigate: (r: Route) => void;
 }) {
-  const { agents, onboarding } = useScout();
+  const { agents, onboarding, reload } = useScout();
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [heartrate, setHeartrate] = useState<HeartrateBucketView[]>([]);
   const [heartrateWindow, setHeartrateWindow] = useState("trailing 7d");
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
+  const lastForegroundRefreshAtRef = useRef(0);
+  const fleetRef = useRef<FleetState | null>(null);
 
-  const load = useCallback(async () => {
-    const [activityResult, sessionsResult, fleetResult, heartrateResult] =
+  useEffect(() => {
+    fleetRef.current = fleet;
+  }, [fleet]);
+
+  const load = useCallback(async (mode: LoadMode = "initial") => {
+    const requestId = ++requestIdRef.current;
+    const hasSnapshot = fleetRef.current !== null;
+
+    if (!hasSnapshot && mode !== "background") {
+      setLoading(true);
+      setError(null);
+    } else {
+      setRefreshing(true);
+    }
+
+    const [activityResult, sessionsResult, fleetResult, heartrateResult, agentsResult] =
       await Promise.allSettled([
         api<ActivityItem[]>("/api/activity"),
         api<SessionEntry[]>("/api/sessions"),
@@ -57,7 +175,11 @@ export function HomeScreen({
           bucketLabel?: string;
           buckets: HeartrateBucketView[];
         }>("/api/heartrate"),
+        reload(),
       ]);
+
+    if (requestId !== requestIdRef.current) return;
+
     if (activityResult.status === "fulfilled")
       setActivity(activityResult.value);
     if (sessionsResult.status === "fulfilled")
@@ -66,19 +188,36 @@ export function HomeScreen({
           (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
         ),
       );
-    if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
+    if (fleetResult.status === "fulfilled") {
+      fleetRef.current = fleetResult.value;
+      setFleet(fleetResult.value);
+    }
     if (heartrateResult.status === "fulfilled") {
       setHeartrate(heartrateResult.value.buckets);
       setHeartrateWindow(heartrateResult.value.windowLabel);
       setHeartrateBucketLabel(heartrateResult.value.bucketLabel ?? "");
     }
-  }, []);
+
+    const errors = [
+      settledError(activityResult),
+      settledError(sessionsResult),
+      settledError(fleetResult),
+      settledError(heartrateResult),
+      settledError(agentsResult),
+    ].filter((message): message is string => Boolean(message));
+    setError(errors[0] ?? null);
+    if (errors.length < 5) {
+      setLastLoadedAt(Date.now());
+    }
+    setLoading(false);
+    setRefreshing(false);
+  }, [reload]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) return;
     refreshTimerRef.current = setTimeout(() => {
       refreshTimerRef.current = null;
-      void load();
+      void load("background");
     }, 250);
   }, [load]);
 
@@ -89,6 +228,37 @@ export function HomeScreen({
     };
   }, [load]);
   useBrokerEvents(scheduleRefresh);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void load("background");
+      }
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastForegroundRefreshAtRef.current < 1000) {
+        return;
+      }
+      lastForegroundRefreshAtRef.current = now;
+      void load("background");
+    };
+
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [load]);
 
   const active = useMemo(
     () => agents.filter((a) => normalizeAgentState(a.state) === "working"),
@@ -102,41 +272,57 @@ export function HomeScreen({
       }),
     [agents],
   );
-  const done = useMemo(
+  const offline = useMemo(
     () => agents.filter((a) => normalizeAgentState(a.state) === "offline"),
     [agents],
   );
 
-  const pendingAsks = useMemo(
+  const needsYouAsks = useMemo(
     () =>
       (fleet?.activeAsks ?? []).filter(
-        (a) => a.status === "needs_attention" || a.status === "queued",
+        (a) => a.status === "needs_attention" || a.status === "failed",
       ),
     [fleet],
   );
-  // Work items needing input live on `fleet.needsAttention` alongside questions.
-  // Filter to just work_items here — questions overlap with `pendingAsks` above
-  // and would double-count.
-  const needsAttentionWork = useMemo(
+  const movingAsks = useMemo(
     () =>
-      (fleet?.needsAttention ?? []).filter((item) => item.kind === "work_item"),
+      (fleet?.activeAsks ?? []).filter(
+        (a) => a.status === "queued" || a.status === "working",
+      ),
     [fleet],
   );
-  const answeredAsks = useMemo(
-    () => (fleet?.recentCompleted ?? []).slice(0, 3),
-    [fleet],
+  const needsYouItems = useMemo(() => fleet?.needsAttention ?? [], [fleet]);
+  const activeAskByAgent = useMemo(() => {
+    const byAgent = new Map<string, FleetAsk>();
+    for (const ask of movingAsks) {
+      const current = byAgent.get(ask.agentId);
+      if (!current || ask.updatedAt > current.updatedAt) {
+        byAgent.set(ask.agentId, ask);
+      }
+    }
+    return byAgent;
+  }, [movingAsks]);
+  const movingAsksWithoutActiveAgent = useMemo(
+    () =>
+      movingAsks.filter(
+        (ask) => !active.some((agent) => agent.id === ask.agentId),
+      ),
+    [active, movingAsks],
   );
 
-  const totalNeedsYou = pendingAsks.length + needsAttentionWork.length;
+  const totalNeedsYou = needsYouAsks.length + needsYouItems.length;
   const oldestNeedsTs = useMemo(() => {
     const stamps = [
-      ...pendingAsks.map((a) => a.updatedAt),
-      ...needsAttentionWork.map((w) => w.updatedAt),
+      ...needsYouAsks.map((a) => a.updatedAt),
+      ...needsYouItems.map((w) => w.updatedAt),
     ];
     return stamps.length > 0 ? Math.min(...stamps) : null;
-  }, [pendingAsks, needsAttentionWork]);
+  }, [needsYouAsks, needsYouItems]);
 
-  const activityPreview = useMemo(() => activity.slice(0, 8), [activity]);
+  const activityPreview = useMemo(() => homeActivitySignals(activity), [activity]);
+  const activityPreviewLabel = activityPreview.length === 0
+    ? "quiet"
+    : `latest ${activityPreview.length} signal${activityPreview.length === 1 ? "" : "s"}`;
   const now = new Date();
   const greeting = greetingFor(now.getHours());
   const opsEnabled = isOpsEnabled();
@@ -149,16 +335,23 @@ export function HomeScreen({
     const parts: string[] = [];
     if (active.length > 0)
       parts.push(`${active.length} agent${active.length === 1 ? " is" : "s are"} working now`);
+    if (waiting.length > 0)
+      parts.push(`${waiting.length} agent${waiting.length === 1 ? " is" : "s are"} available`);
     if (totalNeedsYou > 0)
       parts.push(`${totalNeedsYou} thing${totalNeedsYou === 1 ? "" : "s"} need${totalNeedsYou === 1 ? "s" : ""} you`);
-    if (answeredAsks.length > 0)
-      parts.push(`${answeredAsks.length} ask${answeredAsks.length === 1 ? " was" : "s were"} resolved recently`);
     if (parts.length === 0 && agents.length > 0)
       parts.push(`${agents.length} agent${agents.length === 1 ? " is" : "s are"} registered`);
     if (parts.length === 0)
       parts.push("no agents are connected yet");
     return parts;
-  }, [active, totalNeedsYou, answeredAsks, agents]);
+  }, [active, waiting, totalNeedsYou, agents]);
+  const syncLabel = loading
+    ? "syncing"
+    : error
+      ? `sync issue · ${lastLoadedAt ? timeAgo(lastLoadedAt) : "waiting"}`
+      : lastLoadedAt
+        ? `updated ${timeAgo(lastLoadedAt)}`
+        : "waiting";
 
   return (
     <div className="s-fleet-home">
@@ -173,6 +366,11 @@ export function HomeScreen({
                 month: "short",
                 day: "numeric",
               })}
+              <span
+                className={`s-fleet-sync-note${error ? " s-fleet-sync-note--error" : ""}`}
+              >
+                {syncLabel}
+              </span>
             </div>
             <h1 className="s-hero-greeting">
               {greeting}, <em>{operatorName}.</em>
@@ -216,6 +414,20 @@ export function HomeScreen({
               >
                 Jump to thread
               </button>
+              <button
+                type="button"
+                className="s-btn-fleet s-btn-fleet--icon"
+                disabled={loading || refreshing}
+                onClick={() => void load("manual")}
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  size={12}
+                  strokeWidth={2}
+                  className={refreshing ? "s-refresh-spin" : undefined}
+                />
+                <span>{refreshing ? "Refreshing" : "Refresh"}</span>
+              </button>
             </div>
           </div>
 
@@ -231,7 +443,7 @@ export function HomeScreen({
             <div className="s-heartrate-stats">
               <StatCell label="Active" value={active.length} color="var(--green)" />
               <StatCell label="Waiting" value={waiting.length} color="var(--amber)" />
-              <StatCell label="Done" value={done.length} color="var(--dim)" />
+              <StatCell label="Offline" value={offline.length} color="var(--dim)" />
             </div>
           </div>
         </div>
@@ -251,9 +463,9 @@ export function HomeScreen({
             }
           />
 
-          {pendingAsks.length > 0 && (
+          {needsYouAsks.length > 0 && (
             <div className="s-ask-grid">
-              {pendingAsks.slice(0, 4).map((ask) => (
+              {needsYouAsks.slice(0, 4).map((ask) => (
                 <AskBlock
                   key={ask.invocationId}
                   ask={ask}
@@ -266,9 +478,9 @@ export function HomeScreen({
             </div>
           )}
 
-          {needsAttentionWork.length > 0 && (
+          {needsYouItems.length > 0 && (
             <div className="s-attention-list">
-              {needsAttentionWork.map((item) => (
+              {needsYouItems.map((item) => (
                 <AttentionRow
                   key={item.recordId}
                   item={item}
@@ -279,34 +491,21 @@ export function HomeScreen({
           )}
 
           {totalNeedsYou === 0 && (
-            <div className="s-ask-grid">
-              {answeredAsks.slice(0, 2).map((ask) => (
-                <AskBlock
-                  key={ask.invocationId}
-                  ask={ask}
-                  agents={agents}
-                  navigate={navigate}
-                  operatorName={operatorName}
-                  pending={false}
-                />
-              ))}
-              {answeredAsks.length === 0 && (
-                <div className="s-ask-empty">
-                  <span className="s-eyebrow">No more asks</span>
-                  <span className="s-ask-empty-detail">
-                    Fleet is unblocked on you.
-                  </span>
-                </div>
-              )}
-            </div>
+            <FleetClearState
+              agents={agents}
+              activeCount={active.length}
+              waitingCount={waiting.length}
+              offlineCount={offline.length}
+              navigate={navigate}
+            />
           )}
         </div>
 
         {/* ── What's moving ──────────────────────────────────────── */}
-        {active.length > 0 && (
+        {(active.length > 0 || movingAsksWithoutActiveAgent.length > 0) && (
           <div className="s-fleet-section">
             <SectionRule
-              label={`What's moving · ${active.length} active`}
+              label={`What's moving · ${active.length + movingAsksWithoutActiveAgent.length}`}
               right={
                 <button
                   className="s-link-btn"
@@ -316,20 +515,34 @@ export function HomeScreen({
                 </button>
               }
             />
-            <div
-              className="s-now-grid"
-              style={{
-                gridTemplateColumns: `repeat(${Math.min(active.length, 3)}, 1fr)`,
-              }}
-            >
-              {active.map((agent) => (
-                <NowCard
-                  key={agent.id}
-                  agent={agent}
-                  navigate={navigate}
-                />
-              ))}
-            </div>
+            {active.length > 0 && (
+              <div
+                className="s-now-grid"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.min(active.length, 3)}, 1fr)`,
+                }}
+              >
+                {active.map((agent) => (
+                  <NowCard
+                    key={agent.id}
+                    agent={agent}
+                    ask={activeAskByAgent.get(agent.id) ?? null}
+                    navigate={navigate}
+                  />
+                ))}
+              </div>
+            )}
+            {movingAsksWithoutActiveAgent.length > 0 && (
+              <div className="s-moving-ask-list">
+                {movingAsksWithoutActiveAgent.map((ask) => (
+                  <MovingAskRow
+                    key={ask.invocationId}
+                    ask={ask}
+                    navigate={navigate}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -338,7 +551,7 @@ export function HomeScreen({
           <div className="s-fleet-section">
             <SectionRule
               label="Since you were away"
-              right={`last hour · ${activityPreview.length} events`}
+              right={activityPreviewLabel}
             />
             <SinceTimeline
               items={activityPreview}
@@ -502,6 +715,123 @@ function SectionRule({
   );
 }
 
+function FleetClearState({
+  agents,
+  activeCount,
+  waitingCount,
+  offlineCount,
+  navigate,
+}: {
+  agents: Agent[];
+  activeCount: number;
+  waitingCount: number;
+  offlineCount: number;
+  navigate: (r: Route) => void;
+}) {
+  const roster = useMemo(() => {
+    const stateRank = (agent: Agent) => {
+      switch (normalizeAgentState(agent.state)) {
+        case "working":
+          return 0;
+        case "available":
+          return 1;
+        default:
+          return 2;
+      }
+    };
+
+    return [...agents]
+      .sort((left, right) => {
+        const byState = stateRank(left) - stateRank(right);
+        if (byState !== 0) return byState;
+        return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
+      })
+      .slice(0, 8);
+  }, [agents]);
+
+  return (
+    <div className="s-fleet-clear">
+      <div className="s-fleet-clear-head">
+        <div>
+          <span className="s-eyebrow">Fleet overview</span>
+          <div className="s-fleet-clear-title">
+            {agents.length === 0
+              ? "No agents registered"
+              : `${agents.length} agent${agents.length === 1 ? "" : "s"} registered`}
+          </div>
+        </div>
+        <button
+          className="s-link-btn"
+          onClick={() => navigate({ view: "agents" })}
+        >
+          open agents
+        </button>
+      </div>
+
+      <div className="s-fleet-clear-metrics">
+        <FleetMetric label="Working" value={activeCount} color="var(--green)" />
+        <FleetMetric label="Available" value={waitingCount} color="var(--accent)" />
+        <FleetMetric label="Offline" value={offlineCount} color="var(--dim)" />
+      </div>
+
+      {roster.length > 0 ? (
+        <div className="s-fleet-roster">
+          {roster.map((agent) => {
+            const displayState = normalizeAgentState(agent.state);
+            const handle = agent.handle ? `@${agent.handle}` : agent.selector ?? agent.id;
+            const role = agent.role ?? agent.agentClass;
+            const route: Route = {
+              view: "agents",
+              agentId: agent.id,
+              conversationId: agent.conversationId || conversationForAgent(agent.id),
+              tab: displayState === "offline" ? "profile" : "observe",
+            };
+
+            return (
+              <button
+                key={agent.id}
+                className="s-fleet-roster-row"
+                onClick={() => navigate(route)}
+              >
+                <span
+                  className="s-fleet-roster-dot"
+                  style={{ background: stateColor(agent.state) }}
+                />
+                <span className="s-fleet-roster-name">{agent.name}</span>
+                <span className="s-fleet-roster-meta">{handle} · {role}</span>
+                <span className="s-fleet-roster-state">{displayState}</span>
+                <span className="s-fleet-roster-time">
+                  {agent.updatedAt ? timeAgo(agent.updatedAt) : "no heartbeat"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="s-fleet-clear-empty">No roster entries.</div>
+      )}
+    </div>
+  );
+}
+
+function FleetMetric({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="s-fleet-metric">
+      <span className="s-fleet-metric-dot" style={{ background: color }} />
+      <span className="s-eyebrow">{label}</span>
+      <span className="s-fleet-metric-value">{value}</span>
+    </div>
+  );
+}
+
 function AskBlock({
   ask,
   agents,
@@ -529,7 +859,7 @@ function AskBlock({
     >
       <div className="s-ask-header">
         <span className="s-eyebrow s-ask-label">
-          {pending ? "◌ ASK — AWAITING" : "● ASK — RESOLVED"}
+          {pending ? "◌ ASK — ATTENTION" : "● ASK"}
         </span>
         <span style={{ flex: 1 }} />
         <span className="s-eyebrow">{timeAgo(ask.updatedAt)}</span>
@@ -590,6 +920,14 @@ function AttentionRow({
       : item.kind === "question"
         ? "awaiting answer"
         : "your move";
+  const actionLabel =
+    item.kind === "question"
+      ? "answer"
+      : item.state === "review"
+        ? "review"
+        : item.acceptanceState === "pending"
+          ? "acknowledge"
+          : "open work";
 
   return (
     <div
@@ -605,6 +943,7 @@ function AttentionRow({
         <span>{stateLabel}</span>
         <span style={{ color: "var(--amber)" }}>{responseLabel}</span>
         <span style={{ marginLeft: "auto" }}>{timeAgo(item.updatedAt)}</span>
+        {route && <span className="s-attention-row-action">{actionLabel} ↗</span>}
       </div>
       {item.summary && (
         <p className="s-attention-row-summary">{item.summary}</p>
@@ -615,15 +954,18 @@ function AttentionRow({
 
 function NowCard({
   agent,
+  ask,
   navigate,
 }: {
   agent: Agent;
+  ask?: FleetAsk | null;
   navigate: (r: Route) => void;
 }) {
   const handle = agent.handle ? `@${agent.handle}` : agent.id;
   const role = agent.role ?? agent.agentClass;
   const branch = agent.branch ?? "main";
   const conversationId = conversationForAgent(agent.id);
+  const taskText = ask?.summary ?? ask?.task ?? agent.cwd ?? `Working in ${agent.project ?? "workspace"}`;
 
   return (
     <div
@@ -654,13 +996,13 @@ function NowCard({
       </div>
 
       <div className="s-now-card-task">
-        {agent.cwd ?? `Working in ${agent.project ?? "workspace"}`}
+        {taskText}
       </div>
 
       <div className="s-now-card-ticker">
         <span className="s-now-card-ticker-prompt">›</span>
         <span className="s-now-card-ticker-text">
-          working…
+          {ask ? `${ask.statusLabel} · ${ask.harness ?? agent.harness ?? "agent"}` : "working"}
         </span>
         <span className="s-now-card-cursor" />
       </div>
@@ -670,6 +1012,40 @@ function NowCard({
         <span>{branch}</span>
       </div>
     </div>
+  );
+}
+
+function MovingAskRow({
+  ask,
+  navigate,
+}: {
+  ask: FleetAsk;
+  navigate: (r: Route) => void;
+}) {
+  const route: Route = ask.conversationId
+    ? { view: "conversation", conversationId: ask.conversationId }
+    : ask.collaborationRecordId
+      ? { view: "work", workId: ask.collaborationRecordId }
+      : { view: "agents", agentId: ask.agentId };
+
+  return (
+    <button
+      className="s-moving-ask-row"
+      onClick={() => navigate(route)}
+    >
+      <span className="s-moving-ask-agent">
+        {ask.agentName ?? ask.agentId}
+      </span>
+      <span className="s-moving-ask-title">
+        {ask.summary ?? ask.task}
+      </span>
+      <span className="s-moving-ask-state">
+        {ask.statusLabel}
+      </span>
+      <span className="s-moving-ask-time">
+        {timeAgo(ask.updatedAt)}
+      </span>
+    </button>
   );
 }
 
@@ -687,6 +1063,16 @@ function SinceTimeline({
   );
 
   const kindMark: Record<string, string> = {
+    ask_opened: "?",
+    ask_failed: "!",
+    ask_working: "…",
+    handoff_sent: "→",
+    collaboration_event: "◆",
+    agent_message: "·",
+    status_message: "·",
+    message_posted: "·",
+    invocation_recorded: "⌘",
+    flight_updated: "⌘",
     "collaboration.ask": "?",
     "message.sent": "·",
     "message.received": "·",
@@ -699,6 +1085,16 @@ function SinceTimeline({
   };
 
   const kindColor: Record<string, string> = {
+    ask_opened: "var(--amber)",
+    ask_failed: "var(--red)",
+    ask_working: "var(--amber)",
+    handoff_sent: "var(--accent)",
+    collaboration_event: "var(--green)",
+    agent_message: "var(--dim)",
+    status_message: "var(--muted)",
+    message_posted: "var(--dim)",
+    invocation_recorded: "var(--muted)",
+    flight_updated: "var(--green)",
     "collaboration.ask": "var(--amber)",
     "collaboration.answer": "var(--accent)",
     "message.sent": "var(--dim)",
@@ -717,7 +1113,7 @@ function SinceTimeline({
         const actor = item.actorName ?? "system";
         const color = kindColor[item.kind] ?? "var(--dim)";
         const mark = kindMark[item.kind] ?? "·";
-        const kindLabel = item.kind.split(".").pop() ?? item.kind;
+        const kindLabel = activityKindLabel(item.kind);
         const route: Route | null = item.conversationId
           ? { view: "conversation", conversationId: item.conversationId }
           : null;

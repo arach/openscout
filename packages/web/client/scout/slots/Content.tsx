@@ -46,6 +46,7 @@ function renderScreen(
         <ConversationScreen
           conversationId={route.conversationId}
           initialComposeMode={route.composeMode}
+          initialDraft={route.composeDraft}
           navigate={navigate}
         />
       );

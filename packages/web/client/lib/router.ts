@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import type { AgentTab, Route } from "./types.ts";
+import type { AgentTab, OpsMode, Route } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
 
@@ -12,6 +12,40 @@ function parseAgentTab(value: string | null): AgentTab | undefined {
       return value;
     default:
       return undefined;
+  }
+}
+
+function parseOpsMode(value: string | undefined): OpsMode | undefined {
+  switch (value) {
+    case "command":
+    case "warroom":
+      return "warroom";
+    case "control":
+    case "mission":
+      return "mission";
+    case "conduct":
+    case "conductor":
+      return "conductor";
+    case "plan":
+    case "agents":
+    case "tail":
+    case "atop":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function opsModePath(mode: OpsMode): string {
+  switch (mode) {
+    case "warroom":
+      return "command";
+    case "mission":
+      return "control";
+    case "conductor":
+      return "conduct";
+    default:
+      return mode;
   }
 }
 
@@ -78,16 +112,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
     if (!isOpsEnabled()) {
       return { view: "inbox" };
     }
-    const mode = parts[1];
-    if (
-      mode === "conductor" ||
-      mode === "warroom" ||
-      mode === "plan" ||
-      mode === "mission" ||
-      mode === "agents" ||
-      mode === "tail" ||
-      mode === "atop"
-    ) {
+    const mode = parseOpsMode(parts[1]);
+    if (mode) {
       return { view: "ops", mode };
     }
     return { view: "ops" };
@@ -155,7 +181,7 @@ export function routePath(r: Route): string {
     case "settings":
       return "/settings";
     case "ops":
-      return r.mode && r.mode !== "plan" ? `/ops/${r.mode}` : "/ops";
+      return r.mode ? `/ops/${opsModePath(r.mode)}` : "/ops";
     case "terminal":
       return r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal";
   }
