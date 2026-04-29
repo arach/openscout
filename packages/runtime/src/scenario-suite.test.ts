@@ -325,6 +325,131 @@ describe("runtime scenario suite", () => {
   );
 
   runtimeScenario(
+    "routes a release-confidence ask through a pairing adapter session",
+    async (scenario) => {
+      const pairing = await scenario.startPairingBridgeServer({
+        sessions: [
+          {
+            id: "session.release-confidence.echo",
+            name: "Release Adapter",
+            adapterType: "echo",
+            status: "idle",
+            cwd: "/tmp/release-confidence",
+            adapterBacked: true,
+            adapterOptions: {
+              stepDelay: 0,
+            },
+          },
+        ],
+      });
+      const home = scenario.configurePairingHome(pairing.port);
+      const broker = await scenario.startBroker({
+        env: {
+          HOME: home,
+          OPENSCOUT_SUPPORT_DIRECTORY: `${home}/Library/Application Support/OpenScout`,
+          OPENSCOUT_RELAY_HUB: `${home}/.openscout/relay`,
+          OPENSCOUT_SKIP_USER_PROJECT_HINTS: "1",
+        },
+      });
+      await scenario.seedOperator(broker);
+
+      const attached = await scenario.post<{
+        ok: boolean;
+        agentId: string;
+        selector: string;
+        endpointId: string;
+      }>(broker, "/v1/pairing/attach", {
+        externalSessionId: "session.release-confidence.echo",
+        alias: "@release-adapter",
+        displayName: "Release Adapter",
+      });
+
+      expect(attached.ok).toBe(true);
+      expect(attached.selector).toBe("@release-adapter");
+
+      const body = "Review docs freshness and OG image readiness for a big-release confidence pass. Keep the reply short.";
+      const delivery = await scenario.post<ScoutDeliverResponse>(broker, "/v1/deliver", {
+        id: "deliver-release-confidence-adapter",
+        requesterId: "operator",
+        requesterNodeId: broker.nodeId,
+        body,
+        intent: "consult",
+        targetAgentId: attached.agentId,
+        ensureAwake: true,
+        createdAt: Date.now(),
+        messageMetadata: {
+          routine: "release-confidence",
+        },
+        invocationMetadata: {
+          routine: "release-confidence",
+        },
+      });
+
+      if (delivery.kind !== "delivery" || !delivery.flight) {
+        throw new Error("expected release-confidence delivery with a flight");
+      }
+
+      const invocationId = delivery.flight.invocationId;
+      const completed = await scenario.waitFor(
+        () => scenario.get<{
+          flight: {
+            state: string;
+            output?: string;
+          } | null;
+        }>(broker, `/v1/invocations/${encodeURIComponent(invocationId)}`),
+        (snapshot) => snapshot.flight?.state === "completed",
+        8_000,
+      );
+
+      expect(completed.flight?.output).toBe(`Echo: ${body}`);
+
+      const messages = await scenario.waitFor(
+        () => scenario.listMessages(broker, delivery.conversation.id),
+        (records) => records.some((record) => record.actorId === attached.agentId && record.body === `Echo: ${body}`),
+        8_000,
+      );
+      expect(messages.map((message) => message.body)).toEqual([
+        body,
+        `Echo: ${body}`,
+      ]);
+
+      const reply = messages.find((message) => message.actorId === attached.agentId);
+      expect(reply?.metadata).toEqual(expect.objectContaining({
+        invocationId,
+        responderHarness: "bridge",
+        responderTransport: "pairing_bridge",
+        responderSessionId: "session.release-confidence.echo",
+      }));
+
+      const requestDeliveries = (await scenario.listDeliveries(broker))
+        .filter((record) => record.messageId === delivery.message.id);
+      expect(requestDeliveries.map(deliverySummary)).toContainEqual({
+        messageId: delivery.message.id,
+        targetId: attached.agentId,
+        transport: "pairing_bridge",
+        reason: "direct_message",
+      });
+
+      const snapshot = await scenario.snapshot<{
+        endpoints: Record<string, {
+          transport: string;
+          sessionId?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+      }>(broker);
+      expect(snapshot.endpoints[attached.endpointId]).toEqual(expect.objectContaining({
+        transport: "pairing_bridge",
+        sessionId: "session.release-confidence.echo",
+        metadata: expect.objectContaining({
+          managedByScout: true,
+          pairingAdapterType: "echo",
+          sessionBacked: true,
+        }),
+      }));
+    },
+  );
+
+  runtimeScenario(
     "wakes a docs reviewer from a collaboration record and hands findings to an editor",
     async (scenario) => {
       const broker = await scenario.startBroker();
@@ -769,7 +894,7 @@ describe("runtime scenario suite", () => {
   runtimeScenario(
     "attaches a Codex local session and routes direct messages through pairing_bridge",
     async (scenario) => {
-      const pairing = scenario.startPairingBridgeServer({ sessions: [] });
+      const pairing = await scenario.startPairingBridgeServer({ sessions: [] });
       const home = scenario.configurePairingHome(pairing.port);
       const broker = await scenario.startBroker({
         env: {

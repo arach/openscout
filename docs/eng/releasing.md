@@ -48,6 +48,26 @@ Overrides:
 - `OPENSCOUT_NOTARY_PROFILE` — use a different notarytool profile name.
 - `SKIP_NOTARIZE=1` — local packaging only; produces an unnotarized DMG.
 
+## Release confidence
+
+For normal development, keep the faster checks focused:
+
+```bash
+bun run check
+bun run test:scenarios
+```
+
+Before a larger release, run the opt-in live adapter pass as well:
+
+```bash
+bun run test:release:confidence
+```
+
+The final step starts real Codex and Claude-backed local agents through the
+broker, so it requires authenticated local CLIs and is intentionally not part
+of the default check path. Set `OPENSCOUT_KEEP_LIVE_PASS=1` to preserve the
+broker snapshot, event log, and ask transcripts when investigating a failure.
+
 ## Version bump
 
 All four npm packages are versioned in lockstep. Bump them together in a
