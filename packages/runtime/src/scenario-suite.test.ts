@@ -325,16 +325,16 @@ describe("runtime scenario suite", () => {
   );
 
   runtimeScenario(
-    "routes a release-confidence ask through a pairing adapter session",
+    "routes an e2e ask through a pairing adapter session",
     async (scenario) => {
       const pairing = await scenario.startPairingBridgeServer({
         sessions: [
           {
-            id: "session.release-confidence.echo",
-            name: "Release Adapter",
+            id: "session.e2e.echo",
+            name: "E2E Adapter",
             adapterType: "echo",
             status: "idle",
-            cwd: "/tmp/release-confidence",
+            cwd: "/tmp/openscout-e2e",
             adapterBacked: true,
             adapterOptions: {
               stepDelay: 0,
@@ -359,17 +359,17 @@ describe("runtime scenario suite", () => {
         selector: string;
         endpointId: string;
       }>(broker, "/v1/pairing/attach", {
-        externalSessionId: "session.release-confidence.echo",
-        alias: "@release-adapter",
-        displayName: "Release Adapter",
+        externalSessionId: "session.e2e.echo",
+        alias: "@e2e-adapter",
+        displayName: "E2E Adapter",
       });
 
       expect(attached.ok).toBe(true);
-      expect(attached.selector).toBe("@release-adapter");
+      expect(attached.selector).toBe("@e2e-adapter");
 
-      const body = "Review docs freshness and OG image readiness for a big-release confidence pass. Keep the reply short.";
+      const body = "Review docs freshness and OG image readiness for an OpenScout e2e pass. Keep the reply short.";
       const delivery = await scenario.post<ScoutDeliverResponse>(broker, "/v1/deliver", {
-        id: "deliver-release-confidence-adapter",
+        id: "deliver-e2e-adapter",
         requesterId: "operator",
         requesterNodeId: broker.nodeId,
         body,
@@ -378,15 +378,15 @@ describe("runtime scenario suite", () => {
         ensureAwake: true,
         createdAt: Date.now(),
         messageMetadata: {
-          routine: "release-confidence",
+          routine: "agent-e2e",
         },
         invocationMetadata: {
-          routine: "release-confidence",
+          routine: "agent-e2e",
         },
       });
 
       if (delivery.kind !== "delivery" || !delivery.flight) {
-        throw new Error("expected release-confidence delivery with a flight");
+        throw new Error("expected e2e delivery with a flight");
       }
 
       const invocationId = delivery.flight.invocationId;
@@ -418,7 +418,7 @@ describe("runtime scenario suite", () => {
         invocationId,
         responderHarness: "bridge",
         responderTransport: "pairing_bridge",
-        responderSessionId: "session.release-confidence.echo",
+        responderSessionId: "session.e2e.echo",
       }));
 
       const requestDeliveries = (await scenario.listDeliveries(broker))
@@ -439,7 +439,7 @@ describe("runtime scenario suite", () => {
       }>(broker);
       expect(snapshot.endpoints[attached.endpointId]).toEqual(expect.objectContaining({
         transport: "pairing_bridge",
-        sessionId: "session.release-confidence.echo",
+        sessionId: "session.e2e.echo",
         metadata: expect.objectContaining({
           managedByScout: true,
           pairingAdapterType: "echo",

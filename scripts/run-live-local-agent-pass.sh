@@ -6,20 +6,30 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
   cat <<'EOF'
-Run a live same-machine Codex <-> Claude broker pass against a fresh local broker.
+Run a same-machine Codex <-> Claude broker e2e pass against a fresh local broker.
 
 This helper:
 1. builds runtime artifacts unless OPENSCOUT_SKIP_BUILD=1
 2. starts an isolated broker on a random localhost port
 3. starts one Codex-backed agent in the repo root
 4. starts one Claude-backed agent from a detached worktree
-5. runs one real broker-routed ask in each direction
-6. saves snapshot/event artifacts for inspection
+5. runs one real broker-routed ask in each direction around a mission
+6. saves mission, prompt, snapshot, and event artifacts for inspection
 
 Usage:
-  bash scripts/run-live-local-agent-pass.sh
+  bash scripts/run-live-local-agent-pass.sh [options]
+
+Options:
+  --mission <text>             Open-ended mission for this e2e pass
+  --codex-to-claude <text>     Exact prompt sent from Codex to Claude
+  --claude-to-codex <text>     Exact prompt sent from Claude to Codex
+  --keep                       Preserve broker artifacts after a successful run
+  --skip-build                 Reuse existing runtime build artifacts
 
 Useful environment overrides:
+  OPENSCOUT_E2E_MISSION="Verify docs freshness and update the KB if needed"
+  OPENSCOUT_E2E_CODEX_TO_CLAUDE_PROMPT="..."
+  OPENSCOUT_E2E_CLAUDE_TO_CODEX_PROMPT="..."
   OPENSCOUT_SKIP_BUILD=1
   OPENSCOUT_KEEP_LIVE_PASS=1
   OPENSCOUT_LIVE_PASS_ROOT=/tmp/custom-live-pass
@@ -29,10 +39,67 @@ Useful environment overrides:
 EOF
 }
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  usage
-  exit 0
-fi
+MISSION_ARG=""
+PROMPT_CODEX_TO_CLAUDE_ARG=""
+PROMPT_CLAUDE_TO_CODEX_ARG=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --mission)
+      if [[ $# -lt 2 || "${2:-}" == --* ]]; then
+        echo "--mission requires a value." >&2
+        exit 2
+      fi
+      MISSION_ARG="${2:-}"
+      shift 2
+      ;;
+    --mission=*)
+      MISSION_ARG="${1#*=}"
+      shift
+      ;;
+    --codex-to-claude)
+      if [[ $# -lt 2 || "${2:-}" == --* ]]; then
+        echo "--codex-to-claude requires a value." >&2
+        exit 2
+      fi
+      PROMPT_CODEX_TO_CLAUDE_ARG="${2:-}"
+      shift 2
+      ;;
+    --codex-to-claude=*)
+      PROMPT_CODEX_TO_CLAUDE_ARG="${1#*=}"
+      shift
+      ;;
+    --claude-to-codex)
+      if [[ $# -lt 2 || "${2:-}" == --* ]]; then
+        echo "--claude-to-codex requires a value." >&2
+        exit 2
+      fi
+      PROMPT_CLAUDE_TO_CODEX_ARG="${2:-}"
+      shift 2
+      ;;
+    --claude-to-codex=*)
+      PROMPT_CLAUDE_TO_CODEX_ARG="${1#*=}"
+      shift
+      ;;
+    --keep)
+      export OPENSCOUT_KEEP_LIVE_PASS=1
+      shift
+      ;;
+    --skip-build)
+      export OPENSCOUT_SKIP_BUILD=1
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
 
 find_bin() {
   local override="$1"
@@ -90,7 +157,7 @@ fi
 
 TMP_ROOT="${OPENSCOUT_LIVE_PASS_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/openscout-live-agent-pass.XXXXXX")}"
 CLAUDE_WORKTREE="${OPENSCOUT_LIVE_CLAUDE_WORKTREE:-$(mktemp -d "${TMPDIR:-/tmp}/openscout-live-claude-wt.XXXXXX")}"
-DEFAULT_NODE_QUALIFIER="live-pass-$("$BUN_BIN" -e 'console.log(Math.random().toString(36).slice(2, 8))')"
+DEFAULT_NODE_QUALIFIER="e2e-pass-$("$BUN_BIN" -e 'console.log(Math.random().toString(36).slice(2, 8))')"
 
 export OPENSCOUT_SUPPORT_DIRECTORY="$TMP_ROOT/support"
 export OPENSCOUT_CONTROL_HOME="$TMP_ROOT/control"
@@ -215,8 +282,27 @@ start_agent_via_scout() {
   printf '%s\n' "$agent_id"
 }
 
+DEFAULT_E2E_MISSION="Run a practical OpenScout e2e verification pass: check docs freshness, knowledge-base gaps, and one concrete follow-up that would help the next release. Do not edit files unless the mission explicitly asks for edits."
+E2E_MISSION="${MISSION_ARG:-${OPENSCOUT_E2E_MISSION:-${OPENSCOUT_LIVE_MISSION:-$DEFAULT_E2E_MISSION}}}"
+
+printf -v DEFAULT_PROMPT_CODEX_TO_CLAUDE '%s\n%s\n\n%s' \
+  "Mission:" \
+  "$E2E_MISSION" \
+  "You are the Claude-backed agent in an OpenScout broker e2e pass. Inspect the detached worktree and do one bounded, useful verification for the mission. Reply with concrete findings, file paths, and the next action you recommend. Keep it under 180 words. Do not edit files unless the mission explicitly asks for edits."
+
+printf -v DEFAULT_PROMPT_CLAUDE_TO_CODEX '%s\n%s\n\n%s' \
+  "Mission:" \
+  "$E2E_MISSION" \
+  "You are the Codex-backed agent in an OpenScout broker e2e pass. Do a complementary check in the main checkout, taking the prior Claude result into account if it is visible. For docs or KB missions, look for stale docs, missing updates, or a small useful patch. Keep it under 180 words. Do not edit files unless the mission explicitly asks for edits."
+
+PROMPT_CODEX_TO_CLAUDE="${PROMPT_CODEX_TO_CLAUDE_ARG:-${OPENSCOUT_E2E_CODEX_TO_CLAUDE_PROMPT:-${OPENSCOUT_LIVE_PROMPT_CODEX_TO_CLAUDE:-$DEFAULT_PROMPT_CODEX_TO_CLAUDE}}}"
+PROMPT_CLAUDE_TO_CODEX="${PROMPT_CLAUDE_TO_CODEX_ARG:-${OPENSCOUT_E2E_CLAUDE_TO_CODEX_PROMPT:-${OPENSCOUT_LIVE_PROMPT_CLAUDE_TO_CODEX:-$DEFAULT_PROMPT_CLAUDE_TO_CODEX}}}"
+
 echo "==> Starting isolated broker at $BROKER_URL"
 mkdir -p "$TMP_ROOT"
+printf '%s\n' "$E2E_MISSION" >"$TMP_ROOT/mission.txt"
+printf '%s\n' "$PROMPT_CODEX_TO_CLAUDE" >"$TMP_ROOT/codex-to-claude.prompt.txt"
+printf '%s\n' "$PROMPT_CLAUDE_TO_CODEX" >"$TMP_ROOT/claude-to-codex.prompt.txt"
 "${BROKER_CMD[@]}" >"$TMP_ROOT/broker.log" 2>&1 &
 BROKER_PID="$!"
 wait_for_broker
@@ -240,8 +326,8 @@ fi
 
 STARTED_AGENTS=1
 
-PROMPT_CODEX_TO_CLAUDE="${OPENSCOUT_LIVE_PROMPT_CODEX_TO_CLAUDE:-Review docs/architecture.md and tell me one concrete place where the local direct transport vs remote broker distinction could be clearer. Keep it under 120 words and do not edit files.}"
-PROMPT_CLAUDE_TO_CODEX="${OPENSCOUT_LIVE_PROMPT_CLAUDE_TO_CODEX:-Review packages/runtime/src/scenario-suite.test.ts and suggest one next high-value live/manual scenario to add. Keep it under 120 words and do not edit files.}"
+echo "==> E2E mission"
+printf '%s\n' "$E2E_MISSION"
 
 echo "==> Codex -> Claude"
 "${SCOUT_CMD[@]}" ask --as "$CODEX_AGENT_ID" --to liveclaude "$PROMPT_CODEX_TO_CLAUDE" </dev/null >"$TMP_ROOT/codex-to-claude.log" 2>&1
@@ -257,7 +343,7 @@ echo "==> Capturing broker artifacts"
 "${SCOUT_CMD[@]}" who --json >"$TMP_ROOT/who.json"
 
 echo
-echo "Live pass completed."
+echo "E2E agent pass completed."
 echo "  Broker:       $BROKER_URL"
 echo "  Codex agent:  $CODEX_AGENT_ID"
 echo "  Claude agent: $CLAUDE_AGENT_ID"
