@@ -14,6 +14,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return {
     title: `${doc.title} — Scout Docs`,
     description: doc.description,
+    openGraph: {
+      title: `${doc.title} — Scout Docs`,
+      description: doc.description,
+      url: `https://openscout.app/docs/${slug}`,
+      images: [{ url: "/og-docs.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      images: ["/og-docs.png"],
+    },
   };
 }
 
