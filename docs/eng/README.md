@@ -33,6 +33,9 @@ implementation specs.
 - [sco-012-concierge-routing-and-delegation-proposal.md](./sco-012-concierge-routing-and-delegation-proposal.md)
 - [sco-013-intent-briefs-and-trusted-environments-proposal.md](./sco-013-intent-briefs-and-trusted-environments-proposal.md)
 - [sco-014-broker-owned-routing-and-context.md](./sco-014-broker-owned-routing-and-context.md)
+- [sco-015-pi-scout-integration.md](./sco-015-pi-scout-integration.md)
+  - [sco-015-implementation-plan.md](./sco-015-implementation-plan.md)
+- [sco-016-external-endpoint-registration-api.md](./sco-016-external-endpoint-registration-api.md)
 
 ## Operations
 

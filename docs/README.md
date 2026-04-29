@@ -16,6 +16,7 @@ If you want the shortest path to understanding the project:
 8. [`ask-scout.md`](./ask-scout.md) for the human-facing ask flow over the same system
 9. [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the current workflow semantics above messages and invocations
 10. [`scout-agent-delegation.md`](./scout-agent-delegation.md) for the intended DM and actor-preservation pattern for one-to-one agent handoffs
+11. [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md) for the pi extension that makes Scout coordination native to pi sessions
 
 ## Current Orientation Docs
 
@@ -54,4 +55,5 @@ If you want the shortest path to understanding the project:
 - "How does work differ from conversation?" Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
 - "How do I watch harness activity across the machine?" Read [`tail-firehose.md`](./tail-firehose.md).
 - "Where do proposals and implementation plans live?" Start in [`eng/README.md`](./eng/README.md).
+- "How do I use Scout from a pi session?" Read [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md).
 - "What should I read first as a newcomer?" Use the current orientation docs, then move to deeper product docs only if you need implementation or historical context.

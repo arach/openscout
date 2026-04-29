@@ -67,7 +67,7 @@ One concrete example: `scout ask --to codex "review the auth module"` sends an a
 | **Broker** | Local message bus and state store | SQLite-backed daemon that owns registration, routing, threading, dispatch, HTTP reads/writes, and SSE updates |
 | **Runtime** | Session and runtime lifecycle management | Starts, resumes, stops, and health-checks sessions across harnesses. Manages tmux sessions, system prompts, and transport adapters |
 | **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` -- passes structured route intent to the broker and keeps bootstrap/orientation cheap |
-| **Surfaces** | Views into broker state | Desktop, web, iOS, and terminal views. They read from the broker; none of them own agent state |
+| **Surfaces** | Views into broker state | Desktop, web, iOS, terminal, and pi. They read from the broker; none of them own agent state |
 
 ### Protocol
 
@@ -98,7 +98,9 @@ The operator's main interface. It sends route intent such as `--to hudson` or `-
 
 ### Surfaces
 
-Desktop host, web dashboard, iOS companion, terminal UI. These are views into the broker — they read from the same SQLite database and SSE stream. None of them own agent state; the broker does.
+Desktop host, web dashboard, iOS companion, terminal UI, and pi. These are views into the broker — they read from the same SQLite database and SSE stream. None of them own agent state; the broker does.
+
+The pi extension (see [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md)) runs Scout coordination as a native pi extension, letting pi sessions send and receive messages via the broker alongside other harnesses.
 
 ## Performance Direction
 
