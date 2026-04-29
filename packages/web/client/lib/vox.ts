@@ -37,6 +37,11 @@ export type VoxSpeakResult = {
   audioBytes: number;
 };
 
+export type VoxLaunchOptions = {
+  source?: string;
+  returnTo?: string;
+};
+
 const DEFAULT_VOX_BRIDGE = "http://127.0.0.1:43115";
 const VOX_CLIENT_ID = "openscout-web";
 
@@ -79,12 +84,18 @@ export class VoxBrowserClient {
     }
   }
 
-  launch(): void {
-    window.location.href = "vox://launch";
+  launch(options: VoxLaunchOptions = {}): void {
+    window.location.href = buildVoxUrl("launch", {
+      source: options.source,
+      returnTo: options.returnTo ?? currentBrowserOrigin(),
+    });
   }
 
-  openSettings(): void {
-    window.location.href = "vox://settings";
+  openSettings(options: VoxLaunchOptions = {}): void {
+    window.location.href = buildVoxUrl("settings", {
+      source: options.source,
+      returnTo: options.returnTo ?? currentBrowserOrigin(),
+    });
   }
 
   async startLive(callbacks: VoxLiveCallbacks = {}): Promise<VoxLiveHandle> {
@@ -169,6 +180,23 @@ function normalizeFinal(raw: SessionFinalEvent): VoxLiveFinal {
     text: raw.text.trim(),
     durationMs: raw.durationMs,
   };
+}
+
+function buildVoxUrl(host: "launch" | "settings", params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) search.set(key, value);
+  }
+  const query = search.toString();
+  return query ? `vox://${host}?${query}` : `vox://${host}`;
+}
+
+function currentBrowserOrigin(): string | undefined {
+  try {
+    return window.location.origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function humanVoxError(error: unknown): string {
