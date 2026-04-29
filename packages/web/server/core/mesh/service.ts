@@ -15,7 +15,7 @@ import {
   DEFAULT_BROKER_HOST_MESH,
   resolveBrokerServiceConfig,
   restartBrokerService,
-} from "@openscout/runtime/broker-service";
+} from "@openscout/runtime/broker-process-manager";
 import {
   readTailscaleStatusSummary,
   readTailscaleSelf,

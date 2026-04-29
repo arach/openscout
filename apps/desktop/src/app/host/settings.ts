@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { type AgentHarness } from "@openscout/protocol";
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   SUPPORTED_LOCAL_AGENT_HARNESSES,

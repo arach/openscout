@@ -6,7 +6,7 @@
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import {
   resolveExecutableFromSearch,
   resolveJavaScriptRuntime,

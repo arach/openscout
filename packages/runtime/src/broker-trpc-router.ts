@@ -49,7 +49,7 @@ function tailEventIterable(
 
       const filter = sources && sources.length > 0 ? new Set(sources) : null;
 
-      const unsub = subscribeTail((event) => {
+      const unsub = subscribeTail((event: TailEvent) => {
         if (done) return;
         if (filter && !filter.has(event.source)) return;
         buffer.push(event);
@@ -102,7 +102,7 @@ const tailRouter = t.router({
       const backlog = snapshotRecentEvents(TAIL_BACKLOG_LIMIT);
       let startIdx = 0;
       if (input?.since) {
-        const idx = backlog.findIndex((e) => e.id === input.since);
+        const idx = backlog.findIndex((e: TailEvent) => e.id === input.since);
         if (idx >= 0) startIdx = idx + 1;
       }
       for (let i = startIdx; i < backlog.length; i++) {

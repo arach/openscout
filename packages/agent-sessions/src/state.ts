@@ -15,7 +15,7 @@ import type {
   Session,
   TextBlock,
   ReasoningBlock,
-} from "./protocol/index";
+} from "./protocol/index.js";
 
 // ---------------------------------------------------------------------------
 // State shapes

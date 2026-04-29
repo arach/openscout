@@ -27,10 +27,20 @@
       "bun": "./src/local-agent-template.ts",
       "default": "./src/local-agent-template.ts"
     },
-    "./broker-service": {
-      "types": "./src/broker-service.ts",
-      "bun": "./src/broker-service.ts",
-      "default": "./dist/broker-service.js"
+    "./broker-process-manager": {
+      "types": "./src/broker-process-manager.ts",
+      "bun": "./src/broker-process-manager.ts",
+      "default": "./dist/broker-process-manager.js"
+    },
+    "./broker-api": {
+      "types": "./src/broker-api.ts",
+      "bun": "./src/broker-api.ts",
+      "default": "./dist/broker-api.js"
+    },
+    "./broker-core-service": {
+      "types": "./src/broker-core-service.ts",
+      "bun": "./src/broker-core-service.ts",
+      "default": "./dist/broker-core-service.js"
     },
     "./registry": {
       "types": "./src/registry.ts",
@@ -111,6 +121,8 @@
     "test": "bun test src/*.test.ts",
     "test:scenarios": "bun test src/scenario-suite.test.ts",
     "test:live:codex-app-server": "bun test src/codex-app-server-live.test.ts",
+    "test:e2e:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",
+    "test:live:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },

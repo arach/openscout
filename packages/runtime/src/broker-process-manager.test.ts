@@ -9,7 +9,7 @@ import {
   renderLaunchAgentPlist,
   selectLastRelevantLogLine,
   type BrokerServiceConfig,
-} from "./broker-service";
+} from "./broker-process-manager";
 
 const config: BrokerServiceConfig = {
   label: "dev.openscout.broker",
@@ -37,9 +37,12 @@ describe("broker launch agent config", () => {
 
     expect(plist).toContain("<string>dev.openscout.broker</string>");
     expect(plist).toContain("<string>/Users/arach/.bun/bin/bun</string>");
-    expect(plist).toContain("<string>--cwd</string>");
-    expect(plist).toContain("<string>/Users/arach/dev/openscout/packages/runtime</string>");
+    expect(plist).toContain(
+      "<string>/Users/arach/dev/openscout/packages/runtime/bin/openscout-runtime.mjs</string>",
+    );
     expect(plist).toContain("<string>broker</string>");
+    expect(plist).toContain("<key>WorkingDirectory</key>");
+    expect(plist).toContain("<string>/Users/arach/dev/openscout/packages/runtime</string>");
     expect(plist).toContain("<key>RunAtLoad</key>");
     expect(plist).toContain("<key>KeepAlive</key>");
     expect(plist).toContain("<key>SuccessfulExit</key>");

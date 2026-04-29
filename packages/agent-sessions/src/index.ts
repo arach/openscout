@@ -1,38 +1,38 @@
-export * from "./protocol/primitives";
-export * from "./protocol/adapter";
-export * from "./protocol/approval-normalization";
-export * from "./protocol/cost";
-export { StateTracker } from "./state";
-export type { SessionState, SessionSummary, TurnState, BlockState } from "./state";
-export { OutboundBuffer } from "./buffer";
-export type { SequencedEvent } from "./buffer";
-export { SessionRegistry } from "./registry";
+export * from "./protocol/primitives.js";
+export * from "./protocol/adapter.js";
+export * from "./protocol/approval-normalization.js";
+export * from "./protocol/cost.js";
+export { StateTracker } from "./state.js";
+export type { SessionState, SessionSummary, TurnState, BlockState } from "./state.js";
+export { OutboundBuffer } from "./buffer.js";
+export type { SequencedEvent } from "./buffer.js";
+export { SessionRegistry } from "./registry.js";
 export {
   SessionRegistryError,
   isSessionRegistryError,
-} from "./registry";
+} from "./registry.js";
 export type {
   SessionRegistryConfig,
   SessionDecisionInput,
   SessionRegistryErrorCode,
-} from "./registry";
+} from "./registry.js";
 export {
   createHistorySessionSnapshot,
   inferHistorySessionAdapterType,
   supportsHistorySessionSnapshot,
   supportsHistorySessionSnapshotForPath,
-} from "./history";
+} from "./history.js";
 export type {
   HistoryAdapterType,
   HistorySessionEvent,
   HistorySessionSnapshotInput,
   HistorySessionSnapshotResult,
   SupportedHistoryAdapterType,
-} from "./history";
-export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code";
-export { createAdapter as createCodexAdapter } from "./adapters/codex";
-export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat";
-export { createAdapter as createOpencodeAdapter } from "./adapters/opencode";
-export { createAdapter as createPiAdapter } from "./adapters/pi";
-export { createAdapter as createEchoAdapter } from "./adapters/echo";
-export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config";
+} from "./history.js";
+export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code.js";
+export { createAdapter as createCodexAdapter } from "./adapters/codex.js";
+export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat.js";
+export { createAdapter as createOpencodeAdapter } from "./adapters/opencode.js";
+export { createAdapter as createPiAdapter } from "./adapters/pi.js";
+export { createAdapter as createEchoAdapter } from "./adapters/echo.js";
+export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config.js";

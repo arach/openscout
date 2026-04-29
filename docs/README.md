@@ -35,6 +35,7 @@ If you want the shortest path to understanding the project:
 ## Deeper Product Docs
 
 - [`ask-scout-implementation.md`](./ask-scout-implementation.md) adds implementation detail for the ask flow
+- [`tail-firehose.md`](./tail-firehose.md) explains the machine-wide harness transcript stream for observing agent activity
 - [`native-runtime.md`](./native-runtime.md) captures historical context for the desktop-host/runtime split
 
 ## Engineering Docs And Proposals
@@ -51,5 +52,6 @@ If you want the shortest path to understanding the project:
 - "How do I get to a first healthy run?" Start with [`quickstart.md`](./quickstart.md).
 - "How do I address or route to an agent?" Read [`agent-identity.md`](./agent-identity.md).
 - "How does work differ from conversation?" Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
+- "How do I watch harness activity across the machine?" Read [`tail-firehose.md`](./tail-firehose.md).
 - "Where do proposals and implementation plans live?" Start in [`eng/README.md`](./eng/README.md).
 - "What should I read first as a newcomer?" Use the current orientation docs, then move to deeper product docs only if you need implementation or historical context.

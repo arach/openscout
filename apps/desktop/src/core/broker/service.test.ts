@@ -8,9 +8,15 @@ import {
   writeProjectConfig,
   writeRelayAgentOverrides,
 } from "@openscout/runtime/setup";
+import {
+  registerActiveScoutBrokerService,
+  type ActiveScoutBrokerService,
+} from "@openscout/runtime/broker-api";
+import { createRuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 
 import {
   askScoutQuestion,
+  loadScoutBrokerContext,
   resolveScoutSenderId,
   sendScoutMessage,
   updateScoutWorkItem,
@@ -67,6 +73,7 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_OPERATOR_NAME = originalOpenScoutOperatorName;
   }
+  registerActiveScoutBrokerService(null);
   globalThis.fetch = originalFetch;
   for (const directory of testDirectories) {
     rmSync(directory, { recursive: true, force: true });
@@ -103,6 +110,70 @@ function jsonResponse(body: unknown, status = 200): Response {
     },
   });
 }
+
+describe("loadScoutBrokerContext", () => {
+  test("prefers an active in-process broker service before HTTP", async () => {
+    useIsolatedOpenScoutHome();
+
+    const snapshot = createRuntimeRegistrySnapshot({
+      agents: {
+        "agent-1": {
+          id: "agent-1",
+          kind: "agent",
+          definitionId: "agent-1",
+          displayName: "Agent One",
+          agentClass: "general",
+          capabilities: ["chat"],
+          wakePolicy: "manual",
+          homeNodeId: "node-1",
+          authorityNodeId: "node-1",
+          advertiseScope: "local",
+        },
+      },
+    });
+    const service: ActiveScoutBrokerService = {
+      baseUrl: "http://broker.test",
+      readHealth: async () => ({
+        ok: true,
+        nodeId: "node-1",
+        meshId: "mesh-1",
+        counts: {
+          nodes: 1,
+          actors: 0,
+          agents: 1,
+          conversations: 0,
+          messages: 0,
+          flights: 0,
+          collaborationRecords: 0,
+        },
+      }),
+      readNode: async () => ({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "node-1",
+        advertiseScope: "local",
+        registeredAt: 1,
+        lastSeenAt: 1,
+      }),
+      readSnapshot: async () => snapshot,
+      executeCommand: async () => {
+        throw new Error("unexpected write command");
+      },
+    };
+    registerActiveScoutBrokerService(service);
+    globalThis.fetch = (async () => {
+      throw new Error(
+        "fetch should not be called when an in-process broker is active",
+      );
+    }) as unknown as typeof fetch;
+
+    const context = await loadScoutBrokerContext();
+
+    expect(context).not.toBeNull();
+    expect(context?.node.id).toBe("node-1");
+    expect(context?.snapshot.agents["agent-1"]?.displayName).toBe("Agent One");
+  });
+});
 
 describe("askScoutQuestion", () => {
   test("registers discovered targets and lets the broker wake them on demand", async () => {

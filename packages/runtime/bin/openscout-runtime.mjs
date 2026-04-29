@@ -11,12 +11,12 @@ const distDir = resolve(binDir, "../dist");
 const sourceDir = resolve(binDir, "../src");
 const sourceMain = {
   broker: resolve(sourceDir, "broker-daemon.ts"),
-  service: resolve(sourceDir, "broker-service.ts"),
+  service: resolve(sourceDir, "broker-process-manager.ts"),
   discover: resolve(sourceDir, "mesh-discover.ts"),
 };
 const distMain = {
   broker: resolve(distDir, "broker-daemon.js"),
-  service: resolve(distDir, "broker-service.js"),
+  service: resolve(distDir, "broker-process-manager.js"),
   discover: resolve(distDir, "mesh-discover.js"),
 };
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";

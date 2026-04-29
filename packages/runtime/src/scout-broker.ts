@@ -35,8 +35,12 @@ import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
 } from "./local-agents.js";
+import {
+  maybePostJsonToActiveScoutBrokerService,
+  maybeReadJsonFromActiveScoutBrokerService,
+} from "./broker-api.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
-import { resolveBrokerServiceConfig } from "./broker-service.js";
+import { resolveBrokerServiceConfig } from "./broker-process-manager.js";
 
 export type ScoutBrokerActorRecord = {
   id: string;
@@ -351,6 +355,14 @@ function maxDefined(values: Array<number | null | undefined>): number | null {
 }
 
 async function brokerReadJson<T>(baseUrl: string, path: string): Promise<T> {
+  const direct = await maybeReadJsonFromActiveScoutBrokerService<T>(
+    baseUrl,
+    path,
+  );
+  if (direct.handled) {
+    return direct.value;
+  }
+
   const response = await fetch(new URL(path, baseUrl), {
     headers: {
       accept: "application/json",
@@ -374,6 +386,14 @@ async function brokerPostJson<T>(
   body: unknown,
   options: BrokerPostJsonOptions<T> = {},
 ): Promise<T> {
+  const direct = await maybePostJsonToActiveScoutBrokerService<T>(
+    baseUrl,
+    path,
+    body,
+  );
+  if (direct.handled) {
+    return direct.value;
+  }
   const response = await fetch(new URL(path, baseUrl), {
     method: "POST",
     headers: {

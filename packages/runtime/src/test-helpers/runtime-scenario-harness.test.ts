@@ -4,6 +4,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
+import {
+  SessionRegistry,
+  createEchoAdapter,
+  type SessionState as PairingBridgeSessionState,
+} from "@openscout/agent-sessions";
 import type {
   ActorIdentity,
   AgentCapability,
@@ -18,7 +23,7 @@ import type {
   ShareMode,
   VisibilityScope,
 } from "@openscout/protocol";
-import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "../broker-service";
+import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "../broker-process-manager";
 
 const runtimeDir = join(import.meta.dir, "..", "..");
 
@@ -37,6 +42,8 @@ type PairingBridgeSession = {
   cwd?: string;
   model?: string;
   providerMeta?: Record<string, unknown>;
+  adapterBacked?: boolean;
+  adapterOptions?: Record<string, unknown>;
 };
 
 export type ScenarioActorInput = {
@@ -148,6 +155,7 @@ function directConversationIdForActors(sourceId: string, targetId: string): stri
 export class RuntimeScenarioHarness {
   private readonly brokers = new Set<ScenarioBroker>();
   private readonly servers = new Set<ReturnType<typeof Bun.serve>>();
+  private readonly pairingRegistries = new Set<SessionRegistry>();
   private readonly tempRoots = new Set<string>();
 
   async dispose(): Promise<void> {
@@ -162,6 +170,11 @@ export class RuntimeScenarioHarness {
       server.stop(true);
     }
     this.servers.clear();
+
+    for (const registry of this.pairingRegistries) {
+      await registry.shutdown().catch(() => undefined);
+    }
+    this.pairingRegistries.clear();
 
     for (const root of this.tempRoots) {
       rmSync(root, { recursive: true, force: true });
@@ -213,17 +226,58 @@ export class RuntimeScenarioHarness {
     return `http://127.0.0.1:${server.port}`;
   }
 
-  startPairingBridgeServer(input: {
+  async startPairingBridgeServer(input: {
     sessions: PairingBridgeSession[];
-  }): { port: number } {
-    const sessions = new Map(input.sessions.map((session) => [
-      session.id,
-      {
-        session,
+    adapterBackedTypes?: string[];
+  }): Promise<{ port: number }> {
+    const adapterBackedTypes = new Set([
+      ...(input.adapterBackedTypes ?? []),
+      ...input.sessions
+        .filter((session) => session.adapterBacked)
+        .map((session) => session.adapterType),
+    ]);
+    const registry = adapterBackedTypes.size > 0
+      ? new SessionRegistry({
+        adapters: {
+          echo: createEchoAdapter,
+        },
+      })
+      : null;
+    if (registry) {
+      this.pairingRegistries.add(registry);
+    }
+
+    const sessions = new Map<string, PairingBridgeSessionState>();
+
+    for (const inputSession of input.sessions) {
+      if (inputSession.adapterBacked) {
+        if (!registry) {
+          throw new Error("adapter-backed session requested without a registry");
+        }
+        await registry.createSession(inputSession.adapterType, {
+          sessionId: inputSession.id,
+          name: inputSession.name,
+          cwd: inputSession.cwd,
+          options: inputSession.adapterOptions,
+        });
+        continue;
+      }
+
+      sessions.set(inputSession.id, {
+        session: inputSession,
         turns: [],
         currentTurnId: undefined,
-      },
-    ]));
+      });
+    }
+
+    const listSessions = () => [
+      ...sessions.values().map((entry) => entry.session),
+      ...(registry?.listSessions() ?? []),
+    ];
+
+    const sessionSnapshot = (sessionId: string) => {
+      return sessions.get(sessionId) ?? registry?.getSessionSnapshot(sessionId) ?? null;
+    };
 
     const server = Bun.serve({
       port: 0,
@@ -235,92 +289,166 @@ export class RuntimeScenarioHarness {
       },
       websocket: {
         message(ws, message) {
-          const payload = JSON.parse(String(message)) as {
-            id?: number;
-            method?: string;
-            params?: { path?: string; input?: Record<string, unknown> };
-          };
-          const requestId = payload.id ?? null;
-          const path = payload.params?.path;
+          let requestId: number | null = null;
+          void (async () => {
+            const payload = JSON.parse(String(message)) as {
+              id?: number;
+              method?: string;
+              params?: { path?: string; input?: Record<string, unknown> };
+            };
+            requestId = payload.id ?? null;
+            const path = payload.params?.path;
 
-          const respond = (body: unknown) => {
+            const respond = (body: unknown) => {
+              ws.send(JSON.stringify({
+                id: requestId,
+                jsonrpc: "2.0",
+                ...body,
+              }));
+            };
+
+            if (!path) {
+              respond({ error: { message: "unsupported" } });
+              return;
+            }
+
+            if (payload.method === "query" && path === "session.list") {
+              respond({
+                result: {
+                  type: "data",
+                  data: listSessions(),
+                },
+              });
+              return;
+            }
+
+            if (payload.method === "query" && path === "session.snapshot") {
+              const sessionId = typeof payload.params?.input?.sessionId === "string"
+                ? payload.params.input.sessionId
+                : "";
+              const snapshot = sessionSnapshot(sessionId);
+              if (!snapshot) {
+                respond({ error: { message: `unknown session ${sessionId}` } });
+                return;
+              }
+              respond({
+                result: {
+                  type: "data",
+                  data: snapshot,
+                },
+              });
+              return;
+            }
+
+            if (payload.method === "mutation" && path === "prompt.send") {
+              const inputValue = payload.params?.input ?? {};
+              const sessionId = typeof inputValue.sessionId === "string" ? inputValue.sessionId : "";
+              const text = typeof inputValue.text === "string" ? inputValue.text : "";
+              const snapshot = sessionSnapshot(sessionId);
+              if (!snapshot) {
+                respond({ error: { message: `unknown session ${sessionId}` } });
+                return;
+              }
+
+              if (registry?.getSessionSnapshot(sessionId)) {
+                registry.send({ sessionId, text });
+              } else {
+                const turnId = `turn-${snapshot.turns.length + 1}`;
+                const now = Date.now();
+                snapshot.turns.push({
+                  id: turnId,
+                  status: "completed",
+                  startedAt: now,
+                  endedAt: now,
+                  blocks: [
+                    {
+                      status: "completed",
+                      block: {
+                        id: `${turnId}-text`,
+                        turnId,
+                        type: "text",
+                        status: "completed",
+                        index: 0,
+                        text: `Echo: ${text}`,
+                      },
+                    },
+                  ],
+                });
+                snapshot.currentTurnId = undefined;
+              }
+
+              respond({
+                result: {
+                  type: "data",
+                  data: { ok: true },
+                },
+              });
+              return;
+            }
+
+            if (payload.method === "mutation" && path === "session.create") {
+              const inputValue = payload.params?.input ?? {};
+              const adapterType = typeof inputValue.adapterType === "string" ? inputValue.adapterType : "codex";
+              const name = typeof inputValue.name === "string" ? inputValue.name : `${adapterType} attached`;
+              const cwd = typeof inputValue.cwd === "string" ? inputValue.cwd : undefined;
+              const options = typeof inputValue.options === "object" && inputValue.options
+                ? inputValue.options as Record<string, unknown>
+                : {};
+              const threadId = typeof options.threadId === "string"
+                ? options.threadId
+                : `thread-${listSessions().length + 1}`;
+              const sessionId = `pairing-${threadId.slice(0, 8)}`;
+
+              if (registry && adapterBackedTypes.has(adapterType)) {
+                const session = await registry.createSession(adapterType, {
+                  sessionId,
+                  name,
+                  cwd,
+                  options,
+                });
+                respond({
+                  result: {
+                    type: "data",
+                    data: session,
+                  },
+                });
+                return;
+              }
+
+              const session = {
+                id: sessionId,
+                name,
+                adapterType,
+                status: "idle" as const,
+                cwd,
+                providerMeta: {
+                  threadId,
+                },
+              };
+              sessions.set(sessionId, {
+                session,
+                turns: [],
+                currentTurnId: undefined,
+              });
+              respond({
+                result: {
+                  type: "data",
+                  data: session,
+                },
+              });
+              return;
+            }
+
+            respond({ error: { message: `unsupported path ${path}` } });
+          })().catch((error) => {
             ws.send(JSON.stringify({
               id: requestId,
               jsonrpc: "2.0",
-              ...body,
+              error: {
+                message: error instanceof Error ? error.message : String(error),
+              },
             }));
-          };
-
-          if (!path) {
-            respond({ error: { message: "unsupported" } });
-            return;
-          }
-
-          if (payload.method === "query" && path === "session.list") {
-            respond({
-              result: {
-                type: "data",
-                data: [...sessions.values()].map((entry) => entry.session),
-              },
-            });
-            return;
-          }
-
-          if (payload.method === "query" && path === "session.snapshot") {
-            const sessionId = typeof payload.params?.input?.sessionId === "string"
-              ? payload.params.input.sessionId
-              : "";
-            const snapshot = sessions.get(sessionId);
-            if (!snapshot) {
-              respond({ error: { message: `unknown session ${sessionId}` } });
-              return;
-            }
-            respond({
-              result: {
-                type: "data",
-                data: snapshot,
-              },
-            });
-            return;
-          }
-
-          if (payload.method === "mutation" && path === "session.create") {
-            const inputValue = payload.params?.input ?? {};
-            const adapterType = typeof inputValue.adapterType === "string" ? inputValue.adapterType : "codex";
-            const name = typeof inputValue.name === "string" ? inputValue.name : `${adapterType} attached`;
-            const cwd = typeof inputValue.cwd === "string" ? inputValue.cwd : undefined;
-            const options = typeof inputValue.options === "object" && inputValue.options
-              ? inputValue.options as Record<string, unknown>
-              : {};
-            const threadId = typeof options.threadId === "string"
-              ? options.threadId
-              : `thread-${sessions.size + 1}`;
-            const sessionId = `pairing-${threadId.slice(0, 8)}`;
-            const session = {
-              id: sessionId,
-              name,
-              adapterType,
-              status: "idle" as const,
-              cwd,
-              providerMeta: {
-                threadId,
-              },
-            };
-            sessions.set(sessionId, {
-              session,
-              turns: [],
-              currentTurnId: undefined,
-            });
-            respond({
-              result: {
-                type: "data",
-                data: session,
-              },
-            });
-            return;
-          }
-
-          respond({ error: { message: `unsupported path ${path}` } });
+          });
         },
       },
     });

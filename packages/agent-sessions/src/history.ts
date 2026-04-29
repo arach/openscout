@@ -1,6 +1,6 @@
 import { basename, dirname } from "node:path";
 
-import { StateTracker, type SessionState } from "./state";
+import { StateTracker, type SessionState } from "./state.js";
 import type {
   Action,
   Block,
@@ -9,7 +9,7 @@ import type {
   Session,
   Turn,
   TurnStatus,
-} from "./protocol/index";
+} from "./protocol/index.js";
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
 

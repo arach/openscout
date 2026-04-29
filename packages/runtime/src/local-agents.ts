@@ -61,7 +61,7 @@ import {
   relayAgentRuntimeDirectory,
   resolveOpenScoutSupportPaths,
 } from "./support-paths.js";
-import { resolveBrokerServiceConfig } from "./broker-service.js";
+import { resolveBrokerServiceConfig } from "./broker-process-manager.js";
 import {
   LOCAL_AGENT_SYSTEM_PROMPT_TEMPLATE_HINT,
   LOCAL_AGENT_SYSTEM_PROMPT_INSERT_TOKENS,

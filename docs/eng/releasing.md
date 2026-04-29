@@ -48,6 +48,37 @@ Overrides:
 - `OPENSCOUT_NOTARY_PROFILE` — use a different notarytool profile name.
 - `SKIP_NOTARIZE=1` — local packaging only; produces an unnotarized DMG.
 
+## E2E agent pass
+
+For normal development, keep the faster checks focused:
+
+```bash
+bun run check
+bun run test:scenarios
+```
+
+Before a larger release, or whenever broker/harness changes need more
+confidence, run the opt-in e2e agent pass as well:
+
+```bash
+bun run test:e2e
+```
+
+The final step starts real Codex and Claude-backed local agents through the
+broker, so it requires authenticated local CLIs and is intentionally not part of
+the default check path.
+
+You can also run only the agent pass with an open-ended mission:
+
+```bash
+bun run test:e2e:agents -- \
+  --mission "Verify docs freshness and update the project KB if a small stale note is obvious."
+```
+
+The mission and exact prompts are saved with the broker artifacts. Set
+`OPENSCOUT_KEEP_LIVE_PASS=1` or pass `--keep` to preserve the broker snapshot,
+event log, prompts, and ask transcripts when investigating a failure.
+
 ## Version bump
 
 All four npm packages are versioned in lockstep. Bump them together in a

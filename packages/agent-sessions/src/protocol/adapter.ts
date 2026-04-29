@@ -12,7 +12,7 @@ import type {
   QuestionAnswer,
   Session,
   SessionStatus,
-} from "./primitives";
+} from "./primitives.js";
 
 // ---------------------------------------------------------------------------
 // Adapter configuration — passed by the bridge when instantiating

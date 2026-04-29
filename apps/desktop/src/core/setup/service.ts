@@ -7,7 +7,7 @@ import {
   type ScoutSkillInstallReport,
 } from "@openscout/runtime/setup";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import {
   getRuntimeBrokerServiceStatus,
   runRuntimeBrokerService,

@@ -1,4 +1,4 @@
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-service";
+import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 
 import { loadScoutAgentStatuses, type ScoutAgentStatus } from "../agents/service.ts";
 import { getRuntimeBrokerServiceStatus } from "../../app/host/runtime-service-client.ts";
