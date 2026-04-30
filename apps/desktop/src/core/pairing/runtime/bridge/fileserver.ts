@@ -41,6 +41,9 @@ export interface FileServer {
 }
 
 type HandoffBridge = Pick<Bridge, "getSessionSnapshot">;
+type FileChangeActionBlock = ActionBlock & {
+  action: Extract<ActionBlock["action"], { kind: "file_change" }>;
+};
 
 export function startFileServer(options: {
   port: number;
@@ -221,7 +224,7 @@ function findFileChangeBlock(
   snapshot: SessionState,
   turnId: string,
   blockId: string,
-): { turn: SessionState["turns"][number]; block: ActionBlock } | null {
+): { turn: SessionState["turns"][number]; block: FileChangeActionBlock } | null {
   const turn = snapshot.turns.find((candidate) => candidate.id === turnId);
   if (!turn) {
     return null;
@@ -231,7 +234,7 @@ function findFileChangeBlock(
   if (!block || block.type !== "action" || block.action.kind !== "file_change") {
     return null;
   }
-  return { turn, block };
+  return { turn, block: block as FileChangeActionBlock };
 }
 
 function renderPage(title: string, body: string): string {
@@ -490,7 +493,7 @@ function renderSessionHandoffPage(snapshot: SessionState): string {
 function renderFileChangeHandoffPage(
   snapshot: SessionState,
   turn: SessionState["turns"][number],
-  block: ActionBlock,
+  block: FileChangeActionBlock,
 ): string {
   const action = block.action;
   const title = action.path || snapshot.session.name || snapshot.session.id;

@@ -217,7 +217,7 @@ export function resolveJavaScriptRuntime(options: ResolveJavaScriptRuntimeOption
 }
 
 export function resolveBundledEntrypoint(moduleUrl: string | URL, filename: string): string | null {
-  const moduleDirectory = dirname(fileURLToPath(moduleUrl));
+  const moduleDirectory = dirname(fileURLToPath(moduleUrl.toString()));
   const candidate = join(moduleDirectory, filename);
   return existsSync(candidate) ? candidate : null;
 }
@@ -264,7 +264,7 @@ export function resolveNodeModulesPackageEntrypoint(
   packageSegments: string[],
   entryRelativePath: string,
 ): string | null {
-  let current = dirname(fileURLToPath(moduleUrl));
+  let current = dirname(fileURLToPath(moduleUrl.toString()));
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const candidate = join(current, "node_modules", ...packageSegments, entryRelativePath);
     if (existsSync(candidate)) {

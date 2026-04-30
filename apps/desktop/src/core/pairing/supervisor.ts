@@ -2,7 +2,7 @@ import {
   PAIRING_QR_TTL_MS,
   resolvedPairingConfig,
 } from "./runtime/config.ts";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { renderQRCode } from "./runtime/bridge/qr.ts";
 import { startManagedRelay, type StartedManagedRelay } from "./runtime/relay-runtime.ts";
 import {
@@ -315,7 +315,7 @@ function startBonjourRelayAdvertisement(input: {
     `scheme=${scheme}`,
   ];
 
-  let processRef: ChildProcessWithoutNullStreams | null = null;
+  let processRef: ChildProcess | null = null;
   try {
     processRef = spawn("/usr/bin/dns-sd", args, { stdio: "ignore" });
     processRef.on("error", (error) => {

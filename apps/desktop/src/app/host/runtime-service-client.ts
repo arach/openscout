@@ -97,18 +97,20 @@ export async function runRuntimeBrokerService(
   const entry = resolveRuntimeServiceEntrypoint();
   const { command, args } = spawnArgsForRuntime(entry, [subcommand, "--json"]);
 
-  const stdoutChunks: Buffer[] = [];
-  const stderrChunks: Buffer[] = [];
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
 
   const code = await new Promise<number>((resolveExit, reject) => {
     const child = spawn(command, args, {
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    child.stdout?.on("data", (chunk: Buffer) => {
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
       stdoutChunks.push(chunk);
     });
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
       stderrChunks.push(chunk);
     });
     child.on("error", reject);
@@ -117,8 +119,8 @@ export async function runRuntimeBrokerService(
     });
   });
 
-  const stdout = Buffer.concat(stdoutChunks).toString("utf8").trim();
-  const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+  const stdout = stdoutChunks.join("").trim();
+  const stderr = stderrChunks.join("").trim();
 
   if (code !== 0) {
     const detail = stderr || stdout || `exit ${code}`;

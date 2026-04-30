@@ -152,7 +152,7 @@ function findRepoMenuHelper(startDirectory: string): string | null {
     current = parent;
   }
 
-  const sourceRelativeCandidate = fileURLToPath(new URL("../../../../macos/bin/openscout-menu.ts", import.meta.url));
+  const sourceRelativeCandidate = fileURLToPath(new URL("../../../../macos/bin/openscout-menu.ts", import.meta.url).toString());
   return existsSync(sourceRelativeCandidate) ? sourceRelativeCandidate : null;
 }
 

@@ -296,14 +296,14 @@ function handleHealthz(
   });
 }
 
-function relayPayload(data: string | Buffer<ArrayBufferLike> | Uint8Array): string {
+function relayPayload(data: string | Uint8Array): string {
   if (typeof data === "string") {
     return data;
   }
   return new TextDecoder().decode(data);
 }
 
-function parseRelayEnvelope(data: string | Buffer<ArrayBufferLike> | Uint8Array): RelayEnvelope | null {
+function parseRelayEnvelope(data: string | Uint8Array): RelayEnvelope | null {
   if (typeof data !== "string") {
     return null;
   }
