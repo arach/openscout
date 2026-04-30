@@ -283,42 +283,38 @@ async function isExecutable(filePath: string | undefined): Promise<boolean> {
   }
 }
 
-async function resolveCodexExecutable(): Promise<string> {
+export function resolveCodexExecutableCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   const explicitCandidates = [
-    process.env.OPENSCOUT_CODEX_BIN,
-    process.env.CODEX_BIN,
+    env.OPENSCOUT_CODEX_BIN,
+    env.CODEX_BIN,
   ].filter(Boolean) as string[];
-
-  for (const candidate of explicitCandidates) {
-    if (await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  const bundledCandidates = [
-    "/Applications/Codex.app/Contents/Resources/codex",
-    join(process.env.HOME ?? "", "Applications", "Codex.app", "Contents", "Resources", "codex"),
-  ].filter(Boolean);
-
-  for (const candidate of bundledCandidates) {
-    if (await isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  const pathEntries = (process.env.PATH ?? "")
+  const pathEntries = (env.PATH ?? "")
     .split(delimiter)
     .filter(Boolean);
   const commonDirectories = [
-    `${process.env.HOME ?? ""}/.local/bin`,
-    `${process.env.HOME ?? ""}/.bun/bin`,
+    `${env.HOME ?? ""}/.local/bin`,
+    `${env.HOME ?? ""}/.bun/bin`,
     "/opt/homebrew/bin",
     "/usr/local/bin",
   ].filter(Boolean);
+  const pathCandidates = [...pathEntries, ...commonDirectories]
+    .map((directory) => join(directory, "codex"));
+  const bundledCandidates = [
+    "/Applications/Codex.app/Contents/Resources/codex",
+    join(env.HOME ?? "", "Applications", "Codex.app", "Contents", "Resources", "codex"),
+  ].filter(Boolean);
 
-  for (const directory of [...pathEntries, ...commonDirectories]) {
-    const candidate = join(directory, "codex");
-    if (await isExecutable(candidate)) {
+  return Array.from(new Set([
+    ...explicitCandidates,
+    ...pathCandidates,
+    ...bundledCandidates,
+    "codex",
+  ]));
+}
+
+async function resolveCodexExecutable(): Promise<string> {
+  for (const candidate of resolveCodexExecutableCandidates()) {
+    if (candidate === "codex" || await isExecutable(candidate)) {
       return candidate;
     }
   }

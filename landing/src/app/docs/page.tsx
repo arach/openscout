@@ -1,7 +1,25 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { getAllDocs } from "@/lib/docs";
 import type { DocMeta } from "@/lib/docs";
+
+export const metadata: Metadata = {
+  title: "Documentation — Scout",
+  description:
+    "Reference material for OpenScout/Ø.1 — the local-first broker protocol for inter-agent messaging.",
+  openGraph: {
+    title: "Documentation — Scout",
+    description:
+      "Reference material for OpenScout/Ø.1 — the local-first broker protocol for inter-agent messaging.",
+    url: "https://openscout.app/docs",
+    images: [{ url: "/og-docs.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-docs.png"],
+  },
+};
 
 function DocEntry({
   doc,

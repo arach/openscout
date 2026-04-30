@@ -134,6 +134,7 @@ export function AgentInfoScreen({
   ];
   const runtimeItems: ProfileField[] = [
     ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
+    ...(agent.model ? [{ label: "Model", value: agent.model }] : []),
     ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
     ...(agent.wakePolicy ? [{ label: "Wake policy", value: formatLabel(agent.wakePolicy) ?? agent.wakePolicy }] : []),
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),

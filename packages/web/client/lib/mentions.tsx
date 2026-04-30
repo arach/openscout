@@ -41,7 +41,7 @@ function segmentize(text: string, identities: AgentIdentity[]): Segment[] {
 
 function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
   const parts: ReactNode[] = [];
-  const pattern = /\*\*(.+?)\*\*/g;
+  const pattern = /`([^`\n]+)`|\*\*(.+?)\*\*|\*([^*\s][^*]*?)\*|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
   let sub = 0;
@@ -49,13 +49,31 @@ function renderInlineMarkdown(value: string, keyBase: number): ReactNode[] {
     if (match.index > cursor) {
       parts.push(<span key={`${keyBase}-${sub++}`}>{value.slice(cursor, match.index)}</span>);
     }
-    parts.push(<strong key={`${keyBase}-${sub++}`}>{match[1]}</strong>);
+    if (match[1] !== undefined) {
+      parts.push(<code key={`${keyBase}-${sub++}`} className="s-inline-code">{match[1]}</code>);
+    } else if (match[2] !== undefined) {
+      parts.push(<strong key={`${keyBase}-${sub++}`}>{match[2]}</strong>);
+    } else if (match[3] !== undefined) {
+      parts.push(<em key={`${keyBase}-${sub++}`}>{match[3]}</em>);
+    } else if (match[4] !== undefined && match[5] !== undefined && safeInlineHref(match[5])) {
+      parts.push(
+        <a key={`${keyBase}-${sub++}`} href={match[5]} target="_blank" rel="noreferrer">
+          {match[4]}
+        </a>,
+      );
+    } else {
+      parts.push(<span key={`${keyBase}-${sub++}`}>{match[0]}</span>);
+    }
     cursor = match.index + match[0].length;
   }
   if (cursor < value.length) {
     parts.push(<span key={`${keyBase}-${sub++}`}>{value.slice(cursor)}</span>);
   }
   return parts.length > 0 ? parts : [<span key={keyBase}>{value}</span>];
+}
+
+function safeInlineHref(value: string): boolean {
+  return /^(?:https?:\/\/|mailto:|\/|#)/iu.test(value);
 }
 
 export function renderWithMentions(text: string | null | undefined): ReactNode {

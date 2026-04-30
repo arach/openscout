@@ -61,7 +61,7 @@ function transcriptKey(transcript: DiscoveredTranscript): string {
   return watcherKey(transcript.source, transcript.transcriptPath);
 }
 
-const HARNESS_RANK: Record<DiscoveredProcess["harness"], number> = {
+const ATTRIBUTION_RANK: Record<DiscoveredProcess["harness"], number> = {
   "scout-managed": 3,
   "hudson-managed": 2,
   unattributed: 1,
@@ -69,13 +69,13 @@ const HARNESS_RANK: Record<DiscoveredProcess["harness"], number> = {
 
 /**
  * Pick the best-attributed process to represent a transcript file.
- * Prefer scout > hudson > unattributed; tie-break by lowest pid (typically the
- * earliest/root process in a fanout).
+ * Prefer Scout-managed > Hudson-managed > native; tie-break by lowest pid
+ * (typically the earliest/root process in a fanout).
  */
 function pickPrimaryProcess(procs: DiscoveredProcess[]): DiscoveredProcess {
   return procs.reduce((best, candidate) => {
-    const bestRank = HARNESS_RANK[best.harness] ?? 0;
-    const candRank = HARNESS_RANK[candidate.harness] ?? 0;
+    const bestRank = ATTRIBUTION_RANK[best.harness] ?? 0;
+    const candRank = ATTRIBUTION_RANK[candidate.harness] ?? 0;
     if (candRank > bestRank) return candidate;
     if (candRank === bestRank && candidate.pid < best.pid) return candidate;
     return best;

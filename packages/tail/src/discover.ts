@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { DiscoveredProcess, TailHarness } from "./types";
+import type { DiscoveredProcess, TailAttribution } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,7 +64,7 @@ export async function readCwd(pid: number): Promise<string | null> {
   return null;
 }
 
-export function classifyHarness(parentChain: { command: string }[]): TailHarness {
+export function classifyAttribution(parentChain: { command: string }[]): TailAttribution {
   for (const ancestor of parentChain) {
     const cmd = ancestor.command.toLowerCase();
     if (cmd.includes("/openscout") || cmd.includes("openscout/") || cmd.includes("packages/runtime")) {
@@ -76,6 +76,9 @@ export function classifyHarness(parentChain: { command: string }[]): TailHarness
   }
   return "unattributed";
 }
+
+/** @deprecated Use classifyAttribution. */
+export const classifyHarness = classifyAttribution;
 
 export function buildParentChain(
   startPid: number,
@@ -108,7 +111,7 @@ export async function discoverClaudeProcesses(): Promise<DiscoveredProcess[]> {
     claudes.map(async (proc) => {
       const cwd = await readCwd(proc.pid);
       const parentChain = buildParentChain(proc.pid, byPid);
-      const harness = classifyHarness(parentChain);
+      const harness = classifyAttribution(parentChain);
       out.push({
         pid: proc.pid,
         ppid: proc.ppid,

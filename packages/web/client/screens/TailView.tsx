@@ -17,7 +17,6 @@ import type {
   TailDiscoverySnapshot,
   TailEvent,
   TailEventKind,
-  TailHarness,
 } from "../lib/types.ts";
 
 const BUFFER_LIMIT = 5_000;
@@ -34,17 +33,49 @@ const KIND_GLYPH: Record<TailEventKind, string> = {
   other: "·",
 };
 
-const HARNESS_LABEL: Record<TailHarness, string> = {
+type TailAttribution = TailEvent["harness"];
+
+const ATTRIBUTION_LABEL: Record<TailAttribution, string> = {
   "scout-managed": "scout",
   "hudson-managed": "hudson",
-  unattributed: "ghost",
+  unattributed: "native",
 };
 
-const HARNESS_CLASS: Record<TailHarness, string> = {
-  "scout-managed": "s-tail-chip--scout",
-  "hudson-managed": "s-tail-chip--hudson",
-  unattributed: "s-tail-chip--ghost",
+const ATTRIBUTION_CLASS: Record<TailAttribution, string> = {
+  "scout-managed": "s-tail-chip--origin-scout",
+  "hudson-managed": "s-tail-chip--origin-hudson",
+  unattributed: "s-tail-chip--origin-native",
 };
+
+type SourceCount = {
+  source: string;
+  count: number;
+};
+
+function displayHarness(source: string | null | undefined): string {
+  return source?.trim().toLowerCase() || "unknown";
+}
+
+function summarizeSources(
+  discovery: TailDiscoverySnapshot | null,
+  events: TailEvent[],
+): SourceCount[] {
+  const counts = new Map<string, number>();
+  const sourceRows = discovery?.transcripts?.length
+    ? discovery.transcripts
+    : discovery?.processes.length
+      ? discovery.processes
+      : events;
+
+  for (const row of sourceRows) {
+    const source = displayHarness(row.source);
+    counts.set(source, (counts.get(source) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count || a.source.localeCompare(b.source));
+}
 
 function formatTime(ts: number): string {
   const date = new Date(ts);
@@ -63,7 +94,8 @@ function shortSession(sessionId: string): string {
 
 function matchesFilter(event: TailEvent, query: string): boolean {
   if (!query) return true;
-  const haystack = `${event.summary} ${event.project} ${event.sessionId} ${event.harness} ${event.source}`.toLowerCase();
+  const attribution = ATTRIBUTION_LABEL[event.harness];
+  const haystack = `${event.summary} ${event.project} ${event.sessionId} ${event.source} ${event.harness} ${attribution}`.toLowerCase();
   return haystack.includes(query.toLowerCase());
 }
 
@@ -225,8 +257,8 @@ export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
   }, [filterOpen, jumpToLive]);
 
   const totals = discovery?.totals;
-  const ghostCount = totals?.unattributed ?? 0;
   const transcriptCount = totals?.transcripts ?? discovery?.transcripts?.length ?? 0;
+  const harnessCounts = useMemo(() => summarizeSources(discovery, events), [discovery, events]);
 
   return (
     <div className="s-tail">
@@ -241,11 +273,19 @@ export function TailView({ navigate }: { navigate?: (r: Route) => void } = {}) {
         <span className="s-tail-status-cell">
           <strong>{rate.toFixed(1)}</strong> lines/s
         </span>
-        <span className={`s-tail-status-cell${ghostCount > 0 ? " s-tail-status-cell--ghost" : ""}`}>
-          <strong>{ghostCount}</strong> ghost{ghostCount === 1 ? "" : "s"}
-        </span>
-        <span className="s-tail-status-cell">
-          <strong>{totals?.scoutManaged ?? 0}</strong> scout · <strong>{totals?.hudsonManaged ?? 0}</strong> hudson
+        <span className="s-tail-status-cell s-tail-status-cell--harnesses">
+          <span>harness</span>
+          <span className="s-tail-status-inline">
+            {harnessCounts.length > 0 ? (
+              harnessCounts.slice(0, 4).map((entry) => (
+                <span key={entry.source}>
+                  <strong>{entry.count}</strong> {entry.source}
+                </span>
+              ))
+            ) : (
+              <strong>none</strong>
+            )}
+          </span>
         </span>
         <span className="s-tail-status-spacer" />
         {paused && <span className="s-tail-status-paused">paused</span>}
@@ -338,8 +378,9 @@ function TailRow({
   onProjectClick?: (project: string) => void;
   onSessionClick?: (sessionId: string) => void;
 }) {
-  const harnessClass = HARNESS_CLASS[event.harness];
-  const harnessLabel = HARNESS_LABEL[event.harness];
+  const attributionClass = ATTRIBUTION_CLASS[event.harness];
+  const attributionLabel = ATTRIBUTION_LABEL[event.harness];
+  const harnessLabel = displayHarness(event.source);
   return (
     <div
       className={`s-tail-row s-tail-row--${event.kind}${selected ? " s-tail-row--selected" : ""}`}
@@ -355,8 +396,10 @@ function TailRow({
     >
       <span className="s-tail-cell-time">{formatTime(event.ts)}</span>
       <span className="s-tail-gutter">│</span>
-      <span className={`s-tail-chip s-tail-chip--source`}>{event.source}</span>
-      <span className={`s-tail-chip ${harnessClass}`}>{harnessLabel}</span>
+      <span className="s-tail-chip s-tail-chip--harness">{harnessLabel}</span>
+      <span className={`s-tail-chip ${attributionClass}`} title={`origin: ${attributionLabel}`}>
+        {attributionLabel}
+      </span>
       <span className="s-tail-cell-context">
         <TailLink
           className="s-tail-link s-tail-link--project"
@@ -491,8 +534,9 @@ function TailDetailSheet({
   onSessionClick?: (sessionId: string) => void;
 }) {
   const [showRaw, setShowRaw] = useState(true);
-  const harnessClass = HARNESS_CLASS[event.harness];
-  const harnessLabel = HARNESS_LABEL[event.harness];
+  const attributionClass = ATTRIBUTION_CLASS[event.harness];
+  const attributionLabel = ATTRIBUTION_LABEL[event.harness];
+  const harnessLabel = displayHarness(event.source);
   const blocks = getContentBlocks(event.raw);
 
   return (
@@ -510,8 +554,10 @@ function TailDetailSheet({
         <div className="s-slide-header s-tail-sheet-header">
           <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
           <span className="s-tail-sheet-kind">{event.kind}</span>
-          <span className={`s-tail-chip ${harnessClass}`}>{harnessLabel}</span>
-          <span className="s-tail-chip s-tail-chip--source">{event.source}</span>
+          <span className="s-tail-chip s-tail-chip--harness">{harnessLabel}</span>
+          <span className={`s-tail-chip ${attributionClass}`} title={`origin: ${attributionLabel}`}>
+            {attributionLabel}
+          </span>
           <span className="s-slide-spacer" />
           <span className="s-tail-sheet-time">{formatFullTime(event.ts)}</span>
           <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close">
@@ -548,6 +594,10 @@ function TailDetailSheet({
                   {event.sessionId || "—"}
                 </TailLink>
               </span>
+              <span className="s-tail-sheet-key">harness</span>
+              <span className="s-tail-sheet-val s-tail-sheet-val--mono">{harnessLabel}</span>
+              <span className="s-tail-sheet-key">origin</span>
+              <span className="s-tail-sheet-val s-tail-sheet-val--mono">{attributionLabel}</span>
               <span className="s-tail-sheet-key">pid</span>
               <span className="s-tail-sheet-val s-tail-sheet-val--mono">
                 {event.pid}

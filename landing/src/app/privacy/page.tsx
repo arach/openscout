@@ -18,6 +18,17 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/privacy",
   },
+  openGraph: {
+    title: "Privacy — OpenScout",
+    description:
+      "What OpenScout collects, what stays local, and how to opt out.",
+    url: "https://openscout.app/privacy",
+    images: [{ url: "/og-privacy.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og-privacy.png"],
+  },
 };
 
 const websitePractices = [

@@ -37,12 +37,19 @@
   font-variant-numeric: tabular-nums;
 }
 
-.s-tail-status-cell--ghost strong {
-  color: var(--amber);
-}
-
 .s-tail-status-spacer {
   flex: 1;
+}
+
+.s-tail-status-cell--harnesses {
+  min-width: 0;
+}
+
+.s-tail-status-inline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .s-tail-status-paused {
@@ -115,8 +122,8 @@
   grid-template-columns:
     72px       /* time */
     auto       /* gutter glyph */
-    62px       /* source chip */
-    72px       /* harness chip */
+    86px       /* harness chip */
+    72px       /* origin chip */
     minmax(120px, 220px) /* project · session */
     14px       /* kind glyph */
     1fr;       /* summary */
@@ -177,28 +184,32 @@
   border-radius: 2px;
   text-align: center;
   text-transform: lowercase;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   background: transparent;
   color: var(--dim);
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
 }
 
-.s-tail-chip--source {
-  color: var(--dim);
-}
-
-.s-tail-chip--scout {
+.s-tail-chip--harness {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
-.s-tail-chip--hudson {
+.s-tail-chip--origin-scout {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 50%, transparent);
+}
+
+.s-tail-chip--origin-hudson {
   color: color-mix(in srgb, #62b6ff 90%, var(--ink) 10%);
   border-color: color-mix(in srgb, #62b6ff 50%, transparent);
 }
 
-.s-tail-chip--ghost {
-  color: var(--amber);
-  border-color: color-mix(in srgb, var(--amber) 50%, transparent);
+.s-tail-chip--origin-native {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 .s-tail-cell-context {

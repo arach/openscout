@@ -10,6 +10,7 @@ import type {
   SessionCatalogWithResume,
 } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
+import { MessageMarkup } from "../lib/message-markup.tsx";
 import { resolveScoutRoutePath } from "../lib/runtime-config.ts";
 import { useScout } from "../scout/Provider.tsx";
 
@@ -211,7 +212,9 @@ function MessageLine({ event }: { event: SessionEvent }) {
   return (
     <div>
       <div className="s-observe-message-label">→ message → {toLabel}</div>
-      <div className="s-observe-message-text">{event.text}</div>
+      <div className="s-observe-message-text">
+        <MessageMarkup text={event.text} />
+      </div>
     </div>
   );
 }

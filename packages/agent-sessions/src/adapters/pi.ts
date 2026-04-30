@@ -15,8 +15,9 @@
 //   switch_session / fork — session management
 //
 // Faithful harness: Pi's extensions, skills, and prompt templates are loaded
-// from the project's config unless explicitly disabled. The adapter reproduces
-// the full environment.
+// from the project's config unless explicitly disabled. The adapter deliberately
+// does not inherit the full environment; it forwards only runtime basics and
+// credentials for the selected provider.
 
 import { BaseAdapter } from "../protocol/adapter.js";
 import type { AdapterConfig } from "../protocol/adapter.js";
@@ -29,6 +30,150 @@ import type {
   TurnStatus,
 } from "../protocol/primitives.js";
 import type { Subprocess } from "bun";
+
+const BASE_PROCESS_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "TERM",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+] as const;
+
+type EnvSource = Record<string, string | undefined>;
+
+type CredentialEnvMapping = {
+  outputKey: string;
+  sourceKeys?: readonly string[];
+};
+
+const PROVIDER_CREDENTIAL_ENV: Record<string, readonly CredentialEnvMapping[]> = {
+  anthropic: [
+    { outputKey: "ANTHROPIC_API_KEY" },
+    { outputKey: "ANTHROPIC_OAUTH_TOKEN" },
+  ],
+  azure: [
+    { outputKey: "AZURE_OPENAI_API_KEY" },
+    { outputKey: "AZURE_OPENAI_BASE_URL" },
+    { outputKey: "AZURE_OPENAI_RESOURCE_NAME" },
+    { outputKey: "AZURE_OPENAI_API_VERSION" },
+    { outputKey: "AZURE_OPENAI_DEPLOYMENT_NAME_MAP" },
+  ],
+  bedrock: [
+    { outputKey: "AWS_ACCESS_KEY_ID" },
+    { outputKey: "AWS_SECRET_ACCESS_KEY" },
+    { outputKey: "AWS_SESSION_TOKEN" },
+    { outputKey: "AWS_REGION" },
+    { outputKey: "AWS_DEFAULT_REGION" },
+    { outputKey: "AWS_PROFILE" },
+  ],
+  cerebras: [{ outputKey: "CEREBRAS_API_KEY" }],
+  gemini: [{ outputKey: "GEMINI_API_KEY" }],
+  google: [{ outputKey: "GEMINI_API_KEY" }],
+  groq: [{ outputKey: "GROQ_API_KEY" }],
+  kimi: [{ outputKey: "KIMI_API_KEY" }],
+  minimax: [{
+    outputKey: "MINIMAX_API_KEY",
+    sourceKeys: ["MINIMAX_API_KEY", "MINIMAX_TOKEN"],
+  }],
+  mistral: [{ outputKey: "MISTRAL_API_KEY" }],
+  moonshot: [{ outputKey: "KIMI_API_KEY" }],
+  openai: [{ outputKey: "OPENAI_API_KEY" }],
+  openrouter: [{ outputKey: "OPENROUTER_API_KEY" }],
+  opencode: [{ outputKey: "OPENCODE_API_KEY" }],
+  vercel: [{ outputKey: "AI_GATEWAY_API_KEY" }],
+  xai: [{ outputKey: "XAI_API_KEY" }],
+  zai: [{ outputKey: "ZAI_API_KEY" }],
+};
+
+function readEnvValue(source: EnvSource | undefined, key: string): string | undefined {
+  const value = source?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function copyFirstValue(
+  target: Record<string, string>,
+  outputKey: string,
+  keys: readonly string[],
+  sources: readonly EnvSource[],
+): void {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = readEnvValue(source, key);
+      if (value) {
+        target[outputKey] = value;
+        return;
+      }
+    }
+  }
+}
+
+function normalizeProvider(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "azure-openai") return "azure";
+  if (normalized === "aws" || normalized === "aws-bedrock") return "bedrock";
+  if (normalized === "ai-gateway" || normalized === "ai_gateway") return "vercel";
+  if (normalized === "grok") return "xai";
+  return normalized;
+}
+
+function inferProviderFromModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized.includes("/")) {
+    return normalizeProvider(normalized.split("/", 1)[0]);
+  }
+  if (normalized.startsWith("minimax")) return "minimax";
+  if (normalized.startsWith("claude")) return "anthropic";
+  if (
+    normalized.startsWith("gpt")
+    || normalized.startsWith("o1")
+    || normalized.startsWith("o3")
+    || normalized.startsWith("o4")
+  ) return "openai";
+  if (normalized.startsWith("gemini")) return "google";
+  if (normalized.startsWith("mistral") || normalized.startsWith("codestral")) return "mistral";
+  return undefined;
+}
+
+function selectedProvider(options: AdapterConfig["options"] | undefined): string | undefined {
+  const provider = typeof options?.provider === "string" ? options.provider : undefined;
+  const model = typeof options?.model === "string" ? options.model : undefined;
+  return normalizeProvider(provider) ?? inferProviderFromModel(model);
+}
+
+export function buildPiProcessEnv(
+  config: Pick<AdapterConfig, "env" | "options">,
+  sourceEnv: EnvSource = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  const sources = [config.env ?? {}, sourceEnv];
+
+  for (const key of BASE_PROCESS_ENV_KEYS) {
+    copyFirstValue(env, key, [key], sources);
+  }
+
+  const provider = selectedProvider(config.options);
+  const credentialMappings = provider ? PROVIDER_CREDENTIAL_ENV[provider] : undefined;
+  if (!credentialMappings) {
+    return env;
+  }
+
+  for (const mapping of credentialMappings) {
+    copyFirstValue(env, mapping.outputKey, mapping.sourceKeys ?? [mapping.outputKey], sources);
+  }
+
+  return env;
+}
 
 // ---------------------------------------------------------------------------
 // Adapter
@@ -80,11 +225,14 @@ export class PiAdapter extends BaseAdapter {
     }
 
     // Note: we do NOT pass --no-extensions or --no-skills by default.
-    // Faithful harness: the full project environment loads naturally.
+    // Faithful harness behavior comes from Pi's project config, not shell-wide
+    // credential inheritance.
+
+    const env = buildPiProcessEnv(this.config);
 
     this.process = Bun.spawn(["pi", ...args], {
       cwd: this.config.cwd,
-      env: { ...process.env, ...this.config.env },
+      env,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

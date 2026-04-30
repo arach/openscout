@@ -13,17 +13,8 @@
     "output": "public/og-docs.png",
     "vars": {
       "title": "Documentation",
-      "subtitle": "Guides, references, and architecture for Scout.",
+      "subtitle": "Reference material for OpenScout/Ø.1 — the local-first broker protocol for inter-agent messaging.",
       "tag": "Docs"
-    }
-  },
-  {
-    "template": "./og-template.html",
-    "output": "public/og-get-started.png",
-    "vars": {
-      "title": "Get Started",
-      "subtitle": "Install Scout and connect your agents in seconds.",
-      "tag": "Guide"
     }
   },
   {
@@ -33,6 +24,15 @@
       "title": "Plan Inventory",
       "subtitle": "Review recent agent plans and branch into follow-up work.",
       "tag": "Inventory"
+    }
+  },
+  {
+    "template": "./og-template.html",
+    "output": "public/og-privacy.png",
+    "vars": {
+      "title": "Privacy",
+      "subtitle": "What OpenScout collects, what stays local, and how to opt out.",
+      "tag": "Privacy"
     }
   }
 ]

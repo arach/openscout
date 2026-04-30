@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  getLocalAgentConfig,
   inferLocalAgentBinding,
   listLocalAgents,
   resolveLocalAgentByName,
   resolveLocalAgentIdentity,
   startLocalAgent,
+  updateLocalAgentConfig,
 } from "./local-agents.js";
 import {
   buildRelayAgentInstance,
@@ -160,6 +162,61 @@ describe("local agent lifecycle", () => {
         transport: "codex_app_server",
       },
     });
+  });
+
+  test("updates model as first-class config without duplicating launch args", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const rangerRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(rangerRoot, { recursive: true });
+
+    await writeRelayAgentOverrides({
+      ranger: {
+        agentId: "ranger",
+        definitionId: "ranger",
+        displayName: "Ranger",
+        projectName: "OpenScout",
+        projectRoot: rangerRoot,
+        source: "manual",
+        launchArgs: ["--color", "never", "--model", "gpt-5.3-codex"],
+        runtime: {
+          cwd: rangerRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "ranger-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
+    const agentId = buildRelayAgentInstance("ranger", rangerRoot).id;
+    const initial = await getLocalAgentConfig(agentId);
+    expect(initial?.model).toBe("gpt-5.3-codex");
+
+    const updated = await updateLocalAgentConfig(agentId, {
+      runtime: initial!.runtime,
+      systemPrompt: "Custom Ranger prompt",
+      launchArgs: initial!.launchArgs,
+      model: "gpt-5.4-mini",
+      capabilities: initial!.capabilities,
+    });
+
+    expect(updated?.model).toBe("gpt-5.4-mini");
+    expect(updated?.systemPrompt).toBe("Custom Ranger prompt");
+    expect(updated?.launchArgs.join("\n")).toContain("gpt-5.4-mini");
+    expect(updated?.launchArgs.join("\n")).not.toContain("gpt-5.3-codex");
+
+    const cleared = await updateLocalAgentConfig(agentId, {
+      runtime: updated!.runtime,
+      systemPrompt: updated!.systemPrompt,
+      launchArgs: updated!.launchArgs,
+      model: null,
+      capabilities: updated!.capabilities,
+    });
+
+    expect(cleared?.model).toBeNull();
+    expect(cleared?.launchArgs.join("\n")).not.toContain("gpt-5.4-mini");
   });
 
   test("does not treat a project name as an agent name unless explicitly requested", async () => {

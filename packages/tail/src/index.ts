@@ -19,6 +19,7 @@ export type {
   TailDiscoveryScope,
   TailEvent,
   TailEventKind,
+  TailAttribution,
   TailHarness,
   TranscriptSource,
 } from "./types";

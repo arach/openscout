@@ -19,11 +19,11 @@ The third reason — and this is the one that matters most to Lane A — is that
 
 The existing tail service in `packages/web/server/core/tail/types.ts` already defines this shape — Lane B mirrors it on iOS verbatim, no transformation in the bridge. Two dimensions matter:
 
-- `source` is the **engine** (`"claude"`, `"codex"`, future: `"ghost"`, `"scout"`) — drives the tag column on every consumer surface.
-- `harness` is the **attribution category** (`"scout-managed"` if Scout spawned it, `"hudson-managed"` if a peer Mac did, `"unattributed"` for everything else) — drives the leading dot/badge.
+- `source` is the **runtime harness name** (`"claude"`, `"codex"`, future: `"quad"`, `"scout"`) — drives the primary tag on every consumer surface.
+- `harness` is the legacy field name for **launch attribution** (`"scout-managed"` if Scout spawned it, `"hudson-managed"` if a peer Mac did, `"unattributed"` for everything else). UI should label this as origin/attribution, not harness.
 
 ```ts
-type TailHarness = "scout-managed" | "hudson-managed" | "unattributed";
+type TailAttribution = "scout-managed" | "hudson-managed" | "unattributed";
 
 type TailEventKind =
   | "user"
@@ -36,13 +36,13 @@ type TailEventKind =
 type TailEvent = {
   id: string;                    // already unique per event — use as cursor
   ts: number;                    // ms epoch
-  source: string;                // engine: "claude" | "codex" | ...
+  source: string;                // runtime harness: "claude" | "codex" | ...
   sessionId: string;
   pid: number;
   parentPid: number | null;
   project: string;
   cwd: string;
-  harness: TailHarness;
+  harness: TailAttribution;      // legacy field name: launch attribution
   kind: TailEventKind;
   summary: string;               // already truncated upstream
   raw?: unknown;                 // full payload, also bounded
@@ -80,8 +80,8 @@ C→S: { type: 'subscribe', since?: cursor /* TailEvent.id */, sources?: string[
 
 - iOS `subscribeToTailEvents()` helper next to existing fanout
 - `TailFeedView` three-source merge by `ts`: Activity + SessionStore turns + TailEvents
-- Engine tag column (`[claude]` / `[codex]` / future `[ghost]` etc.) driven by `event.source`
-- Attribution dot/badge (scout-managed / hudson-managed / unattributed) driven by `event.harness`
+- Runtime harness tag column (`[claude]` / `[codex]` / future `[quad]` etc.) driven by `event.source`
+- Origin/attribution dot or badge (Scout-managed / Hudson-managed / native) driven by `event.harness`
 - Leading `↳` glyph when `parentPid` is in live process map
 - macOS menu cockpit row treatment if it matters there too — TBD after iOS lands
 

@@ -30,7 +30,7 @@ enum TailFeedRow: Identifiable, Sendable {
         }
     }
 
-    /// Engine identifier for the tag column ("claude", "codex", "scout").
+    /// Runtime harness identifier for the tag column ("claude", "codex", "scout").
     /// nil hides the column for that row.
     var engine: String? {
         switch self {
@@ -40,7 +40,7 @@ enum TailFeedRow: Identifiable, Sendable {
         }
     }
 
-    /// Attribution category — drives the leading dot color.
+    /// Launch attribution category — drives the leading dot color.
     var attribution: TailEvent.Harness {
         switch self {
         case .activity: .scoutManaged
